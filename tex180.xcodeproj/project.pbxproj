@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1B80779B2EFD2A3B003BF183 /* Resources/web in Resources */ = {isa = PBXBuildFile; fileRef = 1B80779A2EFD2A3B003BF183 /* Resources/web */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		1B80778A2EFCD97C003BF183 /* tex180.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = tex180.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1B80779A2EFD2A3B003BF183 /* Resources/web */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/web; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +39,7 @@
 			children = (
 				1B80778C2EFCD97C003BF183 /* tex180 */,
 				1B80778B2EFCD97C003BF183 /* Products */,
+				1B8077A12EFCDECA003BF183 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -43,6 +49,14 @@
 				1B80778A2EFCD97C003BF183 /* tex180.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		1B8077A12EFCDECA003BF183 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				1B80779A2EFD2A3B003BF183 /* Resources/web */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -109,6 +123,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1B80779B2EFD2A3B003BF183 /* Resources/web in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,7 +271,17 @@
 				DEVELOPMENT_TEAM = 9D7SWGDNX2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -288,7 +313,17 @@
 				DEVELOPMENT_TEAM = 9D7SWGDNX2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

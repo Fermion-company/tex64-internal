@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>tex180</title>
+    <link rel="stylesheet" href="theme.css">
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <span class="brand-name">tex180</span>
+        </div>
+        <div class="breadcrumbs">main.tex / セクション / イントロ</div>
+        <div class="top-actions">
+          <button class="pill">ビルド</button>
+          <button class="pill ghost">自動ビルド</button>
+        </div>
+      </header>
+
+      <div class="main">
+        <aside class="sidebar">
+          <div class="tab-group">
+            <button class="tab is-active">ファイル</button>
+            <button class="tab">アウトライン</button>
+            <button class="tab">ブロック</button>
+            <button class="tab">Git</button>
+          </div>
+          <div class="tab-group secondary">
+            <button class="tab">検索</button>
+            <button class="tab">設定</button>
+          </div>
+        </aside>
+
+        <section class="editor">
+          <div class="editor-header">
+            <div class="mini-outline">ミニアウトライン（準備中）</div>
+            <div class="editor-status">準備中</div>
+          </div>
+          <div class="editor-surface">
+            <div id="editor" class="editor-host" aria-label="editor"></div>
+            <div class="editor-placeholder" id="editor-fallback">
+              <h1>編集エリア</h1>
+              <p>Monacoの読み込み準備中です。</p>
+              <div class="hint">読み込みに失敗した場合は再起動してください。</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="issues">
+        <div class="issues-bar">
+          <span class="issues-title">問題</span>
+          <span class="issues-count">0</span>
+          <span class="issues-hint">ビルド結果はここに要約します。</span>
+        </div>
+      </footer>
+    </div>
+
+    <script src="monaco/vs/loader.js"></script>
+    <script src="main.js"></script>
+  </body>
+</html>
