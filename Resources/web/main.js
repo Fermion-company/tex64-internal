@@ -100,13 +100,19 @@ window.addEventListener("DOMContentLoaded", () => {
     const blockToggleButtons = Array.from(document.querySelectorAll(".block-toggle-button"));
     const blockForms = Array.from(document.querySelectorAll(".block-form"));
     const blockTarget = document.getElementById("block-target");
-    let blockMathInput = document.getElementById("block-math-input");
+    let blockMathInput = null;
+    const blockMathInputContainer = document.getElementById("block-math-input-container");
+    const blockMathPreviewWrap = document.getElementById("block-math-preview-wrap");
+    const blockMathPreview = document.getElementById("block-math-preview");
     const blockTableRows = document.getElementById("block-table-rows");
     const blockTableCols = document.getElementById("block-table-cols");
     const blockPreviewButton = document.getElementById("block-preview-button");
     const blockAcceptButton = document.getElementById("block-accept-button");
     const blockCancelButton = document.getElementById("block-cancel-button");
     const blockList = document.getElementById("block-list");
+    const mathKeyboardDock = document.getElementById("math-keyboard-dock");
+    const mathKeyboardGrid = document.getElementById("math-keyboard-grid");
+    const mathKeyboardTabs = Array.from(document.querySelectorAll(".math-keyboard-tab"));
     const searchInput = document.getElementById("search-input");
     const searchButton = document.getElementById("search-button");
     const searchResults = document.getElementById("search-results");
@@ -222,6 +228,8 @@ window.addEventListener("DOMContentLoaded", () => {
     let blocks = [];
     let activeBlockType = "math";
     let blockPreviewActive = false;
+    let activeTab = "files";
+    let activeMathKeyboardTab = "basic";
     let activeBlockEditId = null;
     let activeBlockOriginalSnippet = null;
     let activeBlockRange = null;
@@ -481,6 +489,217 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         }
     };
+    const mathKeyboardSets = {
+        basic: [
+            { label: "7", latex: "7" },
+            { label: "8", latex: "8" },
+            { label: "9", latex: "9" },
+            { label: "+", latex: "+" },
+            { label: "-", latex: "-" },
+            { label: "=", latex: "=" },
+            { label: "(", latex: "(" },
+            { label: ")", latex: ")" },
+            { label: "4", latex: "4" },
+            { label: "5", latex: "5" },
+            { label: "6", latex: "6" },
+            { label: "×", latex: "\\times " },
+            { label: "÷", latex: "\\div " },
+            { label: "·", latex: "\\cdot " },
+            { label: "[", latex: "[" },
+            { label: "]", latex: "]" },
+            { label: "1", latex: "1" },
+            { label: "2", latex: "2" },
+            { label: "3", latex: "3" },
+            { label: "±", latex: "\\pm " },
+            { label: "{", latex: "\\{" },
+            { label: "}", latex: "\\}" },
+            { label: "|", latex: "|" },
+            { label: ".", latex: "." },
+            { label: ",", latex: "," },
+            { label: "0", latex: "0" },
+        ],
+        relations: [
+            { label: "=", latex: "=" },
+            { label: "≠", latex: "\\neq " },
+            { label: "<", latex: "<" },
+            { label: ">", latex: ">" },
+            { label: "≤", latex: "\\leq " },
+            { label: "≥", latex: "\\geq " },
+            { label: "≈", latex: "\\approx " },
+            { label: "≡", latex: "\\equiv " },
+            { label: "∝", latex: "\\propto " },
+            { label: "∼", latex: "\\sim " },
+            { label: "→", latex: "\\to " },
+            { label: "⇒", latex: "\\Rightarrow " },
+            { label: "⇔", latex: "\\Leftrightarrow " },
+            { label: "∈", latex: "\\in " },
+            { label: "∉", latex: "\\notin " },
+            { label: "⊂", latex: "\\subset " },
+            { label: "⊆", latex: "\\subseteq " },
+            { label: "⊇", latex: "\\supseteq " },
+            { label: "∀", latex: "\\forall " },
+            { label: "∃", latex: "\\exists " },
+        ],
+        operators: [
+            { label: "∑", latex: "\\sum " },
+            { label: "∏", latex: "\\prod " },
+            { label: "∫", latex: "\\int " },
+            { label: "∮", latex: "\\oint " },
+            { label: "∂", latex: "\\partial " },
+            { label: "∞", latex: "\\infty " },
+            { label: "∇", latex: "\\nabla " },
+            { label: "lim", latex: "\\lim " },
+            { label: "log", latex: "\\log " },
+            { label: "ln", latex: "\\ln " },
+            { label: "sin", latex: "\\sin " },
+            { label: "cos", latex: "\\cos " },
+            { label: "tan", latex: "\\tan " },
+            { label: "exp", latex: "\\exp " },
+            { label: "max", latex: "\\max " },
+            { label: "min", latex: "\\min " },
+        ],
+        greek: [
+            { label: "α", latex: "\\alpha " },
+            { label: "β", latex: "\\beta " },
+            { label: "γ", latex: "\\gamma " },
+            { label: "δ", latex: "\\delta " },
+            { label: "ε", latex: "\\epsilon " },
+            { label: "θ", latex: "\\theta " },
+            { label: "λ", latex: "\\lambda " },
+            { label: "μ", latex: "\\mu " },
+            { label: "π", latex: "\\pi " },
+            { label: "ρ", latex: "\\rho " },
+            { label: "σ", latex: "\\sigma " },
+            { label: "τ", latex: "\\tau " },
+            { label: "φ", latex: "\\phi " },
+            { label: "ω", latex: "\\omega " },
+            { label: "κ", latex: "\\kappa " },
+            { label: "ν", latex: "\\nu " },
+            { label: "Γ", latex: "\\Gamma " },
+            { label: "Δ", latex: "\\Delta " },
+            { label: "Θ", latex: "\\Theta " },
+            { label: "Λ", latex: "\\Lambda " },
+            { label: "Π", latex: "\\Pi " },
+            { label: "Σ", latex: "\\Sigma " },
+            { label: "Φ", latex: "\\Phi " },
+            { label: "Ω", latex: "\\Omega " },
+        ],
+        structures: [
+            { label: "a/b", latex: "\\frac{#?}{#?}", fallback: "\\frac{}{}" },
+            { label: "√", latex: "\\sqrt{#?}", fallback: "\\sqrt{}" },
+            { label: "x^", latex: "^{#?}", fallback: "^{}" },
+            { label: "x_", latex: "_{#?}", fallback: "_{}" },
+            { label: "binom", latex: "\\binom{#?}{#?}", fallback: "\\binom{}{}" },
+            { label: "vec", latex: "\\vec{#?}", fallback: "\\vec{}" },
+            { label: "hat", latex: "\\hat{#?}", fallback: "\\hat{}" },
+            { label: "bar", latex: "\\overline{#?}", fallback: "\\overline{}" },
+            { label: "dot", latex: "\\dot{#?}", fallback: "\\dot{}" },
+            { label: "ddot", latex: "\\ddot{#?}", fallback: "\\ddot{}" },
+            { label: "text", latex: "\\text{#?}", fallback: "\\text{}" },
+            {
+                label: "cases",
+                latex: "\\begin{cases}#?\\\\#?\\end{cases}",
+                fallback: "\\begin{cases}\n  \\\\\n\\end{cases}",
+            },
+            {
+                label: "matrix",
+                latex: "\\begin{matrix}#?\\\\#?\\end{matrix}",
+                fallback: "\\begin{matrix}\n  & \\\\\n  & \n\\end{matrix}",
+            },
+        ],
+    };
+    const updateMathKeyboardVisibility = () => {
+        if (!(mathKeyboardDock instanceof HTMLElement)) {
+            return;
+        }
+        const shouldShow = activeTab === "blocks" && activeBlockType === "math";
+        mathKeyboardDock.classList.toggle("is-open", shouldShow);
+        mathKeyboardDock.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+        if (shouldShow && mathKeyboardGrid instanceof HTMLElement) {
+            if (mathKeyboardGrid.childElementCount === 0) {
+                renderMathKeyboard(activeMathKeyboardTab);
+            }
+        }
+    };
+    const insertMathKey = (key) => {
+        var _a, _b, _c, _d;
+        if (!blockMathInput) {
+            return;
+        }
+        const mathField = blockMathInput;
+        // フォーカスを先に戻す
+        (_a = mathField.focus) === null || _a === void 0 ? void 0 : _a.call(mathField);
+        // executeCommandを優先（より信頼性が高い）
+        if (typeof mathField.executeCommand === "function") {
+            try {
+                mathField.executeCommand("insert", key.latex);
+                refreshBlockPreview();
+                updateMathPreview();
+                return;
+            }
+            catch (e) {
+                console.warn("executeCommand failed:", e);
+            }
+        }
+        // insertメソッドをフォールバック
+        if (typeof mathField.insert === "function") {
+            mathField.insert(key.latex, { focus: true, feedback: false });
+            refreshBlockPreview();
+            updateMathPreview();
+            return;
+        }
+        // 最終フォールバック：value直接操作
+        const insertValue = (_b = key.fallback) !== null && _b !== void 0 ? _b : key.latex;
+        if (blockMathInput instanceof HTMLTextAreaElement) {
+            const start = (_c = blockMathInput.selectionStart) !== null && _c !== void 0 ? _c : blockMathInput.value.length;
+            const end = (_d = blockMathInput.selectionEnd) !== null && _d !== void 0 ? _d : blockMathInput.value.length;
+            blockMathInput.value =
+                blockMathInput.value.slice(0, start) + insertValue + blockMathInput.value.slice(end);
+            const nextPos = start + insertValue.length;
+            blockMathInput.setSelectionRange(nextPos, nextPos);
+            blockMathInput.focus();
+        }
+        else if (typeof mathField.value === "string") {
+            mathField.value += insertValue;
+        }
+        blockMathInput.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    const renderMathKeyboard = (tab) => {
+        var _a;
+        if (!(mathKeyboardGrid instanceof HTMLElement)) {
+            return;
+        }
+        const keys = (_a = mathKeyboardSets[tab]) !== null && _a !== void 0 ? _a : [];
+        mathKeyboardGrid.innerHTML = "";
+        keys.forEach((key) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "math-keyboard-key";
+            button.textContent = key.label;
+            button.title = key.latex;
+            button.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+            });
+            button.addEventListener("click", () => {
+                var _a, _b;
+                insertMathKey(key);
+                // クリック後にMathFieldにフォーカスを戻す
+                if (blockMathInput instanceof HTMLElement) {
+                    (_b = (_a = blockMathInput).focus) === null || _b === void 0 ? void 0 : _b.call(_a);
+                }
+            });
+            mathKeyboardGrid.appendChild(button);
+        });
+    };
+    const setMathKeyboardTab = (tab) => {
+        activeMathKeyboardTab = tab;
+        mathKeyboardTabs.forEach((button) => {
+            const isActive = button.dataset.mathTab === tab;
+            button.classList.toggle("is-active", isActive);
+            button.setAttribute("aria-selected", isActive ? "true" : "false");
+        });
+        renderMathKeyboard(tab);
+    };
     const setActiveBlockType = (type) => {
         activeBlockType = type;
         blockToggleButtons.forEach((button) => {
@@ -494,8 +713,24 @@ window.addEventListener("DOMContentLoaded", () => {
         if (blockPreviewActive) {
             refreshBlockPreview();
         }
+        updateMathKeyboardVisibility();
+        if (type === "math") {
+            updateMathPreview();
+        }
+    };
+    let currentMathValue = "";
+    const updateMathPreview = (value) => {
+        // プレビュー機能は無効化済み
     };
     const getMathInputValue = () => {
+        // MathLiveの場合、キャッシュされた値を使用（DOMアクセスより確実）
+        if (blockMathInput && blockMathInput.tagName.toLowerCase() === "math-field") {
+            // 念のためDOM値も確認するが、基本はキャッシュ優先
+            const mf = blockMathInput;
+            if (mf.value)
+                currentMathValue = mf.value;
+            return currentMathValue;
+        }
         if (!blockMathInput) {
             return "";
         }
@@ -506,6 +741,7 @@ window.addEventListener("DOMContentLoaded", () => {
         return typeof value === "string" ? value : "";
     };
     const setMathInputValue = (value) => {
+        currentMathValue = value;
         if (!blockMathInput) {
             return;
         }
@@ -520,34 +756,216 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!blockMathInput) {
             return;
         }
-        blockMathInput.addEventListener("input", () => {
+        blockMathInput.addEventListener("input", (e) => {
+            // 値を同期
+            const target = e.target;
+            if (target.value !== undefined) {
+                currentMathValue = target.value;
+            }
             refreshBlockPreview();
         });
     };
-    const setupMathField = () => {
-        if (!blockMathInput || !(blockMathInput instanceof HTMLTextAreaElement)) {
+    // =============================================================================
+    // MathLive イベントハンドリング
+    // =============================================================================
+    const attachMathFieldEvents = (mathfield) => {
+        // 入力変更時
+        mathfield.addEventListener("input", (e) => {
+            // MathLiveの値を同期
+            const val = e.target.value;
+            if (typeof val === "string") {
+                currentMathValue = val;
+            }
+            refreshBlockPreview();
+        });
+        // キーボードイベント
+        mathfield.addEventListener("keydown", (e) => {
+            // Escでフォーカス解除
+            if (e.key === "Escape") {
+                mathfield.blur();
+                return;
+            }
+            // Cmd+Enter (Mac) / Ctrl+Enter (Win) で確定
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                if (blockAcceptButton instanceof HTMLButtonElement) {
+                    blockAcceptButton.click();
+                }
+                return;
+            }
+            // Tab移動は許可
+            if (e.key === "Tab")
+                return;
+            // その他のキーは伝播を止める（Monaco干渉防止）
+            e.stopPropagation();
+        });
+        // フォーカス時
+        mathfield.addEventListener("focus", () => {
+            updateMathKeyboardVisibility();
+            mathfield.classList.add("is-focused");
+        });
+        // フォーカス喪失
+        mathfield.addEventListener("blur", () => {
+            mathfield.classList.remove("is-focused");
+        });
+        // IME対応
+        mathfield.addEventListener("compositionstart", (e) => e.stopPropagation());
+        mathfield.addEventListener("compositionend", (e) => e.stopPropagation());
+    };
+    // =============================================================================
+    // サイドバーリサイズ
+    // =============================================================================
+    const setupResizer = () => {
+        const resizer = document.getElementById("resizer");
+        if (!resizer)
+            return;
+        let isResizing = false;
+        const startResize = (e) => {
+            isResizing = true;
+            resizer.classList.add("is-resizing");
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            if (document.getElementById("editor")) {
+                document.getElementById("editor").style.pointerEvents = "none"; // iframe対策的な
+            }
+        };
+        const doResize = (e) => {
+            if (!isResizing)
+                return;
+            const sidebarWidth = 52; // var(--sidebar-width)
+            // マウス位置から新しいパネル幅を計算
+            const newWidth = Math.max(200, Math.min(800, e.clientX - sidebarWidth));
+            document.documentElement.style.setProperty("--sidebar-panel-width", `${newWidth}px`);
+            // Monacoのリサイズ
+            const editor = monacoEditor;
+            if (editor && typeof editor.layout === "function") {
+                editor.layout();
+            }
+        };
+        const stopResize = () => {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove("is-resizing");
+                document.body.style.cursor = "";
+                document.body.style.userSelect = "";
+                if (document.getElementById("editor")) {
+                    document.getElementById("editor").style.pointerEvents = "";
+                }
+                const editor = monacoEditor;
+                if (editor && typeof editor.layout === "function") {
+                    editor.layout();
+                }
+            }
+        };
+        resizer.addEventListener("mousedown", startResize);
+        document.addEventListener("mousemove", doResize);
+        document.addEventListener("mouseup", stopResize);
+    };
+    // =============================================================================
+    // MathField 初期化
+    // =============================================================================
+    const setupMathField = async () => {
+        if (!blockMathInputContainer) {
+            console.error("MathLive container not found");
             return;
         }
-        const MathfieldElement = window
-            .MathfieldElement;
-        if (!MathfieldElement) {
+        // 既に初期化済みなら何もしない
+        if (blockMathInputContainer.querySelector("math-field")) {
             return;
         }
-        const mathfield = new MathfieldElement();
+        // MathLiveのロード確認と手動登録
+        const MathLiveGlobal = window.MathLive;
+        const hasMathLive = !!MathLiveGlobal;
+        const hasMathfieldElement = hasMathLive && !!MathLiveGlobal.MathfieldElement;
+        const loadError = window.MATHLIVE_LOAD_ERROR;
+        if (!customElements.get("math-field")) {
+            if (hasMathfieldElement) {
+                try {
+                    customElements.define("math-field", MathLiveGlobal.MathfieldElement);
+                }
+                catch (e) {
+                    // 既に定義済みの場合など
+                }
+            }
+        }
+        // それでも未定義なら待機
+        if (!customElements.get("math-field")) {
+            // デバッグ情報を表示
+            const debugInfo = `MathLive: ${hasMathLive ? "OK" : "NG"}, MathfieldElement: ${hasMathfieldElement ? "OK" : "NG"}, LoadError: ${loadError || "none"}`;
+            blockMathInputContainer.textContent = `Loading... (${debugInfo})`;
+            try {
+                await Promise.race([
+                    customElements.whenDefined("math-field"),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000))
+                ]);
+                blockMathInputContainer.textContent = "";
+            }
+            catch (e) {
+                // 失敗時にデバッグ情報を表示
+                blockMathInputContainer.innerHTML = `
+          <div style="font-size:12px;">MathLiveの読み込みに失敗しました。</div>
+          <div style="font-size:10px;color:#888;margin-top:4px;">${debugInfo}</div>
+        `;
+                blockMathInputContainer.style.color = "#ff6b6b";
+                return;
+            }
+        }
+        // MathField要素作成
+        const mathfield = document.createElement("math-field");
         mathfield.id = "block-math-input";
-        mathfield.className = blockMathInput.className;
-        mathfield.value = blockMathInput.value;
-        const placeholder = blockMathInput.getAttribute("placeholder");
-        if (placeholder) {
-            mathfield.setAttribute("placeholder", placeholder);
-        }
+        mathfield.className = "block-math-field";
+        // コンテナに追加
+        blockMathInputContainer.innerHTML = "";
+        blockMathInputContainer.appendChild(mathfield);
+        blockMathInput = mathfield;
+        // オプション設定
         if (typeof mathfield.setOptions === "function") {
             mathfield.setOptions({
-                virtualKeyboardMode: "onfocus",
+                smartMode: false,
+                virtualKeyboardMode: "manual",
+                fontsDirectory: "mathlive/fonts",
+                soundsDirectory: null,
+                keypressSound: null,
+                plonkSound: null,
+                locale: "ja",
             });
         }
-        blockMathInput.replaceWith(mathfield);
-        blockMathInput = mathfield;
+        // Shadow DOMスタイル注入
+        const injectStyles = () => {
+            if (!mathfield.shadowRoot)
+                return;
+            // 既にスタイルがあるかチェック
+            if (mathfield.shadowRoot.querySelector('style[data-tex180-style]'))
+                return;
+            const style = document.createElement("style");
+            style.setAttribute("data-tex180-style", "true");
+            style.textContent = `
+        :host {
+          color: var(--text, #e5e9f0) !important;
+          background-color: transparent !important;
+        }
+        .ML__field {
+          color: var(--text, #e5e9f0) !important;
+        }
+        .ML__placeholder {
+          color: var(--muted, #9aa3ad) !important;
+          opacity: 0.6;
+        }
+        .ML__selection {
+          background: rgba(74, 168, 255, 0.2) !important;
+          color: inherit !important;
+        }
+        .ML__caret {
+          background-color: var(--accent, #4aa8ff) !important;
+        }
+      `;
+            mathfield.shadowRoot.appendChild(style);
+        };
+        // 少し待ってからスタイル注入（ShadowRoot生成待ち）
+        setTimeout(() => {
+            injectStyles();
+        }, 0);
+        attachMathFieldEvents(mathfield);
     };
     const buildLineDiff = (beforeLines, afterLines) => {
         const rows = beforeLines.length;
@@ -2518,6 +2936,7 @@ window.addEventListener("DOMContentLoaded", () => {
             tab.classList.toggle("is-active", isActive);
             tab.setAttribute("aria-selected", isActive ? "true" : "false");
         });
+        activeTab = tabKey;
         document.body.dataset.activeTab = tabKey;
         sidebarPanels.forEach((panel) => {
             const isActive = panel.dataset.panel === tabKey;
@@ -2533,6 +2952,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (tabKey === "git") {
             requestGitStatus();
         }
+        updateMathKeyboardVisibility();
     };
     const initialTab = normalizeTabKey((_a = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _a === void 0 ? void 0 : _a.dataset.tab);
     setActiveTab(initialTab);
@@ -2541,9 +2961,35 @@ window.addEventListener("DOMContentLoaded", () => {
     renderFileTree();
     renderOutline();
     setActiveBlockType(activeBlockType);
-    setupMathField();
-    attachMathInputListener();
-    renderBlocksList();
+    setMathKeyboardTab(activeMathKeyboardTab);
+    try {
+        setupMathField();
+    }
+    catch (e) {
+        console.error("setupMathField error:", e);
+        updateIssues(1, "数式エディタの初期化に失敗しました: " + e.message, "error", []);
+    }
+    try {
+        setupResizer();
+    }
+    catch (e) {
+        console.error("setupResizer error:", e);
+        // リサイズ機能のエラーは致命的ではないので通知しないか、infoレベルで
+    }
+    try {
+        attachMathInputListener();
+    }
+    catch (e) {
+        console.error("attachMathInputListener error:", e);
+        // updateIssues(1, "数式入力リスナーのエラー: " + e.message, "error", []);
+    }
+    try {
+        updateMathPreview();
+    }
+    catch (e) {
+        console.error("updateMathPreview error:", e);
+    }
+    // renderBlocksList();
     renderSearchResults();
     renderGitStatus();
     renderRootSelector();
@@ -3003,11 +3449,13 @@ window.addEventListener("DOMContentLoaded", () => {
             applyBlockInsert();
         });
     }
+    /*
     if (blockCancelButton instanceof HTMLButtonElement) {
-        blockCancelButton.addEventListener("click", () => {
-            resetBlockSession();
-        });
+      blockCancelButton.addEventListener("click", () => {
+        resetBlockSession();
+      });
     }
+    */
     if (blockTableRows instanceof HTMLInputElement) {
         blockTableRows.addEventListener("input", () => {
             refreshBlockPreview();
@@ -3018,6 +3466,19 @@ window.addEventListener("DOMContentLoaded", () => {
             refreshBlockPreview();
         });
     }
+    mathKeyboardTabs.forEach((button) => {
+        button.addEventListener("click", () => {
+            const tab = button.dataset.mathTab;
+            if (tab === "relations" ||
+                tab === "operators" ||
+                tab === "greek" ||
+                tab === "structures") {
+                setMathKeyboardTab(tab);
+                return;
+            }
+            setMathKeyboardTab("basic");
+        });
+    });
     if (autoBuildButton instanceof HTMLButtonElement) {
         autoBuildButton.addEventListener("click", () => {
             toggleAutoBuild();

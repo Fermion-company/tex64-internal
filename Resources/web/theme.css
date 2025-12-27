@@ -13,7 +13,7 @@
   --shadow: none;
   --radius: 6px;
   --sidebar-width: 52px;
-  --sidebar-panel-width: 220px;
+  --sidebar-panel-width: 400px;
   --issues-height: 26px;
   --topbar-height: 38px;
 }
@@ -314,8 +314,19 @@ body.has-launcher .app {
 
 .main {
   display: grid;
-  grid-template-columns: var(--sidebar-width) var(--sidebar-panel-width) 1fr;
+  grid-template-columns: var(--sidebar-width) var(--sidebar-panel-width) 4px 1fr;
   min-height: 0;
+}
+
+.resizer {
+  cursor: col-resize;
+  background: var(--panel-border);
+  transition: background 0.2s;
+}
+
+.resizer:hover,
+.resizer.is-resizing {
+  background: var(--accent);
 }
 
 .sidebar {
@@ -456,9 +467,58 @@ body.has-launcher .app {
   display: grid;
 }
 
+.block-form[data-form="math"] {
+  gap: 10px;
+}
+
 .block-label {
   font-size: 10px;
   color: var(--muted);
+}
+
+.block-math-preview {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #2b3440;
+  border-radius: 10px;
+  padding: 8px 10px 10px;
+  background: #141a22;
+}
+
+.block-math-preview-label {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.block-math-preview-body {
+  position: relative;
+  min-height: 54px;
+  display: grid;
+  align-items: center;
+}
+
+.block-math-preview-render {
+  font-size: 18px;
+  line-height: 1.4;
+  display: block;
+  color: var(--text);
+}
+
+.block-math-preview-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 0 8px;
+}
+
+.block-math-preview:not(.is-empty) .block-math-preview-placeholder {
+  display: none;
 }
 
 .block-input {
@@ -470,6 +530,15 @@ body.has-launcher .app {
   padding: 6px 8px;
   font-size: 12px;
   font-family: "SF Mono", Menlo, monospace;
+}
+
+.block-math-input {
+  background: #0f141b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 16px;
+  font-family: "Hiragino Sans", "Avenir Next", "Yu Gothic", sans-serif;
+  line-height: 1.4;
 }
 
 .block-input:focus {
@@ -485,6 +554,67 @@ math-field.block-input {
 math-field.block-input:focus-within {
   outline: 2px solid rgba(74, 168, 255, 0.4);
   outline-offset: 1px;
+}
+
+math-field.block-math-input {
+  min-height: 72px;
+  --caret-color: var(--accent);
+  --selection-color: rgba(74, 168, 255, 0.4);
+  --selection-background-color: transparent;
+}
+
+/* =============================================================================
+   MathLive Block Math Field (Enhanced)
+   ============================================================================= */
+
+math-field.block-math-field {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  padding: 18px;
+  font-size: 20px;
+  line-height: 1.5;
+  background: #0f141b;
+  color: var(--text);
+  border: 1px solid #2b3440;
+  border-radius: 10px;
+  --caret-color: var(--accent);
+  --selection-color: rgba(74, 168, 255, 0.4);
+  --selection-background-color: transparent;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.block-math-input-container {
+  min-height: 120px;
+  border: 1px solid var(--panel-border);
+  background: #0f141b;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  position: relative;
+}
+
+math-field.block-math-field:focus,
+math-field.block-math-field:focus-within,
+math-field.block-math-field.is-focused {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(74, 168, 255, 0.2);
+}
+
+math-field.block-math-field::placeholder {
+  color: var(--muted);
+}
+
+.block-math-hint {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ML__keyboard {
+  display: none !important;
 }
 
 .block-table-grid {
@@ -1007,7 +1137,7 @@ math-field.block-input:focus-within {
 
 .editor {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 0;
   background: #1c2129;
   position: relative;
@@ -1098,6 +1228,88 @@ math-field.block-input:focus-within {
   background: #1c2129;
   min-height: 0;
   overflow: hidden;
+}
+
+.math-keyboard-dock {
+  display: none;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 8px 10px 12px;
+  border-top: 1px solid var(--panel-border);
+  background: #1a2028;
+}
+
+.math-keyboard-dock.is-open {
+  display: grid;
+}
+
+.math-keyboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.math-keyboard-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.math-keyboard-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.math-keyboard-tab {
+  border: 1px solid rgba(74, 168, 255, 0.16);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.math-keyboard-tab.is-active {
+  color: var(--text);
+  border-color: rgba(74, 168, 255, 0.5);
+  background: rgba(74, 168, 255, 0.12);
+}
+
+.math-keyboard-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  align-content: start;
+  min-height: 96px;
+  max-height: 200px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.math-keyboard-key {
+  border: 1px solid #2b3440;
+  border-radius: 6px;
+  background: #141a22;
+  color: var(--text);
+  font-size: 12px;
+  padding: 8px 6px;
+  text-align: center;
+  cursor: pointer;
+  font-family: "SF Mono", Menlo, monospace;
+}
+
+.math-keyboard-key:hover {
+  border-color: rgba(74, 168, 255, 0.4);
+}
+
+.math-keyboard-key:active {
+  transform: translateY(1px);
 }
 
 .editor-host {

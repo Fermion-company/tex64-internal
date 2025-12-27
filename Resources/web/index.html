@@ -3,11 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <title>tex180</title>
-    <link rel="stylesheet" href="theme.css">
-    <link rel="stylesheet" href="mathlive/mathlive-static.css">
+    <link rel="stylesheet" href="./theme.css">
+    <link rel="stylesheet" href="./mathlive/mathlive-static.css">
   </head>
   <body>
+
     <div class="launcher" id="launcher" aria-hidden="true">
       <div class="launcher-grid" aria-hidden="true"></div>
       <div class="launcher-card" role="dialog" aria-modal="true">
@@ -234,50 +236,24 @@
                   <div class="block-target" id="block-target">挿入先: 行 -</div>
                 </div>
                 <div class="block-form is-active" data-form="math">
-                  <label class="block-label" for="block-math-input">数式</label>
-                  <textarea
-                    class="block-input"
-                    id="block-math-input"
-                    rows="4"
-                    placeholder="例: E = mc^2"
-                  ></textarea>
-                </div>
+                  <label class="block-label" for="block-math-input-container">数式入力 (MathLive)</label>
+                  <div id="block-math-input-container" class="block-math-input-container"></div>
                 <div class="block-form" data-form="table">
                   <div class="block-table-grid">
                     <div class="block-field">
                       <label class="block-label" for="block-table-rows">行</label>
-                      <input
-                        class="block-input"
-                        id="block-table-rows"
-                        type="number"
-                        min="1"
-                        max="20"
-                        value="2"
-                      >
+                      <input class="block-input" id="block-table-rows" type="number" min="1" max="20" value="2">
                     </div>
                     <div class="block-field">
                       <label class="block-label" for="block-table-cols">列</label>
-                      <input
-                        class="block-input"
-                        id="block-table-cols"
-                        type="number"
-                        min="1"
-                        max="12"
-                        value="2"
-                      >
+                      <input class="block-input" id="block-table-cols" type="number" min="1" max="12" value="2">
                     </div>
                   </div>
                 </div>
                 <div class="block-actions">
                   <button class="panel-button ghost" id="block-preview-button" type="button">プレビュー</button>
-                  <button class="panel-button ghost" id="block-cancel-button" type="button">キャンセル</button>
                   <button class="panel-button" id="block-accept-button" type="button">確定</button>
                 </div>
-              </div>
-              <div class="block-divider"></div>
-              <div class="block-list">
-                <div class="block-list-title">保存済みブロック</div>
-                <div class="block-list-body" id="block-list"></div>
               </div>
             </div>
           </div>
@@ -349,7 +325,7 @@
             </div>
           </div>
         </aside>
-
+        <div id="resizer" class="resizer"></div>
         <section class="editor">
           <div class="editor-tabs" id="editor-tabs"></div>
           <div class="editor-surface">
@@ -359,6 +335,29 @@
               <p id="editor-desc">Monacoの読み込み準備中です。</p>
               <div class="hint" id="editor-hint">読み込みに失敗した場合は再起動してください。</div>
             </div>
+          </div>
+          <div class="math-keyboard-dock" id="math-keyboard-dock" aria-hidden="true">
+            <div class="math-keyboard-header">
+              <span class="math-keyboard-title">数式キーボード</span>
+              <div class="math-keyboard-tabs" role="tablist" aria-label="数式キーボード">
+                <button class="math-keyboard-tab is-active" type="button" data-math-tab="basic">
+                  基本
+                </button>
+                <button class="math-keyboard-tab" type="button" data-math-tab="relations">
+                  関係
+                </button>
+                <button class="math-keyboard-tab" type="button" data-math-tab="operators">
+                  演算
+                </button>
+                <button class="math-keyboard-tab" type="button" data-math-tab="greek">
+                  ギリシャ
+                </button>
+                <button class="math-keyboard-tab" type="button" data-math-tab="structures">
+                  構造
+                </button>
+              </div>
+            </div>
+            <div class="math-keyboard-grid" id="math-keyboard-grid"></div>
           </div>
           <div class="quick-insert" id="quick-insert" aria-hidden="true">
             <div class="quick-header">
@@ -476,8 +475,9 @@
       </div>
     </div>
 
-    <script src="monaco/vs/loader.js"></script>
-    <script src="mathlive/mathlive.min.js"></script>
-    <script src="main.js"></script>
+    <script>window.MATHLIVE_LOAD_ERROR = null;</script>
+    <script src="./mathlive/mathlive.min.js" onerror="window.MATHLIVE_LOAD_ERROR = 'Script load failed'"></script>
+    <script src="./monaco/vs/loader.js"></script>
+    <script src="./main.js"></script>
   </body>
 </html>
