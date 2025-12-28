@@ -897,6 +897,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 label: "{x|}",
                 latex: "\\{#?\\mid#?\\}",
                 fallback: "\\{\\mid\\}",
+                displayLatex: "\\{x \\mid y\\}",
             },
             { label: "℘", latex: "\\mathcal{P} ", shiftLabel: "ℱ", shiftLatex: "\\mathcal{F} " },
             { label: "ℕ", latex: "\\mathbb{N} ", shiftLabel: "ℤ", shiftLatex: "\\mathbb{Z} " },
@@ -1060,7 +1061,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             const MathLiveGlobal = window.MathLive;
-            if (MathLiveGlobal === null || MathLiveGlobal === void 0 ? void 0 : MathLiveGlobal.renderToMarkup) {
+            if (MathLiveGlobal?.convertLatexToMarkup) {
                 markMathLiveReady();
                 return;
             }
@@ -1103,13 +1104,14 @@ window.addEventListener("DOMContentLoaded", () => {
     const renderMathKeyLabel = (button, key) => {
         const MathLiveGlobal = window.MathLive;
         const displayLatex = buildMathKeyDisplayLatex(key);
-        if (displayLatex && (MathLiveGlobal === null || MathLiveGlobal === void 0 ? void 0 : MathLiveGlobal.renderToMarkup)) {
+        // Use convertLatexToMarkup (MathLive 0.108+ API)
+        if (displayLatex && MathLiveGlobal?.convertLatexToMarkup) {
             try {
+                const latexToRender = "\\displaystyle " + displayLatex;
+                const markup = MathLiveGlobal.convertLatexToMarkup(latexToRender);
                 const wrapper = document.createElement("span");
                 wrapper.className = "math-keyboard-math";
-                wrapper.innerHTML = MathLiveGlobal.renderToMarkup(displayLatex, {
-                    defaultMode: "inline-math",
-                });
+                wrapper.innerHTML = markup;
                 button.textContent = "";
                 button.appendChild(wrapper);
                 button.classList.add("has-math");
@@ -1464,7 +1466,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 return;
             }
         }
-        if (MathLiveGlobal === null || MathLiveGlobal === void 0 ? void 0 : MathLiveGlobal.renderToMarkup) {
+        if (MathLiveGlobal?.convertLatexToMarkup) {
             markMathLiveReady();
         }
         else {

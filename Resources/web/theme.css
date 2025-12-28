@@ -15,7 +15,7 @@
   --sidebar-width: 52px;
   --sidebar-panel-width: calc((100vw - var(--sidebar-width) - 4px) / 2);
   --issues-height: 26px;
-  --topbar-height: 38px;
+  --topbar-height: 0px;
 }
 
 * {
@@ -416,8 +416,8 @@ body.has-launcher .app {
 .panel-body {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
   min-height: 0;
   overflow: hidden;
 }
@@ -435,8 +435,8 @@ body.has-launcher .app {
 
 .panel-body.blocks-panel {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-rows: auto auto;
+  gap: 6px;
   overflow: hidden;
 }
 
@@ -502,7 +502,7 @@ body.has-launcher .app {
 
 .block-form[data-form="math"] {
   gap: 10px;
-  flex: 1;
+  /* flex: 1 removed - no longer expands to fill space */
   min-height: 0;
 }
 
@@ -1330,14 +1330,15 @@ math-field.block-math-field::placeholder {
 
 .math-keyboard-dock {
   display: none;
-  gap: 10px;
-  padding: 10px;
+  gap: 6px;
+  padding: 6px;
   border: 1px solid #223041;
-  border-radius: 14px;
+  border-radius: 10px;
   background: linear-gradient(180deg, #0f1924 0%, #0b1118 100%);
   box-shadow:
     0 -14px 28px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  align-self: end;
 }
 
 .math-keyboard-dock.is-open {
@@ -1349,7 +1350,7 @@ math-field.block-math-field::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-bottom: 6px;
+  padding-bottom: 4px;
   border-bottom: 1px solid rgba(91, 194, 255, 0.12);
 }
 
@@ -1397,11 +1398,11 @@ math-field.block-math-field::placeholder {
 .math-keyboard-tabs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: nowrap;
   justify-content: flex-start;
-  padding: 6px;
-  border-radius: 12px;
+  padding: 4px;
+  border-radius: 8px;
   background: #0f1a26;
   border: 1px solid #223244;
   overflow-x: auto;
@@ -1418,7 +1419,7 @@ math-field.block-math-field::placeholder {
   background: #141f2b;
   color: #b3c0cc;
   font-size: 10px;
-  padding: 5px 12px;
+  padding: 4px 10px;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
@@ -1433,14 +1434,13 @@ math-field.block-math-field::placeholder {
 .math-keyboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
-  gap: 6px;
+  gap: 4px;
   align-content: start;
-  min-height: 136px;
-  max-height: 208px;
+  height: 140px;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px;
-  border-radius: 12px;
+  padding: 4px;
+  border-radius: 8px;
   background: #0f1822;
   border: 1px solid #223041;
   scrollbar-gutter: stable;
@@ -1462,10 +1462,10 @@ math-field.block-math-field::placeholder {
 .math-keyboard-fixed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
-  gap: 6px;
+  gap: 4px;
   align-content: start;
-  padding: 6px;
-  border-radius: 12px;
+  padding: 4px;
+  border-radius: 8px;
   background: #0f1822;
   border: 1px solid #223041;
 }
@@ -1476,12 +1476,12 @@ math-field.block-math-field::placeholder {
   background: linear-gradient(180deg, #1b2633 0%, #101720 100%);
   color: #e9f0f7;
   font-size: 13px;
-  padding: 7px 6px;
+  padding: 5px 4px;
   text-align: center;
   cursor: pointer;
   font-family: "Hiragino Sans", "Avenir Next", "Yu Gothic", sans-serif;
   line-height: 1.1;
-  min-height: 36px;
+  min-height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1495,8 +1495,8 @@ math-field.block-math-field::placeholder {
 }
 
 .math-keyboard-key.has-math {
-  font-family: "KaTeX_Main", "Times New Roman", serif;
-  font-weight: 500;
+  /* font properties reset to allow MathLive to handle them */
+  text-rendering: auto;
 }
 
 .math-keyboard-math {
@@ -1508,9 +1508,7 @@ math-field.block-math-field::placeholder {
   font-size: 1.08em;
 }
 
-.math-keyboard-math .ML__latex {
-  line-height: 1;
-}
+/* .math-keyboard-math .ML__latex rule removed */
 
 .math-keyboard-key:hover {
   border-color: rgba(91, 194, 255, 0.6);
