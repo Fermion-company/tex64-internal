@@ -77,6 +77,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const issuesClose = document.getElementById("issues-close");
     const breadcrumbs = document.getElementById("breadcrumbs");
     const editorTabs = document.getElementById("editor-tabs");
+    const editorTabsList = document.getElementById("editor-tabs-list");
     const launcher = document.getElementById("launcher");
     const launcherCreateButton = document.getElementById("launcher-create");
     const launcherOpenButton = document.getElementById("launcher-open");
@@ -112,6 +113,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const blockList = document.getElementById("block-list");
     const mathKeyboardDock = document.getElementById("math-keyboard-dock");
     const mathKeyboardGrid = document.getElementById("math-keyboard-grid");
+    const mathKeyboardFixedGrid = document.getElementById("math-keyboard-fixed-grid");
+    const mathKeyboardShiftButton = document.getElementById("math-keyboard-shift");
     const mathKeyboardTabs = Array.from(document.querySelectorAll(".math-keyboard-tab"));
     const searchInput = document.getElementById("search-input");
     const searchButton = document.getElementById("search-button");
@@ -229,7 +232,12 @@ window.addEventListener("DOMContentLoaded", () => {
     let activeBlockType = "math";
     let blockPreviewActive = false;
     let activeTab = "files";
-    let activeMathKeyboardTab = "basic";
+    let activeMathKeyboardTab = "analysis";
+    let mathKeyboardShiftHeld = false;
+    let mathKeyboardShiftLocked = false;
+    let mathLiveReady = false;
+    let mathLiveCheckScheduled = false;
+    let mathKeyboardNeedsRerender = false;
     let activeBlockEditId = null;
     let activeBlockOriginalSnippet = null;
     let activeBlockRange = null;
@@ -489,124 +497,684 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         }
     };
+    const mathKeyboardFixedKeys = [
+        { label: "+", latex: "+", shiftLabel: "⊕", shiftLatex: "\\oplus " },
+        { label: "−", latex: "-", shiftLabel: "⊖", shiftLatex: "\\ominus " },
+        { label: "×", latex: "\\times ", shiftLabel: "⊗", shiftLatex: "\\otimes " },
+        { label: "÷", latex: "\\div ", shiftLabel: "⊘", shiftLatex: "\\oslash " },
+        { label: "·", latex: "\\cdot ", shiftLabel: "•", shiftLatex: "\\bullet " },
+        { label: "=", latex: "=", shiftLabel: "≡", shiftLatex: "\\equiv " },
+        { label: "≠", latex: "\\neq ", shiftLabel: "≈", shiftLatex: "\\approx " },
+        { label: "≤", latex: "\\leq ", shiftLabel: "≦", shiftLatex: "\\leqq " },
+        { label: "≥", latex: "\\geq ", shiftLabel: "≧", shiftLatex: "\\geqq " },
+        { label: "<", latex: "<", shiftLabel: "≪", shiftLatex: "\\ll " },
+        { label: ">", latex: ">", shiftLabel: "≫", shiftLatex: "\\gg " },
+        { label: "±", latex: "\\pm ", shiftLabel: "∓", shiftLatex: "\\mp " },
+        {
+            label: "sum",
+            latex: "\\sum ",
+            shiftLabel: "prod",
+            shiftLatex: "\\prod ",
+            displayLatex: "\\sum",
+            shiftDisplayLatex: "\\prod",
+        },
+        {
+            label: "int",
+            latex: "\\int ",
+            shiftLabel: "int_ab",
+            shiftLatex: "\\int_{#?}^{#?}",
+            shiftFallback: "\\int_{}^{}",
+            displayLatex: "\\int",
+            shiftDisplayLatex: "\\int_{a}^{b}",
+        },
+        {
+            label: "∞",
+            latex: "\\infty ",
+            shiftLabel: "ℵ0",
+            shiftLatex: "\\aleph_0 ",
+            displayLatex: "\\infty",
+            shiftDisplayLatex: "\\aleph_0",
+        },
+        {
+            label: "sqrt",
+            latex: "\\sqrt{#?}",
+            fallback: "\\sqrt{}",
+            shiftLabel: "root",
+            shiftLatex: "\\sqrt[#?]{#?}",
+            shiftFallback: "\\sqrt[]{}",
+            displayLatex: "\\sqrt{x}",
+            shiftDisplayLatex: "\\sqrt[n]{x}",
+        },
+        {
+            label: "frac",
+            latex: "\\frac{#?}{#?}",
+            fallback: "\\frac{}{}",
+            shiftLabel: "dfrac",
+            shiftLatex: "\\dfrac{#?}{#?}",
+            shiftFallback: "\\dfrac{}{}",
+            displayLatex: "\\frac{a}{b}",
+            shiftDisplayLatex: "\\dfrac{a}{b}",
+        },
+        {
+            label: "pow",
+            latex: "^{#?}",
+            fallback: "^{}",
+            shiftLabel: "x^2",
+            shiftLatex: "^{2}",
+            displayLatex: "x^{n}",
+            shiftDisplayLatex: "x^{2}",
+        },
+        {
+            label: "sub",
+            latex: "_{#?}",
+            fallback: "_{}",
+            shiftLabel: "x_0",
+            shiftLatex: "_{0}",
+            displayLatex: "x_{n}",
+            shiftDisplayLatex: "x_{0}",
+        },
+        {
+            label: "abs",
+            latex: "\\left|#?\\right|",
+            fallback: "\\left|\\right|",
+            shiftLabel: "inner",
+            shiftLatex: "\\left\\langle#?\\right\\rangle",
+            shiftFallback: "\\left\\langle\\right\\rangle",
+            displayLatex: "\\left|x\\right|",
+            shiftDisplayLatex: "\\langle x, y \\rangle",
+        },
+        {
+            label: "sin",
+            latex: "\\sin ",
+            shiftLabel: "arcsin",
+            shiftLatex: "\\arcsin ",
+            displayLatex: "\\sin",
+            shiftDisplayLatex: "\\arcsin",
+        },
+        {
+            label: "cos",
+            latex: "\\cos ",
+            shiftLabel: "arccos",
+            shiftLatex: "\\arccos ",
+            displayLatex: "\\cos",
+            shiftDisplayLatex: "\\arccos",
+        },
+        {
+            label: "tan",
+            latex: "\\tan ",
+            shiftLabel: "arctan",
+            shiftLatex: "\\arctan ",
+            displayLatex: "\\tan",
+            shiftDisplayLatex: "\\arctan",
+        },
+        {
+            label: "log",
+            latex: "\\log ",
+            shiftLabel: "log_b",
+            shiftLatex: "\\log_{#?}",
+            shiftFallback: "\\log_{}",
+            displayLatex: "\\log",
+            shiftDisplayLatex: "\\log_{b}",
+        },
+        { label: "ln", latex: "\\ln ", shiftLabel: "lg", shiftLatex: "\\lg ", displayLatex: "\\ln", shiftDisplayLatex: "\\lg" },
+        {
+            label: "exp",
+            latex: "\\exp ",
+            shiftLabel: "e^",
+            shiftLatex: "e^{#?}",
+            shiftFallback: "e^{}",
+            displayLatex: "\\exp",
+            shiftDisplayLatex: "e^{x}",
+        },
+        {
+            label: "lim",
+            latex: "\\lim ",
+            shiftLabel: "lim→",
+            shiftLatex: "\\lim_{#? \\to #?}",
+            shiftFallback: "\\lim_{}",
+            displayLatex: "\\lim",
+            shiftDisplayLatex: "\\lim_{x \\to a}",
+        },
+        { label: "→", latex: "\\to ", shiftLabel: "⇒", shiftLatex: "\\Rightarrow " },
+        {
+            label: "∂",
+            latex: "\\partial ",
+            shiftLabel: "d",
+            shiftLatex: "\\mathrm{d} ",
+            displayLatex: "\\partial",
+            shiftDisplayLatex: "\\mathrm{d}",
+        },
+        {
+            label: "∇",
+            latex: "\\nabla ",
+            shiftLabel: "Δ",
+            shiftLatex: "\\Delta ",
+            displayLatex: "\\nabla",
+            shiftDisplayLatex: "\\Delta",
+        },
+    ];
     const mathKeyboardSets = {
-        basic: [
-            { label: "7", latex: "7" },
-            { label: "8", latex: "8" },
-            { label: "9", latex: "9" },
-            { label: "+", latex: "+" },
-            { label: "-", latex: "-" },
-            { label: "=", latex: "=" },
-            { label: "(", latex: "(" },
-            { label: ")", latex: ")" },
-            { label: "4", latex: "4" },
-            { label: "5", latex: "5" },
-            { label: "6", latex: "6" },
-            { label: "×", latex: "\\times " },
-            { label: "÷", latex: "\\div " },
-            { label: "·", latex: "\\cdot " },
-            { label: "[", latex: "[" },
-            { label: "]", latex: "]" },
-            { label: "1", latex: "1" },
-            { label: "2", latex: "2" },
-            { label: "3", latex: "3" },
-            { label: "±", latex: "\\pm " },
-            { label: "{", latex: "\\{" },
-            { label: "}", latex: "\\}" },
-            { label: "|", latex: "|" },
-            { label: ".", latex: "." },
-            { label: ",", latex: "," },
-            { label: "0", latex: "0" },
+        analysis: [
+            {
+                label: "d/dx",
+                latex: "\\frac{d}{d#?}#?",
+                fallback: "\\frac{d}{d} ",
+                shiftLabel: "d2/dx2",
+                shiftLatex: "\\frac{d^2}{d#?^2}#?",
+                shiftFallback: "\\frac{d^2}{d^2} ",
+                displayLatex: "\\frac{d}{dx}",
+                shiftDisplayLatex: "\\frac{d^2}{dx^2}",
+            },
+            {
+                label: "∂/∂x",
+                latex: "\\frac{\\partial}{\\partial #?}#?",
+                fallback: "\\frac{\\partial}{\\partial} ",
+                shiftLabel: "∂2/∂x2",
+                shiftLatex: "\\frac{\\partial^2}{\\partial #?^2}#?",
+                shiftFallback: "\\frac{\\partial^2}{\\partial^2} ",
+                displayLatex: "\\frac{\\partial}{\\partial x}",
+                shiftDisplayLatex: "\\frac{\\partial^2}{\\partial x^2}",
+            },
+            {
+                label: "∮",
+                latex: "\\oint ",
+                shiftLabel: "∮_C",
+                shiftLatex: "\\oint_{#?}",
+                shiftFallback: "\\oint_{}",
+                displayLatex: "\\oint",
+                shiftDisplayLatex: "\\oint_{C}",
+            },
+            {
+                label: "∬",
+                latex: "\\iint ",
+                shiftLabel: "∭",
+                shiftLatex: "\\iiint ",
+                displayLatex: "\\iint",
+                shiftDisplayLatex: "\\iiint",
+            },
+            {
+                label: "lim sup",
+                latex: "\\limsup ",
+                shiftLabel: "lim inf",
+                shiftLatex: "\\liminf ",
+                displayLatex: "\\limsup",
+                shiftDisplayLatex: "\\liminf",
+            },
+            {
+                label: "sup",
+                latex: "\\sup ",
+                shiftLabel: "inf",
+                shiftLatex: "\\inf ",
+                displayLatex: "\\sup",
+                shiftDisplayLatex: "\\inf",
+            },
+            {
+                label: "max",
+                latex: "\\max ",
+                shiftLabel: "min",
+                shiftLatex: "\\min ",
+                displayLatex: "\\max",
+                shiftDisplayLatex: "\\min",
+            },
+            {
+                label: "≈",
+                latex: "\\approx ",
+                shiftLabel: "∼",
+                shiftLatex: "\\sim ",
+                displayLatex: "\\approx",
+                shiftDisplayLatex: "\\sim",
+            },
+            {
+                label: "≃",
+                latex: "\\simeq ",
+                shiftLabel: "≅",
+                shiftLatex: "\\cong ",
+                displayLatex: "\\simeq",
+                shiftDisplayLatex: "\\cong",
+            },
+            {
+                label: "O",
+                latex: "\\mathcal{O} ",
+                shiftLabel: "o",
+                shiftLatex: "\\mathrm{o} ",
+                displayLatex: "\\mathcal{O}",
+                shiftDisplayLatex: "\\mathrm{o}",
+            },
+            {
+                label: "ℒ",
+                latex: "\\mathcal{L} ",
+                shiftLabel: "ℓ",
+                shiftLatex: "\\ell ",
+                displayLatex: "\\mathcal{L}",
+                shiftDisplayLatex: "\\ell",
+            },
+            {
+                label: "ℱ",
+                latex: "\\mathcal{F} ",
+                shiftLabel: "ℳ",
+                shiftLatex: "\\mathcal{M} ",
+                displayLatex: "\\mathcal{F}",
+                shiftDisplayLatex: "\\mathcal{M}",
+            },
         ],
-        relations: [
-            { label: "=", latex: "=" },
-            { label: "≠", latex: "\\neq " },
-            { label: "<", latex: "<" },
-            { label: ">", latex: ">" },
-            { label: "≤", latex: "\\leq " },
-            { label: "≥", latex: "\\geq " },
-            { label: "≈", latex: "\\approx " },
-            { label: "≡", latex: "\\equiv " },
-            { label: "∝", latex: "\\propto " },
-            { label: "∼", latex: "\\sim " },
-            { label: "→", latex: "\\to " },
-            { label: "⇒", latex: "\\Rightarrow " },
-            { label: "⇔", latex: "\\Leftrightarrow " },
-            { label: "∈", latex: "\\in " },
-            { label: "∉", latex: "\\notin " },
-            { label: "⊂", latex: "\\subset " },
-            { label: "⊆", latex: "\\subseteq " },
-            { label: "⊇", latex: "\\supseteq " },
-            { label: "∀", latex: "\\forall " },
-            { label: "∃", latex: "\\exists " },
-        ],
-        operators: [
-            { label: "∑", latex: "\\sum " },
-            { label: "∏", latex: "\\prod " },
-            { label: "∫", latex: "\\int " },
-            { label: "∮", latex: "\\oint " },
-            { label: "∂", latex: "\\partial " },
-            { label: "∞", latex: "\\infty " },
-            { label: "∇", latex: "\\nabla " },
-            { label: "lim", latex: "\\lim " },
-            { label: "log", latex: "\\log " },
-            { label: "ln", latex: "\\ln " },
-            { label: "sin", latex: "\\sin " },
-            { label: "cos", latex: "\\cos " },
-            { label: "tan", latex: "\\tan " },
-            { label: "exp", latex: "\\exp " },
-            { label: "max", latex: "\\max " },
-            { label: "min", latex: "\\min " },
-        ],
-        greek: [
-            { label: "α", latex: "\\alpha " },
-            { label: "β", latex: "\\beta " },
-            { label: "γ", latex: "\\gamma " },
-            { label: "δ", latex: "\\delta " },
-            { label: "ε", latex: "\\epsilon " },
-            { label: "θ", latex: "\\theta " },
-            { label: "λ", latex: "\\lambda " },
-            { label: "μ", latex: "\\mu " },
-            { label: "π", latex: "\\pi " },
-            { label: "ρ", latex: "\\rho " },
-            { label: "σ", latex: "\\sigma " },
-            { label: "τ", latex: "\\tau " },
-            { label: "φ", latex: "\\phi " },
-            { label: "ω", latex: "\\omega " },
-            { label: "κ", latex: "\\kappa " },
-            { label: "ν", latex: "\\nu " },
-            { label: "Γ", latex: "\\Gamma " },
-            { label: "Δ", latex: "\\Delta " },
-            { label: "Θ", latex: "\\Theta " },
-            { label: "Λ", latex: "\\Lambda " },
-            { label: "Π", latex: "\\Pi " },
-            { label: "Σ", latex: "\\Sigma " },
-            { label: "Φ", latex: "\\Phi " },
-            { label: "Ω", latex: "\\Omega " },
-        ],
-        structures: [
-            { label: "a/b", latex: "\\frac{#?}{#?}", fallback: "\\frac{}{}" },
-            { label: "√", latex: "\\sqrt{#?}", fallback: "\\sqrt{}" },
-            { label: "x^", latex: "^{#?}", fallback: "^{}" },
-            { label: "x_", latex: "_{#?}", fallback: "_{}" },
-            { label: "binom", latex: "\\binom{#?}{#?}", fallback: "\\binom{}{}" },
-            { label: "vec", latex: "\\vec{#?}", fallback: "\\vec{}" },
-            { label: "hat", latex: "\\hat{#?}", fallback: "\\hat{}" },
-            { label: "bar", latex: "\\overline{#?}", fallback: "\\overline{}" },
-            { label: "dot", latex: "\\dot{#?}", fallback: "\\dot{}" },
-            { label: "ddot", latex: "\\ddot{#?}", fallback: "\\ddot{}" },
-            { label: "text", latex: "\\text{#?}", fallback: "\\text{}" },
+        algebra: [
+            {
+                label: "⌊x⌋",
+                latex: "\\left\\lfloor#?\\right\\rfloor",
+                fallback: "\\left\\lfloor\\right\\rfloor",
+                shiftLabel: "⌈x⌉",
+                shiftLatex: "\\left\\lceil#?\\right\\rceil",
+                shiftFallback: "\\left\\lceil\\right\\rceil",
+                displayLatex: "\\lfloor x \\rfloor",
+                shiftDisplayLatex: "\\lceil x \\rceil",
+            },
+            {
+                label: "binom",
+                latex: "\\binom{#?}{#?}",
+                fallback: "\\binom{}{}",
+                displayLatex: "\\binom{n}{k}",
+            },
             {
                 label: "cases",
                 latex: "\\begin{cases}#?\\\\#?\\end{cases}",
                 fallback: "\\begin{cases}\n  \\\\\n\\end{cases}",
+                displayLatex: "\\begin{cases} a \\\\ b \\end{cases}",
             },
             {
                 label: "matrix",
                 latex: "\\begin{matrix}#?\\\\#?\\end{matrix}",
                 fallback: "\\begin{matrix}\n  & \\\\\n  & \n\\end{matrix}",
+                shiftLabel: "pmatrix",
+                shiftLatex: "\\begin{pmatrix}#?\\\\#?\\end{pmatrix}",
+                shiftFallback: "\\begin{pmatrix}\n  & \\\\\n  & \n\\end{pmatrix}",
+                displayLatex: "\\begin{matrix} a & b \\\\ c & d \\end{matrix}",
+                shiftDisplayLatex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
+            },
+            {
+                label: "bmatrix",
+                latex: "\\begin{bmatrix}#?\\\\#?\\end{bmatrix}",
+                fallback: "\\begin{bmatrix}\n  & \\\\\n  & \n\\end{bmatrix}",
+                shiftLabel: "vmatrix",
+                shiftLatex: "\\begin{vmatrix}#?\\\\#?\\end{vmatrix}",
+                shiftFallback: "\\begin{vmatrix}\n  & \\\\\n  & \n\\end{vmatrix}",
+                displayLatex: "\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}",
+                shiftDisplayLatex: "\\begin{vmatrix} a & b \\\\ c & d \\end{vmatrix}",
+            },
+            { label: "det", latex: "\\det ", shiftLabel: "adj", shiftLatex: "\\operatorname{adj} " },
+            { label: "tr", latex: "\\operatorname{tr} ", shiftLabel: "diag", shiftLatex: "\\operatorname{diag} " },
+            { label: "rank", latex: "\\operatorname{rank} ", shiftLabel: "null", shiftLatex: "\\operatorname{null} " },
+            { label: "dim", latex: "\\dim ", shiftLabel: "deg", shiftLatex: "\\deg " },
+            { label: "ker", latex: "\\ker ", shiftLabel: "span", shiftLatex: "\\operatorname{span} " },
+            {
+                label: "gcd",
+                latex: "\\gcd ",
+                shiftLabel: "lcm",
+                shiftLatex: "\\operatorname{lcm} ",
+            },
+            {
+                label: "mod",
+                latex: "\\bmod ",
+                shiftLabel: "mod",
+                shiftLatex: "\\pmod{#?}",
+                shiftFallback: "\\pmod{}",
+            },
+            {
+                label: "vec",
+                latex: "\\vec{#?}",
+                fallback: "\\vec{}",
+                shiftLabel: "over→",
+                shiftLatex: "\\overrightarrow{#?}",
+                shiftFallback: "\\overrightarrow{}",
+            },
+            {
+                label: "hat",
+                latex: "\\hat{#?}",
+                fallback: "\\hat{}",
+                shiftLabel: "tilde",
+                shiftLatex: "\\tilde{#?}",
+                shiftFallback: "\\tilde{}",
+            },
+            {
+                label: "bar",
+                latex: "\\bar{#?}",
+                fallback: "\\bar{}",
+                shiftLabel: "overline",
+                shiftLatex: "\\overline{#?}",
+                shiftFallback: "\\overline{}",
+            },
+            {
+                label: "dot",
+                latex: "\\dot{#?}",
+                fallback: "\\dot{}",
+                shiftLabel: "ddot",
+                shiftLatex: "\\ddot{#?}",
+                shiftFallback: "\\ddot{}",
+            },
+            {
+                label: "bold",
+                latex: "\\mathbf{#?}",
+                fallback: "\\mathbf{}",
+                shiftLabel: "boldsym",
+                shiftLatex: "\\boldsymbol{#?}",
+                shiftFallback: "\\boldsymbol{}",
+            },
+            {
+                label: "bb",
+                latex: "\\mathbb{#?}",
+                fallback: "\\mathbb{}",
+                shiftLabel: "frak",
+                shiftLatex: "\\mathfrak{#?}",
+                shiftFallback: "\\mathfrak{}",
+            },
+            {
+                label: "cal",
+                latex: "\\mathcal{#?}",
+                fallback: "\\mathcal{}",
+                shiftLabel: "scr",
+                shiftLatex: "\\mathscr{#?}",
+                shiftFallback: "\\mathscr{}",
+            },
+            {
+                label: "text",
+                latex: "\\text{#?}",
+                fallback: "\\text{}",
+                shiftLabel: "rm",
+                shiftLatex: "\\mathrm{#?}",
+                shiftFallback: "\\mathrm{}",
             },
         ],
+        sets: [
+            { label: "∈", latex: "\\in ", shiftLabel: "∉", shiftLatex: "\\notin " },
+            { label: "∋", latex: "\\ni ", shiftLabel: "∌", shiftLatex: "\\not\\ni " },
+            { label: "⊂", latex: "\\subset ", shiftLabel: "⊆", shiftLatex: "\\subseteq " },
+            { label: "⊃", latex: "\\supset ", shiftLabel: "⊇", shiftLatex: "\\supseteq " },
+            { label: "⊊", latex: "\\subsetneq ", shiftLabel: "⊋", shiftLatex: "\\supsetneq " },
+            { label: "∪", latex: "\\cup ", shiftLabel: "∩", shiftLatex: "\\cap " },
+            { label: "⋃", latex: "\\bigcup ", shiftLabel: "⋂", shiftLatex: "\\bigcap " },
+            { label: "∅", latex: "\\emptyset ", shiftLabel: "⌀", shiftLatex: "\\varnothing " },
+            { label: "∖", latex: "\\setminus ", shiftLabel: "△", shiftLatex: "\\triangle " },
+            {
+                label: "{x|}",
+                latex: "\\{#?\\mid#?\\}",
+                fallback: "\\{\\mid\\}",
+            },
+            { label: "℘", latex: "\\mathcal{P} ", shiftLabel: "ℱ", shiftLatex: "\\mathcal{F} " },
+            { label: "ℕ", latex: "\\mathbb{N} ", shiftLabel: "ℤ", shiftLatex: "\\mathbb{Z} " },
+            { label: "ℚ", latex: "\\mathbb{Q} ", shiftLabel: "ℝ", shiftLatex: "\\mathbb{R} " },
+            { label: "ℂ", latex: "\\mathbb{C} ", shiftLabel: "ℍ", shiftLatex: "\\mathbb{H} " },
+            { label: "⟂", latex: "\\perp ", shiftLabel: "∥", shiftLatex: "\\parallel " },
+        ],
+        logic: [
+            { label: "∀", latex: "\\forall ", shiftLabel: "∃", shiftLatex: "\\exists " },
+            { label: "¬", latex: "\\neg ", shiftLabel: "¬¬", shiftLatex: "\\neg\\neg " },
+            { label: "∧", latex: "\\land ", shiftLabel: "∨", shiftLatex: "\\lor " },
+            { label: "⇒", latex: "\\Rightarrow ", shiftLabel: "⇔", shiftLatex: "\\Leftrightarrow " },
+            { label: "⇐", latex: "\\Leftarrow " },
+            { label: "⊢", latex: "\\vdash ", shiftLabel: "⊨", shiftLatex: "\\models " },
+            { label: "⊥", latex: "\\bot ", shiftLabel: "⊤", shiftLatex: "\\top " },
+            { label: "≡", latex: "\\equiv ", shiftLabel: "≢", shiftLatex: "\\not\\equiv " },
+            { label: "⊕", latex: "\\oplus ", shiftLabel: "⊗", shiftLatex: "\\otimes " },
+            { label: "∴", latex: "\\therefore ", shiftLabel: "∵", shiftLatex: "\\because " },
+            { label: "□", latex: "\\Box ", shiftLabel: "◇", shiftLatex: "\\Diamond " },
+            { label: "∃!", latex: "\\exists!", shiftLabel: "∄", shiftLatex: "\\not\\exists " },
+            { label: "⊂", latex: "\\subset ", shiftLabel: "⊆", shiftLatex: "\\subseteq " },
+        ],
+        arrows: [
+            { label: "←", latex: "\\leftarrow ", shiftLabel: "⇐", shiftLatex: "\\Leftarrow " },
+            { label: "↔", latex: "\\leftrightarrow ", shiftLabel: "⇔", shiftLatex: "\\Leftrightarrow " },
+            { label: "↦", latex: "\\mapsto ", shiftLabel: "⟼", shiftLatex: "\\longmapsto " },
+            {
+                label: "⟶",
+                latex: "\\longrightarrow ",
+                shiftLabel: "⟹",
+                shiftLatex: "\\Longrightarrow ",
+            },
+            {
+                label: "⟵",
+                latex: "\\longleftarrow ",
+                shiftLabel: "⟸",
+                shiftLatex: "\\Longleftarrow ",
+            },
+            {
+                label: "⟷",
+                latex: "\\longleftrightarrow ",
+                shiftLabel: "⟺",
+                shiftLatex: "\\Longleftrightarrow ",
+            },
+            { label: "↑", latex: "\\uparrow ", shiftLabel: "⇑", shiftLatex: "\\Uparrow " },
+            { label: "↓", latex: "\\downarrow ", shiftLabel: "⇓", shiftLatex: "\\Downarrow " },
+            {
+                label: "↕",
+                latex: "\\updownarrow ",
+                shiftLabel: "⇕",
+                shiftLatex: "\\Updownarrow ",
+            },
+            { label: "↗", latex: "\\nearrow ", shiftLabel: "↘", shiftLatex: "\\searrow " },
+            { label: "↖", latex: "\\nwarrow ", shiftLabel: "↙", shiftLatex: "\\swarrow " },
+            {
+                label: "↪",
+                latex: "\\hookrightarrow ",
+                shiftLabel: "↩",
+                shiftLatex: "\\hookleftarrow ",
+            },
+            {
+                label: "↠",
+                latex: "\\twoheadrightarrow ",
+                shiftLabel: "↞",
+                shiftLatex: "\\twoheadleftarrow ",
+            },
+            {
+                label: "⇝",
+                latex: "\\rightsquigarrow ",
+                shiftLabel: "⇜",
+                shiftLatex: "\\leftsquigarrow ",
+            },
+            {
+                label: "⤳",
+                latex: "\\curvearrowright ",
+                shiftLabel: "⤲",
+                shiftLatex: "\\curvearrowleft ",
+            },
+            {
+                label: "⇀",
+                latex: "\\rightharpoonup ",
+                shiftLabel: "⇁",
+                shiftLatex: "\\rightharpoondown ",
+            },
+            {
+                label: "↼",
+                latex: "\\leftharpoonup ",
+                shiftLabel: "↽",
+                shiftLatex: "\\leftharpoondown ",
+            },
+            {
+                label: "⇉",
+                latex: "\\rightrightarrows ",
+                shiftLabel: "⇇",
+                shiftLatex: "\\leftleftarrows ",
+            },
+        ],
+        greek: [
+            { label: "α", latex: "\\alpha ", shiftLabel: "Α", shiftLatex: "A " },
+            { label: "β", latex: "\\beta ", shiftLabel: "Β", shiftLatex: "B " },
+            { label: "γ", latex: "\\gamma ", shiftLabel: "Γ", shiftLatex: "\\Gamma " },
+            { label: "δ", latex: "\\delta ", shiftLabel: "Δ", shiftLatex: "\\Delta " },
+            { label: "ε", latex: "\\epsilon ", shiftLabel: "Ε", shiftLatex: "E " },
+            { label: "ϵ", latex: "\\varepsilon ", shiftLabel: "Ε", shiftLatex: "E " },
+            { label: "ζ", latex: "\\zeta ", shiftLabel: "Ζ", shiftLatex: "Z " },
+            { label: "η", latex: "\\eta ", shiftLabel: "Η", shiftLatex: "H " },
+            { label: "θ", latex: "\\theta ", shiftLabel: "Θ", shiftLatex: "\\Theta " },
+            { label: "ϑ", latex: "\\vartheta ", shiftLabel: "Θ", shiftLatex: "\\Theta " },
+            { label: "ι", latex: "\\iota ", shiftLabel: "Ι", shiftLatex: "I " },
+            { label: "κ", latex: "\\kappa ", shiftLabel: "Κ", shiftLatex: "K " },
+            { label: "λ", latex: "\\lambda ", shiftLabel: "Λ", shiftLatex: "\\Lambda " },
+            { label: "μ", latex: "\\mu ", shiftLabel: "Μ", shiftLatex: "M " },
+            { label: "ν", latex: "\\nu ", shiftLabel: "Ν", shiftLatex: "N " },
+            { label: "ξ", latex: "\\xi ", shiftLabel: "Ξ", shiftLatex: "\\Xi " },
+            { label: "π", latex: "\\pi ", shiftLabel: "Π", shiftLatex: "\\Pi " },
+            { label: "ϖ", latex: "\\varpi ", shiftLabel: "Π", shiftLatex: "\\Pi " },
+            { label: "ρ", latex: "\\rho ", shiftLabel: "Ρ", shiftLatex: "P " },
+            { label: "ϱ", latex: "\\varrho ", shiftLabel: "Ρ", shiftLatex: "P " },
+            { label: "σ", latex: "\\sigma ", shiftLabel: "Σ", shiftLatex: "\\Sigma " },
+            { label: "ς", latex: "\\varsigma ", shiftLabel: "Σ", shiftLatex: "\\Sigma " },
+            { label: "τ", latex: "\\tau ", shiftLabel: "Τ", shiftLatex: "T " },
+            { label: "υ", latex: "\\upsilon ", shiftLabel: "Υ", shiftLatex: "\\Upsilon " },
+            { label: "φ", latex: "\\phi ", shiftLabel: "Φ", shiftLatex: "\\Phi " },
+            { label: "ϕ", latex: "\\varphi ", shiftLabel: "Φ", shiftLatex: "\\Phi " },
+            { label: "χ", latex: "\\chi ", shiftLabel: "Χ", shiftLatex: "X " },
+            { label: "ψ", latex: "\\psi ", shiftLabel: "Ψ", shiftLatex: "\\Psi " },
+            { label: "ω", latex: "\\omega ", shiftLabel: "Ω", shiftLatex: "\\Omega " },
+        ],
+    };
+    const normalizeMathKeyboardTab = (tab) => {
+        if (tab === "analysis" ||
+            tab === "algebra" ||
+            tab === "sets" ||
+            tab === "logic" ||
+            tab === "arrows" ||
+            tab === "greek") {
+            return tab;
+        }
+        return "analysis";
+    };
+    const isMathKeyboardShiftActive = () => mathKeyboardShiftHeld || mathKeyboardShiftLocked;
+    const markMathLiveReady = () => {
+        if (mathLiveReady) {
+            return;
+        }
+        mathLiveReady = true;
+        mathLiveCheckScheduled = false;
+        if (mathKeyboardNeedsRerender) {
+            renderMathKeyboard(activeMathKeyboardTab);
+            renderMathKeyboardFixed();
+            mathKeyboardNeedsRerender = false;
+        }
+    };
+    const ensureMathLiveReady = () => {
+        if (mathLiveReady || mathLiveCheckScheduled) {
+            return;
+        }
+        mathLiveCheckScheduled = true;
+        const check = () => {
+            if (mathLiveReady) {
+                return;
+            }
+            const MathLiveGlobal = window.MathLive;
+            if (MathLiveGlobal === null || MathLiveGlobal === void 0 ? void 0 : MathLiveGlobal.renderToMarkup) {
+                markMathLiveReady();
+                return;
+            }
+            setTimeout(check, 120);
+        };
+        check();
+        window.addEventListener("mathlive-ready", markMathLiveReady, { once: true });
+    };
+    const resolveMathKey = (key, shiftActive) => {
+        var _a, _b, _c, _d;
+        if (!shiftActive) {
+            return key;
+        }
+        const hasShift = key.shiftLabel || key.shiftLatex || key.shiftFallback || key.shiftDisplayLatex;
+        if (!hasShift) {
+            return key;
+        }
+        return {
+            label: (_a = key.shiftLabel) !== null && _a !== void 0 ? _a : key.label,
+            latex: (_b = key.shiftLatex) !== null && _b !== void 0 ? _b : key.latex,
+            fallback: (_c = key.shiftFallback) !== null && _c !== void 0 ? _c : key.fallback,
+            displayLatex: (_d = key.shiftDisplayLatex) !== null && _d !== void 0 ? _d : key.displayLatex,
+        };
+    };
+    const buildMathKeyDisplayLatex = (key) => {
+        var _a, _b;
+        const source = (_b = (_a = key.displayLatex) !== null && _a !== void 0 ? _a : key.latex) !== null && _b !== void 0 ? _b : key.fallback;
+        if (!source) {
+            return null;
+        }
+        const placeholders = ["x", "y", "z", "a", "b", "c"];
+        let index = 0;
+        return source.replace(/#\?/g, () => {
+            var _a;
+            const value = (_a = placeholders[index]) !== null && _a !== void 0 ? _a : "x";
+            index += 1;
+            return value;
+        });
+    };
+    const renderMathKeyLabel = (button, key) => {
+        const MathLiveGlobal = window.MathLive;
+        const displayLatex = buildMathKeyDisplayLatex(key);
+        if (displayLatex && (MathLiveGlobal === null || MathLiveGlobal === void 0 ? void 0 : MathLiveGlobal.renderToMarkup)) {
+            try {
+                const wrapper = document.createElement("span");
+                wrapper.className = "math-keyboard-math";
+                wrapper.innerHTML = MathLiveGlobal.renderToMarkup(displayLatex, {
+                    defaultMode: "inline-math",
+                });
+                button.textContent = "";
+                button.appendChild(wrapper);
+                button.classList.add("has-math");
+                button.setAttribute("aria-label", key.label);
+                return;
+            }
+            catch (error) {
+                console.warn("MathLive render failed:", error);
+            }
+        }
+        if (displayLatex) {
+            mathKeyboardNeedsRerender = true;
+            ensureMathLiveReady();
+        }
+        button.classList.remove("has-math");
+        button.textContent = key.label;
+        button.removeAttribute("aria-label");
+    };
+    const renderMathKeyboardKeys = (target, keys) => {
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+        const shiftActive = isMathKeyboardShiftActive();
+        target.innerHTML = "";
+        keys.forEach((key) => {
+            const resolved = resolveMathKey(key, shiftActive);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "math-keyboard-key";
+            renderMathKeyLabel(button, resolved);
+            if (!button.classList.contains("has-math")) {
+                const labelLength = Array.from(resolved.label).length;
+                if (labelLength > 4) {
+                    button.classList.add("is-compact");
+                }
+                if (labelLength > 7) {
+                    button.classList.add("is-tiny");
+                }
+            }
+            button.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+            });
+            button.addEventListener("click", () => {
+                var _a, _b;
+                insertMathKey(resolved);
+                if (blockMathInput instanceof HTMLElement) {
+                    (_b = (_a = blockMathInput).focus) === null || _b === void 0 ? void 0 : _b.call(_a);
+                }
+            });
+            target.appendChild(button);
+        });
+    };
+    const renderMathKeyboardFixed = () => {
+        renderMathKeyboardKeys(mathKeyboardFixedGrid, mathKeyboardFixedKeys);
+    };
+    const updateMathKeyboardShiftState = () => {
+        const isActive = isMathKeyboardShiftActive();
+        if (mathKeyboardShiftButton instanceof HTMLButtonElement) {
+            mathKeyboardShiftButton.classList.toggle("is-active", isActive);
+            mathKeyboardShiftButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+        }
+        if (mathKeyboardDock instanceof HTMLElement && mathKeyboardDock.classList.contains("is-open")) {
+            renderMathKeyboard(activeMathKeyboardTab);
+            renderMathKeyboardFixed();
+        }
     };
     const updateMathKeyboardVisibility = () => {
         if (!(mathKeyboardDock instanceof HTMLElement)) {
@@ -615,11 +1183,16 @@ window.addEventListener("DOMContentLoaded", () => {
         const shouldShow = activeTab === "blocks" && activeBlockType === "math";
         mathKeyboardDock.classList.toggle("is-open", shouldShow);
         mathKeyboardDock.setAttribute("aria-hidden", shouldShow ? "false" : "true");
-        if (shouldShow && mathKeyboardGrid instanceof HTMLElement) {
-            if (mathKeyboardGrid.childElementCount === 0) {
-                renderMathKeyboard(activeMathKeyboardTab);
-            }
+        if (!shouldShow) {
+            return;
         }
+        if (mathKeyboardGrid instanceof HTMLElement && mathKeyboardGrid.childElementCount === 0) {
+            renderMathKeyboard(activeMathKeyboardTab);
+        }
+        if (mathKeyboardFixedGrid instanceof HTMLElement && mathKeyboardFixedGrid.childElementCount === 0) {
+            renderMathKeyboardFixed();
+        }
+        updateMathKeyboardShiftState();
     };
     const insertMathKey = (key) => {
         var _a, _b, _c, _d;
@@ -666,30 +1239,8 @@ window.addEventListener("DOMContentLoaded", () => {
     };
     const renderMathKeyboard = (tab) => {
         var _a;
-        if (!(mathKeyboardGrid instanceof HTMLElement)) {
-            return;
-        }
         const keys = (_a = mathKeyboardSets[tab]) !== null && _a !== void 0 ? _a : [];
-        mathKeyboardGrid.innerHTML = "";
-        keys.forEach((key) => {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "math-keyboard-key";
-            button.textContent = key.label;
-            button.title = key.latex;
-            button.addEventListener("mousedown", (event) => {
-                event.preventDefault();
-            });
-            button.addEventListener("click", () => {
-                var _a, _b;
-                insertMathKey(key);
-                // クリック後にMathFieldにフォーカスを戻す
-                if (blockMathInput instanceof HTMLElement) {
-                    (_b = (_a = blockMathInput).focus) === null || _b === void 0 ? void 0 : _b.call(_a);
-                }
-            });
-            mathKeyboardGrid.appendChild(button);
-        });
+        renderMathKeyboardKeys(mathKeyboardGrid, keys);
     };
     const setMathKeyboardTab = (tab) => {
         activeMathKeyboardTab = tab;
@@ -833,8 +1384,11 @@ window.addEventListener("DOMContentLoaded", () => {
             if (!isResizing)
                 return;
             const sidebarWidth = 52; // var(--sidebar-width)
+            const minPanelWidth = 240;
+            const minEditorWidth = 320;
+            const maxPanelWidth = Math.max(minPanelWidth, window.innerWidth - sidebarWidth - minEditorWidth);
             // マウス位置から新しいパネル幅を計算
-            const newWidth = Math.max(200, Math.min(800, e.clientX - sidebarWidth));
+            const newWidth = Math.max(minPanelWidth, Math.min(maxPanelWidth, e.clientX - sidebarWidth));
             document.documentElement.style.setProperty("--sidebar-panel-width", `${newWidth}px`);
             // Monacoのリサイズ
             const editor = monacoEditor;
@@ -910,6 +1464,12 @@ window.addEventListener("DOMContentLoaded", () => {
                 return;
             }
         }
+        if (MathLiveGlobal === null || MathLiveGlobal === void 0 ? void 0 : MathLiveGlobal.renderToMarkup) {
+            markMathLiveReady();
+        }
+        else {
+            ensureMathLiveReady();
+        }
         // MathField要素作成
         const mathfield = document.createElement("math-field");
         mathfield.id = "block-math-input";
@@ -922,7 +1482,8 @@ window.addEventListener("DOMContentLoaded", () => {
         if (typeof mathfield.setOptions === "function") {
             mathfield.setOptions({
                 smartMode: false,
-                virtualKeyboardMode: "manual",
+                defaultMode: "math",
+                virtualKeyboardMode: "off",
                 fontsDirectory: "mathlive/fonts",
                 soundsDirectory: null,
                 keypressSound: null,
@@ -941,22 +1502,31 @@ window.addEventListener("DOMContentLoaded", () => {
             style.setAttribute("data-tex180-style", "true");
             style.textContent = `
         :host {
-          color: var(--text, #e5e9f0) !important;
+          color: var(--text, #eef3fb) !important;
           background-color: transparent !important;
         }
         .ML__field {
-          color: var(--text, #e5e9f0) !important;
+          color: var(--text, #eef3fb) !important;
         }
         .ML__placeholder {
-          color: var(--muted, #9aa3ad) !important;
-          opacity: 0.6;
+          color: #8fb3d4 !important;
+          opacity: 0.85;
         }
         .ML__selection {
-          background: rgba(74, 168, 255, 0.2) !important;
-          color: inherit !important;
+          background: rgba(110, 195, 255, 0.7) !important;
+          color: #f8fbff !important;
         }
         .ML__caret {
-          background-color: var(--accent, #4aa8ff) !important;
+          background-color: var(--accent, #5bc2ff) !important;
+        }
+        .ML__contains-highlight {
+          background: rgba(110, 195, 255, 0.25) !important;
+        }
+        .ML__virtual-keyboard-toggle {
+          display: none !important;
+        }
+        button[part="virtual-keyboard-toggle"] {
+          display: none !important;
         }
       `;
             mathfield.shadowRoot.appendChild(style);
@@ -1646,15 +2216,15 @@ window.addEventListener("DOMContentLoaded", () => {
         renderEditorTabs();
     };
     const renderEditorTabs = () => {
-        if (!(editorTabs instanceof HTMLElement)) {
+        if (!(editorTabsList instanceof HTMLElement)) {
             return;
         }
-        editorTabs.innerHTML = "";
+        editorTabsList.innerHTML = "";
         if (openTabs.length === 0) {
-            editorTabs.classList.add("is-empty");
+            editorTabsList.classList.add("is-empty");
             return;
         }
-        editorTabs.classList.remove("is-empty");
+        editorTabsList.classList.remove("is-empty");
         openTabs.forEach((path) => {
             var _a;
             const tab = document.createElement("button");
@@ -1690,16 +2260,15 @@ window.addEventListener("DOMContentLoaded", () => {
                     requestOpenFile(path);
                 }
             });
-            editorTabs.appendChild(tab);
+            editorTabsList.appendChild(tab);
         });
     };
     const updateBreadcrumbs = () => {
-        if (!(breadcrumbs instanceof HTMLElement)) {
-            return;
+        if (breadcrumbs instanceof HTMLElement) {
+            const fileLabel = currentFilePath !== null && currentFilePath !== void 0 ? currentFilePath : "未選択";
+            const dirtyMark = isDirty ? " ●" : "";
+            breadcrumbs.textContent = `${fileLabel}${dirtyMark}`;
         }
-        const fileLabel = currentFilePath !== null && currentFilePath !== void 0 ? currentFilePath : "未選択";
-        const dirtyMark = isDirty ? " ●" : "";
-        breadcrumbs.textContent = `${fileLabel}${dirtyMark}`;
         renderEditorTabs();
     };
     const updateMiniOutline = () => {
@@ -3468,17 +4037,15 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     mathKeyboardTabs.forEach((button) => {
         button.addEventListener("click", () => {
-            const tab = button.dataset.mathTab;
-            if (tab === "relations" ||
-                tab === "operators" ||
-                tab === "greek" ||
-                tab === "structures") {
-                setMathKeyboardTab(tab);
-                return;
-            }
-            setMathKeyboardTab("basic");
+            setMathKeyboardTab(normalizeMathKeyboardTab(button.dataset.mathTab));
         });
     });
+    if (mathKeyboardShiftButton instanceof HTMLButtonElement) {
+        mathKeyboardShiftButton.addEventListener("click", () => {
+            mathKeyboardShiftLocked = !mathKeyboardShiftLocked;
+            updateMathKeyboardShiftState();
+        });
+    }
     if (autoBuildButton instanceof HTMLButtonElement) {
         autoBuildButton.addEventListener("click", () => {
             toggleAutoBuild();
@@ -3642,7 +4209,23 @@ window.addEventListener("DOMContentLoaded", () => {
         if (contextMenuOpen) {
             closeContextMenu();
         }
+        if (mathKeyboardShiftHeld) {
+            mathKeyboardShiftHeld = false;
+            updateMathKeyboardShiftState();
+        }
     });
+    window.addEventListener("keydown", (event) => {
+        if (event.key === "Shift" && !mathKeyboardShiftHeld) {
+            mathKeyboardShiftHeld = true;
+            updateMathKeyboardShiftState();
+        }
+    }, true);
+    window.addEventListener("keyup", (event) => {
+        if (event.key === "Shift" && mathKeyboardShiftHeld) {
+            mathKeyboardShiftHeld = false;
+            updateMathKeyboardShiftState();
+        }
+    }, true);
     window.addEventListener("scroll", () => {
         if (contextMenuOpen) {
             closeContextMenu();

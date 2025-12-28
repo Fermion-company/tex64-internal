@@ -58,14 +58,7 @@
     </div>
     <div class="app">
       <header class="topbar">
-        <div class="brand">
-          <span class="brand-dot"></span>
-          <span class="brand-name">tex180</span>
-        </div>
-        <div class="breadcrumbs" id="breadcrumbs">main.tex / セクション / イントロ</div>
         <div class="top-actions">
-          <button class="pill" id="build-button" type="button">ビルド</button>
-          <button class="pill ghost" id="auto-build-button" type="button">自動ビルド</button>
           <button class="pill ghost" id="quick-insert-button" type="button">クイック挿入</button>
         </div>
       </header>
@@ -178,7 +171,7 @@
           </div>
         </aside>
         <aside class="sidebar-panel" aria-label="サイドバー詳細">
-          <div class="panel is-active" data-panel="files">
+          <div class="panel is-active no-header" data-panel="files">
             <div class="panel-header">
               <span class="panel-title">エクスプローラー</span>
             </div>
@@ -190,7 +183,7 @@
               </div>
             </div>
           </div>
-          <div class="panel" data-panel="outline">
+          <div class="panel no-header" data-panel="outline">
             <div class="panel-header">
               <span class="panel-title">アウトライン</span>
             </div>
@@ -222,7 +215,7 @@
               </details>
             </div>
           </div>
-          <div class="panel" data-panel="blocks">
+          <div class="panel no-header" data-panel="blocks">
             <div class="panel-header">
               <span class="panel-title">ブロック</span>
             </div>
@@ -233,11 +226,14 @@
                     <button class="block-toggle-button is-active" type="button" data-block="math">数式</button>
                     <button class="block-toggle-button" type="button" data-block="table">表</button>
                   </div>
-                  <div class="block-target" id="block-target">挿入先: 行 -</div>
+                </div>
+                <div class="block-actions">
+                  <button class="panel-button ghost" id="block-preview-button" type="button">プレビュー</button>
+                  <button class="panel-button" id="block-accept-button" type="button">確定</button>
                 </div>
                 <div class="block-form is-active" data-form="math">
-                  <label class="block-label" for="block-math-input-container">数式入力 (MathLive)</label>
                   <div id="block-math-input-container" class="block-math-input-container"></div>
+                </div>
                 <div class="block-form" data-form="table">
                   <div class="block-table-grid">
                     <div class="block-field">
@@ -250,14 +246,35 @@
                     </div>
                   </div>
                 </div>
-                <div class="block-actions">
-                  <button class="panel-button ghost" id="block-preview-button" type="button">プレビュー</button>
-                  <button class="panel-button" id="block-accept-button" type="button">確定</button>
+              </div>
+              <div class="math-keyboard-dock" id="math-keyboard-dock" aria-hidden="true">
+                <div class="math-keyboard-tabs" role="tablist" aria-label="数式キーボード">
+                  <button class="math-keyboard-tab" type="button" data-math-tab="greek">
+                    ギリシャ
+                  </button>
+                  <button class="math-keyboard-tab is-active" type="button" data-math-tab="analysis">
+                    解析
+                  </button>
+                  <button class="math-keyboard-tab" type="button" data-math-tab="algebra">
+                    代数
+                  </button>
+                  <button class="math-keyboard-tab" type="button" data-math-tab="sets">
+                    集合
+                  </button>
+                  <button class="math-keyboard-tab" type="button" data-math-tab="logic">
+                    論理
+                  </button>
+                  <button class="math-keyboard-tab" type="button" data-math-tab="arrows">
+                    矢印
+                  </button>
                 </div>
+                <div class="math-keyboard-grid" id="math-keyboard-grid"></div>
+                <div class="math-keyboard-divider"></div>
+                <div class="math-keyboard-fixed-grid" id="math-keyboard-fixed-grid"></div>
               </div>
             </div>
           </div>
-          <div class="panel" data-panel="git">
+          <div class="panel no-header" data-panel="git">
             <div class="panel-header">
               <span class="panel-title">Git</span>
               <div class="panel-header-actions">
@@ -268,7 +285,7 @@
               <div class="git-status" id="git-status"></div>
             </div>
           </div>
-          <div class="panel" data-panel="search">
+          <div class="panel no-header" data-panel="search">
             <div class="panel-header">
               <span class="panel-title">検索</span>
             </div>
@@ -285,7 +302,7 @@
               <div class="search-results" id="search-results"></div>
             </div>
           </div>
-          <div class="panel" data-panel="settings">
+          <div class="panel no-header" data-panel="settings">
             <div class="panel-header">
               <span class="panel-title">設定</span>
             </div>
@@ -327,7 +344,12 @@
         </aside>
         <div id="resizer" class="resizer"></div>
         <section class="editor">
-          <div class="editor-tabs" id="editor-tabs"></div>
+          <div class="editor-tabs" id="editor-tabs">
+            <div class="editor-tabs-list" id="editor-tabs-list"></div>
+            <div class="editor-tab-actions">
+              <button class="pill" id="build-button" type="button">ビルド</button>
+            </div>
+          </div>
           <div class="editor-surface">
             <div id="editor" class="editor-host" aria-label="editor"></div>
             <div class="editor-placeholder" id="editor-fallback">
@@ -336,33 +358,9 @@
               <div class="hint" id="editor-hint">読み込みに失敗した場合は再起動してください。</div>
             </div>
           </div>
-          <div class="math-keyboard-dock" id="math-keyboard-dock" aria-hidden="true">
-            <div class="math-keyboard-header">
-              <span class="math-keyboard-title">数式キーボード</span>
-              <div class="math-keyboard-tabs" role="tablist" aria-label="数式キーボード">
-                <button class="math-keyboard-tab is-active" type="button" data-math-tab="basic">
-                  基本
-                </button>
-                <button class="math-keyboard-tab" type="button" data-math-tab="relations">
-                  関係
-                </button>
-                <button class="math-keyboard-tab" type="button" data-math-tab="operators">
-                  演算
-                </button>
-                <button class="math-keyboard-tab" type="button" data-math-tab="greek">
-                  ギリシャ
-                </button>
-                <button class="math-keyboard-tab" type="button" data-math-tab="structures">
-                  構造
-                </button>
-              </div>
-            </div>
-            <div class="math-keyboard-grid" id="math-keyboard-grid"></div>
-          </div>
           <div class="quick-insert" id="quick-insert" aria-hidden="true">
             <div class="quick-header">
               <span class="quick-title">クイック挿入</span>
-              <span class="quick-target" id="quick-target">挿入先: 行 -</span>
             </div>
             <textarea
               class="quick-input"
@@ -476,7 +474,7 @@
     </div>
 
     <script>window.MATHLIVE_LOAD_ERROR = null;</script>
-    <script src="./mathlive/mathlive.min.js" onerror="window.MATHLIVE_LOAD_ERROR = 'Script load failed'"></script>
+    <script src="./mathlive/mathlive.min.js" onload="window.dispatchEvent(new Event('mathlive-ready'))" onerror="window.MATHLIVE_LOAD_ERROR = 'Script load failed'"></script>
     <script src="./monaco/vs/loader.js"></script>
     <script src="./main.js"></script>
   </body>

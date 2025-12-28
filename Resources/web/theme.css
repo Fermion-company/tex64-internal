@@ -13,13 +13,19 @@
   --shadow: none;
   --radius: 6px;
   --sidebar-width: 52px;
-  --sidebar-panel-width: 400px;
+  --sidebar-panel-width: calc((100vw - var(--sidebar-width) - 4px) / 2);
   --issues-height: 26px;
   --topbar-height: 38px;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -43,6 +49,7 @@ body.is-ready {
 
 .app {
   min-height: 100vh;
+  height: 100%;
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr var(--issues-height);
   gap: 0;
@@ -50,6 +57,7 @@ body.is-ready {
   opacity: 0;
   transition: opacity 0.4s ease;
   position: relative;
+  overflow: hidden;
 }
 
 body.is-ready .app {
@@ -246,9 +254,9 @@ body.has-launcher .app {
 }
 
 .topbar {
-  display: grid;
-  grid-template-columns: 160px 1fr auto;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   padding: 0 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--panel-border);
@@ -316,6 +324,7 @@ body.has-launcher .app {
   display: grid;
   grid-template-columns: var(--sidebar-width) var(--sidebar-panel-width) 4px 1fr;
   min-height: 0;
+  overflow: hidden;
 }
 
 .resizer {
@@ -344,12 +353,14 @@ body.has-launcher .app {
   background: #1b2129;
   border-right: 1px solid var(--panel-border);
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel {
   display: none;
   grid-template-rows: 32px 1fr;
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel.is-active {
@@ -365,6 +376,14 @@ body.has-launcher .app {
   background: #1f262f;
   font-size: 11px;
   color: var(--muted);
+}
+
+.panel.no-header {
+  grid-template-rows: 1fr;
+}
+
+.panel.no-header .panel-header {
+  display: none;
 }
 
 .panel-header-actions {
@@ -400,25 +419,38 @@ body.has-launcher .app {
   gap: 10px;
   padding: 10px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel-body.outline-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 .panel-body.blocks-panel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .block-compose {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  padding-right: 4px;
 }
 
 .block-row {
@@ -464,11 +496,14 @@ body.has-launcher .app {
 }
 
 .block-form.is-active {
-  display: grid;
+  display: flex;
+  flex-direction: column;
 }
 
 .block-form[data-form="math"] {
   gap: 10px;
+  flex: 1;
+  min-height: 0;
 }
 
 .block-label {
@@ -533,7 +568,7 @@ body.has-launcher .app {
 }
 
 .block-math-input {
-  background: #0f141b;
+  background: #0c141d;
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 16px;
@@ -574,38 +609,42 @@ math-field.block-math-field {
   padding: 18px;
   font-size: 20px;
   line-height: 1.5;
-  background: #0f141b;
-  color: var(--text);
-  border: 1px solid #2b3440;
+  background: #0c141d;
+  color: #eef3fb;
+  border: 1px solid #3a4a5e;
   border-radius: 10px;
-  --caret-color: var(--accent);
-  --selection-color: rgba(74, 168, 255, 0.4);
-  --selection-background-color: transparent;
+  --caret-color: #5bc2ff;
+  --selection-color: #f8fbff;
+  --selection-background-color: rgba(110, 195, 255, 0.7);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
 }
 
 .block-math-input-container {
   min-height: 120px;
-  border: 1px solid var(--panel-border);
-  background: #0f141b;
+  border: 1px solid #2f3c4d;
+  background: #0c141d;
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--muted);
   position: relative;
+  overflow: hidden;
 }
 
 math-field.block-math-field:focus,
 math-field.block-math-field:focus-within,
 math-field.block-math-field.is-focused {
-  border-color: var(--accent);
+  border-color: #5bc2ff;
   outline: none;
-  box-shadow: 0 0 0 2px rgba(74, 168, 255, 0.2);
+  box-shadow: 0 0 0 2px rgba(110, 195, 255, 0.3);
 }
 
 math-field.block-math-field::placeholder {
-  color: var(--muted);
+  color: #8fb3d4;
 }
 
 .block-math-hint {
@@ -709,8 +748,12 @@ math-field.block-math-field::placeholder {
 .search-results {
   display: grid;
   gap: 4px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 .search-item {
@@ -744,8 +787,12 @@ math-field.block-math-field::placeholder {
 .git-status {
   display: grid;
   gap: 6px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 .git-item {
@@ -956,10 +1003,14 @@ math-field.block-math-field::placeholder {
 
 .file-tree {
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
   -webkit-user-select: none;
   user-select: none;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 .file-tree.is-drop-target {
@@ -991,6 +1042,7 @@ math-field.block-math-field::placeholder {
   font-size: 11px;
   -webkit-user-select: none;
   user-select: none;
+  position: relative;
 }
 
 .file-folder summary.is-selected {
@@ -1022,7 +1074,19 @@ math-field.block-math-field::placeholder {
 .file-folder-children {
   display: grid;
   gap: 0;
-  padding-left: 12px;
+  padding-left: 16px;
+  margin-left: 4px;
+  position: relative;
+}
+
+.file-folder-children::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(86, 184, 255, 0.18);
 }
 
 .file-item {
@@ -1037,6 +1101,20 @@ math-field.block-math-field::placeholder {
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
+  position: relative;
+}
+
+.file-folder summary::after,
+.file-item::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 10px;
+  height: 1px;
+  background: rgba(86, 184, 255, 0.22);
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .file-item.is-dragging,
@@ -1137,7 +1215,7 @@ math-field.block-math-field::placeholder {
 
 .editor {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
   min-height: 0;
   background: #1c2129;
   position: relative;
@@ -1155,16 +1233,36 @@ math-field.block-math-field::placeholder {
 .editor-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 4px 8px;
   min-height: 28px;
   background: #1a2028;
   border-bottom: 1px solid var(--panel-border);
-  overflow-x: auto;
 }
 
-.editor-tabs.is-empty {
+.editor-tabs-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.editor-tabs-list.is-empty {
   display: none;
+}
+
+.editor-tabs-list::-webkit-scrollbar {
+  display: none;
+}
+
+.editor-tab-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .editor-tab {
@@ -1232,11 +1330,14 @@ math-field.block-math-field::placeholder {
 
 .math-keyboard-dock {
   display: none;
-  grid-template-rows: auto 1fr;
-  gap: 8px;
-  padding: 8px 10px 12px;
-  border-top: 1px solid var(--panel-border);
-  background: #1a2028;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #223041;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0f1924 0%, #0b1118 100%);
+  box-shadow:
+    0 -14px 28px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .math-keyboard-dock.is-open {
@@ -1248,68 +1349,196 @@ math-field.block-math-field::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(91, 194, 255, 0.12);
+}
+
+.math-keyboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.math-keyboard-shift {
+  border: 1px solid #2b3a4c;
+  border-radius: 999px;
+  background: #141e2a;
+  color: #b7c6d4;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0.08em;
+  padding: 6px 12px;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.math-keyboard-shift.is-active {
+  background: #5bc2ff;
+  border-color: #5bc2ff;
+  color: #0b1117;
+  box-shadow:
+    0 8px 18px rgba(91, 194, 255, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.math-keyboard-shift:focus-visible {
+  outline: 2px solid rgba(86, 184, 255, 0.6);
+  outline-offset: 2px;
 }
 
 .math-keyboard-title {
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0.12em;
+  color: #c2cbd6;
 }
 
 .math-keyboard-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  padding: 6px;
+  border-radius: 12px;
+  background: #0f1a26;
+  border: 1px solid #223244;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.math-keyboard-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .math-keyboard-tab {
-  border: 1px solid rgba(74, 168, 255, 0.16);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
+  background: #141f2b;
+  color: #b3c0cc;
   font-size: 10px;
-  padding: 3px 8px;
+  padding: 5px 12px;
   cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
 .math-keyboard-tab.is-active {
-  color: var(--text);
-  border-color: rgba(74, 168, 255, 0.5);
-  background: rgba(74, 168, 255, 0.12);
+  color: #f1f7ff;
+  border-color: rgba(91, 194, 255, 0.7);
+  background: rgba(91, 194, 255, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(91, 194, 255, 0.2);
 }
 
 .math-keyboard-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
   gap: 6px;
   align-content: start;
-  min-height: 96px;
-  max-height: 200px;
-  overflow: auto;
-  padding-right: 4px;
+  min-height: 136px;
+  max-height: 208px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  border-radius: 12px;
+  background: #0f1822;
+  border: 1px solid #223041;
+  scrollbar-gutter: stable;
+}
+
+.math-keyboard-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #2b3a4a, transparent);
+  opacity: 0.9;
+}
+
+.math-keyboard-fixed-label {
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0.12em;
+  color: #c2cbd6;
+}
+
+.math-keyboard-fixed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+  gap: 6px;
+  align-content: start;
+  padding: 6px;
+  border-radius: 12px;
+  background: #0f1822;
+  border: 1px solid #223041;
 }
 
 .math-keyboard-key {
-  border: 1px solid #2b3440;
-  border-radius: 6px;
-  background: #141a22;
-  color: var(--text);
-  font-size: 12px;
-  padding: 8px 6px;
+  border: 1px solid #2b3a4c;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #1b2633 0%, #101720 100%);
+  color: #e9f0f7;
+  font-size: 13px;
+  padding: 7px 6px;
   text-align: center;
   cursor: pointer;
-  font-family: "SF Mono", Menlo, monospace;
+  font-family: "Hiragino Sans", "Avenir Next", "Yu Gothic", sans-serif;
+  line-height: 1.1;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  text-rendering: optimizeLegibility;
+  white-space: nowrap;
+  transition: transform 0.15s ease, border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.math-keyboard-key.has-math {
+  font-family: "KaTeX_Main", "Times New Roman", serif;
+  font-weight: 500;
+}
+
+.math-keyboard-math {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  pointer-events: none;
+  font-size: 1.08em;
+}
+
+.math-keyboard-math .ML__latex {
+  line-height: 1;
 }
 
 .math-keyboard-key:hover {
-  border-color: rgba(74, 168, 255, 0.4);
+  border-color: rgba(91, 194, 255, 0.6);
+  background: linear-gradient(180deg, #223042 0%, #131c27 100%);
+  transform: translateY(-1px);
 }
 
 .math-keyboard-key:active {
   transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.45),
+    0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.math-keyboard-key:focus-visible {
+  outline: 2px solid rgba(86, 184, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.math-keyboard-key.is-compact {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.math-keyboard-key.is-tiny {
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .editor-host {
@@ -1862,8 +2091,7 @@ body.has-editor .editor-placeholder {
 
 @media (max-width: 720px) {
   .topbar {
-    grid-template-columns: 1fr;
-    gap: 6px;
+    justify-content: flex-end;
     padding: 6px 10px;
     height: auto;
   }
