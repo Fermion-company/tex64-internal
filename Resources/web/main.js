@@ -148,6 +148,128 @@ window.addEventListener("DOMContentLoaded", () => {
             element.textContent = text;
         }
     };
+    // ============================================
+    // LaTeX Block Auto-Detection
+    // ============================================
+    let currentDetectedBlock = null;
+    let blockDetectionDebounceTimer = null;
+    const LATEX_BLOCK_PATTERNS = [
+        // ブロック数式（複数行対応）
+        { type: "math", pattern: /\\begin\{(equation|align|gather|multline|eqnarray)\*?\}([\s\S]*?)\\end\{\1\*?\}/g, env: true },
+        // ディスプレイ数式
+        { type: "math", pattern: /\\\[([\s\S]*?)\\\]/g, env: false },
+        // インライン数式（$...$）
+        { type: "math", pattern: /\$([^$]+)\$/g, env: false, inline: true },
+        // 表
+        { type: "table", pattern: /\\begin\{(tabular|table)\*?\}([\s\S]*?)\\end\{\1\*?\}/g, env: true },
+    ];
+    /**
+     * カーソル位置のLaTeXブロックを検出
+     * @param {string} text - ドキュメント全体のテキスト
+     * @param {number} offset - カーソル位置（0-indexed）
+     * @returns {{ type: string, content: string, start: number, end: number, envName?: string } | null}
+     */
+    const detectLatexBlockAtOffset = (text, offset) => {
+        for (const patternDef of LATEX_BLOCK_PATTERNS) {
+            const regex = new RegExp(patternDef.pattern.source, patternDef.pattern.flags);
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                const start = match.index;
+                const end = match.index + match[0].length;
+                if (offset >= start && offset <= end) {
+                    // カーソルがこのブロック内にある
+                    let content = "";
+                    let envName = null;
+                    if (patternDef.env) {
+                        // 環境の場合、環境名と内容を抽出
+                        envName = match[1];
+                        content = match[2] || "";
+                    } else if (patternDef.pattern.source.includes("\\$")) {
+                        // インライン$...$の場合
+                        content = match[1] || "";
+                    } else {
+                        // \[...\]の場合
+                        content = match[1] || "";
+                    }
+                    return {
+                        type: patternDef.type,
+                        content: content.trim(),
+                        start,
+                        end,
+                        envName,
+                        inline: patternDef.inline || false,
+                        fullMatch: match[0]
+                    };
+                }
+            }
+        }
+        return null;
+    };
+    /**
+     * カーソル位置変更時にブロックを検出してサイドバーを更新
+     */
+    const handleCursorPositionChange = (position) => {
+        if (!monacoEditor) return;
+        // デバウンス処理
+        if (blockDetectionDebounceTimer) {
+            clearTimeout(blockDetectionDebounceTimer);
+        }
+        blockDetectionDebounceTimer = setTimeout(() => {
+            const model = monacoEditor.getModel();
+            if (!model) return;
+            const text = model.getValue();
+            const offset = model.getOffsetAt(position);
+            const detected = detectLatexBlockAtOffset(text, offset);
+            if (detected && (!currentDetectedBlock || 
+                currentDetectedBlock.start !== detected.start || 
+                currentDetectedBlock.end !== detected.end)) {
+                // 新しいブロックを検出
+                currentDetectedBlock = detected;
+                // サイドバーをブロックパネルに切り替え
+                if (!document.querySelector('.panel[data-panel="blocks"].is-active')) {
+                    const blocksTab = document.querySelector('.tab[data-tab="blocks"]');
+                    if (blocksTab) blocksTab.click();
+                }
+                // ブロックタイプを設定
+                setActiveBlockType(detected.type);
+                // 内容をロード
+                if (detected.type === "math") {
+                    setMathInputValue(detected.content);
+                }
+                // 視覚的フィードバック：エディタ内のブロックをハイライト
+                highlightDetectedBlock(detected.start, detected.end);
+            } else if (!detected && currentDetectedBlock) {
+                // ブロック外に移動
+                currentDetectedBlock = null;
+                clearBlockHighlight();
+            }
+        }, 150);
+    };
+    let blockHighlightDecorations = [];
+    const highlightDetectedBlock = (start, end) => {
+        if (!monacoEditor) return;
+        const model = monacoEditor.getModel();
+        if (!model) return;
+        const startPos = model.getPositionAt(start);
+        const endPos = model.getPositionAt(end);
+        blockHighlightDecorations = monacoEditor.deltaDecorations(blockHighlightDecorations, [{
+            range: {
+                startLineNumber: startPos.lineNumber,
+                startColumn: startPos.column,
+                endLineNumber: endPos.lineNumber,
+                endColumn: endPos.column
+            },
+            options: {
+                className: "detected-block-highlight",
+                isWholeLine: false
+            }
+        }]);
+    };
+    const clearBlockHighlight = () => {
+        if (monacoEditor) {
+            blockHighlightDecorations = monacoEditor.deltaDecorations(blockHighlightDecorations, []);
+        }
+    };
     const setLauncherVisible = (isVisible) => {
         if (launcher instanceof HTMLElement) {
             launcher.classList.toggle("is-visible", isVisible);
@@ -1676,6 +1798,8 @@ window.addEventListener("DOMContentLoaded", () => {
         activeBlockRange = null;
         activeBlockOriginalSnippet = null;
         pendingBlockEdit = null;
+        currentDetectedBlock = null;
+        clearBlockHighlight();
         clearInsertPreview();
         setText(blockTarget, "挿入先: 行 -");
     };
@@ -3782,7 +3906,8 @@ window.addEventListener("DOMContentLoaded", () => {
         blockPreviewActive = true;
     };
     const applyBlockInsert = () => {
-        if (!blockPreviewActive) {
+        // 自動検出ブロックの場合はプレビューなしでも確定OK
+        if (!blockPreviewActive && !currentDetectedBlock) {
             updateIssues(1, "プレビューを確認してから確定してください。", "error", [
                 { severity: "error", message: "プレビューを確認してから確定してください。" },
             ]);
@@ -3810,7 +3935,23 @@ window.addEventListener("DOMContentLoaded", () => {
         let range;
         let line = quickInsertTarget.lineNumber;
         let column = quickInsertTarget.column;
-        if (activeBlockEditId) {
+        // 自動検出されたブロックを更新する場合
+        if (currentDetectedBlock && !activeBlockEditId) {
+            const model = editor.getModel();
+            if (model) {
+                const startPos = model.getPositionAt(currentDetectedBlock.start);
+                const endPos = model.getPositionAt(currentDetectedBlock.end);
+                range = new monacoApiAny.Range(
+                    startPos.lineNumber,
+                    startPos.column,
+                    endPos.lineNumber,
+                    endPos.column
+                );
+                line = startPos.lineNumber;
+                column = startPos.column;
+            }
+        }
+        else if (activeBlockEditId) {
             if (!activeBlockRange) {
                 updateIssues(1, "ブロックの位置が見つかりません。", "error", [
                     { severity: "error", message: "ブロックの位置が見つかりません。" },
@@ -4510,6 +4651,12 @@ window.addEventListener("DOMContentLoaded", () => {
             }
             updateBreadcrumbs();
             renderFileTree();
+        });
+        // カーソル位置変更時にLaTeXブロックを検出
+        editor.onDidChangeCursorPosition((e) => {
+            if (currentFilePath && currentFilePath.endsWith(".tex")) {
+                handleCursorPositionChange(e.position);
+            }
         });
         document.body.classList.add("has-editor");
     }, () => {

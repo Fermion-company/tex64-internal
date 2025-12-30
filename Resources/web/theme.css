@@ -2087,6 +2087,10 @@ body.has-editor .editor-placeholder {
   background: rgba(74, 168, 255, 0.16);
 }
 
+.monaco-editor .detected-block-highlight {
+  background: rgba(91, 194, 255, 0.12);
+  border-left: 2px solid rgba(91, 194, 255, 0.6);
+}
 @media (max-width: 720px) {
   .topbar {
     justify-content: flex-end;
