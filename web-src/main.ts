@@ -62,6 +62,11 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   let monacoEditor: unknown = null;
+  let diffEditor: unknown = null;
+  let diffOriginalModel: { setValue?: (value: string) => void; dispose?: () => void } | null =
+    null;
+  let diffModifiedModel: { setValue?: (value: string) => void; dispose?: () => void } | null =
+    null;
   let monacoApi: Record<string, unknown> | null = null;
   let quickInsertDecorations: string[] = [];
   let quickInsertWidget: {
@@ -88,7 +93,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const quickInsertAccept = document.getElementById("quick-accept");
   const quickInsertCancel = document.getElementById("quick-cancel");
   const buildButton = document.getElementById("build-button");
-  const blockEditorButton = document.getElementById("block-editor-button");
   const autoBuildButton = document.getElementById("auto-build-button");
   const issuesCount = document.getElementById("issues-count");
   const issuesHint = document.getElementById("issues-hint");
@@ -116,8 +120,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const sidebarPanel = document.querySelector<HTMLElement>(".sidebar-panel");
   const outlineEmpty = document.getElementById("outline-empty");
   const outlineSections = document.getElementById("outline-sections");
-  const outlineFigures = document.getElementById("outline-figures");
-  const outlineTables = document.getElementById("outline-tables");
   const outlineTodos = document.getElementById("outline-todos");
   const outlineLabels = document.getElementById("outline-labels");
   const outlineCitations = document.getElementById("outline-citations");
@@ -132,15 +134,71 @@ window.addEventListener("DOMContentLoaded", () => {
   );
   const blockTarget = document.getElementById("block-target");
   let blockMathInput: HTMLElement | null = null;
+  let blockMathInputFallback: { value: string } | null = null;
   const blockMathInputContainer = document.getElementById("block-math-input-container");
   const blockMathPreviewWrap = document.getElementById("block-math-preview-wrap");
   const blockMathPreview = document.getElementById("block-math-preview");
   const blockTableRows = document.getElementById("block-table-rows");
   const blockTableCols = document.getElementById("block-table-cols");
-  const blockPreviewButton = document.getElementById("block-preview-button");
-  const blockAcceptButton = document.getElementById("block-accept-button");
-  const blockCancelButton = document.getElementById("block-cancel-button");
-  const blockList = document.getElementById("block-list");
+  const blockTableGrid = document.getElementById("block-table-grid");
+  const blockTableRaw = document.getElementById("block-table-raw");
+  const blockTableRawInput = document.getElementById("block-table-raw-input");
+  const blockInsertButton = document.getElementById("block-insert-button");
+  const blockFormatHint = document.getElementById("block-format-hint");
+  const blockTableFormatHint = document.getElementById("block-table-format-hint");
+  const blocksPanelBody = document.querySelector<HTMLElement>(".blocks-panel");
+  const isE2E = new URLSearchParams(window.location.search).get("e2e") === "1";
+  if (isE2E) {
+    (
+      window as {
+        __tex180SetMathInputFallback?: (value: string | null) => void;
+        __tex180GetMathInputFallback?: () => string | null;
+      }
+    ).__tex180SetMathInputFallback = (value) => {
+      blockMathInputFallback = typeof value === "string" ? { value } : null;
+    };
+    (
+      window as { __tex180GetMathInputFallback?: () => string | null }
+    ).__tex180GetMathInputFallback = () =>
+      blockMathInputFallback ? blockMathInputFallback.value : null;
+  }
+  
+  // Context-Aware Editing Types
+  // Wrapper type is now implicit in prefix/suffix
+  
+  type BlockContext = {
+    type: "math" | "table";
+    originalSnippet: string;
+    prefix: string;
+    suffix: string;
+    envName?: string; // Kept for potential UI usage, but not used for reconstruction
+  };
+
+  type DetectedBlockSnapshot = {
+    type: BlockType;
+    start: number;
+    end: number;
+    snippet: string;
+    context: BlockContext | null;
+    modelVersion: number;
+  };
+
+  type PendingBlockApply = {
+    mode: BlockApplyMode;
+    draft: { snippet: string; content: BlockContent };
+    detectedSnapshot?: DetectedBlockSnapshot | null;
+    insertPosition?: { lineNumber: number; column: number } | null;
+  };
+
+  let activeBlockContext: BlockContext | null = null;
+  let currentBlockDraft: { snippet: string; content: any } | null = null;
+  const diffModal = document.getElementById("diff-modal");
+  const diffTitle = document.getElementById("diff-modal-title");
+  const diffModalCancel = document.getElementById("diff-modal-cancel");
+  const diffModalSubmit = document.getElementById("diff-modal-submit");
+  const blockDiffContainer = document.getElementById("block-diff-container");
+  const diffSummary = document.getElementById("diff-summary");
+  const diffFileName = document.getElementById("diff-file-name");
   const mathKeyboardDock = document.getElementById("math-keyboard-dock");
   const mathKeyboardGrid = document.getElementById("math-keyboard-grid");
   const mathKeyboardFixedGrid = document.getElementById("math-keyboard-fixed-grid");
@@ -157,6 +215,12 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsRootSelect = document.getElementById("settings-root-select");
   const settingsRootAuto = document.getElementById("settings-root-auto");
   const settingsWorkspace = document.getElementById("settings-workspace");
+  const envRegistryInput = document.getElementById("env-registry-input");
+  const envRegistryKind = document.getElementById("env-registry-kind");
+  const envRegistryAdd = document.getElementById("env-registry-add");
+  const envRegistryHint = document.getElementById("env-registry-hint");
+  const envRegistryMathList = document.getElementById("env-registry-math");
+  const envRegistryTableList = document.getElementById("env-registry-table");
   const createModal = document.getElementById("create-modal");
   const createModalTitle = document.getElementById("create-modal-title");
   const createModalSubtitle = document.getElementById("create-modal-subtitle");
@@ -182,6 +246,35 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const setTableEditMode = (mode: "grid" | "raw") => {
+    tableEditMode = mode;
+    if (blockTableGrid instanceof HTMLElement) {
+      blockTableGrid.classList.toggle("is-hidden", mode === "raw");
+    }
+    if (blockTableRaw instanceof HTMLElement) {
+      blockTableRaw.classList.toggle("is-active", mode === "raw");
+    }
+    if (blockTableFormatHint instanceof HTMLElement) {
+      blockTableFormatHint.classList.toggle("is-hidden", mode !== "raw");
+    }
+  };
+
+  const setAutoDetectedUi = (enabled: boolean, lineNumber?: number) => {
+    if (blocksPanelBody instanceof HTMLElement) {
+      blocksPanelBody.classList.toggle("is-auto-detected", enabled);
+    }
+    if (blockFormatHint instanceof HTMLElement) {
+      blockFormatHint.classList.toggle("is-hidden", !enabled);
+    }
+    if (blockTarget instanceof HTMLElement) {
+      if (enabled && typeof lineNumber === "number") {
+        setText(blockTarget, `自動判定: 行 ${lineNumber}`);
+      } else {
+        setText(blockTarget, "自動判定: 未検出");
+      }
+    }
+  };
+
   // ============================================
   // LaTeX Block Auto-Detection
   // ============================================
@@ -195,67 +288,947 @@ window.addEventListener("DOMContentLoaded", () => {
     fullMatch?: string;
   };
 
-  type LatexBlockPattern = {
-    type: DetectedLatexBlock["type"];
-    pattern: RegExp;
-    env: boolean;
-    inline?: boolean;
-  };
-
   let currentDetectedBlock: DetectedLatexBlock | null = null;
   let blockDetectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  const LATEX_BLOCK_PATTERNS: LatexBlockPattern[] = [
-    // ブロック数式（複数行対応）
-    {
-      type: "math",
-      pattern: /\\begin\{(equation|align|gather|multline|eqnarray)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,
-      env: true,
-    },
-    // ディスプレイ数式
-    { type: "math", pattern: /\\\[([\s\S]*?)\\\]/g, env: false },
-    // インライン数式（$...$）
-    { type: "math", pattern: /\$([^$]+)\$/g, env: false, inline: true },
-    // 表
-    { type: "table", pattern: /\\begin\{(tabular|table)\*?\}([\s\S]*?)\\end\{\1\*?\}/g, env: true },
+  type LatexEnvKind = "math" | "table";
+  type LatexEnvRegistryEntry = {
+    name: string;
+    kind: LatexEnvKind;
+    package: string;
+    discouraged?: boolean;
+  };
+
+  const normalizeEnvName = (name: string) => name.trim();
+
+  const getEnvBaseName = (name: string) =>
+    name.endsWith("*") ? name.slice(0, -1) : name;
+
+  const DEFAULT_ENV_REGISTRY: LatexEnvRegistryEntry[] = [
+    { name: "math", kind: "math", package: "latex" },
+    { name: "displaymath", kind: "math", package: "latex" },
+    { name: "equation", kind: "math", package: "amsmath" },
+    { name: "eqnarray", kind: "math", package: "latex", discouraged: true },
+    { name: "align", kind: "math", package: "amsmath" },
+    { name: "alignat", kind: "math", package: "amsmath" },
+    { name: "xalignat", kind: "math", package: "amsmath" },
+    { name: "xxalignat", kind: "math", package: "amsmath" },
+    { name: "flalign", kind: "math", package: "amsmath" },
+    { name: "gather", kind: "math", package: "amsmath" },
+    { name: "multline", kind: "math", package: "amsmath" },
+    { name: "split", kind: "math", package: "amsmath" },
+    { name: "aligned", kind: "math", package: "amsmath" },
+    { name: "alignedat", kind: "math", package: "amsmath" },
+    { name: "gathered", kind: "math", package: "amsmath" },
+    { name: "multlined", kind: "math", package: "mathtools" },
+    { name: "cases", kind: "math", package: "amsmath" },
+    { name: "dcases", kind: "math", package: "mathtools" },
+    { name: "rcases", kind: "math", package: "mathtools" },
+    { name: "numcases", kind: "math", package: "mathtools" },
+    { name: "subnumcases", kind: "math", package: "mathtools" },
+    { name: "empheq", kind: "math", package: "empheq" },
+    { name: "matrix", kind: "math", package: "amsmath" },
+    { name: "pmatrix", kind: "math", package: "amsmath" },
+    { name: "bmatrix", kind: "math", package: "amsmath" },
+    { name: "Bmatrix", kind: "math", package: "amsmath" },
+    { name: "vmatrix", kind: "math", package: "amsmath" },
+    { name: "Vmatrix", kind: "math", package: "amsmath" },
+    { name: "smallmatrix", kind: "math", package: "amsmath" },
+    { name: "array", kind: "math", package: "latex" },
+    { name: "subarray", kind: "math", package: "amsmath" },
+    { name: "substack", kind: "math", package: "amsmath" },
+    { name: "subequations", kind: "math", package: "amsmath" },
+    { name: "dmath", kind: "math", package: "breqn" },
+    { name: "dgroup", kind: "math", package: "breqn" },
+    { name: "darray", kind: "math", package: "breqn" },
+    { name: "IEEEeqnarray", kind: "math", package: "IEEEtrantools" },
+    { name: "IEEEeqnarraybox", kind: "math", package: "IEEEtrantools" },
+    { name: "mathpar", kind: "math", package: "mathpartir" },
+    { name: "mathparpagebreakable", kind: "math", package: "mathpartir" },
+    { name: "table", kind: "table", package: "latex" },
+    { name: "tabular", kind: "table", package: "latex" },
+    { name: "tabularx", kind: "table", package: "tabularx" },
+    { name: "tabulary", kind: "table", package: "tabulary" },
+    { name: "longtable", kind: "table", package: "longtable" },
+    { name: "ltablex", kind: "table", package: "ltablex" },
+    { name: "xltabular", kind: "table", package: "xltabular" },
+    { name: "tabu", kind: "table", package: "tabu" },
+    { name: "longtabu", kind: "table", package: "tabu" },
+    { name: "supertabular", kind: "table", package: "supertabular" },
+    { name: "tblr", kind: "table", package: "tabularray" },
+    { name: "longtblr", kind: "table", package: "tabularray" },
   ];
+
+  const CUSTOM_ENV_STORAGE_KEY = "tex180.custom-env-registry";
+  const DISABLED_ENV_STORAGE_KEY = "tex180.disabled-env-registry";
+  let customEnvRegistry: LatexEnvRegistryEntry[] = [];
+  let disabledEnvNames = new Set<string>();
+  let MATH_ENV_NAMES = new Set<string>();
+  let TABLE_ENV_NAMES = new Set<string>();
+  let ENV_PACKAGE_BY_NAME = new Map<string, string>();
+  let DISCOURAGED_ENV_NAMES = new Set<string>();
+
+  const parseCustomEnvEntry = (
+    entry: unknown,
+    fallbackKind: LatexEnvKind
+  ): LatexEnvRegistryEntry | null => {
+    if (typeof entry === "string") {
+      const name = normalizeEnvName(entry);
+      if (!name) {
+        return null;
+      }
+      return { name, kind: fallbackKind, package: "custom" };
+    }
+    if (entry && typeof entry === "object") {
+      const entryAny = entry as {
+        name?: unknown;
+        kind?: unknown;
+        package?: unknown;
+        discouraged?: unknown;
+      };
+      if (typeof entryAny.name !== "string") {
+        return null;
+      }
+      const name = normalizeEnvName(entryAny.name);
+      if (!name) {
+        return null;
+      }
+      const kind =
+        entryAny.kind === "table" || entryAny.kind === "math"
+          ? entryAny.kind
+          : fallbackKind;
+      const pkg = typeof entryAny.package === "string" ? entryAny.package : "custom";
+      const discouraged = entryAny.discouraged === true;
+      return { name, kind, package: pkg, discouraged };
+    }
+    return null;
+  };
+
+  const normalizeCustomEnvList = (
+    value: unknown,
+    fallbackKind: LatexEnvKind
+  ): LatexEnvRegistryEntry[] => {
+    if (!value) {
+      return [];
+    }
+    if (typeof value === "string") {
+      return value
+        .split(/[,\\n]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((name) => ({ name, kind: fallbackKind, package: "custom" }));
+    }
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const entries: LatexEnvRegistryEntry[] = [];
+    value.forEach((item) => {
+      const parsed = parseCustomEnvEntry(item, fallbackKind);
+      if (parsed) {
+        entries.push(parsed);
+      }
+    });
+    return entries;
+  };
+
+  const buildCustomEnvRegistry = (value: unknown): LatexEnvRegistryEntry[] => {
+    if (Array.isArray(value) || typeof value === "string") {
+      return normalizeCustomEnvList(value, "math");
+    }
+    if (value && typeof value === "object") {
+      const payload = value as { entries?: unknown; math?: unknown; table?: unknown };
+      const entries = normalizeCustomEnvList(payload.entries, "math");
+      return entries
+        .concat(normalizeCustomEnvList(payload.math, "math"))
+        .concat(normalizeCustomEnvList(payload.table, "table"));
+    }
+    return [];
+  };
+
+  const parseCustomEnvRegistry = (raw: string | null): LatexEnvRegistryEntry[] => {
+    if (!raw) {
+      return [];
+    }
+    try {
+      return buildCustomEnvRegistry(JSON.parse(raw));
+    } catch {
+      return buildCustomEnvRegistry(raw);
+    }
+  };
+
+  const normalizeDisabledEnvNames = (names: string[]) =>
+    names
+      .map((name) => getEnvBaseName(normalizeEnvName(name)))
+      .filter((name) => name.length > 0);
+
+  const parseDisabledEnvRegistry = (raw: string | null): string[] => {
+    if (!raw) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return normalizeDisabledEnvNames(
+          parsed.filter((name) => typeof name === "string") as string[]
+        );
+      }
+    } catch {
+      // fall through to CSV parsing
+    }
+    return normalizeDisabledEnvNames(
+      raw
+        .split(/[,\\n]/)
+        .map((name) => name.trim())
+        .filter(Boolean)
+    );
+  };
+
+  const loadDisabledEnvRegistry = () => {
+    try {
+      disabledEnvNames = new Set(
+        parseDisabledEnvRegistry(
+          typeof localStorage === "undefined"
+            ? null
+            : localStorage.getItem(DISABLED_ENV_STORAGE_KEY)
+        )
+      );
+    } catch {
+      disabledEnvNames = new Set<string>();
+    }
+  };
+
+  const saveDisabledEnvRegistry = () => {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          DISABLED_ENV_STORAGE_KEY,
+          JSON.stringify(Array.from(disabledEnvNames))
+        );
+      }
+    } catch {
+      // ignore storage failures
+    }
+  };
+
+  const isEnvDisabled = (name: string) => disabledEnvNames.has(name);
+
+  const rebuildEnvRegistry = () => {
+    const math = new Set<string>();
+    const table = new Set<string>();
+    const packages = new Map<string, string>();
+    const discouraged = new Set<string>();
+    DEFAULT_ENV_REGISTRY.concat(customEnvRegistry).forEach((entry) => {
+      const base = getEnvBaseName(normalizeEnvName(entry.name));
+      if (!base) {
+        return;
+      }
+      if (!isEnvDisabled(base)) {
+        if (entry.kind === "table") {
+          table.add(base);
+        } else {
+          math.add(base);
+        }
+      }
+      if (entry.package) {
+        packages.set(base, entry.package);
+      }
+      if (entry.discouraged) {
+        discouraged.add(base);
+      }
+    });
+    MATH_ENV_NAMES = math;
+    TABLE_ENV_NAMES = table;
+    ENV_PACKAGE_BY_NAME = packages;
+    DISCOURAGED_ENV_NAMES = discouraged;
+  };
+
+  const loadEnvRegistryState = () => {
+    loadDisabledEnvRegistry();
+    try {
+      customEnvRegistry = parseCustomEnvRegistry(
+        typeof localStorage === "undefined"
+          ? null
+          : localStorage.getItem(CUSTOM_ENV_STORAGE_KEY)
+      );
+    } catch {
+      customEnvRegistry = [];
+    }
+    rebuildEnvRegistry();
+  };
+
+  const setCustomEnvRegistry = (value: unknown) => {
+    customEnvRegistry = buildCustomEnvRegistry(value);
+    rebuildEnvRegistry();
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(CUSTOM_ENV_STORAGE_KEY, JSON.stringify(value));
+      }
+    } catch {
+      // ignore storage failures
+    }
+    handleEnvRegistryUpdate(false);
+  };
+
+  const clearCustomEnvRegistry = () => {
+    customEnvRegistry = [];
+    rebuildEnvRegistry();
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem(CUSTOM_ENV_STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage failures
+    }
+    handleEnvRegistryUpdate(false);
+  };
+
+  loadEnvRegistryState();
+
+  (
+    window as {
+      __tex180SetCustomEnvRegistry?: (value: unknown) => void;
+      __tex180ClearCustomEnvRegistry?: () => void;
+      __tex180GetEnvRegistry?: () => {
+        math: string[];
+        table: string[];
+        discouraged: string[];
+      };
+    }
+  ).__tex180SetCustomEnvRegistry = setCustomEnvRegistry;
+  (window as { __tex180ClearCustomEnvRegistry?: () => void })
+    .__tex180ClearCustomEnvRegistry = clearCustomEnvRegistry;
+  (
+    window as {
+      __tex180GetEnvRegistry?: () => {
+        math: string[];
+        table: string[];
+        discouraged: string[];
+        packages: Record<string, string>;
+        disabled: string[];
+      };
+    }
+  ).__tex180GetEnvRegistry = () => ({
+    math: Array.from(MATH_ENV_NAMES),
+    table: Array.from(TABLE_ENV_NAMES),
+    discouraged: Array.from(DISCOURAGED_ENV_NAMES),
+    packages: Object.fromEntries(ENV_PACKAGE_BY_NAME),
+    disabled: Array.from(disabledEnvNames),
+  });
+
+  type EnvRegistryUiEntry = {
+    name: string;
+    kind: LatexEnvKind;
+    package: string;
+    discouraged: boolean;
+    source: "default" | "custom";
+    enabled: boolean;
+  };
+
+  const getEnvRegistryKey = (entry: { name: string; kind: LatexEnvKind }) =>
+    `${entry.kind}:${getEnvBaseName(normalizeEnvName(entry.name))}`;
+
+  const buildEnvRegistryLists = () => {
+    const map = new Map<string, EnvRegistryUiEntry>();
+    const pushEntry = (
+      entry: LatexEnvRegistryEntry,
+      source: EnvRegistryUiEntry["source"]
+    ) => {
+      const base = getEnvBaseName(normalizeEnvName(entry.name));
+      if (!base) {
+        return;
+      }
+      const key = `${entry.kind}:${base}`;
+      if (map.has(key) && source === "custom") {
+        return;
+      }
+      map.set(key, {
+        name: base,
+        kind: entry.kind,
+        package: entry.package || "custom",
+        discouraged: entry.discouraged === true,
+        source,
+        enabled: !disabledEnvNames.has(base),
+      });
+    };
+    DEFAULT_ENV_REGISTRY.forEach((entry) => pushEntry(entry, "default"));
+    customEnvRegistry.forEach((entry) => pushEntry(entry, "custom"));
+    const entries = Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    return {
+      math: entries.filter((entry) => entry.kind === "math"),
+      table: entries.filter((entry) => entry.kind === "table"),
+    };
+  };
+
+  const setEnvRegistryHint = (message: string) => {
+    if (envRegistryHint instanceof HTMLElement) {
+      envRegistryHint.textContent = message;
+    }
+  };
+
+  function renderEnvRegistry() {
+    if (!(envRegistryMathList instanceof HTMLElement)) {
+      return;
+    }
+    if (!(envRegistryTableList instanceof HTMLElement)) {
+      return;
+    }
+    envRegistryMathList.innerHTML = "";
+    envRegistryTableList.innerHTML = "";
+
+    const lists = buildEnvRegistryLists();
+    const renderRow = (entry: EnvRegistryUiEntry) => {
+      const row = document.createElement("div");
+      row.className = "env-registry-row";
+      row.dataset.envName = entry.name;
+      row.dataset.envKind = entry.kind;
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = `settings-toggle env-registry-toggle${
+        entry.enabled ? " is-on" : ""
+      }`;
+      toggle.textContent = entry.enabled ? "ON" : "OFF";
+      toggle.dataset.envAction = "toggle";
+      toggle.dataset.envName = entry.name;
+      toggle.dataset.envKind = entry.kind;
+      toggle.setAttribute("aria-pressed", entry.enabled ? "true" : "false");
+      row.appendChild(toggle);
+
+      const label = document.createElement("div");
+      label.className = "env-registry-label";
+
+      const name = document.createElement("span");
+      name.className = "env-registry-name";
+      name.textContent = entry.name;
+      label.appendChild(name);
+
+      const meta = document.createElement("span");
+      meta.className = "env-registry-meta";
+      meta.textContent = entry.package;
+      label.appendChild(meta);
+
+      if (entry.discouraged) {
+        const flag = document.createElement("span");
+        flag.className = "env-registry-flag";
+        flag.textContent = "非推奨";
+        label.appendChild(flag);
+      }
+      if (entry.source === "custom") {
+        const flag = document.createElement("span");
+        flag.className = "env-registry-flag is-custom";
+        flag.textContent = "custom";
+        label.appendChild(flag);
+      }
+
+      row.appendChild(label);
+
+      if (entry.source === "custom") {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "panel-button ghost env-registry-remove";
+        remove.textContent = "削除";
+        remove.dataset.envAction = "remove";
+        remove.dataset.envName = entry.name;
+        remove.dataset.envKind = entry.kind;
+        row.appendChild(remove);
+      } else {
+        const spacer = document.createElement("div");
+        spacer.className = "env-registry-spacer";
+        row.appendChild(spacer);
+      }
+
+      return row;
+    };
+
+    lists.math.forEach((entry) => {
+      envRegistryMathList.appendChild(renderRow(entry));
+    });
+    lists.table.forEach((entry) => {
+      envRegistryTableList.appendChild(renderRow(entry));
+    });
+  }
+
+  const refreshDetectedBlockAfterEnvRegistry = (allowTabSwitch = false) => {
+    if (!monacoEditor) {
+      return;
+    }
+    const editor = monacoEditor as {
+      getPosition?: () => { lineNumber: number; column: number } | null;
+    };
+    const position = editor.getPosition?.() ?? null;
+    syncDetectedBlockAtPosition(position, {
+      force: true,
+      allowTabSwitch,
+    });
+  };
+
+  function handleEnvRegistryUpdate(allowTabSwitch = false) {
+    renderEnvRegistry();
+    refreshDetectedBlockAfterEnvRegistry(allowTabSwitch);
+  }
+
+  const normalizeEnvInput = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+    const match = trimmed.match(/\\(?:begin|end)\{([^}]+)\}/);
+    let name = match ? match[1] : trimmed;
+    name = name.replace(/[{}]/g, "");
+    name = name.replace(/^\\+/, "");
+    return getEnvBaseName(normalizeEnvName(name));
+  };
+
+  const hasRegistryEntry = (name: string, kind: LatexEnvKind) => {
+    const base = getEnvBaseName(normalizeEnvName(name));
+    const matches = (entry: LatexEnvRegistryEntry) =>
+      entry.kind === kind &&
+      getEnvBaseName(normalizeEnvName(entry.name)) === base;
+    return (
+      DEFAULT_ENV_REGISTRY.some(matches) || customEnvRegistry.some(matches)
+    );
+  };
+
+  const hasRegistryEntryInOtherKind = (name: string, kind: LatexEnvKind) => {
+    const base = getEnvBaseName(normalizeEnvName(name));
+    const matches = (entry: LatexEnvRegistryEntry) =>
+      entry.kind !== kind &&
+      getEnvBaseName(normalizeEnvName(entry.name)) === base;
+    return (
+      DEFAULT_ENV_REGISTRY.some(matches) || customEnvRegistry.some(matches)
+    );
+  };
+
+  const toggleEnvRegistryEntry = (name: string) => {
+    const base = getEnvBaseName(normalizeEnvName(name));
+    if (!base) {
+      return;
+    }
+    if (disabledEnvNames.has(base)) {
+      disabledEnvNames.delete(base);
+      setEnvRegistryHint(`${base} を有効にしました。`);
+    } else {
+      disabledEnvNames.add(base);
+      setEnvRegistryHint(`${base} を無効にしました。`);
+    }
+    saveDisabledEnvRegistry();
+    rebuildEnvRegistry();
+    handleEnvRegistryUpdate(false);
+  };
+
+  const addCustomEnvEntry = (name: string, kind: LatexEnvKind) => {
+    const base = getEnvBaseName(normalizeEnvName(name));
+    if (!base) {
+      setEnvRegistryHint("環境名が空です。");
+      return;
+    }
+    if (hasRegistryEntryInOtherKind(base, kind)) {
+      setEnvRegistryHint("既に別カテゴリで登録されています。");
+      return;
+    }
+
+    const alreadyExists = hasRegistryEntry(base, kind);
+    let added = false;
+    if (!alreadyExists) {
+      customEnvRegistry = customEnvRegistry.concat({
+        name: base,
+        kind,
+        package: "custom",
+      });
+      added = true;
+    }
+
+    const removedDisabled = disabledEnvNames.delete(base);
+    if (removedDisabled) {
+      saveDisabledEnvRegistry();
+    }
+
+    if (added) {
+      setCustomEnvRegistry(customEnvRegistry);
+      setEnvRegistryHint(`${base} を追加しました。`);
+      return;
+    }
+    if (removedDisabled) {
+      rebuildEnvRegistry();
+      handleEnvRegistryUpdate(false);
+      setEnvRegistryHint(`${base} を有効にしました。`);
+      return;
+    }
+    setEnvRegistryHint("既に登録されています。");
+  };
+
+  const removeCustomEnvEntry = (name: string, kind: LatexEnvKind) => {
+    const base = getEnvBaseName(normalizeEnvName(name));
+    if (!base) {
+      return;
+    }
+    const next = customEnvRegistry.filter(
+      (entry) =>
+        !(
+          entry.kind === kind &&
+          getEnvBaseName(normalizeEnvName(entry.name)) === base
+        )
+    );
+    if (next.length === customEnvRegistry.length) {
+      return;
+    }
+    customEnvRegistry = next;
+    setCustomEnvRegistry(customEnvRegistry);
+    setEnvRegistryHint(`${base} を削除しました。`);
+  };
+
+  const handleEnvRegistryListClick = (event: Event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-env-action]"
+    );
+    if (!target) {
+      return;
+    }
+    const action = target.dataset.envAction;
+    const name = target.dataset.envName;
+    const kind = target.dataset.envKind as LatexEnvKind | undefined;
+    if (!action || !name || !kind) {
+      return;
+    }
+    if (action === "toggle") {
+      toggleEnvRegistryEntry(name);
+    }
+    if (action === "remove") {
+      removeCustomEnvEntry(name, kind);
+    }
+  };
+
+  const RAW_ENV_NAMES = new Set(["verbatim", "Verbatim", "lstlisting", "minted"]);
+
+  const isEscapedAt = (text: string, index: number) => {
+    let count = 0;
+    for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
+      count += 1;
+    }
+    return count % 2 === 1;
+  };
+
+  const MATH_ENV_HINTS = [
+    "math",
+    "eqn",
+    "equation",
+    "align",
+    "gather",
+    "multline",
+    "matrix",
+    "cases",
+    "split",
+    "subeq",
+    "array",
+    "formula",
+  ];
+
+  const looksLikeMathEnv = (name: string) => {
+    const base = getEnvBaseName(normalizeEnvName(name)).toLowerCase();
+    return MATH_ENV_HINTS.some((hint) => base.includes(hint));
+  };
+
+  const classifyEnv = (name: string): DetectedLatexBlock["type"] | null => {
+    const base = getEnvBaseName(normalizeEnvName(name));
+    if (isEnvDisabled(base)) {
+      return null;
+    }
+    if (TABLE_ENV_NAMES.has(base)) {
+      return "table";
+    }
+    if (MATH_ENV_NAMES.has(base)) {
+      return "math";
+    }
+    if (looksLikeMathEnv(base)) {
+      return "math";
+    }
+    return null;
+  };
+
+  type MathDelimiterKind = "dollar" | "double-dollar" | "paren" | "bracket";
+
+  const collectLatexBlocks = (text: string): DetectedLatexBlock[] => {
+    const blocks: DetectedLatexBlock[] = [];
+    const envStack: { name: string; start: number }[] = [];
+    const rawEnvStack: string[] = [];
+    let openMath: { kind: MathDelimiterKind; start: number } | null = null;
+
+    const pushMathBlock = (start: number, end: number, kind: MathDelimiterKind) => {
+      const inline = kind === "dollar" || kind === "paren";
+      const openLength = kind === "double-dollar" ? 2 : kind === "dollar" ? 1 : 2;
+      const closeLength = kind === "double-dollar" ? 2 : kind === "dollar" ? 1 : 2;
+      const contentStart = start + openLength;
+      const contentEnd = Math.max(contentStart, end - closeLength);
+      const content = text.slice(contentStart, contentEnd);
+      blocks.push({
+        type: "math",
+        content: content.trim(),
+        start,
+        end,
+        inline,
+        fullMatch: text.slice(start, end),
+      });
+    };
+
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+
+      if (ch === "%" && !isEscapedAt(text, i)) {
+        while (i < text.length && text[i] !== "\n") {
+          i += 1;
+        }
+        continue;
+      }
+
+      if (rawEnvStack.length > 0) {
+        if (ch === "\\" && !isEscapedAt(text, i) && text.startsWith("\\end{", i)) {
+          const endBrace = text.indexOf("}", i + 5);
+          if (endBrace !== -1) {
+            const name = normalizeEnvName(text.slice(i + 5, endBrace));
+            const base = getEnvBaseName(name);
+            if (base === rawEnvStack[rawEnvStack.length - 1]) {
+              rawEnvStack.pop();
+            }
+            i = endBrace;
+          }
+        }
+        continue;
+      }
+
+      if (ch === "\\" && !isEscapedAt(text, i)) {
+        if (text.startsWith("\\begin{", i)) {
+          const endBrace = text.indexOf("}", i + 7);
+          if (endBrace !== -1) {
+            const name = normalizeEnvName(text.slice(i + 7, endBrace));
+            const base = getEnvBaseName(name);
+            if (RAW_ENV_NAMES.has(base)) {
+              rawEnvStack.push(base);
+            } else {
+              envStack.push({ name, start: i });
+            }
+            i = endBrace;
+            continue;
+          }
+        }
+        if (text.startsWith("\\end{", i)) {
+          const endBrace = text.indexOf("}", i + 5);
+          if (endBrace !== -1) {
+            const name = normalizeEnvName(text.slice(i + 5, endBrace));
+            let matchIndex = -1;
+            for (let j = envStack.length - 1; j >= 0; j -= 1) {
+              if (envStack[j].name === name) {
+                matchIndex = j;
+                break;
+              }
+            }
+            if (matchIndex >= 0) {
+              const { start } = envStack[matchIndex];
+              envStack.splice(matchIndex);
+              const end = endBrace + 1;
+              const type = classifyEnv(name);
+              if (type) {
+                blocks.push({
+                  type,
+                  content: "",
+                  start,
+                  end,
+                  envName: name,
+                  inline: false,
+                  fullMatch: text.slice(start, end),
+                });
+              }
+            }
+            i = endBrace;
+            continue;
+          }
+        }
+        if (text.startsWith("\\(", i)) {
+          if (!openMath) {
+            openMath = { kind: "paren", start: i };
+          }
+          i += 1;
+          continue;
+        }
+        if (text.startsWith("\\)", i)) {
+          if (openMath?.kind === "paren") {
+            const end = i + 2;
+            pushMathBlock(openMath.start, end, openMath.kind);
+            openMath = null;
+          }
+          i += 1;
+          continue;
+        }
+        if (text.startsWith("\\[", i)) {
+          if (!openMath) {
+            openMath = { kind: "bracket", start: i };
+          }
+          i += 1;
+          continue;
+        }
+        if (text.startsWith("\\]", i)) {
+          if (openMath?.kind === "bracket") {
+            const end = i + 2;
+            pushMathBlock(openMath.start, end, openMath.kind);
+            openMath = null;
+          }
+          i += 1;
+          continue;
+        }
+      }
+
+      if (ch === "$" && !isEscapedAt(text, i)) {
+        const isDouble = text[i + 1] === "$";
+        if (!openMath) {
+          if (isDouble) {
+            openMath = { kind: "double-dollar", start: i };
+            i += 1;
+          } else {
+            openMath = { kind: "dollar", start: i };
+          }
+          continue;
+        }
+        if (openMath.kind === "double-dollar" && isDouble) {
+          const end = i + 2;
+          pushMathBlock(openMath.start, end, openMath.kind);
+          openMath = null;
+          i += 1;
+          continue;
+        }
+        if (openMath.kind === "dollar" && !isDouble) {
+          const end = i + 1;
+          pushMathBlock(openMath.start, end, openMath.kind);
+          openMath = null;
+          continue;
+        }
+      }
+    }
+
+    return blocks;
+  };
 
   const detectLatexBlockAtOffset = (
     text: string,
     offset: number
   ): DetectedLatexBlock | null => {
-    for (const patternDef of LATEX_BLOCK_PATTERNS) {
-      const regex = new RegExp(patternDef.pattern.source, patternDef.pattern.flags);
-      let match: RegExpExecArray | null;
-      while ((match = regex.exec(text)) !== null) {
-        const start = match.index;
-        const end = match.index + match[0].length;
-        if (offset >= start && offset <= end) {
-          // カーソルがこのブロック内にある
-          let content = "";
-          let envName: string | null = null;
-          if (patternDef.env) {
-            // 環境の場合、環境名と内容を抽出
-            envName = match[1];
-            content = match[2] || "";
-          } else if (patternDef.pattern.source.includes("\\$")) {
-            // インライン$...$の場合
-            content = match[1] || "";
-          } else {
-            // \[...\]の場合
-            content = match[1] || "";
-          }
-          return {
-            type: patternDef.type,
-            content: content.trim(),
-            start,
-            end,
-            envName,
-            inline: patternDef.inline || false,
-            fullMatch: match[0],
-          };
-        }
-      }
+    const candidates = collectLatexBlocks(text).filter(
+      (candidate) => offset >= candidate.start && offset < candidate.end
+    );
+    if (candidates.length === 0) {
+      return null;
     }
+    candidates.sort((a, b) => {
+      const sizeDiff = (a.end - a.start) - (b.end - b.start);
+      if (sizeDiff !== 0) {
+        return sizeDiff;
+      }
+      if (a.type !== b.type) {
+        return a.type === "math" ? -1 : 1;
+      }
+      return a.start - b.start;
+    });
+    return candidates[0];
+  };
+
+  const shouldUpdateDetectedBlock = (detected: DetectedLatexBlock) =>
+    !currentDetectedBlock ||
+    currentDetectedBlock.start !== detected.start ||
+    currentDetectedBlock.end !== detected.end ||
+    currentDetectedBlock.fullMatch !== detected.fullMatch;
+
+  const applyDetectedBlock = (
+    detected: DetectedLatexBlock,
+    text: string,
+    model: {
+      getPositionAt: (offset: number) => { lineNumber: number; column: number };
+      getVersionId?: () => number;
+    },
+    force = false,
+    allowTabSwitch = true
+  ) => {
+    if (!force && !shouldUpdateDetectedBlock(detected)) {
+      return;
+    }
+    currentDetectedBlock = detected;
+    if (
+      allowTabSwitch &&
+      !document.querySelector('.panel[data-panel="blocks"].is-active')
+    ) {
+      const blocksTab = document.querySelector<HTMLButtonElement>('.tab[data-tab="blocks"]');
+      blocksTab?.click();
+    }
+    setActiveBlockType(detected.type);
+    activeBlockEditMode = "detected";
+    currentBlockDraft = null;
+    const snippet = detected.fullMatch ?? text.slice(detected.start, detected.end);
+    activeBlockOriginalSnippet = snippet;
+    activeBlockContext = snippet ? parseBlockContext(snippet) : null;
+    detectedBlockSnapshot = {
+      type: detected.type,
+      start: detected.start,
+      end: detected.end,
+      snippet,
+      context: activeBlockContext,
+      modelVersion: typeof model.getVersionId === "function" ? model.getVersionId() : 0,
+    };
+    const startPos = model.getPositionAt(detected.start);
+    setAutoDetectedUi(true, startPos.lineNumber);
+    const detectedInner = activeBlockContext ? getInnerContent(activeBlockContext) : detected.content;
+    if (detected.type === "math") {
+      setMathInputValue(detectedInner);
+      setTableEditMode("grid");
+    } else {
+      setTableEditMode("raw");
+      setTableRawValue(detectedInner);
+    }
+    highlightDetectedBlock(detected.start, detected.end);
+  };
+
+  const clearDetectedBlockState = () => {
+    if (!currentDetectedBlock) {
+      return;
+    }
+    currentDetectedBlock = null;
+    detectedBlockSnapshot = null;
+    if (activeBlockEditMode === "detected") {
+      activeBlockEditMode = "none";
+      activeBlockContext = null;
+      activeBlockOriginalSnippet = null;
+    }
+    setAutoDetectedUi(false);
+    setTableEditMode("grid");
+    clearBlockHighlight();
+  };
+
+  const syncDetectedBlockAtPosition = (
+    position: { lineNumber: number; column: number } | null | undefined,
+    options?: { force?: boolean; allowTabSwitch?: boolean }
+  ) => {
+    if (!monacoEditor || !position) {
+      return null;
+    }
+    const editor = monacoEditor as {
+      getModel?: () => {
+        getValue: () => string;
+        getOffsetAt: (pos: { lineNumber: number; column: number }) => number;
+        getPositionAt: (offset: number) => { lineNumber: number; column: number };
+        getVersionId?: () => number;
+      };
+    };
+    const model = editor.getModel?.();
+    if (!model) {
+      return null;
+    }
+    const text = model.getValue();
+    const offset = model.getOffsetAt(position);
+    const detected = detectLatexBlockAtOffset(text, offset);
+    const force = options?.force ?? false;
+    const allowTabSwitch = options?.allowTabSwitch ?? true;
+    if (detected) {
+      applyDetectedBlock(detected, text, model, force, allowTabSwitch);
+      return detected;
+    }
+    clearDetectedBlockState();
     return null;
   };
 
@@ -265,38 +1238,7 @@ window.addEventListener("DOMContentLoaded", () => {
       clearTimeout(blockDetectionDebounceTimer);
     }
     blockDetectionDebounceTimer = setTimeout(() => {
-      const editor = monacoEditor as {
-        getModel?: () => {
-          getValue: () => string;
-          getOffsetAt: (pos: { lineNumber: number; column: number }) => number;
-          getPositionAt: (offset: number) => { lineNumber: number; column: number };
-        };
-      };
-      const model = editor.getModel?.();
-      if (!model) return;
-      const text = model.getValue();
-      const offset = model.getOffsetAt(position);
-      const detected = detectLatexBlockAtOffset(text, offset);
-      if (
-        detected &&
-        (!currentDetectedBlock ||
-          currentDetectedBlock.start !== detected.start ||
-          currentDetectedBlock.end !== detected.end)
-      ) {
-        currentDetectedBlock = detected;
-        if (!document.querySelector('.panel[data-panel="blocks"].is-active')) {
-          const blocksTab = document.querySelector<HTMLButtonElement>('.tab[data-tab="blocks"]');
-          blocksTab?.click();
-        }
-        setActiveBlockType(detected.type);
-        if (detected.type === "math") {
-          setMathInputValue(detected.content);
-        }
-        highlightDetectedBlock(detected.start, detected.end);
-      } else if (!detected && currentDetectedBlock) {
-        currentDetectedBlock = null;
-        clearBlockHighlight();
-      }
+      syncDetectedBlockAtPosition(position);
     }, 150);
   };
 
@@ -323,7 +1265,9 @@ window.addEventListener("DOMContentLoaded", () => {
         },
         options: {
           className: "detected-block-highlight",
-          isWholeLine: false,
+          isWholeLine: true,
+          linesDecorationsClassName: "detected-block-line",
+          glyphMarginClassName: "detected-block-glyph",
         },
       },
     ]);
@@ -390,7 +1334,9 @@ window.addEventListener("DOMContentLoaded", () => {
   type SectionEntry = { title: string; path: string; line: number; level: number };
   type BlockType = "math" | "table";
   type MathKeyboardTab = "analysis" | "algebra" | "sets" | "logic" | "arrows" | "greek";
-  type BlockContent = { formula?: string; rows?: number; cols?: number };
+  type BlockContent = { formula?: string; rows?: number; cols?: number; raw?: string };
+  type BlockEditMode = "none" | "detected";
+  type BlockApplyMode = "detected" | "new";
   type MathKey = {
     label: string;
     latex: string;
@@ -400,17 +1346,6 @@ window.addEventListener("DOMContentLoaded", () => {
     shiftFallback?: string;
     displayLatex?: string;
     shiftDisplayLatex?: string;
-  };
-  type BlockMeta = {
-    id: string;
-    type: BlockType;
-    file: string;
-    line: number;
-    column: number;
-    snippet: string;
-    content: BlockContent;
-    deps: string[];
-    updatedAt: string;
   };
   type SearchResult = { path: string; line: number; preview: string };
   type GitEntry = { status: string; path: string };
@@ -452,7 +1387,6 @@ window.addEventListener("DOMContentLoaded", () => {
         tables?: IndexEntry[];
         todos?: IndexEntry[];
       }) => void;
-      tex180UpdateBlocks?: (payload: { blocks: BlockMeta[] }) => void;
       tex180UpdateSearch?: (payload: {
         query: string;
         results: SearchResult[];
@@ -482,8 +1416,6 @@ window.addEventListener("DOMContentLoaded", () => {
   let indexLabels: IndexEntry[] = [];
   let indexCitations: IndexEntry[] = [];
   let indexSections: SectionEntry[] = [];
-  let indexFigures: IndexEntry[] = [];
-  let indexTables: IndexEntry[] = [];
   let indexTodos: IndexEntry[] = [];
   let jumpDecorations: string[] = [];
   let pendingReveal: { path: string; line: number } | null = null;
@@ -513,7 +1445,6 @@ window.addEventListener("DOMContentLoaded", () => {
         reject: (message: string) => void;
       }
     | null = null;
-  let blocks: BlockMeta[] = [];
   let activeBlockType: BlockType = "math";
   let blockPreviewActive = false;
   let activeTab: TabKey = "files";
@@ -523,12 +1454,11 @@ window.addEventListener("DOMContentLoaded", () => {
   let mathLiveReady = false;
   let mathLiveCheckScheduled = false;
   let mathKeyboardNeedsRerender = false;
-  let activeBlockEditId: string | null = null;
   let activeBlockOriginalSnippet: string | null = null;
-  let activeBlockRange:
-    | { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }
-    | null = null;
-  let pendingBlockEdit: BlockMeta | null = null;
+  let activeBlockEditMode: BlockEditMode = "none";
+  let detectedBlockSnapshot: DetectedBlockSnapshot | null = null;
+  let pendingBlockApply: PendingBlockApply | null = null;
+  let tableEditMode: "grid" | "raw" = "grid";
   let autoBuildEnabled = false;
   let autoBuildPending = false;
   let searchResultsData: SearchResult[] = [];
@@ -833,22 +1763,16 @@ window.addEventListener("DOMContentLoaded", () => {
       !(outlineLabels instanceof HTMLElement) ||
       !(outlineCitations instanceof HTMLElement) ||
       !(outlineSections instanceof HTMLElement) ||
-      !(outlineFigures instanceof HTMLElement) ||
-      !(outlineTables instanceof HTMLElement) ||
       !(outlineTodos instanceof HTMLElement)
     ) {
       return;
     }
     const sectionEntries = dedupeSections(filterEntriesForCurrent(indexSections));
-    const figureEntries = dedupeByKey(filterEntriesForCurrent(indexFigures));
-    const tableEntries = dedupeByKey(filterEntriesForCurrent(indexTables));
     const todoEntries = dedupeByKey(filterEntriesForCurrent(indexTodos));
     const labelEntries = dedupeByKey(filterEntriesForCurrent(indexLabels));
     const citationEntries = pickCitationEntries(filterEntriesForCurrent(indexCitations));
 
     renderSectionList(outlineSections, sectionEntries);
-    renderOutlineList(outlineFigures, figureEntries, "figure");
-    renderOutlineList(outlineTables, tableEntries, "table");
     renderOutlineList(outlineTodos, todoEntries, "todo");
     renderOutlineList(outlineLabels, labelEntries);
     renderOutlineList(outlineCitations, citationEntries);
@@ -856,8 +1780,6 @@ window.addEventListener("DOMContentLoaded", () => {
     if (outlineEmpty instanceof HTMLElement) {
       const hasItems =
         sectionEntries.length > 0 ||
-        figureEntries.length > 0 ||
-        tableEntries.length > 0 ||
         todoEntries.length > 0 ||
         labelEntries.length > 0 ||
         citationEntries.length > 0;
@@ -1661,33 +2583,77 @@ window.addEventListener("DOMContentLoaded", () => {
     updateMathKeyboardVisibility();
     if (type === "math") {
       updateMathPreview();
+      setTableEditMode("grid");
+    } else if (activeBlockEditMode !== "detected") {
+      setTableEditMode("grid");
     }
   };
 
   let currentMathValue = "";
+
+  const readMathFieldValue = (
+    mathField: { getValue?: (format?: string) => unknown; value?: unknown } | null
+  ) => {
+    if (!mathField) {
+      return "";
+    }
+    if (typeof mathField.getValue === "function") {
+      const nextValue = mathField.getValue("latex");
+      if (typeof nextValue === "string") {
+        return nextValue;
+      }
+    }
+    if (typeof mathField.value === "string") {
+      return mathField.value;
+    }
+    return "";
+  };
+
+  const writeMathFieldValue = (
+    mathField: { setValue?: (value: string) => void; value?: string } | null,
+    value: string
+  ) => {
+    if (!mathField) {
+      return;
+    }
+    if (typeof mathField.setValue === "function") {
+      mathField.setValue(value);
+      return;
+    }
+    if ("value" in mathField) {
+      (mathField as { value?: string }).value = value;
+    }
+  };
 
   const updateMathPreview = (value?: string) => {
     // プレビュー機能は無効化済み
   };
 
   const getMathInputValue = () => {
-    // MathLiveの場合、キャッシュされた値を使用（DOMアクセスより確実）
-    if (blockMathInput && blockMathInput.tagName.toLowerCase() === "math-field") {
-      // 念のためDOM値も確認するが、基本はキャッシュ優先
-      const mf = blockMathInput as any;
-      if (mf.value) currentMathValue = mf.value;
-      return currentMathValue;
-    }
-    
-    if (!blockMathInput) {
+    const mathInput = blockMathInputFallback ?? blockMathInput;
+    if (!mathInput) {
       return "";
     }
-    if (blockMathInput instanceof HTMLTextAreaElement) {
-      return blockMathInput.value;
+    // MathLiveの場合、キャッシュされた値を使用（DOMアクセスより確実）
+    if (mathInput instanceof HTMLElement && mathInput.tagName.toLowerCase() === "math-field") {
+      currentMathValue = readMathFieldValue(
+        mathInput as { getValue?: (format?: string) => unknown; value?: unknown }
+      );
+      return currentMathValue;
     }
-    const value = (blockMathInput as { value?: string }).value;
+
+    if (mathInput instanceof HTMLTextAreaElement) {
+      currentMathValue = mathInput.value;
+      return currentMathValue;
+    }
+    const value = (mathInput as { value?: string }).value;
     return typeof value === "string" ? value : "";
   };
+  if (isE2E) {
+    (
+      window as { __tex180GetMathInputValue?: () => string }
+    ).__tex180GetMathInputValue = getMathInputValue;
+  }
 
   const setMathInputValue = (value: string) => {
     currentMathValue = value;
@@ -1696,8 +2662,24 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (blockMathInput instanceof HTMLTextAreaElement) {
       blockMathInput.value = value;
-    } else if ("value" in blockMathInput) {
-      (blockMathInput as { value?: string }).value = value;
+      return;
+    }
+    writeMathFieldValue(
+      blockMathInput as { setValue?: (value: string) => void; value?: string },
+      value
+    );
+  };
+
+  const getTableRawValue = () => {
+    if (blockTableRawInput instanceof HTMLTextAreaElement) {
+      return blockTableRawInput.value;
+    }
+    return "";
+  };
+
+  const setTableRawValue = (value: string) => {
+    if (blockTableRawInput instanceof HTMLTextAreaElement) {
+      blockTableRawInput.value = value;
     }
   };
 
@@ -1705,11 +2687,13 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!blockMathInput) {
       return;
     }
-    blockMathInput.addEventListener("input", (e) => {
-      // 値を同期
-      const target = e.target as any;
-      if (target.value !== undefined) {
-        currentMathValue = target.value;
+    blockMathInput.addEventListener("input", () => {
+      if (blockMathInput instanceof HTMLTextAreaElement) {
+        currentMathValue = blockMathInput.value;
+      } else {
+        currentMathValue = readMathFieldValue(
+          blockMathInput as { getValue?: (format?: string) => unknown; value?: unknown }
+        );
       }
       refreshBlockPreview();
     });
@@ -1720,15 +2704,15 @@ window.addEventListener("DOMContentLoaded", () => {
   // =============================================================================
 
   const attachMathFieldEvents = (mathfield: HTMLElement) => {
-    // 入力変更時
-    mathfield.addEventListener("input", (e) => {
-      // MathLiveの値を同期
-      const val = (e.target as any).value;
-      if (typeof val === "string") {
-        currentMathValue = val;
-      }
+    const syncMathFieldValue = () => {
+      currentMathValue = readMathFieldValue(
+        mathfield as { getValue?: (format?: string) => unknown; value?: unknown }
+      );
       refreshBlockPreview();
-    });
+    };
+    // 入力変更時
+    mathfield.addEventListener("input", syncMathFieldValue);
+    mathfield.addEventListener("change", syncMathFieldValue);
 
     // キーボードイベント
     mathfield.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -1741,8 +2725,8 @@ window.addEventListener("DOMContentLoaded", () => {
       // Cmd+Enter (Mac) / Ctrl+Enter (Win) で確定
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        if (blockAcceptButton instanceof HTMLButtonElement) {
-          blockAcceptButton.click();
+        if (blockInsertButton instanceof HTMLButtonElement) {
+          blockInsertButton.click();
         }
         return;
       }
@@ -1898,6 +2882,12 @@ window.addEventListener("DOMContentLoaded", () => {
     blockMathInputContainer.innerHTML = "";
     blockMathInputContainer.appendChild(mathfield);
     blockMathInput = mathfield;
+    if (currentMathValue) {
+      writeMathFieldValue(
+        mathfield as { setValue?: (value: string) => void; value?: string },
+        currentMathValue
+      );
+    }
 
     // オプション設定
     if (typeof mathfield.setOptions === "function") {
@@ -2020,18 +3010,355 @@ window.addEventListener("DOMContentLoaded", () => {
     return `${header}\n${body}`;
   };
 
+  const renderDiffSummary = (before: string, after: string) => {
+    if (!(diffSummary instanceof HTMLElement)) {
+      return;
+    }
+    diffSummary.textContent = "";
+    const beforeText = before.trimEnd();
+    const afterText = after.trimEnd();
+    const beforeLines = beforeText.length ? beforeText.split(/\r?\n/) : [""];
+    const afterLines = afterText.length ? afterText.split(/\r?\n/) : [""];
+    const diffLines = buildLineDiff(beforeLines, afterLines);
+    let adds = 0;
+    let dels = 0;
+    diffLines.forEach((entry) => {
+      if (entry.type === "add") {
+        adds += 1;
+      } else if (entry.type === "del") {
+        dels += 1;
+      }
+    });
+    if (adds === 0 && dels === 0) {
+      diffSummary.textContent = "変更なし";
+      return;
+    }
+    const add = document.createElement("span");
+    add.className = "diff-summary-item is-add";
+    add.textContent = `+${adds}`;
+    const del = document.createElement("span");
+    del.className = "diff-summary-item is-del";
+    del.textContent = `-${dels}`;
+    diffSummary.append(add, del);
+  };
+
+  const renderDiffHeader = () => {
+    if (diffTitle instanceof HTMLElement) {
+      diffTitle.textContent = "変更内容の確認";
+    }
+    if (diffFileName instanceof HTMLElement) {
+      const fileName = currentFilePath
+        ? currentFilePath.split(/[/\\]/).pop() ?? currentFilePath
+        : "未保存";
+      diffFileName.textContent = fileName;
+    }
+  };
+
+  const countLines = (text: string) => {
+    if (!text) return 1;
+    return text.split(/\r?\n/).length;
+  };
+
+  const applyDiffLineNumberOffset = (offset: number, original: string, modified: string) => {
+    if (!diffEditor) return;
+    const maxLine = offset + Math.max(countLines(original), countLines(modified));
+    const minChars = Math.max(2, String(maxLine).length);
+    const lineNumbers = (lineNumber: number) => String(lineNumber + offset);
+    const options = { lineNumbers, lineNumbersMinChars: minChars };
+    const editorAny = diffEditor as {
+      getOriginalEditor?: () => { updateOptions?: (opts: unknown) => void };
+      getModifiedEditor?: () => { updateOptions?: (opts: unknown) => void };
+      updateOptions?: (opts: unknown) => void;
+    };
+    editorAny.getOriginalEditor?.()?.updateOptions?.(options);
+    editorAny.getModifiedEditor?.()?.updateOptions?.(options);
+    editorAny.updateOptions?.(options);
+  };
+
   const buildBlockPreviewSnippet = (snippet: string) => {
-    if (!activeBlockEditId || !activeBlockOriginalSnippet) {
+    if (!activeBlockOriginalSnippet) {
       return snippet;
     }
     return buildDiffPreview(activeBlockOriginalSnippet, snippet);
   };
 
+  // Context-Aware Helper Functions
+  const MATRIX_ENV_NAMES = new Set([
+    "matrix",
+    "pmatrix",
+    "bmatrix",
+    "Bmatrix",
+    "vmatrix",
+    "Vmatrix",
+    "smallmatrix",
+  ]);
+
+  const OPTIONAL_BRACKET_ENVS = new Set([
+    "aligned",
+    "alignedat",
+    "gathered",
+    "multlined",
+    "empheq",
+    "table",
+    "tabular",
+    "tabularx",
+    "tabulary",
+    "longtable",
+    "ltablex",
+    "xltabular",
+    "tabu",
+    "longtabu",
+    "supertabular",
+    "tblr",
+    "longtblr",
+    "mathpar",
+    "mathparpagebreakable",
+  ]);
+
+  const REQUIRED_ENV_ARGS: Record<string, number> = {
+    alignat: 1,
+    xalignat: 1,
+    xxalignat: 1,
+    alignedat: 1,
+    empheq: 1,
+    numcases: 1,
+    subnumcases: 1,
+    array: 1,
+    subarray: 1,
+    tabular: 1,
+    tabularx: 2,
+    tabulary: 2,
+    longtable: 1,
+    ltablex: 2,
+    xltabular: 2,
+    tabu: 1,
+    longtabu: 1,
+    supertabular: 1,
+    tblr: 1,
+    longtblr: 1,
+    IEEEeqnarray: 1,
+    IEEEeqnarraybox: 1,
+    darray: 1,
+  };
+
+  const skipEnvWhitespace = (text: string, index: number) => {
+    let cursor = index;
+    while (cursor < text.length && /\s/.test(text[cursor])) {
+      cursor += 1;
+    }
+    return cursor;
+  };
+
+  const readDelimitedArg = (
+    text: string,
+    startIndex: number,
+    openChar: string,
+    closeChar: string
+  ) => {
+    if (text[startIndex] !== openChar) {
+      return null;
+    }
+    let depth = 0;
+    for (let i = startIndex; i < text.length; i += 1) {
+      const char = text[i];
+      if (char === openChar && !isEscapedAt(text, i)) {
+        depth += 1;
+      } else if (char === closeChar && !isEscapedAt(text, i)) {
+        depth -= 1;
+        if (depth === 0) {
+          return { end: i + 1 };
+        }
+      }
+    }
+    return null;
+  };
+
+  const consumeEnvArguments = (snippet: string, startIndex: number, envName: string) => {
+    const base = getEnvBaseName(envName);
+    let cursor = skipEnvWhitespace(snippet, startIndex);
+    const allowOptional =
+      OPTIONAL_BRACKET_ENVS.has(base) || (MATRIX_ENV_NAMES.has(base) && envName.endsWith("*"));
+    if (allowOptional && snippet[cursor] === "[") {
+      const optionalArg = readDelimitedArg(snippet, cursor, "[", "]");
+      if (optionalArg) {
+        cursor = skipEnvWhitespace(snippet, optionalArg.end);
+      }
+    }
+    let requiredCount = REQUIRED_ENV_ARGS[base] ?? 0;
+    if (base === "tabular" && envName.endsWith("*")) {
+      requiredCount = 2;
+    }
+    for (let i = 0; i < requiredCount; i += 1) {
+      cursor = skipEnvWhitespace(snippet, cursor);
+      if (snippet[cursor] !== "{") {
+        break;
+      }
+      const requiredArg = readDelimitedArg(snippet, cursor, "{", "}");
+      if (!requiredArg) {
+        break;
+      }
+      cursor = requiredArg.end;
+    }
+    return skipEnvWhitespace(snippet, cursor);
+  };
+
+  const parseBlockContext = (snippet: string): BlockContext => {
+    // 1. Double Dollar (Display)
+    const ddMatch = snippet.match(/^(\$\$)([\s\S]*?)(\$\$)$/);
+    if (ddMatch) {
+       return { 
+         type: "math", 
+         originalSnippet: snippet,
+         prefix: ddMatch[1],
+         suffix: ddMatch[3]
+       };
+    }
+
+    // 2. Bracket Display (\[ ... \])
+    const bdMatch = snippet.match(/^(\\\[)([\s\S]*?)(\\\])$/);
+    if (bdMatch) {
+        return { 
+          type: "math", 
+          originalSnippet: snippet,
+          prefix: bdMatch[1],
+          suffix: bdMatch[3]
+        };
+    }
+    
+    // 3. Inline ($ ... $)
+    const inlineParenMatch = snippet.match(/^(\\\()([\s\S]*?)(\\\))$/);
+    if (inlineParenMatch) {
+        return {
+          type: "math",
+          originalSnippet: snippet,
+          prefix: inlineParenMatch[1],
+          suffix: inlineParenMatch[3],
+        };
+    }
+    const inlineMatch = snippet.match(/^(\$)([\s\S]*?)(\$)$/);
+    if (inlineMatch) {
+        return { 
+          type: "math", 
+          originalSnippet: snippet,
+          prefix: inlineMatch[1],
+          suffix: inlineMatch[3]
+        };
+    }
+
+    // 4. Environments (\begin{name} ... \end{name})
+    const envBeginMatch = snippet.match(/^\\begin\{([^}]+)\}/);
+    if (envBeginMatch) {
+      const envName = normalizeEnvName(envBeginMatch[1]);
+      const endToken = `\\end{${envName}}`;
+      if (snippet.endsWith(endToken)) {
+        const prefixEnd = consumeEnvArguments(snippet, envBeginMatch[0].length, envName);
+        const prefix = snippet.slice(0, prefixEnd);
+        const suffix = endToken;
+        const base = getEnvBaseName(envName);
+        return {
+          type: TABLE_ENV_NAMES.has(base) ? "table" : "math",
+          originalSnippet: snippet,
+          prefix,
+          suffix,
+          envName,
+        };
+      }
+    }
+
+    // Default: Treat whole thing as content if no wrapper detected
+    // This shouldn't happen often if detection works, but safe fallback
+    return { 
+      type: "math", 
+      originalSnippet: snippet, 
+      prefix: "",
+      suffix: "",
+      envName: undefined 
+    };
+  };
+
+  const getInnerContent = (
+    context: BlockContext,
+    options?: { trim?: boolean }
+  ): string => {
+    // With Injection Strategy, we just slice off the known prefix/suffix
+    // But we should be careful if originalSnippet has changed?
+    // No, context.originalSnippet is the reference.
+    const start = context.prefix.length;
+    const end = context.originalSnippet.length - context.suffix.length;
+    const content = context.originalSnippet.slice(start, end);
+    return options?.trim === false ? content : content.trim();
+  };
+
+  const reconstructionBlock = (context: BlockContext, content: string): string => {
+      // INJECTION STRATEGY: Simple Concatenation
+      // We do NOT modify context.prefix or context.suffix at all.
+      // We do NOT trim content vigorously if we want to respect user's inner spacing,
+      // but usually the editor output is clean. 
+      // The user requested that "no changes means 0 diff", so we must ensure 
+      // that if content matches original inner, we return original.
+      
+      const originalInner = getInnerContent(context);
+      const newInner = content.trim(); 
+      
+      // If the semantic content is identical to the trimmed original content,
+      // we might want to preserve the ORIGINAL inner spacing too (e.g. " x " vs "x").
+      // But getInnerContent returns trimmed. 
+      // Let's rely on the fact that if newInner == originalInner, we return originalSnippet.
+      
+      if (originalInner === newInner) {
+          return context.originalSnippet;
+      }
+      
+      // If content changed, we inject it.
+      // We add newlines for block environments if they are undoubtedly block-like?
+      // No, strictly follow Injection Strategy: Prefix + Content + Suffix.
+      // However, if the user deleted all newlines in the editor, we might get `\[x\]` instead of `\[\n x \n\]`.
+      // For now, simple concatenation is the most faithful "Injection".
+      // Users can add newlines in the editor if they want them.
+      return context.prefix + content + context.suffix;
+  };
+
+  const buildTableSnippetFromRaw = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return "";
+    }
+    if (activeBlockContext?.type === "table") {
+      return reconstructionBlock(activeBlockContext, raw);
+    }
+    if (trimmed.startsWith("\\begin{")) {
+      return trimmed;
+    }
+    return ["\\\\begin{tabular}{|c|}", trimmed, "\\\\end{tabular}", ""].join("\n");
+  };
+
   const buildMathSnippet = (formula: string) => {
+    // If we have an active context, use it to reconstruct
+    if (activeBlockContext?.type === "math") {
+      return reconstructionBlock(activeBlockContext, formula);
+    }
+    
+    // Default fallback for NEW blocks (when no context exists)
     const trimmed = formula.trim();
     if (!trimmed) {
       return "";
     }
+
+    // Check if user manually typed wrappers
+    if (trimmed.startsWith("$") && trimmed.endsWith("$")) {
+        return trimmed;
+    }
+    if (trimmed.startsWith("\\[") && trimmed.endsWith("\\]")) {
+        return trimmed;
+    }
+    if (trimmed.startsWith("$$") && trimmed.endsWith("$$")) {
+        return trimmed;
+    }
+    if (trimmed.startsWith("\\begin{")) {
+        return trimmed;
+    }
+
+    // Default to Display Math \[ ... \] as before
     return ["\\\\[", trimmed, "\\\\]", ""].join("\n");
   };
 
@@ -2077,6 +3404,14 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       return { snippet, content: { formula: formula.trim() } };
     }
+    if (tableEditMode === "raw") {
+      const raw = getTableRawValue();
+      const snippet = buildTableSnippetFromRaw(raw);
+      if (!snippet.trim()) {
+        return null;
+      }
+      return { snippet, content: { raw } };
+    }
     const size = parseTableSize();
     if (!size) {
       return null;
@@ -2101,134 +3436,17 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const resetBlockSession = () => {
     blockPreviewActive = false;
-    activeBlockEditId = null;
-    activeBlockRange = null;
     activeBlockOriginalSnippet = null;
-    pendingBlockEdit = null;
+    activeBlockContext = null;
+    activeBlockEditMode = "none";
+    detectedBlockSnapshot = null;
+    pendingBlockApply = null;
+    currentBlockDraft = null;
     currentDetectedBlock = null;
+    setAutoDetectedUi(false);
+    setTableEditMode("grid");
     clearBlockHighlight();
     clearInsertPreview();
-    setText(blockTarget, "挿入先: 行 -");
-  };
-
-  const renderBlocksList = () => {
-    if (!(blockList instanceof HTMLElement)) {
-      return;
-    }
-    blockList.innerHTML = "";
-    if (blocks.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "panel-placeholder";
-      empty.textContent = "ブロックはまだありません。";
-      blockList.appendChild(empty);
-      return;
-    }
-    const sorted = [...blocks].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
-    sorted.forEach((block) => {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "block-item";
-
-      const title = document.createElement("div");
-      title.textContent = block.type === "math" ? "数式" : "表";
-      const meta = document.createElement("div");
-      meta.className = "block-item-meta";
-      meta.textContent = `${block.file} · 行 ${block.line}`;
-
-      item.append(title, meta);
-      item.addEventListener("click", () => {
-        startBlockEdit(block);
-      });
-      blockList.appendChild(item);
-    });
-  };
-
-  const saveBlocks = () => {
-    if (!workspaceRootKey) {
-      updateIssues(1, "起動時にフォルダを選択してください。", "error", [
-        { severity: "error", message: "起動時にフォルダを選択してください。" },
-      ]);
-      return;
-    }
-    postToNative({ type: "saveBlocks", blocks });
-  };
-
-  const prepareBlockEdit = (block: BlockMeta) => {
-    if (!monacoEditor) {
-      return;
-    }
-    const editor = monacoEditor as { getModel?: () => unknown };
-    const model = editor.getModel?.() as {
-      findMatches?: (
-        searchString: string,
-        searchOnlyEditableRange: boolean,
-        isRegex: boolean,
-        matchCase: boolean,
-        wordSeparators: string | null,
-        captureMatches: boolean,
-        limitResultCount: number
-      ) => { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }[];
-    };
-
-    if (!model?.findMatches) {
-      updateIssues(1, "ブロックの検索に失敗しました。", "error", [
-        { severity: "error", message: "ブロックの検索に失敗しました。" },
-      ]);
-      return;
-    }
-
-    const matches = model.findMatches(block.snippet, false, false, false, null, true, 1);
-    if (!matches || matches.length === 0) {
-      updateIssues(1, "ブロックの本文が見つかりません。", "error", [
-        { severity: "error", message: "ブロックの本文が見つかりません。" },
-      ]);
-      return;
-    }
-
-    const range = matches[0].range;
-    activeBlockRange = {
-      startLineNumber: range.startLineNumber,
-      startColumn: range.startColumn,
-      endLineNumber: range.endLineNumber,
-      endColumn: range.endColumn,
-    };
-
-    const draft = getBlockDraft();
-    if (!draft) {
-      return;
-    }
-    startBlockPreview(draft.snippet, {
-      lineNumber: range.startLineNumber,
-      column: range.startColumn,
-    });
-  };
-
-  const startBlockEdit = (block: BlockMeta) => {
-    activeBlockEditId = block.id;
-    activeBlockOriginalSnippet = block.snippet;
-    if (block.type === "math") {
-      setMathInputValue(block.content.formula ?? "");
-    } else {
-      if (blockTableRows instanceof HTMLInputElement && block.content.rows) {
-        blockTableRows.value = String(block.content.rows);
-      }
-      if (blockTableCols instanceof HTMLInputElement && block.content.cols) {
-        blockTableCols.value = String(block.content.cols);
-      }
-    }
-    setActiveBlockType(block.type);
-    setText(blockTarget, `${block.file} · 行 ${block.line}`);
-
-    if (currentFilePath === block.file) {
-      prepareBlockEdit(block);
-      return;
-    }
-
-    pendingBlockEdit = block;
-    const requested = requestOpenFile(block.file);
-    if (!requested) {
-      pendingBlockEdit = null;
-    }
   };
 
   const renderSearchResults = () => {
@@ -3206,11 +4424,8 @@ window.addEventListener("DOMContentLoaded", () => {
     renderOutline();
     renderFileTree();
     blockPreviewActive = false;
-    activeBlockRange = null;
     clearInsertPreview();
-    if (!pendingBlockEdit) {
-      setText(blockTarget, "挿入先: 行 -");
-    }
+    setAutoDetectedUi(false);
     if (pendingReveal && pendingReveal.path === path) {
       revealLine(pendingReveal.line);
       pendingReveal = null;
@@ -3804,230 +5019,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  const openBlockEditorWindow = () => {
-    if (!currentFilePath || !currentFilePath.endsWith(".tex")) {
-      updateIssues(1, "ブロック編集は .tex ファイルでのみ利用できます。", "error", [
-        { severity: "error", message: "ブロック編集は .tex ファイルでのみ利用できます。" },
-      ]);
-      return;
-    }
-    if (!monacoEditor) {
-      updateIssues(1, "エディタの準備が完了していません。", "error", [
-        { severity: "error", message: "エディタの準備が完了していません。" },
-      ]);
-      return;
-    }
-    const editor = monacoEditor as { getValue: () => string };
-    const content = editor.getValue();
-    const ok = postToNative({
-      type: "openBlockEditor",
-      path: currentFilePath,
-      content,
-    });
-    if (!ok) {
-      updateIssues(1, "ブロック編集ウィンドウを開けませんでした。", "error", [
-        { severity: "error", message: "ブロック編集ウィンドウを開けませんでした。" },
-      ]);
-    }
-  };
-
-  const sendBlockEditorSyncResult = (payload: {
-    requestId: string;
-    path: string;
-    content?: string;
-    error?: string;
-  }) => {
-    postToNative({ type: "blockEditorSyncResult", ...payload }, true);
-  };
-
-  const sendBlockEditorPatchResult = (payload: {
-    requestId: string;
-    ok: boolean;
-    error?: string;
-    content?: string;
-  }) => {
-    postToNative({ type: "blockEditorPatchResult", ...payload }, true);
-  };
-
-  const handleBlockEditorSyncRequest = (payload: { requestId: string; path: string }) => {
-    if (!payload?.requestId) return;
-    if (!currentFilePath || payload.path !== currentFilePath) {
-      sendBlockEditorSyncResult({
-        requestId: payload.requestId,
-        path: payload.path,
-        error: "現在のファイルのみ同期できます。",
-      });
-      return;
-    }
-    if (!monacoEditor) {
-      sendBlockEditorSyncResult({
-        requestId: payload.requestId,
-        path: payload.path,
-        error: "エディタが未初期化です。",
-      });
-      return;
-    }
-    const editor = monacoEditor as { getValue: () => string };
-    sendBlockEditorSyncResult({
-      requestId: payload.requestId,
-      path: payload.path,
-      content: editor.getValue(),
-    });
-  };
-
-  const handleBlockEditorApplyPatch = (payload: {
-    requestId: string;
-    path: string;
-    target?: { start?: number; end?: number; snippet?: string; anchor?: { kind?: string; value?: string } };
-    replacement?: string;
-  }) => {
-    if (!payload?.requestId) return;
-    if (!currentFilePath || payload.path !== currentFilePath) {
-      sendBlockEditorPatchResult({
-        requestId: payload.requestId,
-        ok: false,
-        error: "現在のファイルのみ編集できます。",
-      });
-      return;
-    }
-    if (!monacoEditor || !monacoApi) {
-      sendBlockEditorPatchResult({
-        requestId: payload.requestId,
-        ok: false,
-        error: "エディタが未初期化です。",
-      });
-      return;
-    }
-    const editor = monacoEditor as {
-      getModel?: () => {
-        getValue: () => string;
-        getPositionAt?: (offset: number) => { lineNumber: number; column: number };
-        findMatches?: (
-          searchString: string,
-          searchOnlyEditableRange: boolean,
-          isRegex: boolean,
-          matchCase: boolean,
-          wordSeparators: string | null,
-          captureMatches: boolean,
-          limitResultCount: number
-        ) => { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }[];
-      };
-      executeEdits: (
-        source: string,
-        edits: { range: unknown; text: string; forceMoveMarkers: boolean }[]
-      ) => void;
-      getValue: () => string;
-    };
-    const model = editor.getModel?.();
-    const snippet = payload.target?.snippet ?? "";
-    const replacement = payload.replacement ?? "";
-    if (!model || !snippet) {
-      sendBlockEditorPatchResult({
-        requestId: payload.requestId,
-        ok: false,
-        error: "対象ブロックが特定できません。",
-      });
-      return;
-    }
-
-    const content = model.getValue();
-    let range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } | null = null;
-    const start = payload.target?.start;
-    const end = payload.target?.end;
-
-    if (typeof start === "number" && typeof end === "number" && start >= 0 && end >= start) {
-      const slice = content.slice(start, end);
-      if (slice === snippet && model.getPositionAt) {
-        const startPos = model.getPositionAt(start);
-        const endPos = model.getPositionAt(end);
-        range = {
-          startLineNumber: startPos.lineNumber,
-          startColumn: startPos.column,
-          endLineNumber: endPos.lineNumber,
-          endColumn: endPos.column,
-        };
-      }
-    }
-
-    if (!range && model.findMatches) {
-      const matches = model.findMatches(snippet, false, false, false, null, true, 2);
-      if (matches && matches.length === 1) {
-        range = matches[0].range;
-      }
-    }
-
-    if (!range && payload.target?.anchor?.kind === "label" && payload.target.anchor.value) {
-      const labelText = `\\\\label{${payload.target.anchor.value}}`;
-      const labelIndex = content.indexOf(labelText);
-      if (labelIndex !== -1 && model.getPositionAt) {
-        const beginIndex = content.lastIndexOf("\\\\begin{", labelIndex);
-        if (beginIndex !== -1) {
-          const envMatch = content.slice(beginIndex).match(/^\\\\begin\\{([^}]+)\\}/);
-          if (envMatch) {
-            const envName = envMatch[1];
-            const endToken = `\\\\end{${envName}}`;
-            let depth = 1;
-            let searchPos = beginIndex + envMatch[0].length;
-            while (searchPos < content.length) {
-              const nextBegin = content.indexOf(`\\\\begin{${envName}}`, searchPos);
-              const nextEnd = content.indexOf(endToken, searchPos);
-              if (nextEnd === -1) break;
-              if (nextBegin !== -1 && nextBegin < nextEnd) {
-                depth += 1;
-                searchPos = nextBegin + envName.length + 8;
-              } else {
-                depth -= 1;
-                searchPos = nextEnd + endToken.length;
-                if (depth === 0) {
-                  const startPos = model.getPositionAt(beginIndex);
-                  const endPos = model.getPositionAt(searchPos);
-                  range = {
-                    startLineNumber: startPos.lineNumber,
-                    startColumn: startPos.column,
-                    endLineNumber: endPos.lineNumber,
-                    endColumn: endPos.column,
-                  };
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (!range) {
-      sendBlockEditorPatchResult({
-        requestId: payload.requestId,
-        ok: false,
-        error: "ブロック位置が見つかりません。再解析してください。",
-      });
-      return;
-    }
-
-    const monacoApiAny = monacoApi as {
-      Range: new (line: number, column: number, endLine: number, endColumn: number) => unknown;
-    };
-    editor.executeEdits("block-editor", [
-      {
-        range: new monacoApiAny.Range(
-          range.startLineNumber,
-          range.startColumn,
-          range.endLineNumber,
-          range.endColumn
-        ),
-        text: replacement,
-        forceMoveMarkers: true,
-      },
-    ]);
-
-    sendBlockEditorPatchResult({
-      requestId: payload.requestId,
-      ok: true,
-      content: editor.getValue(),
-    });
-  };
-
   const handleLauncherStatus = (payload: { isBusy?: boolean; message?: string }) => {
     setLauncherStatus({
       isBusy: typeof payload.isBusy === "boolean" ? payload.isBusy : undefined,
@@ -4107,9 +5098,6 @@ window.addEventListener("DOMContentLoaded", () => {
     renderFileTree();
     updateBreadcrumbs();
     renderOutline();
-    blocks = [];
-    renderBlocksList();
-    postToNative({ type: "loadBlocks" }, true);
     searchResultsData = [];
     searchMessage = "検索結果はここに表示します。";
     renderSearchResults();
@@ -4134,15 +5122,8 @@ window.addEventListener("DOMContentLoaded", () => {
     indexLabels = Array.isArray(payload.labels) ? payload.labels : [];
     indexCitations = Array.isArray(payload.citations) ? payload.citations : [];
     indexSections = Array.isArray(payload.sections) ? payload.sections : [];
-    indexFigures = Array.isArray(payload.figures) ? payload.figures : [];
-    indexTables = Array.isArray(payload.tables) ? payload.tables : [];
     indexTodos = Array.isArray(payload.todos) ? payload.todos : [];
     renderOutline();
-  };
-
-  const handleBlocksUpdate = (payload: { blocks?: BlockMeta[] }) => {
-    blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
-    renderBlocksList();
   };
 
   const handleOpenFileResult = (payload: {
@@ -4161,11 +5142,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     const content = payload.content ?? "";
     applyFileContent(payload.path, content, content);
-    if (pendingBlockEdit && pendingBlockEdit.file === payload.path) {
-      const block = pendingBlockEdit;
-      pendingBlockEdit = null;
-      prepareBlockEdit(block);
-    }
   };
 
   const handleSaveResult = (payload: { path: string; ok: boolean; error?: string }) => {
@@ -4364,7 +5340,6 @@ window.addEventListener("DOMContentLoaded", () => {
     // updateIssues(1, "数式入力リスナーのエラー: " + e.message, "error", []);
   }
   try { updateMathPreview(); } catch (e: any) { console.error("updateMathPreview error:", e); }
-  // renderBlocksList();
   renderSearchResults();
   renderGitStatus();
   renderRootSelector();
@@ -4573,41 +5548,132 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   const ensureQuickInsertWidget = () => {
-    if (!monacoEditor || !monacoApi) {
-      return;
+    resetBlockSession();
+    const editor = monacoEditor as {
+      addContentWidget: (widget: unknown) => void;
+      removeContentWidget: (widget: unknown) => void;
+    };
+    if (quickInsertWidget) {
+      editor.removeContentWidget(quickInsertWidget);
     }
-    if (!quickInsertWidgetNode) {
-      const container = document.createElement("div");
-      container.className = "quick-insert-preview";
-      const title = document.createElement("div");
-      title.className = "quick-insert-preview-title";
-      title.textContent = "プレビュー";
-      const body = document.createElement("pre");
-      body.className = "quick-insert-preview-body";
-      container.append(title, body);
-      quickInsertWidgetNode = container;
-      quickInsertWidgetBody = body;
+    const container = document.createElement("div");
+    container.className = "quick-insert-widget";
+    const body = document.createElement("pre");
+    body.className = "quick-insert-body";
+    container.appendChild(body);
+    quickInsertWidgetNode = container;
+    quickInsertWidgetBody = body;
+    setInsertPreviewText("");
+
+    const monacoApiAny = monacoApi as {
+      editor: {
+        ContentWidgetPositionPreference: { BELOW: unknown; ABOVE: unknown };
+      };
+    };
+
+    quickInsertWidget = {
+      getId: () => "tex180.quickInsertWidget",
+      getDomNode: () => container,
+      getPosition: () => ({
+        position: {
+          lineNumber: quickInsertTarget.lineNumber,
+          column: quickInsertTarget.column,
+        },
+        preference: [
+          monacoApiAny.editor.ContentWidgetPositionPreference.BELOW,
+          monacoApiAny.editor.ContentWidgetPositionPreference.ABOVE,
+        ],
+      }),
+    };
+    editor.addContentWidget(quickInsertWidget);
+  };
+
+  const showDiffModal = (original: string, modified: string, lineOffset = 0) => {
+    if (!monacoApi) return;
+    const monacoApiAny = monacoApi as {
+      editor: {
+        createDiffEditor: (el: HTMLElement, options: unknown) => unknown;
+        createModel: (val: string, lang: string) => unknown;
+      };
+    };
+    const container = blockDiffContainer;
+    if (!container) return;
+    
+    if (diffModal) {
+      diffModal.classList.add("is-open");
+      diffModal.setAttribute("aria-hidden", "false");
     }
-    if (!quickInsertWidget) {
-      const monacoApiAny = monacoApi as {
-        editor: { ContentWidgetPositionPreference: { ABOVE: number; BELOW: number } };
-      };
-      quickInsertWidget = {
-        getId: () => "quick-insert-preview",
-        getDomNode: () => quickInsertWidgetNode as HTMLDivElement,
-        getPosition: () => ({
-          position: {
-            lineNumber: quickInsertTarget.lineNumber,
-            column: quickInsertTarget.column,
-          },
-          preference: [
-            monacoApiAny.editor.ContentWidgetPositionPreference.BELOW,
-            monacoApiAny.editor.ContentWidgetPositionPreference.ABOVE,
-          ],
-        }),
-      };
-      const editor = monacoEditor as { addContentWidget: (widget: unknown) => void };
-      editor.addContentWidget(quickInsertWidget);
+    
+    if (!diffEditor) {
+       container.innerHTML = ""; // Clear only if initializing
+       diffEditor = monacoApiAny.editor.createDiffEditor(container, {
+        originalEditable: false,
+        readOnly: true,
+        renderSideBySide: false,
+        renderIndicators: true,
+        renderMarginRevertIcon: false,
+        diffWordWrap: "off",
+        wordWrap: "off",
+        scrollBeyondLastLine: false,
+        minimap: { enabled: false },
+        lineNumbers: "on",
+        fontSize: 13,
+        fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      });
+    } else {
+        const diffEditorAny = diffEditor as {
+          getDomNode?: () => HTMLElement | null;
+          getContainerDomNode?: () => HTMLElement | null;
+          layout?: () => void;
+        };
+        const diffNode =
+          diffEditorAny.getDomNode?.() ?? diffEditorAny.getContainerDomNode?.() ?? null;
+        if (diffNode && !container.contains(diffNode)) {
+          container.innerHTML = "";
+          container.appendChild(diffNode);
+        }
+        diffEditorAny.layout?.();
+    }
+
+    renderDiffHeader();
+    renderDiffSummary(original, modified);
+    applyDiffLineNumberOffset(lineOffset, original, modified);
+
+    const diffEditorAny = diffEditor as {
+      setModel?: (model: { original: unknown; modified: unknown }) => void;
+      getModel?: () => { original?: unknown; modified?: unknown } | null;
+    };
+
+    diffOriginalModel?.dispose?.();
+    diffModifiedModel?.dispose?.();
+    diffOriginalModel = monacoApiAny.editor.createModel(original, "latex");
+    diffModifiedModel = monacoApiAny.editor.createModel(modified, "latex");
+    diffEditorAny.setModel?.({
+      original: diffOriginalModel,
+      modified: diffModifiedModel,
+    });
+    if (isE2E) {
+      (window as {
+        __tex180LastDiff?: { original: string; modified: string; lineOffset: number };
+        __tex180DiffEditor?: unknown;
+      }).__tex180LastDiff = { original, modified, lineOffset };
+      (window as { __tex180DiffEditor?: unknown }).__tex180DiffEditor = diffEditor;
+    }
+    if (typeof (diffEditor as any).layout === "function") {
+      (diffEditor as any).layout();
+    }
+  };
+
+  const closeDiffModal = () => {
+    if (diffModal) {
+      diffModal.classList.remove("is-open");
+      diffModal.setAttribute("aria-hidden", "true");
+    }
+    if (diffSummary instanceof HTMLElement) {
+      diffSummary.textContent = "";
+    }
+    if (diffFileName instanceof HTMLElement) {
+      diffFileName.textContent = "";
     }
   };
 
@@ -4615,40 +5681,19 @@ window.addEventListener("DOMContentLoaded", () => {
     snippet: string,
     target?: { lineNumber: number; column: number }
   ) => {
-    if (!monacoEditor || !monacoApi) {
-      updateFallback("エディタの準備が完了していません。");
-      return;
-    }
-    if (!currentFilePath || !currentFilePath.endsWith(".tex")) {
-      updateIssues(1, "ブロックは .tex ファイルでのみ挿入できます。", "error", [
-        { severity: "error", message: "ブロックは .tex ファイルでのみ挿入できます。" },
-      ]);
-      return;
-    }
-    closeQuickInsert();
-    clearInsertPreview();
-    const editor = monacoEditor as {
-      getPosition: () => { lineNumber: number; column: number } | null;
-    };
-    const position = target ?? editor.getPosition();
-    quickInsertTarget = position
-      ? { lineNumber: position.lineNumber, column: position.column }
-      : { lineNumber: 1, column: 1 };
-    setText(blockTarget, `${currentFilePath} · 行 ${quickInsertTarget.lineNumber}`);
-    applyQuickInsertDecorations();
-    ensureQuickInsertWidget();
-    setInsertPreviewText(buildBlockPreviewSnippet(snippet));
-    blockPreviewActive = true;
+    // Deprecated flow but kept for compatibility logic if needed
+    // Now redirected to diff modal flow via blockInsertButton
   };
 
-  const applyBlockInsert = () => {
-    if (!blockPreviewActive) {
+  const applyBlockInsert = (payload?: PendingBlockApply) => {
+    const applyPayload = payload ?? pendingBlockApply;
+    if (!applyPayload && !blockPreviewActive) {
       updateIssues(1, "プレビューを確認してから確定してください。", "error", [
         { severity: "error", message: "プレビューを確認してから確定してください。" },
       ]);
       return;
     }
-    const draft = getBlockDraft();
+    const draft = applyPayload?.draft ?? getBlockDraft();
     if (!draft) {
       updateIssues(1, "ブロック内容が空です。", "error", [
         { severity: "error", message: "ブロック内容が空です。" },
@@ -4673,27 +5718,55 @@ window.addEventListener("DOMContentLoaded", () => {
       ) => void;
       focus: () => void;
       getPosition: () => { lineNumber: number; column: number } | null;
+      getModel?: () => {
+        getValue: () => string;
+        getPositionAt?: (offset: number) => { lineNumber: number; column: number };
+        getOffsetAt?: (pos: { lineNumber: number; column: number }) => number;
+      };
     };
     const monacoApiAny = monacoApi as {
       Range: new (line: number, column: number, endLine: number, endColumn: number) => unknown;
     };
 
     let range: unknown;
-    let line = quickInsertTarget.lineNumber;
-    let column = quickInsertTarget.column;
+    const model = editor.getModel?.();
 
-    if (activeBlockEditId) {
-      if (!activeBlockRange) {
-        updateIssues(1, "ブロックの位置が見つかりません。", "error", [
-          { severity: "error", message: "ブロックの位置が見つかりません。" },
+    const mode: BlockApplyMode =
+      applyPayload?.mode ?? (detectedBlockSnapshot ? "detected" : "new");
+
+    if (mode === "detected") {
+      const snapshot = applyPayload?.detectedSnapshot ?? detectedBlockSnapshot;
+      if (!snapshot || !model?.getPositionAt) {
+        updateIssues(1, "対象の数式/表を特定できません。", "error", [
+          { severity: "error", message: "対象の数式/表を特定できません。" },
         ]);
         return;
       }
-      range = activeBlockRange;
-      line = activeBlockRange.startLineNumber;
-      column = activeBlockRange.startColumn;
+      const content = model.getValue();
+      const slice = content.slice(snapshot.start, snapshot.end);
+      if (slice !== snapshot.snippet) {
+        updateIssues(1, "対象が変更されています。カーソルを置き直してください。", "error", [
+          { severity: "error", message: "対象が変更されています。カーソルを置き直してください。" },
+        ]);
+        return;
+      }
+      const startPos = model.getPositionAt(snapshot.start);
+      const endPos = model.getPositionAt(snapshot.end);
+      range = new monacoApiAny.Range(
+        startPos.lineNumber,
+        startPos.column,
+        endPos.lineNumber,
+        endPos.column
+      );
     } else {
-      range = new monacoApiAny.Range(line, column, line, column);
+      const position = applyPayload?.insertPosition ?? editor.getPosition?.();
+      const insertAt = position ?? quickInsertTarget;
+      range = new monacoApiAny.Range(
+        insertAt.lineNumber,
+        insertAt.column,
+        insertAt.lineNumber,
+        insertAt.column
+      );
     }
 
     editor.executeEdits("block-insert", [
@@ -4704,53 +5777,8 @@ window.addEventListener("DOMContentLoaded", () => {
       },
     ]);
     editor.focus();
-
-    const now = new Date().toISOString();
-    if (activeBlockEditId) {
-      const index = blocks.findIndex((item) => item.id === activeBlockEditId);
-      if (index >= 0) {
-        blocks[index] = {
-          ...blocks[index],
-          file: currentFilePath,
-          line,
-          column,
-          snippet: draft.snippet,
-          content: draft.content,
-          updatedAt: now,
-        };
-      } else {
-        blocks.push({
-          id: activeBlockEditId,
-          type: activeBlockType,
-          file: currentFilePath,
-          line,
-          column,
-          snippet: draft.snippet,
-          content: draft.content,
-          deps: [],
-          updatedAt: now,
-        });
-      }
-    } else {
-      const id =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `block-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      blocks.push({
-        id,
-        type: activeBlockType,
-        file: currentFilePath,
-        line,
-        column,
-        snippet: draft.snippet,
-        content: draft.content,
-        deps: [],
-        updatedAt: now,
-      });
-    }
-
-    renderBlocksList();
-    saveBlocks();
+    pendingBlockApply = null;
+    currentBlockDraft = null;
     resetBlockSession();
   };
 
@@ -4911,25 +5939,95 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  if (blockPreviewButton instanceof HTMLButtonElement) {
-    blockPreviewButton.addEventListener("click", () => {
-      const draft = getBlockDraft();
-      if (!draft) {
-        updateIssues(1, "ブロック内容を入力してください。", "error", [
-          { severity: "error", message: "ブロック内容を入力してください。" },
-        ]);
-        return;
+  if (blockInsertButton instanceof HTMLElement) {
+    blockInsertButton.addEventListener("click", () => {
+      const editorForDetect = monacoEditor as {
+        getPosition?: () => { lineNumber: number; column: number } | null;
+      };
+      const detectPosition = editorForDetect?.getPosition?.() ?? null;
+      if (!detectedBlockSnapshot && detectPosition) {
+        syncDetectedBlockAtPosition(detectPosition, { force: true });
       }
-      const target = activeBlockRange
-        ? { lineNumber: activeBlockRange.startLineNumber, column: activeBlockRange.startColumn }
-        : undefined;
-      startBlockPreview(draft.snippet, target);
+      const draft = getBlockDraft();
+      if (isE2E) {
+        (window as {
+          __tex180LastDraft?: {
+            formula: string;
+            snippet: string | null;
+            detectedSnippet: string | null;
+          };
+        }).__tex180LastDraft = {
+          formula: getMathInputValue(),
+          snippet: draft ? draft.snippet : null,
+          detectedSnippet: detectedBlockSnapshot?.snippet ?? null,
+        };
+      }
+      if (!draft) return;
+
+      const mode: BlockApplyMode = detectedBlockSnapshot ? "detected" : "new";
+
+      const editor = monacoEditor as { getPosition?: () => { lineNumber: number; column: number } | null };
+      const insertPosition = mode === "new" ? editor.getPosition?.() ?? null : null;
+
+      pendingBlockApply = {
+        mode,
+        draft,
+        detectedSnapshot: mode === "detected" ? detectedBlockSnapshot : null,
+        insertPosition,
+      };
+
+      const contextForDiff =
+        mode === "detected" ? detectedBlockSnapshot?.context ?? null : null;
+
+      let lineOffset = 0;
+      if (contextForDiff && detectedBlockSnapshot) {
+        const editorModel = (
+          monacoEditor as {
+            getModel?: () => {
+              getPositionAt?: (offset: number) => { lineNumber: number; column: number };
+            };
+          }
+        ).getModel?.();
+        if (editorModel?.getPositionAt) {
+          const innerOffset = detectedBlockSnapshot.start + contextForDiff.prefix.length;
+          const lineNumber = editorModel.getPositionAt(innerOffset).lineNumber;
+          lineOffset = Math.max(0, lineNumber - 1);
+        }
+      } else if (insertPosition) {
+        lineOffset = Math.max(0, insertPosition.lineNumber - 1);
+      }
+
+      if (contextForDiff) {
+        const originalInner = getInnerContent(contextForDiff, { trim: false });
+        const draftContext = parseBlockContext(draft.snippet);
+        const modifiedInner = getInnerContent(draftContext, { trim: false });
+        showDiffModal(originalInner, modifiedInner, lineOffset);
+      } else {
+        const originalSnippet =
+          mode === "detected" ? detectedBlockSnapshot?.snippet ?? "" : "";
+        showDiffModal(originalSnippet, draft.snippet, lineOffset);
+      }
+
+      currentBlockDraft = draft;
+    });
+  }
+  if (diffModalSubmit instanceof HTMLButtonElement) {
+    diffModalSubmit.addEventListener("click", () => {
+      // Simulate "preview active" state so applyBlockInsert proceeds
+      blockPreviewActive = true; 
+      applyBlockInsert(pendingBlockApply ?? undefined);
+      closeDiffModal();
+      blockPreviewActive = false;
+      pendingBlockApply = null;
+      currentBlockDraft = null;
     });
   }
 
-  if (blockAcceptButton instanceof HTMLButtonElement) {
-    blockAcceptButton.addEventListener("click", () => {
-      applyBlockInsert();
+  if (diffModalCancel instanceof HTMLButtonElement) {
+    diffModalCancel.addEventListener("click", () => {
+      closeDiffModal();
+      pendingBlockApply = null;
+      currentBlockDraft = null;
     });
   }
 
@@ -4949,6 +6047,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   if (blockTableCols instanceof HTMLInputElement) {
     blockTableCols.addEventListener("input", () => {
+      refreshBlockPreview();
+    });
+  }
+
+  if (blockTableRawInput instanceof HTMLTextAreaElement) {
+    blockTableRawInput.addEventListener("input", () => {
       refreshBlockPreview();
     });
   }
@@ -4989,6 +6093,48 @@ window.addEventListener("DOMContentLoaded", () => {
       requestDetectRoot();
     });
   }
+
+  if (envRegistryAdd instanceof HTMLButtonElement) {
+    envRegistryAdd.addEventListener("click", () => {
+      if (!(envRegistryInput instanceof HTMLInputElement)) {
+        return;
+      }
+      const name = normalizeEnvInput(envRegistryInput.value);
+      const kind =
+        envRegistryKind instanceof HTMLSelectElement &&
+        envRegistryKind.value === "table"
+          ? "table"
+          : "math";
+      if (!name) {
+        setEnvRegistryHint("環境名が空です。");
+        return;
+      }
+      addCustomEnvEntry(name, kind);
+      envRegistryInput.value = "";
+      envRegistryInput.focus();
+      envRegistryInput.select();
+    });
+  }
+
+  if (envRegistryInput instanceof HTMLInputElement) {
+    envRegistryInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      envRegistryAdd?.dispatchEvent(new MouseEvent("click"));
+    });
+  }
+
+  if (envRegistryMathList instanceof HTMLElement) {
+    envRegistryMathList.addEventListener("click", handleEnvRegistryListClick);
+  }
+
+  if (envRegistryTableList instanceof HTMLElement) {
+    envRegistryTableList.addEventListener("click", handleEnvRegistryListClick);
+  }
+
+  renderEnvRegistry();
 
   if (searchButton instanceof HTMLButtonElement) {
     searchButton.addEventListener("click", () => {
@@ -5263,12 +6409,6 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (blockEditorButton instanceof HTMLButtonElement) {
-    blockEditorButton.addEventListener("click", () => {
-      openBlockEditorWindow();
-    });
-  }
-
   if (issuesBar instanceof HTMLElement) {
     issuesBar.addEventListener("click", () => {
       if (currentIssues.length === 0) {
@@ -5316,10 +6456,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   bridgeWindow.tex180UpdateIndex = (payload) => {
     handleIndexUpdate(payload);
-  };
-
-  bridgeWindow.tex180UpdateBlocks = (payload) => {
-    handleBlocksUpdate(payload);
   };
 
   bridgeWindow.tex180UpdateSearch = (payload) => {
@@ -5382,9 +6518,6 @@ window.addEventListener("DOMContentLoaded", () => {
           todos?: IndexEntry[];
         });
         break;
-      case "updateBlocks":
-        bridgeWindow.tex180UpdateBlocks?.(message.payload as { blocks: BlockMeta[] });
-        break;
       case "updateSearch":
         bridgeWindow.tex180UpdateSearch?.(message.payload as {
           query: string;
@@ -5417,17 +6550,6 @@ window.addEventListener("DOMContentLoaded", () => {
           oldPath: string;
           newPath: string;
           isDirectory: boolean;
-        });
-        break;
-      case "blockEditorSyncRequest":
-        handleBlockEditorSyncRequest(message.payload as { requestId: string; path: string });
-        break;
-      case "blockEditorApplyPatch":
-        handleBlockEditorApplyPatch(message.payload as {
-          requestId: string;
-          path: string;
-          target?: { start?: number; end?: number; snippet?: string; anchor?: { kind?: string; value?: string } };
-          replacement?: string;
         });
         break;
       case "launcherStatus":
@@ -5535,6 +6657,9 @@ window.addEventListener("DOMContentLoaded", () => {
         focus?: () => void;
       } & any; // Cast to any to access full Monaco API
       monacoEditor = editor;
+      if (isE2E) {
+        (window as { __tex180Editor?: unknown }).__tex180Editor = editor;
+      }
       openPendingFileIfReady();
       editorHost.addEventListener("compositionstart", () => {
         isComposing = true;

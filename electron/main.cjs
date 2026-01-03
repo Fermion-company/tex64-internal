@@ -3,7 +3,6 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
-const { BlocksStore } = require("./services/blocks.cjs");
 const { GitService } = require("./services/git.cjs");
 const { IndexerService } = require("./services/indexer.cjs");
 const { PDFWindowManager } = require("./services/pdf.cjs");
@@ -11,14 +10,12 @@ const { SearchService } = require("./services/search.cjs");
 const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs");
 
 let mainWindow = null;
-let blockEditorWindow = null;
 let currentWorkspacePath = null;
-let blockEditorInitPayload = null;
+const isE2E = process.env.TEX180_E2E === "1";
 
 const workspace = new WorkspaceManager();
 const buildService = new BuildService();
 const indexerService = new IndexerService();
-const blocksStore = new BlocksStore();
 const searchService = new SearchService();
 const gitService = new GitService();
 const pdfWindowManager = new PDFWindowManager();
@@ -41,49 +38,13 @@ const createMainWindow = () => {
     },
   });
 
-  mainWindow.loadFile(indexPath);
+  if (isE2E) {
+    mainWindow.loadFile(indexPath, { query: { e2e: "1" } });
+  } else {
+    mainWindow.loadFile(indexPath);
+  }
   mainWindow.on("closed", () => {
     mainWindow = null;
-  });
-};
-
-const createBlockEditorWindow = (payload) => {
-  const preloadPath = path.join(__dirname, "preload.cjs");
-  const editorPath = path.join(app.getAppPath(), "Resources", "web", "block-editor.html");
-
-  blockEditorInitPayload = payload ?? blockEditorInitPayload;
-
-  if (blockEditorWindow) {
-    if (payload) {
-      sendToBlockEditor("blockEditorInit", payload);
-    }
-    blockEditorWindow.show();
-    blockEditorWindow.focus();
-    return;
-  }
-
-  blockEditorWindow = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 960,
-    minHeight: 640,
-    backgroundColor: "#f5f6f8",
-    title: "tex180 - ブロック編集",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: preloadPath,
-    },
-  });
-
-  blockEditorWindow.loadFile(editorPath);
-  blockEditorWindow.on("closed", () => {
-    blockEditorWindow = null;
-  });
-  blockEditorWindow.webContents.on("did-finish-load", () => {
-    if (blockEditorInitPayload) {
-      sendToBlockEditor("blockEditorInit", blockEditorInitPayload);
-    }
   });
 };
 
@@ -92,13 +53,6 @@ const sendToRenderer = (type, payload) => {
     return;
   }
   mainWindow.webContents.send("tex180:message", { type, payload });
-};
-
-const sendToBlockEditor = (type, payload) => {
-  if (!blockEditorWindow) {
-    return;
-  }
-  blockEditorWindow.webContents.send("tex180:message", { type, payload });
 };
 
 const sendBuildState = (state, message) => {
@@ -222,6 +176,14 @@ const revealInFinder = (targetPath) => {
 };
 
 app.whenReady().then(() => {
+  const e2eWorkspace = process.env.TEX180_E2E_WORKSPACE;
+  if (e2eWorkspace) {
+    const resolved = path.resolve(e2eWorkspace);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+      workspace.setRootPath(resolved);
+      currentWorkspacePath = null;
+    }
+  }
   createMainWindow();
 
   app.on("activate", () => {
@@ -266,10 +228,6 @@ ipcMain.on("tex180", (_event, message) => {
     handleBuild(message.mainFile);
     return;
   }
-  if (type === "openBlockEditor") {
-    handleOpenBlockEditor(message.path, message.content);
-    return;
-  }
   if (type === "openFile") {
     handleOpenFile(message.path);
     return;
@@ -298,6 +256,7 @@ ipcMain.on("tex180", (_event, message) => {
     handleRenameItem(message.path, message.newName);
     return;
   }
+
   if (type === "deleteItem") {
     handleDeleteItem(message.path);
     return;
@@ -324,30 +283,6 @@ ipcMain.on("tex180", (_event, message) => {
   }
   if (type === "requestIndex") {
     handleIndexRequest();
-    return;
-  }
-  if (type === "loadBlocks") {
-    handleLoadBlocks();
-    return;
-  }
-  if (type === "saveBlocks") {
-    handleSaveBlocks(message.blocks);
-    return;
-  }
-  if (type === "blockEditorRequestSync") {
-    handleBlockEditorRequestSync(message.requestId, message.path);
-    return;
-  }
-  if (type === "blockEditorApplyPatch") {
-    handleBlockEditorApplyPatch(message.requestId, message.path, message.target, message.replacement);
-    return;
-  }
-  if (type === "blockEditorSyncResult") {
-    handleBlockEditorSyncResult(message.requestId, message.path, message.content, message.error);
-    return;
-  }
-  if (type === "blockEditorPatchResult") {
-    handleBlockEditorPatchResult(message.requestId, message.ok, message.error, message.content);
     return;
   }
   if (type === "search") {
@@ -466,70 +401,6 @@ const handleBuild = async (mainFile) => {
     sendBuildState("failed", result.summary);
     sendIssues(count, summaryText, "error", result.issues);
   }
-};
-
-const handleOpenBlockEditor = (relativePath, content) => {
-  const rootPath = ensureWorkspace();
-  if (!rootPath) {
-    sendIssues(1, "ワークスペースが選択されていません。", "error", [
-      { severity: "error", message: "ワークスペースが選択されていません。", line: null },
-    ]);
-    return;
-  }
-  createBlockEditorWindow({
-    path: relativePath ?? "",
-    content: content ?? "",
-  });
-};
-
-const handleBlockEditorRequestSync = (requestId, relativePath) => {
-  if (!mainWindow) {
-    sendToBlockEditor("blockEditorSyncResult", {
-      requestId,
-      path: relativePath ?? "",
-      error: "メインウィンドウが開いていません。",
-    });
-    return;
-  }
-  sendToRenderer("blockEditorSyncRequest", {
-    requestId,
-    path: relativePath ?? "",
-  });
-};
-
-const handleBlockEditorApplyPatch = (requestId, relativePath, target, replacement) => {
-  if (!mainWindow) {
-    sendToBlockEditor("blockEditorPatchResult", {
-      requestId,
-      ok: false,
-      error: "メインウィンドウが開いていません。",
-    });
-    return;
-  }
-  sendToRenderer("blockEditorApplyPatch", {
-    requestId,
-    path: relativePath ?? "",
-    target,
-    replacement,
-  });
-};
-
-const handleBlockEditorSyncResult = (requestId, relativePath, content, error) => {
-  sendToBlockEditor("blockEditorSyncResult", {
-    requestId,
-    path: relativePath ?? "",
-    content: content ?? "",
-    error,
-  });
-};
-
-const handleBlockEditorPatchResult = (requestId, ok, error, content) => {
-  sendToBlockEditor("blockEditorPatchResult", {
-    requestId,
-    ok: !!ok,
-    error,
-    content,
-  });
 };
 
 const handleOpenFile = async (relativePath) => {
@@ -834,42 +705,6 @@ const handleIndexRequest = () => {
     return;
   }
   requestIndex(rootPath);
-};
-
-const handleLoadBlocks = async () => {
-  const rootPath = ensureWorkspace();
-  if (!rootPath) {
-    sendToRenderer("updateBlocks", { blocks: [] });
-    return;
-  }
-  try {
-    const blocks = await blocksStore.load(rootPath);
-    sendToRenderer("updateBlocks", { blocks });
-  } catch (error) {
-    sendToRenderer("updateBlocks", { blocks: [] });
-    sendIssues(1, error.message, "error", [
-      { severity: "error", message: error.message, line: null },
-    ]);
-  }
-};
-
-const handleSaveBlocks = async (blocksPayload) => {
-  const rootPath = ensureWorkspace();
-  if (!rootPath) {
-    sendIssues(1, "ワークスペースが選択されていません。", "error", [
-      { severity: "error", message: "ワークスペースが選択されていません。", line: null },
-    ]);
-    return;
-  }
-  try {
-    const blocks = Array.isArray(blocksPayload) ? blocksPayload : [];
-    await blocksStore.save(rootPath, blocks);
-    sendToRenderer("updateBlocks", { blocks });
-  } catch (error) {
-    sendIssues(1, error.message, "error", [
-      { severity: "error", message: error.message, line: null },
-    ]);
-  }
 };
 
 const handleSearch = async (query) => {

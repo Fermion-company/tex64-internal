@@ -189,14 +189,6 @@
                 <summary class="outline-section-title">章節</summary>
                 <div class="outline-list" id="outline-sections"></div>
               </details>
-              <details class="outline-section" data-outline="figures" open>
-                <summary class="outline-section-title">図</summary>
-                <div class="outline-list" id="outline-figures"></div>
-              </details>
-              <details class="outline-section" data-outline="tables" open>
-                <summary class="outline-section-title">表</summary>
-                <div class="outline-list" id="outline-tables"></div>
-              </details>
               <details class="outline-section" data-outline="todos" open>
                 <summary class="outline-section-title">TODO</summary>
                 <div class="outline-list" id="outline-todos"></div>
@@ -222,16 +214,17 @@
                     <button class="block-toggle-button is-active" type="button" data-block="math">数式</button>
                     <button class="block-toggle-button" type="button" data-block="table">表</button>
                   </div>
+                  <div class="block-target" id="block-target">自動判定: 未検出</div>
                   <div class="block-actions">
-                    <button class="panel-button ghost" id="block-preview-button" type="button">プレビュー</button>
-                    <button class="panel-button" id="block-accept-button" type="button">確定</button>
+                    <button class="panel-button" id="block-insert-button" type="button">挿入</button>
                   </div>
                 </div>
                 <div class="block-form is-active" data-form="math">
                   <div id="block-math-input-container" class="block-math-input-container"></div>
+                  <div class="block-format-hint is-hidden" id="block-format-hint">形式: 自動判定</div>
                 </div>
                 <div class="block-form" data-form="table">
-                  <div class="block-table-grid">
+                  <div class="block-table-grid" id="block-table-grid">
                     <div class="block-field">
                       <label class="block-label" for="block-table-rows">行</label>
                       <input class="block-input" id="block-table-rows" type="number" min="1" max="20" value="2">
@@ -240,6 +233,16 @@
                       <label class="block-label" for="block-table-cols">列</label>
                       <input class="block-input" id="block-table-cols" type="number" min="1" max="12" value="2">
                     </div>
+                  </div>
+                  <div class="block-table-raw" id="block-table-raw">
+                    <label class="block-label" for="block-table-raw-input">表（LaTeX）</label>
+                    <textarea
+                      class="block-input block-textarea"
+                      id="block-table-raw-input"
+                      rows="6"
+                      placeholder="tabular 内部を編集"
+                    ></textarea>
+                    <div class="block-format-hint is-hidden" id="block-table-format-hint">形式: 自動判定</div>
                   </div>
                 </div>
               </div>
@@ -335,6 +338,47 @@
                   <div class="settings-path" id="settings-workspace">未選択</div>
                 </div>
               </div>
+              <div class="settings-group">
+                <div class="settings-group-title">数式/表 環境</div>
+                <div class="settings-item">
+                  <div class="settings-label">
+                    <span class="settings-title">検出対象の環境</span>
+                    <span class="settings-desc">
+                      \begin{...} の環境名を追加・無効化できます。*版は自動対応。
+                    </span>
+                  </div>
+                </div>
+                <div class="env-registry">
+                  <div class="env-registry-add">
+                    <input
+                      class="env-registry-input"
+                      id="env-registry-input"
+                      type="text"
+                      placeholder="align / myenv など"
+                    >
+                    <select class="env-registry-select" id="env-registry-kind">
+                      <option value="math">数式</option>
+                      <option value="table">表</option>
+                    </select>
+                    <button class="panel-button" id="env-registry-add" type="button">
+                      追加
+                    </button>
+                  </div>
+                  <div class="env-registry-hint" id="env-registry-hint">
+                    環境名のみ入力してください。`\begin{...}` や `*` は不要です。
+                  </div>
+                  <div class="env-registry-lists">
+                    <div class="env-registry-section">
+                      <div class="env-registry-title">数式</div>
+                      <div class="env-registry-list" id="env-registry-math"></div>
+                    </div>
+                    <div class="env-registry-section">
+                      <div class="env-registry-title">表</div>
+                      <div class="env-registry-list" id="env-registry-table"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </aside>
@@ -343,7 +387,6 @@
           <div class="editor-tabs" id="editor-tabs">
             <div class="editor-tabs-list" id="editor-tabs-list"></div>
             <div class="editor-tab-actions">
-              <button class="pill ghost" id="block-editor-button" type="button">ブロック編集</button>
               <button class="pill" id="build-button" type="button">ビルド</button>
             </div>
           </div>
@@ -461,6 +504,34 @@
               キャンセル
             </button>
             <button class="panel-button" id="rename-modal-submit" type="button">変更</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal" id="diff-modal" aria-hidden="true">
+        <div
+          class="modal-card wide diff-modal-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="diff-modal-title"
+        >
+          <div class="modal-header diff-modal-header">
+            <div class="diff-header-left">
+              <div class="modal-title diff-title" id="diff-modal-title">変更内容の確認</div>
+              <div class="diff-meta-row">
+                <div class="diff-file" id="diff-file-name"></div>
+                <div class="diff-summary" id="diff-summary"></div>
+              </div>
+            </div>
+            <div class="diff-header-actions">
+              <button class="panel-button ghost" id="diff-modal-cancel" type="button">
+                キャンセル
+              </button>
+              <button class="panel-button" id="diff-modal-submit" type="button">確定</button>
+            </div>
+          </div>
+          <div class="modal-body diff-modal-body" style="padding: 0;">
+            <div class="block-diff-container" id="block-diff-container" style="height: 400px; background: #1e1e1e;"></div>
           </div>
         </div>
       </div>

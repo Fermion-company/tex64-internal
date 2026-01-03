@@ -30,6 +30,31 @@ const serializeBlockForPatch = (block: DocumentBlock, docClass: string) => {
   return serializeBlock(block, docClass);
 };
 
+const normalizeForCompare = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(normalizeForCompare);
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record)
+      .filter((key) => key !== "id")
+      .sort();
+    const next: Record<string, unknown> = {};
+    keys.forEach((key) => {
+      next[key] = normalizeForCompare(record[key]);
+    });
+    return next;
+  }
+  return value;
+};
+
+const isSameBlockContent = (a?: DocumentBlock, b?: DocumentBlock) => {
+  if (!a || !b) return false;
+  const normalizedA = normalizeForCompare(a);
+  const normalizedB = normalizeForCompare(b);
+  return JSON.stringify(normalizedA) === JSON.stringify(normalizedB);
+};
+
 const buildLcsTable = (a: string[], b: string[]) => {
   const rows = a.length;
   const cols = b.length;
@@ -67,6 +92,7 @@ const buildLcs = (a: string[], b: string[]) => {
 
 export const buildPatchOperations = (
   entries: BlockEntry[],
+  source: Document,
   draft: Document,
 ): PatchOperation[] => {
   const sourceIds = entries.map((entry) => entry.id);
@@ -74,6 +100,7 @@ export const buildPatchOperations = (
   const lcsIds = buildLcs(sourceIds, draftIds);
   const stableSet = new Set(lcsIds);
   const docClass = draft.metadata.documentClass || "article";
+  const sourceById = new Map(source.blocks.map((block) => [block.id, block]));
 
   if (stableSet.size === 0 && entries.length > 0) {
     const fullReplacement = serializeBlocks(draft.blocks, docClass);
@@ -117,7 +144,12 @@ export const buildPatchOperations = (
       }
 
       const draftBlock = draftById.get(entry.id);
-      const content = draftBlock ? serializeBlockForPatch(draftBlock, docClass) : "";
+      const sourceBlock = sourceById.get(entry.id);
+      const content = draftBlock
+        ? sourceBlock && isSameBlockContent(sourceBlock, draftBlock)
+          ? entry.snippet
+          : serializeBlockForPatch(draftBlock, docClass)
+        : "";
       const replacement = joinWithSpacing([prefix, content, suffix]);
       return { entry, replacement };
     })

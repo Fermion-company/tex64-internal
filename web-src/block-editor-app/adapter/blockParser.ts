@@ -290,6 +290,8 @@ export const parseBlocks = (content: string) => {
   const maketitleRegex = /\\maketitle(?![a-zA-Z])/g;
   const columnRegex = /\\columnbreak(?![a-zA-Z])/g;
   const structuralRegex = /\\(listoffigures|listoftables|appendix|bibliography|printbibliography)(?![a-zA-Z])/g;
+  const displayMathRegex = /\\\[([\s\S]*?)\\\]/g;
+  const doubleDollarRegex = /\$\$([\s\S]*?)\$\$/g;
 
   while (pos < content.length) {
     const headingMatch = findNextMatch(headingRegex, content, pos, commentRanges);
@@ -299,8 +301,20 @@ export const parseBlocks = (content: string) => {
     const maketitleMatch = findNextMatch(maketitleRegex, content, pos, commentRanges);
     const columnMatch = findNextMatch(columnRegex, content, pos, commentRanges);
     const structuralMatch = findNextMatch(structuralRegex, content, pos, commentRanges);
+    const displayMathMatch = findNextMatch(displayMathRegex, content, pos, commentRanges);
+    const doubleDollarMatch = findNextMatch(doubleDollarRegex, content, pos, commentRanges);
 
-    const candidates = [headingMatch, envMatch, tocMatch, pageBreakMatch, maketitleMatch, columnMatch, structuralMatch].filter(Boolean) as RegExpMatchArray[];
+    const candidates = [
+      headingMatch,
+      envMatch,
+      tocMatch,
+      pageBreakMatch,
+      maketitleMatch,
+      columnMatch,
+      structuralMatch,
+      displayMathMatch,
+      doubleDollarMatch
+    ].filter(Boolean) as RegExpMatchArray[];
     if (candidates.length === 0) {
       const tail = content.slice(pos);
       const trimmedTail = tail.trim();
@@ -592,6 +606,7 @@ export const parseBlocks = (content: string) => {
     }
 
     if (structuralMatch && nextMatch === structuralMatch) {
+      // ... (existing structural match logic)
       const typeStr = structuralMatch[1];
       const snippet = structuralMatch[0];
       let type: BlockType = "raw";
@@ -640,6 +655,44 @@ export const parseBlocks = (content: string) => {
         meta,
       });
       pos = structuralMatch.index + snippet.length;
+      continue;
+    }
+
+    if (displayMathMatch && nextMatch === displayMathMatch) {
+      const snippet = displayMathMatch[0];
+      const inner = displayMathMatch[1];
+      blocksParsed.push({
+        id: buildHash(`${displayMathMatch.index}-${snippet.length}`),
+        type: "mathBlock",
+        title: "数式",
+        snippet,
+        start: displayMathMatch.index,
+        end: displayMathMatch.index + snippet.length,
+        anchor: extractAnchor(snippet),
+        fingerprint: buildFingerprint(snippet),
+        meta: {},
+        parsed: { body: inner.trim() }
+      });
+      pos = displayMathMatch.index + snippet.length;
+      continue;
+    }
+
+    if (doubleDollarMatch && nextMatch === doubleDollarMatch) {
+      const snippet = doubleDollarMatch[0];
+      const inner = doubleDollarMatch[1];
+      blocksParsed.push({
+        id: buildHash(`${doubleDollarMatch.index}-${snippet.length}`),
+        type: "mathBlock",
+        title: "数式",
+        snippet,
+        start: doubleDollarMatch.index,
+        end: doubleDollarMatch.index + snippet.length,
+        anchor: extractAnchor(snippet),
+        fingerprint: buildFingerprint(snippet),
+        meta: {},
+        parsed: { body: inner.trim() }
+      });
+      pos = doubleDollarMatch.index + snippet.length;
       continue;
     }
 

@@ -490,6 +490,41 @@ body.has-launcher .app {
   white-space: nowrap;
 }
 
+.block-format-hint {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.block-format-hint.is-hidden {
+  display: none;
+}
+
+.block-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.block-table-raw {
+  display: none;
+  gap: 6px;
+}
+
+.block-table-raw.is-active {
+  display: grid;
+}
+
+.block-table-grid.is-hidden {
+  display: none;
+}
+
+.blocks-panel.is-auto-detected .block-toggle {
+  display: none;
+}
+
+.blocks-panel.is-auto-detected .block-target {
+  max-width: 100%;
+}
+
 .block-form {
   display: none;
   gap: 6px;
@@ -678,45 +713,6 @@ math-field.block-math-field::placeholder {
   background: var(--panel-border);
 }
 
-.block-list {
-  display: grid;
-  gap: 8px;
-}
-
-.block-list-title {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-
-.block-list-body {
-  display: grid;
-  gap: 6px;
-}
-
-.block-item {
-  border: 1px solid #2f3a48;
-  background: #1f2630;
-  color: var(--text);
-  font-size: 11px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  text-align: left;
-  cursor: pointer;
-  display: grid;
-  gap: 4px;
-}
-
-.block-item:hover {
-  border-color: rgba(74, 168, 255, 0.35);
-}
-
-.block-item-meta {
-  font-size: 10px;
-  color: var(--muted);
-}
-
 .search-panel {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -898,6 +894,110 @@ math-field.block-math-field::placeholder {
   background: var(--accent-soft);
   border-color: rgba(74, 168, 255, 0.5);
   color: var(--text);
+}
+
+.env-registry {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #2b3440;
+  background: #141a22;
+}
+
+.env-registry-add {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.env-registry-input,
+.env-registry-select {
+  background: #0f141c;
+  color: var(--text);
+  border: 1px solid #2b3440;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.env-registry-hint {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.env-registry-lists {
+  display: grid;
+  gap: 12px;
+}
+
+.env-registry-section {
+  display: grid;
+  gap: 6px;
+}
+
+.env-registry-title {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.env-registry-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.env-registry-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #2b3440;
+  background: #1b222c;
+}
+
+.env-registry-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.env-registry-name {
+  font-size: 12px;
+  font-family: "SF Mono", Menlo, monospace;
+  color: var(--text);
+}
+
+.env-registry-meta {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.env-registry-flag {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.18);
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+
+.env-registry-flag.is-custom {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.env-registry-spacer {
+  min-width: 40px;
 }
 
 .outline-empty {
@@ -1774,9 +1874,96 @@ body.has-editor .editor-placeholder {
   transform: translateY(0) scale(1);
 }
 
+.diff-modal-card {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
 .modal-title {
   font-size: 14px;
   font-weight: 600;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.diff-modal-header {
+  align-items: flex-start;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1b232e;
+}
+
+.diff-header-left {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.diff-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.diff-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.diff-file {
+  font-family: "SF Mono", Menlo, Monaco, monospace;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.diff-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diff-header-actions .panel-button {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.diff-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.diff-summary-item {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.diff-summary-item.is-add {
+  background: rgba(73, 194, 120, 0.2);
+  color: #8fe0b3;
+}
+
+.diff-summary-item.is-del {
+  background: rgba(236, 90, 90, 0.2);
+  color: #ffb1b1;
 }
 
 .modal-subtitle {
@@ -1788,6 +1975,10 @@ body.has-editor .editor-placeholder {
 .modal-body {
   display: grid;
   gap: 12px;
+}
+
+.diff-modal-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.02);
 }
 
 .modal-row {
@@ -2126,8 +2317,32 @@ body.has-editor .editor-placeholder {
 }
 
 .monaco-editor .detected-block-highlight {
-  background: rgba(91, 194, 255, 0.12);
-  border-left: 2px solid rgba(91, 194, 255, 0.6);
+  background: linear-gradient(
+    90deg,
+    rgba(91, 194, 255, 0.22),
+    rgba(91, 194, 255, 0.08)
+  );
+  box-shadow: inset 0 0 0 1px rgba(91, 194, 255, 0.18);
+}
+
+.monaco-editor .detected-block-line {
+  border-left: 3px solid rgba(91, 194, 255, 0.7);
+}
+
+.monaco-editor .detected-block-glyph {
+  position: relative;
+}
+
+.monaco-editor .detected-block-glyph::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(91, 194, 255, 0.9);
+  box-shadow: 0 0 0 4px rgba(91, 194, 255, 0.25);
 }
 @media (max-width: 720px) {
   .topbar {
@@ -2161,4 +2376,9 @@ body.has-editor .editor-placeholder {
   .sidebar-panel {
     display: none;
   }
+}
+
+.modal-card.wide {
+  width: min(800px, 96vw);
+  max-width: 800px;
 }

@@ -50,13 +50,81 @@ const applyPatchesToString = (content: string, patches: ApplyPatch[]) => {
 
 const buildRequestId = () => `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const isEscaped = (text: string, index: number) => {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+};
+
+const isInLineComment = (text: string, index: number) => {
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+  for (let i = lineStart; i < index; i += 1) {
+    if (text[i] === "%" && !isEscaped(text, i)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const findClosing = (text: string, start: number, openChar: string, closeChar: string) => {
+  if (text[start] !== openChar) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === openChar && !isEscaped(text, i)) {
+      depth += 1;
+    } else if (ch === closeChar && !isEscaped(text, i)) {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return null;
+};
+
+const findCommandRange = (text: string, command: string) => {
+  const needle = `\\${command}`;
+  let index = text.indexOf(needle);
+  while (index !== -1) {
+    if (!isInLineComment(text, index)) {
+      let cursor = index + needle.length;
+      while (cursor < text.length && /\s/.test(text[cursor])) {
+        cursor += 1;
+      }
+      if (text[cursor] === "[") {
+        const optEnd = findClosing(text, cursor, "[", "]");
+        if (optEnd !== null) {
+          cursor = optEnd + 1;
+          while (cursor < text.length && /\s/.test(text[cursor])) {
+            cursor += 1;
+          }
+        }
+      }
+      if (text[cursor] === "{") {
+        const closeIndex = findClosing(text, cursor, "{", "}");
+        if (closeIndex !== null) {
+          return {
+            start: index,
+            end: closeIndex + 1,
+            prefix: text.slice(index, cursor + 1),
+          };
+        }
+      }
+    }
+    index = text.indexOf(needle, index + needle.length);
+  }
+  return null;
+};
+
 const buildMetadataPatches = (content: string, source: Document, draft: Document): ApplyPatch[] => {
   const beginDocMatch = content.match(/\\begin\{document\}/);
   if (!beginDocMatch || beginDocMatch.index === undefined) {
     return [];
   }
 
-  const preamble = content.slice(0, beginDocMatch.index);
   const beginSnippet = beginDocMatch[0];
   const beginIndex = beginDocMatch.index;
 
@@ -74,14 +142,13 @@ const buildMetadataPatches = (content: string, source: Document, draft: Document
     const newValue = (draft.metadata[key] ?? "").trim();
     if (oldValue === newValue) return;
 
-    const regex = new RegExp(`\\\\${command}\\{[^}]*\\}`);
-    const match = preamble.match(regex);
-    if (match && match.index !== undefined) {
+    const match = findCommandRange(content, command);
+    if (match) {
       patches.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        snippet: match[0],
-        replacement: newValue ? `\\\\${command}{${newValue}}` : "",
+        start: match.start,
+        end: match.end,
+        snippet: content.slice(match.start, match.end),
+        replacement: newValue ? `${match.prefix}${newValue}}` : "",
       });
       return;
     }
@@ -188,8 +255,8 @@ export function BlockEditorApp() {
     if (!sourceEntries.length) {
       return [] as PatchOperation[];
     }
-    return buildPatchOperations(sourceEntries, draftDocument);
-  }, [sourceEntries, draftDocument]);
+    return buildPatchOperations(sourceEntries, sourceDocument, draftDocument);
+  }, [sourceEntries, sourceDocument, draftDocument]);
 
   const metadataPatches = useMemo(
     () => buildMetadataPatches(sourceContent, sourceDocument, draftDocument),
@@ -233,28 +300,26 @@ export function BlockEditorApp() {
     setPending(true);
     setStatus("適用中...");
 
-    const sorted = [...patches].sort((a, b) => b.start - a.start);
     let latestContent = sourceContent;
 
     try {
-      for (const patch of sorted) {
-        const result = (await sendRequest("blockEditorApplyPatch", {
-          path: filePath,
-          target: {
-            start: patch.start,
-            end: patch.end,
-            snippet: patch.snippet,
-            anchor: patch.anchor,
-          },
-          replacement: patch.replacement,
-        })) as PatchResponse;
+      const result = (await sendRequest("blockEditorApplyPatch", {
+        path: filePath,
+        target: {
+          start: 0,
+          end: sourceContent.length,
+          snippet: sourceContent,
+        },
+        replacement: modifiedContent,
+      })) as PatchResponse;
 
-        if (!result.ok) {
-          throw new Error(result.error || "適用に失敗しました。");
-        }
-        if (typeof result.content === "string") {
-          latestContent = result.content;
-        }
+      if (!result.ok) {
+        throw new Error(result.error || "適用に失敗しました。");
+      }
+      if (typeof result.content === "string") {
+        latestContent = result.content;
+      } else {
+        latestContent = modifiedContent;
       }
 
       syncFromContent(latestContent, filePath);
@@ -264,7 +329,7 @@ export function BlockEditorApp() {
     } finally {
       setPending(false);
     }
-  }, [filePath, patches, sendRequest, sourceContent, syncFromContent]);
+  }, [filePath, patches, sendRequest, sourceContent, syncFromContent, modifiedContent]);
 
   useEffect(() => {
     const handleBridgeMessage = (message: BridgeMessage) => {
@@ -308,14 +373,6 @@ export function BlockEditorApp() {
               <div className="text-xs text-slate-500 truncate">{filePath || "ファイル未選択"}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
-                onClick={handleSync}
-                disabled={pending}
-              >
-                再解析
-              </button>
               <button
                 type="button"
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showDiff ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}

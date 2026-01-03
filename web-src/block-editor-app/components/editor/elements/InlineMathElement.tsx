@@ -42,12 +42,18 @@ const MathOverlay = ({ initialValue, targetRef, onChange, onClose, onDelete, inl
     
     // Focus logic: wait for render then focus the math-field
     const timer = setTimeout(() => {
-       const mathField = overlayRef.current?.querySelector('math-field') as HTMLElement & { focus: () => void, executeCommand: (cmd: string) => void }
+       const mathField = overlayRef.current?.querySelector('math-field') as HTMLElement & { focus: (options?: FocusOptions) => void, executeCommand: (cmd: string) => void }
        if (mathField) {
-         mathField.focus()
-         // Also select all content to mimic standard inline editing behavior
+         // Save scroll position before focus
+         const scrollY = window.scrollY
+         const scrollX = window.scrollX
+         // Focus with preventScroll to avoid page jumping
+         mathField.focus({ preventScroll: true })
+         // Restore scroll position just in case
+         window.scrollTo(scrollX, scrollY)
+         // Move cursor to end instead of selectAll (allows normal keyboard input)
          if (mathField.executeCommand) {
-            mathField.executeCommand('selectAll')
+            mathField.executeCommand('moveToMathfieldEnd')
          }
        }
     }, 50)
@@ -66,18 +72,7 @@ const MathOverlay = ({ initialValue, targetRef, onChange, onClose, onDelete, inl
 
   return createPortal(
     <>
-      {/* Transparent backdrop to catch clicks outside */}
-      <div 
-        className="fixed inset-0 z-40 bg-transparent" 
-        onClick={(e) => {
-           // If clicking math keyboard, don't close
-           const target = e.target as HTMLElement
-           if (target.closest('[data-math-keyboard]')) return
-           onClose()
-        }}
-      />
-      
-      {/* Overlay Editor */}
+      {/* Overlay Editor - No backdrop needed, document click handler in MathFieldContext will close */}
       <div
         ref={overlayRef}
         className="absolute z-50 shadow-lg rounded bg-white"
@@ -87,6 +82,7 @@ const MathOverlay = ({ initialValue, targetRef, onChange, onClose, onDelete, inl
           minWidth: '40px',
         }}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <SimpleMathField
           asInline

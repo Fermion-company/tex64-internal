@@ -52008,7 +52008,7 @@ ${bodyLatex}
     if (!text5) return text5;
     if (!CJK_REGEX.test(text5)) return text5;
     if (!text5.includes("$") && !text5.includes("\\(") && !text5.includes("\\[")) return text5;
-    const isEscaped = (index3) => {
+    const isEscaped2 = (index3) => {
       let backslashes = 0;
       for (let i2 = index3 - 1; i2 >= 0 && text5[i2] === "\\"; i2--) {
         backslashes += 1;
@@ -52036,13 +52036,13 @@ ${bodyLatex}
           continue;
         }
       }
-      if (text5[i] === "$" && !isEscaped(i)) {
+      if (text5[i] === "$" && !isEscaped2(i)) {
         const isDouble = text5[i + 1] === "$";
         const delimiter2 = isDouble ? "$$" : "$";
         const start2 = i + delimiter2.length;
         let j = start2;
         while (j < text5.length) {
-          if (text5.startsWith(delimiter2, j) && !isEscaped(j)) {
+          if (text5.startsWith(delimiter2, j) && !isEscaped2(j)) {
             const content = text5.slice(start2, j);
             result += `${delimiter2}${wrapCjkInMath(sanitizeMathLatex(content))}${delimiter2}`;
             i = j + delimiter2.length;
@@ -66886,9 +66886,12 @@ ${bodyLatex}
         var _a2;
         const mathField = (_a2 = overlayRef.current) == null ? void 0 : _a2.querySelector("math-field");
         if (mathField) {
-          mathField.focus();
+          const scrollY = window.scrollY;
+          const scrollX = window.scrollX;
+          mathField.focus({ preventScroll: true });
+          window.scrollTo(scrollX, scrollY);
           if (mathField.executeCommand) {
-            mathField.executeCommand("selectAll");
+            mathField.executeCommand("moveToMathfieldEnd");
           }
         }
       }, 50);
@@ -66900,51 +66903,39 @@ ${bodyLatex}
     }, [updatePosition]);
     if (!position) return null;
     return (0, import_react_dom4.createPortal)(
-      /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(import_jsx_runtime22.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
-          "div",
-          {
-            className: "fixed inset-0 z-40 bg-transparent",
-            onClick: (e3) => {
-              const target = e3.target;
-              if (target.closest("[data-math-keyboard]")) return;
-              onClose();
-            }
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
-          "div",
-          {
-            ref: overlayRef,
-            className: "absolute z-50 shadow-lg rounded bg-white",
-            style: {
-              top: position.top,
-              left: position.left,
-              minWidth: "40px"
-            },
-            onClick: (e3) => e3.stopPropagation(),
-            children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
-              SimpleMathField,
-              {
-                asInline: true,
-                instanceId: inlineId,
-                value: initialValue,
-                onChange,
-                onDelete,
-                autoFocus: true,
-                style: {
-                  minHeight: "20px",
-                  border: "1px solid #a855f7",
-                  // purple-500
-                  borderRadius: "4px",
-                  padding: "1px 2px",
-                  backgroundColor: "white"
-                }
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(import_jsx_runtime22.Fragment, { children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+        "div",
+        {
+          ref: overlayRef,
+          className: "absolute z-50 shadow-lg rounded bg-white",
+          style: {
+            top: position.top,
+            left: position.left,
+            minWidth: "40px"
+          },
+          onClick: (e3) => e3.stopPropagation(),
+          onMouseDown: (e3) => e3.stopPropagation(),
+          children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+            SimpleMathField,
+            {
+              asInline: true,
+              instanceId: inlineId,
+              value: initialValue,
+              onChange,
+              onDelete,
+              autoFocus: true,
+              style: {
+                minHeight: "20px",
+                border: "1px solid #a855f7",
+                // purple-500
+                borderRadius: "4px",
+                padding: "1px 2px",
+                backgroundColor: "white"
               }
-            )
-          }
-        )
-      ] }),
+            }
+          )
+        }
+      ) }),
       document.body
     );
   };
@@ -74524,6 +74515,8 @@ ${content}
     const maketitleRegex = /\\maketitle(?![a-zA-Z])/g;
     const columnRegex = /\\columnbreak(?![a-zA-Z])/g;
     const structuralRegex = /\\(listoffigures|listoftables|appendix|bibliography|printbibliography)(?![a-zA-Z])/g;
+    const displayMathRegex = /\\\[([\s\S]*?)\\\]/g;
+    const doubleDollarRegex = /\$\$([\s\S]*?)\$\$/g;
     while (pos < content.length) {
       const headingMatch = findNextMatch(headingRegex, content, pos, commentRanges);
       const envMatch = findNextMatch(beginRegex, content, pos, commentRanges);
@@ -74532,7 +74525,19 @@ ${content}
       const maketitleMatch = findNextMatch(maketitleRegex, content, pos, commentRanges);
       const columnMatch = findNextMatch(columnRegex, content, pos, commentRanges);
       const structuralMatch = findNextMatch(structuralRegex, content, pos, commentRanges);
-      const candidates = [headingMatch, envMatch, tocMatch, pageBreakMatch, maketitleMatch, columnMatch, structuralMatch].filter(Boolean);
+      const displayMathMatch = findNextMatch(displayMathRegex, content, pos, commentRanges);
+      const doubleDollarMatch = findNextMatch(doubleDollarRegex, content, pos, commentRanges);
+      const candidates = [
+        headingMatch,
+        envMatch,
+        tocMatch,
+        pageBreakMatch,
+        maketitleMatch,
+        columnMatch,
+        structuralMatch,
+        displayMathMatch,
+        doubleDollarMatch
+      ].filter(Boolean);
       if (candidates.length === 0) {
         const tail = content.slice(pos);
         const trimmedTail = tail.trim();
@@ -74839,6 +74844,42 @@ ${content}
           meta
         });
         pos = structuralMatch.index + snippet.length;
+        continue;
+      }
+      if (displayMathMatch && nextMatch === displayMathMatch) {
+        const snippet = displayMathMatch[0];
+        const inner2 = displayMathMatch[1];
+        blocksParsed.push({
+          id: buildHash(`${displayMathMatch.index}-${snippet.length}`),
+          type: "mathBlock",
+          title: "\u6570\u5F0F",
+          snippet,
+          start: displayMathMatch.index,
+          end: displayMathMatch.index + snippet.length,
+          anchor: extractAnchor(snippet),
+          fingerprint: buildFingerprint(snippet),
+          meta: {},
+          parsed: { body: inner2.trim() }
+        });
+        pos = displayMathMatch.index + snippet.length;
+        continue;
+      }
+      if (doubleDollarMatch && nextMatch === doubleDollarMatch) {
+        const snippet = doubleDollarMatch[0];
+        const inner2 = doubleDollarMatch[1];
+        blocksParsed.push({
+          id: buildHash(`${doubleDollarMatch.index}-${snippet.length}`),
+          type: "mathBlock",
+          title: "\u6570\u5F0F",
+          snippet,
+          start: doubleDollarMatch.index,
+          end: doubleDollarMatch.index + snippet.length,
+          anchor: extractAnchor(snippet),
+          fingerprint: buildFingerprint(snippet),
+          meta: {},
+          parsed: { body: inner2.trim() }
+        });
+        pos = doubleDollarMatch.index + snippet.length;
         continue;
       }
       pos += 1;
@@ -75244,6 +75285,27 @@ ${part}`;
     }
     return serializeBlock(block, docClass);
   };
+  var normalizeForCompare = (value) => {
+    if (Array.isArray(value)) {
+      return value.map(normalizeForCompare);
+    }
+    if (value && typeof value === "object") {
+      const record = value;
+      const keys = Object.keys(record).filter((key) => key !== "id").sort();
+      const next3 = {};
+      keys.forEach((key) => {
+        next3[key] = normalizeForCompare(record[key]);
+      });
+      return next3;
+    }
+    return value;
+  };
+  var isSameBlockContent = (a2, b2) => {
+    if (!a2 || !b2) return false;
+    const normalizedA = normalizeForCompare(a2);
+    const normalizedB = normalizeForCompare(b2);
+    return JSON.stringify(normalizedA) === JSON.stringify(normalizedB);
+  };
   var buildLcsTable = (a2, b2) => {
     const rows = a2.length;
     const cols = b2.length;
@@ -75277,12 +75339,13 @@ ${part}`;
     }
     return result.reverse();
   };
-  var buildPatchOperations = (entries, draft) => {
+  var buildPatchOperations = (entries, source, draft) => {
     const sourceIds = entries.map((entry) => entry.id);
     const draftIds = draft.blocks.map((block) => block.id);
     const lcsIds = buildLcs(sourceIds, draftIds);
     const stableSet = new Set(lcsIds);
     const docClass = draft.metadata.documentClass || "article";
+    const sourceById = new Map(source.blocks.map((block) => [block.id, block]));
     if (stableSet.size === 0 && entries.length > 0) {
       const fullReplacement = serializeBlocks(draft.blocks, docClass);
       const patches = [{ entry: entries[0], replacement: fullReplacement }];
@@ -75318,7 +75381,8 @@ ${part}`;
         return { entry, replacement: replacement2 };
       }
       const draftBlock = draftById.get(entry.id);
-      const content = draftBlock ? serializeBlockForPatch(draftBlock, docClass) : "";
+      const sourceBlock = sourceById.get(entry.id);
+      const content = draftBlock ? sourceBlock && isSameBlockContent(sourceBlock, draftBlock) ? entry.snippet : serializeBlockForPatch(draftBlock, docClass) : "";
       const replacement = joinWithSpacing([prefix, content, suffix]);
       return { entry, replacement };
     }).filter((patch) => patch.replacement !== patch.entry.snippet);
@@ -75384,48 +75448,104 @@ ${body}`;
 
   // web-src/block-editor-app/components/diff/DiffViewer.tsx
   var import_jsx_runtime36 = __toESM(require_jsx_runtime());
+  var buildLineDiff2 = (beforeLines, afterLines) => {
+    const rows = beforeLines.length;
+    const cols = afterLines.length;
+    const table = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(0));
+    for (let i2 = 1; i2 <= rows; i2 += 1) {
+      for (let j2 = 1; j2 <= cols; j2 += 1) {
+        if (beforeLines[i2 - 1] === afterLines[j2 - 1]) {
+          table[i2][j2] = table[i2 - 1][j2 - 1] + 1;
+        } else {
+          table[i2][j2] = Math.max(table[i2 - 1][j2], table[i2][j2 - 1]);
+        }
+      }
+    }
+    const diff = [];
+    let i = rows;
+    let j = cols;
+    while (i > 0 && j > 0) {
+      if (beforeLines[i - 1] === afterLines[j - 1]) {
+        diff.push({ type: "same" });
+        i -= 1;
+        j -= 1;
+      } else if (table[i - 1][j] >= table[i][j - 1]) {
+        diff.push({ type: "del" });
+        i -= 1;
+      } else {
+        diff.push({ type: "add" });
+        j -= 1;
+      }
+    }
+    while (i > 0) {
+      diff.push({ type: "del" });
+      i -= 1;
+    }
+    while (j > 0) {
+      diff.push({ type: "add" });
+      j -= 1;
+    }
+    return diff.reverse();
+  };
+  var getDiffCounts = (before3, after3) => {
+    const beforeText = before3.trimEnd();
+    const afterText = after3.trimEnd();
+    const beforeLines = beforeText.length ? beforeText.split(/\r?\n/) : [""];
+    const afterLines = afterText.length ? afterText.split(/\r?\n/) : [""];
+    const diffLines = buildLineDiff2(beforeLines, afterLines);
+    let adds = 0;
+    let dels = 0;
+    diffLines.forEach((entry) => {
+      if (entry.type === "add") {
+        adds += 1;
+      } else if (entry.type === "del") {
+        dels += 1;
+      }
+    });
+    return { adds, dels };
+  };
   function DiffViewer({ original, modified, onClose, isOpen }) {
     if (!isOpen) return null;
-    return /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-8", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "w-full h-full max-w-7xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "flex items-center gap-4", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("h2", { className: "text-lg font-bold text-slate-800", children: "\u5909\u66F4\u5185\u5BB9\u306E\u78BA\u8A8D" }),
-          /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "flex items-center gap-2 text-sm text-slate-500", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "w-3 h-3 rounded-full bg-red-400" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { children: [
-              "\u5909\u66F4\u524D (",
-              original.length,
-              " chars)"
+    const { adds, dels } = getDiffCounts(original, modified);
+    return /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-6", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "w-full max-w-5xl bg-slate-900 rounded-xl shadow-2xl flex flex-col overflow-hidden border border-white/10", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "flex items-center justify-between px-5 py-3 border-b border-white/10 bg-slate-900", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("div", { className: "flex items-center gap-3", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("h2", { className: "text-sm font-semibold text-slate-100", children: "\u5909\u66F4\u5185\u5BB9\u306E\u78BA\u8A8D" }),
+          /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "flex items-center gap-2 text-[11px] text-slate-400", children: adds === 0 && dels === 0 ? /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { children: "\u5909\u66F4\u306A\u3057" }) : /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)(import_jsx_runtime36.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { className: "rounded-full bg-emerald-500/20 text-emerald-300 px-2 py-0.5 font-semibold", children: [
+              "+",
+              adds
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "mx-1", children: "\u2192" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("span", { className: "w-3 h-3 rounded-full bg-green-400" }),
-            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { children: [
-              "\u5909\u66F4\u5F8C (",
-              modified.length,
-              " chars)"
+            /* @__PURE__ */ (0, import_jsx_runtime36.jsxs)("span", { className: "rounded-full bg-rose-500/20 text-rose-300 px-2 py-0.5 font-semibold", children: [
+              "-",
+              dels
             ] })
-          ] })
+          ] }) })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
           "button",
           {
             onClick: onClose,
-            className: "p-2 hover:bg-slate-200 rounded-lg transition-colors text-slate-500 hover:text-slate-800",
+            className: "p-2 hover:bg-white/10 rounded-md transition-colors text-slate-300 hover:text-white",
             title: "\u9589\u3058\u308B",
-            children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(X, { className: "w-5 h-5" })
+            children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(X, { className: "w-4 h-4" })
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "flex-1 min-h-0 relative", children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { className: "modal-body", style: { padding: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)("div", { style: { height: 400, background: "#1e1e1e" }, children: /* @__PURE__ */ (0, import_jsx_runtime36.jsx)(
         we2,
         {
           original,
           modified,
           language: "latex",
-          theme: "light",
+          theme: "vs-dark",
           options: {
             readOnly: true,
-            renderSideBySide: true,
+            renderSideBySide: false,
+            renderIndicators: true,
+            renderMarginRevertIcon: false,
+            diffWordWrap: "on",
+            wordWrap: "on",
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             fontSize: 13,
@@ -75433,7 +75553,7 @@ ${body}`;
             padding: { top: 16, bottom: 16 }
           }
         }
-      ) })
+      ) }) })
     ] }) });
   }
 
@@ -75448,12 +75568,76 @@ ${body}`;
     return next3;
   };
   var buildRequestId = () => `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  var isEscaped = (text5, index3) => {
+    let backslashes = 0;
+    for (let i = index3 - 1; i >= 0 && text5[i] === "\\"; i -= 1) {
+      backslashes += 1;
+    }
+    return backslashes % 2 === 1;
+  };
+  var isInLineComment = (text5, index3) => {
+    const lineStart = text5.lastIndexOf("\n", index3 - 1) + 1;
+    for (let i = lineStart; i < index3; i += 1) {
+      if (text5[i] === "%" && !isEscaped(text5, i)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  var findClosing = (text5, start2, openChar, closeChar) => {
+    if (text5[start2] !== openChar) return null;
+    let depth = 0;
+    for (let i = start2; i < text5.length; i += 1) {
+      const ch2 = text5[i];
+      if (ch2 === openChar && !isEscaped(text5, i)) {
+        depth += 1;
+      } else if (ch2 === closeChar && !isEscaped(text5, i)) {
+        depth -= 1;
+        if (depth === 0) {
+          return i;
+        }
+      }
+    }
+    return null;
+  };
+  var findCommandRange = (text5, command) => {
+    const needle = `\\${command}`;
+    let index3 = text5.indexOf(needle);
+    while (index3 !== -1) {
+      if (!isInLineComment(text5, index3)) {
+        let cursor = index3 + needle.length;
+        while (cursor < text5.length && /\s/.test(text5[cursor])) {
+          cursor += 1;
+        }
+        if (text5[cursor] === "[") {
+          const optEnd = findClosing(text5, cursor, "[", "]");
+          if (optEnd !== null) {
+            cursor = optEnd + 1;
+            while (cursor < text5.length && /\s/.test(text5[cursor])) {
+              cursor += 1;
+            }
+          }
+        }
+        if (text5[cursor] === "{") {
+          const closeIndex = findClosing(text5, cursor, "{", "}");
+          if (closeIndex !== null) {
+            return {
+              start: index3,
+              end: closeIndex + 1,
+              prefix: text5.slice(index3, cursor + 1)
+            };
+          }
+        }
+      }
+      index3 = text5.indexOf(needle, index3 + needle.length);
+    }
+    return null;
+  };
   var buildMetadataPatches = (content, source, draft) => {
     const beginDocMatch = content.match(/\\begin\{document\}/);
     if (!beginDocMatch || beginDocMatch.index === void 0) {
       return [];
     }
-    const preamble = content.slice(0, beginDocMatch.index);
     const beginSnippet = beginDocMatch[0];
     const beginIndex = beginDocMatch.index;
     const patches = [];
@@ -75468,14 +75652,13 @@ ${body}`;
       const oldValue = ((_a2 = source.metadata[key]) != null ? _a2 : "").trim();
       const newValue = ((_b2 = draft.metadata[key]) != null ? _b2 : "").trim();
       if (oldValue === newValue) return;
-      const regex = new RegExp(`\\\\${command}\\{[^}]*\\}`);
-      const match = preamble.match(regex);
-      if (match && match.index !== void 0) {
+      const match = findCommandRange(content, command);
+      if (match) {
         patches.push({
-          start: match.index,
-          end: match.index + match[0].length,
-          snippet: match[0],
-          replacement: newValue ? `\\\\${command}{${newValue}}` : ""
+          start: match.start,
+          end: match.end,
+          snippet: content.slice(match.start, match.end),
+          replacement: newValue ? `${match.prefix}${newValue}}` : ""
         });
         return;
       }
@@ -75574,8 +75757,8 @@ ${beginSnippet}`
       if (!sourceEntries.length) {
         return [];
       }
-      return buildPatchOperations(sourceEntries, draftDocument);
-    }, [sourceEntries, draftDocument]);
+      return buildPatchOperations(sourceEntries, sourceDocument, draftDocument);
+    }, [sourceEntries, sourceDocument, draftDocument]);
     const metadataPatches = (0, import_react34.useMemo)(
       () => buildMetadataPatches(sourceContent, sourceDocument, draftDocument),
       [sourceContent, sourceDocument, draftDocument]
@@ -75611,26 +75794,24 @@ ${beginSnippet}`
       }
       setPending(true);
       setStatus("\u9069\u7528\u4E2D...");
-      const sorted = [...patches].sort((a2, b2) => b2.start - a2.start);
       let latestContent = sourceContent;
       try {
-        for (const patch of sorted) {
-          const result = await sendRequest("blockEditorApplyPatch", {
-            path: filePath,
-            target: {
-              start: patch.start,
-              end: patch.end,
-              snippet: patch.snippet,
-              anchor: patch.anchor
-            },
-            replacement: patch.replacement
-          });
-          if (!result.ok) {
-            throw new Error(result.error || "\u9069\u7528\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
-          }
-          if (typeof result.content === "string") {
-            latestContent = result.content;
-          }
+        const result = await sendRequest("blockEditorApplyPatch", {
+          path: filePath,
+          target: {
+            start: 0,
+            end: sourceContent.length,
+            snippet: sourceContent
+          },
+          replacement: modifiedContent
+        });
+        if (!result.ok) {
+          throw new Error(result.error || "\u9069\u7528\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+        }
+        if (typeof result.content === "string") {
+          latestContent = result.content;
+        } else {
+          latestContent = modifiedContent;
         }
         syncFromContent(latestContent, filePath);
         setStatus("\u9069\u7528\u3057\u307E\u3057\u305F\u3002");
@@ -75639,7 +75820,7 @@ ${beginSnippet}`
       } finally {
         setPending(false);
       }
-    }, [filePath, patches, sendRequest, sourceContent, syncFromContent]);
+    }, [filePath, patches, sendRequest, sourceContent, syncFromContent, modifiedContent]);
     (0, import_react34.useEffect)(() => {
       var _a2;
       const handleBridgeMessage = (message) => {
@@ -75679,16 +75860,6 @@ ${beginSnippet}`
           /* @__PURE__ */ (0, import_jsx_runtime37.jsx)("div", { className: "text-xs text-slate-500 truncate", children: filePath || "\u30D5\u30A1\u30A4\u30EB\u672A\u9078\u629E" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime37.jsxs)("div", { className: "flex items-center gap-2", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(
-            "button",
-            {
-              type: "button",
-              className: "px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors",
-              onClick: handleSync,
-              disabled: pending,
-              children: "\u518D\u89E3\u6790"
-            }
-          ),
           /* @__PURE__ */ (0, import_jsx_runtime37.jsx)(
             "button",
             {
