@@ -1,0 +1,51 @@
+export const tabConfig = {
+    files: {
+        label: "ファイル",
+        outline: "ミニアウトライン: main.tex",
+        title: "編集エリア",
+        desc: "Monacoで編集します。",
+        hint: "ファイルタブが選択されています。",
+    },
+    outline: {
+        label: "アウトライン",
+        outline: "章節 / 図表 / TODO",
+        title: "アウトライン",
+        desc: "章節や図表、TODO、参照を一覧で表示します。",
+        hint: "クリックで定義に移動します。",
+    },
+    blocks: {
+        label: "ブロック",
+        outline: "ブロック一覧",
+        title: "ブロック",
+        desc: "数式と表をブロックとして挿入します。",
+        hint: "プレビュー後に確定します。",
+    },
+    git: {
+        label: "Git",
+        outline: "Gitステータス",
+        title: "Git",
+        desc: "変更ファイルの一覧を表示します。",
+        hint: "更新で再取得します。",
+    },
+    project: {
+        label: "プロジェクト",
+        outline: "プロジェクト設定",
+        title: "プロジェクト設定",
+        desc: "ワークスペース単位の設定を管理します。",
+        hint: "メインTeXや環境登録を管理します。",
+    },
+    search: {
+        label: "検索",
+        outline: "検索結果",
+        title: "検索",
+        desc: "ワークスペース内を検索します。",
+        hint: "Enterで検索できます。",
+    },
+    settings: {
+        label: "設定",
+        outline: "設定",
+        title: "エディタ設定",
+        desc: "エディタ共通の設定を表示します。",
+        hint: "プロジェクト設定は別タブにあります。",
+    },
+};

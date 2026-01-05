@@ -7,19 +7,19 @@ class BuildService {
     this.isBuilding = false;
   }
 
-  async build(rootPath, mainFileName = "main.tex") {
+  async build(rootPath, mainFileName = "main.tex", engine = "lualatex") {
     if (this.isBuilding) {
       return { kind: "busy" };
     }
     this.isBuilding = true;
     try {
-      return await this.runBuild(rootPath, mainFileName);
+      return await this.runBuild(rootPath, mainFileName, engine);
     } finally {
       this.isBuilding = false;
     }
   }
 
-  async runBuild(rootPath, mainFileName) {
+  async runBuild(rootPath, mainFileName, engine) {
     const mainFilePath = path.join(rootPath, mainFileName);
     if (!fs.existsSync(mainFilePath)) {
       const issue = {
@@ -37,7 +37,7 @@ class BuildService {
     let output = "";
     let status = 1;
     try {
-      const result = await this.runLatexmk(rootPath, mainFileName);
+      const result = await this.runLatexmk(rootPath, mainFileName, engine);
       output = result.output;
       status = result.status;
     } catch (_error) {
@@ -66,13 +66,23 @@ class BuildService {
     };
   }
 
-  async runLatexmk(rootPath, mainFileName) {
+  async runLatexmk(rootPath, mainFileName, engine) {
     const latexmkPath = this.findLatexmk();
     if (!latexmkPath) {
       throw new Error("latexmk not found");
     }
+
+    let engineFlag = "-lualatex";
+    if (engine === "pdflatex") {
+      engineFlag = "-pdf";
+    } else if (engine === "xelatex") {
+      engineFlag = "-xelatex";
+    } else if (engine === "uplatex") {
+      engineFlag = "-pdfdvi"; // Basic support for uplatex via DVI
+    }
+
     const args = [
-      "-lualatex",
+      engineFlag,
       "-interaction=nonstopmode",
       "-halt-on-error",
       "-file-line-error",

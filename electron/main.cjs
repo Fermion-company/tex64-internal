@@ -9,6 +9,7 @@ const { IndexerService } = require("./services/indexer.cjs");
 const { PDFWindowManager } = require("./services/pdf.cjs");
 const { SearchService } = require("./services/search.cjs");
 const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs");
+const { EnvService } = require("./services/env.cjs");
 
 let mainWindow = null;
 let currentWorkspacePath = null;
@@ -21,7 +22,68 @@ const indexerService = new IndexerService();
 const searchService = new SearchService();
 const gitService = new GitService();
 const pdfWindowManager = new PDFWindowManager();
+const envService = new EnvService();
 let formatWarningShown = false;
+
+const TEXT_FILE_EXTENSIONS = new Set([
+  "tex",
+  "bib",
+  "sty",
+  "cls",
+  "bst",
+  "bbx",
+  "cbx",
+  "cfg",
+  "def",
+  "lbx",
+  "ins",
+  "dtx",
+  "ltx",
+  "aux",
+  "bbl",
+  "blg",
+  "log",
+  "out",
+  "toc",
+  "lof",
+  "lot",
+  "fdb_latexmk",
+  "fls",
+]);
+const IMAGE_FILE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "bmp",
+  "webp",
+  "svg",
+  "tif",
+  "tiff",
+  "ico",
+]);
+const IMAGE_MIME_TYPES = new Map([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["gif", "image/gif"],
+  ["bmp", "image/bmp"],
+  ["webp", "image/webp"],
+  ["svg", "image/svg+xml"],
+  ["tif", "image/tiff"],
+  ["tiff", "image/tiff"],
+  ["ico", "image/x-icon"],
+]);
+
+const getFileExtension = (relativePath) => {
+  const name = typeof relativePath === "string" ? path.basename(relativePath) : "";
+  const ext = path.extname(name).toLowerCase();
+  return ext.startsWith(".") ? ext.slice(1) : ext;
+};
+
+const isTextFilePath = (relativePath) => TEXT_FILE_EXTENSIONS.has(getFileExtension(relativePath));
+const isImageFilePath = (relativePath) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(relativePath));
+const isPdfFilePath = (relativePath) => getFileExtension(relativePath) === "pdf";
 
 const createMainWindow = () => {
   const preloadPath = path.join(__dirname, "preload.cjs");
@@ -228,7 +290,7 @@ ipcMain.on("tex180", (_event, message) => {
     return;
   }
   if (type === "build") {
-    handleBuild(message.mainFile, { format: message.format });
+    handleBuild(message.mainFile, { format: message.format, engine: message.engine });
     return;
   }
   if (type === "openFile") {
@@ -309,7 +371,39 @@ ipcMain.on("tex180", (_event, message) => {
       console.log(`[WebView] ${message.message}`);
     }
   }
+
+
+  // Environment IPC
+  if (type === "env:check") {
+    handleEnvCheck(message.command);
+    return;
+  }
+  if (type === "env:install") {
+    handleEnvInstall(message.target);
+    return;
+  }
 });
+
+const handleEnvCheck = async (command) => {
+  const result = await envService.checkCommand(command);
+  sendToRenderer("env:checkResult", { command, available: result });
+};
+
+const handleEnvInstall = async (target) => {
+  sendToRenderer("env:installStart", { target });
+  const result = await envService.installEnvironment(target);
+  sendToRenderer("env:installResult", { target, ...result });
+  // Re-check relevant commands after install attempt
+  if (target === "basictex") {
+    const lualatex = await envService.checkCommand("lualatex");
+    const latexmk = await envService.checkCommand("latexmk");
+    sendToRenderer("env:checkResult", { command: "lualatex", available: lualatex });
+    sendToRenderer("env:checkResult", { command: "latexmk", available: latexmk });
+  } else if (target === "latexmk") {
+    const available = await envService.checkCommand("latexmk");
+    sendToRenderer("env:checkResult", { command: "latexmk", available });
+  }
+};
 
 const handleOpenWorkspace = async () => {
   if (!mainWindow) {
@@ -390,7 +484,7 @@ const handleBuild = async (mainFile, options = {}) => {
       ]);
     }
   }
-  const result = await buildService.build(rootPath, targetFile);
+  const result = await buildService.build(rootPath, targetFile, options.engine);
   if (result.kind === "busy") {
     sendBuildState("building", "ビルド中...");
     sendIssues(0, "すでにビルド中です。", "info", []);
@@ -435,8 +529,33 @@ const handleOpenFile = async (relativePath) => {
   }
   await updateWorkspaceIfNeeded(rootPath);
   try {
+    if (isPdfFilePath(relativePath)) {
+      const data = await workspace.readBinaryFile(relativePath);
+      sendToRenderer("openFileResult", {
+        path: relativePath,
+        kind: "pdf",
+        mimeType: "application/pdf",
+        data: data.toString("base64"),
+      });
+      return;
+    }
+    if (isImageFilePath(relativePath)) {
+      const data = await workspace.readBinaryFile(relativePath);
+      const ext = getFileExtension(relativePath);
+      sendToRenderer("openFileResult", {
+        path: relativePath,
+        kind: "image",
+        mimeType: IMAGE_MIME_TYPES.get(ext) || "image/*",
+        data: data.toString("base64"),
+      });
+      return;
+    }
+    if (!isTextFilePath(relativePath)) {
+      sendToRenderer("openFileResult", { path: relativePath, kind: "unsupported" });
+      return;
+    }
     const content = await workspace.readFile(relativePath);
-    sendToRenderer("openFileResult", { path: relativePath, content });
+    sendToRenderer("openFileResult", { path: relativePath, content, kind: "text" });
   } catch (error) {
     sendToRenderer("openFileResult", { path: relativePath, error: error.message });
   }

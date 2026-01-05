@@ -196,6 +196,11 @@ class WorkspaceManager {
     return content;
   }
 
+  async readBinaryFile(relativePath) {
+    const resolved = this.resolvePath(relativePath);
+    return fsp.readFile(resolved);
+  }
+
   async writeFile(relativePath, content) {
     const resolved = this.resolvePath(relativePath);
     await writeUtf8File(resolved, content);

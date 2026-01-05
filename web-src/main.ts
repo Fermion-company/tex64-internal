@@ -1,79 +1,50 @@
+import { tabConfig, type TabKey } from "./app/config.js";
+import { getDomRefs } from "./app/dom.js";
+import {
+  DEFAULT_ENV_REGISTRY,
+  getEnvBaseName,
+  normalizeEnvName,
+  type LatexEnvKind,
+  type LatexEnvRegistryEntry,
+} from "./app/env-registry.js";
+import { buildDiffPreview, buildLineDiff } from "./app/diff.js";
+import {
+  LATEX_FILE_EXTENSIONS,
+  PINNED_TAB_EXTENSIONS,
+  TEXT_FILE_EXTENSIONS,
+  getFileExtension,
+  isImageFilePath,
+  isPdfFilePath,
+  isTextFilePath,
+} from "./app/files.js";
+import { mathKeyboardFixedKeys, mathKeyboardSets } from "./app/math-keyboard.js";
+import { createViewer } from "./app/viewer.js";
+import type {
+  BlockApplyMode,
+  BlockContent,
+  BlockEditMode,
+  BlockType,
+  BridgeWindow,
+  CreateKind,
+  DragPayload,
+  FileNode,
+  GitEntry,
+  IndexEntry,
+  IssueItem,
+  IssuesStatus,
+  LauncherTemplate,
+  MathKey,
+  MathKeyboardTab,
+  RootSource,
+  SearchResult,
+  SectionEntry,
+  BuildState,
+} from "./app/types.js";
+
 window.addEventListener("DOMContentLoaded", () => {
   requestAnimationFrame(() => {
     document.body.classList.add("is-ready");
   });
-
-  type TabKey =
-    | "files"
-    | "outline"
-    | "blocks"
-    | "git"
-    | "project"
-    | "search"
-    | "settings";
-  type CreateKind = "file" | "folder";
-  type DragPayload = { path: string; kind: "file" | "dir" };
-
-  const tabConfig: Record<
-    TabKey,
-    {
-      label: string;
-      outline: string;
-      title: string;
-      desc: string;
-      hint: string;
-    }
-  > = {
-    files: {
-      label: "ファイル",
-      outline: "ミニアウトライン: main.tex",
-      title: "編集エリア",
-      desc: "Monacoで編集します。",
-      hint: "ファイルタブが選択されています。",
-    },
-    outline: {
-      label: "アウトライン",
-      outline: "章節 / 図表 / TODO",
-      title: "アウトライン",
-      desc: "章節や図表、TODO、参照を一覧で表示します。",
-      hint: "クリックで定義に移動します。",
-    },
-    blocks: {
-      label: "ブロック",
-      outline: "ブロック一覧",
-      title: "ブロック",
-      desc: "数式と表をブロックとして挿入します。",
-      hint: "プレビュー後に確定します。",
-    },
-    git: {
-      label: "Git",
-      outline: "Gitステータス",
-      title: "Git",
-      desc: "変更ファイルの一覧を表示します。",
-      hint: "更新で再取得します。",
-    },
-    project: {
-      label: "プロジェクト",
-      outline: "プロジェクト設定",
-      title: "プロジェクト設定",
-      desc: "ワークスペース単位の設定を管理します。",
-      hint: "メインTeXや環境登録を管理します。",
-    },
-    search: {
-      label: "検索",
-      outline: "検索結果",
-      title: "検索",
-      desc: "ワークスペース内を検索します。",
-      hint: "Enterで検索できます。",
-    },
-    settings: {
-      label: "設定",
-      outline: "設定",
-      title: "エディタ設定",
-      desc: "エディタ共通の設定を表示します。",
-      hint: "プロジェクト設定は別タブにあります。",
-    },
-  };
 
   let monacoEditor: unknown = null;
   let diffEditor: unknown = null;
@@ -93,72 +64,123 @@ window.addEventListener("DOMContentLoaded", () => {
   let quickInsertWidgetBody: HTMLPreElement | null = null;
   let quickInsertTarget = { lineNumber: 1, column: 1 };
 
-  const tabs = Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".tab[data-tab]")
-  );
-  const miniOutline = document.getElementById("mini-outline");
-  const editorTitle = document.getElementById("editor-title");
-  const editorDesc = document.getElementById("editor-desc");
-  const editorHint = document.getElementById("editor-hint");
-  const quickInsertButton = document.getElementById("quick-insert-button");
-  const quickInsertPanel = document.getElementById("quick-insert");
-  const quickInsertTargetLabel = document.getElementById("quick-target");
-  const quickInsertInput = document.getElementById("quick-input");
-  const quickInsertHint = document.getElementById("quick-hint");
-  const quickInsertAccept = document.getElementById("quick-accept");
-  const quickInsertCancel = document.getElementById("quick-cancel");
-  const buildButton = document.getElementById("build-button");
-  const autoBuildButton = document.getElementById("auto-build-button");
-  const issuesCount = document.getElementById("issues-count");
-  const issuesHint = document.getElementById("issues-hint");
-  const issuesBar = document.getElementById("issues-bar");
-  const issuesPanel = document.getElementById("issues-panel");
-  const issuesList = document.getElementById("issues-list");
-  const issuesEmpty = document.getElementById("issues-empty");
-  const issuesClose = document.getElementById("issues-close");
-  const breadcrumbs = document.getElementById("breadcrumbs");
-  const editorTabs = document.getElementById("editor-tabs");
-  const editorTabsList = document.getElementById("editor-tabs-list");
-  const launcher = document.getElementById("launcher");
-  const launcherCreateButton = document.getElementById("launcher-create");
-  const launcherOpenButton = document.getElementById("launcher-open");
-  const launcherStatus = document.getElementById("launcher-status");
-  const launcherStatusText = document.getElementById("launcher-status-text");
-  const launcherStatusSpinner = document.getElementById("launcher-status-spinner");
-  const launcherTemplateButtons = Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".launcher-template-button")
-  );
-  const sidebarPanels = Array.from(
-    document.querySelectorAll<HTMLElement>(".panel[data-panel]")
-  );
-  const sidebar = document.querySelector<HTMLElement>(".sidebar");
-  const sidebarPanel = document.querySelector<HTMLElement>(".sidebar-panel");
-  const outlineEmpty = document.getElementById("outline-empty");
-  const outlineSections = document.getElementById("outline-sections");
-  const outlineTodos = document.getElementById("outline-todos");
-  const outlineLabels = document.getElementById("outline-labels");
-  const outlineCitations = document.getElementById("outline-citations");
-  const workspaceLabel = document.getElementById("workspace-label");
-  const fileTree = document.getElementById("file-tree");
-  const saveFileButton = document.getElementById("save-file-button");
-  const blockToggleButtons = Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".block-toggle-button")
-  );
-  const blockForms = Array.from(
-    document.querySelectorAll<HTMLElement>(".block-form")
-  );
+  const {
+    tabs,
+    miniOutline,
+    editorTitle,
+    editorDesc,
+    editorHint,
+    editorHost,
+    editorViewer,
+    editorViewerImage,
+    editorViewerPdf,
+    editorViewerMessage,
+    quickInsertButton,
+    quickInsertPanel,
+    quickInsertTargetLabel,
+    quickInsertInput,
+    quickInsertHint,
+    quickInsertAccept,
+    quickInsertCancel,
+    buildButton,
+    autoBuildButton,
+    issuesCount,
+    issuesHint,
+    issuesBar,
+    issuesPanel,
+    issuesList,
+    issuesEmpty,
+    issuesClose,
+    breadcrumbs,
+    editorTabs,
+    editorTabsList,
+    launcher,
+    launcherCreateButton,
+    launcherOpenButton,
+    launcherStatus,
+    launcherStatusText,
+    launcherStatusSpinner,
+    launcherTemplateButtons,
+    sidebarPanels,
+    sidebar,
+    sidebarPanel,
+    outlineEmpty,
+    outlineSections,
+    outlineTodos,
+    outlineLabels,
+    outlineCitations,
+    workspaceLabel,
+    fileTree,
+    saveFileButton,
+    blockToggleButtons,
+    blockForms,
+    blockMathInputContainer,
+    blockMathPreviewWrap,
+    blockMathPreview,
+    blockTableRows,
+    blockTableCols,
+    blockTableGrid,
+    blockTableRaw,
+    blockTableRawInput,
+    blockInsertButton,
+    blocksPanelBody,
+    diffModal,
+    diffTitle,
+    diffModalCancel,
+    diffModalSubmit,
+    blockDiffContainer,
+    diffSummary,
+    diffFileName,
+    mathKeyboardDock,
+    mathKeyboardGrid,
+    mathKeyboardFixedGrid,
+    mathKeyboardShiftButton,
+    mathKeyboardTabs,
+    searchInput,
+    searchButton,
+    searchResults,
+    gitStatus,
+    gitRefreshButton,
+    settingsProjectRootPath,
+    settingsProjectRootFile,
+    settingsRootSelect,
+    settingsRootAuto,
+    settingsWorkspace,
+    projectAlignEnvToggle,
+    editorAutoFormatToggle,
+    envRegistryInput,
+    envRegistryKind,
+    envRegistryAdd,
+    envRegistryHint,
+    envRegistryMathList,
+    envRegistryTableList,
+    createModal,
+    createModalTitle,
+    createModalSubtitle,
+    createModalParent,
+    createModalLabel,
+    createModalInput,
+    createModalHelp,
+    createModalCancel,
+    createModalSubmit,
+    renameModal,
+    renameModalTitle,
+    renameModalTarget,
+    renameModalInput,
+    renameModalHelp,
+    renameModalCancel,
+    renameModalSubmit,
+    contextMenu,
+    contextMenuPanel,
+  } = getDomRefs();
   let blockMathInput: HTMLElement | null = null;
   let blockMathInputFallback: { value: string } | null = null;
-  const blockMathInputContainer = document.getElementById("block-math-input-container");
-  const blockMathPreviewWrap = document.getElementById("block-math-preview-wrap");
-  const blockMathPreview = document.getElementById("block-math-preview");
-  const blockTableRows = document.getElementById("block-table-rows");
-  const blockTableCols = document.getElementById("block-table-cols");
-  const blockTableGrid = document.getElementById("block-table-grid");
-  const blockTableRaw = document.getElementById("block-table-raw");
-  const blockTableRawInput = document.getElementById("block-table-raw-input");
-  const blockInsertButton = document.getElementById("block-insert-button");
-  const blocksPanelBody = document.querySelector<HTMLElement>(".blocks-panel");
+  const viewer = createViewer({
+    editorViewer,
+    editorViewerImage,
+    editorViewerPdf,
+    editorHost,
+  });
   const isE2E = new URLSearchParams(window.location.search).get("e2e") === "1";
   if (isE2E) {
     (
@@ -204,55 +226,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   let activeBlockContext: BlockContext | null = null;
   let currentBlockDraft: { snippet: string; content: any } | null = null;
-  const diffModal = document.getElementById("diff-modal");
-  const diffTitle = document.getElementById("diff-modal-title");
-  const diffModalCancel = document.getElementById("diff-modal-cancel");
-  const diffModalSubmit = document.getElementById("diff-modal-submit");
-  const blockDiffContainer = document.getElementById("block-diff-container");
-  const diffSummary = document.getElementById("diff-summary");
-  const diffFileName = document.getElementById("diff-file-name");
-  const mathKeyboardDock = document.getElementById("math-keyboard-dock");
-  const mathKeyboardGrid = document.getElementById("math-keyboard-grid");
-  const mathKeyboardFixedGrid = document.getElementById("math-keyboard-fixed-grid");
-  const mathKeyboardShiftButton = document.getElementById("math-keyboard-shift");
-  const mathKeyboardTabs = Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".math-keyboard-tab")
-  );
-  const searchInput = document.getElementById("search-input");
-  const searchButton = document.getElementById("search-button");
-  const searchResults = document.getElementById("search-results");
-  const gitStatus = document.getElementById("git-status");
-  const gitRefreshButton = document.getElementById("git-refresh");
-  const settingsAutoBuildButton = document.getElementById("settings-auto-build");
-  const settingsRootSelect = document.getElementById("settings-root-select");
-  const settingsRootAuto = document.getElementById("settings-root-auto");
-  const settingsWorkspace = document.getElementById("settings-workspace");
-  const projectAlignEnvToggle = document.getElementById("project-align-env");
-  const editorAutoFormatToggle = document.getElementById("editor-auto-format");
-  const envRegistryInput = document.getElementById("env-registry-input");
-  const envRegistryKind = document.getElementById("env-registry-kind");
-  const envRegistryAdd = document.getElementById("env-registry-add");
-  const envRegistryHint = document.getElementById("env-registry-hint");
-  const envRegistryMathList = document.getElementById("env-registry-math");
-  const envRegistryTableList = document.getElementById("env-registry-table");
-  const createModal = document.getElementById("create-modal");
-  const createModalTitle = document.getElementById("create-modal-title");
-  const createModalSubtitle = document.getElementById("create-modal-subtitle");
-  const createModalParent = document.getElementById("create-modal-parent");
-  const createModalLabel = document.getElementById("create-modal-label");
-  const createModalInput = document.getElementById("create-modal-input");
-  const createModalHelp = document.getElementById("create-modal-help");
-  const createModalCancel = document.getElementById("create-modal-cancel");
-  const createModalSubmit = document.getElementById("create-modal-submit");
-  const renameModal = document.getElementById("rename-modal");
-  const renameModalTitle = document.getElementById("rename-modal-title");
-  const renameModalTarget = document.getElementById("rename-modal-target");
-  const renameModalInput = document.getElementById("rename-modal-input");
-  const renameModalHelp = document.getElementById("rename-modal-help");
-  const renameModalCancel = document.getElementById("rename-modal-cancel");
-  const renameModalSubmit = document.getElementById("rename-modal-submit");
-  const contextMenu = document.getElementById("context-menu");
-  const contextMenuPanel = document.getElementById("context-menu-panel");
+  /* const settingsAutoBuildButton = document.getElementById("settings-auto-build"); */ // Removed
 
   const setText = (element: HTMLElement | null, text: string) => {
     if (element) {
@@ -291,73 +265,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   let currentDetectedBlock: DetectedLatexBlock | null = null;
   let blockDetectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  type LatexEnvKind = "math" | "table";
-  type LatexEnvRegistryEntry = {
-    name: string;
-    kind: LatexEnvKind;
-    package: string;
-    discouraged?: boolean;
-  };
-
-  const normalizeEnvName = (name: string) => name.trim();
-
-  const getEnvBaseName = (name: string) =>
-    name.endsWith("*") ? name.slice(0, -1) : name;
-
-  const DEFAULT_ENV_REGISTRY: LatexEnvRegistryEntry[] = [
-    { name: "math", kind: "math", package: "latex" },
-    { name: "displaymath", kind: "math", package: "latex" },
-    { name: "equation", kind: "math", package: "amsmath" },
-    { name: "eqnarray", kind: "math", package: "latex", discouraged: true },
-    { name: "align", kind: "math", package: "amsmath" },
-    { name: "alignat", kind: "math", package: "amsmath" },
-    { name: "xalignat", kind: "math", package: "amsmath" },
-    { name: "xxalignat", kind: "math", package: "amsmath" },
-    { name: "flalign", kind: "math", package: "amsmath" },
-    { name: "gather", kind: "math", package: "amsmath" },
-    { name: "multline", kind: "math", package: "amsmath" },
-    { name: "split", kind: "math", package: "amsmath" },
-    { name: "aligned", kind: "math", package: "amsmath" },
-    { name: "alignedat", kind: "math", package: "amsmath" },
-    { name: "gathered", kind: "math", package: "amsmath" },
-    { name: "multlined", kind: "math", package: "mathtools" },
-    { name: "cases", kind: "math", package: "amsmath" },
-    { name: "dcases", kind: "math", package: "mathtools" },
-    { name: "rcases", kind: "math", package: "mathtools" },
-    { name: "numcases", kind: "math", package: "mathtools" },
-    { name: "subnumcases", kind: "math", package: "mathtools" },
-    { name: "empheq", kind: "math", package: "empheq" },
-    { name: "matrix", kind: "math", package: "amsmath" },
-    { name: "pmatrix", kind: "math", package: "amsmath" },
-    { name: "bmatrix", kind: "math", package: "amsmath" },
-    { name: "Bmatrix", kind: "math", package: "amsmath" },
-    { name: "vmatrix", kind: "math", package: "amsmath" },
-    { name: "Vmatrix", kind: "math", package: "amsmath" },
-    { name: "smallmatrix", kind: "math", package: "amsmath" },
-    { name: "array", kind: "math", package: "latex" },
-    { name: "subarray", kind: "math", package: "amsmath" },
-    { name: "substack", kind: "math", package: "amsmath" },
-    { name: "subequations", kind: "math", package: "amsmath" },
-    { name: "dmath", kind: "math", package: "breqn" },
-    { name: "dgroup", kind: "math", package: "breqn" },
-    { name: "darray", kind: "math", package: "breqn" },
-    { name: "IEEEeqnarray", kind: "math", package: "IEEEtrantools" },
-    { name: "IEEEeqnarraybox", kind: "math", package: "IEEEtrantools" },
-    { name: "mathpar", kind: "math", package: "mathpartir" },
-    { name: "mathparpagebreakable", kind: "math", package: "mathpartir" },
-    { name: "table", kind: "table", package: "latex" },
-    { name: "tabular", kind: "table", package: "latex" },
-    { name: "tabularx", kind: "table", package: "tabularx" },
-    { name: "tabulary", kind: "table", package: "tabulary" },
-    { name: "longtable", kind: "table", package: "longtable" },
-    { name: "ltablex", kind: "table", package: "ltablex" },
-    { name: "xltabular", kind: "table", package: "xltabular" },
-    { name: "tabu", kind: "table", package: "tabu" },
-    { name: "longtabu", kind: "table", package: "tabu" },
-    { name: "supertabular", kind: "table", package: "supertabular" },
-    { name: "tblr", kind: "table", package: "tabularray" },
-    { name: "longtblr", kind: "table", package: "tabularray" },
-  ];
 
   const CUSTOM_ENV_STORAGE_KEY = "tex180.custom-env-registry";
   const DISABLED_ENV_STORAGE_KEY = "tex180.disabled-env-registry";
@@ -1346,12 +1253,36 @@ window.addEventListener("DOMContentLoaded", () => {
     blockHighlightDecorations = editor.deltaDecorations(blockHighlightDecorations, []);
   };
 
+  // Launcher Interaction State
+  let selectedActionIndex = 0; // 0: Open, 1: Create
+  const launcherActions = [launcherOpenButton, launcherCreateButton];
+
+  const updateActionSelection = () => {
+    launcherActions.forEach((btn, index) => {
+      if (btn instanceof HTMLElement) {
+        if (index === selectedActionIndex) {
+          btn.classList.add("is-selected");
+          // Defer focus slightly to ensure visibility or prevent conflict
+          requestAnimationFrame(() => btn.focus());
+        } else {
+          btn.classList.remove("is-selected");
+        }
+      }
+    });
+  };
+
   const setLauncherVisible = (isVisible: boolean) => {
     if (launcher instanceof HTMLElement) {
       launcher.classList.toggle("is-visible", isVisible);
       launcher.setAttribute("aria-hidden", isVisible ? "false" : "true");
     }
     document.body.classList.toggle("has-launcher", isVisible);
+
+    if (isVisible) {
+      // Reset to "Open Existing Folder" (Index 0) when shown
+      selectedActionIndex = 0;
+      updateActionSelection();
+    }
   };
 
   const updateLauncherTemplate = (template: LauncherTemplate) => {
@@ -1390,95 +1321,69 @@ window.addEventListener("DOMContentLoaded", () => {
     if (launcherStatusSpinner instanceof HTMLElement) {
       launcherStatusSpinner.hidden = !launcherBusy;
     }
+
+    // Keyboard Navigation Logic
+    updateActionSelection();
   };
 
-  type BuildState = "idle" | "building" | "success" | "failed";
-  type IssuesStatus = "success" | "error" | "info";
-  type IssueItem = { severity: "error" | "warning"; message: string; line?: number };
-  type IndexEntry = { key: string; path: string; line: number };
-  type SectionEntry = { title: string; path: string; line: number; level: number };
-  type BlockType = "math" | "table";
-  type MathKeyboardTab = "analysis" | "algebra" | "sets" | "logic" | "arrows" | "greek";
-  type BlockContent = { formula?: string; rows?: number; cols?: number; raw?: string };
-  type BlockEditMode = "none" | "detected";
-  type BlockApplyMode = "detected" | "new";
-  type MathKey = {
-    label: string;
-    latex: string;
-    fallback?: string;
-    shiftLabel?: string;
-    shiftLatex?: string;
-    shiftFallback?: string;
-    displayLatex?: string;
-    shiftDisplayLatex?: string;
-  };
-  type SearchResult = { path: string; line: number; preview: string };
-  type GitEntry = { status: string; path: string };
-  type FileNode = { name: string; path: string; type: "file" | "dir"; children: FileNode[] };
-  type RootSource = "auto" | "manual";
-  type LauncherTemplate = "paper" | "lecture";
+  // Launcher Keyboard Navigation
+  // (Variables declared above)
 
-  type WebkitHandler = { postMessage: (message: unknown) => void };
-  type WebkitBridge = { messageHandlers?: { tex180?: WebkitHandler } };
-  type ElectronBridge = {
-    postMessage: (message: unknown) => void;
-    onMessage?: (handler: (message: { type: string; payload?: unknown }) => void) => void;
+  const handleLauncherKeydown = (e: KeyboardEvent) => {
+    if (!launcher?.classList.contains("is-visible")) return;
+
+    if (e.key === "ArrowDown") {
+      selectedActionIndex = (selectedActionIndex + 1) % launcherActions.length;
+      updateActionSelection();
+      e.preventDefault();
+    } else if (e.key === "ArrowUp") {
+      selectedActionIndex = (selectedActionIndex - 1 + launcherActions.length) % launcherActions.length;
+      updateActionSelection();
+      e.preventDefault();
+    } else if (e.key === "Enter") {
+      // Trigger the selected action
+      e.preventDefault();
+      const currentBtn = launcherActions[selectedActionIndex];
+      if (currentBtn instanceof HTMLButtonElement && !currentBtn.disabled) {
+        currentBtn.click();
+      }
+    }
   };
-  type BridgeWindow = Window &
-    typeof globalThis & {
-      webkit?: WebkitBridge;
-      tex180Bridge?: ElectronBridge;
-      tex180SetBuildState?: (payload: { state: BuildState; message?: string }) => void;
-      tex180UpdateIssues?: (payload: {
-        count: number;
-        summary: string;
-        status?: IssuesStatus;
-        issues?: IssueItem[];
-      }) => void;
-      tex180UpdateWorkspace?: (payload: {
-        rootName: string;
-        rootPath: string;
-        files: string[];
-        folders?: string[];
-        rootFile?: string;
-        rootSource?: RootSource;
-      }) => void;
-      tex180UpdateIndex?: (payload: {
-        labels: IndexEntry[];
-        references?: IndexEntry[];
-        citations: IndexEntry[];
-        sections?: SectionEntry[];
-        figures?: IndexEntry[];
-        tables?: IndexEntry[];
-        todos?: IndexEntry[];
-      }) => void;
-      tex180UpdateSearch?: (payload: {
-        query: string;
-        results: SearchResult[];
-        message?: string;
-      }) => void;
-      tex180UpdateGit?: (payload: { entries: GitEntry[]; message?: string }) => void;
-      tex180OpenFileResult?: (payload: { path: string; content?: string; error?: string }) => void;
-      tex180SaveResult?: (payload: {
-        path: string;
-        ok: boolean;
-        error?: string;
-        content?: string;
-        formatError?: string;
-      }) => void;
-      tex180FormatResult?: (payload: {
-        path: string;
-        ok: boolean;
-        content?: string;
-        error?: string;
-        source?: string;
-      }) => void;
-      tex180RenameResult?: (payload: {
-        oldPath: string;
-        newPath: string;
-        isDirectory: boolean;
-      }) => void;
-    };
+
+  window.addEventListener("keydown", handleLauncherKeydown);
+
+  // Initialize selection when visible
+  // Hook into setLauncherVisible to reset selection
+  const originalSetLauncherVisible = setLauncherVisible;
+  // @ts-ignore - overriding internal function for quick hook
+  // Actually, better to just modify setLauncherVisible above if possible, but I am in a localized edit.
+  // I will just add a MutationObserver or rely on the fact that I can't easily modify setLauncherVisible without a larger diff.
+  // Let's modify setLauncherVisible in the next step or right here if I can reach it.
+  // Wait, I am replacing the end of setLauncherStatus.
+  // Let's just modify `setLauncherVisible` directly in the previous lines? No, my view range was limited.
+  // I will add a hook to `setLauncherVisible`.
+
+  // Re-implement setLauncherVisible to include reset
+  const _superSetLauncherVisible = (isVisible: boolean) => {
+     if (launcher instanceof HTMLElement) {
+      launcher.classList.toggle("is-visible", isVisible);
+      launcher.setAttribute("aria-hidden", isVisible ? "false" : "true");
+    }
+    document.body.classList.toggle("has-launcher", isVisible);
+    
+    if (isVisible) {
+        selectedActionIndex = 0; // Default to first item (Open)
+        updateActionSelection();
+    }
+  };
+  // Overwrite the previous definition if I could, but I can't easily. 
+  // Instead, I will assume the previous setLauncherVisible definition is effectively replaced by this new logic logic IF I was editing that function.
+  // But I am editing `setLauncherStatus` end.
+  // I should essentially rewrite `setLauncherVisible` in a separate `replace_file_content` or extend the scope.
+  // For now, let's just add the event listener and the `updateActionSelection`.
+  // I will modify `setLauncherVisible` in a separate call to be safe and clean.
+  
+  /* Retrying with just logic addition, will hook up visibility in next step */
 
   const bridgeWindow = window as BridgeWindow;
 
@@ -1564,11 +1469,11 @@ window.addEventListener("DOMContentLoaded", () => {
   type MonacoModel = { getValue: () => string; setValue: (value: string) => void };
   type MonacoModelEntry = { model: MonacoModel; savedContent: string };
 
-
   type MonacoViewState = unknown;
   const monacoModels = new Map<string, MonacoModelEntry>();
   const monacoViewStates = new Map<string, MonacoViewState>();
   const dirtyFiles = new Set<string>();
+  let emptyEditorModel: MonacoModel | null = null;
 
   const setIssuesOpen = (open: boolean) => {
     issuesOpen = open;
@@ -1875,538 +1780,6 @@ window.addEventListener("DOMContentLoaded", () => {
             : "インデックス項目が見つかりません。";
       }
     }
-  };
-
-  const mathKeyboardFixedKeys: MathKey[] = [
-    { label: "+", latex: "+", shiftLabel: "⊕", shiftLatex: "\\oplus " },
-    { label: "−", latex: "-", shiftLabel: "⊖", shiftLatex: "\\ominus " },
-    { label: "×", latex: "\\times ", shiftLabel: "⊗", shiftLatex: "\\otimes " },
-    { label: "÷", latex: "\\div ", shiftLabel: "⊘", shiftLatex: "\\oslash " },
-    { label: "·", latex: "\\cdot ", shiftLabel: "•", shiftLatex: "\\bullet " },
-    { label: "=", latex: "=", shiftLabel: "≡", shiftLatex: "\\equiv " },
-    { label: "≠", latex: "\\neq ", shiftLabel: "≈", shiftLatex: "\\approx " },
-    { label: "≤", latex: "\\leq ", shiftLabel: "≦", shiftLatex: "\\leqq " },
-    { label: "≥", latex: "\\geq ", shiftLabel: "≧", shiftLatex: "\\geqq " },
-    { label: "<", latex: "<", shiftLabel: "≪", shiftLatex: "\\ll " },
-    { label: ">", latex: ">", shiftLabel: "≫", shiftLatex: "\\gg " },
-    { label: "±", latex: "\\pm ", shiftLabel: "∓", shiftLatex: "\\mp " },
-    {
-      label: "sum",
-      latex: "\\sum ",
-      shiftLabel: "prod",
-      shiftLatex: "\\prod ",
-      displayLatex: "\\sum",
-      shiftDisplayLatex: "\\prod",
-    },
-    {
-      label: "int",
-      latex: "\\int ",
-      shiftLabel: "int_ab",
-      shiftLatex: "\\int_{#?}^{#?}",
-      shiftFallback: "\\int_{}^{}",
-      displayLatex: "\\int",
-      shiftDisplayLatex: "\\int_{a}^{b}",
-    },
-    {
-      label: "∞",
-      latex: "\\infty ",
-      shiftLabel: "ℵ0",
-      shiftLatex: "\\aleph_0 ",
-      displayLatex: "\\infty",
-      shiftDisplayLatex: "\\aleph_0",
-    },
-    {
-      label: "sqrt",
-      latex: "\\sqrt{#?}",
-      fallback: "\\sqrt{}",
-      shiftLabel: "root",
-      shiftLatex: "\\sqrt[#?]{#?}",
-      shiftFallback: "\\sqrt[]{}",
-      displayLatex: "\\sqrt{x}",
-      shiftDisplayLatex: "\\sqrt[n]{x}",
-    },
-    {
-      label: "frac",
-      latex: "\\frac{#?}{#?}",
-      fallback: "\\frac{}{}",
-      shiftLabel: "dfrac",
-      shiftLatex: "\\dfrac{#?}{#?}",
-      shiftFallback: "\\dfrac{}{}",
-      displayLatex: "\\frac{a}{b}",
-      shiftDisplayLatex: "\\dfrac{a}{b}",
-    },
-    {
-      label: "pow",
-      latex: "^{#?}",
-      fallback: "^{}",
-      shiftLabel: "x^2",
-      shiftLatex: "^{2}",
-      displayLatex: "x^{n}",
-      shiftDisplayLatex: "x^{2}",
-    },
-    {
-      label: "sub",
-      latex: "_{#?}",
-      fallback: "_{}",
-      shiftLabel: "x_0",
-      shiftLatex: "_{0}",
-      displayLatex: "x_{n}",
-      shiftDisplayLatex: "x_{0}",
-    },
-    {
-      label: "abs",
-      latex: "\\left|#?\\right|",
-      fallback: "\\left|\\right|",
-      shiftLabel: "inner",
-      shiftLatex: "\\left\\langle#?\\right\\rangle",
-      shiftFallback: "\\left\\langle\\right\\rangle",
-      displayLatex: "\\left|x\\right|",
-      shiftDisplayLatex: "\\langle x, y \\rangle",
-    },
-    {
-      label: "sin",
-      latex: "\\sin ",
-      shiftLabel: "arcsin",
-      shiftLatex: "\\arcsin ",
-      displayLatex: "\\sin",
-      shiftDisplayLatex: "\\arcsin",
-    },
-    {
-      label: "cos",
-      latex: "\\cos ",
-      shiftLabel: "arccos",
-      shiftLatex: "\\arccos ",
-      displayLatex: "\\cos",
-      shiftDisplayLatex: "\\arccos",
-    },
-    {
-      label: "tan",
-      latex: "\\tan ",
-      shiftLabel: "arctan",
-      shiftLatex: "\\arctan ",
-      displayLatex: "\\tan",
-      shiftDisplayLatex: "\\arctan",
-    },
-    {
-      label: "log",
-      latex: "\\log ",
-      shiftLabel: "log_b",
-      shiftLatex: "\\log_{#?}",
-      shiftFallback: "\\log_{}",
-      displayLatex: "\\log",
-      shiftDisplayLatex: "\\log_{b}",
-    },
-    { label: "ln", latex: "\\ln ", shiftLabel: "lg", shiftLatex: "\\lg ", displayLatex: "\\ln", shiftDisplayLatex: "\\lg" },
-    {
-      label: "exp",
-      latex: "\\exp ",
-      shiftLabel: "e^",
-      shiftLatex: "e^{#?}",
-      shiftFallback: "e^{}",
-      displayLatex: "\\exp",
-      shiftDisplayLatex: "e^{x}",
-    },
-    {
-      label: "lim",
-      latex: "\\lim ",
-      shiftLabel: "lim→",
-      shiftLatex: "\\lim_{#? \\to #?}",
-      shiftFallback: "\\lim_{}",
-      displayLatex: "\\lim",
-      shiftDisplayLatex: "\\lim_{x \\to a}",
-    },
-    { label: "→", latex: "\\to ", shiftLabel: "⇒", shiftLatex: "\\Rightarrow " },
-    {
-      label: "∂",
-      latex: "\\partial ",
-      shiftLabel: "d",
-      shiftLatex: "\\mathrm{d} ",
-      displayLatex: "\\partial",
-      shiftDisplayLatex: "\\mathrm{d}",
-    },
-    {
-      label: "∇",
-      latex: "\\nabla ",
-      shiftLabel: "Δ",
-      shiftLatex: "\\Delta ",
-      displayLatex: "\\nabla",
-      shiftDisplayLatex: "\\Delta",
-    },
-  ];
-
-  const mathKeyboardSets: Record<MathKeyboardTab, MathKey[]> = {
-    analysis: [
-      {
-        label: "d/dx",
-        latex: "\\frac{d}{d#?}#?",
-        fallback: "\\frac{d}{d} ",
-        shiftLabel: "d2/dx2",
-        shiftLatex: "\\frac{d^2}{d#?^2}#?",
-        shiftFallback: "\\frac{d^2}{d^2} ",
-        displayLatex: "\\frac{d}{dx}",
-        shiftDisplayLatex: "\\frac{d^2}{dx^2}",
-      },
-      {
-        label: "∂/∂x",
-        latex: "\\frac{\\partial}{\\partial #?}#?",
-        fallback: "\\frac{\\partial}{\\partial} ",
-        shiftLabel: "∂2/∂x2",
-        shiftLatex: "\\frac{\\partial^2}{\\partial #?^2}#?",
-        shiftFallback: "\\frac{\\partial^2}{\\partial^2} ",
-        displayLatex: "\\frac{\\partial}{\\partial x}",
-        shiftDisplayLatex: "\\frac{\\partial^2}{\\partial x^2}",
-      },
-      {
-        label: "∮",
-        latex: "\\oint ",
-        shiftLabel: "∮_C",
-        shiftLatex: "\\oint_{#?}",
-        shiftFallback: "\\oint_{}",
-        displayLatex: "\\oint",
-        shiftDisplayLatex: "\\oint_{C}",
-      },
-      {
-        label: "∬",
-        latex: "\\iint ",
-        shiftLabel: "∭",
-        shiftLatex: "\\iiint ",
-        displayLatex: "\\iint",
-        shiftDisplayLatex: "\\iiint",
-      },
-      {
-        label: "lim sup",
-        latex: "\\limsup ",
-        shiftLabel: "lim inf",
-        shiftLatex: "\\liminf ",
-        displayLatex: "\\limsup",
-        shiftDisplayLatex: "\\liminf",
-      },
-      {
-        label: "sup",
-        latex: "\\sup ",
-        shiftLabel: "inf",
-        shiftLatex: "\\inf ",
-        displayLatex: "\\sup",
-        shiftDisplayLatex: "\\inf",
-      },
-      {
-        label: "max",
-        latex: "\\max ",
-        shiftLabel: "min",
-        shiftLatex: "\\min ",
-        displayLatex: "\\max",
-        shiftDisplayLatex: "\\min",
-      },
-      {
-        label: "≈",
-        latex: "\\approx ",
-        shiftLabel: "∼",
-        shiftLatex: "\\sim ",
-        displayLatex: "\\approx",
-        shiftDisplayLatex: "\\sim",
-      },
-      {
-        label: "≃",
-        latex: "\\simeq ",
-        shiftLabel: "≅",
-        shiftLatex: "\\cong ",
-        displayLatex: "\\simeq",
-        shiftDisplayLatex: "\\cong",
-      },
-      {
-        label: "O",
-        latex: "\\mathcal{O} ",
-        shiftLabel: "o",
-        shiftLatex: "\\mathrm{o} ",
-        displayLatex: "\\mathcal{O}",
-        shiftDisplayLatex: "\\mathrm{o}",
-      },
-      {
-        label: "ℒ",
-        latex: "\\mathcal{L} ",
-        shiftLabel: "ℓ",
-        shiftLatex: "\\ell ",
-        displayLatex: "\\mathcal{L}",
-        shiftDisplayLatex: "\\ell",
-      },
-      {
-        label: "ℱ",
-        latex: "\\mathcal{F} ",
-        shiftLabel: "ℳ",
-        shiftLatex: "\\mathcal{M} ",
-        displayLatex: "\\mathcal{F}",
-        shiftDisplayLatex: "\\mathcal{M}",
-      },
-    ],
-    algebra: [
-      {
-        label: "⌊x⌋",
-        latex: "\\left\\lfloor#?\\right\\rfloor",
-        fallback: "\\left\\lfloor\\right\\rfloor",
-        shiftLabel: "⌈x⌉",
-        shiftLatex: "\\left\\lceil#?\\right\\rceil",
-        shiftFallback: "\\left\\lceil\\right\\rceil",
-        displayLatex: "\\lfloor x \\rfloor",
-        shiftDisplayLatex: "\\lceil x \\rceil",
-      },
-      {
-        label: "binom",
-        latex: "\\binom{#?}{#?}",
-        fallback: "\\binom{}{}",
-        displayLatex: "\\binom{n}{k}",
-      },
-      {
-        label: "cases",
-        latex: "\\begin{cases}#?\\\\#?\\end{cases}",
-        fallback: "\\begin{cases}\n  \\\\\n\\end{cases}",
-        displayLatex: "\\begin{cases} a \\\\ b \\end{cases}",
-      },
-      {
-        label: "matrix",
-        latex: "\\begin{matrix}#?\\\\#?\\end{matrix}",
-        fallback: "\\begin{matrix}\n  & \\\\\n  & \n\\end{matrix}",
-        shiftLabel: "pmatrix",
-        shiftLatex: "\\begin{pmatrix}#?\\\\#?\\end{pmatrix}",
-        shiftFallback: "\\begin{pmatrix}\n  & \\\\\n  & \n\\end{pmatrix}",
-        displayLatex: "\\begin{matrix} a & b \\\\ c & d \\end{matrix}",
-        shiftDisplayLatex: "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}",
-      },
-      {
-        label: "bmatrix",
-        latex: "\\begin{bmatrix}#?\\\\#?\\end{bmatrix}",
-        fallback: "\\begin{bmatrix}\n  & \\\\\n  & \n\\end{bmatrix}",
-        shiftLabel: "vmatrix",
-        shiftLatex: "\\begin{vmatrix}#?\\\\#?\\end{vmatrix}",
-        shiftFallback: "\\begin{vmatrix}\n  & \\\\\n  & \n\\end{vmatrix}",
-        displayLatex: "\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}",
-        shiftDisplayLatex: "\\begin{vmatrix} a & b \\\\ c & d \\end{vmatrix}",
-      },
-      { label: "det", latex: "\\det ", shiftLabel: "adj", shiftLatex: "\\operatorname{adj} " },
-      { label: "tr", latex: "\\operatorname{tr} ", shiftLabel: "diag", shiftLatex: "\\operatorname{diag} " },
-      { label: "rank", latex: "\\operatorname{rank} ", shiftLabel: "null", shiftLatex: "\\operatorname{null} " },
-      { label: "dim", latex: "\\dim ", shiftLabel: "deg", shiftLatex: "\\deg " },
-      { label: "ker", latex: "\\ker ", shiftLabel: "span", shiftLatex: "\\operatorname{span} " },
-      {
-        label: "gcd",
-        latex: "\\gcd ",
-        shiftLabel: "lcm",
-        shiftLatex: "\\operatorname{lcm} ",
-      },
-      {
-        label: "mod",
-        latex: "\\bmod ",
-        shiftLabel: "mod",
-        shiftLatex: "\\pmod{#?}",
-        shiftFallback: "\\pmod{}",
-      },
-      {
-        label: "vec",
-        latex: "\\vec{#?}",
-        fallback: "\\vec{}",
-        shiftLabel: "over→",
-        shiftLatex: "\\overrightarrow{#?}",
-        shiftFallback: "\\overrightarrow{}",
-      },
-      {
-        label: "hat",
-        latex: "\\hat{#?}",
-        fallback: "\\hat{}",
-        shiftLabel: "tilde",
-        shiftLatex: "\\tilde{#?}",
-        shiftFallback: "\\tilde{}",
-      },
-      {
-        label: "bar",
-        latex: "\\bar{#?}",
-        fallback: "\\bar{}",
-        shiftLabel: "overline",
-        shiftLatex: "\\overline{#?}",
-        shiftFallback: "\\overline{}",
-      },
-      {
-        label: "dot",
-        latex: "\\dot{#?}",
-        fallback: "\\dot{}",
-        shiftLabel: "ddot",
-        shiftLatex: "\\ddot{#?}",
-        shiftFallback: "\\ddot{}",
-      },
-      {
-        label: "bold",
-        latex: "\\mathbf{#?}",
-        fallback: "\\mathbf{}",
-        shiftLabel: "boldsym",
-        shiftLatex: "\\boldsymbol{#?}",
-        shiftFallback: "\\boldsymbol{}",
-      },
-      {
-        label: "bb",
-        latex: "\\mathbb{#?}",
-        fallback: "\\mathbb{}",
-        shiftLabel: "frak",
-        shiftLatex: "\\mathfrak{#?}",
-        shiftFallback: "\\mathfrak{}",
-      },
-      {
-        label: "cal",
-        latex: "\\mathcal{#?}",
-        fallback: "\\mathcal{}",
-        shiftLabel: "scr",
-        shiftLatex: "\\mathscr{#?}",
-        shiftFallback: "\\mathscr{}",
-      },
-      {
-        label: "text",
-        latex: "\\text{#?}",
-        fallback: "\\text{}",
-        shiftLabel: "rm",
-        shiftLatex: "\\mathrm{#?}",
-        shiftFallback: "\\mathrm{}",
-      },
-    ],
-    sets: [
-      { label: "∈", latex: "\\in ", shiftLabel: "∉", shiftLatex: "\\notin " },
-      { label: "∋", latex: "\\ni ", shiftLabel: "∌", shiftLatex: "\\not\\ni " },
-      { label: "⊂", latex: "\\subset ", shiftLabel: "⊆", shiftLatex: "\\subseteq " },
-      { label: "⊃", latex: "\\supset ", shiftLabel: "⊇", shiftLatex: "\\supseteq " },
-      { label: "⊊", latex: "\\subsetneq ", shiftLabel: "⊋", shiftLatex: "\\supsetneq " },
-      { label: "∪", latex: "\\cup ", shiftLabel: "∩", shiftLatex: "\\cap " },
-      { label: "⋃", latex: "\\bigcup ", shiftLabel: "⋂", shiftLatex: "\\bigcap " },
-      { label: "∅", latex: "\\emptyset ", shiftLabel: "⌀", shiftLatex: "\\varnothing " },
-      { label: "∖", latex: "\\setminus ", shiftLabel: "△", shiftLatex: "\\triangle " },
-      {
-        label: "{x|}",
-        latex: "\\{#?\\mid#?\\}",
-        fallback: "\\{\\mid\\}",
-        displayLatex: "\\{x \\mid y\\}",
-      },
-      { label: "℘", latex: "\\mathcal{P} ", shiftLabel: "ℱ", shiftLatex: "\\mathcal{F} " },
-      { label: "ℕ", latex: "\\mathbb{N} ", shiftLabel: "ℤ", shiftLatex: "\\mathbb{Z} " },
-      { label: "ℚ", latex: "\\mathbb{Q} ", shiftLabel: "ℝ", shiftLatex: "\\mathbb{R} " },
-      { label: "ℂ", latex: "\\mathbb{C} ", shiftLabel: "ℍ", shiftLatex: "\\mathbb{H} " },
-      { label: "⟂", latex: "\\perp ", shiftLabel: "∥", shiftLatex: "\\parallel " },
-    ],
-    logic: [
-      { label: "∀", latex: "\\forall ", shiftLabel: "∃", shiftLatex: "\\exists " },
-      { label: "¬", latex: "\\neg ", shiftLabel: "¬¬", shiftLatex: "\\neg\\neg " },
-      { label: "∧", latex: "\\land ", shiftLabel: "∨", shiftLatex: "\\lor " },
-      { label: "⇒", latex: "\\Rightarrow ", shiftLabel: "⇔", shiftLatex: "\\Leftrightarrow " },
-      { label: "⇐", latex: "\\Leftarrow " },
-      { label: "⊢", latex: "\\vdash ", shiftLabel: "⊨", shiftLatex: "\\models " },
-      { label: "⊥", latex: "\\bot ", shiftLabel: "⊤", shiftLatex: "\\top " },
-      { label: "≡", latex: "\\equiv ", shiftLabel: "≢", shiftLatex: "\\not\\equiv " },
-      { label: "⊕", latex: "\\oplus ", shiftLabel: "⊗", shiftLatex: "\\otimes " },
-      { label: "∴", latex: "\\therefore ", shiftLabel: "∵", shiftLatex: "\\because " },
-      { label: "□", latex: "\\Box ", shiftLabel: "◇", shiftLatex: "\\Diamond " },
-      { label: "∃!", latex: "\\exists!", shiftLabel: "∄", shiftLatex: "\\not\\exists " },
-      { label: "⊂", latex: "\\subset ", shiftLabel: "⊆", shiftLatex: "\\subseteq " },
-    ],
-    arrows: [
-      { label: "←", latex: "\\leftarrow ", shiftLabel: "⇐", shiftLatex: "\\Leftarrow " },
-      { label: "↔", latex: "\\leftrightarrow ", shiftLabel: "⇔", shiftLatex: "\\Leftrightarrow " },
-      { label: "↦", latex: "\\mapsto ", shiftLabel: "⟼", shiftLatex: "\\longmapsto " },
-      {
-        label: "⟶",
-        latex: "\\longrightarrow ",
-        shiftLabel: "⟹",
-        shiftLatex: "\\Longrightarrow ",
-      },
-      {
-        label: "⟵",
-        latex: "\\longleftarrow ",
-        shiftLabel: "⟸",
-        shiftLatex: "\\Longleftarrow ",
-      },
-      {
-        label: "⟷",
-        latex: "\\longleftrightarrow ",
-        shiftLabel: "⟺",
-        shiftLatex: "\\Longleftrightarrow ",
-      },
-      { label: "↑", latex: "\\uparrow ", shiftLabel: "⇑", shiftLatex: "\\Uparrow " },
-      { label: "↓", latex: "\\downarrow ", shiftLabel: "⇓", shiftLatex: "\\Downarrow " },
-      {
-        label: "↕",
-        latex: "\\updownarrow ",
-        shiftLabel: "⇕",
-        shiftLatex: "\\Updownarrow ",
-      },
-      { label: "↗", latex: "\\nearrow ", shiftLabel: "↘", shiftLatex: "\\searrow " },
-      { label: "↖", latex: "\\nwarrow ", shiftLabel: "↙", shiftLatex: "\\swarrow " },
-      {
-        label: "↪",
-        latex: "\\hookrightarrow ",
-        shiftLabel: "↩",
-        shiftLatex: "\\hookleftarrow ",
-      },
-      {
-        label: "↠",
-        latex: "\\twoheadrightarrow ",
-        shiftLabel: "↞",
-        shiftLatex: "\\twoheadleftarrow ",
-      },
-      {
-        label: "⇝",
-        latex: "\\rightsquigarrow ",
-        shiftLabel: "⇜",
-        shiftLatex: "\\leftsquigarrow ",
-      },
-      {
-        label: "⤳",
-        latex: "\\curvearrowright ",
-        shiftLabel: "⤲",
-        shiftLatex: "\\curvearrowleft ",
-      },
-      {
-        label: "⇀",
-        latex: "\\rightharpoonup ",
-        shiftLabel: "⇁",
-        shiftLatex: "\\rightharpoondown ",
-      },
-      {
-        label: "↼",
-        latex: "\\leftharpoonup ",
-        shiftLabel: "↽",
-        shiftLatex: "\\leftharpoondown ",
-      },
-      {
-        label: "⇉",
-        latex: "\\rightrightarrows ",
-        shiftLabel: "⇇",
-        shiftLatex: "\\leftleftarrows ",
-      },
-    ],
-    greek: [
-      { label: "α", latex: "\\alpha ", shiftLabel: "Α", shiftLatex: "A " },
-      { label: "β", latex: "\\beta ", shiftLabel: "Β", shiftLatex: "B " },
-      { label: "γ", latex: "\\gamma ", shiftLabel: "Γ", shiftLatex: "\\Gamma " },
-      { label: "δ", latex: "\\delta ", shiftLabel: "Δ", shiftLatex: "\\Delta " },
-      { label: "ε", latex: "\\epsilon ", shiftLabel: "Ε", shiftLatex: "E " },
-      { label: "ϵ", latex: "\\varepsilon ", shiftLabel: "Ε", shiftLatex: "E " },
-      { label: "ζ", latex: "\\zeta ", shiftLabel: "Ζ", shiftLatex: "Z " },
-      { label: "η", latex: "\\eta ", shiftLabel: "Η", shiftLatex: "H " },
-      { label: "θ", latex: "\\theta ", shiftLabel: "Θ", shiftLatex: "\\Theta " },
-      { label: "ϑ", latex: "\\vartheta ", shiftLabel: "Θ", shiftLatex: "\\Theta " },
-      { label: "ι", latex: "\\iota ", shiftLabel: "Ι", shiftLatex: "I " },
-      { label: "κ", latex: "\\kappa ", shiftLabel: "Κ", shiftLatex: "K " },
-      { label: "λ", latex: "\\lambda ", shiftLabel: "Λ", shiftLatex: "\\Lambda " },
-      { label: "μ", latex: "\\mu ", shiftLabel: "Μ", shiftLatex: "M " },
-      { label: "ν", latex: "\\nu ", shiftLabel: "Ν", shiftLatex: "N " },
-      { label: "ξ", latex: "\\xi ", shiftLabel: "Ξ", shiftLatex: "\\Xi " },
-      { label: "π", latex: "\\pi ", shiftLabel: "Π", shiftLatex: "\\Pi " },
-      { label: "ϖ", latex: "\\varpi ", shiftLabel: "Π", shiftLatex: "\\Pi " },
-      { label: "ρ", latex: "\\rho ", shiftLabel: "Ρ", shiftLatex: "P " },
-      { label: "ϱ", latex: "\\varrho ", shiftLabel: "Ρ", shiftLatex: "P " },
-      { label: "σ", latex: "\\sigma ", shiftLabel: "Σ", shiftLatex: "\\Sigma " },
-      { label: "ς", latex: "\\varsigma ", shiftLabel: "Σ", shiftLatex: "\\Sigma " },
-      { label: "τ", latex: "\\tau ", shiftLabel: "Τ", shiftLatex: "T " },
-      { label: "υ", latex: "\\upsilon ", shiftLabel: "Υ", shiftLatex: "\\Upsilon " },
-      { label: "φ", latex: "\\phi ", shiftLabel: "Φ", shiftLatex: "\\Phi " },
-      { label: "ϕ", latex: "\\varphi ", shiftLabel: "Φ", shiftLatex: "\\Phi " },
-      { label: "χ", latex: "\\chi ", shiftLabel: "Χ", shiftLatex: "X " },
-      { label: "ψ", latex: "\\psi ", shiftLabel: "Ψ", shiftLatex: "\\Psi " },
-      { label: "ω", latex: "\\omega ", shiftLabel: "Ω", shiftLatex: "\\Omega " },
-    ],
   };
 
   const normalizeMathKeyboardTab = (tab?: string | null): MathKeyboardTab => {
@@ -2896,6 +2269,120 @@ window.addEventListener("DOMContentLoaded", () => {
     document.addEventListener("mouseup", stopResize);
   };
 
+  /* =============================================================================
+     Settings UI & Environment Check
+     ============================================================================= */
+  
+  // Settings Tab Switching
+  const settingsTabs = document.getElementById("editor-tabs"); // Wait, this isn't correct. The tabs are .settings-tab inside .settings-sidebar
+  // Since they are inside the Shadow DOM or just new elements, we need to bind them dynamically or at init.
+  
+  // In our case, we just added .settings-tab to index.html directly.
+  // Settings tab logic disabled for single-column view
+  const settingSectionTabs = []; // Array.from(document.querySelectorAll<HTMLElement>(".settings-tab"));
+  const settingSections = Array.from(document.querySelectorAll<HTMLElement>(".settings-section"));
+
+  settingSectionTabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      const section = tab.dataset.section;
+      if (!section) return;
+
+      settingSectionTabs.forEach(t => t.classList.remove("is-active"));
+      tab.classList.add("is-active");
+
+      settingSections.forEach(s => {
+        s.classList.toggle("is-active", s.dataset.section === section);
+      });
+
+      if (section === "build") {
+        checkEnvironmentStatus();
+      }
+    });
+  });
+
+  // Environment Checking
+  const envItems = Array.from(document.querySelectorAll<HTMLElement>(".env-item"));
+  
+  const checkEnvironmentStatus = () => {
+    if ((window as any).api) {
+      (window as any).api.send("tex180", { type: "env:check", command: "lualatex" });
+      (window as any).api.send("tex180", { type: "env:check", command: "latexmk" });
+    }
+  };
+
+  const updateEnvStatus = (command: string, available: boolean) => {
+    // Map command to data-env
+    let envName = command;
+    if (command === "lualatex" || command === "pdflatex") {
+      envName = "lualatex"; // Mapped to the TeX Distribution item
+    }
+
+    const item = document.querySelector(`.env-item[data-env="${envName}"]`);
+    if (!item) return;
+
+    const statusBadge = item.querySelector(".env-badge");
+    const actionBtn = item.querySelector(".env-btn");
+
+    if (statusBadge) {
+      statusBadge.className = available ? "env-badge ok" : "env-badge error";
+      statusBadge.textContent = available ? "利用可能" : "未検出";
+    }
+
+    if (actionBtn instanceof HTMLElement) {
+      actionBtn.classList.toggle("is-hidden", available);
+      if (!available) {
+        // Reset button state just in case
+        actionBtn.textContent = "インストール";
+        actionBtn.removeAttribute("disabled");
+      }
+    }
+  };
+
+  // Environment Installation
+  const envBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".env-btn"));
+  envBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.target;
+      if (!target) return;
+      
+      btn.textContent = "インストール中...";
+      btn.disabled = true;
+
+      if ((window as any).api) {
+        (window as any).api.send("tex180", { type: "env:install", target });
+      }
+    });
+  });
+
+  // Compile Engine Selection
+  const getProjectEngineKey = () => workspaceRootKey ? `tex180.compileEngine.${workspaceRootKey}` : "tex180.compileEngine";
+
+  const engineRadios = Array.from(document.querySelectorAll<HTMLInputElement>("input[name='compileEngine']"));
+
+  const updateEngineUI = () => {
+    const key = getProjectEngineKey();
+    const savedEngine = localStorage.getItem(key) || localStorage.getItem("tex180.compileEngine") || "lualatex";
+    engineRadios.forEach(radio => {
+      radio.checked = (radio.value === savedEngine);
+    });
+  };
+
+  engineRadios.forEach(radio => {
+    radio.addEventListener("change", () => {
+      if (radio.checked) {
+        localStorage.setItem(getProjectEngineKey(), radio.value);
+        // Also update global default if no project is open
+        if (!workspaceRootKey) localStorage.setItem("tex180.compileEngine", radio.value);
+      }
+    });
+  });
+
+  updateEngineUI();
+
+  // startBuild Modification to include engine
+  // Overwriting handleBuildClick for reference or ensuring startBuild uses the engine.
+  // We need to find where startBuild is called.
+
   // =============================================================================
   // MathField 初期化
   // =============================================================================
@@ -3031,65 +2518,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }, 0);
 
     attachMathFieldEvents(mathfield);
-  };
-
-  const buildLineDiff = (beforeLines: string[], afterLines: string[]) => {
-    const rows = beforeLines.length;
-    const cols = afterLines.length;
-    const table = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(0));
-    for (let i = 1; i <= rows; i += 1) {
-      for (let j = 1; j <= cols; j += 1) {
-        if (beforeLines[i - 1] === afterLines[j - 1]) {
-          table[i][j] = table[i - 1][j - 1] + 1;
-        } else {
-          table[i][j] = Math.max(table[i - 1][j], table[i][j - 1]);
-        }
-      }
-    }
-    const diff: { type: "add" | "del" | "same"; line: string }[] = [];
-    let i = rows;
-    let j = cols;
-    while (i > 0 && j > 0) {
-      if (beforeLines[i - 1] === afterLines[j - 1]) {
-        diff.push({ type: "same", line: beforeLines[i - 1] });
-        i -= 1;
-        j -= 1;
-      } else if (table[i - 1][j] >= table[i][j - 1]) {
-        diff.push({ type: "del", line: beforeLines[i - 1] });
-        i -= 1;
-      } else {
-        diff.push({ type: "add", line: afterLines[j - 1] });
-        j -= 1;
-      }
-    }
-    while (i > 0) {
-      diff.push({ type: "del", line: beforeLines[i - 1] });
-      i -= 1;
-    }
-    while (j > 0) {
-      diff.push({ type: "add", line: afterLines[j - 1] });
-      j -= 1;
-    }
-    return diff.reverse();
-  };
-
-  const buildDiffPreview = (before: string, after: string) => {
-    const beforeText = before.trimEnd();
-    const afterText = after.trimEnd();
-    if (beforeText === afterText) {
-      return "変更なし";
-    }
-    const beforeLines = beforeText.length ? beforeText.split(/\r?\n/) : [""];
-    const afterLines = afterText.length ? afterText.split(/\r?\n/) : [""];
-    const diffLines = buildLineDiff(beforeLines, afterLines);
-    const header = "差分（-削除 / +追加）";
-    const body = diffLines
-      .map((entry) => {
-        const prefix = entry.type === "add" ? "+" : entry.type === "del" ? "-" : " ";
-        return `${prefix} ${entry.line}`;
-      })
-      .join("\n");
-    return `${header}\n${body}`;
   };
 
   const renderDiffSummary = (before: string, after: string) => {
@@ -3394,8 +2822,6 @@ window.addEventListener("DOMContentLoaded", () => {
       // If content changed, we inject it.
       // We add newlines for block environments if they are undoubtedly block-like?
       // No, strictly follow Injection Strategy: Prefix + Content + Suffix.
-      // However, if the user deleted all newlines in the editor, we might get `\[x\]` instead of `\[\n x \n\]`.
-      // For now, simple concatenation is the most faithful "Injection".
       // Users can add newlines in the editor if they want them.
       return context.prefix + content + context.suffix;
   };
@@ -3716,27 +3142,64 @@ window.addEventListener("DOMContentLoaded", () => {
     searchResults.innerHTML = "";
     if (searchResultsData.length === 0) {
       const empty = document.createElement("div");
-      empty.className = "panel-placeholder";
+      empty.className = "search-empty";
       empty.textContent = searchMessage;
       searchResults.appendChild(empty);
       return;
     }
+    const groups = new Map<string, typeof searchResultsData>();
     searchResultsData.forEach((result) => {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "search-item";
-
-      const preview = document.createElement("div");
-      preview.textContent = result.preview;
-      const meta = document.createElement("div");
-      meta.className = "search-item-meta";
-      meta.textContent = `${result.path} · 行 ${result.line}`;
-
-      item.append(preview, meta);
-      item.addEventListener("click", () => {
-        jumpToSearchResult(result);
+      if (!groups.has(result.path)) {
+        groups.set(result.path, []);
+      }
+      groups.get(result.path)?.push(result);
+    });
+    
+    const sortedPaths = Array.from(groups.keys()).sort();
+    
+    sortedPaths.forEach((path) => {
+      const groupList = groups.get(path);
+      if (!groupList) return;
+      
+      const groupDiv = document.createElement("div");
+      groupDiv.className = "search-file-group";
+      
+      const header = document.createElement("div");
+      header.className = "search-file-header";
+      
+      const icon = document.createElement("span");
+      icon.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+      icon.style.display = "flex";
+      icon.style.opacity = "0.7";
+      
+      const name = document.createElement("span");
+      name.textContent = path;
+      name.style.marginLeft = "6px";
+      
+      header.appendChild(icon);
+      header.appendChild(name);
+      groupDiv.appendChild(header);
+      
+      groupList.forEach((result) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "search-match-item";
+        
+        const line = document.createElement("div");
+        line.className = "search-match-line";
+        line.textContent = `行 ${result.line}`;
+        
+        const preview = document.createElement("div");
+        preview.className = "search-match-preview";
+        preview.textContent = result.preview;
+        
+        item.append(line, preview);
+        item.addEventListener("click", () => {
+          jumpToSearchResult(result);
+        });
+        groupDiv.appendChild(item);
       });
-      searchResults.appendChild(item);
+      searchResults.appendChild(groupDiv);
     });
   };
 
@@ -3965,18 +3428,6 @@ window.addEventListener("DOMContentLoaded", () => {
     return `tex180.project.alignEnv.${workspaceRootKey}`;
   };
 
-  const updateAutoBuildUI = () => {
-    if (autoBuildButton instanceof HTMLButtonElement) {
-      autoBuildButton.disabled = false;
-      autoBuildButton.classList.toggle("is-active", autoBuildEnabled);
-      autoBuildButton.title = autoBuildEnabled ? "自動ビルド: ON" : "自動ビルド: OFF";
-    }
-    if (settingsAutoBuildButton instanceof HTMLButtonElement) {
-      settingsAutoBuildButton.textContent = autoBuildEnabled ? "ON" : "OFF";
-      settingsAutoBuildButton.classList.toggle("is-on", autoBuildEnabled);
-    }
-  };
-
   const updateProjectAlignEnvUI = () => {
     if (projectAlignEnvToggle instanceof HTMLButtonElement) {
       projectAlignEnvToggle.textContent = projectAlignEnvEnabled ? "ON" : "OFF";
@@ -3985,21 +3436,22 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   const updateEditorAutoFormatUI = () => {
-    if (editorAutoFormatToggle instanceof HTMLButtonElement) {
-      editorAutoFormatToggle.textContent = autoFormatEnabled ? "ON" : "OFF";
-      editorAutoFormatToggle.classList.toggle("is-on", autoFormatEnabled);
+    if (editorAutoFormatToggle instanceof HTMLInputElement) {
+      editorAutoFormatToggle.checked = autoFormatEnabled;
     }
   };
 
   const loadAutoBuildState = () => {
     const key = autoBuildKey();
     if (!key) {
-      autoBuildEnabled = false;
+     /*
+    if (autoBuildEnabled) {
       updateAutoBuildUI();
-      return;
+    }
+    */  return;
     }
     autoBuildEnabled = localStorage.getItem(key) === "true";
-    updateAutoBuildUI();
+    // updateAutoBuildUI();
   };
 
   const loadProjectAlignEnvState = () => {
@@ -4045,7 +3497,7 @@ window.addEventListener("DOMContentLoaded", () => {
       autoBuildPending = true;
     }
     saveAutoBuildState();
-    updateAutoBuildUI();
+    // updateAutoBuildUI();
   };
 
   const toggleProjectAlignEnv = () => {
@@ -4124,6 +3576,14 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const setEditorEmptyState = (isEmpty: boolean) => {
+    document.body.classList.toggle("editor-empty", isEmpty);
+    if (!isEmpty && monacoEditor) {
+      const editor = monacoEditor as { layout?: () => void };
+      editor.layout?.();
+    }
+  };
+
   const scheduleAfterComposition = (action: () => void) => {
     if (!isComposing) {
       action();
@@ -4197,10 +3657,9 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   const cacheCurrentBuffer = () => {
-    if (!currentFilePath || !monacoEditor) {
+    if (!currentFilePath || !monacoEditor || !isTextFilePath(currentFilePath)) {
       return;
     }
-    
     const editor = monacoEditor as { getValue: () => string };
     const content = editor.getValue();
     updateDirtyState(currentFilePath, content);
@@ -4238,6 +3697,8 @@ window.addEventListener("DOMContentLoaded", () => {
         currentFileSavedContent = null;
         isDirty = false;
         autoBuildPending = false;
+        viewer.hideViewer();
+        clearEditorView();
         updateBreadcrumbs();
         updateMiniOutline();
         renderOutline();
@@ -4253,9 +3714,11 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     editorTabsList.innerHTML = "";
     if (openTabs.length === 0) {
+      setEditorEmptyState(true);
       editorTabsList.classList.add("is-empty");
       return;
     }
+    setEditorEmptyState(false);
     editorTabsList.classList.remove("is-empty");
     openTabs.forEach((path) => {
       const tab = document.createElement("button");
@@ -4373,17 +3836,21 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   const getLanguageIdForPath = (path: string) => {
-    if (path.endsWith(".tex")) {
-      return "latex";
-    }
-    if (path.endsWith(".bib")) {
+    const ext = getFileExtension(path);
+    if (ext === "bib") {
       return "bibtex";
+    }
+    if (LATEX_FILE_EXTENSIONS.has(ext)) {
+      return "latex";
     }
     return "plaintext";
   };
 
   const setEditorLanguage = (path: string) => {
     if (!monacoApi || !monacoEditor) {
+      return;
+    }
+    if (!isTextFilePath(path)) {
       return;
     }
     const editor = monacoEditor as { getModel?: () => unknown };
@@ -4676,6 +4143,118 @@ window.addEventListener("DOMContentLoaded", () => {
     renderFileNodes(tree, fileTree, 0);
   };
 
+  const getEmptyEditorModel = () => {
+    if (!monacoApi) {
+      return null;
+    }
+    if (emptyEditorModel) {
+      return emptyEditorModel;
+    }
+    const monacoApiAny = monacoApi as {
+      editor?: { createModel?: (value: string, languageId: string) => unknown };
+    };
+    if (!monacoApiAny.editor?.createModel) {
+      return null;
+    }
+    emptyEditorModel = monacoApiAny.editor.createModel("", "plaintext") as MonacoModel;
+    return emptyEditorModel;
+  };
+
+
+
+  const clearEditorView = () => {
+    if (!monacoEditor) {
+      return;
+    }
+    const editor = monacoEditor as { setModel?: (model: unknown) => void };
+    const emptyModel = getEmptyEditorModel();
+    if (emptyModel && editor.setModel) {
+      editor.setModel(emptyModel as unknown);
+    }
+  };
+
+  const isPersistentTabPath = (path: string) => {
+    const ext = getFileExtension(path);
+    return PINNED_TAB_EXTENSIONS.has(ext);
+  };
+
+  const clearTemporaryTabs = (keepPath?: string) => {
+    const nextTabs = openTabs.filter((entry) => {
+      if (entry === keepPath) {
+        return true;
+      }
+      if (!isPersistentTabPath(entry)) {
+        return false;
+      }
+      if (dirtyFiles.has(entry)) {
+        return false;
+      }
+      return true;
+    });
+    if (nextTabs.length === openTabs.length) {
+      return;
+    }
+    openTabs = nextTabs;
+    renderEditorTabs();
+  };
+
+  const applyViewerFile = (
+    path: string,
+    kind: "image" | "pdf",
+    data?: string,
+    mimeType?: string
+  ) => {
+    clearTemporaryTabs(path);
+    currentFilePath = path;
+    currentFileSavedContent = null;
+    isDirty = false;
+    autoBuildPending = false;
+    dirtyFiles.delete(path);
+    selectedTreePath = path;
+    selectedTreeType = "file";
+    addOpenTab(path);
+    updateBreadcrumbs();
+    updateMiniOutline();
+    renderOutline();
+    renderFileTree();
+    blockPreviewActive = false;
+    clearInsertPreview();
+    setAutoDetectedUi(false);
+    if (pendingReveal && pendingReveal.path === path) {
+      pendingReveal = null;
+    }
+    if (kind === "image") {
+      viewer.showImageViewer(path, data, mimeType);
+    } else {
+      viewer.showPdfViewer(data, mimeType);
+    }
+    setTreeFocus(false);
+  };
+
+  const applyUnsupportedFile = (path: string) => {
+    clearTemporaryTabs(path);
+    currentFilePath = path;
+    currentFileSavedContent = null;
+    isDirty = false;
+    autoBuildPending = false;
+    dirtyFiles.delete(path);
+    selectedTreePath = path;
+    selectedTreeType = "file";
+    addOpenTab(path);
+    updateBreadcrumbs();
+    updateMiniOutline();
+    renderOutline();
+    renderFileTree();
+    blockPreviewActive = false;
+    clearInsertPreview();
+    setAutoDetectedUi(false);
+    if (pendingReveal && pendingReveal.path === path) {
+      pendingReveal = null;
+    }
+    viewer.showUnsupportedViewer();
+    setTreeFocus(false);
+  };
+
   const ensureModelEntry = (path: string, content: string, savedContent?: string) => {
     if (!monacoApi) {
       return null;
@@ -4719,6 +4298,8 @@ window.addEventListener("DOMContentLoaded", () => {
       focus?: () => void;
     };
     const entry = ensureModelEntry(path, content, savedContent ?? content);
+    clearTemporaryTabs(path);
+    viewer.hideViewer();
     clearJumpHighlight();
     isApplyingFile = true;
     if (entry && editor.setModel) {
@@ -4845,10 +4426,11 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   const saveCurrentFileInternal = () => {
-    if (!currentFilePath || !monacoEditor) {
-      updateIssues(1, "保存するファイルが選択されていません。", "error", [
-        { severity: "error", message: "保存するファイルが選択されていません。" },
-      ]);
+    if (!currentFilePath || !monacoEditor || !isTextFilePath(currentFilePath)) {
+      const message = currentFilePath
+        ? "このファイル形式は編集できません。"
+        : "保存するファイルが選択されていません。";
+      updateIssues(1, message, "error", [{ severity: "error", message }]);
       return Promise.resolve(false);
     }
     const editor = monacoEditor as { getValue: () => string };
@@ -5421,13 +5003,21 @@ window.addEventListener("DOMContentLoaded", () => {
       (currentFilePath && currentFilePath.endsWith(".tex")
         ? currentFilePath
         : undefined);
-    const payload: { type: string; mainFile?: string; format?: boolean } = { type: "build" };
+    
+    const engineKey = workspaceRootKey ? `tex180.compileEngine.${workspaceRootKey}` : "tex180.compileEngine";
+    const engine = localStorage.getItem(engineKey) || localStorage.getItem("tex180.compileEngine") || "lualatex";
+    
+    const payload: { type: string; mainFile?: string; format?: boolean; engine?: string } = { type: "build" };
     if (mainFile) {
       payload.mainFile = mainFile;
     }
     if (autoFormatEnabled) {
       payload.format = true;
     }
+    if (engine) {
+      payload.engine = engine;
+    }
+    
     if (postToNative(payload)) {
       setBuildState("building");
       updateIssues(0, "ビルドを開始します。", "info", []);
@@ -5455,6 +5045,31 @@ window.addEventListener("DOMContentLoaded", () => {
     workspaceRootKey = payload.rootPath;
     setWorkspaceLabel(payload.rootName);
     setText(settingsWorkspace, payload.rootPath);
+    if (settingsProjectRootPath instanceof HTMLInputElement) settingsProjectRootPath.value = payload.rootPath;
+
+    // Populate Root File Select
+    if (settingsProjectRootFile instanceof HTMLSelectElement) {
+        settingsProjectRootFile.innerHTML = "";
+        const texFiles = payload.files.filter(f => f.endsWith(".tex"));
+        if (texFiles.length === 0) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "TeXファイルが見つかりません";
+            settingsProjectRootFile.appendChild(opt);
+        } else {
+            texFiles.forEach(f => {
+                const opt = document.createElement("option");
+                opt.value = f;
+                opt.textContent = f;
+                settingsProjectRootFile.appendChild(opt);
+            });
+        }
+        settingsProjectRootFile.value = payload.rootFile || "";
+    }
+    
+    // Update Engine UI for the new workspace
+    updateEngineUI();
+
     if (payload.rootPath) {
       setLauncherVisible(false);
       setLauncherStatus({ isBusy: false, message: null });
@@ -5508,6 +5123,9 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (currentFilePath) {
       isDirty = dirtyFiles.has(currentFilePath);
+    } else {
+      viewer.hideViewer();
+      clearEditorView();
     }
     loadOpenState();
     renderFileTree();
@@ -5549,6 +5167,9 @@ window.addEventListener("DOMContentLoaded", () => {
     path: string;
     content?: string;
     error?: string;
+    kind?: "text" | "image" | "pdf" | "unsupported";
+    data?: string;
+    mimeType?: string;
   }) => {
     if (payload.error) {
       if (pendingReveal && pendingReveal.path === payload.path) {
@@ -5559,8 +5180,51 @@ window.addEventListener("DOMContentLoaded", () => {
       ]);
       return;
     }
+    const path = payload.path;
+    const kind =
+      payload.kind ??
+      (isPdfFilePath(path)
+        ? "pdf"
+        : isImageFilePath(path)
+        ? "image"
+        : isTextFilePath(path)
+        ? "text"
+        : "unsupported");
+    if (kind === "image" || kind === "pdf") {
+      applyViewerFile(path, kind, payload.data, payload.mimeType);
+      return;
+    }
+    if (kind === "unsupported") {
+      applyUnsupportedFile(path);
+      return;
+    }
+    // Assuming `type` is available in the scope where `handleOpenFileResult` is called,
+    // or that `payload` contains a `type` property.
+    // The provided snippet implies `type` is a property of `payload`.
+    const type = (payload as any).type; // Cast to any to access 'type' if not explicitly defined in payload type
+
+    if (type === "searchResult") {
+      handleSearchUpdate(payload as any); // Cast to any as handleSearchUpdate expects a different payload type
+      return;
+    }
+    if (type === "env:checkResult") {
+      updateEnvStatus((payload as any).command, (payload as any).available);
+      return;
+    }
+    if (type === "env:installResult") {
+      const { target, success, message } = payload as any;
+      // Ideally show a toast or alert. For now, log and re-check.
+      console.log(`Install result for ${target}: ${success} - ${message}`);
+      if (!success) {
+         // Revert button state if failed
+         // But updateEnvStatus will be called by re-check in main process anyway?
+         // Main process does re-check if basictex.
+         alert(message); // Simple feedback
+      }
+      return;
+    }
     const content = payload.content ?? "";
-    applyFileContent(payload.path, content, content);
+    applyFileContent(path, content, content);
   };
 
   const handleSaveResult = (payload: {
@@ -5813,7 +5477,7 @@ window.addEventListener("DOMContentLoaded", () => {
   postToNative({ type: "ready" }, true);
 
   if (autoBuildButton instanceof HTMLButtonElement) {
-    updateAutoBuildUI();
+    // updateAutoBuildUI();
   }
 
   tabs.forEach((tab) => {
@@ -5849,7 +5513,6 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const editorHost = document.getElementById("editor");
   const fallback = document.getElementById("editor-fallback");
 
   if (editorHost instanceof HTMLElement) {
@@ -6597,17 +6260,7 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (autoBuildButton instanceof HTMLButtonElement) {
-    autoBuildButton.addEventListener("click", () => {
-      toggleAutoBuild();
-    });
-  }
-
-  if (settingsAutoBuildButton instanceof HTMLButtonElement) {
-    settingsAutoBuildButton.addEventListener("click", () => {
-      toggleAutoBuild();
-    });
-  }
+  /* const updateAutoBuildUI = () => {}; */
 
   if (projectAlignEnvToggle instanceof HTMLButtonElement) {
     projectAlignEnvToggle.addEventListener("click", () => {
@@ -6615,15 +6268,37 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (editorAutoFormatToggle instanceof HTMLButtonElement) {
-    editorAutoFormatToggle.addEventListener("click", () => {
+  if (editorAutoFormatToggle instanceof HTMLInputElement) {
+    editorAutoFormatToggle.addEventListener("change", () => {
       toggleEditorAutoFormat();
     });
   }
 
-  if (settingsRootSelect instanceof HTMLSelectElement) {
-    settingsRootSelect.addEventListener("change", () => {
-      requestSetRoot(settingsRootSelect.value);
+  // Project Settings Buttons
+  const btnChangeRoot = document.getElementById("btn-change-root");
+  if (btnChangeRoot) {
+    btnChangeRoot.addEventListener("click", () => {
+      (window as any).electronAPI.send("menu:open-folder");
+    });
+  }
+  // Environment Buttons (New Selector)
+  const newEnvBtns = document.querySelectorAll(".btn-primary[data-target]");
+  newEnvBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+       const target = btn.getAttribute("data-target");
+       if (target === "basictex") {
+          (window as any).electronAPI.send("install-basictex");
+          if (btn instanceof HTMLElement) btn.textContent = "Installing...";
+       } else if (target === "latexmk") {
+          (window as any).electronAPI.send("install-latexmk");
+            if (btn instanceof HTMLElement) btn.textContent = "Installing...";
+       }
+    });
+  });
+
+  if (settingsProjectRootFile instanceof HTMLSelectElement) {
+    settingsProjectRootFile.addEventListener("change", () => {
+      requestSetRoot(settingsProjectRootFile.value);
     });
   }
 
@@ -7199,49 +6874,52 @@ window.addEventListener("DOMContentLoaded", () => {
 
       monacoApi = monacoWindow.monaco as Record<string, unknown>;
       registerCompletionProvider(monacoWindow.monaco);
-      const themeName = "tex180-steel";
+      const themeName = "tex180-deep-slate";
       const themeColors: Record<string, string> = {
-        "editor.background": "#15111C",
-        "editor.foreground": "#D8D2E2",
-        "editorLineNumber.foreground": "#6D6578",
-        "editorLineNumber.activeForeground": "#B8AEC8",
-        "editorCursor.foreground": "#C9AEE6",
-        "editor.selectionBackground": "#2C2436",
-        "editor.inactiveSelectionBackground": "#231E2A",
-        "editor.selectionHighlightBackground": "rgba(154, 107, 197, 0.22)",
-        "editor.lineHighlightBackground": "#1A1522",
-        "editor.lineHighlightBorder": "#2A2234",
-        "editorIndentGuide.background": "#2A2335",
-        "editorIndentGuide.activeBackground": "#3A3046",
-        "editorWhitespace.foreground": "#2A2533",
-        "editorGutter.background": "#15111C",
-        "editorWidget.background": "#1A1522",
-        "editorWidget.border": "#2B2436",
-        "editorHoverWidget.background": "#1A1522",
-        "editorHoverWidget.border": "#2B2436",
-        "editorSuggestWidget.background": "#1A1522",
-        "editorSuggestWidget.border": "#2B2436",
-        "editorSuggestWidget.foreground": "#D8D2E2",
-        "editorSuggestWidget.selectedBackground": "rgba(154, 107, 197, 0.2)",
-        "editorSuggestWidget.highlightForeground": "#C9AEE6",
-        "editorBracketMatch.background": "rgba(201, 174, 230, 0.22)",
-        "editorBracketMatch.border": "#C9AEE6",
-        "editor.findMatchBackground": "rgba(201, 174, 230, 0.2)",
-        "editor.findMatchHighlightBackground": "rgba(201, 174, 230, 0.14)",
-        "editor.findRangeHighlightBackground": "rgba(201, 174, 230, 0.1)",
-        "editor.wordHighlightBackground": "rgba(201, 174, 230, 0.14)",
-        "editor.wordHighlightStrongBackground": "rgba(201, 174, 230, 0.22)",
-        "editorError.foreground": "#D5B06A",
-        "editorError.border": "#D5B06A",
-        "editorOverviewRuler.errorForeground": "rgba(213, 176, 106, 0.6)",
-        "editorMarkerNavigationError.background": "rgba(213, 176, 106, 0.2)",
-        "editorGutter.errorForeground": "#D5B06A",
-        "editorWarning.foreground": "#B88A52",
-        "editorInfo.foreground": "#B59BCC",
-        "scrollbarSlider.background": "rgba(201, 174, 230, 0.14)",
-        "scrollbarSlider.hoverBackground": "rgba(201, 174, 230, 0.24)",
-        "scrollbarSlider.activeBackground": "rgba(201, 174, 230, 0.32)",
-        "editorRuler.foreground": "#2A2234",
+        "editor.background": "#1A1D23",
+        "editor.foreground": "#CDD1D9",
+        "editorLineNumber.foreground": "#5C6370",
+        "editorLineNumber.activeForeground": "#CDD1D9",
+        "editorCursor.foreground": "#5C9CFF",
+        "editor.selectionBackground": "#2F3642",
+        "editor.inactiveSelectionBackground": "#252B35",
+        "editor.selectionHighlightBackground": "rgba(92, 156, 255, 0.15)",
+        "editor.lineHighlightBackground": "#1F2329",
+        "editor.lineHighlightBorder": "#282C34",
+        "editorIndentGuide.background": "#383E49",
+        "editorIndentGuide.activeBackground": "#565C68",
+        "editorWhitespace.foreground": "#383E49",
+        "editorGutter.background": "#1A1D23",
+        "editorWidget.background": "#262A32",
+        "editorWidget.border": "#454C59",
+        "editorHoverWidget.background": "#262A32",
+        "editorHoverWidget.border": "#454C59",
+        "editorSuggestWidget.background": "#262A32",
+        "editorSuggestWidget.border": "#454C59",
+        "editorSuggestWidget.foreground": "#CDD1D9",
+        "editorSuggestWidget.selectedBackground": "rgba(92, 156, 255, 0.2)",
+        "editorSuggestWidget.highlightForeground": "#5C9CFF",
+        "editorBracketMatch.background": "rgba(92, 156, 255, 0.15)",
+        "editorBracketMatch.border": "#5C9CFF",
+        "editor.findMatchBackground": "rgba(92, 156, 255, 0.25)",
+        "editor.findMatchHighlightBackground": "rgba(92, 156, 255, 0.15)",
+        "editor.findRangeHighlightBackground": "rgba(92, 156, 255, 0.1)",
+        "editor.wordHighlightBackground": "rgba(92, 156, 255, 0.1)",
+        "editor.wordHighlightStrongBackground": "rgba(92, 156, 255, 0.15)",
+        "editorError.foreground": "#D56A6A",
+        "editorError.border": "#00000000",
+        "editorOverviewRuler.border": "#00000000",
+        "editorOverviewRuler.findMatchForeground": "#5C9CFF",
+        "editorOverviewRuler.errorForeground": "#D56A6A",
+        "editorMarkerNavigationError.background": "rgba(213, 106, 106, 0.1)",
+        "editorGutter.errorForeground": "#C55A5A",
+        "editorWarning.foreground": "#B89E52",
+        "editorOverviewRuler.background": "#1A1D23",
+        "scrollbar.shadow": "#000000",
+        "scrollbarSlider.background": "rgba(255, 255, 255, 0.12)",
+        "scrollbarSlider.hoverBackground": "rgba(255, 255, 255, 0.2)",
+        "scrollbarSlider.activeBackground": "rgba(255, 255, 255, 0.28)",
+        "editorRuler.foreground": "#383E49",
       };
       monacoWindow.monaco.editor.defineTheme?.(themeName, {
         base: "vs-dark",
@@ -7257,10 +6935,11 @@ window.addEventListener("DOMContentLoaded", () => {
         automaticLayout: true,
         glyphMargin: true,
         minimap: { enabled: false },
-        scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+        scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
         fontFamily: '"SF Mono", Menlo, monospace',
         fontSize: 13,
         lineHeight: 20,
+        lineNumbersMinChars: 3,
         scrollBeyondLastLine: false,
         wordWrap: "off",
         wordBasedSuggestions: "off",

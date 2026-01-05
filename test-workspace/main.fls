@@ -1,0 +1,4 @@
+PWD /Users/wedd/tex180/test-workspace
+INPUT /usr/local/texlive/2024/texmf-var/web2c/luahbtex/lualatex.fmt
+INPUT ./main.tex
+OUTPUT main.log

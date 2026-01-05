@@ -12,6 +12,38 @@ const IGNORED_DIRECTORIES = new Set([
   "Resources",
   "tex180.xcodeproj",
 ]);
+const TEXT_FILE_EXTENSIONS = new Set([
+  "tex",
+  "bib",
+  "sty",
+  "cls",
+  "bst",
+  "bbx",
+  "cbx",
+  "cfg",
+  "def",
+  "lbx",
+  "ins",
+  "dtx",
+  "ltx",
+  "aux",
+  "bbl",
+  "blg",
+  "log",
+  "out",
+  "toc",
+  "lof",
+  "lot",
+  "fdb_latexmk",
+  "fls",
+]);
+
+const getFileExtension = (name) => {
+  const ext = path.extname(name).toLowerCase();
+  return ext.startsWith(".") ? ext.slice(1) : ext;
+};
+
+const isSearchableFile = (name) => getFileExtension(name) === "tex";
 
 class SearchService {
   async search(rootPath, query) {
@@ -41,6 +73,9 @@ class SearchService {
           continue;
         }
         if (!entry.isFile()) {
+          continue;
+        }
+        if (!isSearchableFile(entry.name)) {
           continue;
         }
         const content = await fsp.readFile(absPath, "utf8").catch(() => null);
