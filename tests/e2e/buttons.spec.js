@@ -3,49 +3,32 @@ import { openWorkspaceApp } from "./helpers.js";
 
 test.describe("All Buttons Clickable", () => {
   test("Every button in settings-v2 is clickable", async () => {
-    const { page } = await openWorkspaceApp();
-    
-    // Open Settings (Settings panel is now single view, so just opening it is enough)
-    await page.click('.tab[data-tab="settings"]');
-    await page.waitForSelector('.settings-v2');
-    
-    // Verify scrolling container exists
-    const scrollArea = page.locator('.settings-scroll');
-    await expect(scrollArea).toBeVisible();
-    
-    // Click all toggles (checkboxes now) / verify their state
-    const toggles = await page.locator('.toggle-switch').all();
-    for (const toggle of toggles) {
-        if (await toggle.isVisible()) {
-            const initialChecked = await toggle.isChecked();
-            await toggle.click({ force: true }); // Click the label/input wrapping it
-            // Verify state flip if interactive logic works, OR just that click doesn't crash
-        }
-    }
-    
-    // Click all radio option inputs (Engine)
-    // Note: inputs are hidden, we click the label .radio-card
-    const engineCards = await page.locator('.radio-card').all();
-    for (const card of engineCards) {
-        await card.click();
-        await page.waitForTimeout(50);
-    }
-    
-    // Verify Project Buttons exist
-    await expect(page.locator('#btn-change-root')).toBeVisible();
-    await expect(page.locator('#btn-select-main')).toBeVisible();
-    
-    // Verify Environment Buttons (Check Buttons)
-    const envBtns = await page.locator('.btn-primary[data-target]').all();
-    for (const btn of envBtns) {
-        // Just verify visibility if logic hides them when 'checking'
-        // If visible, should be clickable
-        if (await btn.isVisible()) {
-            await expect(btn).toBeEnabled();
-        }
-    }
+    const { electronApp, page } = await openWorkspaceApp();
+    try {
+      await page.click('.tab[data-tab="settings"]');
+      await page.waitForSelector('.panel[data-panel="settings"].is-active');
 
-    // Return to main view
-    await page.click('.tab[data-tab="files"]');
+      const autoFormat = page.locator("#editor-auto-format");
+      await expect(autoFormat).toBeVisible();
+      const initialChecked = await autoFormat.isChecked();
+      await page.click('label[for="editor-auto-format"]');
+      await expect(autoFormat).toHaveJSProperty("checked", !initialChecked);
+
+      await expect(page.locator("#settings-compile-engine")).toBeVisible();
+      await page.selectOption("#settings-compile-engine", "pdflatex");
+      await page.selectOption("#settings-compile-engine", "lualatex");
+
+      await expect(page.locator("#settings-env-refresh")).toBeVisible();
+
+      await page.click('.tab[data-tab="project"]');
+      await page.waitForSelector('.panel[data-panel="project"].is-active');
+      await expect(page.locator("#settings-root-select")).toBeVisible();
+      await expect(page.locator("#settings-root-auto")).toBeVisible();
+      await expect(page.locator("#project-align-env")).toBeVisible();
+
+      await page.click('.tab[data-tab="files"]');
+    } finally {
+      await electronApp.close();
+    }
   });
 });

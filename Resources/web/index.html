@@ -113,6 +113,24 @@
             </button>
             <button
               class="tab"
+              id="issues-tab"
+              type="button"
+              role="tab"
+              data-tab="issues"
+              aria-selected="false"
+              aria-label="エラー"
+              title="エラー"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3l9 16H3z"></path>
+                  <path d="M12 9v4"></path>
+                  <path d="M12 17h.01"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
               type="button"
               role="tab"
               data-tab="git"
@@ -192,9 +210,6 @@
             <div class="panel-body">
               <div class="workspace-label" id="workspace-label">ワークスペース未選択</div>
               <div class="file-tree" id="file-tree" tabindex="0"></div>
-              <div class="panel-actions">
-                <button class="panel-button ghost" id="save-file-button" type="button">保存</button>
-              </div>
             </div>
           </div>
           <div class="panel no-header" data-panel="outline">
@@ -394,111 +409,105 @@
               <div class="search-results" id="search-results"></div>
             </div>
           </div>
+          <div class="panel no-header" data-panel="issues">
+            <div class="panel-header">
+              <span class="panel-title">エラー</span>
+            </div>
+            <div class="panel-body issues-panel-body">
+              <div class="issues-empty" id="issues-empty">問題はありません。</div>
+              <div class="issues-list" id="issues-list"></div>
+              <details class="issues-log is-hidden" id="issues-log">
+                <summary class="issues-log-summary">詳細ログ</summary>
+                <pre class="issues-log-content" id="issues-log-content"></pre>
+              </details>
+            </div>
+          </div>
           <div class="panel no-header" data-panel="settings">
-            <!-- V3 Settings Panel: Premium Dark Theme (Japanese) -->
-            <div class="panel-body settings-v2">
-              <header class="settings-header">
-                <h2 class="settings-main-title">設定</h2>
-              </header>
-              
-              <div class="settings-scroll">
-                
-                <!-- 1. PROJECT HERO (Top) -->
-                <div class="project-hero">
-                    <div class="project-hero-title">プロジェクト設定</div>
-                    
-                    <div class="project-grid">
-                        <div class="project-field">
-                            <label class="project-label">プロジェクトルート</label>
-                            <div class="project-input-group">
-                                <input type="text" class="settings-input" id="settings-project-root-path" value="/path/to/project" readonly>
-                                <button class="btn-secondary" id="btn-change-root">変更</button>
-                            </div>
-                        </div>
-                        <div class="project-field">
-                            <label class="project-label">メインファイル</label>
-                            <div class="project-input-group">
-                                <select class="settings-input" id="settings-project-root-file" style="appearance: auto;">
-                                    <option value="">未選択</option>
-                                </select>
-                                <button class="btn-secondary" id="settings-root-auto">自動検出</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="engine-section">
-                        <label class="project-label" style="margin-bottom: 10px; display:block;">コンパイルエンジン</label>
-                         <div class="radio-grid" style="padding: 0; gap: 10px;">
-                            <label class="radio-card">
-                            <input type="radio" name="compileEngine" value="lualatex" checked>
-                            <span class="radio-card-inner">
-                                <span class="radio-card-title">LuaLaTeX</span>
-                                <span class="radio-card-desc">推奨・多機能</span>
-                            </span>
-                            </label>
-                            <label class="radio-card">
-                            <input type="radio" name="compileEngine" value="pdflatex">
-                            <span class="radio-card-inner">
-                                <span class="radio-card-title">pdfLaTeX</span>
-                                <span class="radio-card-desc">欧文標準</span>
-                            </span>
-                            </label>
-                            <label class="radio-card">
-                            <input type="radio" name="compileEngine" value="xelatex">
-                            <span class="radio-card-inner">
-                                <span class="radio-card-title">XeLaTeX</span>
-                                <span class="radio-card-desc">Unicode対応</span>
-                            </span>
-                            </label>
-                            <label class="radio-card">
-                            <input type="radio" name="compileEngine" value="uplatex">
-                            <span class="radio-card-inner">
-                                <span class="radio-card-title">upLaTeX</span>
-                                <span class="radio-card-desc">日本語レガシー</span>
-                            </span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 2. EDITOR PREFERENCES -->
-                <div class="settings-divider">エディタ設定</div>
-                
-                <div class="settings-row">
-                  <div class="settings-row-content">
-                    <span class="settings-row-label">自動整形</span>
-                    <span class="settings-row-desc">保存時にlatexindentを実行します。</span>
+            <div class="panel-header">
+              <span class="panel-title">設定</span>
+            </div>
+            <div class="panel-body settings-panel">
+              <div class="settings-group">
+                <div class="settings-group-title">エディタ</div>
+                <div class="settings-item">
+                  <div class="settings-label">
+                    <span class="settings-title">自動整形</span>
+                    <span class="settings-desc">保存時にlatexindentを実行します。</span>
                   </div>
                   <div class="settings-control">
-                    <input type="checkbox" class="toggle-switch" id="editor-auto-format" checked>
+                    <label class="settings-switch" for="editor-auto-format">
+                      <input class="settings-switch-input" id="editor-auto-format" type="checkbox">
+                      <span class="settings-switch-track" aria-hidden="true"></span>
+                    </label>
                   </div>
                 </div>
-
-                 <!-- 3. ENVIRONMENT (System) -->
-                <div class="settings-divider">実行環境</div>
-
-                <div class="settings-row">
-                   <div class="settings-row-content">
-                    <span class="settings-row-label">TeX Distribution</span>
-                    <span class="settings-row-desc">BasicTeX / MacTeX のインストール状況</span>
+                <div class="settings-item">
+                  <div class="settings-label">
+                    <span class="settings-title">ビルド時SyncTeX</span>
+                    <span class="settings-desc">ビルド成功時に自動でPDFへジャンプします。</span>
                   </div>
-                  <div class="settings-control" data-env="lualatex">
-                     <span class="badge checking">確認中...</span>
-                     <button class="btn-primary is-hidden" data-target="basictex">インストール</button>
+                  <div class="settings-control">
+                    <label class="settings-switch" for="editor-auto-synctex-build">
+                      <input class="settings-switch-input" id="editor-auto-synctex-build" type="checkbox">
+                      <span class="settings-switch-track" aria-hidden="true"></span>
+                    </label>
                   </div>
                 </div>
-
-                <div class="settings-row">
-                   <div class="settings-row-content">
-                    <span class="settings-row-label">Latexmk</span>
-                    <span class="settings-row-desc">ビルド自動化ツールの状態</span>
+              </div>
+              <div class="settings-group">
+                <div class="settings-group-title">ビルド</div>
+                <div class="settings-item">
+                  <div class="settings-label">
+                    <span class="settings-title">コンパイルエンジン</span>
+                    <span class="settings-desc">ビルドに使用するエンジンを選択します。</span>
                   </div>
-                  <div class="settings-control" data-env="latexmk">
-                     <span class="badge checking">確認中...</span>
-                     <button class="btn-primary is-hidden" data-target="latexmk">インストール</button>
+                  <div class="settings-control">
+                    <select class="settings-select" id="settings-compile-engine">
+                      <option value="lualatex">LuaLaTeX</option>
+                      <option value="pdflatex">pdfLaTeX</option>
+                      <option value="xelatex">XeLaTeX</option>
+                      <option value="uplatex">upLaTeX</option>
+                    </select>
                   </div>
                 </div>
-
+              </div>
+              <div class="settings-group">
+                <div class="settings-group-title">実行環境</div>
+                <div class="settings-item env-item" data-env="lualatex">
+                  <div class="settings-label">
+                    <span class="settings-title">TeX Distribution</span>
+                    <span class="settings-desc">LuaLaTeX の利用可否を確認します。</span>
+                  </div>
+                  <div class="settings-control">
+                    <span class="env-badge checking">確認中...</span>
+                    <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
+                      インストール
+                    </button>
+                  </div>
+                </div>
+                <div class="settings-item env-item" data-env="latexmk">
+                  <div class="settings-label">
+                    <span class="settings-title">latexmk</span>
+                    <span class="settings-desc">ビルド自動化ツールの状態を確認します。</span>
+                  </div>
+                  <div class="settings-control">
+                    <span class="env-badge checking">確認中...</span>
+                    <button class="panel-button env-btn is-hidden" data-target="latexmk" type="button">
+                      インストール
+                    </button>
+                  </div>
+                </div>
+                <div class="settings-item">
+                  <div class="settings-label">
+                    <span class="settings-title">環境チェック</span>
+                    <span class="settings-desc">インストール状況を再確認します。</span>
+                  </div>
+                  <div class="settings-control">
+                    <button class="panel-button ghost" id="settings-env-refresh" type="button">
+                      再チェック
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -508,6 +517,10 @@
           <div class="editor-tabs" id="editor-tabs">
             <div class="editor-tabs-list" id="editor-tabs-list"></div>
             <div class="editor-tab-actions">
+              <div class="build-meta">
+                <span class="build-meta-label">BUILD</span>
+                <span class="build-target" id="build-target">--</span>
+              </div>
               <button id="build-button" type="button" aria-label="ビルド" title="ビルド (Cmd+B)">
                 <svg viewBox="0 0 24 24" width="24" height="24">
                   <path d="M8 5v14l11-7z"></path>
@@ -569,18 +582,6 @@
           <span class="issues-hint" id="issues-hint">ビルド結果はここに要約します。</span>
         </div>
       </footer>
-      <section class="issues-panel" id="issues-panel" aria-hidden="true">
-        <div class="issues-panel-inner">
-          <div class="issues-panel-header">
-            <span class="issues-panel-title">Issues</span>
-            <button class="issues-close" id="issues-close" type="button">閉じる</button>
-          </div>
-          <div class="issues-panel-body">
-            <div class="issues-empty" id="issues-empty">問題はありません。</div>
-            <div class="issues-list" id="issues-list"></div>
-          </div>
-        </div>
-      </section>
 
       <div class="modal" id="create-modal" aria-hidden="true">
         <div

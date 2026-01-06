@@ -3,7 +3,13 @@ export type DragPayload = { path: string; kind: "file" | "dir" };
 
 export type BuildState = "idle" | "building" | "success" | "failed";
 export type IssuesStatus = "success" | "error" | "info";
-export type IssueItem = { severity: "error" | "warning"; message: string; line?: number };
+export type IssueItem = {
+  severity: "error" | "warning";
+  message: string;
+  line?: number;
+  column?: number;
+  path?: string;
+};
 export type IndexEntry = { key: string; path: string; line: number };
 export type SectionEntry = { title: string; path: string; line: number; level: number };
 export type BlockType = "math" | "table";

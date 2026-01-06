@@ -2,46 +2,47 @@ import { test, expect } from "@playwright/test";
 import { openWorkspaceApp } from "./helpers.js";
 
 test.describe("Settings & Environment Setup", () => {
-  test("Navigates settings tabs and persists engine selection", async () => {
-    const { page } = await openWorkspaceApp();
-    
-    // Open Settings Tab
-    await page.click('.tab[data-tab="settings"]');
-    
-    // Verify General section is active by default
-    await expect(page.locator('.settings-section[data-section="general"]')).toBeVisible();
-    await expect(page.locator('.settings-tab[data-section="general"]')).toHaveClass(/is-active/);
+  test("Persists engine selection and settings buttons are clickable", async () => {
+    const { electronApp, page } = await openWorkspaceApp();
+    try {
+      await page.click('.tab[data-tab="settings"]');
+      await page.waitForSelector('.panel[data-panel="settings"].is-active');
 
-    // Switch to Build tab
-    await page.click('.settings-tab[data-section="build"]');
-    await expect(page.locator('.settings-section[data-section="build"]')).toBeVisible();
-    await expect(page.locator('.settings-tab[data-section="build"]')).toHaveClass(/is-active/);
+      await expect(page.locator('.env-item[data-env="lualatex"]')).toBeVisible();
+      await expect(page.locator('.env-item[data-env="latexmk"]')).toBeVisible();
 
-    // Auto Build toggle removed
-    // await expect(page.locator('#settings-auto-build')).toBeVisible();
-    await expect(page.locator('.env-item[data-env="lualatex"]')).toBeVisible();
-    await expect(page.locator('.env-item[data-env="latexmk"]')).toBeVisible();
+      const engineSelect = page.locator("#settings-compile-engine");
+      await expect(engineSelect).toBeVisible();
 
-    // Verify Engine selection
-    const lualatexRadio = page.locator('input[name="compileEngine"][value="lualatex"]');
-    const xelatexRadio = page.locator('input[name="compileEngine"][value="xelatex"]');
-    
-    // Check XeLaTeX
-    await xelatexRadio.check(); // Select XeLaTeX, force click if needed, but check() is better
-    
-    // Verify in localStorage
-    const savedEngine = await page.evaluate(() => localStorage.getItem("tex180.compileEngine"));
-    expect(savedEngine).toBe("xelatex");
+      await engineSelect.selectOption("xelatex");
+      const savedEngine = await page.evaluate(() => localStorage.getItem("tex180.compileEngine"));
+      expect(savedEngine).toBe("xelatex");
+      await expect(engineSelect).toHaveValue("xelatex");
 
-    // Verify UI matches logic by checking attribute or property
-    await expect(xelatexRadio).toBeChecked();
+      await page.reload();
+      await page.waitForSelector('.tab[data-tab="settings"]');
+      await page.click('.tab[data-tab="settings"]');
+      await expect(page.locator("#settings-compile-engine")).toHaveValue("xelatex");
 
-    // Force reload to verify persistence across sessions (simulated)
-    await page.reload();
-    await page.waitForSelector('.tab[data-tab="settings"]');
-    await page.click('.tab[data-tab="settings"]');
-    await page.click('.settings-tab[data-section="build"]');
-    
-    await expect(xelatexRadio).toBeChecked();
+      const panelBody = page.locator('.panel[data-panel="settings"] .panel-body');
+      await panelBody.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+
+      const buttons = page.locator('.panel[data-panel="settings"] button');
+      const count = await buttons.count();
+      for (let i = 0; i < count; i += 1) {
+        const button = buttons.nth(i);
+        if (await button.isVisible()) {
+          await button.click();
+        }
+      }
+
+      await page.evaluate(() => {
+        localStorage.setItem("tex180.compileEngine", "lualatex");
+      });
+    } finally {
+      await electronApp.close();
+    }
   });
 });

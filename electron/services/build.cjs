@@ -49,9 +49,9 @@ class BuildService {
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
 
-    const issues = this.parseIssues(output);
+    const issues = this.parseIssues(output, rootPath);
     if (status === 0) {
-      return { kind: "success", summary: "ビルド成功", issues, pdfPath };
+      return { kind: "success", summary: "ビルド成功", issues, pdfPath, log: output };
     }
     const summary = this.failureSummary(output, issues, mainFileName);
     const fallback = {
@@ -63,6 +63,7 @@ class BuildService {
       kind: "failure",
       summary,
       issues: issues.length > 0 ? issues : [fallback],
+      log: output,
     };
   }
 
@@ -83,6 +84,7 @@ class BuildService {
 
     const args = [
       engineFlag,
+      "-synctex=1",
       "-interaction=nonstopmode",
       "-halt-on-error",
       "-file-line-error",
@@ -160,21 +162,34 @@ class BuildService {
     return null;
   }
 
-  parseIssues(output) {
+  parseIssues(output, rootPath) {
     const lines = output.split(/\r?\n/);
     const issues = [];
     for (const line of lines) {
       if (issues.length >= 20) {
         break;
       }
+      const location = this.extractIssueLocation(line, rootPath);
       if (line.startsWith("!") || line.includes("LaTeX Error")) {
         const message = line.trim();
-        const lineNumber = this.extractLineNumber(line);
-        issues.push({ severity: "error", message, line: lineNumber });
+        const lineNumber = location?.line ?? this.extractLineNumber(line);
+        issues.push({
+          severity: "error",
+          message,
+          line: lineNumber,
+          column: location?.column ?? null,
+          path: location?.path ?? null,
+        });
       } else if (line.includes("Warning")) {
         const message = line.trim();
-        const lineNumber = this.extractLineNumber(line);
-        issues.push({ severity: "warning", message, line: lineNumber });
+        const lineNumber = location?.line ?? this.extractLineNumber(line);
+        issues.push({
+          severity: "warning",
+          message,
+          line: lineNumber,
+          column: location?.column ?? null,
+          path: location?.path ?? null,
+        });
       }
     }
     return issues;
@@ -186,6 +201,25 @@ class BuildService {
       return null;
     }
     return Number.parseInt(match[1], 10);
+  }
+
+  extractIssueLocation(line, rootPath) {
+    const match = line.match(/((?:[A-Za-z]:)?[^:\s]+?\.tex):(\d+)(?::(\d+))?/);
+    if (!match) {
+      return null;
+    }
+    let filePath = match[1];
+    if (filePath.startsWith("./")) {
+      filePath = filePath.slice(2);
+    }
+    if (rootPath && path.isAbsolute(filePath)) {
+      filePath = path.relative(rootPath, filePath);
+    }
+    return {
+      path: filePath,
+      line: Number.parseInt(match[2], 10),
+      column: match[3] ? Number.parseInt(match[3], 10) : null,
+    };
   }
 
   failureSummary(output, issues, mainFileName) {

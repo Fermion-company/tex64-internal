@@ -5,7 +5,7 @@ import { openWorkspaceApp, workspaceRoot, setEditorContent } from "./helpers.js"
 
 test("file edit marks dirty and save clears state", async () => {
   test.setTimeout(90000);
-  const targetPath = "notes/keywords.txt";
+  const targetPath = "notes/results.tex";
   const { electronApp, page } = await openWorkspaceApp();
   try {
     await page.click(`button.file-item[data-path="${targetPath}"]`);
@@ -31,7 +31,25 @@ test("file edit marks dirty and save clears state", async () => {
       targetPath
     );
 
-    await page.click("#save-file-button");
+    await page.evaluate((pathValue) => {
+      window.__e2eSaveResult = null;
+      const content = window.__tex180Editor?.getValue?.() ?? "";
+      window.tex180Bridge?.onMessage?.((message) => {
+        if (message?.type === "saveResult" && message.payload?.path === pathValue) {
+          window.__e2eSaveResult = message.payload;
+        }
+      });
+      window.tex180Bridge?.postMessage?.({
+        type: "saveFile",
+        path: pathValue,
+        content,
+        format: false,
+        formatSource: "e2e",
+      });
+    }, targetPath);
+    await page.waitForFunction(
+      () => window.__e2eSaveResult && window.__e2eSaveResult.ok === true
+    );
     await page.waitForFunction(
       (pathValue) =>
         !document
@@ -58,7 +76,25 @@ test("file edit marks dirty and save clears state", async () => {
           ?.classList.contains("is-dirty"),
       targetPath
     );
-    await page.click("#save-file-button");
+    await page.evaluate((pathValue) => {
+      window.__e2eSaveResult = null;
+      const content = window.__tex180Editor?.getValue?.() ?? "";
+      window.tex180Bridge?.onMessage?.((message) => {
+        if (message?.type === "saveResult" && message.payload?.path === pathValue) {
+          window.__e2eSaveResult = message.payload;
+        }
+      });
+      window.tex180Bridge?.postMessage?.({
+        type: "saveFile",
+        path: pathValue,
+        content,
+        format: false,
+        formatSource: "e2e",
+      });
+    }, targetPath);
+    await page.waitForFunction(
+      () => window.__e2eSaveResult && window.__e2eSaveResult.ok === true
+    );
     await page.waitForFunction(
       (pathValue) =>
         !document

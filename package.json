@@ -16,6 +16,7 @@
     "typescript": "^5.5.4"
   },
   "dependencies": {
-    "mathlive": "^0.108.2"
+    "mathlive": "^0.108.2",
+    "pdfjs-dist": "^4.7.76"
   }
 }

@@ -66,6 +66,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const {
     tabs,
+    issuesTab,
     miniOutline,
     editorTitle,
     editorDesc,
@@ -83,14 +84,16 @@ window.addEventListener("DOMContentLoaded", () => {
     quickInsertAccept,
     quickInsertCancel,
     buildButton,
+    synctexButton,
+    buildTarget,
     autoBuildButton,
     issuesCount,
     issuesHint,
     issuesBar,
-    issuesPanel,
     issuesList,
     issuesEmpty,
-    issuesClose,
+    issuesLog,
+    issuesLogContent,
     breadcrumbs,
     editorTabs,
     editorTabsList,
@@ -141,13 +144,14 @@ window.addEventListener("DOMContentLoaded", () => {
     searchResults,
     gitStatus,
     gitRefreshButton,
-    settingsProjectRootPath,
-    settingsProjectRootFile,
     settingsRootSelect,
     settingsRootAuto,
     settingsWorkspace,
     projectAlignEnvToggle,
     editorAutoFormatToggle,
+    editorAutoSynctexBuildToggle,
+    settingsCompileEngineSelect,
+    settingsEnvRefresh,
     envRegistryInput,
     envRegistryKind,
     envRegistryAdd,
@@ -1174,6 +1178,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const handleCursorPositionChange = (position: { lineNumber: number; column: number }) => {
     if (!monacoEditor) return;
+    if (currentFilePath) {
+      lastCursorPositions.set(currentFilePath, {
+        line: position.lineNumber,
+        column: position.column,
+      });
+    }
     if (blockDetectionDebounceTimer) {
       clearTimeout(blockDetectionDebounceTimer);
     }
@@ -1391,10 +1401,14 @@ window.addEventListener("DOMContentLoaded", () => {
     if (issuesBar instanceof HTMLElement) {
       issuesBar.dataset.status = status;
     }
+    if (issuesTab instanceof HTMLElement) {
+      issuesTab.dataset.status = status;
+    }
   };
 
   let currentIssues: IssueItem[] = [];
-  let issuesOpen = false;
+  let pendingBuildIssuesFocus = false;
+  let currentBuildLog: string | null = null;
   let issueDecorations: string[] = [];
   let indexLabels: IndexEntry[] = [];
   let indexCitations: IndexEntry[] = [];
@@ -1408,11 +1422,19 @@ window.addEventListener("DOMContentLoaded", () => {
   let workspaceName = "ワークスペース未選択";
   let rootFilePath: string | null = null;
   let rootSource: RootSource = "auto";
+  let lastBuildMainFile: string | null = null;
   let launcherTemplate: LauncherTemplate = "paper";
   let launcherBusy = false;
   let launcherMessage: string | null = null;
   let openFolders = new Set<string>();
   let openStateLoaded = false;
+
+  if (isE2E) {
+    (window as { __tex180SetLastBuildMainFile?: (path: string | null) => void })
+      .__tex180SetLastBuildMainFile = (path) => {
+        lastBuildMainFile = typeof path === "string" ? path : null;
+      };
+  }
   let currentFilePath: string | null = null;
   let currentFileSavedContent: string | null = null;
   let isDirty = false;
@@ -1444,6 +1466,9 @@ window.addEventListener("DOMContentLoaded", () => {
   let autoBuildEnabled = false;
   let projectAlignEnvEnabled = true;
   let autoFormatEnabled = true;
+  let autoSynctexOnBuildEnabled = true;
+  let autoSaveTimer: number | null = null;
+  let autoSavePending = false;
   let autoBuildPending = false;
   let formatInFlight = false;
   let formatPending = false;
@@ -1459,6 +1484,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let renameTargetType: "file" | "dir" | null = null;
   let contextMenuOpen = false;
   let openTabs: string[] = [];
+  const lastCursorPositions = new Map<string, { line: number; column: number }>();
   let dragPayload: DragPayload | null = null;
   let treeHasFocus = false;
   let isComposing = false;
@@ -1475,17 +1501,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const dirtyFiles = new Set<string>();
   let emptyEditorModel: MonacoModel | null = null;
 
-  const setIssuesOpen = (open: boolean) => {
-    issuesOpen = open;
-    if (issuesPanel instanceof HTMLElement) {
-      issuesPanel.classList.toggle("is-open", open);
-      issuesPanel.setAttribute("aria-hidden", open ? "false" : "true");
-    }
-    if (issuesBar instanceof HTMLElement) {
-      issuesBar.setAttribute("aria-expanded", open ? "true" : "false");
-    }
-  };
-
   const clearIssueHighlight = () => {
     if (!monacoEditor || issueDecorations.length === 0) {
       return;
@@ -1496,8 +1511,47 @@ window.addEventListener("DOMContentLoaded", () => {
     issueDecorations = editor.deltaDecorations(issueDecorations, []);
   };
 
+  const parseIssueDetail = (issue: IssueItem) => {
+    const trimmed = issue.message.trim();
+    const match =
+      trimmed.match(/^(.+?\.tex):(\d+):(\d+):\s*(.+)$/) ??
+      trimmed.match(/^(.+?\.tex):(\d+):\s*(.+)$/) ??
+      trimmed.match(/^(.+?):(\d+):\s*(.+)$/);
+    if (match) {
+      const path = issue.path ?? match[1];
+      const line = issue.line ?? Number.parseInt(match[2], 10);
+      const column =
+        issue.column ??
+        (match.length > 4 && match[3] && /^\d+$/.test(match[3])
+          ? Number.parseInt(match[3], 10)
+          : null);
+      let message = match.length > 4 ? match[4].trim() : match[3].trim();
+      if (issue.path && issue.line) {
+        const prefix = `${issue.path}:${issue.line}`;
+        if (message.startsWith(prefix)) {
+          message = message.slice(prefix.length).replace(/^:\s*/, "");
+        }
+      }
+      return { path, line: Number.isFinite(line) ? line : null, column, message };
+    }
+    return {
+      path: issue.path ?? null,
+      line: issue.line ?? null,
+      column: issue.column ?? null,
+      message: trimmed,
+    };
+  };
+
   const focusIssue = (issue: IssueItem) => {
-    if (!monacoEditor || !monacoApi || !issue.line) {
+    if (!monacoEditor || !monacoApi) {
+      return;
+    }
+    const detail = parseIssueDetail(issue);
+    if (detail.path && detail.line) {
+      jumpToFileLine(detail.path, detail.line);
+      return;
+    }
+    if (!detail.line) {
       return;
     }
     const monacoApiAny = monacoApi as {
@@ -1513,15 +1567,15 @@ window.addEventListener("DOMContentLoaded", () => {
       issue.severity === "warning" ? "issue-line-warning" : "issue-line-highlight";
     issueDecorations = editor.deltaDecorations(issueDecorations, [
       {
-        range: new monacoApiAny.Range(issue.line, 1, issue.line, 1),
+        range: new monacoApiAny.Range(detail.line, 1, detail.line, 1),
         options: {
           isWholeLine: true,
           className,
         },
       },
     ]);
-    editor.revealLineInCenter(issue.line);
-    editor.setPosition({ lineNumber: issue.line, column: 1 });
+    editor.revealLineInCenter(detail.line);
+    editor.setPosition({ lineNumber: detail.line, column: 1 });
     editor.focus();
   };
 
@@ -1577,28 +1631,7 @@ window.addEventListener("DOMContentLoaded", () => {
     issuesEmpty.style.display = "none";
     issuesList.style.display = "flex";
     issues.forEach((issue) => {
-      const parseIssueMessage = () => {
-        const trimmed = issue.message.trim();
-        const match =
-          trimmed.match(/^(.+?\.tex):(\d+):\s*(.+)$/) ??
-          trimmed.match(/^(.+?):(\d+):\s*(.+)$/);
-        if (match) {
-          const [, path, lineRaw, rest] = match;
-          const parsedLine = Number.parseInt(lineRaw, 10);
-          return {
-            path,
-            line: Number.isFinite(parsedLine) ? parsedLine : issue.line ?? null,
-            message: rest.trim(),
-          };
-        }
-        return {
-          path: null,
-          line: issue.line ?? null,
-          message: trimmed,
-        };
-      };
-
-      const detail = parseIssueMessage();
+      const detail = parseIssueDetail(issue);
 
       const item = document.createElement("button");
       item.type = "button";
@@ -2273,41 +2306,12 @@ window.addEventListener("DOMContentLoaded", () => {
      Settings UI & Environment Check
      ============================================================================= */
   
-  // Settings Tab Switching
-  const settingsTabs = document.getElementById("editor-tabs"); // Wait, this isn't correct. The tabs are .settings-tab inside .settings-sidebar
-  // Since they are inside the Shadow DOM or just new elements, we need to bind them dynamically or at init.
-  
-  // In our case, we just added .settings-tab to index.html directly.
-  // Settings tab logic disabled for single-column view
-  const settingSectionTabs = []; // Array.from(document.querySelectorAll<HTMLElement>(".settings-tab"));
-  const settingSections = Array.from(document.querySelectorAll<HTMLElement>(".settings-section"));
-
-  settingSectionTabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      const section = tab.dataset.section;
-      if (!section) return;
-
-      settingSectionTabs.forEach(t => t.classList.remove("is-active"));
-      tab.classList.add("is-active");
-
-      settingSections.forEach(s => {
-        s.classList.toggle("is-active", s.dataset.section === section);
-      });
-
-      if (section === "build") {
-        checkEnvironmentStatus();
-      }
-    });
-  });
-
   // Environment Checking
   const envItems = Array.from(document.querySelectorAll<HTMLElement>(".env-item"));
   
   const checkEnvironmentStatus = () => {
-    if ((window as any).api) {
-      (window as any).api.send("tex180", { type: "env:check", command: "lualatex" });
-      (window as any).api.send("tex180", { type: "env:check", command: "latexmk" });
-    }
+    postToNative({ type: "env:check", command: "lualatex" }, true);
+    postToNative({ type: "env:check", command: "latexmk" }, true);
   };
 
   const updateEnvStatus = (command: string, available: boolean) => {
@@ -2344,38 +2348,39 @@ window.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => {
       const target = btn.dataset.target;
       if (!target) return;
-      
+
+      if (isE2E) {
+        btn.textContent = "インストール (テスト)";
+        return;
+      }
+
       btn.textContent = "インストール中...";
       btn.disabled = true;
-
-      if ((window as any).api) {
-        (window as any).api.send("tex180", { type: "env:install", target });
-      }
+      postToNative({ type: "env:install", target });
     });
   });
 
   // Compile Engine Selection
-  const getProjectEngineKey = () => workspaceRootKey ? `tex180.compileEngine.${workspaceRootKey}` : "tex180.compileEngine";
-
-  const engineRadios = Array.from(document.querySelectorAll<HTMLInputElement>("input[name='compileEngine']"));
+  const compileEngineKey = "tex180.compileEngine";
 
   const updateEngineUI = () => {
-    const key = getProjectEngineKey();
-    const savedEngine = localStorage.getItem(key) || localStorage.getItem("tex180.compileEngine") || "lualatex";
-    engineRadios.forEach(radio => {
-      radio.checked = (radio.value === savedEngine);
-    });
+    if (!(settingsCompileEngineSelect instanceof HTMLSelectElement)) {
+      return;
+    }
+    const savedEngine = localStorage.getItem(compileEngineKey) || "lualatex";
+    const hasOption = Array.from(settingsCompileEngineSelect.options).some(
+      (option) => option.value === savedEngine
+    );
+    settingsCompileEngineSelect.value = hasOption ? savedEngine : "lualatex";
   };
 
-  engineRadios.forEach(radio => {
-    radio.addEventListener("change", () => {
-      if (radio.checked) {
-        localStorage.setItem(getProjectEngineKey(), radio.value);
-        // Also update global default if no project is open
-        if (!workspaceRootKey) localStorage.setItem("tex180.compileEngine", radio.value);
+  if (settingsCompileEngineSelect instanceof HTMLSelectElement) {
+    settingsCompileEngineSelect.addEventListener("change", () => {
+      if (settingsCompileEngineSelect.value) {
+        localStorage.setItem(compileEngineKey, settingsCompileEngineSelect.value);
       }
     });
-  });
+  }
 
   updateEngineUI();
 
@@ -3412,6 +3417,13 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const updateBuildTarget = () => {
+    const target =
+      rootFilePath ??
+      (currentFilePath && currentFilePath.endsWith(".tex") ? currentFilePath : null);
+    setText(buildTarget, target ?? "--");
+  };
+
   const autoBuildKey = () => {
     if (!workspaceRootKey) {
       return null;
@@ -3420,6 +3432,8 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   const editorAutoFormatKey = "tex180.editor.autoFormat";
+  const editorAutoSynctexOnBuildKey = "tex180.editor.autoSynctexOnBuild";
+  const editorAutoSynctexOnPdfOpenKey = "tex180.editor.autoSynctexOnPdfOpen";
 
   const projectAlignEnvKey = () => {
     if (!workspaceRootKey) {
@@ -3438,6 +3452,12 @@ window.addEventListener("DOMContentLoaded", () => {
   const updateEditorAutoFormatUI = () => {
     if (editorAutoFormatToggle instanceof HTMLInputElement) {
       editorAutoFormatToggle.checked = autoFormatEnabled;
+    }
+  };
+
+  const updateEditorAutoSynctexBuildUI = () => {
+    if (editorAutoSynctexBuildToggle instanceof HTMLInputElement) {
+      editorAutoSynctexBuildToggle.checked = autoSynctexOnBuildEnabled;
     }
   };
 
@@ -3470,6 +3490,24 @@ window.addEventListener("DOMContentLoaded", () => {
     updateEditorAutoFormatUI();
   };
 
+  const loadEditorAutoSynctexBuildState = () => {
+    const stored = localStorage.getItem(editorAutoSynctexOnBuildKey);
+    if (stored !== null) {
+      autoSynctexOnBuildEnabled = stored !== "false";
+    } else {
+      const legacy = localStorage.getItem(editorAutoSynctexOnPdfOpenKey);
+      autoSynctexOnBuildEnabled =
+        legacy !== null ? legacy !== "false" : true;
+      if (legacy !== null) {
+        localStorage.setItem(
+          editorAutoSynctexOnBuildKey,
+          autoSynctexOnBuildEnabled ? "true" : "false"
+        );
+      }
+    }
+    updateEditorAutoSynctexBuildUI();
+  };
+
   const saveAutoBuildState = () => {
     const key = autoBuildKey();
     if (!key) {
@@ -3488,6 +3526,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   const saveEditorAutoFormatState = () => {
     localStorage.setItem(editorAutoFormatKey, autoFormatEnabled ? "true" : "false");
+  };
+
+  const saveEditorAutoSynctexBuildState = () => {
+    localStorage.setItem(
+      editorAutoSynctexOnBuildKey,
+      autoSynctexOnBuildEnabled ? "true" : "false"
+    );
   };
 
   const toggleAutoBuild = () => {
@@ -3510,6 +3555,12 @@ window.addEventListener("DOMContentLoaded", () => {
     autoFormatEnabled = !autoFormatEnabled;
     saveEditorAutoFormatState();
     updateEditorAutoFormatUI();
+  };
+
+  const toggleEditorAutoSynctexBuild = () => {
+    autoSynctexOnBuildEnabled = !autoSynctexOnBuildEnabled;
+    saveEditorAutoSynctexBuildState();
+    updateEditorAutoSynctexBuildUI();
   };
 
   const openStateKey = () => {
@@ -3756,6 +3807,7 @@ window.addEventListener("DOMContentLoaded", () => {
       });
       editorTabsList.appendChild(tab);
     });
+    updateSynctexButtonState();
   };
 
   const updateBreadcrumbs = () => {
@@ -4228,6 +4280,8 @@ window.addEventListener("DOMContentLoaded", () => {
     } else {
       viewer.showPdfViewer(data, mimeType);
     }
+    updateBuildTarget();
+    updateSynctexButtonState();
     setTreeFocus(false);
   };
 
@@ -4252,6 +4306,8 @@ window.addEventListener("DOMContentLoaded", () => {
       pendingReveal = null;
     }
     viewer.showUnsupportedViewer();
+    updateBuildTarget();
+    updateSynctexButtonState();
     setTreeFocus(false);
   };
 
@@ -4338,6 +4394,8 @@ window.addEventListener("DOMContentLoaded", () => {
       editor.focus();
       setTreeFocus(false);
     }
+    updateBuildTarget();
+    updateSynctexButtonState();
   };
 
   const applyFormattedContent = (
@@ -4462,6 +4520,46 @@ window.addEventListener("DOMContentLoaded", () => {
         saveCurrentFileInternal().then(resolve).catch(reject);
       });
     });
+  };
+
+  const AUTO_SAVE_DELAY_MS = 1200;
+
+  const clearAutoSaveTimer = () => {
+    if (autoSaveTimer) {
+      window.clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+    autoSavePending = false;
+  };
+
+  const scheduleAutoSave = () => {
+    if (!currentFilePath || !isTextFilePath(currentFilePath)) {
+      clearAutoSaveTimer();
+      return;
+    }
+    if (!isDirty) {
+      clearAutoSaveTimer();
+      return;
+    }
+    if (pendingSave) {
+      autoSavePending = true;
+      return;
+    }
+    clearAutoSaveTimer();
+    autoSavePending = false;
+    autoSaveTimer = window.setTimeout(() => {
+      autoSaveTimer = null;
+      if (!currentFilePath || !isTextFilePath(currentFilePath) || !isDirty) {
+        return;
+      }
+      if (pendingSave) {
+        autoSavePending = true;
+        return;
+      }
+      saveCurrentFile().catch((message: string) => {
+        updateIssues(1, message, "error", [{ severity: "error", message }]);
+      });
+    }, AUTO_SAVE_DELAY_MS);
   };
 
   const requestFormatCurrentFile = (source: string) => {
@@ -4758,11 +4856,29 @@ window.addEventListener("DOMContentLoaded", () => {
     setText(issuesHint, summary);
     setIssuesStatus(status);
     renderIssues(issues);
-    if (count > 0) {
-      setIssuesOpen(true);
-    } else {
-      setIssuesOpen(false);
+    if (issuesTab instanceof HTMLElement) {
+      const hasAlert = count > 0 && status === "error";
+      issuesTab.classList.toggle("is-alert", hasAlert);
+    }
+    if (count === 0) {
       clearIssueHighlight();
+    }
+    if (pendingBuildIssuesFocus && count > 0 && status === "error") {
+      pendingBuildIssuesFocus = false;
+      setActiveTab("issues");
+    }
+  };
+
+  const updateBuildLog = (log: string | null) => {
+    currentBuildLog = log;
+    if (issuesLogContent instanceof HTMLElement) {
+      issuesLogContent.textContent = log ?? "";
+    }
+    if (issuesLog instanceof HTMLElement) {
+      issuesLog.classList.toggle("is-hidden", !log);
+      if (!log) {
+        issuesLog.removeAttribute("open");
+      }
     }
   };
 
@@ -4973,6 +5089,17 @@ window.addEventListener("DOMContentLoaded", () => {
       buildButton.classList.toggle("is-busy", isBusy);
       buildButton.textContent = isBusy ? "ビルド中..." : "ビルド";
     }
+    if (state === "success" && autoSynctexOnBuildEnabled) {
+      const targetPath = lastBuildMainFile ?? rootFilePath ?? currentFilePath;
+      if (targetPath && targetPath.endsWith(".tex")) {
+        requestSynctexForward(targetPath, { fallbackToTop: true });
+      }
+    }
+    if (state === "failed") {
+      pendingBuildIssuesFocus = true;
+    } else if (state !== "building") {
+      pendingBuildIssuesFocus = false;
+    }
     if (message && state === "building") {
       updateIssues(0, message, "info", []);
     }
@@ -4982,6 +5109,12 @@ window.addEventListener("DOMContentLoaded", () => {
     payload: { type: string; [key: string]: unknown },
     silent = false
   ) => {
+    if (isE2E) {
+      const log = (window as { __tex180PostMessages?: unknown }).__tex180PostMessages;
+      if (Array.isArray(log)) {
+        log.push(payload);
+      }
+    }
     const handler = bridgeWindow.tex180Bridge ?? bridgeWindow.webkit?.messageHandlers?.tex180;
     if (!handler || typeof handler.postMessage !== "function") {
       if (!silent) {
@@ -5003,9 +5136,10 @@ window.addEventListener("DOMContentLoaded", () => {
       (currentFilePath && currentFilePath.endsWith(".tex")
         ? currentFilePath
         : undefined);
+
+    lastBuildMainFile = mainFile ?? null;
     
-    const engineKey = workspaceRootKey ? `tex180.compileEngine.${workspaceRootKey}` : "tex180.compileEngine";
-    const engine = localStorage.getItem(engineKey) || localStorage.getItem("tex180.compileEngine") || "lualatex";
+    const engine = localStorage.getItem("tex180.compileEngine") || "lualatex";
     
     const payload: { type: string; mainFile?: string; format?: boolean; engine?: string } = { type: "build" };
     if (mainFile) {
@@ -5020,7 +5154,67 @@ window.addEventListener("DOMContentLoaded", () => {
     
     if (postToNative(payload)) {
       setBuildState("building");
+      updateBuildLog(null);
       updateIssues(0, "ビルドを開始します。", "info", []);
+    }
+  };
+
+  const updateSynctexButtonState = () => {
+    if (!(synctexButton instanceof HTMLButtonElement)) {
+      return;
+    }
+    const enabled = !!currentFilePath && currentFilePath.endsWith(".tex");
+    synctexButton.disabled = !enabled;
+  };
+
+  const requestSynctexForward = (
+    overridePath?: string | null,
+    options: { fallbackToTop?: boolean } = {}
+  ) => {
+    const targetPath = overridePath ?? currentFilePath;
+    if (!targetPath || !targetPath.endsWith(".tex")) {
+      updateIssues(1, "SyncTeX は .tex ファイルでのみ利用できます。", "info", [
+        { severity: "warning", message: "SyncTeX は .tex ファイルでのみ利用できます。" },
+      ]);
+      return;
+    }
+    const editor = monacoEditor as { getPosition?: () => { lineNumber: number; column: number } };
+    const position = currentFilePath === targetPath ? editor?.getPosition?.() : null;
+    const storedPosition = lastCursorPositions.get(targetPath);
+    const line = position?.lineNumber ?? storedPosition?.line ?? 1;
+    const column = position?.column ?? storedPosition?.column ?? 1;
+    postToNative({
+      type: "synctex:forward",
+      path: targetPath,
+      line,
+      column,
+      fallbackToTop: options.fallbackToTop === true,
+    });
+  };
+
+  const handleSynctexForwardResult = (payload: { ok?: boolean; error?: string }) => {
+    if (!payload || payload.ok) {
+      return;
+    }
+    updateIssues(1, payload.error ?? "SyncTeX に失敗しました。", "error", [
+      { severity: "error", message: payload.error ?? "SyncTeX に失敗しました。" },
+    ]);
+  };
+
+  const handleSynctexReverseResult = (payload: {
+    ok?: boolean;
+    path?: string;
+    line?: number;
+    error?: string;
+  }) => {
+    if (!payload || !payload.ok) {
+      updateIssues(1, payload?.error ?? "SyncTeX に失敗しました。", "error", [
+        { severity: "error", message: payload?.error ?? "SyncTeX に失敗しました。" },
+      ]);
+      return;
+    }
+    if (payload.path && payload.line) {
+      jumpToFileLine(payload.path, payload.line);
     }
   };
 
@@ -5045,27 +5239,6 @@ window.addEventListener("DOMContentLoaded", () => {
     workspaceRootKey = payload.rootPath;
     setWorkspaceLabel(payload.rootName);
     setText(settingsWorkspace, payload.rootPath);
-    if (settingsProjectRootPath instanceof HTMLInputElement) settingsProjectRootPath.value = payload.rootPath;
-
-    // Populate Root File Select
-    if (settingsProjectRootFile instanceof HTMLSelectElement) {
-        settingsProjectRootFile.innerHTML = "";
-        const texFiles = payload.files.filter(f => f.endsWith(".tex"));
-        if (texFiles.length === 0) {
-            const opt = document.createElement("option");
-            opt.value = "";
-            opt.textContent = "TeXファイルが見つかりません";
-            settingsProjectRootFile.appendChild(opt);
-        } else {
-            texFiles.forEach(f => {
-                const opt = document.createElement("option");
-                opt.value = f;
-                opt.textContent = f;
-                settingsProjectRootFile.appendChild(opt);
-            });
-        }
-        settingsProjectRootFile.value = payload.rootFile || "";
-    }
     
     // Update Engine UI for the new workspace
     updateEngineUI();
@@ -5079,11 +5252,15 @@ window.addEventListener("DOMContentLoaded", () => {
       payload.rootSource === "manual" || payload.rootSource === "auto"
         ? payload.rootSource
         : "auto";
+    updateBuildTarget();
+    updateSynctexButtonState();
     if (previousRoot && previousRoot !== payload.rootPath) {
       currentFilePath = null;
       currentFileSavedContent = null;
       isDirty = false;
       pendingReveal = null;
+      lastBuildMainFile = null;
+      lastCursorPositions.clear();
       selectedTreePath = null;
       selectedTreeType = null;
       openTabs = [];
@@ -5140,10 +5317,13 @@ window.addEventListener("DOMContentLoaded", () => {
     autoBuildPending = false;
     loadAutoBuildState();
     loadEditorAutoFormatState();
+    loadEditorAutoSynctexBuildState();
     loadProjectAlignEnvState();
     loadEnvRegistryState();
     handleEnvRegistryUpdate(false);
     renderRootSelector();
+    updateBuildTarget();
+    updateSynctexButtonState();
     requestInitialOpen();
   };
 
@@ -5253,16 +5433,24 @@ window.addEventListener("DOMContentLoaded", () => {
       ]);
       return;
     }
-    if (savedContent !== null) {
-      const entry = monacoModels.get(payload.path);
+    const entry = monacoModels.get(payload.path);
+    let resolvedSavedContent = savedContent;
+    if (resolvedSavedContent === null) {
+      if (payload.content) {
+        resolvedSavedContent = payload.content;
+      } else if (entry) {
+        resolvedSavedContent = entry.model.getValue();
+      }
+    }
+    if (resolvedSavedContent !== null) {
       if (entry) {
-        entry.savedContent = savedContent;
+        entry.savedContent = resolvedSavedContent;
       }
       dirtyFiles.delete(payload.path);
     }
     if (currentFilePath === payload.path) {
-      if (savedContent !== null) {
-        currentFileSavedContent = savedContent;
+      if (resolvedSavedContent !== null) {
+        currentFileSavedContent = resolvedSavedContent;
       }
       if (payload.content) {
         applyFormattedContent(payload.path, payload.content, { updateSaved: true });
@@ -5275,6 +5463,12 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     } else {
       isDirty = currentFilePath ? dirtyFiles.has(currentFilePath) : false;
+    }
+    if (autoSavePending) {
+      autoSavePending = false;
+      if (currentFilePath === payload.path && isDirty) {
+        scheduleAutoSave();
+      }
     }
     if (payload.formatError && !formatWarningShown) {
       formatWarningShown = true;
@@ -5428,6 +5622,9 @@ window.addEventListener("DOMContentLoaded", () => {
       const isActive = panel.dataset.panel === tabKey;
       panel.classList.toggle("is-active", isActive);
     });
+    if (issuesBar instanceof HTMLElement) {
+      issuesBar.setAttribute("aria-expanded", tabKey === "issues" ? "true" : "false");
+    }
     setText(miniOutline, config.outline);
     setText(editorTitle, config.title);
     setText(editorDesc, config.desc);
@@ -5437,6 +5634,9 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (tabKey === "git") {
       requestGitStatus();
+    }
+    if (tabKey === "settings") {
+      checkEnvironmentStatus();
     }
     updateMathKeyboardVisibility();
   };
@@ -5467,7 +5667,10 @@ window.addEventListener("DOMContentLoaded", () => {
   renderSearchResults();
   renderGitStatus();
   renderRootSelector();
+  updateBuildTarget();
+  updateSynctexButtonState();
   loadEditorAutoFormatState();
+  loadEditorAutoSynctexBuildState();
   updateIssues(0, "ビルド結果はここに要約します。", "info", []);
   updateLauncherTemplate(launcherTemplate);
   if (!workspaceRootKey) {
@@ -6274,37 +6477,29 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Project Settings Buttons
-  const btnChangeRoot = document.getElementById("btn-change-root");
-  if (btnChangeRoot) {
-    btnChangeRoot.addEventListener("click", () => {
-      (window as any).electronAPI.send("menu:open-folder");
+  if (editorAutoSynctexBuildToggle instanceof HTMLInputElement) {
+    editorAutoSynctexBuildToggle.addEventListener("change", () => {
+      toggleEditorAutoSynctexBuild();
     });
   }
-  // Environment Buttons (New Selector)
-  const newEnvBtns = document.querySelectorAll(".btn-primary[data-target]");
-  newEnvBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-       const target = btn.getAttribute("data-target");
-       if (target === "basictex") {
-          (window as any).electronAPI.send("install-basictex");
-          if (btn instanceof HTMLElement) btn.textContent = "Installing...";
-       } else if (target === "latexmk") {
-          (window as any).electronAPI.send("install-latexmk");
-            if (btn instanceof HTMLElement) btn.textContent = "Installing...";
-       }
-    });
-  });
 
-  if (settingsProjectRootFile instanceof HTMLSelectElement) {
-    settingsProjectRootFile.addEventListener("change", () => {
-      requestSetRoot(settingsProjectRootFile.value);
+  if (settingsRootSelect instanceof HTMLSelectElement) {
+    settingsRootSelect.addEventListener("change", () => {
+      if (settingsRootSelect.value) {
+        requestSetRoot(settingsRootSelect.value);
+      }
     });
   }
 
   if (settingsRootAuto instanceof HTMLButtonElement) {
     settingsRootAuto.addEventListener("click", () => {
       requestDetectRoot();
+    });
+  }
+
+  if (settingsEnvRefresh instanceof HTMLButtonElement) {
+    settingsEnvRefresh.addEventListener("click", () => {
+      checkEnvironmentStatus();
     });
   }
 
@@ -6623,15 +6818,21 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  if (synctexButton instanceof HTMLButtonElement) {
+    synctexButton.addEventListener("click", () => {
+      if (synctexButton.disabled) {
+        return;
+      }
+      requestSynctexForward();
+    });
+  }
+
   if (issuesBar instanceof HTMLElement) {
     issuesBar.addEventListener("click", () => {
       if (currentIssues.length === 0) {
         return;
       }
-      setIssuesOpen(!issuesOpen);
-      if (!issuesOpen) {
-        clearIssueHighlight();
-      }
+      setActiveTab("issues");
     });
     issuesBar.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -6639,18 +6840,8 @@ window.addEventListener("DOMContentLoaded", () => {
         if (currentIssues.length === 0) {
           return;
         }
-        setIssuesOpen(!issuesOpen);
-        if (!issuesOpen) {
-          clearIssueHighlight();
-        }
+        setActiveTab("issues");
       }
-    });
-  }
-
-  if (issuesClose instanceof HTMLButtonElement) {
-    issuesClose.addEventListener("click", () => {
-      setIssuesOpen(false);
-      clearIssueHighlight();
     });
   }
 
@@ -6773,6 +6964,17 @@ window.addEventListener("DOMContentLoaded", () => {
           error?: string;
           source?: string;
         });
+        break;
+      case "buildLog":
+        updateBuildLog((message.payload as { log?: string | null })?.log ?? null);
+        break;
+      case "synctex:forwardResult":
+        handleSynctexForwardResult(message.payload as { ok?: boolean; error?: string });
+        break;
+      case "synctex:reverseResult":
+        handleSynctexReverseResult(
+          message.payload as { ok?: boolean; path?: string; line?: number; error?: string }
+        );
         break;
       case "renameResult":
         bridgeWindow.tex180RenameResult?.(message.payload as {
@@ -7012,6 +7214,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         updateBreadcrumbs();
         renderFileTree();
+        scheduleAutoSave();
       });
 
       editor.onDidChangeCursorPosition?.((e: { position: { lineNumber: number; column: number } }) => {

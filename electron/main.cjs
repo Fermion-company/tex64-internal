@@ -7,6 +7,7 @@ const FormatterService = require("./services/formatter.cjs");
 const { GitService } = require("./services/git.cjs");
 const { IndexerService } = require("./services/indexer.cjs");
 const { PDFWindowManager } = require("./services/pdf.cjs");
+const { SynctexService } = require("./services/synctex.cjs");
 const { SearchService } = require("./services/search.cjs");
 const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs");
 const { EnvService } = require("./services/env.cjs");
@@ -22,6 +23,8 @@ const indexerService = new IndexerService();
 const searchService = new SearchService();
 const gitService = new GitService();
 const pdfWindowManager = new PDFWindowManager();
+const synctexService = new SynctexService();
+let lastBuildPdfPath = null;
 const envService = new EnvService();
 let formatWarningShown = false;
 
@@ -130,6 +133,10 @@ const sendBuildState = (state, message) => {
 
 const sendIssues = (count, summary, status, issues) => {
   sendToRenderer("updateIssues", { count, summary, status, issues });
+};
+
+const sendBuildLog = (log) => {
+  sendToRenderer("buildLog", { log });
 };
 
 const sendWorkspace = async (rootPath) => {
@@ -289,6 +296,14 @@ ipcMain.on("tex180", (_event, message) => {
     handleCreateProject(message.template);
     return;
   }
+  if (type === "synctex:forward") {
+    handleSynctexForward(message);
+    return;
+  }
+  if (type === "synctex:reverse") {
+    handleSynctexReverse(message);
+    return;
+  }
   if (type === "build") {
     handleBuild(message.mainFile, { format: message.format, engine: message.engine });
     return;
@@ -384,6 +399,23 @@ ipcMain.on("tex180", (_event, message) => {
   }
 });
 
+ipcMain.on("tex180:pdf", (_event, message) => {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  const { type } = message;
+  if (!type) {
+    return;
+  }
+  if (type === "ready") {
+    pdfWindowManager.markReady();
+    return;
+  }
+  if (type === "synctex:reverse") {
+    handleSynctexReverse(message);
+  }
+});
+
 const handleEnvCheck = async (command) => {
   const result = await envService.checkCommand(command);
   sendToRenderer("env:checkResult", { command, available: result });
@@ -423,6 +455,7 @@ const handleOpenWorkspace = async () => {
   }
   const rootPath = result.filePaths[0];
   workspace.setRootPath(rootPath);
+  lastBuildPdfPath = null;
   currentWorkspacePath = null;
   await updateWorkspaceIfNeeded(rootPath, true);
   requestIndex(rootPath);
@@ -452,6 +485,7 @@ const handleCreateProject = async (template) => {
     return;
   }
   workspace.setRootPath(rootPath);
+  lastBuildPdfPath = null;
   currentWorkspacePath = null;
   await updateWorkspaceIfNeeded(rootPath, true);
   requestIndex(rootPath);
@@ -490,11 +524,13 @@ const handleBuild = async (mainFile, options = {}) => {
     sendIssues(0, "すでにビルド中です。", "info", []);
     return;
   }
+  sendBuildLog(result.log ?? null);
   if (result.kind === "success") {
     const warningIssues = result.issues.filter((issue) => issue.severity === "warning");
     const warningCount = warningIssues.length;
     const summaryText = warningIssues[0]?.message ?? result.summary;
     if (fs.existsSync(result.pdfPath)) {
+      lastBuildPdfPath = result.pdfPath;
       pdfWindowManager.show(result.pdfPath);
       sendBuildState("success", result.summary);
       if (warningCount > 0) {
@@ -516,6 +552,115 @@ const handleBuild = async (mainFile, options = {}) => {
     sendBuildState("failed", result.summary);
     sendIssues(count, summaryText, "error", result.issues);
   }
+};
+
+const resolveWorkspacePathFromRoot = (rootPath, targetPath) => {
+  if (!targetPath || typeof targetPath !== "string") {
+    return null;
+  }
+  return path.isAbsolute(targetPath) ? targetPath : path.join(rootPath, targetPath);
+};
+
+const handleSynctexForward = async (message) => {
+  const rootPath = ensureWorkspace();
+  if (!rootPath) {
+    sendToRenderer("synctex:forwardResult", {
+      ok: false,
+      error: "ワークスペースが選択されていません。",
+    });
+    return;
+  }
+  const sourcePath = resolveWorkspacePathFromRoot(rootPath, message.path);
+  const pdfPath =
+    resolveWorkspacePathFromRoot(rootPath, message.pdfPath) || lastBuildPdfPath;
+  if (!sourcePath) {
+    sendToRenderer("synctex:forwardResult", {
+      ok: false,
+      error: "対象のTeXファイルが選択されていません。",
+    });
+    return;
+  }
+  if (!pdfPath) {
+    sendToRenderer("synctex:forwardResult", {
+      ok: false,
+      error: "PDFがまだ生成されていません。",
+    });
+    return;
+  }
+  const line = Number.parseInt(message.line, 10);
+  const column = Number.parseInt(message.column, 10);
+  let result = await synctexService.forward({
+    sourcePath,
+    line: Number.isFinite(line) ? line : 1,
+    column: Number.isFinite(column) ? column : 1,
+    pdfPath,
+  });
+  if (!result.ok && message.fallbackToTop) {
+    result = await synctexService.forward({
+      sourcePath,
+      line: 1,
+      column: 1,
+      pdfPath,
+    });
+    if (result.ok) {
+      result.fallback = true;
+    }
+  }
+  if (!result.ok) {
+    sendToRenderer("synctex:forwardResult", result);
+    return;
+  }
+  pdfWindowManager.show(pdfPath);
+  pdfWindowManager.queueSync({ page: result.page, x: result.x, y: result.y });
+  sendToRenderer("synctex:forwardResult", {
+    ok: true,
+    page: result.page,
+    x: result.x,
+    y: result.y,
+    fallback: result.fallback === true,
+  });
+};
+
+const handleSynctexReverse = async (message) => {
+  const rootPath = ensureWorkspace();
+  if (!rootPath) {
+    sendToRenderer("synctex:reverseResult", {
+      ok: false,
+      error: "ワークスペースが選択されていません。",
+    });
+    return;
+  }
+  const pdfPath =
+    resolveWorkspacePathFromRoot(rootPath, message.pdfPath) || lastBuildPdfPath;
+  if (!pdfPath) {
+    sendToRenderer("synctex:reverseResult", {
+      ok: false,
+      error: "PDFがまだ生成されていません。",
+    });
+    return;
+  }
+  const page = Number.parseInt(message.page, 10);
+  const x = Number.parseFloat(message.x);
+  const y = Number.parseFloat(message.y);
+  const result = await synctexService.reverse({
+    page: Number.isFinite(page) ? page : 1,
+    x: Number.isFinite(x) ? x : 0,
+    y: Number.isFinite(y) ? y : 0,
+    pdfPath,
+  });
+  if (!result.ok) {
+    sendToRenderer("synctex:reverseResult", result);
+    return;
+  }
+  const relativePath = path.isAbsolute(result.path)
+    ? path.relative(rootPath, result.path)
+    : result.path;
+  sendToRenderer("synctex:reverseResult", {
+    ok: true,
+    path: relativePath,
+    line: result.line,
+    column: result.column,
+  });
 };
 
 const handleOpenFile = async (relativePath) => {

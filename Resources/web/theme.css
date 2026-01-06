@@ -40,7 +40,7 @@
   --radius: 6px;
   --sidebar-width: 52px;
   --sidebar-panel-width: calc((100vw - var(--sidebar-width) - 4px) * 0.4);
-  --issues-height: 26px;
+  --issues-height: 0px;
   --topbar-height: 0px;
 }
 
@@ -1055,9 +1055,16 @@ math-field.block-math-field::placeholder {
 }
 
 .settings-panel {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   font-size: 11px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }
 
 .settings-group {
@@ -1140,6 +1147,81 @@ math-field.block-math-field::placeholder {
   background: var(--accent-soft);
   border-color: rgba(92, 156, 255, 0.5);
   color: var(--text);
+}
+
+.settings-switch {
+  display: inline-flex;
+  align-items: center;
+}
+
+.settings-switch-input {
+  appearance: none;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.settings-switch-input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--text-soft);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.settings-switch-input:checked {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+.settings-switch-input:checked::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  justify-self: start;
+}
+
+.env-badge.ok {
+  color: #8ee1a0;
+  background: rgba(142, 225, 160, 0.12);
+  border-color: rgba(142, 225, 160, 0.3);
+}
+
+.env-badge.error {
+  color: var(--danger-text);
+  background: var(--danger-faint);
+  border-color: var(--danger-border);
+}
+
+.env-badge.checking {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent-soft-strong);
+}
+
+.is-hidden {
+  display: none !important;
 }
 
 .env-registry {
@@ -1538,6 +1620,22 @@ math-field.block-math-field::placeholder {
   background: rgba(92, 156, 255, 0.08);
 }
 
+.tab.is-alert {
+  color: var(--danger-text);
+}
+
+.tab.is-alert::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+
 .tab:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.04);
@@ -1615,6 +1713,65 @@ math-field.block-math-field::placeholder {
   position: relative;
   z-index: 3;
   background: var(--panel);
+}
+
+.build-meta {
+  display: grid;
+  align-content: center;
+  justify-items: end;
+  padding: 0 10px;
+  gap: 2px;
+  border-left: 1px solid var(--panel-border);
+  color: var(--text-soft);
+  min-width: 120px;
+}
+
+.build-meta-label {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.build-target {
+  font-size: 11px;
+  font-family: "SF Mono", Menlo, monospace;
+  color: var(--text);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#synctex-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: 6px;
+  padding: 6px 10px;
+  height: 32px;
+  margin: 2px 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#synctex-button svg {
+  stroke: currentColor;
+  stroke-width: 1.6;
+  fill: none;
+}
+
+#synctex-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+#synctex-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .editor-tab {
@@ -2500,7 +2657,7 @@ body.has-editor .editor-placeholder {
 }
 
 .issues {
-  display: flex;
+  display: none;
   align-items: center;
   padding: 0 12px;
   background: var(--status);
@@ -2553,63 +2710,39 @@ body.has-editor .editor-placeholder {
   color: var(--accent);
 }
 
-.issues-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--issues-height);
-  height: 260px;
-  background: var(--panel);
-  border-top: 1px solid var(--panel-border);
-  box-shadow: 0 -16px 30px rgba(5, 10, 16, 0.45);
-  opacity: 0;
-  transform: translateY(12px);
-  pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.issues-panel.is-open {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-.issues-panel-inner {
-  display: grid;
-  grid-template-rows: 36px 1fr;
-  height: 100%;
-}
-
-.issues-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  font-size: 12px;
-  color: var(--text-soft);
-  border-bottom: 1px solid var(--panel-border);
-  background: var(--panel-strong);
-}
-
-.issues-panel-title {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text);
-}
-
-.issues-close {
-  border: 1px solid var(--control-border);
-  background: transparent;
-  color: var(--muted);
-  padding: 2px 8px;
-  border-radius: 5px;
-  font-size: 10px;
-  cursor: pointer;
-}
-
 .issues-panel-body {
-  position: relative;
-  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
+.issues-log {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  padding: 8px 10px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.issues-log-summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.issues-log-content {
+  margin: 8px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text-soft);
 }
 
 .issues-empty {
@@ -2818,4 +2951,3 @@ body.has-editor .editor-placeholder {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
-@import "./theme_settings.css";

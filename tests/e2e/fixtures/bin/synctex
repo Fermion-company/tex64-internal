@@ -1,0 +1,23 @@
+#!/bin/sh
+workspace="${TEX180_E2E_WORKSPACE:-$(pwd)}"
+texPath="$workspace/main.tex"
+
+if [ "$1" = "view" ]; then
+  echo "SyncTeX result begin"
+  echo "Page:1"
+  echo "x:120"
+  echo "y:240"
+  echo "SyncTeX result end"
+  exit 0
+fi
+
+if [ "$1" = "edit" ]; then
+  echo "SyncTeX result begin"
+  echo "Input:$texPath"
+  echo "Line:3"
+  echo "Column:5"
+  echo "SyncTeX result end"
+  exit 0
+fi
+
+exit 1

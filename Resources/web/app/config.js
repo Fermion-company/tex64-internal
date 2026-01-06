@@ -41,6 +41,13 @@ export const tabConfig = {
         desc: "ワークスペース内を検索します。",
         hint: "Enterで検索できます。",
     },
+    issues: {
+        label: "エラー",
+        outline: "ビルドエラー",
+        title: "エラー",
+        desc: "ビルドや操作のエラーを一覧で表示します。",
+        hint: "クリックで該当箇所へ移動します。",
+    },
     settings: {
         label: "設定",
         outline: "設定",

@@ -5,6 +5,7 @@ export type TabKey =
   | "git"
   | "project"
   | "search"
+  | "issues"
   | "settings";
 
 export const tabConfig: Record<
@@ -58,6 +59,13 @@ export const tabConfig: Record<
     title: "検索",
     desc: "ワークスペース内を検索します。",
     hint: "Enterで検索できます。",
+  },
+  issues: {
+    label: "エラー",
+    outline: "ビルドエラー",
+    title: "エラー",
+    desc: "ビルドや操作のエラーを一覧で表示します。",
+    hint: "クリックで該当箇所へ移動します。",
   },
   settings: {
     label: "設定",
