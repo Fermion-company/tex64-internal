@@ -12,6 +12,62 @@ export type ViewerDeps = {
 export const createViewer = (deps: ViewerDeps) => {
   let viewerBlobUrl: string | null = null;
   let viewerMode: ViewerMode = "hidden";
+  let pdfViewerReady = false;
+  let pdfViewerPath: string | null = null;
+  let pendingPdfOpen: { url: string; path: string | null } | null = null;
+  let pendingPdfSync: { page: number; x: number; y: number } | null = null;
+  const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
+
+  const postPdfMessage = (payload: { type: string; payload?: unknown }) => {
+    if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+      return false;
+    }
+    const target = deps.editorViewerPdf.contentWindow;
+    if (!target) {
+      return false;
+    }
+    target.postMessage({ source: "tex180-pdf", payload }, "*");
+    return true;
+  };
+
+  const ensurePdfFrame = () => {
+    if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+      return;
+    }
+    const current = deps.editorViewerPdf.src;
+    if (!current || !current.includes("pdf-viewer.html")) {
+      pdfViewerReady = false;
+      deps.editorViewerPdf.src = pdfViewerUrl;
+    }
+  };
+
+  window.addEventListener("message", (event) => {
+    if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+      return;
+    }
+    if (event.source !== deps.editorViewerPdf.contentWindow) {
+      return;
+    }
+    const data = event.data as { source?: string; payload?: { type?: string } };
+    if (!data || data.source !== "tex180-pdf") {
+      return;
+    }
+    const payload = data.payload;
+    if (!payload || typeof payload.type !== "string") {
+      return;
+    }
+    if (payload.type === "ready") {
+      pdfViewerReady = true;
+      if (pendingPdfOpen) {
+        postPdfMessage({ type: "open", payload: pendingPdfOpen });
+        pendingPdfOpen = null;
+      }
+      if (pendingPdfSync) {
+        postPdfMessage({ type: "sync", payload: pendingPdfSync });
+        pendingPdfSync = null;
+      }
+    }
+  });
 
   const clearViewerUrl = () => {
     if (viewerBlobUrl) {
@@ -60,6 +116,10 @@ export const createViewer = (deps: ViewerDeps) => {
     if (deps.editorViewerPdf instanceof HTMLIFrameElement) {
       deps.editorViewerPdf.removeAttribute("src");
     }
+    pdfViewerReady = false;
+    pendingPdfOpen = null;
+    pendingPdfSync = null;
+    pdfViewerPath = null;
     setViewerMode("hidden");
   };
 
@@ -71,6 +131,10 @@ export const createViewer = (deps: ViewerDeps) => {
     if (deps.editorViewerPdf instanceof HTMLIFrameElement) {
       deps.editorViewerPdf.removeAttribute("src");
     }
+    pdfViewerReady = false;
+    pendingPdfOpen = null;
+    pendingPdfSync = null;
+    pdfViewerPath = null;
     setViewerMode("unsupported");
     blurActiveElement();
   };
@@ -92,19 +156,37 @@ export const createViewer = (deps: ViewerDeps) => {
     }
   };
 
-  const showPdfViewer = (data?: string, mimeType?: string) => {
+  const showPdfViewer = (path: string, data?: string, mimeType?: string) => {
     if (!data || !(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
       showUnsupportedViewer();
       return;
     }
     try {
       const url = buildViewerBlobUrl(data, mimeType ?? "application/pdf");
-      deps.editorViewerPdf.src = url;
+      pdfViewerPath = path;
+      ensurePdfFrame();
+      const payload = { url, path };
+      if (pdfViewerReady) {
+        postPdfMessage({ type: "open", payload });
+      } else {
+        pendingPdfOpen = payload;
+      }
       setViewerMode("pdf");
       blurActiveElement();
     } catch {
       showUnsupportedViewer();
     }
+  };
+
+  const syncPdf = (payload: { page: number; x: number; y: number }) => {
+    if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+      return;
+    }
+    if (!pdfViewerReady) {
+      pendingPdfSync = payload;
+      return;
+    }
+    postPdfMessage({ type: "sync", payload });
   };
 
   return {
@@ -114,5 +196,7 @@ export const createViewer = (deps: ViewerDeps) => {
     showUnsupportedViewer,
     setViewerMode,
     getViewerMode: () => viewerMode,
+    getPdfPath: () => pdfViewerPath,
+    syncPdf,
   };
 };

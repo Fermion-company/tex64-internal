@@ -302,12 +302,12 @@ ipcMain.on("tex180", (_event, message) => {
     handleSynctexForward(message);
     return;
   }
-  if (type === "synctex:reverse") {
-    handleSynctexReverse(message);
-    return;
-  }
   if (type === "build") {
-    handleBuild(message.mainFile, { format: message.format, engine: message.engine });
+    handleBuild(message.mainFile, {
+      format: message.format,
+      engine: message.engine,
+      pdfViewerMode: message.pdfViewerMode,
+    });
     return;
   }
   if (type === "openFile") {
@@ -412,9 +412,6 @@ ipcMain.on("tex180:pdf", (_event, message) => {
   if (type === "ready") {
     pdfWindowManager.markReady();
     return;
-  }
-  if (type === "synctex:reverse") {
-    handleSynctexReverse(message);
   }
 });
 
@@ -533,7 +530,17 @@ const handleBuild = async (mainFile, options = {}) => {
     const summaryText = warningIssues[0]?.message ?? result.summary;
     if (fs.existsSync(result.pdfPath)) {
       lastBuildPdfPath = result.pdfPath;
-      pdfWindowManager.show(result.pdfPath);
+      const viewerMode = options.pdfViewerMode === "tab" ? "tab" : "window";
+      if (viewerMode === "tab") {
+        const relativePdfPath = resolveWorkspaceRelativePath(rootPath, result.pdfPath);
+        if (relativePdfPath) {
+          await handleOpenFile(relativePdfPath);
+        } else {
+          pdfWindowManager.show(result.pdfPath);
+        }
+      } else {
+        pdfWindowManager.show(result.pdfPath);
+      }
       sendBuildState("success", result.summary);
       if (warningCount > 0) {
         sendIssues(warningCount, summaryText, "info", warningIssues);
@@ -561,6 +568,41 @@ const resolveWorkspacePathFromRoot = (rootPath, targetPath) => {
     return null;
   }
   return path.isAbsolute(targetPath) ? targetPath : path.join(rootPath, targetPath);
+};
+
+const resolveWorkspaceRelativePath = (rootPath, targetPath) => {
+  if (!rootPath || !targetPath || typeof targetPath !== "string") {
+    return null;
+  }
+  if (!path.isAbsolute(targetPath)) {
+    return targetPath;
+  }
+  const relative = path.relative(rootPath, targetPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative;
+};
+
+const isSkippableSynctexLine = (sourcePath, lineNumber) => {
+  if (!Number.isFinite(lineNumber) || lineNumber < 1) {
+    return false;
+  }
+  try {
+    const content = fs.readFileSync(sourcePath, "utf8");
+    const lines = content.split(/\r?\n/);
+    const line = lines[lineNumber - 1];
+    if (typeof line !== "string") {
+      return false;
+    }
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return true;
+    }
+    return trimmed.startsWith("%");
+  } catch {
+    return false;
+  }
 };
 
 const handleSynctexForward = async (message) => {
@@ -591,6 +633,8 @@ const handleSynctexForward = async (message) => {
   }
   const line = Number.parseInt(message.line, 10);
   const column = Number.parseInt(message.column, 10);
+  const viewerMode = message.pdfViewerMode === "tab" ? "tab" : "window";
+  const allowFallback = message.fallbackToTop !== false;
   const isRetryableSynctexError = (error) =>
     typeof error === "string" &&
     (error.includes("位置情報") || error.includes("解析に失敗"));
@@ -620,73 +664,56 @@ const handleSynctexForward = async (message) => {
     return result;
   };
 
-  let result = await runForward(line, column);
-  if (!result.ok && message.fallbackToTop) {
-    result = await runForward(1, 1);
-    if (result.ok) {
-      result.fallback = true;
+  const targetLine = Number.isFinite(line) ? line : 1;
+  const preferBacktrack = isSkippableSynctexLine(sourcePath, targetLine);
+  let result = preferBacktrack
+    ? { ok: false, error: "skip" }
+    : await runForward(targetLine, column);
+  if (!result.ok && (preferBacktrack || isRetryableSynctexError(result.error))) {
+    const maxBacktrack = 160;
+    for (let offset = 1; offset <= maxBacktrack; offset += 1) {
+      const candidateLine = targetLine - offset;
+      if (candidateLine < 1) {
+        break;
+      }
+      const candidate = await runForward(candidateLine, column);
+      if (candidate.ok) {
+        candidate.fallback = true;
+        result = candidate;
+        break;
+      }
+      if (!isRetryableSynctexError(candidate.error)) {
+        result = candidate;
+        break;
+      }
     }
+  }
+  if (!result.ok && allowFallback) {
+    const fallbackResult = await runForward(1, 1);
+    if (fallbackResult.ok) {
+      fallbackResult.fallback = true;
+    }
+    result = fallbackResult;
   }
   if (!result.ok) {
     sendToRenderer("synctex:forwardResult", result);
     return;
   }
-  pdfWindowManager.show(pdfPath, { reload: false });
-  pdfWindowManager.queueSync({ page: result.page, x: result.x, y: result.y });
+  if (viewerMode === "window") {
+    pdfWindowManager.show(pdfPath, { reload: false });
+    pdfWindowManager.queueSync({ page: result.page, x: result.x, y: result.y });
+  }
+  const relativePdfPath = resolveWorkspaceRelativePath(rootPath, pdfPath);
   sendToRenderer("synctex:forwardResult", {
     ok: true,
     page: result.page,
     x: result.x,
     y: result.y,
     fallback: result.fallback === true,
+    pdfPath: relativePdfPath,
   });
 };
 
-const handleSynctexReverse = async (message) => {
-  const rootPath = ensureWorkspace();
-  if (!rootPath) {
-    sendToRenderer("synctex:reverseResult", {
-      ok: false,
-      error: "ワークスペースが選択されていません。",
-    });
-    return;
-  }
-  const pdfPath =
-    resolveWorkspacePathFromRoot(rootPath, message.pdfPath) || lastBuildPdfPath;
-  if (!pdfPath) {
-    sendToRenderer("synctex:reverseResult", {
-      ok: false,
-      error: "PDFがまだ生成されていません。",
-    });
-    return;
-  }
-  const page = Number.parseInt(message.page, 10);
-  const x = Number.parseFloat(message.x);
-  const y = Number.parseFloat(message.y);
-  const result = await synctexService.reverse({
-    page: Number.isFinite(page) ? page : 1,
-    x: Number.isFinite(x) ? x : 0,
-    y: Number.isFinite(y) ? y : 0,
-    pdfPath,
-  });
-  if (!result.ok) {
-    sendToRenderer("synctex:reverseResult", result);
-    return;
-  }
-  const relativePath = path.isAbsolute(result.path)
-    ? path.relative(rootPath, result.path)
-    : result.path;
-  sendToRenderer("synctex:reverseResult", {
-    ok: true,
-    path: relativePath,
-    line: result.line,
-    column: result.column,
-  });
-  if (mainWindow) {
-    mainWindow.show();
-    mainWindow.focus();
-  }
-};
 
 const handleOpenFile = async (relativePath) => {
   const rootPath = ensureWorkspace();

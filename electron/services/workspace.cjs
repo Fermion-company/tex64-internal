@@ -13,6 +13,14 @@ const IGNORED_DIRECTORIES = new Set([
   "Resources",
   "tex180.xcodeproj",
 ]);
+const HIDDEN_EDITOR_EXTENSIONS = new Set([
+  "aux",
+  "toc",
+  "synctex",
+  "fls",
+  "log",
+  "fdb_latexmk",
+]);
 
 const WorkspaceError = {
   invalidPath: "不正なパスです。",
@@ -41,6 +49,17 @@ const generateId = () => {
 };
 
 const isHiddenName = (name) => name.startsWith(".");
+const isHiddenEditorFile = (name) => {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".synctex.gz")) {
+    return true;
+  }
+  const ext = path.extname(lower);
+  if (!ext) {
+    return false;
+  }
+  return HIDDEN_EDITOR_EXTENSIONS.has(ext.slice(1));
+};
 
 const ensureDirectory = async (dirPath) => {
   await fsp.mkdir(dirPath, { recursive: true });
@@ -166,7 +185,11 @@ class WorkspaceManager {
     }
     const results = [];
     await this.walkEntries({
-      onFile: (relativePath) => {
+      onFile: (relativePath, absolutePath) => {
+        const name = path.basename(absolutePath);
+        if (isHiddenEditorFile(name)) {
+          return;
+        }
         results.push(relativePath);
       },
       limit: 5000,

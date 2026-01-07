@@ -133,6 +133,13 @@ body {
   box-sizing: content-box;
 }
 
+#pdf-pages .textLayer span {
+  padding: 0.08em 0.14em;
+  margin: -0.08em -0.14em;
+  border-radius: 2px;
+  line-height: 1.2;
+}
+
 .page {
   position: relative;
   background: #ffffff;
@@ -155,25 +162,4 @@ body {
   box-shadow: 0 0 12px rgba(92, 156, 255, 0.45);
   transform: translate(-50%, -50%);
   pointer-events: none;
-}
-
-.pdf-jump-button {
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-strong);
-  color: var(--text);
-  font-size: 11px;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-}
-
-.pdf-jump-button.is-visible {
-  display: inline-flex;
 }

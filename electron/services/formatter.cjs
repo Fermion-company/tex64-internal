@@ -14,6 +14,131 @@ const safeUnlink = async (filePath) => {
   await fsp.unlink(filePath).catch(() => null);
 };
 
+const INDENT_UNIT = "  ";
+const VERBATIM_ENVIRONMENTS = new Set([
+  "verbatim",
+  "verbatim*",
+  "Verbatim",
+  "lstlisting",
+  "minted",
+  "filecontents",
+  "filecontents*",
+]);
+
+const stripComments = (line) => {
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] !== "%") {
+      continue;
+    }
+    let backslashes = 0;
+    for (let j = i - 1; j >= 0 && line[j] === "\\"; j -= 1) {
+      backslashes += 1;
+    }
+    if (backslashes % 2 === 0) {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+};
+
+const extractTokens = (line) => {
+  const tokens = [];
+  const regex = /\\(begin|end)\{([^}]+)\}/g;
+  let match;
+  while ((match = regex.exec(line))) {
+    tokens.push({
+      type: match[1],
+      env: match[2]?.trim() ?? "",
+      index: match.index,
+    });
+  }
+  return tokens;
+};
+
+const simpleIndent = (content) => {
+  if (!content) {
+    return content ?? "";
+  }
+  const endsWithNewline = content.endsWith("\n");
+  const lines = content.split(/\r?\n/);
+  const output = [];
+  let indentLevel = 0;
+  let inVerbatim = false;
+  let verbatimEnv = null;
+
+  for (const line of lines) {
+    if (inVerbatim) {
+      output.push(line);
+      const parsed = stripComments(line);
+      const tokens = extractTokens(parsed);
+      if (verbatimEnv) {
+        const hasEnd = tokens.some(
+          (token) => token.type === "end" && token.env === verbatimEnv
+        );
+        if (hasEnd) {
+          inVerbatim = false;
+          verbatimEnv = null;
+          indentLevel = Math.max(indentLevel - 1, 0);
+        }
+      }
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      output.push("");
+      continue;
+    }
+
+    const parsed = stripComments(line);
+    const tokens = extractTokens(parsed);
+
+    let scan = parsed.replace(/^\s+/, "");
+    let dedentBefore = 0;
+    const endPattern = /^\\end\{([^}]+)\}/;
+    while (endPattern.test(scan)) {
+      dedentBefore += 1;
+      scan = scan.replace(endPattern, "").replace(/^\s+/, "");
+    }
+    indentLevel = Math.max(indentLevel - dedentBefore, 0);
+
+    const trimmedLeading = line.replace(/^\s+/, "");
+    output.push(`${INDENT_UNIT.repeat(indentLevel)}${trimmedLeading}`);
+
+    let beginCount = 0;
+    let endCount = 0;
+    tokens.forEach((token) => {
+      if (token.type === "begin") {
+        beginCount += 1;
+      } else {
+        endCount += 1;
+      }
+    });
+    const endAfter = Math.max(endCount - dedentBefore, 0);
+    indentLevel = Math.max(indentLevel + beginCount - endAfter, 0);
+
+    for (const token of tokens) {
+      if (token.type !== "begin") {
+        continue;
+      }
+      if (!VERBATIM_ENVIRONMENTS.has(token.env)) {
+        continue;
+      }
+      const hasEndSameLine = tokens.some(
+        (entry) => entry.type === "end" && entry.env === token.env && entry.index > token.index
+      );
+      if (!hasEndSameLine) {
+        inVerbatim = true;
+        verbatimEnv = token.env;
+        break;
+      }
+    }
+  }
+
+  const formatted = output.join("\n");
+  return endsWithNewline ? `${formatted}\n` : formatted;
+};
+
 class FormatterService {
   extendPath(existingPath) {
     const base = existingPath ?? "";
@@ -91,32 +216,31 @@ class FormatterService {
       return { ok: true, content, skipped: true };
     }
     const latexindentPath = this.findLatexindent();
-    if (!latexindentPath) {
-      return { ok: false, error: "latexindent が見つかりません。" };
+    if (latexindentPath) {
+      const tempDir = path.join(rootPath, ".tex180", ".format");
+      await ensureDirectory(tempDir);
+      const baseName = path.basename(relativePath, path.extname(relativePath)) || "document";
+      const tempName = `${baseName}-${Date.now()}-${Math.random().toString(16).slice(2)}.tex`;
+      const tempPath = path.join(tempDir, tempName);
+      await fsp.writeFile(tempPath, content ?? "", "utf8");
+      const env = { ...process.env };
+      env.PATH = this.extendPath(env.PATH);
+      const result = await this.runProcess(latexindentPath, ["-w", "-l", tempPath], rootPath, env)
+        .catch((error) => ({ output: error?.message ?? String(error), status: 1 }));
+      let formatted = null;
+      if (result.status === 0) {
+        formatted = await fsp.readFile(tempPath, "utf8").catch(() => null);
+      }
+      await safeUnlink(tempPath);
+      await safeUnlink(`${tempPath}.bak`);
+      await safeUnlink(path.join(tempDir, "indent.log"));
+      await safeUnlink(path.join(rootPath, "indent.log"));
+      if (result.status === 0 && formatted !== null) {
+        return { ok: true, content: formatted, formatted: formatted !== content };
+      }
     }
-    const tempDir = path.join(rootPath, ".tex180", ".format");
-    await ensureDirectory(tempDir);
-    const baseName = path.basename(relativePath, path.extname(relativePath)) || "document";
-    const tempName = `${baseName}-${Date.now()}-${Math.random().toString(16).slice(2)}.tex`;
-    const tempPath = path.join(tempDir, tempName);
-    await fsp.writeFile(tempPath, content ?? "", "utf8");
-    const env = { ...process.env };
-    env.PATH = this.extendPath(env.PATH);
-    const result = await this.runProcess(latexindentPath, ["-w", "-l", tempPath], rootPath, env)
-      .catch((error) => ({ output: error?.message ?? String(error), status: 1 }));
-    let formatted = null;
-    if (result.status === 0) {
-      formatted = await fsp.readFile(tempPath, "utf8").catch(() => null);
-    }
-    await safeUnlink(tempPath);
-    await safeUnlink(`${tempPath}.bak`);
-    await safeUnlink(path.join(tempDir, "indent.log"));
-    await safeUnlink(path.join(rootPath, "indent.log"));
-    if (result.status !== 0 || formatted === null) {
-      const message = result.output?.trim() || "latexindent の実行に失敗しました。";
-      return { ok: false, error: message };
-    }
-    return { ok: true, content: formatted, formatted: formatted !== content };
+    const fallback = simpleIndent(content ?? "");
+    return { ok: true, content: fallback, formatted: fallback !== content, fallback: true };
   }
 
   async formatFile(rootPath, relativePath) {

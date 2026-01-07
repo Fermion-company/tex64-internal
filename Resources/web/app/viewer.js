@@ -2,6 +2,59 @@ import { IMAGE_MIME_TYPES, getFileExtension } from "./files.js";
 export const createViewer = (deps) => {
     let viewerBlobUrl = null;
     let viewerMode = "hidden";
+    let pdfViewerReady = false;
+    let pdfViewerPath = null;
+    let pendingPdfOpen = null;
+    let pendingPdfSync = null;
+    const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
+    const postPdfMessage = (payload) => {
+        if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+            return false;
+        }
+        const target = deps.editorViewerPdf.contentWindow;
+        if (!target) {
+            return false;
+        }
+        target.postMessage({ source: "tex180-pdf", payload }, "*");
+        return true;
+    };
+    const ensurePdfFrame = () => {
+        if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+            return;
+        }
+        const current = deps.editorViewerPdf.src;
+        if (!current || !current.includes("pdf-viewer.html")) {
+            pdfViewerReady = false;
+            deps.editorViewerPdf.src = pdfViewerUrl;
+        }
+    };
+    window.addEventListener("message", (event) => {
+        if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+            return;
+        }
+        if (event.source !== deps.editorViewerPdf.contentWindow) {
+            return;
+        }
+        const data = event.data;
+        if (!data || data.source !== "tex180-pdf") {
+            return;
+        }
+        const payload = data.payload;
+        if (!payload || typeof payload.type !== "string") {
+            return;
+        }
+        if (payload.type === "ready") {
+            pdfViewerReady = true;
+            if (pendingPdfOpen) {
+                postPdfMessage({ type: "open", payload: pendingPdfOpen });
+                pendingPdfOpen = null;
+            }
+            if (pendingPdfSync) {
+                postPdfMessage({ type: "sync", payload: pendingPdfSync });
+                pendingPdfSync = null;
+            }
+        }
+    });
     const clearViewerUrl = () => {
         if (viewerBlobUrl) {
             URL.revokeObjectURL(viewerBlobUrl);
@@ -45,6 +98,10 @@ export const createViewer = (deps) => {
         if (deps.editorViewerPdf instanceof HTMLIFrameElement) {
             deps.editorViewerPdf.removeAttribute("src");
         }
+        pdfViewerReady = false;
+        pendingPdfOpen = null;
+        pendingPdfSync = null;
+        pdfViewerPath = null;
         setViewerMode("hidden");
     };
     const showUnsupportedViewer = () => {
@@ -55,6 +112,10 @@ export const createViewer = (deps) => {
         if (deps.editorViewerPdf instanceof HTMLIFrameElement) {
             deps.editorViewerPdf.removeAttribute("src");
         }
+        pdfViewerReady = false;
+        pendingPdfOpen = null;
+        pendingPdfSync = null;
+        pdfViewerPath = null;
         setViewerMode("unsupported");
         blurActiveElement();
     };
@@ -75,20 +136,38 @@ export const createViewer = (deps) => {
             showUnsupportedViewer();
         }
     };
-    const showPdfViewer = (data, mimeType) => {
+    const showPdfViewer = (path, data, mimeType) => {
         if (!data || !(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             showUnsupportedViewer();
             return;
         }
         try {
             const url = buildViewerBlobUrl(data, mimeType !== null && mimeType !== void 0 ? mimeType : "application/pdf");
-            deps.editorViewerPdf.src = url;
+            pdfViewerPath = path;
+            ensurePdfFrame();
+            const payload = { url, path };
+            if (pdfViewerReady) {
+                postPdfMessage({ type: "open", payload });
+            }
+            else {
+                pendingPdfOpen = payload;
+            }
             setViewerMode("pdf");
             blurActiveElement();
         }
         catch {
             showUnsupportedViewer();
         }
+    };
+    const syncPdf = (payload) => {
+        if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
+            return;
+        }
+        if (!pdfViewerReady) {
+            pendingPdfSync = payload;
+            return;
+        }
+        postPdfMessage({ type: "sync", payload });
     };
     return {
         hideViewer,
@@ -97,5 +176,7 @@ export const createViewer = (deps) => {
         showUnsupportedViewer,
         setViewerMode,
         getViewerMode: () => viewerMode,
+        getPdfPath: () => pdfViewerPath,
+        syncPdf,
     };
 };

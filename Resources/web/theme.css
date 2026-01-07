@@ -1829,6 +1829,48 @@ math-field.block-math-field::placeholder {
   transition: all 0.2s ease;
 }
 
+.build-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.build-button-spinner {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: build-spin 0.8s linear infinite;
+}
+
+#format-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-strong);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 12px;
+  height: 32px;
+  margin: 2px 6px 2px 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#format-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--panel-border-strong);
+}
+
+#format-button:active {
+  transform: translateY(1px);
+}
+
 #build-button svg {
   fill: currentColor;
   width: 18px;
@@ -1846,9 +1888,22 @@ math-field.block-math-field::placeholder {
 }
 
 #build-button.is-busy {
-  color: var(--muted);
+  color: var(--accent);
   cursor: wait;
-  animation: pulse 1.5s infinite;
+}
+
+@keyframes build-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+#build-button.is-busy .build-button-icon {
+  display: none;
+}
+
+#build-button.is-busy .build-button-spinner {
+  display: inline-block;
 }
 
 @keyframes pulse {

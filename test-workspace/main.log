@@ -1,4 +1,4 @@
-This is LuaHBTeX, Version 1.18.0 (TeX Live 2024)  (format=lualatex 2024.5.4)  6 JAN 2026 18:39
+This is LuaHBTeX, Version 1.18.0 (TeX Live 2024)  (format=lualatex 2024.5.4)  7 JAN 2026 19:49
  restricted system commands enabled.
  file:line:error style messages enabled.
 **main.tex
@@ -685,8 +685,8 @@ LaTeX Font Info:    Font shape `JY3/gt/m/n' will be
 
 [1
 
-{/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map}](load cac
-he: extra_lmroman9-regular.luc)
+{/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map}]
+[2](load cache: extra_lmroman9-regular.luc)
 LaTeX Font Info:    Font shape `JT3/mc/m/n' will be
 (Font)              scaled to size 8.32242pt on input line 28.
 LaTeX Font Info:    Font shape `JY3/mc/m/n' will be
@@ -698,8 +698,8 @@ LaTeX Font Info:    Font shape `JY3/gt/m/n' will be
 (load cache: extra_lmsans9-regular.luc)
 LaTeX Font Info:    Font shape `JT3/gt/m/n' will be
 (Font)              scaled to size 11.09656pt on input line 37.
-(load cache: extra_lmmono10-regular.luc)
-[2](load cache: extra_lmroman10-bold.luc)
+(load cache: extra_lmmono10-regular.luc) [3](load cache: extra_lmroman10-bold.lu
+c)
 LaTeX Font Info:    Font shape `JT3/mc/b/n' in size <10> not available
 (Font)              Font shape `JT3/gt/m/n' tried instead on input line 105.
 LaTeX Font Info:    Font shape `JT3/gt/m/n' will be
@@ -717,16 +717,25 @@ LaTeX Font Info:    Font shape `JY3/mc/m/it' in size <10> not available
 (Font)              Font shape `JY3/mc/m/n' tried instead on input line 113.
 LaTeX Font Info:    Font shape `JY3/mc/m/n' will be
 (Font)              scaled to size 9.24713pt on input line 113.
-(load cache: extra_lmroman7-italic.luc)
-LaTeX Font Info:    Font shape `JT3/mc/m/it' in size <7> not available
-(Font)              Font shape `JT3/mc/m/n' tried instead on input line 148.
+ [4](load cache: extra_lmroman7-regular.luc)
 LaTeX Font Info:    Font shape `JT3/mc/m/n' will be
-(Font)              scaled to size 6.47299pt on input line 148.
+(Font)              scaled to size 6.47299pt on input line 173.
+(load cache: extra_lmroman6-regular.luc)
+LaTeX Font Info:    Font shape `JT3/mc/m/n' will be
+(Font)              scaled to size 5.54828pt on input line 173.
+ [5](load cache: extra_lmroman5-regular.luc)
+LaTeX Font Info:    Font shape `JT3/mc/m/n' will be
+(Font)              scaled to size 4.62357pt on input line 212.
+ [6](load cache: extra_lmroman7-italic.luc)
+LaTeX Font Info:    Font shape `JT3/mc/m/it' in size <7> not available
+(Font)              Font shape `JT3/mc/m/n' tried instead on input line 286.
+LaTeX Font Info:    Font shape `JT3/mc/m/n' will be
+(Font)              scaled to size 6.47299pt on input line 286.
 LaTeX Font Info:    Font shape `JY3/mc/m/it' in size <7> not available
-(Font)              Font shape `JY3/mc/m/n' tried instead on input line 148.
+(Font)              Font shape `JY3/mc/m/n' tried instead on input line 286.
 LaTeX Font Info:    Font shape `JY3/mc/m/n' will be
-(Font)              scaled to size 6.47299pt on input line 148.
- [3] [4] (./main.aux)
+(Font)              scaled to size 6.47299pt on input line 286.
+ [7] [8] (./main.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-02-20>
@@ -734,43 +743,45 @@ L3 programming layer <2024-02-20>
 )
 
 Here is how much of LuaTeX's memory you used:
- 5583 strings out of 476447
+ 5618 strings out of 476447
  125244,1977958 words of node,token memory allocated
- 1440 words of node memory still in use:
-   11 hlist, 2 vlist, 5 rule, 2 glue, 4 kern, 1 glyph, 370 attribute, 56 glue_sp
-ec, 46 attribute_list, 1 write, 14 user_defined nodes
-   avail lists: 1:12,2:22314,3:237,4:289,5:187,6:41,7:2632,8:32,9:1098,10:10,11:
+ 1639 words of node memory still in use:
+   11 hlist, 2 vlist, 5 rule, 3 glue, 4 kern, 1 glyph, 458 attribute, 56 glue_sp
+ec, 54 attribute_list, 1 write, 14 user_defined nodes
+   avail lists: 1:12,2:21498,3:291,4:304,5:195,6:57,7:2566,8:32,9:1105,10:10,11:
 20
- 27505 multiletter control sequences out of 65536+600000
- 100 fonts using 70227247 bytes
- 125i,13n,128p,1901b,347s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 27540 multiletter control sequences out of 65536+600000
+ 103 fonts using 70622375 bytes
+ 125i,13n,128p,1901b,371s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman7-italic.otf
-></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-italic.o
-tf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-bold.o
-tf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmmono10-regular
-.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmsans12-regul
-ar.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman9-reg
-ular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-
-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmsans1
-0-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/haranoaj
-i/HaranoAjiGothic-Medium.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/
-public/lm/lmroman12-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/openty
-pe/public/lm/lmroman17-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/ope
-ntype/public/haranoaji/HaranoAjiMincho-Regular.otf></usr/local/texlive/2024/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2024/texmf-
-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2024/texmf-di
-st/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2024/texmf-dist
-/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2024/texmf-dist/fo
-nts/type1/public/amsfonts/cm/cmmib10.pfb></usr/local/texlive/2024/texmf-dist/fon
-ts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2024/texmf-dist/fonts/
-type1/public/amsfonts/cm/cmr5.pfb></usr/local/texlive/2024/texmf-dist/fonts/type
-1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/pu
-blic/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/publ
-ic/amsfonts/cm/cmsy7.pfb>
-Output written on main.pdf (4 pages, 181853 bytes).
+></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman6-regular.o
+tf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman7-regular
+.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-ital
+ic.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-bo
+ld.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmmono10-reg
+ular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmsans12-r
+egular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman9
+-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroma
+n10-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lms
+ans10-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/hara
+noaji/HaranoAjiGothic-Medium.otf></usr/local/texlive/2024/texmf-dist/fonts/opent
+ype/public/lm/lmroman12-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/op
+entype/public/lm/lmroman17-regular.otf></usr/local/texlive/2024/texmf-dist/fonts
+/opentype/public/haranoaji/HaranoAjiMincho-Regular.otf></usr/local/texlive/2024/
+texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2024/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2024/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2024/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/local/texlive/2024/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/local/texlive/2024/texmf-dist
+/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2024/texmf-dist/fo
+nts/type1/public/amsfonts/cm/cmr5.pfb></usr/local/texlive/2024/texmf-dist/fonts/
+type1/public/amsfonts/cm/cmr7.pfb></usr/local/texlive/2024/texmf-dist/fonts/type
+1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/
+public/amsfonts/cm/cmsy7.pfb>
+Output written on main.pdf (8 pages, 215592 bytes).
 
-PDF statistics: 141 PDF objects out of 1000 (max. 8388607)
- 88 compressed objects within 1 object stream
+PDF statistics: 168 PDF objects out of 1000 (max. 8388607)
+ 104 compressed objects within 2 object streams
  0 named destinations out of 1000 (max. 131072)
  1 words of extra memory for PDF output out of 10000 (max. 100000000)
 

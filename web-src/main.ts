@@ -83,10 +83,10 @@ window.addEventListener("DOMContentLoaded", () => {
     quickInsertHint,
     quickInsertAccept,
     quickInsertCancel,
+    formatButton,
     buildButton,
     synctexButton,
     buildTarget,
-    autoBuildButton,
     issuesCount,
     issuesHint,
     issuesBar,
@@ -148,8 +148,8 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsRootAuto,
     settingsWorkspace,
     projectAlignEnvToggle,
-    editorAutoFormatToggle,
     editorAutoSynctexBuildToggle,
+    editorPdfWindowToggle,
     settingsCompileEngineSelect,
     settingsEnvRefresh,
     envRegistryInput,
@@ -1463,13 +1463,11 @@ window.addEventListener("DOMContentLoaded", () => {
   let detectedBlockSnapshot: DetectedBlockSnapshot | null = null;
   let pendingBlockApply: PendingBlockApply | null = null;
   let tableEditMode: "grid" | "raw" = "grid";
-  let autoBuildEnabled = false;
   let projectAlignEnvEnabled = true;
-  let autoFormatEnabled = true;
   let autoSynctexOnBuildEnabled = true;
+  let pdfViewerMode: "window" | "tab" = "window";
   let autoSaveTimer: number | null = null;
   let autoSavePending = false;
-  let autoBuildPending = false;
   let formatInFlight = false;
   let formatPending = false;
   let formatWarningShown = false;
@@ -3424,16 +3422,9 @@ window.addEventListener("DOMContentLoaded", () => {
     setText(buildTarget, target ?? "--");
   };
 
-  const autoBuildKey = () => {
-    if (!workspaceRootKey) {
-      return null;
-    }
-    return `tex180.autoBuild.${workspaceRootKey}`;
-  };
-
-  const editorAutoFormatKey = "tex180.editor.autoFormat";
   const editorAutoSynctexOnBuildKey = "tex180.editor.autoSynctexOnBuild";
   const editorAutoSynctexOnPdfOpenKey = "tex180.editor.autoSynctexOnPdfOpen";
+  const editorPdfViewerModeKey = "tex180.editor.pdfViewerMode";
 
   const projectAlignEnvKey = () => {
     if (!workspaceRootKey) {
@@ -3449,29 +3440,16 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  const updateEditorAutoFormatUI = () => {
-    if (editorAutoFormatToggle instanceof HTMLInputElement) {
-      editorAutoFormatToggle.checked = autoFormatEnabled;
-    }
-  };
-
   const updateEditorAutoSynctexBuildUI = () => {
     if (editorAutoSynctexBuildToggle instanceof HTMLInputElement) {
       editorAutoSynctexBuildToggle.checked = autoSynctexOnBuildEnabled;
     }
   };
 
-  const loadAutoBuildState = () => {
-    const key = autoBuildKey();
-    if (!key) {
-     /*
-    if (autoBuildEnabled) {
-      updateAutoBuildUI();
+  const updateEditorPdfViewerModeUI = () => {
+    if (editorPdfWindowToggle instanceof HTMLInputElement) {
+      editorPdfWindowToggle.checked = pdfViewerMode === "window";
     }
-    */  return;
-    }
-    autoBuildEnabled = localStorage.getItem(key) === "true";
-    // updateAutoBuildUI();
   };
 
   const loadProjectAlignEnvState = () => {
@@ -3483,11 +3461,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     projectAlignEnvEnabled = localStorage.getItem(key) !== "false";
     updateProjectAlignEnvUI();
-  };
-
-  const loadEditorAutoFormatState = () => {
-    autoFormatEnabled = localStorage.getItem(editorAutoFormatKey) !== "false";
-    updateEditorAutoFormatUI();
   };
 
   const loadEditorAutoSynctexBuildState = () => {
@@ -3508,12 +3481,14 @@ window.addEventListener("DOMContentLoaded", () => {
     updateEditorAutoSynctexBuildUI();
   };
 
-  const saveAutoBuildState = () => {
-    const key = autoBuildKey();
-    if (!key) {
-      return;
+  const loadEditorPdfViewerModeState = () => {
+    const stored = localStorage.getItem(editorPdfViewerModeKey);
+    if (stored === "tab" || stored === "window") {
+      pdfViewerMode = stored;
+    } else {
+      pdfViewerMode = "window";
     }
-    localStorage.setItem(key, autoBuildEnabled ? "true" : "false");
+    updateEditorPdfViewerModeUI();
   };
 
   const saveProjectAlignEnvState = () => {
@@ -3524,10 +3499,6 @@ window.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem(key, projectAlignEnvEnabled ? "true" : "false");
   };
 
-  const saveEditorAutoFormatState = () => {
-    localStorage.setItem(editorAutoFormatKey, autoFormatEnabled ? "true" : "false");
-  };
-
   const saveEditorAutoSynctexBuildState = () => {
     localStorage.setItem(
       editorAutoSynctexOnBuildKey,
@@ -3535,14 +3506,8 @@ window.addEventListener("DOMContentLoaded", () => {
     );
   };
 
-  const toggleAutoBuild = () => {
-    autoBuildEnabled = !autoBuildEnabled;
-    autoBuildPending = false;
-    if (autoBuildEnabled && isDirty && currentFilePath?.endsWith(".tex")) {
-      autoBuildPending = true;
-    }
-    saveAutoBuildState();
-    // updateAutoBuildUI();
+  const saveEditorPdfViewerModeState = () => {
+    localStorage.setItem(editorPdfViewerModeKey, pdfViewerMode);
   };
 
   const toggleProjectAlignEnv = () => {
@@ -3551,16 +3516,16 @@ window.addEventListener("DOMContentLoaded", () => {
     updateProjectAlignEnvUI();
   };
 
-  const toggleEditorAutoFormat = () => {
-    autoFormatEnabled = !autoFormatEnabled;
-    saveEditorAutoFormatState();
-    updateEditorAutoFormatUI();
-  };
-
   const toggleEditorAutoSynctexBuild = () => {
     autoSynctexOnBuildEnabled = !autoSynctexOnBuildEnabled;
     saveEditorAutoSynctexBuildState();
     updateEditorAutoSynctexBuildUI();
+  };
+
+  const setPdfViewerMode = (mode: "window" | "tab") => {
+    pdfViewerMode = mode;
+    saveEditorPdfViewerModeState();
+    updateEditorPdfViewerModeUI();
   };
 
   const openStateKey = () => {
@@ -3747,7 +3712,6 @@ window.addEventListener("DOMContentLoaded", () => {
         currentFilePath = null;
         currentFileSavedContent = null;
         isDirty = false;
-        autoBuildPending = false;
         viewer.hideViewer();
         clearEditorView();
         updateBreadcrumbs();
@@ -4260,7 +4224,6 @@ window.addEventListener("DOMContentLoaded", () => {
     currentFilePath = path;
     currentFileSavedContent = null;
     isDirty = false;
-    autoBuildPending = false;
     dirtyFiles.delete(path);
     selectedTreePath = path;
     selectedTreeType = "file";
@@ -4278,7 +4241,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (kind === "image") {
       viewer.showImageViewer(path, data, mimeType);
     } else {
-      viewer.showPdfViewer(data, mimeType);
+      viewer.showPdfViewer(path, data, mimeType);
     }
     updateBuildTarget();
     updateSynctexButtonState();
@@ -4290,7 +4253,6 @@ window.addEventListener("DOMContentLoaded", () => {
     currentFilePath = path;
     currentFileSavedContent = null;
     isDirty = false;
-    autoBuildPending = false;
     dirtyFiles.delete(path);
     selectedTreePath = path;
     selectedTreeType = "file";
@@ -4374,7 +4336,6 @@ window.addEventListener("DOMContentLoaded", () => {
       updateDirtyState(path, content, currentFileSavedContent ?? content);
     }
     restoreViewState(path);
-    autoBuildPending = false;
     selectedTreePath = path;
     selectedTreeType = "file";
     addOpenTab(path);
@@ -4495,8 +4456,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const content = editor.getValue();
     return new Promise<boolean>((resolve, reject) => {
       pendingSave = { path: currentFilePath as string, content, resolve, reject };
-      const shouldFormat =
-        autoFormatEnabled && currentFilePath?.toLowerCase().endsWith(".tex");
+      const shouldFormat = false;
       const ok = postToNative({
         type: "saveFile",
         path: currentFilePath,
@@ -4522,8 +4482,6 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  const AUTO_SAVE_DELAY_MS = 1200;
-
   const clearAutoSaveTimer = () => {
     if (autoSaveTimer) {
       window.clearTimeout(autoSaveTimer);
@@ -4547,25 +4505,12 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     clearAutoSaveTimer();
     autoSavePending = false;
-    autoSaveTimer = window.setTimeout(() => {
-      autoSaveTimer = null;
-      if (!currentFilePath || !isTextFilePath(currentFilePath) || !isDirty) {
-        return;
-      }
-      if (pendingSave) {
-        autoSavePending = true;
-        return;
-      }
-      saveCurrentFile().catch((message: string) => {
-        updateIssues(1, message, "error", [{ severity: "error", message }]);
-      });
-    }, AUTO_SAVE_DELAY_MS);
+    saveCurrentFile().catch((message: string) => {
+      updateIssues(1, message, "error", [{ severity: "error", message }]);
+    });
   };
 
   const requestFormatCurrentFile = (source: string) => {
-    if (!autoFormatEnabled) {
-      return;
-    }
     if (!currentFilePath || !currentFilePath.toLowerCase().endsWith(".tex")) {
       return;
     }
@@ -4963,6 +4908,18 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  const buildSidebarContextMenuItems = (): ContextMenuItem[] =>
+    primarySidebarTabs.map((key) => {
+      const visible = sidebarVisibleTabs.has(key);
+      const canHide = sidebarVisibleTabs.size > 1;
+      return {
+        type: "action",
+        label: `${visible ? "✓ " : ""}${tabConfig[key].label}`,
+        enabled: visible ? canHide : true,
+        action: () => toggleSidebarTabVisibility(key),
+      };
+    });
+
   const requestRevealInFinder = (path: string) => {
     postToNative({ type: "revealInFinder", path });
   };
@@ -5087,11 +5044,12 @@ window.addEventListener("DOMContentLoaded", () => {
       const isBusy = state === "building";
       buildButton.disabled = isBusy;
       buildButton.classList.toggle("is-busy", isBusy);
-      buildButton.textContent = isBusy ? "ビルド中..." : "ビルド";
+      buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
+      buildButton.setAttribute("aria-label", isBusy ? "ビルド中" : "ビルド");
     }
-    if (state === "success" && autoSynctexOnBuildEnabled) {
+    if (state === "success") {
       const targetPath = lastBuildMainFile ?? rootFilePath ?? currentFilePath;
-      if (targetPath && targetPath.endsWith(".tex")) {
+      if (autoSynctexOnBuildEnabled && targetPath && targetPath.endsWith(".tex")) {
         requestSynctexForward(targetPath, { fallbackToTop: true });
       }
     }
@@ -5141,16 +5099,20 @@ window.addEventListener("DOMContentLoaded", () => {
     
     const engine = localStorage.getItem("tex180.compileEngine") || "lualatex";
     
-    const payload: { type: string; mainFile?: string; format?: boolean; engine?: string } = { type: "build" };
+    const payload: {
+      type: string;
+      mainFile?: string;
+      format?: boolean;
+      engine?: string;
+      pdfViewerMode?: "window" | "tab";
+    } = { type: "build" };
     if (mainFile) {
       payload.mainFile = mainFile;
-    }
-    if (autoFormatEnabled) {
-      payload.format = true;
     }
     if (engine) {
       payload.engine = engine;
     }
+    payload.pdfViewerMode = pdfViewerMode;
     
     if (postToNative(payload)) {
       setBuildState("building");
@@ -5163,8 +5125,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!(synctexButton instanceof HTMLButtonElement)) {
       return;
     }
-    const enabled = !!currentFilePath && currentFilePath.endsWith(".tex");
-    synctexButton.disabled = !enabled;
+    synctexButton.disabled = true;
+    synctexButton.style.display = "none";
   };
 
   const requestSynctexForward = (
@@ -5189,33 +5151,37 @@ window.addEventListener("DOMContentLoaded", () => {
       line,
       column,
       fallbackToTop: options.fallbackToTop === true,
+      pdfViewerMode,
     });
   };
 
-  const handleSynctexForwardResult = (payload: { ok?: boolean; error?: string }) => {
-    if (!payload || payload.ok) {
+  const handleSynctexForwardResult = (payload: {
+    ok?: boolean;
+    error?: string;
+    page?: number;
+    x?: number;
+    y?: number;
+    pdfPath?: string | null;
+  }) => {
+    if (!payload) {
+      return;
+    }
+    if (payload.ok) {
+      if (pdfViewerMode === "tab" && typeof payload.page === "number") {
+        if (payload.pdfPath && viewer.getViewerMode() !== "pdf") {
+          requestOpenFile(payload.pdfPath);
+        }
+        viewer.syncPdf({
+          page: payload.page,
+          x: payload.x ?? 0,
+          y: payload.y ?? 0,
+        });
+      }
       return;
     }
     updateIssues(1, payload.error ?? "SyncTeX に失敗しました。", "error", [
       { severity: "error", message: payload.error ?? "SyncTeX に失敗しました。" },
     ]);
-  };
-
-  const handleSynctexReverseResult = (payload: {
-    ok?: boolean;
-    path?: string;
-    line?: number;
-    error?: string;
-  }) => {
-    if (!payload || !payload.ok) {
-      updateIssues(1, payload?.error ?? "SyncTeX に失敗しました。", "error", [
-        { severity: "error", message: payload?.error ?? "SyncTeX に失敗しました。" },
-      ]);
-      return;
-    }
-    if (payload.path && payload.line) {
-      jumpToFileLine(payload.path, payload.line);
-    }
   };
 
   const handleLauncherStatus = (payload: { isBusy?: boolean; message?: string }) => {
@@ -5314,10 +5280,8 @@ window.addEventListener("DOMContentLoaded", () => {
     gitEntries = [];
     gitMessage = "Gitステータスはここに表示します。";
     renderGitStatus();
-    autoBuildPending = false;
-    loadAutoBuildState();
-    loadEditorAutoFormatState();
     loadEditorAutoSynctexBuildState();
+    loadEditorPdfViewerModeState();
     loadProjectAlignEnvState();
     loadEnvRegistryState();
     handleEnvRegistryUpdate(false);
@@ -5478,10 +5442,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     updateBreadcrumbs();
     renderFileTree();
-    if (autoBuildEnabled && autoBuildPending && currentFilePath?.endsWith(".tex")) {
-      autoBuildPending = false;
-      startBuild();
-    }
   };
 
   const handleFormatResult = (payload: {
@@ -5501,6 +5461,11 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     } else if (typeof payload.content === "string") {
       applyFormattedContent(payload.path, payload.content, { updateSaved: false });
+      if (currentFilePath === payload.path && isDirty) {
+        saveCurrentFile().catch((message: string) => {
+          updateIssues(1, message, "error", [{ severity: "error", message }]);
+        });
+      }
     }
     if (formatPending) {
       formatPending = false;
@@ -5641,10 +5606,93 @@ window.addEventListener("DOMContentLoaded", () => {
     updateMathKeyboardVisibility();
   };
 
+  const primarySidebarTabs: TabKey[] = [
+    "files",
+    "outline",
+    "blocks",
+    "issues",
+    "git",
+    "project",
+  ];
+  let sidebarVisibleTabs = new Set<TabKey>(primarySidebarTabs);
+  const sidebarVisibilityKey = "tex180.sidebar.primaryTabs";
+
+  const saveSidebarVisibility = () => {
+    localStorage.setItem(sidebarVisibilityKey, JSON.stringify(Array.from(sidebarVisibleTabs)));
+  };
+
+  const loadSidebarVisibility = () => {
+    const stored = localStorage.getItem(sidebarVisibilityKey);
+    if (!stored) {
+      sidebarVisibleTabs = new Set(primarySidebarTabs);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        const next = new Set<TabKey>();
+        parsed.forEach((entry) => {
+          if (typeof entry === "string" && primarySidebarTabs.includes(entry as TabKey)) {
+            next.add(entry as TabKey);
+          }
+        });
+        if (next.size > 0) {
+          sidebarVisibleTabs = next;
+        }
+      }
+    } catch {
+      sidebarVisibleTabs = new Set(primarySidebarTabs);
+    }
+  };
+
+  const isSidebarTabVisible = (tabKey: TabKey) => {
+    if (!primarySidebarTabs.includes(tabKey)) {
+      return true;
+    }
+    return sidebarVisibleTabs.has(tabKey);
+  };
+
+  const applySidebarVisibility = () => {
+    tabs.forEach((tab) => {
+      const key = normalizeTabKey(tab.dataset.tab);
+      const visible = isSidebarTabVisible(key);
+      tab.classList.toggle("is-hidden", !visible);
+      tab.setAttribute("aria-hidden", visible ? "false" : "true");
+    });
+    sidebarPanels.forEach((panel) => {
+      const key = normalizeTabKey(panel.dataset.panel);
+      const visible = isSidebarTabVisible(key);
+      panel.classList.toggle("is-hidden", !visible);
+    });
+    if (!isSidebarTabVisible(activeTab)) {
+      const fallback =
+        primarySidebarTabs.find((key) => isSidebarTabVisible(key)) ?? "files";
+      setActiveTab(fallback);
+    }
+  };
+
+  const toggleSidebarTabVisibility = (tabKey: TabKey) => {
+    if (!primarySidebarTabs.includes(tabKey)) {
+      return;
+    }
+    if (sidebarVisibleTabs.has(tabKey)) {
+      if (sidebarVisibleTabs.size <= 1) {
+        return;
+      }
+      sidebarVisibleTabs.delete(tabKey);
+    } else {
+      sidebarVisibleTabs.add(tabKey);
+    }
+    saveSidebarVisibility();
+    applySidebarVisibility();
+  };
+
   const initialTab = normalizeTabKey(
     tabs.find((tab) => tab.classList.contains("is-active"))?.dataset.tab
   );
   setActiveTab(initialTab);
+  loadSidebarVisibility();
+  applySidebarVisibility();
   setWorkspaceLabel(workspaceName);
   updateBreadcrumbs();
   renderFileTree();
@@ -5669,8 +5717,8 @@ window.addEventListener("DOMContentLoaded", () => {
   renderRootSelector();
   updateBuildTarget();
   updateSynctexButtonState();
-  loadEditorAutoFormatState();
   loadEditorAutoSynctexBuildState();
+  loadEditorPdfViewerModeState();
   updateIssues(0, "ビルド結果はここに要約します。", "info", []);
   updateLauncherTemplate(launcherTemplate);
   if (!workspaceRootKey) {
@@ -5678,10 +5726,6 @@ window.addEventListener("DOMContentLoaded", () => {
     setLauncherStatus({ isBusy: false, message: null });
   }
   postToNative({ type: "ready" }, true);
-
-  if (autoBuildButton instanceof HTMLButtonElement) {
-    // updateAutoBuildUI();
-  }
 
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
@@ -5955,11 +5999,16 @@ window.addEventListener("DOMContentLoaded", () => {
        diffEditor = monacoApiAny.editor.createDiffEditor(container, {
         originalEditable: false,
         readOnly: true,
-        renderSideBySide: false,
+        renderSideBySide: true,
         renderIndicators: true,
         renderMarginRevertIcon: false,
         diffWordWrap: "off",
         wordWrap: "off",
+        hideUnchangedRegions: {
+          enabled: true,
+          contextLineCount: 0,
+          minimumLineCount: 1,
+        },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },
         lineNumbers: "on",
@@ -6471,15 +6520,15 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (editorAutoFormatToggle instanceof HTMLInputElement) {
-    editorAutoFormatToggle.addEventListener("change", () => {
-      toggleEditorAutoFormat();
-    });
-  }
-
   if (editorAutoSynctexBuildToggle instanceof HTMLInputElement) {
     editorAutoSynctexBuildToggle.addEventListener("change", () => {
       toggleEditorAutoSynctexBuild();
+    });
+  }
+
+  if (editorPdfWindowToggle instanceof HTMLInputElement) {
+    editorPdfWindowToggle.addEventListener("change", () => {
+      setPdfViewerMode(editorPdfWindowToggle.checked ? "window" : "tab");
     });
   }
 
@@ -6646,6 +6695,17 @@ window.addEventListener("DOMContentLoaded", () => {
     contextMenu.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       event.stopPropagation();
+    });
+  }
+
+  if (sidebar instanceof HTMLElement) {
+    sidebar.addEventListener("contextmenu", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest(".tab-group.secondary")) {
+        return;
+      }
+      event.preventDefault();
+      openContextMenu(event.clientX, event.clientY, buildSidebarContextMenuItems());
     });
   }
 
@@ -6818,12 +6878,9 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (synctexButton instanceof HTMLButtonElement) {
-    synctexButton.addEventListener("click", () => {
-      if (synctexButton.disabled) {
-        return;
-      }
-      requestSynctexForward();
+  if (formatButton instanceof HTMLButtonElement) {
+    formatButton.addEventListener("click", () => {
+      requestFormatCurrentFile("manual");
     });
   }
 
@@ -6970,11 +7027,6 @@ window.addEventListener("DOMContentLoaded", () => {
         break;
       case "synctex:forwardResult":
         handleSynctexForwardResult(message.payload as { ok?: boolean; error?: string });
-        break;
-      case "synctex:reverseResult":
-        handleSynctexReverseResult(
-          message.payload as { ok?: boolean; path?: string; line?: number; error?: string }
-        );
         break;
       case "renameResult":
         bridgeWindow.tex180RenameResult?.(message.payload as {
@@ -7207,11 +7259,6 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         const currentValue = editor.getValue();
         updateDirtyState(currentFilePath, currentValue);
-        if (autoBuildEnabled && currentFilePath.endsWith(".tex")) {
-          autoBuildPending = isDirty;
-        } else if (!isDirty) {
-          autoBuildPending = false;
-        }
         updateBreadcrumbs();
         renderFileTree();
         scheduleAutoSave();

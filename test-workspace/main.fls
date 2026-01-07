@@ -226,6 +226,12 @@ INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/
 INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatexja/extra_lmroman10-bold.luc
 INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman10-italic.luc
 INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatexja/extra_lmroman10-italic.luc
+INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman7-regular.luc
+INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatexja/extra_lmroman7-regular.luc
+INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman6-regular.luc
+INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatexja/extra_lmroman6-regular.luc
+INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman5-regular.luc
+INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatexja/extra_lmroman5-regular.luc
 INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman7-italic.luc
 INPUT /Users/wedd/Library/texlive/2024/texmf-var/luatexja/extra_lmroman7-italic.luc
 INPUT ./main.aux

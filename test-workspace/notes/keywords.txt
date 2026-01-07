@@ -1,4 +1,0 @@
-SEARCH_KEYWORD_ALPHA
-SEARCH_KEYWORD_BRAVO
-This file exists to test search and multi-file tabs.
-fsadf

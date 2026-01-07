@@ -12,6 +12,7 @@ export const TEXT_FILE_EXTENSIONS = new Set([
   "ins",
   "dtx",
   "ltx",
+  "txt",
   "aux",
   "bbl",
   "blg",

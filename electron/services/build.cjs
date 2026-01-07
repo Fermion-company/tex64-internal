@@ -82,14 +82,8 @@ class BuildService {
       engineFlag = "-pdfdvi"; // Basic support for uplatex via DVI
     }
 
-    const jobName = path.basename(mainFileName, path.extname(mainFileName));
-    const synctexGzPath = path.join(rootPath, `${jobName}.synctex.gz`);
-    const synctexPlainPath = path.join(rootPath, `${jobName}.synctex`);
-    const needsSynctex = !fs.existsSync(synctexGzPath) && !fs.existsSync(synctexPlainPath);
     const args = [];
-    if (needsSynctex) {
-      args.push("-g");
-    }
+    args.push("-g");
     args.push(
       engineFlag,
       "-synctex=1",

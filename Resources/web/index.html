@@ -431,24 +431,24 @@
                 <div class="settings-group-title">エディタ</div>
                 <div class="settings-item">
                   <div class="settings-label">
-                    <span class="settings-title">自動整形</span>
-                    <span class="settings-desc">保存時にlatexindentを実行します。</span>
-                  </div>
-                  <div class="settings-control">
-                    <label class="settings-switch" for="editor-auto-format">
-                      <input class="settings-switch-input" id="editor-auto-format" type="checkbox">
-                      <span class="settings-switch-track" aria-hidden="true"></span>
-                    </label>
-                  </div>
-                </div>
-                <div class="settings-item">
-                  <div class="settings-label">
                     <span class="settings-title">ビルド時SyncTeX</span>
                     <span class="settings-desc">ビルド成功時に自動でPDFへジャンプします。</span>
                   </div>
                   <div class="settings-control">
                     <label class="settings-switch" for="editor-auto-synctex-build">
                       <input class="settings-switch-input" id="editor-auto-synctex-build" type="checkbox">
+                      <span class="settings-switch-track" aria-hidden="true"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="settings-item">
+                  <div class="settings-label">
+                    <span class="settings-title">PDF別ウィンドウ</span>
+                    <span class="settings-desc">ビルド後のPDFを別ウィンドウで開きます。</span>
+                  </div>
+                  <div class="settings-control">
+                    <label class="settings-switch" for="editor-pdf-window">
+                      <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
                       <span class="settings-switch-track" aria-hidden="true"></span>
                     </label>
                   </div>
@@ -517,14 +517,16 @@
           <div class="editor-tabs" id="editor-tabs">
             <div class="editor-tabs-list" id="editor-tabs-list"></div>
             <div class="editor-tab-actions">
-              <div class="build-meta">
-                <span class="build-meta-label">BUILD</span>
-                <span class="build-target" id="build-target">--</span>
-              </div>
+              <button id="format-button" type="button" aria-label="整形" title="整形">
+                整形
+              </button>
               <button id="build-button" type="button" aria-label="ビルド" title="ビルド (Cmd+B)">
-                <svg viewBox="0 0 24 24" width="24" height="24">
-                  <path d="M8 5v14l11-7z"></path>
-                </svg>
+                <span class="build-button-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path d="M8 5v14l11-7z"></path>
+                  </svg>
+                </span>
+                <span class="build-button-spinner" aria-hidden="true"></span>
               </button>
             </div>
           </div>

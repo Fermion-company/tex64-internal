@@ -6,8 +6,47 @@ import {
   PDFFindController,
 } from "./pdfjs/pdf_viewer.mjs";
 
+const createParentBridge = () => {
+  if (!window.parent || window.parent === window) {
+    return null;
+  }
+  const handlers = new Set();
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) {
+      return;
+    }
+    const data = event.data;
+    if (!data || data.source !== "tex180-pdf") {
+      return;
+    }
+    handlers.forEach((handler) => {
+      try {
+        handler(data.payload);
+      } catch {
+        // ignore handler errors
+      }
+    });
+  });
+  return {
+    postMessage: (payload) => {
+      window.parent.postMessage({ source: "tex180-pdf", payload }, "*");
+    },
+    onMessage: (handler) => {
+      if (typeof handler !== "function") {
+        return () => {};
+      }
+      handlers.add(handler);
+      return () => {
+        handlers.delete(handler);
+      };
+    },
+  };
+};
+
+const resolveBridge = () => window.tex180Pdf || createParentBridge();
+
 const initPdfViewer = () => {
-  const bridge = window.tex180Pdf;
+  const bridge = resolveBridge();
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
   const pageInput = document.getElementById("pdf-page-input");
@@ -27,10 +66,8 @@ const initPdfViewer = () => {
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
-  const bodyEl = document.getElementById("pdf-body");
   const scrollEl = document.getElementById("pdf-scroll");
   const pagesEl = document.getElementById("pdf-pages");
-  const jumpButton = document.getElementById("pdf-jump-button");
 
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     "./pdfjs/pdf.worker.min.mjs",
@@ -41,7 +78,8 @@ const initPdfViewer = () => {
   const MAX_SCALE = 3;
   const WHEEL_ZOOM_SENSITIVITY = 0.008;
   const ZOOM_DRAW_DELAY = 160;
-
+  const CLICK_BIAS_X = 0;
+  const CLICK_BIAS_Y = 0;
   const state = {
     doc: null,
     url: null,
@@ -51,8 +89,8 @@ const initPdfViewer = () => {
     scaleMode: "fit-width",
     rotation: 0,
     pendingSync: null,
-    pendingReverse: null,
     activeMarker: null,
+    lastSync: null,
   };
 
   const eventBus = new EventBus();
@@ -69,6 +107,10 @@ const initPdfViewer = () => {
     useOnlyCssZoom: true,
   });
   linkService.setViewer(pdfViewer);
+  window.__tex180PdfViewer = {
+    pdfViewer,
+    state,
+  };
 
   const setStatus = (text) => {
     if (statusEl) statusEl.textContent = text;
@@ -158,30 +200,6 @@ const initPdfViewer = () => {
     }
   };
 
-  const clearJumpTarget = () => {
-    state.pendingReverse = null;
-    if (jumpButton) {
-      jumpButton.classList.remove("is-visible");
-    }
-  };
-
-  const showJumpButton = (clientX, clientY) => {
-    if (!(jumpButton && bodyEl)) return;
-    jumpButton.classList.add("is-visible");
-    const bounds = bodyEl.getBoundingClientRect();
-    const buttonWidth = jumpButton.offsetWidth || 0;
-    const buttonHeight = jumpButton.offsetHeight || 0;
-    const padding = 8;
-    const offset = 12;
-    let left = clientX - bounds.left - buttonWidth / 2;
-    let top = clientY - bounds.top - buttonHeight - offset;
-    const maxLeft = Math.max(padding, bounds.width - buttonWidth - padding);
-    const maxTop = Math.max(padding, bounds.height - buttonHeight - padding);
-    left = Math.min(Math.max(padding, left), maxLeft);
-    top = Math.min(Math.max(padding, top), maxTop);
-    jumpButton.style.left = `${left}px`;
-    jumpButton.style.top = `${top}px`;
-  };
 
   const applySync = (payload) => {
     const pageIndex = payload.page - 1;
@@ -190,22 +208,15 @@ const initPdfViewer = () => {
       state.pendingSync = payload;
       return;
     }
+    state.lastSync = payload;
+    clearSyncMarker();
     const [viewX, viewY] = pageView.viewport.convertToViewportPoint(
       payload.x,
       payload.y
     );
-    let marker = pageView.div.querySelector(".pdf-sync-marker");
-    if (!marker) {
-      marker = document.createElement("div");
-      marker.className = "pdf-sync-marker";
-      pageView.div.appendChild(marker);
-    }
-    state.activeMarker = marker;
-    marker.style.left = `${viewX}px`;
-    marker.style.top = `${viewY}px`;
     scrollEl.scrollTo({
       top: pageView.div.offsetTop + viewY - scrollEl.clientHeight / 2,
-      behavior: "smooth",
+      behavior: "auto",
     });
   };
 
@@ -213,7 +224,6 @@ const initPdfViewer = () => {
     state.url = url;
     state.path = path;
     state.pendingSync = null;
-    clearJumpTarget();
     clearSyncMarker();
     setStatus("読み込み中...");
     try {
@@ -379,50 +389,6 @@ const initPdfViewer = () => {
     scrollEl.addEventListener("touchcancel", clearTouchPinch);
   }
 
-  if (pagesEl) {
-    pagesEl.addEventListener("click", (event) => {
-      if (!bridge || !state.path) return;
-      const target = event.target.closest(".page");
-      if (!target) {
-        clearJumpTarget();
-        return;
-      }
-      const pageNumber = Number.parseInt(target.dataset.pageNumber, 10);
-      if (!Number.isFinite(pageNumber)) return;
-      const pageView = pdfViewer.getPageView(pageNumber - 1);
-      if (!pageView) return;
-      const rect = pageView.div.getBoundingClientRect();
-      const borderX = pageView.div.clientLeft || 0;
-      const borderY = pageView.div.clientTop || 0;
-      let x = event.clientX - rect.left - borderX;
-      let y = event.clientY - rect.top - borderY;
-      x = Math.max(0, x);
-      y = Math.max(0, y);
-      const [pdfX, pdfY] = pageView.viewport.convertToPdfPoint(x, y);
-      state.pendingReverse = {
-        page: pageNumber,
-        x: pdfX,
-        y: pdfY,
-        pdfPath: state.path,
-      };
-      showJumpButton(event.clientX, event.clientY);
-    });
-  }
-
-  if (jumpButton) {
-    jumpButton.addEventListener("click", () => {
-      if (!bridge || !state.pendingReverse) {
-        clearJumpTarget();
-        return;
-      }
-      bridge.postMessage({
-        type: "synctex:reverse",
-        ...state.pendingReverse,
-      });
-      clearJumpTarget();
-    });
-  }
-
   if (pageInput) {
     pageInput.addEventListener("change", () => {
       const value = Number.parseInt(pageInput.value, 10);
@@ -526,11 +492,7 @@ const initPdfViewer = () => {
     });
   }
 
-  if (bridge) {
-    window.__tex180PdfViewer = {
-      pdfViewer,
-      state,
-    };
+  if (bridge && typeof bridge.onMessage === "function") {
     bridge.onMessage((message) => {
       if (!message || typeof message !== "object") return;
       if (message.type === "open") {
@@ -543,12 +505,14 @@ const initPdfViewer = () => {
         applySync(message.payload);
       }
     });
-    if (document.readyState === "loading") {
-      window.addEventListener("DOMContentLoaded", () => {
+    if (typeof bridge.postMessage === "function") {
+      if (document.readyState === "loading") {
+        window.addEventListener("DOMContentLoaded", () => {
+          bridge.postMessage({ type: "ready" });
+        });
+      } else {
         bridge.postMessage({ type: "ready" });
-      });
-    } else {
-      bridge.postMessage({ type: "ready" });
+      }
     }
   }
 };

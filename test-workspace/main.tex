@@ -143,6 +143,144 @@ LaTeXは数式の組版に優れています。ここでは様々な数式や表
   \end{tabular}
 \end{table}
 
+\section{文章要素の例}
+
+\subsection{箇条書き}
+\begin{itemize}
+  \item 重要なポイント
+  \item 補足事項
+  \item 注意点
+\end{itemize}
+
+\subsection{番号付きリスト}
+\begin{enumerate}
+  \item 手順の確認
+  \item 計算の実行
+  \item 結果の整理
+\end{enumerate}
+
+\subsection{説明リスト}
+\begin{description}
+  \item[定義] 用語の意味をまとめる。
+  \item[手順] 作業の流れを整理する。
+  \item[注意] 見落としやすい点を強調する。
+\end{description}
+
+\subsection{引用と脚注}
+\begin{quote}
+  短い引用文をここに示します。文献の抜粋やメモなどを想定します。
+\end{quote}
+本文中で脚注\footnote{脚注の例です。詳細な説明を補足します。}を追加します。
+
+\subsection{コード表示}
+\begin{verbatim}
+for i in range(3):
+    print(i)
+\end{verbatim}
+
+\subsection{URLと図}
+URL の例: \url{https://example.com/tex180}
+\begin{figure}[htbp]
+  \centering
+  \fbox{\rule{0pt}{120pt}\rule{180pt}{0pt}}
+  \caption{ダミー図の例}
+\end{figure}
+
+\section{SyncTeXテスト用サンプル}
+\subsection{見出しと段落}
+% TEST: section-text
+\subsubsection{小見出し}
+これはSyncTeXのテスト用に追加したテキストです。
+% TEST: paragraph
+\paragraph{段落見出し}
+段落のテキストと短い説明文を入れます。
+% TEST: subparagraph
+\subparagraph{小段落}
+小段落のサンプル文です。
+
+\subsection{数式系}
+% TEST: inline-math
+本文中の数式: $E = mc^2$, $\int_0^1 x^2 dx$。
+% TEST: equation
+\begin{equation}
+  \nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}
+\end{equation}
+% TEST: alignat
+\begin{alignat}{2}
+  f(x) &= x^2 + 1 &\quad& \text{(多項式)} \\
+  g(x) &= \sin x   &\quad& \text{(三角関数)}
+\end{alignat}
+% TEST: gather
+\begin{gather}
+  a^2 + b^2 = c^2 \\
+  e^{i\pi} + 1 = 0
+\end{gather}
+% TEST: multline
+\begin{multline}
+  (x + y + z)^3 = x^3 + y^3 + z^3 + 3x^2y + 3x^2z + 3y^2x + 3y^2z \\
+  + 3z^2x + 3z^2y + 6xyz
+\end{multline}
+% TEST: cases
+\begin{equation}
+  f(x) = \begin{cases}
+    x^2 & (x \ge 0) \\
+    -x  & (x < 0)
+  \end{cases}
+\end{equation}
+% TEST: array
+\[
+  \begin{array}{ccc}
+    1 & 0 & 0 \\
+    0 & 1 & 0 \\
+    0 & 0 & 1
+  \end{array}
+\]
+
+\subsection{リストと引用}
+% TEST: itemize
+\begin{itemize}
+  \item 箇条書きの項目
+  \item 追加の項目
+\end{itemize}
+% TEST: enumerate
+\begin{enumerate}
+  \item 手順1
+  \item 手順2
+\end{enumerate}
+% TEST: description
+\begin{description}
+  \item[用語] 説明を入れます。
+  \item[補足] 追加情報を入れます。
+\end{description}
+% TEST: quote
+\begin{quote}
+  引用テキストのサンプルです。
+\end{quote}
+% TEST: fallback
+% このコメント行はSyncTeXのフォールバック確認用です。
+% TEST: verbatim
+\begin{verbatim}
+def greet():
+    print("hello")
+\end{verbatim}
+
+\subsection{図表}
+% TEST: table
+\begin{table}[htbp]
+  \centering
+  \caption{追加サンプル表}
+  \begin{tabular}{lcr}
+    左 & 中央 & 右 \\
+    A & B & C \\
+  \end{tabular}
+\end{table}
+% TEST: figure
+\begin{figure}[htbp]
+  \centering
+  \fbox{\rule{0pt}{80pt}\rule{120pt}{0pt}}
+  \caption{追加サンプル図}
+\end{figure}
+
 \section{参考文献}
 \begin{thebibliography}{9}
   \bibitem{lamport} Leslie Lamport. \textit{\LaTeX: A Document Preparation System}. Addison-Wesley, 1994.
