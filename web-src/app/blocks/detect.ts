@@ -96,6 +96,53 @@ export const resolveMathCellAtOffset = (inner: string, offset: number): MathCell
   };
 };
 
+export const resolveMathCellForRange = (
+  inner: string,
+  startOffset: number,
+  endOffset: number
+): MathCellRange => {
+  const ranges = splitMathCells(inner);
+  if (ranges.length === 0) {
+    return { start: 0, end: inner.length, leading: "", trailing: "" };
+  }
+  const normalizedStart = Math.max(0, Math.min(inner.length, Math.min(startOffset, endOffset)));
+  const normalizedEnd = Math.max(0, Math.min(inner.length, Math.max(startOffset, endOffset)));
+  if (normalizedStart === normalizedEnd) {
+    return resolveMathCellAtOffset(inner, normalizedStart);
+  }
+  let selected = ranges[0];
+  let bestOverlap = 0;
+  for (const range of ranges) {
+    const overlapStart = Math.max(range.start, normalizedStart);
+    const overlapEnd = Math.min(range.end, normalizedEnd);
+    const overlap = Math.max(0, overlapEnd - overlapStart);
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      selected = range;
+      continue;
+    }
+    if (overlap === bestOverlap) {
+      const currentLength = selected.end - selected.start;
+      const nextLength = range.end - range.start;
+      if (nextLength < currentLength) {
+        selected = range;
+      }
+    }
+  }
+  if (bestOverlap === 0) {
+    return resolveMathCellAtOffset(inner, normalizedStart);
+  }
+  const raw = inner.slice(selected.start, selected.end);
+  const leading = raw.match(/^\s*/)?.[0] ?? "";
+  const trailing = raw.match(/\s*$/)?.[0] ?? "";
+  return {
+    start: selected.start,
+    end: selected.end,
+    leading,
+    trailing,
+  };
+};
+
 type DetectorDeps = {
   isEnvDisabled: (name: string) => boolean;
   isTableEnvName: (name: string) => boolean;
@@ -310,5 +357,58 @@ export const createLatexBlockDetector = (deps: DetectorDeps) => {
     return candidates[0];
   };
 
-  return { detectLatexBlockAtOffset };
+  const detectLatexBlockInRange = (
+    text: string,
+    startOffset: number,
+    endOffset: number
+  ): DetectedLatexBlock | null => {
+    const normalizedStart = Math.max(0, Math.min(startOffset, endOffset));
+    const normalizedEnd = Math.max(normalizedStart, Math.max(startOffset, endOffset));
+    if (normalizedStart === normalizedEnd) {
+      return detectLatexBlockAtOffset(text, normalizedStart);
+    }
+    const candidates = collectLatexBlocks(text).filter(
+      (candidate) => candidate.end > normalizedStart && candidate.start < normalizedEnd
+    );
+    if (candidates.length === 0) {
+      return null;
+    }
+    const containing = candidates.filter(
+      (candidate) =>
+        candidate.start <= normalizedStart && candidate.end >= normalizedEnd
+    );
+    if (containing.length > 0) {
+      containing.sort((a, b) => {
+        const sizeDiff = (a.end - a.start) - (b.end - b.start);
+        if (sizeDiff !== 0) {
+          return sizeDiff;
+        }
+        if (a.type !== b.type) {
+          return a.type === "math" ? -1 : 1;
+        }
+        return a.start - b.start;
+      });
+      return containing[0];
+    }
+    candidates.sort((a, b) => {
+      const overlapA =
+        Math.min(a.end, normalizedEnd) - Math.max(a.start, normalizedStart);
+      const overlapB =
+        Math.min(b.end, normalizedEnd) - Math.max(b.start, normalizedStart);
+      if (overlapA !== overlapB) {
+        return overlapB - overlapA;
+      }
+      const sizeDiff = (a.end - a.start) - (b.end - b.start);
+      if (sizeDiff !== 0) {
+        return sizeDiff;
+      }
+      if (a.type !== b.type) {
+        return a.type === "math" ? -1 : 1;
+      }
+      return a.start - b.start;
+    });
+    return candidates[0];
+  };
+
+  return { detectLatexBlockAtOffset, detectLatexBlockInRange };
 };

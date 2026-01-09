@@ -84,6 +84,7 @@ export const getDomRefs = () => ({
   blockFormatOptions: Array.from(
     document.querySelectorAll<HTMLButtonElement>(".block-format-option")
   ),
+  blockModeToggle: document.getElementById("block-mode-toggle"),
   blockInsertButton: document.getElementById("block-insert-button"),
   blocksPanelBody: document.querySelector<HTMLElement>(".blocks-panel"),
   diffModal: document.getElementById("diff-modal"),
@@ -106,6 +107,11 @@ export const getDomRefs = () => ({
   gitStatus: document.getElementById("git-status"),
   gitRefreshButton: document.getElementById("git-refresh"),
   gitSummaryText: document.getElementById("git-summary-text"),
+  gitBranchName: document.getElementById("git-branch-name"),
+  gitBranchSync: document.getElementById("git-branch-sync"),
+  gitRemoteName: document.getElementById("git-remote-name"),
+  gitChangesCount: document.getElementById("git-changes-count"),
+  gitChangesSummary: document.getElementById("git-changes-summary"),
   gitGuide: document.getElementById("git-guide"),
   gitGuideText: document.getElementById("git-guide-text"),
   gitInitRow: document.getElementById("git-init-row"),

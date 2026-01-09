@@ -312,7 +312,7 @@
                           type="button"
                           aria-haspopup="listbox"
                           aria-expanded="false"
-                        >インライン</button>
+                        >INL</button>
                         <div
                           class="block-format-menu"
                           id="block-format-menu"
@@ -326,7 +326,18 @@
                           <button class="block-format-option" type="button" data-format="none">囲まない</button>
                         </div>
                       </div>
-                      <button class="panel-button" id="block-insert-button" type="button">挿入</button>
+                      <button
+                        class="panel-button block-mode-toggle"
+                        id="block-mode-toggle"
+                        type="button"
+                        data-block-mode="insert"
+                        aria-pressed="false"
+                        aria-label="挿入モード"
+                      >
+                        <span class="block-mode-toggle-label block-mode-toggle-label--insert" aria-hidden="true">挿入</span>
+                        <span class="block-mode-toggle-label block-mode-toggle-label--edit" aria-hidden="true">編集</span>
+                      </button>
+                      <button class="panel-button" id="block-insert-button" type="button">確定</button>
                     </div>
                   </div>
                 </div>
@@ -369,78 +380,80 @@
           </div>
           <div class="panel no-header" data-panel="git">
             <div class="panel-header">
-              <span class="panel-title">履歴</span>
+              <span class="panel-title">ソース管理</span>
             </div>
             <div class="panel-body git-panel">
-              <div class="git-summary">
-                <div class="git-summary-title">バージョン管理</div>
+              <div class="git-header">
+                <div class="git-repo-row">
+                  <div class="git-branch">
+                    <span class="git-branch-label">ブランチ</span>
+                    <span class="git-branch-name" id="git-branch-name">-</span>
+                    <span class="git-branch-sync" id="git-branch-sync">—</span>
+                  </div>
+                  <div class="git-remote">
+                    <span class="git-remote-label">同期先</span>
+                    <span class="git-remote-name" id="git-remote-name">未設定</span>
+                  </div>
+                </div>
                 <div class="git-summary-text" id="git-summary-text">
                   履歴の状態はここに表示します。
                 </div>
               </div>
-              <div class="git-guide" id="git-guide" hidden>
-                <div class="git-guide-title">同期のヒント</div>
-                <div class="git-guide-text" id="git-guide-text"></div>
-              </div>
               <div class="git-action-row" id="git-init-row">
                 <button class="panel-button" id="git-init" type="button">履歴管理を開始</button>
               </div>
-              <div class="git-section" id="git-commit-section">
-                <div class="git-section-header">
-                  <span class="git-section-title">履歴に保存</span>
-                  <span class="git-section-desc">区切りを残します。</span>
-                </div>
-                <div class="git-input-row">
-                  <input
-                    class="settings-input"
-                    id="git-commit-message"
-                    type="text"
-                    aria-label="履歴メッセージ"
-                    placeholder="例: 図2を追加"
-                  >
-                  <button class="panel-button" id="git-commit-button" type="button">保存</button>
-                </div>
+              <div class="git-section git-commit-section" id="git-commit-section">
+                <input
+                  class="settings-input"
+                  id="git-commit-message"
+                  type="text"
+                  aria-label="コミットメッセージ"
+                  placeholder="メッセージ (⌘Enter でコミット)"
+                >
+                <button class="panel-button git-primary-button" id="git-commit-button" type="button">コミット</button>
               </div>
-              <div class="git-section" id="git-history-section">
+              <div class="git-section git-status-wrap">
                 <div class="git-section-header">
-                  <span class="git-section-title">履歴</span>
-                  <span class="git-section-desc">この時点に戻せます。</span>
+                  <div class="git-section-title-wrap">
+                    <span class="git-section-title">変更</span>
+                    <span class="git-section-pill" id="git-changes-count">0</span>
+                  </div>
+                  <button class="panel-button ghost" id="git-refresh" type="button">更新</button>
                 </div>
-                <div class="git-history" id="git-history"></div>
+                <div class="git-changes-summary" id="git-changes-summary"></div>
+                <div class="git-status" id="git-status"></div>
               </div>
               <div class="git-section" id="git-sync-section">
                 <div class="git-section-header">
                   <span class="git-section-title">同期</span>
-                  <span class="git-section-desc" id="git-sync-text">他の場所と同期します。</span>
+                  <span class="git-section-status" id="git-sync-text">他の場所と同期します。</span>
                 </div>
                 <div class="git-action-row">
                   <button class="panel-button ghost" id="git-pull" type="button">受け取る</button>
                   <button class="panel-button" id="git-push" type="button">送る</button>
                 </div>
-              </div>
-              <div class="git-section" id="git-remote-section">
-                <div class="git-section-header">
-                  <span class="git-section-title">同期先</span>
-                  <span class="git-section-desc">URLを入力して保存します。</span>
+                <div class="git-guide" id="git-guide" hidden>
+                  <div class="git-guide-title">同期のヒント</div>
+                  <div class="git-guide-text" id="git-guide-text"></div>
                 </div>
-                <div class="git-input-row">
-                  <input
-                    class="settings-input"
-                    id="git-remote-url"
-                    type="text"
-                    aria-label="同期先URL"
-                    placeholder="https://..."
-                  >
-                  <button class="panel-button ghost" id="git-remote-save" type="button">保存</button>
-                </div>
+                <details class="git-details" id="git-remote-section">
+                  <summary class="git-details-summary">同期先</summary>
+                  <div class="git-input-row">
+                    <input
+                      class="settings-input"
+                      id="git-remote-url"
+                      type="text"
+                      aria-label="同期先URL"
+                      placeholder="https://..."
+                    >
+                    <button class="panel-button ghost" id="git-remote-save" type="button">保存</button>
+                  </div>
+                </details>
               </div>
-              <div class="git-section git-status-wrap">
-                <div class="git-section-header">
-                  <span class="git-section-title">変更一覧</span>
-                  <button class="panel-button ghost" id="git-refresh" type="button">更新</button>
-                </div>
-                <div class="git-status" id="git-status"></div>
-              </div>
+              <details class="git-section git-details" id="git-history-section" open>
+                <summary class="git-details-summary">履歴</summary>
+                <div class="git-history" id="git-history"></div>
+              </details>
             </div>
           </div>
           <div class="panel no-header" data-panel="project">

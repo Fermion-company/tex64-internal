@@ -65,12 +65,16 @@ export const initBlockInputUi = (
   const MATH_INSERT_INLINE_KEY = "tex64.math-insert-inline-wrap";
   const MATH_INSERT_DISPLAY_KEY = "tex64.math-insert-display-wrap";
   const MATH_INSERT_LEGACY_KEY = "tex64.math-insert-format";
-  const MATH_INSERT_MODES: Array<{ value: MathInsertMode; label: string }> = [
-    { value: "inline", label: "インライン" },
-    { value: "display", label: "別行" },
-    { value: "align", label: "align*" },
-    { value: "gather", label: "gather*" },
-    { value: "none", label: "囲まない" },
+  const MATH_INSERT_MODES: Array<{
+    value: MathInsertMode;
+    label: string;
+    shortLabel: string;
+  }> = [
+    { value: "inline", label: "インライン", shortLabel: "INL" },
+    { value: "display", label: "別行", shortLabel: "DSP" },
+    { value: "align", label: "align*", shortLabel: "ALN" },
+    { value: "gather", label: "gather*", shortLabel: "GTH" },
+    { value: "none", label: "囲まない", shortLabel: "RAW" },
   ];
 
   let activeBlockType: BlockType = "math";
@@ -89,6 +93,9 @@ export const initBlockInputUi = (
   const getFormatLabel = (value: MathInsertMode) =>
     MATH_INSERT_MODES.find((entry) => entry.value === value)?.label ?? value;
 
+  const getFormatShortLabel = (value: MathInsertMode) =>
+    MATH_INSERT_MODES.find((entry) => entry.value === value)?.shortLabel ?? value;
+
   const setFormatMenuOpen = (open: boolean) => {
     formatMenuOpen = open;
     if (blockFormatMenu instanceof HTMLElement) {
@@ -103,7 +110,10 @@ export const initBlockInputUi = (
   const setMathInsertMode = (value: MathInsertMode) => {
     mathInsertMode = value;
     if (blockFormatButton instanceof HTMLElement) {
-      blockFormatButton.textContent = getFormatLabel(value);
+      const fullLabel = getFormatLabel(value);
+      blockFormatButton.textContent = getFormatShortLabel(value);
+      blockFormatButton.setAttribute("title", fullLabel);
+      blockFormatButton.setAttribute("aria-label", `挿入形式: ${fullLabel}`);
     }
     if (Array.isArray(blockFormatOptions)) {
       blockFormatOptions.forEach((option) => {
@@ -378,6 +388,29 @@ export const initBlockInputUi = (
   };
 
   const attachMathFieldEvents = (mathfield: HTMLElement) => {
+    const closeMathFieldMenu = () => {
+      const internalMenu = (mathfield as { _mathfield?: { menu?: any } })._mathfield?.menu;
+      if (internalMenu && typeof internalMenu.hide === "function") {
+        if (internalMenu.state && internalMenu.state !== "closed") {
+          internalMenu.hide();
+          return;
+        }
+        const element = internalMenu.element as HTMLElement | undefined;
+        if (element?.isConnected) {
+          internalMenu.hide();
+          return;
+        }
+      }
+      const executeCommand = (mathfield as { executeCommand?: (command: string) => void })
+        .executeCommand;
+      if (typeof executeCommand === "function") {
+        const menuElement = document.querySelector("menu.ui-menu-container");
+        if (menuElement) {
+          executeCommand.call(mathfield, "toggleContextMenu");
+        }
+      }
+    };
+
     const syncMathFieldValue = () => {
       currentMathValue = readMathFieldValue(
         mathfield as { getValue?: (format?: string) => unknown; value?: unknown }
@@ -476,13 +509,13 @@ export const initBlockInputUi = (
         return `$${trimmed}$`;
       case "display":
         if (mathDisplayWrap === "display-dollar") {
-          return ["$$", trimmed, "$$", ""].join("\n");
+          return `$$${trimmed}$$`;
         }
-        return ["\\[", trimmed, "\\]", ""].join("\n");
+        return `\\[${trimmed}\\]`;
       case "align":
-        return ["\\begin{align*}", trimmed, "\\end{align*}", ""].join("\n");
+        return ["\\begin{align*}", trimmed, "\\end{align*}"].join("\n");
       case "gather":
-        return ["\\begin{gather*}", trimmed, "\\end{gather*}", ""].join("\n");
+        return ["\\begin{gather*}", trimmed, "\\end{gather*}"].join("\n");
       case "none":
         return trimmed;
       default:

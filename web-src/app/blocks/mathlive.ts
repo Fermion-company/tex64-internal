@@ -7,6 +7,17 @@ type MathLiveDeps = {
   onEnsureMathLiveReady: () => void;
 };
 
+type MenuItemLike = {
+  id?: unknown;
+  label?: unknown;
+  ariaLabel?: unknown;
+  tooltip?: unknown;
+  type?: unknown;
+  submenu?: MenuItemLike[];
+  data?: unknown;
+  command?: unknown;
+};
+
 export type MathLiveApi = {
   setupMathField: () => Promise<void>;
 };
@@ -88,6 +99,42 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
 
     blockMathInputContainer.innerHTML = "";
     blockMathInputContainer.appendChild(mathfield);
+    const closeMathFieldMenu = () => {
+      const internalMenu = (mathfield as { _mathfield?: { menu?: any } })._mathfield?.menu;
+      if (internalMenu && typeof internalMenu.hide === "function") {
+        if (internalMenu.state && internalMenu.state !== "closed") {
+          internalMenu.hide();
+          return;
+        }
+        const element = internalMenu.element as HTMLElement | undefined;
+        if (element?.isConnected) {
+          internalMenu.hide();
+          return;
+        }
+      }
+      const executeCommand = (mathfield as { executeCommand?: (command: string) => void })
+        .executeCommand;
+      if (typeof executeCommand === "function") {
+        const menuElement = document.querySelector("menu.ui-menu-container");
+        if (menuElement) {
+          executeCommand.call(mathfield, "toggleContextMenu");
+        }
+      }
+    };
+    blockMathInputContainer.addEventListener("pointerdown", (event) => {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      const clickedMenuToggle = path.some((node) => {
+        if (!(node instanceof HTMLElement)) return false;
+        if (node.getAttribute?.("part") === "menu-toggle") return true;
+        return node.classList?.contains("ML__menu-toggle") ?? false;
+      });
+      if (!clickedMenuToggle) {
+        closeMathFieldMenu();
+      }
+      if (typeof mathfield.focus === "function") {
+        mathfield.focus();
+      }
+    });
     deps.onMathFieldCreated(mathfield);
 
     if (typeof mathfield.setOptions === "function") {
@@ -105,7 +152,107 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
 
     try {
       if ("menuItems" in mathfield) {
-        (mathfield as { menuItems?: unknown[] }).menuItems = [];
+        const blockedLabels = [
+          "モード",
+          "フォントスタイル",
+          "色",
+          "背景",
+          "切り取り",
+          "コピー",
+          "貼り付け",
+          "すべて選択",
+        ];
+        const blockedPattern =
+          /(mode|font\s*style|color|background|cut|copy|paste|select\s*all)/i;
+
+        const readText = (value: unknown): string => {
+          if (typeof value === "string") return value;
+          if (typeof value === "number" || typeof value === "boolean") return String(value);
+          return "";
+        };
+
+        const readLabel = (value: unknown): string => {
+          if (typeof value === "function") {
+            try {
+              return readText(value({ alt: false, control: false, shift: false, meta: false }));
+            } catch {
+              return "";
+            }
+          }
+          return readText(value);
+        };
+
+        const isDivider = (item: MenuItemLike) => item.type === "divider";
+
+        const cleanDividers = (items: MenuItemLike[]) => {
+          const cleaned: MenuItemLike[] = [];
+          let lastWasDivider = true;
+          for (const item of items) {
+            if (isDivider(item)) {
+              if (lastWasDivider) continue;
+              cleaned.push(item);
+              lastWasDivider = true;
+              continue;
+            }
+            cleaned.push(item);
+            lastWasDivider = false;
+          }
+          while (cleaned.length > 0 && isDivider(cleaned[cleaned.length - 1])) {
+            cleaned.pop();
+          }
+          return cleaned;
+        };
+
+        const getCandidates = (item: MenuItemLike) => {
+          const candidates: string[] = [];
+          candidates.push(readText(item.id));
+          candidates.push(readLabel(item.label));
+          candidates.push(readLabel(item.ariaLabel));
+          candidates.push(readLabel(item.tooltip));
+          candidates.push(readText(item.command));
+          if (item.data && typeof item.data === "object") {
+            const dataObj = item.data as Record<string, unknown>;
+            candidates.push(readText(dataObj.command));
+            candidates.push(readText(dataObj.id));
+            candidates.push(readLabel(dataObj.label));
+          } else {
+            candidates.push(readText(item.data));
+          }
+          return candidates.filter(Boolean);
+        };
+
+        const shouldHideItem = (candidates: string[]) =>
+          candidates.some((text) => {
+            const trimmed = text.trim();
+            if (!trimmed) return false;
+            if (blockedPattern.test(trimmed)) return true;
+            return blockedLabels.some((label) => trimmed.includes(label));
+          });
+
+        const filterMenuItems = (items: MenuItemLike[]): MenuItemLike[] => {
+          const filtered = items
+            .map((item) => {
+              if (!item || typeof item !== "object") return null;
+              if (item.type === "heading") return null;
+              const candidates = getCandidates(item);
+              if (shouldHideItem(candidates)) return null;
+              if (Array.isArray(item.submenu)) {
+                const submenu = filterMenuItems(item.submenu);
+                if (submenu.length === 0) return null;
+                if (submenu === item.submenu) return item;
+                return { ...item, submenu };
+              }
+              if (isDivider(item)) return item;
+              return item;
+            })
+            .filter(Boolean) as MenuItemLike[];
+          return cleanDividers(filtered);
+        };
+
+        const currentMenuItems = (mathfield as { menuItems?: MenuItemLike[] }).menuItems ?? [];
+        (mathfield as { menuItems?: MenuItemLike[] }).menuItems = filterMenuItems(
+          currentMenuItems
+        );
       }
     } catch {
       // ignore menu configuration failures

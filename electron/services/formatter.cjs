@@ -91,7 +91,7 @@ const DEFAULT_ALIGN_TABLE_ENVS = [
   "longtblr",
 ];
 
-const INDENT_UNIT = "  ";
+const DEFAULT_INDENT_UNIT = "  ";
 const VERBATIM_ENVIRONMENTS = new Set([
   "verbatim",
   "verbatim*",
@@ -101,7 +101,7 @@ const VERBATIM_ENVIRONMENTS = new Set([
   "filecontents",
   "filecontents*",
 ]);
-const NO_INDENT_ENVIRONMENTS = new Set(["document"]);
+const DEFAULT_NO_INDENT_ENVIRONMENTS = new Set(["document"]);
 
 const normalizeEnvName = (value) => {
   if (typeof value !== "string") {
@@ -202,6 +202,54 @@ const formatIndentValue = (indentStyle) => {
     return "\"\\t\"";
   }
   return "\"  \"";
+};
+
+const resolveIndentUnit = (indentStyle) => {
+  if (indentStyle === "spaces-4") {
+    return "    ";
+  }
+  if (indentStyle === "tab") {
+    return "\t";
+  }
+  return DEFAULT_INDENT_UNIT;
+};
+
+const buildSimpleIndentConfig = (settings) => {
+  const verbatimEnvs = new Set(VERBATIM_ENVIRONMENTS);
+  normalizeEnvList(settings.customVerbatim).forEach((name) => {
+    verbatimEnvs.add(name);
+    verbatimEnvs.add(`${name}*`);
+  });
+  const noIndentEnvs = new Set();
+  if (settings.documentNoIndent) {
+    DEFAULT_NO_INDENT_ENVIRONMENTS.forEach((env) => noIndentEnvs.add(env));
+  }
+  return {
+    indentUnit: resolveIndentUnit(settings.indentStyle),
+    verbatimEnvs,
+    noIndentEnvs,
+  };
+};
+
+const buildMathEnvSet = (settings) => {
+  const envs = Array.isArray(settings?.alignEnvs?.math)
+    ? settings.alignEnvs.math
+    : DEFAULT_ALIGN_MATH_ENVS;
+  return new Set(normalizeEnvList(envs));
+};
+
+const buildVerbatimEnvNameSet = (settings) => {
+  const envs = new Set();
+  VERBATIM_ENVIRONMENTS.forEach((name) => {
+    const normalized = normalizeEnvName(name);
+    if (normalized) {
+      envs.add(normalized);
+    }
+  });
+  normalizeEnvList(settings?.customVerbatim).forEach((name) => {
+    envs.add(name);
+  });
+  return envs;
 };
 
 const yamlEscape = (value) =>
@@ -339,7 +387,7 @@ const extractTokens = (line) => {
   return tokens;
 };
 
-const shouldIndentEnv = (env) => !NO_INDENT_ENVIRONMENTS.has(env);
+const shouldIndentEnv = (env, noIndentEnvs) => !noIndentEnvs.has(env);
 
 const splitLineByEnvTokens = (line) => {
   const commentIndex = findCommentStart(line);
@@ -380,18 +428,19 @@ const splitLineByEnvTokens = (line) => {
   return result;
 };
 
-const hasVerbatimBegin = (line) => {
+const hasVerbatimBegin = (line, verbatimEnvs) => {
   const parsed = stripComments(line);
   const tokens = extractTokens(parsed);
   return tokens.some(
-    (token) => token.type === "begin" && VERBATIM_ENVIRONMENTS.has(token.env)
+    (token) => token.type === "begin" && verbatimEnvs.has(token.env)
   );
 };
 
-const simpleIndent = (content) => {
+const simpleIndent = (content, settings) => {
   if (!content) {
     return content ?? "";
   }
+  const { indentUnit, verbatimEnvs, noIndentEnvs } = buildSimpleIndentConfig(settings);
   const endsWithNewline = content.endsWith("\n");
   const lines = content.split(/\r?\n/);
   const output = [];
@@ -417,7 +466,7 @@ const simpleIndent = (content) => {
       continue;
     }
 
-    const expandedLines = hasVerbatimBegin(rawLine)
+    const expandedLines = hasVerbatimBegin(rawLine, verbatimEnvs)
       ? [rawLine]
       : splitLineByEnvTokens(rawLine);
 
@@ -440,7 +489,7 @@ const simpleIndent = (content) => {
           break;
         }
         const env = match[1]?.trim() ?? "";
-        if (shouldIndentEnv(env)) {
+        if (shouldIndentEnv(env, noIndentEnvs)) {
           dedentBefore += 1;
         }
         scan = scan.replace(endPattern, "").replace(/^\s+/, "");
@@ -448,12 +497,12 @@ const simpleIndent = (content) => {
       indentLevel = Math.max(indentLevel - dedentBefore, 0);
 
       const trimmedLeading = line.replace(/^\s+/, "");
-      output.push(`${INDENT_UNIT.repeat(indentLevel)}${trimmedLeading}`);
+      output.push(`${indentUnit.repeat(indentLevel)}${trimmedLeading}`);
 
       let beginCount = 0;
       let endCount = 0;
       tokens.forEach((token) => {
-        if (!shouldIndentEnv(token.env)) {
+        if (!shouldIndentEnv(token.env, noIndentEnvs)) {
           return;
         }
         if (token.type === "begin") {
@@ -469,7 +518,7 @@ const simpleIndent = (content) => {
         if (token.type !== "begin") {
           continue;
         }
-        if (!VERBATIM_ENVIRONMENTS.has(token.env)) {
+        if (!verbatimEnvs.has(token.env)) {
           continue;
         }
         const hasEndSameLine = tokens.some(
@@ -486,6 +535,60 @@ const simpleIndent = (content) => {
 
   const formatted = output.join("\n");
   return endsWithNewline ? `${formatted}\n` : formatted;
+};
+
+const stripBlankLinesInMathEnv = (content, settings) => {
+  if (!content) {
+    return { content: content ?? "", changed: false };
+  }
+  const mathEnvs = buildMathEnvSet(settings);
+  if (mathEnvs.size === 0) {
+    return { content, changed: false };
+  }
+  const verbatimEnvs = buildVerbatimEnvNameSet(settings);
+  const lines = content.split(/\r?\n/);
+  const output = [];
+  const stack = [];
+  const endsWithNewline = content.endsWith("\n");
+  let changed = false;
+
+  const isInside = (set) => stack.some((env) => set.has(env));
+
+  for (const line of lines) {
+    const parsed = stripComments(line);
+    const tokens = extractTokens(parsed);
+
+    const inMath = isInside(mathEnvs);
+    const inVerbatim = isInside(verbatimEnvs);
+    if (inMath && !inVerbatim && parsed.trim().length === 0) {
+      changed = true;
+    } else {
+      output.push(line);
+    }
+
+    tokens.forEach((token) => {
+      const name = normalizeEnvName(token.env);
+      if (!name) {
+        return;
+      }
+      if (token.type === "begin") {
+        stack.push(name);
+        return;
+      }
+      for (let i = stack.length - 1; i >= 0; i -= 1) {
+        if (stack[i] === name) {
+          stack.splice(i, 1);
+          break;
+        }
+      }
+    });
+  }
+
+  let result = output.join("\n");
+  if (endsWithNewline && output.length > 0 && !result.endsWith("\n")) {
+    result += "\n";
+  }
+  return { content: result, changed };
 };
 
 class FormatterService {
@@ -579,24 +682,35 @@ class FormatterService {
     if (path.extname(relativePath).toLowerCase() !== ".tex") {
       return { ok: true, content, skipped: true };
     }
+    const normalizedSettings = normalizeFormatSettings(formatSettings);
+    const rawContent = content ?? "";
+    const fallbackWithWarning = (warning) => {
+      const formatted = simpleIndent(rawContent, normalizedSettings);
+      const cleaned = stripBlankLinesInMathEnv(formatted, normalizedSettings);
+      return {
+        ok: true,
+        content: cleaned.content,
+        formatted: cleaned.content !== rawContent,
+        warning,
+      };
+    };
     const latexindentPath = this.findLatexindent();
     if (!latexindentPath) {
-      return { ok: false, error: "latexindentが見つかりません。" };
+      return fallbackWithWarning("latexindentが見つかりません。簡易整形を使用しました。");
     }
     const tempDir = path.join(rootPath, ".tex64", ".format");
     await ensureDirectory(tempDir);
-    const normalizedSettings = normalizeFormatSettings(formatSettings);
     const settingsPaths = await this.prepareLatexindentSettings(
       tempDir,
       normalizedSettings
     );
     if (!settingsPaths) {
-      return { ok: false, error: "latexindent設定が読み込めません。" };
+      return fallbackWithWarning("latexindent設定が読み込めません。簡易整形を使用しました。");
     }
     const baseName = path.basename(relativePath, path.extname(relativePath)) || "document";
     const tempName = `${baseName}-${Date.now()}-${Math.random().toString(16).slice(2)}.tex`;
     const tempPath = path.join(tempDir, tempName);
-    await fsp.writeFile(tempPath, content ?? "", "utf8");
+    await fsp.writeFile(tempPath, rawContent, "utf8");
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
     const result = await this.runProcess(
@@ -624,10 +738,18 @@ class FormatterService {
     await safeUnlink(path.join(tempDir, "indent.log"));
     await safeUnlink(path.join(rootPath, "indent.log"));
     if (result.status === 0 && formatted !== null) {
-      return { ok: true, content: formatted, formatted: formatted !== content };
+      const cleaned = stripBlankLinesInMathEnv(formatted, normalizedSettings);
+      return {
+        ok: true,
+        content: cleaned.content,
+        formatted: cleaned.content !== rawContent,
+      };
     }
     const message = (result.output ?? "").trim();
-    return { ok: false, error: message || "latexindentに失敗しました。" };
+    const warning = message
+      ? `latexindentに失敗しました。簡易整形を使用しました。(${message})`
+      : "latexindentに失敗しました。簡易整形を使用しました。";
+    return fallbackWithWarning(warning);
   }
 
   async formatFile(rootPath, relativePath, formatSettings) {

@@ -6,11 +6,11 @@ export const initBlockInputUi = (context, deps) => {
     const MATH_INSERT_DISPLAY_KEY = "tex64.math-insert-display-wrap";
     const MATH_INSERT_LEGACY_KEY = "tex64.math-insert-format";
     const MATH_INSERT_MODES = [
-        { value: "inline", label: "インライン" },
-        { value: "display", label: "別行" },
-        { value: "align", label: "align*" },
-        { value: "gather", label: "gather*" },
-        { value: "none", label: "囲まない" },
+        { value: "inline", label: "インライン", shortLabel: "INL" },
+        { value: "display", label: "別行", shortLabel: "DSP" },
+        { value: "align", label: "align*", shortLabel: "ALN" },
+        { value: "gather", label: "gather*", shortLabel: "GTH" },
+        { value: "none", label: "囲まない", shortLabel: "RAW" },
     ];
     let activeBlockType = "math";
     let tableEditMode = "grid";
@@ -25,6 +25,7 @@ export const initBlockInputUi = (context, deps) => {
     let activeBlockSettingsPage = "menu";
     let formatMenuOpen = false;
     const getFormatLabel = (value) => { var _a, _b; return (_b = (_a = MATH_INSERT_MODES.find((entry) => entry.value === value)) === null || _a === void 0 ? void 0 : _a.label) !== null && _b !== void 0 ? _b : value; };
+    const getFormatShortLabel = (value) => { var _a, _b; return (_b = (_a = MATH_INSERT_MODES.find((entry) => entry.value === value)) === null || _a === void 0 ? void 0 : _a.shortLabel) !== null && _b !== void 0 ? _b : value; };
     const setFormatMenuOpen = (open) => {
         formatMenuOpen = open;
         if (blockFormatMenu instanceof HTMLElement) {
@@ -38,7 +39,10 @@ export const initBlockInputUi = (context, deps) => {
     const setMathInsertMode = (value) => {
         mathInsertMode = value;
         if (blockFormatButton instanceof HTMLElement) {
-            blockFormatButton.textContent = getFormatLabel(value);
+            const fullLabel = getFormatLabel(value);
+            blockFormatButton.textContent = getFormatShortLabel(value);
+            blockFormatButton.setAttribute("title", fullLabel);
+            blockFormatButton.setAttribute("aria-label", `挿入形式: ${fullLabel}`);
         }
         if (Array.isArray(blockFormatOptions)) {
             blockFormatOptions.forEach((option) => {
@@ -280,6 +284,29 @@ export const initBlockInputUi = (context, deps) => {
         });
     };
     const attachMathFieldEvents = (mathfield) => {
+        const closeMathFieldMenu = () => {
+            var _a;
+            const internalMenu = (_a = mathfield._mathfield) === null || _a === void 0 ? void 0 : _a.menu;
+            if (internalMenu && typeof internalMenu.hide === "function") {
+                if (internalMenu.state && internalMenu.state !== "closed") {
+                    internalMenu.hide();
+                    return;
+                }
+                const element = internalMenu.element;
+                if (element === null || element === void 0 ? void 0 : element.isConnected) {
+                    internalMenu.hide();
+                    return;
+                }
+            }
+            const executeCommand = mathfield
+                .executeCommand;
+            if (typeof executeCommand === "function") {
+                const menuElement = document.querySelector("menu.ui-menu-container");
+                if (menuElement) {
+                    executeCommand.call(mathfield, "toggleContextMenu");
+                }
+            }
+        };
         const syncMathFieldValue = () => {
             currentMathValue = readMathFieldValue(mathfield);
         };
@@ -364,13 +391,13 @@ export const initBlockInputUi = (context, deps) => {
                 return `$${trimmed}$`;
             case "display":
                 if (mathDisplayWrap === "display-dollar") {
-                    return ["$$", trimmed, "$$", ""].join("\n");
+                    return `$$${trimmed}$$`;
                 }
-                return ["\\[", trimmed, "\\]", ""].join("\n");
+                return `\\[${trimmed}\\]`;
             case "align":
-                return ["\\begin{align*}", trimmed, "\\end{align*}", ""].join("\n");
+                return ["\\begin{align*}", trimmed, "\\end{align*}"].join("\n");
             case "gather":
-                return ["\\begin{gather*}", trimmed, "\\end{gather*}", ""].join("\n");
+                return ["\\begin{gather*}", trimmed, "\\end{gather*}"].join("\n");
             case "none":
                 return trimmed;
             default:

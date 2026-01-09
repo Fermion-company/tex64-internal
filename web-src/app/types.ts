@@ -13,6 +13,7 @@ export type IssueItem = {
 export type IndexEntry = { key: string; path: string; line: number };
 export type SectionEntry = { title: string; path: string; line: number; level: number };
 export type BlockType = "math" | "table";
+export type BlockMode = "insert" | "edit";
 export type MathKeyboardTab = "analysis" | "algebra" | "sets" | "logic" | "arrows" | "greek";
 export type BlockContent = { formula?: string; rows?: number; cols?: number; raw?: string };
 export type BlockEditMode = "none" | "detected";

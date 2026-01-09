@@ -1,5 +1,5 @@
 import { formatSnippetForInsert } from "./format.js";
-import type { BlockApplyMode } from "../types.js";
+import type { BlockApplyMode, BlockMode } from "../types.js";
 import type { DetectedBlockSnapshot, PendingBlockApply } from "./types.js";
 import type { AppContext } from "../context.js";
 
@@ -48,7 +48,8 @@ type BlockInsertDeps = {
   ) => boolean;
   getIsE2E: () => boolean;
   getMathInputValue: () => string;
-  resetBlockSession: () => void;
+  getBlockMode?: () => BlockMode;
+  resetBlockSession: (options?: { applyMode?: BlockApplyMode }) => void;
   getPendingBlockApply: () => PendingBlockApply | null;
   setPendingBlockApply: (payload: PendingBlockApply | null) => void;
   setCurrentBlockDraft: (draft: BlockDraft | null) => void;
@@ -183,16 +184,10 @@ export const initBlockInsertFlow = (
   const applyBlockInsert = (payload?: PendingBlockApply) => {
     const applyPayload = payload ?? deps.getPendingBlockApply();
     if (!applyPayload && !deps.getBlockPreviewActive()) {
-      deps.updateIssues(1, "プレビューを確認してから確定してください。", "error", [
-        { severity: "error", message: "プレビューを確認してから確定してください。" },
-      ]);
       return;
     }
     const draft = applyPayload?.draft ?? deps.getBlockDraft();
     if (!draft) {
-      deps.updateIssues(1, "ブロック内容が空です。", "error", [
-        { severity: "error", message: "ブロック内容が空です。" },
-      ]);
       return;
     }
     const activeGroup = deps.getActiveGroup();
@@ -214,8 +209,9 @@ export const initBlockInsertFlow = (
 
     let range: unknown;
     const model = editor.getModel?.();
+    const blockMode = deps.getBlockMode?.() ?? "insert";
     const mode: BlockApplyMode =
-      applyPayload?.mode ?? (deps.getDetectedBlockSnapshot() ? "detected" : "new");
+      applyPayload?.mode ?? (blockMode === "edit" ? "detected" : "new");
 
     let snippet = draft.snippet;
     let insertPosition: { lineNumber: number; column: number } | null = null;
@@ -227,20 +223,11 @@ export const initBlockInsertFlow = (
     if (mode === "detected") {
       const snapshot = applyPayload?.detectedSnapshot ?? deps.getDetectedBlockSnapshot();
       if (!snapshot || !model?.getPositionAt) {
-        deps.updateIssues(1, "対象の数式/表を特定できません。", "error", [
-          { severity: "error", message: "対象の数式/表を特定できません。" },
-        ]);
         return;
       }
       const content = model.getValue();
       const slice = content.slice(snapshot.start, snapshot.end);
       if (slice !== snapshot.snippet) {
-        deps.updateIssues(1, "対象が変更されています。カーソルを置き直してください。", "error", [
-          {
-            severity: "error",
-            message: "対象が変更されています。カーソルを置き直してください。",
-          },
-        ]);
         return;
       }
       const startPos = model.getPositionAt(snapshot.start);
@@ -305,7 +292,7 @@ export const initBlockInsertFlow = (
     }
     deps.setPendingBlockApply(null);
     deps.setCurrentBlockDraft(null);
-    deps.resetBlockSession();
+    deps.resetBlockSession({ applyMode: mode });
   };
 
   const triggerInsert = () => {
@@ -314,33 +301,44 @@ export const initBlockInsertFlow = (
       return;
     }
     const editorForDetect = activeGroup.editor;
+    const blockMode = deps.getBlockMode?.() ?? "insert";
     const detectPosition = editorForDetect.getPosition?.() ?? null;
     const model = editorForDetect.getModel?.();
-    const detectedSnapshot = deps.getDetectedBlockSnapshot();
-    const shouldResync =
-      !detectedSnapshot ||
-      !detectPosition ||
-      !model?.getOffsetAt ||
-      (() => {
-        const offset = model.getOffsetAt(detectPosition);
-        if (offset < detectedSnapshot.start || offset >= detectedSnapshot.end) {
-          return true;
-        }
-        if (
-          typeof model.getVersionId === "function" &&
-          detectedSnapshot.modelVersion !== model.getVersionId()
-        ) {
-          return true;
-        }
-        return false;
-      })();
-    if (detectPosition && shouldResync) {
-      deps.refreshDetectedBlock(detectPosition, { force: true });
+    let detectedSnapshot =
+      blockMode === "edit" ? deps.getDetectedBlockSnapshot() : null;
+    if (blockMode === "edit") {
+      const shouldResync =
+        !!detectedSnapshot &&
+        !!detectPosition &&
+        !!model?.getOffsetAt &&
+        (() => {
+          const offset = model.getOffsetAt(detectPosition);
+          if (offset < detectedSnapshot.start || offset >= detectedSnapshot.end) {
+            return true;
+          }
+          if (
+            typeof model.getVersionId === "function" &&
+            detectedSnapshot.modelVersion !== model.getVersionId()
+          ) {
+            return true;
+          }
+          return false;
+        })();
+      if (detectPosition && shouldResync) {
+        deps.refreshDetectedBlock(detectPosition, { force: true });
+        detectedSnapshot = deps.getDetectedBlockSnapshot();
+      }
     }
     const draft = deps.getBlockDraft();
     if (!draft) return;
 
-    const mode: BlockApplyMode = detectedSnapshot ? "detected" : "new";
+    let mode: BlockApplyMode = "new";
+    if (blockMode === "edit") {
+      if (!detectedSnapshot) {
+        return;
+      }
+      mode = "detected";
+    }
     let insertPosition = mode === "new" ? editorForDetect.getPosition?.() ?? null : null;
     const insertRange =
       mode === "new" ? resolveEmptyLineInsertRange(editorForDetect) : null;

@@ -15,6 +15,8 @@ import { initMonacoSetup } from "./app/monaco-setup.js";
 import { createAppState } from "./app/state.js";
 import { createViewer } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
+import { initBlockEditSession } from "./app/blocks/edit-session.js";
+import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
 import { initBlockInputUi } from "./app/blocks/input-ui.js";
 import { initMathLive } from "./app/blocks/mathlive.js";
 import { initBlockInsertFlow } from "./app/blocks/insert-flow.js";
@@ -36,11 +38,12 @@ window.addEventListener("DOMContentLoaded", () => {
         document.body.classList.add("is-ready");
     });
     const dom = getDomRefs();
-    const { tabs, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, blocksPanelBody, } = dom;
+    const { tabs, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
     let blockAutoDetect = null;
+    let blockEditSession = null;
     let blockInsertApi = null;
     let triggerBlockInsert = () => { };
-    let resetBlockSession = () => { };
+    let resetBlockSession = (_options) => { };
     let editorSession;
     let editorTabsUi;
     let buildOps;
@@ -106,17 +109,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const envRegistry = initEnvRegistry(appContext, {
         getWorkspaceRootKey: appActions.getWorkspaceRootKey,
         onRefreshDetectedBlock: (allowTabSwitch = false) => {
-            var _a, _b;
-            const activeGroup = editorSession.getActiveGroup();
-            if (!activeGroup.editor || !blockAutoDetect) {
-                return;
-            }
-            const editor = activeGroup.editor;
-            const position = (_b = (_a = editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
-            blockAutoDetect.syncDetectedBlockAtPosition(position, {
-                force: true,
-                allowTabSwitch,
-            });
+            blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.refreshDetectedBlock(allowTabSwitch);
         },
     });
     const settingsUi = initSettingsUi(appContext, {
@@ -148,15 +141,12 @@ window.addEventListener("DOMContentLoaded", () => {
         postToNative: (payload) => postToNative(payload),
         getDirtyPaths: () => editorSession.getDirtyPaths(),
     });
+    const detectedBlockUi = initDetectedBlockUi(dom);
     let activeBlockContext = null;
     let activeMathEditCell = null;
     let currentBlockDraft = null;
     /* const settingsAutoBuildButton = document.getElementById("settings-auto-build"); */ // Removed
-    const setAutoDetectedUi = (enabled, lineNumber) => {
-        if (blocksPanelBody instanceof HTMLElement) {
-            blocksPanelBody.classList.toggle("is-auto-detected", enabled);
-        }
-    };
+    const { setAutoDetectedUi } = detectedBlockUi;
     const handleCursorPositionChange = (position) => {
         const activeGroup = editorSession.getActiveGroup();
         if (!activeGroup.editor)
@@ -164,7 +154,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (activeGroup.currentFilePath) {
             editorSession.recordCursorPosition(activeGroup.currentFilePath, position);
         }
-        blockAutoDetect === null || blockAutoDetect === void 0 ? void 0 : blockAutoDetect.handleCursorPositionChange(position);
+        blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.handleCursorPositionChange(position);
     };
     let lastBuildMainFile = null;
     if (isE2E) {
@@ -284,6 +274,15 @@ window.addEventListener("DOMContentLoaded", () => {
         setTableRawValue: blockInputApi.setTableRawValue,
         isMathInputFocused: blockInputApi.isMathInputFocused,
     });
+    blockEditSession = initBlockEditSession({
+        getActiveGroup: () => editorSession.getActiveGroup(),
+        autoDetect: blockAutoDetect,
+        clearMathInput: () => blockInputApi.setMathInputValue(""),
+        setBlockModeUi: detectedBlockUi.setBlockMode,
+    });
+    detectedBlockUi.onBlockModeToggle((mode) => {
+        blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.setMode(mode);
+    });
     blockInsertApi = initBlockInsertFlow(appContext, {
         getBlockDraft: blockInputApi.getBlockDraft,
         getDetectedBlockSnapshot: () => detectedBlockSnapshot,
@@ -300,7 +299,8 @@ window.addEventListener("DOMContentLoaded", () => {
         postToNative: (payload, silent) => postToNative(payload, silent),
         getIsE2E: () => isE2E,
         getMathInputValue: blockInputApi.getMathInputValue,
-        resetBlockSession: () => resetBlockSession(),
+        getBlockMode: () => { var _a; return (_a = blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.getMode()) !== null && _a !== void 0 ? _a : "insert"; },
+        resetBlockSession: (options) => resetBlockSession(options),
         getPendingBlockApply: () => pendingBlockApply,
         setPendingBlockApply: (payload) => {
             pendingBlockApply = payload;
@@ -324,7 +324,8 @@ window.addEventListener("DOMContentLoaded", () => {
             postToNative(message);
         },
     });
-    resetBlockSession = () => {
+    resetBlockSession = (options) => {
+        var _a;
         blockPreviewActive = false;
         activeBlockOriginalSnippet = null;
         activeBlockContext = null;
@@ -333,7 +334,16 @@ window.addEventListener("DOMContentLoaded", () => {
         detectedBlockSnapshot = null;
         pendingBlockApply = null;
         currentBlockDraft = null;
-        blockAutoDetect === null || blockAutoDetect === void 0 ? void 0 : blockAutoDetect.clearDetectedBlockState({ force: true });
+        const applyMode = (_a = options === null || options === void 0 ? void 0 : options.applyMode) !== null && _a !== void 0 ? _a : "new";
+        if (applyMode === "new") {
+            blockInputApi.setMathInputValue("");
+        }
+        if (applyMode === "detected") {
+            blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.refreshDetectedBlock();
+        }
+        else {
+            blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.exitEditMode();
+        }
     };
     const handleLauncherStatus = (payload) => {
         var _a;
@@ -591,5 +601,6 @@ window.addEventListener("DOMContentLoaded", () => {
         getIndexLabels,
         getIndexCitations,
         onCursorPositionChange: handleCursorPositionChange,
+        onCursorSelectionChange: handleCursorPositionChange,
     });
 });

@@ -27,27 +27,81 @@ const setElementHidden = (element: HTMLElement | null, hidden: boolean) => {
   }
 };
 
-const formatGitStatusLabel = (status: string) => {
+type GitStatusKind = "new" | "conflict" | "renamed" | "deleted" | "added" | "modified";
+
+const getGitStatusKind = (status: string): GitStatusKind => {
   const normalized = status.replace(/\s+/g, "");
   if (normalized === "??") {
-    return "新規";
+    return "new";
   }
   if (normalized.includes("U")) {
-    return "競合";
+    return "conflict";
   }
   if (normalized.includes("R")) {
-    return "名前変更";
+    return "renamed";
   }
   if (normalized.includes("D")) {
-    return "削除";
+    return "deleted";
   }
   if (normalized.includes("A")) {
-    return "追加";
+    return "added";
   }
   if (normalized.includes("M")) {
-    return "変更";
+    return "modified";
   }
-  return normalized || "変更";
+  return "modified";
+};
+
+const formatGitStatusLabel = (status: string) => {
+  const kind = getGitStatusKind(status);
+  const labels: Record<GitStatusKind, string> = {
+    new: "新規",
+    conflict: "競合",
+    renamed: "名前変更",
+    deleted: "削除",
+    added: "追加",
+    modified: "変更",
+  };
+  return labels[kind] ?? "変更";
+};
+
+const formatGitStatusShort = (status: string) => {
+  const normalized = status.replace(/\s+/g, "");
+  if (normalized === "??") {
+    return "?";
+  }
+  if (normalized.includes("U")) {
+    return "C";
+  }
+  if (normalized.includes("R")) {
+    return "R";
+  }
+  if (normalized.includes("D")) {
+    return "D";
+  }
+  if (normalized.includes("A")) {
+    return "A";
+  }
+  if (normalized.includes("M")) {
+    return "M";
+  }
+  return normalized.slice(0, 1) || "M";
+};
+
+const countGitStatusKinds = (entries: GitEntry[]) => {
+  const counts: Record<GitStatusKind, number> = {
+    new: 0,
+    conflict: 0,
+    renamed: 0,
+    deleted: 0,
+    added: 0,
+    modified: 0,
+  };
+  entries.forEach((entry) => {
+    const kind = getGitStatusKind(entry.status);
+    counts[kind] += 1;
+  });
+  return counts;
 };
 
 const renderGitStatus = (target: HTMLElement | null, entries: GitEntry[], message: string) => {
@@ -66,16 +120,134 @@ const renderGitStatus = (target: HTMLElement | null, entries: GitEntry[], messag
     const item = document.createElement("div");
     item.className = "git-item";
 
-    const title = document.createElement("div");
-    title.className = "git-item-title";
-    title.textContent = formatGitStatusLabel(entry.status);
-    const meta = document.createElement("div");
-    meta.className = "git-item-meta";
-    meta.textContent = entry.path;
+    const main = document.createElement("div");
+    main.className = "git-item-main";
 
-    item.append(title, meta);
+    const normalizedPath = entry.path.replace(/\\/g, "/");
+    const parts = normalizedPath.split("/").filter(Boolean);
+    const nameText = parts.pop() ?? entry.path;
+    const dirText = parts.join("/");
+
+    const name = document.createElement("div");
+    name.className = "git-item-name";
+    name.textContent = nameText;
+    name.title = entry.path;
+
+    main.appendChild(name);
+    if (dirText) {
+      const meta = document.createElement("div");
+      meta.className = "git-item-meta";
+      meta.textContent = dirText;
+      main.appendChild(meta);
+    }
+
+    const status = document.createElement("span");
+    const kind = getGitStatusKind(entry.status);
+    status.className = `git-item-status is-${kind}`;
+    status.textContent = formatGitStatusShort(entry.status);
+    status.title = formatGitStatusLabel(entry.status);
+
+    item.append(main, status);
     target.appendChild(item);
   });
+};
+
+const renderGitChangesSummary = (
+  target: HTMLElement | null,
+  entries: GitEntry[],
+  repoState: GitRepoState
+) => {
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  target.innerHTML = "";
+  if (!repoState.ok) {
+    const hint = document.createElement("span");
+    hint.className = "git-change-hint";
+    hint.textContent = "—";
+    target.appendChild(hint);
+    return;
+  }
+  if (entries.length === 0) {
+    const hint = document.createElement("span");
+    hint.className = "git-change-hint";
+    hint.textContent = "変更なし";
+    target.appendChild(hint);
+    return;
+  }
+
+  const counts = countGitStatusKinds(entries);
+  const order: { kind: GitStatusKind; label: string; title: string }[] = [
+    { kind: "modified", label: "M", title: "変更" },
+    { kind: "added", label: "A", title: "追加" },
+    { kind: "new", label: "?", title: "新規" },
+    { kind: "deleted", label: "D", title: "削除" },
+    { kind: "renamed", label: "R", title: "名前変更" },
+    { kind: "conflict", label: "C", title: "競合" },
+  ];
+
+  order.forEach(({ kind, label, title }) => {
+    const count = counts[kind];
+    if (!count) {
+      return;
+    }
+    const pill = document.createElement("span");
+    pill.className = `git-change-pill is-${kind}`;
+    pill.textContent = `${label} ${count}`;
+    pill.title = title;
+    target.appendChild(pill);
+  });
+};
+
+const buildBranchLabel = (state: GitPanelState) => {
+  if (!state.workspaceRootKey) {
+    return "—";
+  }
+  if (state.repoState.reason === "git-missing") {
+    return "利用不可";
+  }
+  if (!state.repoState.ok) {
+    return "未開始";
+  }
+  if (state.branchState.detached) {
+    return "切り離し";
+  }
+  return state.branchState.name ?? "不明";
+};
+
+const buildRemoteLabel = (state: GitPanelState) => {
+  if (!state.workspaceRootKey) {
+    return "—";
+  }
+  if (!state.repoState.ok) {
+    return "—";
+  }
+  if (!state.remoteState.exists) {
+    return "未設定";
+  }
+  return state.remoteState.name ?? state.remoteState.url ?? "設定済み";
+};
+
+const buildBranchSyncLabel = (state: GitPanelState) => {
+  if (!state.repoState.ok || !state.remoteState.exists) {
+    return "—";
+  }
+  if (state.branchState.detached) {
+    return "切り離し";
+  }
+  const ahead = state.branchState.ahead ?? 0;
+  const behind = state.branchState.behind ?? 0;
+  if (ahead === 0 && behind === 0) {
+    return "同期済み";
+  }
+  const parts: string[] = [];
+  if (ahead > 0) {
+    parts.push(`↑${ahead}`);
+  }
+  if (behind > 0) {
+    parts.push(`↓${behind}`);
+  }
+  return parts.join(" ");
 };
 
 const renderGitHistory = (
@@ -144,42 +316,42 @@ const buildGitSummaryMessage = (state: GitPanelState) => {
     return state.busyMessage ?? "処理中...";
   }
   if (!state.workspaceRootKey) {
-    return "ワークスペースが未選択です。";
+    return "ワークスペース未選択";
   }
   if (state.repoState.reason === "git-missing") {
-    return "この環境では履歴管理を使えません。";
+    return "履歴管理は利用不可";
   }
   if (!state.repoState.ok) {
-    return "履歴管理がまだ有効ではありません。";
+    return "履歴管理が未開始";
   }
-  return "履歴を保存して同期できます。";
+  return "";
 };
 
 const buildGitSyncMessage = (state: GitPanelState) => {
   if (!state.repoState.ok) {
-    return "履歴管理を有効にすると同期できます。";
+    return "履歴管理が未開始";
   }
   if (!state.remoteState.exists) {
-    return "同期先が未設定です。";
+    return "同期先未設定";
   }
   if (state.branchState.detached) {
-    return "現在の状態では同期できません。";
+    return "ブランチ未接続";
   }
   if (state.entries.length > 0) {
-    return "送受信の前に履歴に保存してください。";
+    return "未保存の変更あり";
   }
   const ahead = state.branchState.ahead ?? 0;
   const behind = state.branchState.behind ?? 0;
   if (ahead > 0 && behind > 0) {
-    return "送受信の両方が必要です。";
+    return "送受信あり";
   }
   if (ahead > 0) {
-    return "送る準備ができています。";
+    return "送信待ち";
   }
   if (behind > 0) {
-    return "受け取りが必要です。";
+    return "受信待ち";
   }
-  return "同期されています。";
+  return "同期済み";
 };
 
 export const renderGitPanel = (context: AppContext, state: GitPanelState) => {
@@ -187,6 +359,11 @@ export const renderGitPanel = (context: AppContext, state: GitPanelState) => {
     gitStatus,
     gitHistory,
     gitSummaryText,
+    gitBranchName,
+    gitBranchSync,
+    gitRemoteName,
+    gitChangesCount,
+    gitChangesSummary,
     gitGuide,
     gitGuideText,
     gitSyncText,
@@ -206,6 +383,7 @@ export const renderGitPanel = (context: AppContext, state: GitPanelState) => {
   } = context.dom;
 
   renderGitStatus(gitStatus, state.entries, state.message);
+  renderGitChangesSummary(gitChangesSummary, state.entries, state.repoState);
   renderGitHistory(gitHistory, state.historyEntries, state.historyMessage, {
     repoState: state.repoState,
     busy: state.busy,
@@ -213,7 +391,22 @@ export const renderGitPanel = (context: AppContext, state: GitPanelState) => {
     statusEntries: state.entries,
   });
   if (gitSummaryText instanceof HTMLElement) {
-    setText(gitSummaryText, buildGitSummaryMessage(state));
+    const summary = buildGitSummaryMessage(state);
+    setText(gitSummaryText, summary);
+    setElementHidden(gitSummaryText, summary.length === 0);
+  }
+  if (gitBranchName instanceof HTMLElement) {
+    setText(gitBranchName, buildBranchLabel(state));
+  }
+  if (gitBranchSync instanceof HTMLElement) {
+    setText(gitBranchSync, buildBranchSyncLabel(state));
+  }
+  if (gitRemoteName instanceof HTMLElement) {
+    setText(gitRemoteName, buildRemoteLabel(state));
+  }
+  if (gitChangesCount instanceof HTMLElement) {
+    const count = state.repoState.ok ? state.entries.length : null;
+    setText(gitChangesCount, count === null ? "—" : `${count}`);
   }
   if (gitGuide instanceof HTMLElement && gitGuideText instanceof HTMLElement) {
     setElementHidden(gitGuide, !state.guideMessage);

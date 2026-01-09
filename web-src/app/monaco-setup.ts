@@ -17,6 +17,7 @@ type MonacoSetupDeps = {
   getIndexLabels: () => IndexEntry[];
   getIndexCitations: () => IndexEntry[];
   onCursorPositionChange: (position: { lineNumber: number; column: number }) => void;
+  onCursorSelectionChange?: (position: { lineNumber: number; column: number }) => void;
 };
 
 export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
@@ -270,6 +271,11 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
           onDidChangeCursorPosition?: (
             listener: (event: { position: { lineNumber: number; column: number } }) => void
           ) => void;
+          onDidChangeCursorSelection?: (
+            listener: (event: {
+              selection: { positionLineNumber: number; positionColumn: number };
+            }) => void
+          ) => void;
           onDidFocusEditorWidget?: (listener: () => void) => void;
           getValue: () => string;
           focus?: () => void;
@@ -341,6 +347,20 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
               deps.editorSession.isActiveGroup(group)
             ) {
               deps.onCursorPositionChange(e.position);
+            }
+          }
+        );
+        editor.onDidChangeCursorSelection?.(
+          (e: { selection: { positionLineNumber: number; positionColumn: number } }) => {
+            if (
+              group.currentFilePath &&
+              group.currentFilePath.endsWith(".tex") &&
+              deps.editorSession.isActiveGroup(group)
+            ) {
+              deps.onCursorSelectionChange?.({
+                lineNumber: e.selection.positionLineNumber,
+                column: e.selection.positionColumn,
+              });
             }
           }
         );

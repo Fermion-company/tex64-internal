@@ -161,7 +161,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d;
+            var _a, _b, _c, _d, _e;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             group.editor = editor;
             if (context.isE2E) {
@@ -228,6 +228,17 @@ export const initMonacoSetup = (context, deps) => {
                     group.currentFilePath.endsWith(".tex") &&
                     deps.editorSession.isActiveGroup(group)) {
                     deps.onCursorPositionChange(e.position);
+                }
+            });
+            (_e = editor.onDidChangeCursorSelection) === null || _e === void 0 ? void 0 : _e.call(editor, (e) => {
+                var _a;
+                if (group.currentFilePath &&
+                    group.currentFilePath.endsWith(".tex") &&
+                    deps.editorSession.isActiveGroup(group)) {
+                    (_a = deps.onCursorSelectionChange) === null || _a === void 0 ? void 0 : _a.call(deps, {
+                        lineNumber: e.selection.positionLineNumber,
+                        column: e.selection.positionColumn,
+                    });
                 }
             });
         };

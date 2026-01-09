@@ -835,6 +835,12 @@ const handleSaveFile = async (relativePath, content, options = {}) => {
           options.formatSettings
         )
         .catch((error) => ({ ok: false, error: error?.message ?? String(error) }));
+      if (formatResult.warning && !formatWarningShown) {
+        formatWarningShown = true;
+        sendIssues(1, formatResult.warning, "info", [
+          { severity: "warning", message: formatResult.warning, line: null },
+        ]);
+      }
       if (formatResult.ok && typeof formatResult.content === "string") {
         finalContent = formatResult.content;
       } else {
@@ -878,6 +884,12 @@ const handleFormatFile = async (relativePath, content, source, formatSettings) =
     const result = await formatterService
       .formatContent(rootPath, relativePath, content ?? "", formatSettings)
       .catch((error) => ({ ok: false, error: error?.message ?? String(error) }));
+    if (result.warning && !formatWarningShown) {
+      formatWarningShown = true;
+      sendIssues(1, result.warning, "info", [
+        { severity: "warning", message: result.warning, line: null },
+      ]);
+    }
     if (!result.ok) {
       if (!formatWarningShown) {
         formatWarningShown = true;
