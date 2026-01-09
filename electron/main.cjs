@@ -1,5 +1,15 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  clipboard,
+  nativeImage,
+  globalShortcut,
+} = require("electron");
 const fs = require("fs");
+const fsp = require("fs/promises");
 const path = require("path");
 const { spawn } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
@@ -12,6 +22,7 @@ const { SearchService } = require("./services/search.cjs");
 const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs");
 const { EnvService } = require("./services/env.cjs");
 const { BlocksStore } = require("./services/blocks.cjs");
+const { UserSettingsService } = require("./services/user-settings.cjs");
 
 // Expose require so Playwright's electronApp.evaluate can load Electron APIs in e2e.
 global.require = require;
@@ -34,6 +45,8 @@ const gitService = new GitService();
 const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
+let userSettings = null;
+let captureShortcut = null;
 let lastBuildPdfPath = null;
 const envService = new EnvService();
 let formatWarningShown = false;
@@ -122,6 +135,10 @@ const createMainWindow = () => {
     mainWindow.loadFile(indexPath);
   }
   mainWindow.on("closed", () => {
+    if (captureShortcut) {
+      globalShortcut.unregister(captureShortcut);
+      captureShortcut = null;
+    }
     mainWindow = null;
   });
 };
@@ -147,6 +164,36 @@ const sendIssues = (count, summary, status, issues) => {
 
 const sendBuildLog = (log) => {
   sendToRenderer("buildLog", { log });
+};
+
+const ensureUserSettings = () => {
+  if (!userSettings) {
+    userSettings = new UserSettingsService(app.getPath("userData"));
+  }
+  return userSettings;
+};
+
+const registerCaptureShortcut = (shortcut) => {
+  if (!mainWindow) {
+    return;
+  }
+  if (captureShortcut) {
+    globalShortcut.unregister(captureShortcut);
+    captureShortcut = null;
+  }
+  if (!shortcut || typeof shortcut !== "string") {
+    return;
+  }
+  const ok = globalShortcut.register(shortcut, () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    sendToRenderer("capture:open", {});
+  });
+  if (ok) {
+    captureShortcut = shortcut;
+  }
 };
 
 const sendWorkspace = async (rootPath) => {
@@ -270,6 +317,12 @@ app.whenReady().then(() => {
     }
   }
   createMainWindow();
+  ensureUserSettings()
+    .getAlchemySettings()
+    .then((settings) => {
+      registerCaptureShortcut(settings.shortcut);
+    })
+    .catch(() => {});
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -279,6 +332,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  globalShortcut.unregisterAll();
   if (process.platform !== "darwin") {
     app.quit();
   }
@@ -432,6 +486,22 @@ ipcMain.on("tex64", (_event, message) => {
     handleBlocksSave(message.entry);
     return;
   }
+  if (type === "alchemy:settings:get") {
+    handleAlchemySettingsGet();
+    return;
+  }
+  if (type === "alchemy:settings:set") {
+    handleAlchemySettingsSet(message.settings);
+    return;
+  }
+  if (type === "alchemy:clipboard:read") {
+    handleAlchemyClipboardRead(message.requestId);
+    return;
+  }
+  if (type === "alchemy:save-image") {
+    handleAlchemySaveImage(message);
+    return;
+  }
   if (type === "consoleLog") {
     if (message.message) {
       // eslint-disable-next-line no-console
@@ -483,6 +553,119 @@ const handleEnvInstall = async (target) => {
   } else if (target === "latexmk") {
     const available = await envService.checkCommand("latexmk");
     sendToRenderer("env:checkResult", { command: "latexmk", available });
+  }
+};
+
+const handleAlchemySettingsGet = async () => {
+  const settings = await ensureUserSettings().getAlchemySettings();
+  sendToRenderer("alchemy:settings", { settings });
+  registerCaptureShortcut(settings.shortcut);
+};
+
+const handleAlchemySettingsSet = async (partial) => {
+  const settings = await ensureUserSettings().updateAlchemySettings(partial);
+  sendToRenderer("alchemy:settings", { settings });
+  registerCaptureShortcut(settings.shortcut);
+};
+
+const readPdfBuffer = (formats) => {
+  const candidates = [];
+  const detected = formats.find((format) => format.toLowerCase().includes("pdf"));
+  if (detected) {
+    candidates.push(detected);
+  }
+  ["application/pdf", "public.pdf", "com.adobe.pdf"].forEach((format) => {
+    if (!candidates.includes(format)) {
+      candidates.push(format);
+    }
+  });
+  for (const format of candidates) {
+    try {
+      const buffer = clipboard.readBuffer(format);
+      if (buffer && buffer.length > 0) {
+        return buffer;
+      }
+    } catch {
+      // ignore PDF read failures
+    }
+  }
+  return null;
+};
+
+const handleAlchemyClipboardRead = (requestId) => {
+  const formats = clipboard.availableFormats();
+  const payload = { requestId, formats };
+  const text = clipboard.readText();
+  if (text) {
+    payload.text = text;
+  }
+  const html = clipboard.readHTML();
+  if (html) {
+    payload.html = html;
+  }
+  const image = clipboard.readImage();
+  if (image && !image.isEmpty()) {
+    payload.imageDataUrl = image.toDataURL();
+  }
+  const pdfBuffer = readPdfBuffer(formats);
+  if (pdfBuffer) {
+    payload.pdfBase64 = pdfBuffer.toString("base64");
+  }
+  sendToRenderer("alchemy:clipboard", payload);
+};
+
+const handleAlchemySaveImage = async (payload) => {
+  const requestId = payload?.requestId ?? null;
+  const dataUrl = typeof payload?.dataUrl === "string" ? payload.dataUrl : "";
+  const rootPath = workspace.getRootPath();
+  if (!rootPath) {
+    sendToRenderer("alchemy:image-saved", {
+      requestId,
+      ok: false,
+      error: WorkspaceError.invalidPath,
+    });
+    return;
+  }
+  if (!dataUrl) {
+    sendToRenderer("alchemy:image-saved", {
+      requestId,
+      ok: false,
+      error: "画像データが空です。",
+    });
+    return;
+  }
+  const image = nativeImage.createFromDataURL(dataUrl);
+  if (image.isEmpty()) {
+    sendToRenderer("alchemy:image-saved", {
+      requestId,
+      ok: false,
+      error: "画像データの読み込みに失敗しました。",
+    });
+    return;
+  }
+  const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);/);
+  const ext = match?.[1]?.toLowerCase() ?? "png";
+  const normalizedExt = ext === "jpeg" || ext === "jpg" ? "jpg" : "png";
+  const buffer =
+    normalizedExt === "jpg" ? image.toJPEG(92) : image.toPNG();
+  const fileName = `capture-${Date.now()}-${Math.random().toString(16).slice(2, 6)}.${normalizedExt}`;
+  const dirPath = resolveWorkspacePath("images");
+  const filePath = path.join(dirPath, fileName);
+  try {
+    await fsp.mkdir(dirPath, { recursive: true });
+    await fsp.writeFile(filePath, buffer);
+    await updateWorkspaceIfNeeded(rootPath, true);
+    sendToRenderer("alchemy:image-saved", {
+      requestId,
+      ok: true,
+      path: `images/${fileName}`,
+    });
+  } catch (error) {
+    sendToRenderer("alchemy:image-saved", {
+      requestId,
+      ok: false,
+      error: error?.message ?? "画像の保存に失敗しました。",
+    });
   }
 };
 

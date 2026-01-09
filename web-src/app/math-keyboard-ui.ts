@@ -88,15 +88,54 @@ export const initMathKeyboard = (
     if (!shiftActive) {
       return key;
     }
-    const hasShift = key.shiftLabel || key.shiftLatex || key.shiftFallback || key.shiftDisplayLatex;
+    const hasShift =
+      key.shiftLabel ||
+      key.shiftLatex ||
+      key.shiftFallback ||
+      key.shiftDisplayLatex ||
+      key.shiftScriptKind ||
+      key.shiftScriptValue !== undefined ||
+      key.shiftScriptBase ||
+      key.shiftScriptSubValue !== undefined ||
+      key.shiftScriptSupValue !== undefined ||
+      key.shiftTemplateKind ||
+      key.shiftTemplateTarget !== undefined ||
+      key.shiftTemplateSeparator !== undefined ||
+      key.shiftTemplateScope !== undefined;
     if (!hasShift) {
       return key;
     }
+    const resolvedScriptKind = key.shiftScriptKind ?? key.scriptKind;
+    const resolvedScriptValue =
+      key.shiftScriptValue !== undefined ? key.shiftScriptValue : key.scriptValue;
+    const resolvedScriptBase = key.shiftScriptBase ?? key.scriptBase;
+    const resolvedScriptSubValue =
+      key.shiftScriptSubValue !== undefined ? key.shiftScriptSubValue : key.scriptSubValue;
+    const resolvedScriptSupValue =
+      key.shiftScriptSupValue !== undefined ? key.shiftScriptSupValue : key.scriptSupValue;
+    const resolvedTemplateKind = key.shiftTemplateKind ?? key.templateKind;
+    const resolvedTemplateTarget =
+      key.shiftTemplateTarget !== undefined ? key.shiftTemplateTarget : key.templateTarget;
+    const resolvedTemplateSeparator =
+      key.shiftTemplateSeparator !== undefined
+        ? key.shiftTemplateSeparator
+        : key.templateSeparator;
+    const resolvedTemplateScope =
+      key.shiftTemplateScope !== undefined ? key.shiftTemplateScope : key.templateScope;
     return {
       label: key.shiftLabel ?? key.label,
       latex: key.shiftLatex ?? key.latex,
       fallback: key.shiftFallback ?? key.fallback,
       displayLatex: key.shiftDisplayLatex ?? key.displayLatex,
+      scriptKind: resolvedScriptKind,
+      scriptValue: resolvedScriptValue ?? undefined,
+      scriptBase: resolvedScriptBase,
+      scriptSubValue: resolvedScriptSubValue ?? undefined,
+      scriptSupValue: resolvedScriptSupValue ?? undefined,
+      templateKind: resolvedTemplateKind,
+      templateTarget: resolvedTemplateTarget ?? undefined,
+      templateSeparator: resolvedTemplateSeparator ?? undefined,
+      templateScope: resolvedTemplateScope ?? undefined,
     };
   };
 

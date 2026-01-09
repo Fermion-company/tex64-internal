@@ -20,6 +20,13 @@ export const tabConfig = {
         desc: "数式と表をブロックとして挿入します。",
         hint: "プレビュー後に確定します。",
     },
+    alchemy: {
+        label: "取り込み",
+        outline: "貼り付け / キャプチャ",
+        title: "Paste Alchemy",
+        desc: "貼り付けやキャプチャを部品として挿入します。",
+        hint: "プレビューを確認して確定します。",
+    },
     git: {
         label: "履歴",
         outline: "変更 / 履歴 / 同期",

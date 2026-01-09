@@ -2,6 +2,7 @@ export type TabKey =
   | "files"
   | "outline"
   | "blocks"
+  | "alchemy"
   | "git"
   | "project"
   | "search"
@@ -38,6 +39,13 @@ export const tabConfig: Record<
     title: "ブロック",
     desc: "数式と表をブロックとして挿入します。",
     hint: "プレビュー後に確定します。",
+  },
+  alchemy: {
+    label: "取り込み",
+    outline: "貼り付け / キャプチャ",
+    title: "Paste Alchemy",
+    desc: "貼り付けやキャプチャを部品として挿入します。",
+    hint: "プレビューを確認して確定します。",
   },
   git: {
     label: "履歴",

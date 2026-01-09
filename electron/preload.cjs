@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, desktopCapturer } = require("electron");
 
 let postMessageHandler = (payload) => {
   ipcRenderer.send("tex64", payload);
@@ -43,6 +43,29 @@ const bridgeApi = {
   },
 };
 
+const captureApi = {
+  listSources: async (options = {}) => {
+    const size = options.thumbnailSize ?? { width: 1600, height: 900 };
+    const sources = await desktopCapturer.getSources({
+      types: ["window"],
+      thumbnailSize: size,
+      fetchWindowIcons: true,
+    });
+    return sources.map((source) => {
+      const thumbnail = source.thumbnail;
+      const size = thumbnail.getSize();
+      return {
+        id: source.id,
+        title: source.name,
+        app: source.appIcon ? source.name.split(" - ")[0] : "",
+        thumbnailUrl: thumbnail.toDataURL(),
+        width: size.width,
+        height: size.height,
+      };
+    });
+  },
+};
+
 Object.defineProperty(bridgeApi, "postMessage", {
   get: () => postMessageHandler,
   set: (next) => {
@@ -55,6 +78,8 @@ Object.defineProperty(bridgeApi, "postMessage", {
 
 if (isE2E) {
   globalThis.tex64Bridge = bridgeApi;
+  globalThis.tex64Capture = captureApi;
 } else {
   contextBridge.exposeInMainWorld("tex64Bridge", bridgeApi);
+  contextBridge.exposeInMainWorld("tex64Capture", captureApi);
 }

@@ -41,7 +41,7 @@ E2E:
 | UI の挙動/ロジック | `web-src/**/*.ts` | `Resources/web/app/*.js`, `Resources/web/main.js` |
 | ブロック/MathLive の挙動 | `web-src/app/blocks/*.ts` | `Resources/web/app/blocks/*.js`, `Resources/web/mathlive/**` |
 | Electron 側の挙動 | `electron/**/*.cjs` | - |
-| Vendor 資産 | `Resources/web/monaco`, `Resources/web/mathlive`, `Resources/web/pdfjs` | 直接編集しない |
+| Vendor 資産 | `Resources/web/monaco`, `Resources/web/mathlive`, `Resources/web/pdfjs`, `Resources/web/tesseract` | 直接編集しない |
 
 ### HTML/CSS 変更ルール（デザイン作業の安全策）
 
@@ -72,13 +72,13 @@ E2E:
 - Web UI ソース: `web-src/main.ts`（エントリ） + `web-src/app/**`。
 - Web UI 生成物: `Resources/web/main.js` + `Resources/web/app/*.js`。
 - Web UI 手書き: `Resources/web/index.html` / `Resources/web/theme.css` / `Resources/web/pdf-viewer.*`。
-- Vendor assets: `Resources/web/monaco` / `Resources/web/mathlive` / `Resources/web/pdfjs`。
+- Vendor assets: `Resources/web/monaco` / `Resources/web/mathlive` / `Resources/web/pdfjs` / `Resources/web/tesseract`。
 - ドキュメント: `map.md`（ユーザーマップ）, `test.md`（E2Eタスク）, `docs/test-checklist.md`（手動チェック）。
 
 ## UI マップ（主要 ID）
 
 - Top actions: `#editor-split-button`, `#format-button`, `#build-button`
-- Tabs: `data-tab="files|outline|blocks|issues|git|project|search|settings"`
+- Tabs: `data-tab="files|outline|blocks|alchemy|issues|git|project|search|settings"`
 - Files: `#workspace-label`, `#file-tree`
 - Editor: `#editor`, `#editor-tabs-list`, `#editor-viewer`（secondary: `#editor-secondary`, `#editor-tabs-list-secondary`, `#editor-viewer-secondary`）
 - Issues: `#issues-list`, `#issues-log`, `#issues-log-content`
@@ -147,6 +147,127 @@ E2E:
 ## 設計指針（コード構成）
 
 - `web-src/main.ts` は配線に徹し、機能追加はモジュール化して import する。
+
+## 取り込み機能（現行仕様）: Paste Alchemy / Magic Capture
+
+### 入口 / 画面構成
+
+- サイドバーに「取り込み」タブ（`data-tab="alchemy"`）が追加済み。ここで入力・変換・挿入まで完結する。
+- パネル上部に「貼り付け」「ファイル」「カメラ（スクリーンショット）」の入口がある。
+- 「取り込み」実行でLaTeX出力がリストに追加され、自動で取り込みタブに切り替わる。
+- 「閉じる」は取り込みタブから元のタブに戻る動作（取り込みリスト自体は保持）。
+
+### Paste Alchemy（貼り付け/ファイル取り込み）
+
+#### 起動条件
+
+- 取り込みタブ内の「貼り付け」欄に貼り付け → 「取り込み」を実行。
+- 「クリップボードから取り込み」を押す（HTML/画像/PDF を一括取得）。
+- 「ファイル」欄でファイルを選択 → 「取り込み」を実行。
+
+#### 取り込み対象ごとの挙動
+
+- HTML
+  - `table` を検出すると「表アイテム」を生成（1テーブル=1アイテム）。
+  - 残りの本文は「テキストアイテム」として生成（HTML→LaTeX 変換を保持）。
+  - 変換の対応タグ: `p/div/section/article/br/strong/b/em/i/code/pre/a/ul/ol/li/table`。
+- プレーンテキスト
+  - HTMLが無い場合に「テキストアイテム」として生成。
+  - 貼り付け欄のテキスト / テキストファイルの取り込みに対応。
+- 画像
+  - 画像は常に「図アイテム」として生成（数式/表/本文への自動分類はまだ無し）。
+  - 画像はプレビューとして表示され、挿入形式を選べる。
+- PDF
+  - クリップボードの PDF バッファを取得し、pdf.js で全ページ解析。
+  - 1ページ = 1アイテム（「テキストアイテム」扱い）として生成。
+  - 解析中は「PDFを解析中...」のプレースホルダが出る。
+
+#### 混在パターン（複合）
+
+- HTML + 画像: 表アイテム + テキストアイテム + 図アイテムがまとめて追加される。
+- HTML + PDF / 画像 + PDF など複数フォーマットが同時に入っている場合は、それぞれのアイテムが併存する。
+- 取り込みは「上書きではなく追加」。連続貼り付けでアイテムがリストに蓄積される。
+
+#### プレビュー / 操作
+
+- アイテムごとにプレビュー（テキスト/表/画像）と LaTeX 出力が表示される。
+- クリックでアクティブ項目を切り替えられる。
+- 各アイテムに「挿入」「編集して挿入」「破棄」ボタン。
+- パネル下部に「挿入（アクティブ）」「破棄」「全件挿入」ボタン。
+- 「閉じる」を押したときのみ元のタブに戻る。
+
+#### 挿入の中身（生成される LaTeX）
+
+- テキスト
+  - `plain`: HTML由来なら HTML→LaTeX 変換結果をそのまま挿入。
+  - `quote`: `\begin{quote}...\end{quote}`。
+  - `itemize`: 各行を `\item` に変換。
+  - いずれも `\{}` や `%` などはエスケープされる。
+- 表
+  - `tabular` / `tabularx` / `longtable` に対応。
+  - 列は最大列数に合わせて自動生成。空セルは空文字で埋める。
+  - `tabularx` は `\linewidth` を使用。
+- 図
+  - `includegraphics`: `\includegraphics[width=\linewidth]{path}`。
+  - `figure`: `figure` 環境 + `\caption{}` + `\label{}` を追加。
+- 挿入位置
+  - カーソル位置、または選択範囲を置換して挿入。
+  - `.tex` 以外のファイルでは挿入できず、Issues にエラー表示。
+
+#### 画像保存
+
+- 図アイテムの LaTeX 出力生成時に、画像は `images/` フォルダに保存。
+- フォルダが無い場合は自動作成。
+- ファイル名は `capture-<timestamp>-<rand>.png` / `.jpg`。
+- 挿入されるパスはワークスペース相対パス。
+
+### PDF（ページ単位取り込みの詳細）
+
+- 各ページで「モード」切替が可能（`Auto` / `PDFテキスト` / `OCR`）。
+- `Auto` はテキスト長が十分（空白除外で24文字以上）ならPDFテキスト、足りなければOCR。
+- `PDFテキスト` はページのテキストレイヤーから抽出した文を使用。
+- `OCR` はページ画像を Tesseract.js で認識。
+- OCR言語は設定の `OCR言語` が使われる（`jpn+eng` / `eng` / `jpn`）。
+- OCRが失敗/空の場合はアイテムがエラー表示になり、挿入できない。
+- OCR言語を変更した場合、同じページで「OCR」に切り替え直すと再OCRされる。
+
+### Magic Capture（ウィンドウ選択 → 範囲切り取り）
+
+- 取り込みパネルの「カメラ」ボタン、または設定したショートカットで起動（デフォルト `Ctrl+Shift+2`）。
+- アプリウィンドウが存在する間のみ有効。閉じるとショートカットは無効。
+- 起動するとウィンドウ一覧モーダルが出る。
+  - ウィンドウのサムネイル・タイトル・アプリ名が一覧表示。
+  - 検索ボックスでフィルタ可能。
+- ウィンドウを選ぶと切り取りモーダルへ。
+  - サムネイル画像上でドラッグして範囲指定。
+  - 初期選択は中央60%。
+  - 「やり直す」はウィンドウ選択に戻る。
+  - 「キャンセル」は終了。
+  - 「切り取る」で確定。
+- 確定した画像は「図アイテム（タグ: キャプチャ）」として取り込みリストに追加され、LaTeX出力が生成される。
+- キャプチャはウィンドウのサムネイル画像（最大 1600×900）を使うため、解像度はその範囲に制限される。
+
+### 取り込み設定（パネル内の設定）
+
+- デフォルト挿入形式
+  - 数式（未使用だが設定は存在）: `inline` / `display` / `align*` / `gather*`
+  - 表: `tabular` / `tabularx` / `longtable`
+  - 図: `includegraphics` / `figure`
+- OCR言語: `jpn+eng` / `eng` / `jpn`
+- PDFモード（新規PDFアイテムの初期値）: `Auto` / `PDFテキスト` / `OCR`
+- ショートカット: Magic Capture の起動キー
+- これらは「新規アイテムの初期値」に影響。既存アイテムは個別に変更可能。
+
+### 現状の範囲（できること／まだ無いこと）
+
+- できること
+  - HTMLのテーブルと本文を分離して取り込む。
+  - PDFを全ページ取り込みし、ページ単位でPDFテキスト/OCRを切り替える。
+  - 画像/キャプチャを図として保存・挿入する。
+- まだ無いこと
+  - 画像から数式/表/本文を自動分類する処理。
+  - 画像から本文OCRや数式OCRを直接生成する処理。
+  - レイアウト分解（画像+本文の自動分解）。
 
 ## タスク
 

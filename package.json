@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "mathlive": "^0.108.2",
-    "pdfjs-dist": "^4.7.76"
+    "pdfjs-dist": "^4.7.76",
+    "tesseract.js": "^5.1.1"
   }
 }

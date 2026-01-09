@@ -11,6 +11,7 @@ import type {
   SearchResult,
   SectionEntry,
 } from "./types.js";
+import type { AlchemySettings } from "./alchemy-preview-ui.js";
 
 type BridgeHandlersDeps = {
   bridgeWindow: BridgeWindow;
@@ -61,6 +62,26 @@ type BridgeHandlersDeps = {
     }) => void;
     handleBuildLog: (log: string | null) => void;
     handleSynctexForwardResult: (payload: { ok?: boolean; error?: string }) => void;
+  };
+  alchemy?: {
+    handleSettings: (payload: { settings: AlchemySettings }) => void;
+    handleClipboardPayload?: (payload: {
+      requestId?: string;
+      formats?: string[];
+      text?: string;
+      html?: string;
+      imageDataUrl?: string;
+      pdfBase64?: string;
+    }) => void;
+    handleImageSaved?: (payload: {
+      requestId?: string;
+      ok?: boolean;
+      path?: string;
+      error?: string;
+    }) => void;
+  };
+  capture?: {
+    openCapture: () => void;
   };
   settings?: {
     updateEnvStatus: (command: string, available: boolean) => void;
@@ -247,6 +268,32 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "launcherStatus":
         deps.handleLauncherStatus(message.payload as { isBusy?: boolean; message?: string });
+        break;
+      case "alchemy:settings":
+        deps.alchemy?.handleSettings(
+          message.payload as { settings: AlchemySettings }
+        );
+        break;
+      case "alchemy:clipboard":
+        deps.alchemy?.handleClipboardPayload?.(message.payload as {
+          requestId?: string;
+          formats?: string[];
+          text?: string;
+          html?: string;
+          imageDataUrl?: string;
+          pdfBase64?: string;
+        });
+        break;
+      case "alchemy:image-saved":
+        deps.alchemy?.handleImageSaved?.(message.payload as {
+          requestId?: string;
+          ok?: boolean;
+          path?: string;
+          error?: string;
+        });
+        break;
+      case "capture:open":
+        deps.capture?.openCapture();
         break;
       default:
         break;

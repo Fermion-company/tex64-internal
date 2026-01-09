@@ -40,7 +40,7 @@ export const initBridgeHandlers = (deps) => {
         deps.editorSession.handleRenameResult(payload);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -92,6 +92,18 @@ export const initBridgeHandlers = (deps) => {
                 break;
             case "launcherStatus":
                 deps.handleLauncherStatus(message.payload);
+                break;
+            case "alchemy:settings":
+                (_s = deps.alchemy) === null || _s === void 0 ? void 0 : _s.handleSettings(message.payload);
+                break;
+            case "alchemy:clipboard":
+                (_u = (_t = deps.alchemy) === null || _t === void 0 ? void 0 : _t.handleClipboardPayload) === null || _u === void 0 ? void 0 : _u.call(_t, message.payload);
+                break;
+            case "alchemy:image-saved":
+                (_w = (_v = deps.alchemy) === null || _v === void 0 ? void 0 : _v.handleImageSaved) === null || _w === void 0 ? void 0 : _w.call(_v, message.payload);
+                break;
+            case "capture:open":
+                (_x = deps.capture) === null || _x === void 0 ? void 0 : _x.openCapture();
                 break;
             default:
                 break;

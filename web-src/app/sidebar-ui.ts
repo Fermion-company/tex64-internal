@@ -24,6 +24,7 @@ export const initSidebarVisibility = (
     "files",
     "outline",
     "blocks",
+    "alchemy",
     "issues",
     "git",
     "project",

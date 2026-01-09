@@ -51,19 +51,51 @@ export const initMathKeyboard = (context, deps) => {
         window.addEventListener("mathlive-ready", markMathLiveReady, { once: true });
     };
     const resolveMathKey = (key, shiftActive) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f, _g;
         if (!shiftActive) {
             return key;
         }
-        const hasShift = key.shiftLabel || key.shiftLatex || key.shiftFallback || key.shiftDisplayLatex;
+        const hasShift = key.shiftLabel ||
+            key.shiftLatex ||
+            key.shiftFallback ||
+            key.shiftDisplayLatex ||
+            key.shiftScriptKind ||
+            key.shiftScriptValue !== undefined ||
+            key.shiftScriptBase ||
+            key.shiftScriptSubValue !== undefined ||
+            key.shiftScriptSupValue !== undefined ||
+            key.shiftTemplateKind ||
+            key.shiftTemplateTarget !== undefined ||
+            key.shiftTemplateSeparator !== undefined ||
+            key.shiftTemplateScope !== undefined;
         if (!hasShift) {
             return key;
         }
+        const resolvedScriptKind = (_a = key.shiftScriptKind) !== null && _a !== void 0 ? _a : key.scriptKind;
+        const resolvedScriptValue = key.shiftScriptValue !== undefined ? key.shiftScriptValue : key.scriptValue;
+        const resolvedScriptBase = (_b = key.shiftScriptBase) !== null && _b !== void 0 ? _b : key.scriptBase;
+        const resolvedScriptSubValue = key.shiftScriptSubValue !== undefined ? key.shiftScriptSubValue : key.scriptSubValue;
+        const resolvedScriptSupValue = key.shiftScriptSupValue !== undefined ? key.shiftScriptSupValue : key.scriptSupValue;
+        const resolvedTemplateKind = (_c = key.shiftTemplateKind) !== null && _c !== void 0 ? _c : key.templateKind;
+        const resolvedTemplateTarget = key.shiftTemplateTarget !== undefined ? key.shiftTemplateTarget : key.templateTarget;
+        const resolvedTemplateSeparator = key.shiftTemplateSeparator !== undefined
+            ? key.shiftTemplateSeparator
+            : key.templateSeparator;
+        const resolvedTemplateScope = key.shiftTemplateScope !== undefined ? key.shiftTemplateScope : key.templateScope;
         return {
-            label: (_a = key.shiftLabel) !== null && _a !== void 0 ? _a : key.label,
-            latex: (_b = key.shiftLatex) !== null && _b !== void 0 ? _b : key.latex,
-            fallback: (_c = key.shiftFallback) !== null && _c !== void 0 ? _c : key.fallback,
-            displayLatex: (_d = key.shiftDisplayLatex) !== null && _d !== void 0 ? _d : key.displayLatex,
+            label: (_d = key.shiftLabel) !== null && _d !== void 0 ? _d : key.label,
+            latex: (_e = key.shiftLatex) !== null && _e !== void 0 ? _e : key.latex,
+            fallback: (_f = key.shiftFallback) !== null && _f !== void 0 ? _f : key.fallback,
+            displayLatex: (_g = key.shiftDisplayLatex) !== null && _g !== void 0 ? _g : key.displayLatex,
+            scriptKind: resolvedScriptKind,
+            scriptValue: resolvedScriptValue !== null && resolvedScriptValue !== void 0 ? resolvedScriptValue : undefined,
+            scriptBase: resolvedScriptBase,
+            scriptSubValue: resolvedScriptSubValue !== null && resolvedScriptSubValue !== void 0 ? resolvedScriptSubValue : undefined,
+            scriptSupValue: resolvedScriptSupValue !== null && resolvedScriptSupValue !== void 0 ? resolvedScriptSupValue : undefined,
+            templateKind: resolvedTemplateKind,
+            templateTarget: resolvedTemplateTarget !== null && resolvedTemplateTarget !== void 0 ? resolvedTemplateTarget : undefined,
+            templateSeparator: resolvedTemplateSeparator !== null && resolvedTemplateSeparator !== void 0 ? resolvedTemplateSeparator : undefined,
+            templateScope: resolvedTemplateScope !== null && resolvedTemplateScope !== void 0 ? resolvedTemplateScope : undefined,
         };
     };
     const buildMathKeyDisplayLatex = (key) => {

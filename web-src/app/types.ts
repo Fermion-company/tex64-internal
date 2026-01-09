@@ -27,6 +27,24 @@ export type MathKey = {
   shiftFallback?: string;
   displayLatex?: string;
   shiftDisplayLatex?: string;
+  scriptKind?: "sub" | "sup" | "subsup";
+  scriptValue?: string | null;
+  shiftScriptKind?: "sub" | "sup" | "subsup";
+  shiftScriptValue?: string | null;
+  scriptBase?: string;
+  scriptSubValue?: string | null;
+  scriptSupValue?: string | null;
+  shiftScriptBase?: string;
+  shiftScriptSubValue?: string | null;
+  shiftScriptSupValue?: string | null;
+  templateKind?: "wrap" | "after";
+  templateTarget?: number;
+  templateSeparator?: string;
+  templateScope?: "selection-or-atom" | "selection";
+  shiftTemplateKind?: "wrap" | "after";
+  shiftTemplateTarget?: number;
+  shiftTemplateSeparator?: string;
+  shiftTemplateScope?: "selection-or-atom" | "selection";
 };
 export type SearchResult = { path: string; line: number; preview: string };
 export type GitEntry = { status: string; path: string };
@@ -97,10 +115,24 @@ export type ElectronBridge = {
   postMessage: (message: unknown) => void;
   onMessage?: (handler: (message: { type: string; payload?: unknown }) => void) => void;
 };
+export type CaptureSource = {
+  id: string;
+  title: string;
+  app?: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+};
+export type CaptureBridge = {
+  listSources?: (options?: {
+    thumbnailSize?: { width: number; height: number };
+  }) => Promise<CaptureSource[]>;
+};
 export type BridgeWindow = Window &
   typeof globalThis & {
     webkit?: WebkitBridge;
     tex64Bridge?: ElectronBridge;
+    tex64Capture?: CaptureBridge;
     tex64SetBuildState?: (payload: { state: BuildState; message?: string }) => void;
     tex64UpdateIssues?: (payload: {
       count: number;

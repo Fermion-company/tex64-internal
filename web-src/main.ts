@@ -9,6 +9,10 @@ import { initEditorSession } from "./app/editor-session.js";
 import { initEditorTabsUi } from "./app/editor-tabs-ui.js";
 import { initEnvRegistry } from "./app/env-registry-ui.js";
 import { initFileTreeUi } from "./app/file-tree-ui.js";
+import { initAlchemyPreviewUi } from "./app/alchemy-preview-ui.js";
+import { initCaptureUi } from "./app/capture-ui.js";
+import { initPasteAlchemy } from "./app/paste-alchemy.js";
+import { initMagicCapture } from "./app/magic-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
@@ -27,6 +31,7 @@ import { initOutlineUi } from "./app/outline-ui.js";
 import { initRootSelectorUi } from "./app/root-selector-ui.js";
 import { initSidebarResizer } from "./app/sidebar-resizer-ui.js";
 import { initTabController } from "./app/tab-controller.js";
+import type { TabKey } from "./app/config.js";
 import { initUiEvents } from "./app/ui-events.js";
 import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
@@ -67,6 +72,8 @@ window.addEventListener("DOMContentLoaded", () => {
   let blockAutoDetect: ReturnType<typeof initBlockAutoDetection> | null = null;
   let blockEditSession: ReturnType<typeof initBlockEditSession> | null = null;
   let blockInsertApi: ReturnType<typeof initBlockInsertFlow> | null = null;
+  let pasteAlchemy: ReturnType<typeof initPasteAlchemy> | null = null;
+  let magicCapture: ReturnType<typeof initMagicCapture> | null = null;
   let triggerBlockInsert = () => {};
   let resetBlockSession = (_options?: { applyMode?: "detected" | "new" }) => {};
   let editorSession: ReturnType<typeof initEditorSession>;
@@ -143,6 +150,13 @@ window.addEventListener("DOMContentLoaded", () => {
     onSettingsTabActive: () => onSettingsTabActive(),
     updateMathKeyboardVisibility: () => updateMathKeyboardVisibility(),
   });
+  let lastNonAlchemyTab: TabKey = "files";
+  const setActiveTab = (tabKey: TabKey) => {
+    if (tabKey !== "alchemy") {
+      lastNonAlchemyTab = tabKey;
+    }
+    tabController.setActiveTab(tabKey);
+  };
   const envRegistry = initEnvRegistry(appContext, {
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
     onRefreshDetectedBlock: (allowTabSwitch = false) => {
@@ -156,6 +170,41 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
   const contextMenu = initContextMenu(appContext);
+  const alchemyPreviewUi = initAlchemyPreviewUi(appContext, {
+    onSettingsChange: (settings) => {
+      postToNative({ type: "alchemy:settings:set", settings }, true);
+    },
+    onShortcutSave: (shortcut) => {
+      postToNative({ type: "alchemy:settings:set", settings: { shortcut } }, true);
+    },
+    onInputPayload: (payload) => {
+      pasteAlchemy?.handleClipboardPayload(payload);
+    },
+    onClipboardImport: () => {
+      pasteAlchemy?.requestClipboardRead();
+    },
+    onCaptureRequest: () => {
+      magicCapture?.openCapture();
+    },
+    onEditItem: (id) => pasteAlchemy?.getItemSnippet(id) ?? Promise.resolve(""),
+    onApplyEditedSnippet: (id, snippet) => {
+      pasteAlchemy?.applyEditedSnippet(id, snippet);
+    },
+    onOpenChange: (open) => {
+      if (open) {
+        const currentTab = tabController.getActiveTab();
+        if (currentTab !== "alchemy") {
+          lastNonAlchemyTab = currentTab;
+          setActiveTab("alchemy");
+        }
+        return;
+      }
+      if (tabController.getActiveTab() === "alchemy") {
+        setActiveTab(lastNonAlchemyTab || "files");
+      }
+    },
+  });
+  const captureUi = initCaptureUi(appContext);
   const launcherUi = initLauncherUi(appContext, {
     onCreate: (template) => {
       postToNative({ type: "createProject", template });
@@ -252,6 +301,20 @@ window.addEventListener("DOMContentLoaded", () => {
     getMonacoApi: appActions.getMonacoApi,
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
+
+  pasteAlchemy = initPasteAlchemy(appContext, {
+    alchemyPreview: alchemyPreviewUi,
+    editorSession,
+    postToNative: (payload, silent) => postToNative(payload, silent),
+    updateIssues: updateIssuesProxy,
+    getMonacoApi: appActions.getMonacoApi,
+  });
+
+  magicCapture = initMagicCapture(appContext, {
+    captureUi,
+    pasteAlchemy,
+    updateIssues: updateIssuesProxy,
+  });
 
   const diffModalApi = initDiffModal(appContext, {
     getMonacoApi: appActions.getMonacoApi,
@@ -412,7 +475,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const sidebarUi = initSidebarVisibility(appContext, {
     contextMenu,
     getActiveTab: tabController.getActiveTab,
-    setActiveTab: tabController.setActiveTab,
+    setActiveTab,
     normalizeTabKey: tabController.normalizeTabKey,
   });
   editorTabsUi = initEditorTabsUi(appContext, {
@@ -504,7 +567,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   workspaceController = initWorkspaceController(appContext, {
     setWorkspaceRootKey: appActions.setWorkspaceRootKey,
-    setActiveTab: tabController.setActiveTab,
+    setActiveTab,
     issuesUi,
     editorSession: {
       clearIssueHighlight: editorSession.clearIssueHighlight,
@@ -532,7 +595,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const initialTab = tabController.normalizeTabKey(
     tabs.find((tab) => tab.classList.contains("is-active"))?.dataset.tab
   );
-  tabController.setActiveTab(initialTab);
+  setActiveTab(initialTab);
   sidebarUi.loadVisibility();
   sidebarUi.applyVisibility();
   workspaceController.syncWorkspaceLabel();
@@ -567,7 +630,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   postToNative({ type: "ready" }, true);
   const uiEvents = initUiEvents(appContext, {
-    setActiveTab: tabController.setActiveTab,
+    setActiveTab,
     normalizeTabKey: tabController.normalizeTabKey,
     getCurrentIssues,
     saveCurrentFile: () => editorSession.saveCurrentFile(),
@@ -629,12 +692,33 @@ window.addEventListener("DOMContentLoaded", () => {
       handleBuildLog: (log) => buildOps.handleBuildLog(log),
       handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),
     },
+    alchemy: {
+      handleSettings: ({ settings }) => {
+        alchemyPreviewUi.setSettings(settings);
+        if (settings?.shortcut) {
+          captureUi.setShortcutLabel(settings.shortcut);
+        }
+      },
+      handleClipboardPayload: (payload) => {
+        pasteAlchemy?.handleClipboardPayload(payload);
+      },
+      handleImageSaved: (payload) => {
+        pasteAlchemy?.handleImageSaved(payload);
+      },
+    },
+    capture: {
+      openCapture: () => {
+        magicCapture?.openCapture();
+      },
+    },
     editorSession: {
       handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),
       handleSaveResult: (payload) => editorSession.handleSaveResult(payload),
       handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
     },
   });
+
+  postToNative({ type: "alchemy:settings:get" }, true);
 
   initMonacoSetup(appContext, {
     editorSession,
