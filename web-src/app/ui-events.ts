@@ -30,6 +30,10 @@ type UiEventsDeps = {
     applyPendingFromDiffModal: () => void;
     clearPending: () => void;
   } | null;
+  aiOps?: {
+    applyPendingFromDiffModal: () => void;
+    clearPending: () => void;
+  } | null;
   buildOps: {
     setupActionButtons: () => void;
   };
@@ -90,6 +94,11 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
           deps.gitOps.requestRestore(targetHash);
           return;
         }
+        if (diffContext?.type === "aiApply") {
+          deps.aiOps?.applyPendingFromDiffModal();
+          deps.diffModal.closeDiffModal();
+          return;
+        }
         deps.blockInsert?.applyPendingFromDiffModal();
         deps.diffModal.closeDiffModal();
       });
@@ -99,6 +108,7 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
       diffModalCancel.addEventListener("click", () => {
         deps.diffModal.closeDiffModal();
         deps.blockInsert?.clearPending();
+        deps.aiOps?.clearPending();
       });
     }
 

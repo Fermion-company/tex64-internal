@@ -1,3 +1,5 @@
+import { createFileTreeRenderer } from "./file-tree-render.js";
+import { canDropOnFolder, clearDropTargets, getDragData, getParentPath, normalizeInputPath, validatePath, } from "./file-tree-utils.js";
 export const initFileTreeUi = (context, deps) => {
     const { fileTree, createModal, createModalTitle, createModalSubtitle, createModalParent, createModalLabel, createModalInput, createModalHelp, createModalCancel, createModalSubmit, renameModal, renameModalTitle, renameModalTarget, renameModalInput, renameModalHelp, renameModalCancel, renameModalSubmit, contextMenu: contextMenuEl, } = context.dom;
     let selectedTreePath = null;
@@ -83,29 +85,6 @@ export const initFileTreeUi = (context, deps) => {
     const clearSelection = () => {
         selectedTreePath = null;
         selectedTreeType = null;
-    };
-    const normalizeInputPath = (value) => {
-        return value.trim().replace(/\\/g, "/");
-    };
-    const validatePath = (value, kind) => {
-        if (!value) {
-            return "名前を入力してください。";
-        }
-        if (/^[A-Za-z]:\//.test(value) || value.startsWith("/")) {
-            return "絶対パスは使えません。";
-        }
-        if (value.includes("..")) {
-            return "親ディレクトリを含む名前は使えません。";
-        }
-        if (kind === "file" && value.endsWith("/")) {
-            return "ファイル名に末尾の / は使えません。";
-        }
-        return null;
-    };
-    const getParentPath = (value) => {
-        const parts = value.split("/").filter(Boolean);
-        parts.pop();
-        return parts.join("/");
     };
     const resolveCreateBasePath = () => {
         if (selectedTreeType === "dir" && selectedTreePath) {
@@ -328,25 +307,6 @@ export const initFileTreeUi = (context, deps) => {
     const requestUndoFileOperation = () => {
         deps.postToNative({ type: "undoFileOperation" });
     };
-    const clearDropTargets = () => {
-        document
-            .querySelectorAll(".is-drop-target")
-            .forEach((element) => element.classList.remove("is-drop-target"));
-    };
-    const canDropOnFolder = (payload, targetFolder) => {
-        if (!targetFolder) {
-            return true;
-        }
-        if (payload.kind === "dir") {
-            if (payload.path === targetFolder) {
-                return false;
-            }
-            if (targetFolder.startsWith(`${payload.path}/`)) {
-                return false;
-            }
-        }
-        return true;
-    };
     const requestMoveItem = (payload, targetFolder) => {
         if (!deps.getWorkspaceRootKey()) {
             deps.updateIssues(1, "起動時にフォルダを選択してください。", "error", [
@@ -478,66 +438,6 @@ export const initFileTreeUi = (context, deps) => {
             action: () => requestDeleteItem(path, "dir"),
         },
     ];
-    const sortNodes = (nodes) => {
-        nodes.sort((a, b) => {
-            if (a.type !== b.type) {
-                return a.type === "dir" ? -1 : 1;
-            }
-            return a.name.localeCompare(b.name, "ja");
-        });
-        nodes.forEach((node) => {
-            if (node.children.length > 0) {
-                sortNodes(node.children);
-            }
-        });
-    };
-    const buildFileTree = (files, folders) => {
-        const root = { name: "", path: "", type: "dir", children: [] };
-        folders.forEach((path) => {
-            const parts = path.split("/").filter(Boolean);
-            let cursor = root;
-            parts.forEach((part, index) => {
-                const currentPath = parts.slice(0, index + 1).join("/");
-                let child = cursor.children.find((node) => node.name === part);
-                if (!child) {
-                    child = { name: part, path: currentPath, type: "dir", children: [] };
-                    cursor.children.push(child);
-                }
-                else if (child.type !== "dir") {
-                    child.type = "dir";
-                }
-                cursor = child;
-            });
-        });
-        files.forEach((path) => {
-            const parts = path.split("/").filter(Boolean);
-            let cursor = root;
-            parts.forEach((part, index) => {
-                const isLast = index === parts.length - 1;
-                let child = cursor.children.find((node) => node.name === part);
-                if (!child) {
-                    const currentPath = parts.slice(0, index + 1).join("/");
-                    child = {
-                        name: part,
-                        path: currentPath,
-                        type: isLast ? "file" : "dir",
-                        children: [],
-                    };
-                    cursor.children.push(child);
-                }
-                if (isLast) {
-                    child.type = "file";
-                    child.children = [];
-                }
-                else {
-                    child.type = "dir";
-                }
-                cursor = child;
-            });
-        });
-        sortNodes(root.children);
-        return root.children;
-    };
     const selectFolderSummary = (summary, path) => {
         clearFolderSelection();
         summary.classList.add("is-selected");
@@ -545,227 +445,41 @@ export const initFileTreeUi = (context, deps) => {
         selectedTreeType = "dir";
         setTreeFocus(true);
     };
-    const dragDataType = "application/x-tex64-item";
-    const setDragData = (event, payload) => {
-        if (!event.dataTransfer) {
-            return;
+    const getSelection = () => ({
+        path: selectedTreePath,
+        kind: selectedTreeType,
+    });
+    const getInitialFolderOpenState = (path, depth) => openStateLoaded ? openFolders.has(path) : depth < 1;
+    const toggleFolderOpen = (path, nextOpen) => {
+        if (nextOpen) {
+            openFolders.add(path);
         }
-        event.dataTransfer.clearData();
-        event.dataTransfer.setData(dragDataType, JSON.stringify(payload));
-        event.dataTransfer.effectAllowed = "move";
+        else {
+            openFolders.delete(path);
+        }
+        saveOpenState();
     };
-    const getDragData = (event) => {
-        var _a;
-        const raw = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData(dragDataType);
-        if (!raw) {
-            return null;
-        }
-        try {
-            const parsed = JSON.parse(raw);
-            if (!(parsed === null || parsed === void 0 ? void 0 : parsed.path) || (parsed.kind !== "file" && parsed.kind !== "dir")) {
-                return null;
-            }
-            return parsed;
-        }
-        catch {
-            return null;
-        }
+    const getDragPayload = () => dragPayload;
+    const setDragPayload = (payload) => {
+        dragPayload = payload;
     };
-    const renderFileNodes = (nodes, container, depth) => {
-        const activePath = deps.getActiveFilePath();
-        const dirtyPaths = deps.getDirtyPaths();
-        nodes.forEach((node) => {
-            if (node.type === "dir") {
-                const details = document.createElement("details");
-                details.className = "file-folder";
-                details.dataset.path = node.path;
-                if (openStateLoaded) {
-                    details.open = openFolders.has(node.path);
-                }
-                else {
-                    details.open = depth < 1;
-                }
-                const summary = document.createElement("summary");
-                summary.textContent = node.name;
-                summary.style.paddingLeft = `${6 + depth * 12}px`;
-                summary.draggable = true;
-                summary.classList.toggle("is-open", details.open);
-                if (selectedTreeType === "dir" && selectedTreePath === node.path) {
-                    summary.classList.add("is-selected");
-                }
-                const toggleFolder = (nextOpen) => {
-                    details.open = nextOpen;
-                    summary.classList.toggle("is-open", nextOpen);
-                    if (nextOpen) {
-                        openFolders.add(node.path);
-                    }
-                    else {
-                        openFolders.delete(node.path);
-                    }
-                    saveOpenState();
-                };
-                summary.addEventListener("mousedown", (event) => {
-                    if (deps.isAnyGroupComposing()) {
-                        event.preventDefault();
-                    }
-                });
-                summary.addEventListener("click", (event) => {
-                    event.preventDefault();
-                    selectFolderSummary(summary, node.path);
-                    toggleFolder(!details.open);
-                });
-                summary.addEventListener("contextmenu", (event) => {
-                    event.preventDefault();
-                    selectFolderSummary(summary, node.path);
-                    deps.contextMenu.open(event.clientX, event.clientY, buildFolderContextMenu(node.path));
-                });
-                summary.addEventListener("dragstart", (event) => {
-                    const dragEvent = event;
-                    const payload = { path: node.path, kind: "dir" };
-                    setDragData(dragEvent, payload);
-                    dragPayload = payload;
-                    summary.classList.add("is-dragging");
-                });
-                summary.addEventListener("dragend", () => {
-                    dragPayload = null;
-                    summary.classList.remove("is-dragging");
-                    clearDropTargets();
-                });
-                summary.addEventListener("dragover", (event) => {
-                    const dragEvent = event;
-                    dragEvent.stopPropagation();
-                    const payload = dragPayload !== null && dragPayload !== void 0 ? dragPayload : getDragData(dragEvent);
-                    if (!payload || !canDropOnFolder(payload, node.path)) {
-                        return;
-                    }
-                    dragEvent.preventDefault();
-                    clearDropTargets();
-                    summary.classList.add("is-drop-target");
-                });
-                summary.addEventListener("dragleave", () => {
-                    summary.classList.remove("is-drop-target");
-                });
-                summary.addEventListener("drop", (event) => {
-                    const dragEvent = event;
-                    const payload = dragPayload !== null && dragPayload !== void 0 ? dragPayload : getDragData(dragEvent);
-                    dragEvent.stopPropagation();
-                    dragEvent.preventDefault();
-                    summary.classList.remove("is-drop-target");
-                    if (!payload) {
-                        return;
-                    }
-                    requestMoveItem(payload, node.path);
-                });
-                const children = document.createElement("div");
-                children.className = "file-folder-children";
-                details.append(summary, children);
-                renderFileNodes(node.children, children, depth + 1);
-                container.appendChild(details);
-            }
-            else {
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "file-item";
-                button.textContent = node.name;
-                button.style.paddingLeft = `${18 + depth * 12}px`;
-                button.dataset.path = node.path;
-                button.draggable = true;
-                if (dirtyPaths.has(node.path)) {
-                    button.classList.add("is-dirty");
-                }
-                if (node.path === activePath) {
-                    button.classList.add("is-active");
-                }
-                button.addEventListener("click", () => {
-                    const opened = deps.requestOpenFile(node.path, deps.getActiveEditorGroupKey());
-                    if (opened) {
-                        selectedTreePath = node.path;
-                        selectedTreeType = "file";
-                        setTreeFocus(true);
-                    }
-                });
-                button.addEventListener("contextmenu", (event) => {
-                    event.preventDefault();
-                    selectedTreePath = node.path;
-                    selectedTreeType = "file";
-                    setTreeFocus(true);
-                    deps.contextMenu.open(event.clientX, event.clientY, buildFileContextMenu(node.path));
-                });
-                button.addEventListener("dragstart", (event) => {
-                    const dragEvent = event;
-                    const payload = { path: node.path, kind: "file" };
-                    setDragData(dragEvent, payload);
-                    dragPayload = payload;
-                    button.classList.add("is-dragging");
-                });
-                button.addEventListener("dragend", () => {
-                    dragPayload = null;
-                    button.classList.remove("is-dragging");
-                    clearDropTargets();
-                });
-                button.addEventListener("dragover", (event) => {
-                    const dragEvent = event;
-                    dragEvent.stopPropagation();
-                    const payload = dragPayload !== null && dragPayload !== void 0 ? dragPayload : getDragData(dragEvent);
-                    const targetFolder = getParentPath(node.path);
-                    if (!payload || !canDropOnFolder(payload, targetFolder)) {
-                        return;
-                    }
-                    const dropContainer = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-                    dragEvent.preventDefault();
-                    clearDropTargets();
-                    if (dropContainer) {
-                        dropContainer.classList.add("is-drop-target");
-                    }
-                    button.classList.add("is-drop-target");
-                });
-                button.addEventListener("dragleave", () => {
-                    const dropContainer = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-                    if (dropContainer) {
-                        dropContainer.classList.remove("is-drop-target");
-                    }
-                    button.classList.remove("is-drop-target");
-                });
-                button.addEventListener("drop", (event) => {
-                    const dragEvent = event;
-                    const payload = dragPayload !== null && dragPayload !== void 0 ? dragPayload : getDragData(dragEvent);
-                    const targetFolder = getParentPath(node.path);
-                    dragEvent.stopPropagation();
-                    dragEvent.preventDefault();
-                    const dropContainer = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-                    if (dropContainer) {
-                        dropContainer.classList.remove("is-drop-target");
-                    }
-                    button.classList.remove("is-drop-target");
-                    if (!payload) {
-                        return;
-                    }
-                    requestMoveItem(payload, targetFolder);
-                });
-                container.appendChild(button);
-            }
-        });
-    };
-    const render = () => {
-        if (!(fileTree instanceof HTMLElement)) {
-            return;
-        }
-        fileTree.innerHTML = "";
-        const workspaceFiles = deps.getWorkspaceFiles();
-        const workspaceFolders = deps.getWorkspaceFolders();
-        if (workspaceFiles.length === 0 && workspaceFolders.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "panel-placeholder";
-            empty.textContent =
-                deps.getWorkspaceName() === "ワークスペース未選択"
-                    ? "フォルダを開いてください。"
-                    : "ファイルが見つかりません。";
-            fileTree.appendChild(empty);
-            return;
-        }
-        const tree = buildFileTree(workspaceFiles, workspaceFolders);
-        renderFileNodes(tree, fileTree, 0);
-    };
+    const { render } = createFileTreeRenderer({
+        fileTree: fileTree instanceof HTMLElement ? fileTree : null,
+        deps,
+        actions: {
+            getSelection,
+            setSelection,
+            setTreeFocus,
+            selectFolderSummary,
+            getInitialFolderOpenState,
+            toggleFolderOpen,
+            buildFileContextMenu,
+            buildFolderContextMenu,
+            requestMoveItem,
+            getDragPayload,
+            setDragPayload,
+        },
+    });
     const handleRenameResult = (payload) => {
         const { oldPath, newPath } = payload;
         if (payload.isDirectory) {

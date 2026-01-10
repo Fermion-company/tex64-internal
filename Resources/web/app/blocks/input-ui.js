@@ -1,562 +1,5 @@
 import { reconstructionBlock } from "./context.js";
-const PLACEHOLDER_LATEX = "\\placeholder{}";
-const MULTI_ARG_COMMANDS = new Set(["frac", "dfrac", "tfrac", "binom", "dbinom", "tbinom"]);
-const isAsciiLetter = (value) => /[A-Za-z]/.test(value);
-const isDigit = (value) => /[0-9]/.test(value);
-const isEscaped = (text, index) => {
-    let count = 0;
-    for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
-        count += 1;
-    }
-    return count % 2 === 1;
-};
-const findMatchingBraceLeft = (text, closeIndex) => {
-    if (closeIndex < 0 || text[closeIndex] !== "}" || isEscaped(text, closeIndex)) {
-        return null;
-    }
-    let depth = 0;
-    for (let i = closeIndex; i >= 0; i -= 1) {
-        const char = text[i];
-        if (char === "}" && !isEscaped(text, i)) {
-            depth += 1;
-            continue;
-        }
-        if (char === "{" && !isEscaped(text, i)) {
-            depth -= 1;
-            if (depth === 0) {
-                return i;
-            }
-        }
-    }
-    return null;
-};
-const findMatchingBracketLeft = (text, closeIndex) => {
-    if (closeIndex < 0 || text[closeIndex] !== "]" || isEscaped(text, closeIndex)) {
-        return null;
-    }
-    let depth = 0;
-    for (let i = closeIndex; i >= 0; i -= 1) {
-        const char = text[i];
-        if (char === "]" && !isEscaped(text, i)) {
-            depth += 1;
-            continue;
-        }
-        if (char === "[" && !isEscaped(text, i)) {
-            depth -= 1;
-            if (depth === 0) {
-                return i;
-            }
-        }
-    }
-    return null;
-};
-const readCommandLeftOf = (text, index) => {
-    let i = index - 1;
-    if (i < 0 || !isAsciiLetter(text[i])) {
-        return null;
-    }
-    const end = i + 1;
-    while (i >= 0 && isAsciiLetter(text[i])) {
-        i -= 1;
-    }
-    if (i >= 0 && text[i] === "\\" && !isEscaped(text, i)) {
-        const name = text.slice(i + 1, end);
-        return { start: i, end, name };
-    }
-    return null;
-};
-const readCommandAt = (text, index) => {
-    if (index < 0 || text[index] !== "\\") {
-        return null;
-    }
-    const next = text[index + 1];
-    if (!next) {
-        return null;
-    }
-    if (isAsciiLetter(next)) {
-        let end = index + 2;
-        while (end < text.length && isAsciiLetter(text[end])) {
-            end += 1;
-        }
-        return { start: index, end };
-    }
-    return { start: index, end: Math.min(text.length, index + 2) };
-};
-const isLeftRightToken = (text, index, kind) => {
-    const token = kind === "left" ? "\\left" : "\\right";
-    if (!text.startsWith(token, index)) {
-        return false;
-    }
-    const next = text[index + token.length];
-    return !next || !isAsciiLetter(next);
-};
-const findMatchingLeftToken = (text, rightIndex) => {
-    let depth = 0;
-    for (let i = rightIndex; i >= 0; i -= 1) {
-        if (text[i] !== "\\") {
-            continue;
-        }
-        if (isLeftRightToken(text, i, "right")) {
-            depth += 1;
-            continue;
-        }
-        if (isLeftRightToken(text, i, "left")) {
-            depth -= 1;
-            if (depth === 0) {
-                return i;
-            }
-        }
-    }
-    return null;
-};
-const findLeftRightBaseStart = (text, baseEnd) => {
-    for (let i = baseEnd - 1; i >= 0; i -= 1) {
-        if (text[i] !== "\\") {
-            continue;
-        }
-        if (!isLeftRightToken(text, i, "right")) {
-            continue;
-        }
-        const delimiterStart = i + "\\right".length;
-        if (delimiterStart >= baseEnd) {
-            continue;
-        }
-        let delimiterEnd = delimiterStart + 1;
-        if (text[delimiterStart] === "\\") {
-            const command = readCommandAt(text, delimiterStart);
-            delimiterEnd = command ? command.end : delimiterEnd;
-        }
-        if (delimiterEnd !== baseEnd) {
-            continue;
-        }
-        return findMatchingLeftToken(text, i);
-    }
-    return null;
-};
-const findBaseStart = (text, baseEnd) => {
-    if (baseEnd <= 0) {
-        return null;
-    }
-    const lastIndex = baseEnd - 1;
-    const lastChar = text[lastIndex];
-    if (!lastChar || /\s/.test(lastChar)) {
-        return null;
-    }
-    const leftRightStart = findLeftRightBaseStart(text, baseEnd);
-    if (leftRightStart !== null) {
-        return leftRightStart;
-    }
-    if (lastChar === "}" && !isEscaped(text, lastIndex)) {
-        const groupStart = findMatchingBraceLeft(text, lastIndex);
-        if (groupStart === null) {
-            return null;
-        }
-        let baseStart = groupStart;
-        const command = readCommandLeftOf(text, groupStart);
-        if (command) {
-            baseStart = command.start;
-        }
-        else {
-            let resolved = false;
-            if (groupStart > 0 &&
-                text[groupStart - 1] === "]" &&
-                !isEscaped(text, groupStart - 1)) {
-                const bracketEnd = groupStart - 1;
-                const bracketStart = findMatchingBracketLeft(text, bracketEnd);
-                if (bracketStart !== null) {
-                    const optionalCommand = readCommandLeftOf(text, bracketStart);
-                    if (optionalCommand && optionalCommand.name === "sqrt") {
-                        baseStart = optionalCommand.start;
-                        resolved = true;
-                    }
-                }
-            }
-            if (!resolved &&
-                groupStart > 0 &&
-                text[groupStart - 1] === "}" &&
-                !isEscaped(text, groupStart - 1)) {
-                const prevGroupEnd = groupStart - 1;
-                const prevGroupStart = findMatchingBraceLeft(text, prevGroupEnd);
-                if (prevGroupStart !== null) {
-                    const multiCommand = readCommandLeftOf(text, prevGroupStart);
-                    if (multiCommand && MULTI_ARG_COMMANDS.has(multiCommand.name)) {
-                        baseStart = multiCommand.start;
-                    }
-                }
-            }
-        }
-        return baseStart;
-    }
-    if (isAsciiLetter(lastChar)) {
-        const command = readCommandLeftOf(text, baseEnd);
-        if (command) {
-            return command.start;
-        }
-        return lastIndex;
-    }
-    if (isDigit(lastChar)) {
-        let start = lastIndex;
-        while (start > 0 && isDigit(text[start - 1])) {
-            start -= 1;
-        }
-        return start;
-    }
-    return lastIndex;
-};
-const readScriptEndingAt = (text, endIndex) => {
-    const closeIndex = endIndex - 1;
-    if (closeIndex < 0 || text[closeIndex] !== "}" || isEscaped(text, closeIndex)) {
-        const tokenStart = findBaseStart(text, endIndex);
-        if (tokenStart === null) {
-            return null;
-        }
-        const scriptIndex = tokenStart - 1;
-        if (scriptIndex < 0 || isEscaped(text, scriptIndex)) {
-            return null;
-        }
-        const scriptChar = text[scriptIndex];
-        if (scriptChar !== "_" && scriptChar !== "^") {
-            return null;
-        }
-        return {
-            kind: scriptChar === "_" ? "sub" : "sup",
-            range: {
-                start: scriptIndex,
-                end: endIndex,
-                contentStart: tokenStart,
-                contentEnd: endIndex,
-            },
-        };
-    }
-    const openIndex = findMatchingBraceLeft(text, closeIndex);
-    if (openIndex === null) {
-        return null;
-    }
-    const scriptIndex = openIndex - 1;
-    if (scriptIndex < 0 || isEscaped(text, scriptIndex)) {
-        return null;
-    }
-    const scriptChar = text[scriptIndex];
-    if (scriptChar !== "_" && scriptChar !== "^") {
-        return null;
-    }
-    return {
-        kind: scriptChar === "_" ? "sub" : "sup",
-        range: {
-            start: scriptIndex,
-            end: closeIndex + 1,
-            contentStart: openIndex + 1,
-            contentEnd: closeIndex,
-        },
-    };
-};
-const findAtomLeftOfCursor = (text, cursor) => {
-    if (cursor <= 0) {
-        return null;
-    }
-    let baseEnd = cursor;
-    let sub;
-    let sup;
-    for (let i = 0; i < 2; i += 1) {
-        const script = readScriptEndingAt(text, baseEnd);
-        if (!script) {
-            break;
-        }
-        if (script.kind === "sub" && !sub) {
-            sub = script.range;
-        }
-        else if (script.kind === "sup" && !sup) {
-            sup = script.range;
-        }
-        baseEnd = script.range.start;
-    }
-    const baseStart = findBaseStart(text, baseEnd);
-    if (baseStart === null) {
-        return null;
-    }
-    return { baseStart, baseEnd, sub, sup };
-};
-const findAtomRangeLeftOfCursor = (text, cursor) => {
-    var _a, _b, _c, _d;
-    const atom = findAtomLeftOfCursor(text, cursor);
-    if (!atom) {
-        return null;
-    }
-    const atomEnd = Math.max(atom.baseEnd, (_b = (_a = atom.sub) === null || _a === void 0 ? void 0 : _a.end) !== null && _b !== void 0 ? _b : atom.baseEnd, (_d = (_c = atom.sup) === null || _c === void 0 ? void 0 : _c.end) !== null && _d !== void 0 ? _d : atom.baseEnd);
-    return { start: atom.baseStart, end: atomEnd };
-};
-const insertAt = (text, index, value) => text.slice(0, index) + value + text.slice(index);
-const buildTemplate = (template, placeholder) => {
-    var _a, _b;
-    const parts = template.split("#?");
-    if (parts.length === 1) {
-        return { text: template, placeholders: [] };
-    }
-    const placeholders = [];
-    let text = (_a = parts[0]) !== null && _a !== void 0 ? _a : "";
-    for (let i = 1; i < parts.length; i += 1) {
-        const start = text.length;
-        text += placeholder;
-        const end = text.length;
-        placeholders.push({ start, end });
-        text += (_b = parts[i]) !== null && _b !== void 0 ? _b : "";
-    }
-    return { text, placeholders };
-};
-const normalizeScriptValue = (value) => value && value.length > 0 ? value : null;
-const buildScriptSegment = (kind, placeholder, value) => {
-    const marker = kind === "sub" ? "_" : "^";
-    if (value) {
-        const hasPlaceholder = value.includes("#?");
-        if (hasPlaceholder) {
-            const template = buildTemplate(value, placeholder);
-            const text = `${marker}{${template.text}}`;
-            if (template.placeholders.length > 0) {
-                const focus = template.placeholders[0];
-                const start = marker.length + 1 + focus.start;
-                const end = marker.length + 1 + focus.end;
-                return { text, selectionStart: start, selectionEnd: end };
-            }
-            return { text, selectionStart: text.length, selectionEnd: text.length };
-        }
-        const text = `${marker}{${value}}`;
-        return { text, selectionStart: text.length, selectionEnd: text.length };
-    }
-    const text = `${marker}{${placeholder}}`;
-    if (placeholder.length > 0) {
-        const start = marker.length + 1;
-        return { text, selectionStart: start, selectionEnd: start + placeholder.length };
-    }
-    const cursor = marker.length + 1;
-    return { text, selectionStart: cursor, selectionEnd: cursor };
-};
-// Apply scripts by editing the LaTeX string so MathLive/textarea stay consistent.
-const applyScriptToText = (text, selection, kind, options) => {
-    let start = selection.start;
-    let end = selection.end;
-    if (start > end) {
-        [start, end] = [end, start];
-    }
-    let cursor = end;
-    if (start !== end) {
-        const selected = text.slice(start, end);
-        text = text.slice(0, start) + `{${selected}}` + text.slice(end);
-        cursor = start + selected.length + 2;
-    }
-    const placeholder = options.placeholder;
-    const baseInsert = normalizeScriptValue(options.base);
-    const subValue = normalizeScriptValue(options.subValue);
-    const supValue = normalizeScriptValue(options.supValue);
-    let atom = findAtomLeftOfCursor(text, cursor);
-    if (!atom && baseInsert) {
-        text = insertAt(text, cursor, baseInsert);
-        cursor += baseInsert.length;
-        atom = findAtomLeftOfCursor(text, cursor);
-    }
-    if (!atom) {
-        const basePlaceholder = placeholder.length > 0 ? placeholder : "{}";
-        let scriptText = "";
-        if (kind === "sub") {
-            scriptText = buildScriptSegment("sub", placeholder, subValue).text;
-        }
-        else if (kind === "sup") {
-            scriptText = buildScriptSegment("sup", placeholder, supValue).text;
-        }
-        else {
-            const subSegment = buildScriptSegment("sub", placeholder, subValue);
-            const supSegment = buildScriptSegment("sup", placeholder, supValue);
-            scriptText = subSegment.text + supSegment.text;
-        }
-        const insertion = basePlaceholder + scriptText;
-        text = insertAt(text, cursor, insertion);
-        if (placeholder.length > 0) {
-            return {
-                text,
-                selectionStart: cursor,
-                selectionEnd: cursor + placeholder.length,
-            };
-        }
-        return {
-            text,
-            selectionStart: cursor + 1,
-            selectionEnd: cursor + 1,
-        };
-    }
-    if (kind === "sub") {
-        if (atom.sub) {
-            return { text, selectionStart: atom.sub.contentEnd, selectionEnd: atom.sub.contentEnd };
-        }
-        const insertPos = atom.sup ? atom.sup.start : atom.baseEnd;
-        const segment = buildScriptSegment("sub", placeholder, subValue);
-        text = insertAt(text, insertPos, segment.text);
-        return {
-            text,
-            selectionStart: insertPos + segment.selectionStart,
-            selectionEnd: insertPos + segment.selectionEnd,
-        };
-    }
-    if (kind === "sup") {
-        if (atom.sup) {
-            return { text, selectionStart: atom.sup.contentEnd, selectionEnd: atom.sup.contentEnd };
-        }
-        const insertPos = atom.sub ? atom.sub.end : atom.baseEnd;
-        const segment = buildScriptSegment("sup", placeholder, supValue);
-        text = insertAt(text, insertPos, segment.text);
-        return {
-            text,
-            selectionStart: insertPos + segment.selectionStart,
-            selectionEnd: insertPos + segment.selectionEnd,
-        };
-    }
-    if (atom.sub && atom.sup) {
-        return { text, selectionStart: atom.sub.contentEnd, selectionEnd: atom.sub.contentEnd };
-    }
-    if (!atom.sub && atom.sup) {
-        const insertPos = atom.sup.start;
-        const segment = buildScriptSegment("sub", placeholder, subValue);
-        text = insertAt(text, insertPos, segment.text);
-        return {
-            text,
-            selectionStart: insertPos + segment.selectionStart,
-            selectionEnd: insertPos + segment.selectionEnd,
-        };
-    }
-    if (!atom.sup && atom.sub) {
-        const insertPos = atom.sub.end;
-        const segment = buildScriptSegment("sup", placeholder, supValue);
-        text = insertAt(text, insertPos, segment.text);
-        return {
-            text,
-            selectionStart: insertPos + segment.selectionStart,
-            selectionEnd: insertPos + segment.selectionEnd,
-        };
-    }
-    const insertPos = atom.baseEnd;
-    const subSegment = buildScriptSegment("sub", placeholder, subValue);
-    const supSegment = buildScriptSegment("sup", placeholder, supValue);
-    text = insertAt(text, insertPos, subSegment.text + supSegment.text);
-    return {
-        text,
-        selectionStart: insertPos + subSegment.selectionStart,
-        selectionEnd: insertPos + subSegment.selectionEnd,
-    };
-};
-const applyTemplateToText = (text, selection, template, options) => {
-    var _a, _b, _c, _d, _e;
-    let start = selection.start;
-    let end = selection.end;
-    if (start > end) {
-        [start, end] = [end, start];
-    }
-    const hasSelection = start !== end;
-    const cursor = end;
-    const baseScope = (_a = options.baseScope) !== null && _a !== void 0 ? _a : "selection";
-    const canUseAtom = baseScope !== "selection";
-    const baseRange = hasSelection
-        ? { start, end }
-        : canUseAtom
-            ? findAtomRangeLeftOfCursor(text, cursor)
-            : null;
-    const baseText = baseRange ? text.slice(baseRange.start, baseRange.end) : null;
-    let templateText = "";
-    let placeholders = [];
-    if (options.baseMode === "wrap") {
-        const parts = template.split("#?");
-        const placeholderCount = Math.max(0, parts.length - 1);
-        const targetIndex = placeholderCount === 0
-            ? null
-            : Math.max(0, Math.min((_b = options.baseIndex) !== null && _b !== void 0 ? _b : 0, placeholderCount - 1));
-        templateText = (_c = parts[0]) !== null && _c !== void 0 ? _c : "";
-        for (let i = 0; i < placeholderCount; i += 1) {
-            const useBase = baseText && targetIndex !== null && i === targetIndex;
-            const insertValue = useBase ? baseText : options.placeholder;
-            const startIndex = templateText.length;
-            templateText += insertValue;
-            const endIndex = templateText.length;
-            if (!useBase) {
-                placeholders.push({ start: startIndex, end: endIndex });
-            }
-            templateText += (_d = parts[i + 1]) !== null && _d !== void 0 ? _d : "";
-        }
-    }
-    else {
-        const built = buildTemplate(template, options.placeholder);
-        templateText = built.text;
-        placeholders = built.placeholders;
-        if (baseText) {
-            templateText += ((_e = options.baseSeparator) !== null && _e !== void 0 ? _e : "") + baseText;
-        }
-    }
-    const insertStart = baseRange ? baseRange.start : cursor;
-    const insertEnd = baseRange ? baseRange.end : cursor;
-    const nextText = text.slice(0, insertStart) + templateText + text.slice(insertEnd);
-    if (placeholders.length > 0) {
-        const focus = placeholders[0];
-        return {
-            text: nextText,
-            selectionStart: insertStart + focus.start,
-            selectionEnd: insertStart + focus.end,
-        };
-    }
-    const cursorPos = insertStart + templateText.length;
-    return { text: nextText, selectionStart: cursorPos, selectionEnd: cursorPos };
-};
-const getMathFieldSelectionRange = (mathField) => {
-    const selection = mathField === null || mathField === void 0 ? void 0 : mathField.selection;
-    if (selection) {
-        if (Array.isArray(selection)) {
-            if (selection.length === 2 && typeof selection[0] === "number") {
-                return { start: selection[0], end: selection[1] };
-            }
-            if (Array.isArray(selection[0])) {
-                const [start, end] = selection[0];
-                return { start, end };
-            }
-        }
-        if (selection.ranges && Array.isArray(selection.ranges) && selection.ranges.length > 0) {
-            const [start, end] = selection.ranges[0];
-            return { start, end };
-        }
-    }
-    if (typeof (mathField === null || mathField === void 0 ? void 0 : mathField.position) === "number") {
-        return { start: mathField.position, end: mathField.position };
-    }
-    return { start: 0, end: 0 };
-};
-const offsetToIndex = (mathField, offset) => {
-    if (typeof (mathField === null || mathField === void 0 ? void 0 : mathField.getValue) !== "function") {
-        return offset;
-    }
-    const prefix = mathField.getValue(0, offset, "latex");
-    return typeof prefix === "string" ? prefix.length : 0;
-};
-const indexToOffset = (mathField, targetIndex) => {
-    if (typeof (mathField === null || mathField === void 0 ? void 0 : mathField.getValue) !== "function") {
-        return targetIndex;
-    }
-    const fullValue = mathField.getValue("latex");
-    const fullLength = typeof fullValue === "string" ? fullValue.length : 0;
-    const lastOffset = typeof mathField.lastOffset === "number" ? mathField.lastOffset : fullLength;
-    if (targetIndex <= 0) {
-        return 0;
-    }
-    if (targetIndex >= fullLength) {
-        return lastOffset;
-    }
-    let low = 0;
-    let high = lastOffset;
-    while (low < high) {
-        const mid = Math.floor((low + high) / 2);
-        const length = offsetToIndex(mathField, mid);
-        if (length < targetIndex) {
-            low = mid + 1;
-        }
-        else {
-            high = mid;
-        }
-    }
-    return low;
-};
+import { PLACEHOLDER_LATEX } from "./math-input-utils.js";
 export const initBlockInputUi = (context, deps) => {
     const { blockToggleButtons, blockForms, blockTableRows, blockTableCols, blockTableGrid, blockTableRaw, blockTableRawInput, blockSettingsButton, blockSettingsModal, blockSettingsClose, blockSettingsBack, blockSettingsPages, blockSettingsMenuItems, blockSettingsInlineOptions, blockSettingsDisplayOptions, blockFormatButton, blockFormatMenu, blockFormatOptions, } = context.dom;
     const MATH_INSERT_MODE_KEY = "tex64.math-insert-mode";
@@ -570,11 +13,110 @@ export const initBlockInputUi = (context, deps) => {
         { value: "gather", label: "gather*", shortLabel: "GTH" },
         { value: "none", label: "囲まない", shortLabel: "RAW" },
     ];
+    const ALIGNED_ENV_BEGIN = "\\begin{aligned}";
+    const ALIGNED_ENV_END = "\\end{aligned}";
+    const isEscapedAt = (text, index) => {
+        let count = 0;
+        for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
+            count += 1;
+        }
+        return count % 2 === 1;
+    };
+    const hasUnescapedAmpersand = (text) => {
+        for (let i = 0; i < text.length; i += 1) {
+            if (text[i] === "&" && !isEscapedAt(text, i)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const hasLineBreak = (text) => {
+        for (let i = 0; i < text.length - 1; i += 1) {
+            if (text[i] === "\\" && text[i + 1] === "\\" && !isEscapedAt(text, i)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const shouldWrapAligned = (text) => {
+        if (!text) {
+            return false;
+        }
+        if (text.includes("\\begin{") || text.includes("\\end{")) {
+            return false;
+        }
+        return hasUnescapedAmpersand(text) || hasLineBreak(text);
+    };
+    const wrapAligned = (text) => `${ALIGNED_ENV_BEGIN}\n${text}\n${ALIGNED_ENV_END}`;
+    const unwrapAligned = (text) => {
+        const start = text.indexOf(ALIGNED_ENV_BEGIN);
+        const end = text.lastIndexOf(ALIGNED_ENV_END);
+        if (start === -1 || end === -1) {
+            return { value: text, didUnwrap: false };
+        }
+        const before = text.slice(0, start).trim();
+        const after = text.slice(end + ALIGNED_ENV_END.length).trim();
+        if (before || after) {
+            return { value: text, didUnwrap: false };
+        }
+        let inner = text.slice(start + ALIGNED_ENV_BEGIN.length, end);
+        if (inner.startsWith("\n")) {
+            inner = inner.slice(1);
+        }
+        if (inner.endsWith("\n")) {
+            inner = inner.slice(0, -1);
+        }
+        return { value: inner, didUnwrap: true };
+    };
+    const splitAlignedRows = (text) => {
+        const rows = [];
+        let current = "";
+        for (let i = 0; i < text.length; i += 1) {
+            if (text[i] === "\\" && text[i + 1] === "\\" && !isEscapedAt(text, i)) {
+                rows.push(current);
+                current = "";
+                i += 1;
+                continue;
+            }
+            current += text[i];
+        }
+        rows.push(current);
+        return rows;
+    };
+    const isEmptyAlignedRow = (row) => {
+        const cleaned = row.replace(/\\placeholder\{\}/g, "").replace(/\s+/g, "");
+        return cleaned === "" || cleaned === "&";
+    };
+    const stripEmptyAlignedRows = (text) => {
+        const rows = splitAlignedRows(text);
+        const kept = rows.filter((row) => !(rows.length > 1 && isEmptyAlignedRow(row)));
+        if (kept.length === 0) {
+            return "";
+        }
+        return kept.join("\\\\");
+    };
+    const normalizeMathValueForOutput = (value) => {
+        if (!mathFieldWrapped) {
+            return value;
+        }
+        const { value: unwrapped, didUnwrap } = unwrapAligned(value);
+        return didUnwrap ? unwrapped : value;
+    };
+    const prepareMathValueForField = (value) => {
+        if (!value) {
+            return value;
+        }
+        if (!shouldWrapAligned(value)) {
+            return value;
+        }
+        return wrapAligned(value);
+    };
     let activeBlockType = "math";
     let tableEditMode = "grid";
     let mathInput = null;
     let mathInputFallback = null;
     let currentMathValue = "";
+    let mathFieldWrapped = false;
     let mathKeyboardVisibilityHandler = () => { };
     let mathInsertMode = "inline";
     let mathInlineWrap = "inline-dollar";
@@ -772,17 +314,22 @@ export const initBlockInputUi = (context, deps) => {
     };
     const setMathInputElement = (element) => {
         mathInput = element;
+        mathFieldWrapped = false;
         if (!mathInput) {
             return;
         }
         if (!currentMathValue) {
             return;
         }
+        const resolvedValue = mathInput instanceof HTMLTextAreaElement
+            ? currentMathValue
+            : prepareMathValueForField(currentMathValue);
         if (mathInput instanceof HTMLTextAreaElement) {
-            mathInput.value = currentMathValue;
+            mathInput.value = resolvedValue;
             return;
         }
-        writeMathFieldValue(mathInput, currentMathValue);
+        mathFieldWrapped = resolvedValue !== currentMathValue;
+        writeMathFieldValue(mathInput, resolvedValue);
     };
     const setMathInputFallback = (value) => {
         mathInputFallback = typeof value === "string" ? value : null;
@@ -790,32 +337,49 @@ export const initBlockInputUi = (context, deps) => {
     const getMathInputFallback = () => mathInputFallback;
     const getMathInputValue = () => {
         if (mathInputFallback !== null) {
-            return mathInputFallback;
+            return normalizeMathValueForOutput(mathInputFallback);
         }
         if (!mathInput) {
             return "";
         }
         if (mathInput instanceof HTMLElement && mathInput.tagName.toLowerCase() === "math-field") {
-            currentMathValue = readMathFieldValue(mathInput);
-            return currentMathValue;
+            const rawValue = readMathFieldValue(mathInput);
+            if (mathFieldWrapped) {
+                const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
+                if (didUnwrap) {
+                    currentMathValue = unwrapped;
+                    return unwrapped;
+                }
+                mathFieldWrapped = false;
+            }
+            currentMathValue = rawValue;
+            return rawValue;
         }
         if (mathInput instanceof HTMLTextAreaElement) {
+            mathFieldWrapped = false;
             currentMathValue = mathInput.value;
             return currentMathValue;
         }
+        mathFieldWrapped = false;
         const value = mathInput.value;
         return typeof value === "string" ? value : "";
     };
     const setMathInputValue = (value) => {
-        currentMathValue = value;
         if (!mathInput) {
+            currentMathValue = value;
+            mathFieldWrapped = false;
             return;
         }
         if (mathInput instanceof HTMLTextAreaElement) {
+            mathFieldWrapped = false;
+            currentMathValue = value;
             mathInput.value = value;
             return;
         }
-        writeMathFieldValue(mathInput, value);
+        const preparedValue = prepareMathValueForField(value);
+        mathFieldWrapped = preparedValue !== value;
+        currentMathValue = value;
+        writeMathFieldValue(mathInput, preparedValue);
     };
     const getTableRawValue = () => {
         if (blockTableRawInput instanceof HTMLTextAreaElement) {
@@ -832,13 +396,18 @@ export const initBlockInputUi = (context, deps) => {
         if (!mathInput) {
             return;
         }
+        if (mathInput instanceof HTMLElement && mathInput.tagName.toLowerCase() === "math-field") {
+            return;
+        }
         mathInput.addEventListener("input", () => {
             if (mathInput instanceof HTMLTextAreaElement) {
+                mathFieldWrapped = false;
                 currentMathValue = mathInput.value;
+                return;
             }
-            else {
-                currentMathValue = readMathFieldValue(mathInput);
-            }
+            mathFieldWrapped = false;
+            const value = mathInput.value;
+            currentMathValue = typeof value === "string" ? value : "";
         });
     };
     const attachMathFieldEvents = (mathfield) => {
@@ -865,8 +434,46 @@ export const initBlockInputUi = (context, deps) => {
                 }
             }
         };
+        let mathFieldNormalizing = false;
         const syncMathFieldValue = () => {
-            currentMathValue = readMathFieldValue(mathfield);
+            if (mathFieldNormalizing) {
+                return;
+            }
+            const rawValue = readMathFieldValue(mathfield);
+            if (mathFieldWrapped) {
+                const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
+                if (didUnwrap) {
+                    const trimmed = stripEmptyAlignedRows(unwrapped);
+                    if (trimmed !== unwrapped) {
+                        mathFieldNormalizing = true;
+                        writeMathFieldValue(mathfield, wrapAligned(trimmed));
+                        currentMathValue = trimmed;
+                        mathFieldWrapped = true;
+                        mathFieldNormalizing = false;
+                        return;
+                    }
+                    currentMathValue = unwrapped;
+                    return;
+                }
+                mathFieldWrapped = false;
+            }
+            if (shouldWrapAligned(rawValue)) {
+                const preparedValue = wrapAligned(rawValue);
+                mathFieldNormalizing = true;
+                writeMathFieldValue(mathfield, preparedValue);
+                const mathfieldApi = mathfield;
+                if (typeof mathfieldApi.lastOffset === "number") {
+                    mathfieldApi.position = Math.max(0, mathfieldApi.lastOffset - 1);
+                }
+                else {
+                    mathfieldApi.position = 0;
+                }
+                currentMathValue = rawValue;
+                mathFieldWrapped = true;
+                mathFieldNormalizing = false;
+                return;
+            }
+            currentMathValue = rawValue;
         };
         mathfield.addEventListener("input", syncMathFieldValue);
         mathfield.addEventListener("change", syncMathFieldValue);
@@ -994,11 +601,12 @@ export const initBlockInputUi = (context, deps) => {
     const getBlockDraft = () => {
         if (activeBlockType === "math") {
             const formula = getMathInputValue();
-            const snippet = buildMathSnippet(formula);
+            const normalizedFormula = normalizeMathValueForOutput(formula);
+            const snippet = buildMathSnippet(normalizedFormula);
             if (!snippet.trim()) {
                 return null;
             }
-            return { snippet, content: { formula: formula.trim() } };
+            return { snippet, content: { formula: normalizedFormula.trim() } };
         }
         if (tableEditMode === "raw") {
             const raw = getTableRawValue();
@@ -1017,144 +625,26 @@ export const initBlockInputUi = (context, deps) => {
             content: { rows: size.rows, cols: size.cols },
         };
     };
-    const applyScript = (kind, values = {}) => {
-        var _a, _b, _c;
-        if (!mathInput) {
-            return false;
-        }
-        if (mathInput instanceof HTMLTextAreaElement) {
-            const start = (_a = mathInput.selectionStart) !== null && _a !== void 0 ? _a : mathInput.value.length;
-            const end = (_b = mathInput.selectionEnd) !== null && _b !== void 0 ? _b : mathInput.value.length;
-            const result = applyScriptToText(mathInput.value, { start, end }, kind, {
-                placeholder: "",
-                base: values.base,
-                subValue: values.subValue,
-                supValue: values.supValue,
-            });
-            mathInput.value = result.text;
-            mathInput.setSelectionRange(result.selectionStart, result.selectionEnd);
-            mathInput.focus();
-            currentMathValue = result.text;
-            mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-            updateMathPreview();
-            return true;
-        }
-        const mathField = mathInput;
-        const text = readMathFieldValue(mathField);
-        const offsets = getMathFieldSelectionRange(mathField);
-        const selection = {
-            start: offsetToIndex(mathField, offsets.start),
-            end: offsetToIndex(mathField, offsets.end),
-        };
-        const result = applyScriptToText(text, selection, kind, {
-            placeholder: PLACEHOLDER_LATEX,
-            base: values.base,
-            subValue: values.subValue,
-            supValue: values.supValue,
-        });
-        writeMathFieldValue(mathField, result.text);
-        currentMathValue = result.text;
-        const startOffset = indexToOffset(mathField, result.selectionStart);
-        const endOffset = indexToOffset(mathField, result.selectionEnd);
-        if (startOffset === endOffset) {
-            mathField.selection = startOffset;
-        }
-        else {
-            mathField.selection = { ranges: [[startOffset, endOffset]] };
-        }
-        (_c = mathField.focus) === null || _c === void 0 ? void 0 : _c.call(mathField);
-        mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-        updateMathPreview();
-        return true;
-    };
-    const applyTemplate = (template, options) => {
-        var _a, _b, _c;
-        if (!mathInput) {
-            return false;
-        }
-        if (mathInput instanceof HTMLTextAreaElement) {
-            const start = (_a = mathInput.selectionStart) !== null && _a !== void 0 ? _a : mathInput.value.length;
-            const end = (_b = mathInput.selectionEnd) !== null && _b !== void 0 ? _b : mathInput.value.length;
-            const result = applyTemplateToText(mathInput.value, { start, end }, template, {
-                placeholder: "",
-                baseMode: options.mode,
-                baseIndex: options.target,
-                baseSeparator: options.separator,
-                baseScope: options.scope,
-            });
-            mathInput.value = result.text;
-            mathInput.setSelectionRange(result.selectionStart, result.selectionEnd);
-            mathInput.focus();
-            currentMathValue = result.text;
-            mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-            updateMathPreview();
-            return true;
-        }
-        const mathField = mathInput;
-        const text = readMathFieldValue(mathField);
-        const offsets = getMathFieldSelectionRange(mathField);
-        const selection = {
-            start: offsetToIndex(mathField, offsets.start),
-            end: offsetToIndex(mathField, offsets.end),
-        };
-        const result = applyTemplateToText(text, selection, template, {
-            placeholder: PLACEHOLDER_LATEX,
-            baseMode: options.mode,
-            baseIndex: options.target,
-            baseSeparator: options.separator,
-            baseScope: options.scope,
-        });
-        writeMathFieldValue(mathField, result.text);
-        currentMathValue = result.text;
-        const startOffset = indexToOffset(mathField, result.selectionStart);
-        const endOffset = indexToOffset(mathField, result.selectionEnd);
-        if (startOffset === endOffset) {
-            mathField.selection = startOffset;
-        }
-        else {
-            mathField.selection = { ranges: [[startOffset, endOffset]] };
-        }
-        (_c = mathField.focus) === null || _c === void 0 ? void 0 : _c.call(mathField);
-        mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-        updateMathPreview();
-        return true;
+    const resolveInsertValue = (key, isTextArea) => {
+        const source = isTextArea && key.fallback ? key.fallback : key.latex;
+        const placeholder = isTextArea ? "" : PLACEHOLDER_LATEX;
+        return source.replace(/#\?/g, placeholder);
     };
     const insertMathKey = (key) => {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c;
         if (!mathInput) {
             return;
         }
-        if (key.scriptKind) {
-            const values = {
-                base: key.scriptBase,
-                subValue: key.scriptSubValue,
-                supValue: key.scriptSupValue,
-            };
-            if (key.scriptKind === "sub") {
-                values.subValue = (_a = key.scriptSubValue) !== null && _a !== void 0 ? _a : key.scriptValue;
-            }
-            if (key.scriptKind === "sup") {
-                values.supValue = (_b = key.scriptSupValue) !== null && _b !== void 0 ? _b : key.scriptValue;
-            }
-            if (applyScript(key.scriptKind, values)) {
-                return;
-            }
-        }
-        if (key.templateKind) {
-            if (applyTemplate(key.latex, {
-                mode: key.templateKind,
-                target: key.templateTarget,
-                separator: key.templateSeparator,
-                scope: key.templateScope,
-            })) {
-                return;
-            }
-        }
+        const isTextArea = mathInput instanceof HTMLTextAreaElement;
+        const insertValue = resolveInsertValue(key, isTextArea);
         const mathField = mathInput;
-        (_c = mathField.focus) === null || _c === void 0 ? void 0 : _c.call(mathField);
+        (_a = mathField.focus) === null || _a === void 0 ? void 0 : _a.call(mathField);
+        if (!insertValue) {
+            return;
+        }
         if (typeof mathField.executeCommand === "function") {
             try {
-                mathField.executeCommand("insert", key.latex);
+                mathField.executeCommand("insert", insertValue);
                 updateMathPreview();
                 return;
             }
@@ -1163,14 +653,13 @@ export const initBlockInputUi = (context, deps) => {
             }
         }
         if (typeof mathField.insert === "function") {
-            mathField.insert(key.latex, { focus: true, feedback: false });
+            mathField.insert(insertValue, { focus: true, feedback: false });
             updateMathPreview();
             return;
         }
-        const insertValue = (_d = key.fallback) !== null && _d !== void 0 ? _d : key.latex;
         if (mathInput instanceof HTMLTextAreaElement) {
-            const start = (_e = mathInput.selectionStart) !== null && _e !== void 0 ? _e : mathInput.value.length;
-            const end = (_f = mathInput.selectionEnd) !== null && _f !== void 0 ? _f : mathInput.value.length;
+            const start = (_b = mathInput.selectionStart) !== null && _b !== void 0 ? _b : mathInput.value.length;
+            const end = (_c = mathInput.selectionEnd) !== null && _c !== void 0 ? _c : mathInput.value.length;
             mathInput.value =
                 mathInput.value.slice(0, start) + insertValue + mathInput.value.slice(end);
             const nextPos = start + insertValue.length;

@@ -473,12 +473,22 @@ export const initAlchemyPreviewUi = (
     return btoa(binary);
   };
 
+  const getImageMimeFromName = (name: string) => {
+    const match = name.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/i);
+    if (!match) return null;
+    const ext = match[1].toLowerCase();
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    if (ext === "svg") return "image/svg+xml";
+    return `image/${ext}`;
+  };
+
   const buildPayloadFromFile = async (file: File) => {
     const type = file.type.toLowerCase();
     const name = file.name.toLowerCase();
-    if (type.startsWith("image/")) {
-      const imageDataUrl = await readFileAsDataUrl(file);
-      return { imageDataUrl };
+    const imageMime = type.startsWith("image/") ? type : getImageMimeFromName(name);
+    if (imageMime) {
+      const buffer = await readFileAsArrayBuffer(file);
+      return { imageDataUrl: `data:${imageMime};base64,${arrayBufferToBase64(buffer)}` };
     }
     if (type === "application/pdf" || name.endsWith(".pdf")) {
       const buffer = await readFileAsArrayBuffer(file);
@@ -490,6 +500,17 @@ export const initAlchemyPreviewUi = (
     }
     const text = await readFileAsText(file);
     return { text };
+  };
+
+  const processFile = (file: File) => {
+    void buildPayloadFromFile(file)
+      .then((payload) => {
+        handlers.onInputPayload?.(payload);
+        resetFileInput();
+      })
+      .catch(() => {
+        handlers.onInputPayload?.({});
+      });
   };
 
   const buildPayloadFromClipboard = async (event: ClipboardEvent) => {
@@ -555,18 +576,44 @@ export const initAlchemyPreviewUi = (
       event.preventDefault();
       void buildPayloadFromClipboard(event).then((payload) => {
         if (!payload) {
-          pendingPastePayload = null;
-          setPasteStatus("貼り付け内容がありません。");
           return;
         }
-        pendingPastePayload = payload;
-        const labels: string[] = [];
-        if (payload.html) labels.push("HTML");
-        if (payload.imageDataUrl) labels.push("画像");
-        if (payload.pdfBase64) labels.push("PDF");
-        if (payload.text && labels.length === 0) labels.push("テキスト");
-        setPasteStatus(labels.length ? `${labels.join(" / ")}を取得しました。` : "");
+        // Auto-submit on paste for "Magic" feel
+        handlers.onInputPayload?.(payload);
+        resetPasteInput();
       });
+    });
+
+    // Handle Drag & Drop
+    alchemyPasteBox.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      alchemyPasteBox.style.background = "rgba(121, 126, 249, 0.1)";
+    });
+
+    alchemyPasteBox.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      alchemyPasteBox.style.background = "";
+    });
+
+    alchemyPasteBox.addEventListener("drop", (e) => {
+      e.preventDefault();
+      alchemyPasteBox.style.background = "";
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        processFile(files[0]);
+      }
+    });
+
+    // Handle Enter to submit text / URLs
+    alchemyPasteBox.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const text = alchemyPasteBox.innerText.trim();
+        if (text) {
+          handlers.onInputPayload?.({ text });
+          resetPasteInput();
+        }
+      }
     });
   }
 
@@ -605,29 +652,16 @@ export const initAlchemyPreviewUi = (
 
   if (alchemyFileInput instanceof HTMLInputElement) {
     alchemyFileInput.addEventListener("change", () => {
-      pendingFile = alchemyFileInput.files?.[0] ?? null;
-      if (alchemyFileName instanceof HTMLElement) {
-        alchemyFileName.textContent = pendingFile?.name ?? "未選択";
+      const file = alchemyFileInput.files?.[0];
+      if (file) {
+        processFile(file);
       }
+      // Reset value to allow selecting same file again
+      alchemyFileInput.value = "";
     });
   }
 
-  if (alchemyFileRun instanceof HTMLElement) {
-    alchemyFileRun.addEventListener("click", () => {
-      if (!pendingFile) {
-        handlers.onInputPayload?.({});
-        return;
-      }
-      void buildPayloadFromFile(pendingFile)
-        .then((payload) => {
-          handlers.onInputPayload?.(payload);
-          resetFileInput();
-        })
-        .catch(() => {
-          handlers.onInputPayload?.({});
-        });
-    });
-  }
+
 
   if (alchemyClose instanceof HTMLElement) {
     alchemyClose.addEventListener("click", () => {

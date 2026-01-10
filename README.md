@@ -13,6 +13,9 @@ Electron ベースの LaTeX エディタ（開発中）。
 2. `npm run web:build`
 3. `npm run electron:dev`
 
+AI（開発）:
+- デフォルトは `https://tex64.vercel.app/api/ai-chat`。別のプロキシを使う場合だけ `TEX64_AI_PROXY_URL` を指定する。
+
 E2E:
 
 - `npm run e2e:install`

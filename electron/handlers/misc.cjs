@@ -115,7 +115,44 @@ const createMiscHandlers = (deps) => {
       return;
     }
     const image = nativeImage.createFromDataURL(dataUrl);
+    let buffer = null;
+    let normalizedExt = null;
     if (image.isEmpty()) {
+      const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+      if (!match) {
+        sendToRenderer("alchemy:image-saved", {
+          requestId,
+          ok: false,
+          error: "画像データの読み込みに失敗しました。",
+        });
+        return;
+      }
+      const mime = match[1].toLowerCase();
+      if (!mime.startsWith("image/")) {
+        sendToRenderer("alchemy:image-saved", {
+          requestId,
+          ok: false,
+          error: "画像データの読み込みに失敗しました。",
+        });
+        return;
+      }
+      const base64 = match[2];
+      buffer = Buffer.from(base64, "base64");
+      const rawExt = mime.split("/")[1] ?? "png";
+      if (rawExt === "jpeg" || rawExt === "jpg") {
+        normalizedExt = "jpg";
+      } else if (rawExt === "svg+xml") {
+        normalizedExt = "svg";
+      } else {
+        normalizedExt = rawExt;
+      }
+    } else {
+      const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);/);
+      const ext = match?.[1]?.toLowerCase() ?? "png";
+      normalizedExt = ext === "jpeg" || ext === "jpg" ? "jpg" : "png";
+      buffer = normalizedExt === "jpg" ? image.toJPEG(92) : image.toPNG();
+    }
+    if (!buffer || !normalizedExt) {
       sendToRenderer("alchemy:image-saved", {
         requestId,
         ok: false,
@@ -123,11 +160,6 @@ const createMiscHandlers = (deps) => {
       });
       return;
     }
-    const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+]+);/);
-    const ext = match?.[1]?.toLowerCase() ?? "png";
-    const normalizedExt = ext === "jpeg" || ext === "jpg" ? "jpg" : "png";
-    const buffer =
-      normalizedExt === "jpg" ? image.toJPEG(92) : image.toPNG();
     const fileName = `capture-${Date.now()}-${Math.random().toString(16).slice(2, 6)}.${normalizedExt}`;
     const dirPath = resolveWorkspacePath("images");
     const filePath = path.join(dirPath, fileName);

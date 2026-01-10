@@ -3,6 +3,7 @@ export type TabKey =
   | "outline"
   | "blocks"
   | "alchemy"
+  | "ai"
   | "git"
   | "project"
   | "search"
@@ -46,6 +47,13 @@ export const tabConfig: Record<
     title: "Paste Alchemy",
     desc: "貼り付けやキャプチャを部品として挿入します。",
     hint: "プレビューを確認して確定します。",
+  },
+  ai: {
+    label: "AI",
+    outline: "AIチャット",
+    title: "AIアシスタント",
+    desc: "チャットでファイル提案やテンプレート作成を行います。",
+    hint: "差分を確認して適用します。",
   },
   git: {
     label: "履歴",

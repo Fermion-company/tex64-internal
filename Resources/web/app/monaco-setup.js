@@ -149,7 +149,7 @@ export const initMonacoSetup = (context, deps) => {
             minimap: { enabled: false },
             scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
             fontFamily: '"SF Mono", Menlo, monospace',
-            fontSize: 13,
+            fontSize: 12,
             lineHeight: 20,
             lineNumbersMinChars: 3,
             scrollBeyondLastLine: false,

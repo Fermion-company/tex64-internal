@@ -252,10 +252,8 @@ export const initSettingsUi = (
   });
 
   const updateSettingsToggle = (element: HTMLElement | null, enabled: boolean) => {
-    if (element instanceof HTMLButtonElement) {
-      element.textContent = enabled ? "ON" : "OFF";
-      element.classList.toggle("is-on", enabled);
-      element.setAttribute("aria-pressed", enabled ? "true" : "false");
+    if (element instanceof HTMLInputElement) {
+      element.checked = enabled;
     }
   };
 
@@ -336,9 +334,8 @@ export const initSettingsUi = (
   };
 
   const updateEditorAlignEnvUI = () => {
-    if (editorAlignEnvToggle instanceof HTMLButtonElement) {
-      editorAlignEnvToggle.textContent = editorAlignEnvEnabled ? "ON" : "OFF";
-      editorAlignEnvToggle.classList.toggle("is-on", editorAlignEnvEnabled);
+    if (editorAlignEnvToggle instanceof HTMLInputElement) {
+      editorAlignEnvToggle.checked = editorAlignEnvEnabled;
     }
   };
 
@@ -596,34 +593,34 @@ export const initSettingsUi = (
     });
   }
 
-  if (editorFormatBeginEndToggle instanceof HTMLButtonElement) {
-    editorFormatBeginEndToggle.addEventListener("click", () => {
+  if (editorFormatBeginEndToggle instanceof HTMLInputElement) {
+    editorFormatBeginEndToggle.addEventListener("change", () => {
       setEditorFormatSettings({
-        beginEndOnOwnLine: !editorFormatSettings.beginEndOnOwnLine,
+        beginEndOnOwnLine: editorFormatBeginEndToggle.checked,
       });
     });
   }
 
-  if (editorFormatDocumentNoIndentToggle instanceof HTMLButtonElement) {
-    editorFormatDocumentNoIndentToggle.addEventListener("click", () => {
+  if (editorFormatDocumentNoIndentToggle instanceof HTMLInputElement) {
+    editorFormatDocumentNoIndentToggle.addEventListener("change", () => {
       setEditorFormatSettings({
-        documentNoIndent: !editorFormatSettings.documentNoIndent,
+        documentNoIndent: editorFormatDocumentNoIndentToggle.checked,
       });
     });
   }
 
-  if (editorFormatAlignMathToggle instanceof HTMLButtonElement) {
-    editorFormatAlignMathToggle.addEventListener("click", () => {
+  if (editorFormatAlignMathToggle instanceof HTMLInputElement) {
+    editorFormatAlignMathToggle.addEventListener("change", () => {
       setEditorFormatSettings({
-        alignMathDelims: !editorFormatSettings.alignMathDelims,
+        alignMathDelims: editorFormatAlignMathToggle.checked,
       });
     });
   }
 
-  if (editorFormatAlignTableToggle instanceof HTMLButtonElement) {
-    editorFormatAlignTableToggle.addEventListener("click", () => {
+  if (editorFormatAlignTableToggle instanceof HTMLInputElement) {
+    editorFormatAlignTableToggle.addEventListener("change", () => {
       setEditorFormatSettings({
-        alignTableDelims: !editorFormatSettings.alignTableDelims,
+        alignTableDelims: editorFormatAlignTableToggle.checked,
       });
     });
   }
@@ -654,8 +651,8 @@ export const initSettingsUi = (
     editorFormatVerbatimList.addEventListener("click", handleEditorFormatVerbatimListClick);
   }
 
-  if (editorAlignEnvToggle instanceof HTMLButtonElement) {
-    editorAlignEnvToggle.addEventListener("click", () => {
+  if (editorAlignEnvToggle instanceof HTMLInputElement) {
+    editorAlignEnvToggle.addEventListener("change", () => {
       toggleEditorAlignEnv();
     });
   }

@@ -10,6 +10,10 @@ const DEFAULT_SETTINGS = {
     pdfMode: "Auto",
     shortcut: "Ctrl+Shift+2",
   },
+  agent: {
+    temperature: 0.2,
+    maxOutputTokens: 2048,
+  },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -49,6 +53,22 @@ class UserSettingsService {
     this.state = state;
     await this.save();
     return clone(state.alchemy);
+  }
+
+  async getAgentSettings() {
+    const state = await this.load();
+    return clone(state.agent ?? DEFAULT_SETTINGS.agent);
+  }
+
+  async updateAgentSettings(partial) {
+    const state = await this.load();
+    state.agent = {
+      ...state.agent,
+      ...(partial && typeof partial === "object" ? partial : {}),
+    };
+    this.state = state;
+    await this.save();
+    return clone(state.agent);
   }
 
   async save() {

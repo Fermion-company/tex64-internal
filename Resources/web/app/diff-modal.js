@@ -245,7 +245,7 @@ export const initDiffModal = (context, deps) => {
             submitLabel: options.submitLabel,
         });
     };
-    const showDiffModal = (original, modified, lineOffset = 0) => {
+    const showDiffModal = (original, modified, lineOffset = 0, options) => {
         var _a, _b, _c, _d, _e, _f, _g, _h;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi)
@@ -254,7 +254,9 @@ export const initDiffModal = (context, deps) => {
         const container = blockDiffContainer;
         if (!container)
             return;
-        diffContext = { type: "block" };
+        if (!diffContext) {
+            diffContext = { type: "block" };
+        }
         if (diffModal) {
             diffModal.classList.add("is-open");
             diffModal.setAttribute("aria-hidden", "false");
@@ -282,7 +284,7 @@ export const initDiffModal = (context, deps) => {
                 occurrencesHighlight: false,
                 selectionHighlight: false,
                 lineNumbers: "on",
-                fontSize: 13,
+                fontSize: 12,
                 fontFamily: "Menlo, Monaco, 'Courier New', monospace",
             });
         }
@@ -296,6 +298,9 @@ export const initDiffModal = (context, deps) => {
             (_e = diffEditorAny.layout) === null || _e === void 0 ? void 0 : _e.call(diffEditorAny);
         }
         renderDiffHeader();
+        if (options) {
+            setDiffHeader(options);
+        }
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.textContent = defaultDiffSubmitLabel;
         }

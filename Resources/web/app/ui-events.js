@@ -23,7 +23,7 @@ export const initUiEvents = (context, deps) => {
         }
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.addEventListener("click", () => {
-                var _a;
+                var _a, _b;
                 const diffContext = deps.diffModal.getDiffContext();
                 if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "gitCommit") {
                     deps.diffModal.closeDiffModal();
@@ -36,15 +36,21 @@ export const initUiEvents = (context, deps) => {
                     deps.gitOps.requestRestore(targetHash);
                     return;
                 }
-                (_a = deps.blockInsert) === null || _a === void 0 ? void 0 : _a.applyPendingFromDiffModal();
+                if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "aiApply") {
+                    (_a = deps.aiOps) === null || _a === void 0 ? void 0 : _a.applyPendingFromDiffModal();
+                    deps.diffModal.closeDiffModal();
+                    return;
+                }
+                (_b = deps.blockInsert) === null || _b === void 0 ? void 0 : _b.applyPendingFromDiffModal();
                 deps.diffModal.closeDiffModal();
             });
         }
         if (diffModalCancel instanceof HTMLButtonElement) {
             diffModalCancel.addEventListener("click", () => {
-                var _a;
+                var _a, _b;
                 deps.diffModal.closeDiffModal();
                 (_a = deps.blockInsert) === null || _a === void 0 ? void 0 : _a.clearPending();
+                (_b = deps.aiOps) === null || _b === void 0 ? void 0 : _b.clearPending();
             });
         }
         if (saveFileButton instanceof HTMLButtonElement) {

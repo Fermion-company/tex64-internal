@@ -23,10 +23,12 @@ const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs")
 const { EnvService } = require("./services/env.cjs");
 const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
+const { AgentService } = require("./services/agent.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { createGitHandlers } = require("./handlers/git.cjs");
 const { createMiscHandlers } = require("./handlers/misc.cjs");
+const { createAgentHandlers } = require("./handlers/agent.cjs");
 
 // Expose require so Playwright's electronApp.evaluate can load Electron APIs in e2e.
 global.require = require;
@@ -160,6 +162,15 @@ const workspaceHandlers = createWorkspaceHandlers({
   state,
 });
 
+const agentService = new AgentService({
+  workspace,
+  searchService,
+  ensureUserSettings,
+  sendToRenderer,
+  updateWorkspaceIfNeeded: workspaceHandlers.updateWorkspaceIfNeeded,
+  requestIndex: workspaceHandlers.requestIndex,
+});
+
 const buildHandlers = createBuildHandlers({
   fs,
   path,
@@ -201,6 +212,12 @@ const miscHandlers = createMiscHandlers({
   path,
   WorkspaceError,
   blocksStore,
+});
+
+const agentHandlers = createAgentHandlers({
+  agentService,
+  ensureUserSettings,
+  sendToRenderer,
 });
 
 app.whenReady().then(() => {
@@ -403,6 +420,31 @@ ipcMain.on("tex64", (_event, message) => {
       // eslint-disable-next-line no-console
       console.log(`[WebView] ${message.message}`);
     }
+  }
+
+  if (type === "agent:settings:get") {
+    agentHandlers.handleAgentSettingsGet();
+    return;
+  }
+  if (type === "agent:settings:set") {
+    agentHandlers.handleAgentSettingsSet(message.settings);
+    return;
+  }
+  if (type === "agent:run") {
+    agentHandlers.handleAgentRun(message.message, message.context, message.conversationId);
+    return;
+  }
+  if (type === "agent:abort") {
+    agentHandlers.handleAgentAbort();
+    return;
+  }
+  if (type === "agent:apply") {
+    agentHandlers.handleAgentApply(message.proposalId);
+    return;
+  }
+  if (type === "agent:clear") {
+    agentHandlers.handleAgentClear(message.conversationId);
+    return;
   }
 
 

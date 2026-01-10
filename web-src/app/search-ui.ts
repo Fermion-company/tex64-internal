@@ -10,6 +10,7 @@ type SearchUpdatePayload = {
 type SearchUiDeps = {
   getWorkspaceRootKey: () => string | null;
   postToNative: (message: { type: string; [key: string]: unknown }) => void;
+  openSearchResult: (result: SearchResult) => void;
 };
 
 export type SearchUiApi = {
@@ -88,7 +89,7 @@ export const initSearchUi = (context: AppContext, deps: SearchUiDeps): SearchUiA
         item.appendChild(line);
         item.appendChild(preview);
         item.addEventListener("click", () => {
-          deps.postToNative({ type: "openFile", path: result.path, line: result.line });
+          deps.openSearchResult(result);
         });
         groupDiv.appendChild(item);
       });

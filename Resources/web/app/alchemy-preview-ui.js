@@ -343,12 +343,24 @@ export const initAlchemyPreviewUi = (context, deps = {}) => {
         }
         return btoa(binary);
     };
+    const getImageMimeFromName = (name) => {
+        const match = name.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/i);
+        if (!match)
+            return null;
+        const ext = match[1].toLowerCase();
+        if (ext === "jpg" || ext === "jpeg")
+            return "image/jpeg";
+        if (ext === "svg")
+            return "image/svg+xml";
+        return `image/${ext}`;
+    };
     const buildPayloadFromFile = async (file) => {
         const type = file.type.toLowerCase();
         const name = file.name.toLowerCase();
-        if (type.startsWith("image/")) {
-            const imageDataUrl = await readFileAsDataUrl(file);
-            return { imageDataUrl };
+        const imageMime = type.startsWith("image/") ? type : getImageMimeFromName(name);
+        if (imageMime) {
+            const buffer = await readFileAsArrayBuffer(file);
+            return { imageDataUrl: `data:${imageMime};base64,${arrayBufferToBase64(buffer)}` };
         }
         if (type === "application/pdf" || name.endsWith(".pdf")) {
             const buffer = await readFileAsArrayBuffer(file);

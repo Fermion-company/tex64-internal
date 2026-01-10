@@ -39,8 +39,36 @@ export const initBridgeHandlers = (deps) => {
     bridgeWindow.tex64RenameResult = (payload) => {
         deps.editorSession.handleRenameResult(payload);
     };
+    bridgeWindow.tex64AgentSettings = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleSettings(payload.settings);
+    };
+    bridgeWindow.tex64AgentStatus = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleStatus(payload.state, payload.message, payload.conversationId);
+    };
+    bridgeWindow.tex64AgentMessage = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleMessage(payload.text, payload.conversationId);
+    };
+    bridgeWindow.tex64AgentTool = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleTool(payload);
+    };
+    bridgeWindow.tex64AgentProposal = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleProposal(payload.proposal);
+    };
+    bridgeWindow.tex64AgentApplyResult = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleApplyResult(payload);
+    };
+    bridgeWindow.tex64AgentError = (payload) => {
+        var _a;
+        (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
+    };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -104,6 +132,27 @@ export const initBridgeHandlers = (deps) => {
                 break;
             case "capture:open":
                 (_x = deps.capture) === null || _x === void 0 ? void 0 : _x.openCapture();
+                break;
+            case "agent:settings":
+                (_y = deps.agent) === null || _y === void 0 ? void 0 : _y.handleSettings(message.payload.settings);
+                break;
+            case "agent:status":
+                (_z = deps.agent) === null || _z === void 0 ? void 0 : _z.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
+                break;
+            case "agent:message":
+                (_0 = deps.agent) === null || _0 === void 0 ? void 0 : _0.handleMessage((_1 = message.payload.text) !== null && _1 !== void 0 ? _1 : "", message.payload.conversationId);
+                break;
+            case "agent:tool":
+                (_2 = deps.agent) === null || _2 === void 0 ? void 0 : _2.handleTool(message.payload);
+                break;
+            case "agent:proposal":
+                (_3 = deps.agent) === null || _3 === void 0 ? void 0 : _3.handleProposal(message.payload.proposal);
+                break;
+            case "agent:applyResult":
+                (_4 = deps.agent) === null || _4 === void 0 ? void 0 : _4.handleApplyResult(message.payload);
+                break;
+            case "agent:error":
+                (_5 = deps.agent) === null || _5 === void 0 ? void 0 : _5.handleError((_6 = message.payload.message) !== null && _6 !== void 0 ? _6 : "AIエラー", message.payload.conversationId);
                 break;
             default:
                 break;

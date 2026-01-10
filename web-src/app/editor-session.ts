@@ -279,6 +279,32 @@ export const initEditorSession = (
     }
     return null;
   };
+  const findGroupKeyByCurrentPath = (path: string): EditorGroupKey | null => {
+    const groups = Object.keys(editorGroups) as EditorGroupKey[];
+    for (const key of groups) {
+      if (editorGroups[key].currentFilePath === path) {
+        return key;
+      }
+    }
+    return null;
+  };
+  const resolveOpenTargetGroupKey = (
+    path: string,
+    preferredKey: EditorGroupKey
+  ): EditorGroupKey => {
+    if (getEditorGroup(preferredKey).currentFilePath === path) {
+      return preferredKey;
+    }
+    const currentGroupKey = findGroupKeyByCurrentPath(path);
+    if (currentGroupKey) {
+      return currentGroupKey;
+    }
+    const existingGroupKey = findGroupKeyByPath(path);
+    if (existingGroupKey) {
+      return existingGroupKey;
+    }
+    return resolveAutoOpenGroupKey(preferredKey);
+  };
   const forEachEditorGroup = (handler: (group: EditorGroupState) => void) => {
     (Object.keys(editorGroups) as EditorGroupKey[]).forEach((key) => {
       handler(editorGroups[key]);
@@ -772,14 +798,15 @@ export const initEditorSession = (
   });
 
   const jumpToFileLine = (path: string, line: number, groupKey: EditorGroupKey) => {
-    const group = getEditorGroup(groupKey);
-    if (group.currentFilePath === path) {
-      revealLine(group, line);
+    const targetGroupKey = resolveOpenTargetGroupKey(path, groupKey);
+    const targetGroup = getEditorGroup(targetGroupKey);
+    if (targetGroup.currentFilePath === path) {
+      revealLine(targetGroup, line);
       return;
     }
-    const requested = requestOpenFile(path, group.key);
+    const requested = requestOpenFile(path, targetGroupKey);
     if (requested) {
-      fileOpsState.pendingReveal = { path, line, group: group.key };
+      fileOpsState.pendingReveal = { path, line, group: targetGroupKey };
     }
   };
 

@@ -27,6 +27,7 @@ export type MathKey = {
   shiftFallback?: string;
   displayLatex?: string;
   shiftDisplayLatex?: string;
+  hint?: string;
   scriptKind?: "sub" | "sup" | "subsup";
   scriptValue?: string | null;
   shiftScriptKind?: "sub" | "sup" | "subsup";
@@ -89,6 +90,22 @@ export type GitActionResultPayload = {
 export type FileNode = { name: string; path: string; type: "file" | "dir"; children: FileNode[] };
 export type RootSource = "auto" | "manual";
 export type LauncherTemplate = "paper" | "lecture";
+export type AgentStatusState = "idle" | "running" | "error";
+export type AgentSettings = {
+  apiKey: string;
+  model: string;
+  temperature: number;
+  maxOutputTokens: number;
+};
+export type AgentProposal = {
+  id: string;
+  path: string;
+  content: string;
+  originalContent?: string;
+  summary?: string;
+  isNewFile?: boolean;
+  conversationId?: string;
+};
 
 export type EditorFormatIndentStyle = "spaces-2" | "spaces-4" | "tab";
 export type EditorFormatBlankLines = "preserve" | "condense" | "remove";
@@ -181,4 +198,23 @@ export type BridgeWindow = Window &
       newPath: string;
       isDirectory: boolean;
     }) => void;
+    tex64AgentSettings?: (payload: { settings: AgentSettings }) => void;
+    tex64AgentStatus?: (payload: {
+      state: AgentStatusState;
+      message?: string;
+      conversationId?: string;
+    }) => void;
+    tex64AgentMessage?: (payload: { text: string; conversationId?: string }) => void;
+    tex64AgentTool?: (payload: {
+      name: string;
+      summary?: string;
+      conversationId?: string;
+    }) => void;
+    tex64AgentProposal?: (payload: { proposal: AgentProposal }) => void;
+    tex64AgentApplyResult?: (payload: {
+      proposalId: string;
+      ok: boolean;
+      error?: string;
+    }) => void;
+    tex64AgentError?: (payload: { message: string; conversationId?: string }) => void;
   };

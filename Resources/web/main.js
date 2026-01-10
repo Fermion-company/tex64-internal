@@ -16,6 +16,7 @@ import { initMagicCapture } from "./app/magic-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
+import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
 import { createViewer } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
@@ -58,6 +59,7 @@ window.addEventListener("DOMContentLoaded", () => {
     let issuesUi;
     let rootSelectorUi;
     let resizerUi;
+    let aiChatUi = null;
     const primaryViewer = createViewer({
         editorViewer,
         editorViewerImage,
@@ -272,6 +274,14 @@ window.addEventListener("DOMContentLoaded", () => {
         getMonacoApi: appActions.getMonacoApi,
         getActiveFilePath: () => editorSession.getActiveFilePath(),
     });
+    aiChatUi = initAiChatUi(appContext, {
+        postToNative: (payload, silent) => postToNative(payload, silent),
+        getActiveFilePath: () => editorSession.getActiveFilePath(),
+        diffModal: {
+            showDiffModal: diffModalApi.showDiffModal,
+            setDiffContext: diffModalApi.setDiffContext,
+        },
+    });
     const blockInputApi = initBlockInputUi(appContext, {
         enableTableBlocks: ENABLE_TABLE_BLOCKS,
         getActiveBlockContext: () => activeBlockContext,
@@ -382,6 +392,14 @@ window.addEventListener("DOMContentLoaded", () => {
         getWorkspaceRootKey: appActions.getWorkspaceRootKey,
         postToNative: (message) => {
             postToNative(message);
+        },
+        openSearchResult: (result) => {
+            var _a;
+            const existingGroup = editorSession
+                .getEditorGroups()
+                .find((group) => group.openTabs.includes(result.path));
+            const targetGroupKey = (_a = existingGroup === null || existingGroup === void 0 ? void 0 : existingGroup.key) !== null && _a !== void 0 ? _a : editorSession.getActiveEditorGroupKey();
+            editorSession.jumpToFileLine(result.path, result.line, targetGroupKey);
         },
     });
     resetBlockSession = (options) => {
@@ -599,6 +617,7 @@ window.addEventListener("DOMContentLoaded", () => {
             requestRestore: (hash) => gitOps.requestRestore(hash),
             setupActions: () => gitOps.setupActions(),
         },
+        aiOps: aiChatUi,
         blockInsert: blockInsertApi,
         buildOps: {
             setupActionButtons: () => buildOps.setupActionButtons(),
@@ -654,6 +673,15 @@ window.addEventListener("DOMContentLoaded", () => {
             handleImageSaved: (payload) => {
                 pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.handleImageSaved(payload);
             },
+        },
+        agent: {
+            handleSettings: (settings) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleSettings(settings),
+            handleStatus: (state, message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleStatus(state, message, conversationId),
+            handleMessage: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessage(text, conversationId),
+            handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),
+            handleProposal: (proposal) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposal(proposal),
+            handleApplyResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleApplyResult(payload),
+            handleError: (message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleError(message, conversationId),
         },
         capture: {
             openCapture: () => {

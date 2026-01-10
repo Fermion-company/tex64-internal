@@ -7,6 +7,9 @@ import type {
   IndexEntry,
   IssueItem,
   IssuesStatus,
+  AgentProposal,
+  AgentSettings,
+  AgentStatusState,
   RootSource,
   SearchResult,
   SectionEntry,
@@ -86,6 +89,27 @@ type BridgeHandlersDeps = {
   settings?: {
     updateEnvStatus: (command: string, available: boolean) => void;
   };
+  agent?: {
+    handleSettings: (settings: AgentSettings) => void;
+    handleStatus: (
+      state: AgentStatusState,
+      message?: string,
+      conversationId?: string
+    ) => void;
+    handleMessage: (text: string, conversationId?: string) => void;
+    handleTool: (payload: {
+      name: string;
+      summary?: string;
+      conversationId?: string;
+    }) => void;
+    handleProposal: (proposal: AgentProposal) => void;
+    handleApplyResult: (payload: {
+      proposalId: string;
+      ok: boolean;
+      error?: string;
+    }) => void;
+    handleError: (message: string, conversationId?: string) => void;
+  };
   editorSession: {
     handleOpenFileResult: (payload: {
       path: string;
@@ -160,6 +184,34 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
 
   bridgeWindow.tex64RenameResult = (payload) => {
     deps.editorSession.handleRenameResult(payload);
+  };
+
+  bridgeWindow.tex64AgentSettings = (payload) => {
+    deps.agent?.handleSettings(payload.settings);
+  };
+
+  bridgeWindow.tex64AgentStatus = (payload) => {
+    deps.agent?.handleStatus(payload.state, payload.message, payload.conversationId);
+  };
+
+  bridgeWindow.tex64AgentMessage = (payload) => {
+    deps.agent?.handleMessage(payload.text, payload.conversationId);
+  };
+
+  bridgeWindow.tex64AgentTool = (payload) => {
+    deps.agent?.handleTool(payload);
+  };
+
+  bridgeWindow.tex64AgentProposal = (payload) => {
+    deps.agent?.handleProposal(payload.proposal);
+  };
+
+  bridgeWindow.tex64AgentApplyResult = (payload) => {
+    deps.agent?.handleApplyResult(payload);
+  };
+
+  bridgeWindow.tex64AgentError = (payload) => {
+    deps.agent?.handleError(payload.message, payload.conversationId);
   };
 
   const handleBridgeMessage = (message: { type?: string; payload?: unknown }) => {
@@ -294,6 +346,58 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "capture:open":
         deps.capture?.openCapture();
+        break;
+      case "agent:settings":
+        deps.agent?.handleSettings(
+          (message.payload as { settings: AgentSettings }).settings
+        );
+        break;
+      case "agent:status":
+        deps.agent?.handleStatus(
+          (message.payload as {
+            state: AgentStatusState;
+            message?: string;
+            conversationId?: string;
+          }).state,
+          (message.payload as {
+            state: AgentStatusState;
+            message?: string;
+            conversationId?: string;
+          }).message,
+          (message.payload as {
+            state: AgentStatusState;
+            message?: string;
+            conversationId?: string;
+          }).conversationId
+        );
+        break;
+      case "agent:message":
+        deps.agent?.handleMessage(
+          (message.payload as { text?: string; conversationId?: string }).text ?? "",
+          (message.payload as { text?: string; conversationId?: string }).conversationId
+        );
+        break;
+      case "agent:tool":
+        deps.agent?.handleTool(
+          message.payload as { name: string; summary?: string; conversationId?: string }
+        );
+        break;
+      case "agent:proposal":
+        deps.agent?.handleProposal(
+          (message.payload as { proposal: AgentProposal }).proposal
+        );
+        break;
+      case "agent:applyResult":
+        deps.agent?.handleApplyResult(
+          message.payload as { proposalId: string; ok: boolean; error?: string }
+        );
+        break;
+      case "agent:error":
+        deps.agent?.handleError(
+          (message.payload as { message?: string; conversationId?: string }).message ??
+            "AIエラー",
+          (message.payload as { message?: string; conversationId?: string }).conversationId
+        );
         break;
       default:
         break;

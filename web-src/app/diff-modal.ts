@@ -5,10 +5,16 @@ export type DiffContext =
   | { type: "block" }
   | { type: "gitCommit" }
   | { type: "gitRestore"; hash: string }
+  | { type: "aiApply"; proposalId: string }
   | null;
 
 export type DiffModalApi = {
-  showDiffModal: (original: string, modified: string, lineOffset?: number) => void;
+  showDiffModal: (
+    original: string,
+    modified: string,
+    lineOffset?: number,
+    options?: { title?: string; fileName?: string; submitLabel?: string }
+  ) => void;
   showPatchModal: (
     patch: string,
     options: {
@@ -322,7 +328,12 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     });
   };
 
-  const showDiffModal = (original: string, modified: string, lineOffset = 0) => {
+  const showDiffModal = (
+    original: string,
+    modified: string,
+    lineOffset = 0,
+    options?: { title?: string; fileName?: string; submitLabel?: string }
+  ) => {
     const monacoApi = deps.getMonacoApi();
     if (!monacoApi) return;
     const monacoApiAny = monacoApi as {
@@ -334,7 +345,9 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     const container = blockDiffContainer;
     if (!container) return;
 
-    diffContext = { type: "block" };
+    if (!diffContext) {
+      diffContext = { type: "block" };
+    }
     if (diffModal) {
       diffModal.classList.add("is-open");
       diffModal.setAttribute("aria-hidden", "false");
@@ -363,7 +376,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
         occurrencesHighlight: false,
         selectionHighlight: false,
         lineNumbers: "on",
-        fontSize: 13,
+        fontSize: 12,
         fontFamily: "Menlo, Monaco, 'Courier New', monospace",
       });
     } else {
@@ -381,6 +394,9 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     }
 
     renderDiffHeader();
+    if (options) {
+      setDiffHeader(options);
+    }
     if (diffModalSubmit instanceof HTMLButtonElement) {
       diffModalSubmit.textContent = defaultDiffSubmitLabel;
     }

@@ -175,6 +175,22 @@
             </button>
             <button
               class="tab"
+              type="button"
+              role="tab"
+              data-tab="ai"
+              aria-selected="false"
+              aria-label="AI"
+              title="AI"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 6h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"></path>
+                  <path d="M9 10h6M9 13h4"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
               id="issues-tab"
               type="button"
               role="tab"
@@ -403,69 +419,63 @@
                 class="alchemy-panel"
                 id="alchemy-panel"
                 aria-hidden="false"
-                aria-label="取り込みプレビュー"
+                aria-label="取り込みボード"
               >
                 <div class="alchemy-panel-header">
-                  <div class="alchemy-title">取り込みプレビュー</div>
+                  <div class="alchemy-title">取り込みボード</div>
                   <div class="alchemy-header-actions">
                     <button
-                      class="panel-button block-settings-button"
+                      class="panel-button ghost icon-only"
                       id="alchemy-settings-button"
                       type="button"
-                      aria-label="取り込み設定"
+                      aria-label="設定"
+                      title="取り込み設定"
                     >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path
-                          d="M12 8.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8Zm7.2 3.4a7.1 7.1 0 0 0-.1-1l2-1.5-1.9-3.2-2.4 1a7.5 7.5 0 0 0-1.7-1l-.3-2.6H9.2l-.3 2.6a7.5 7.5 0 0 0-1.7 1l-2.4-1-1.9 3.2 2 1.5a7.1 7.1 0 0 0-.1 1c0 .3 0 .6.1 1l-2 1.5 1.9 3.2 2.4-1a7.5 7.5 0 0 0 1.7 1l.3 2.6h5.5l.3-2.6a7.5 7.5 0 0 0 1.7-1l2.4 1 1.9-3.2-2-1.5c.1-.3.1-.6.1-1Z"
-                        ></path>
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
                       </svg>
                     </button>
-                    <button class="panel-button ghost" id="alchemy-close" type="button">
-                      閉じる
-                    </button>
+                    <!-- Close button removed -->
+                    <button id="alchemy-close" type="button" hidden></button>
                   </div>
                 </div>
                 <div class="alchemy-settings" id="alchemy-settings" aria-hidden="true">
                   <div class="alchemy-settings-grid">
                     <div class="alchemy-settings-item">
-                      <div class="settings-title">数式の挿入形式</div>
-                      <select class="settings-select alchemy-select" id="alchemy-default-math">
-                        <option>inline</option>
-                        <option selected>display</option>
-                        <option>align*</option>
-                        <option>gather*</option>
-                      </select>
+                      <div class="settings-title">数式 / 表 / 図</div>
+                      <div class="alchemy-settings-inline">
+                        <select class="settings-select alchemy-select" id="alchemy-default-math">
+                          <option>inline</option>
+                          <option selected>display</option>
+                          <option>align*</option>
+                          <option>gather*</option>
+                        </select>
+                        <select class="settings-select alchemy-select" id="alchemy-default-table">
+                          <option selected>tabular</option>
+                          <option>tabularx</option>
+                          <option>longtable</option>
+                        </select>
+                        <select class="settings-select alchemy-select" id="alchemy-default-figure">
+                          <option selected>includegraphics</option>
+                          <option>figure</option>
+                        </select>
+                      </div>
                     </div>
                     <div class="alchemy-settings-item">
-                      <div class="settings-title">表の挿入形式</div>
-                      <select class="settings-select alchemy-select" id="alchemy-default-table">
-                        <option selected>tabular</option>
-                        <option>tabularx</option>
-                        <option>longtable</option>
-                      </select>
-                    </div>
-                    <div class="alchemy-settings-item">
-                      <div class="settings-title">図の挿入形式</div>
-                      <select class="settings-select alchemy-select" id="alchemy-default-figure">
-                        <option selected>includegraphics</option>
-                        <option>figure</option>
-                      </select>
-                    </div>
-                    <div class="alchemy-settings-item">
-                      <div class="settings-title">OCR言語</div>
-                      <select class="settings-select alchemy-select" id="alchemy-ocr-language">
-                        <option selected>jpn+eng</option>
-                        <option>eng</option>
-                        <option>jpn</option>
-                      </select>
-                    </div>
-                    <div class="alchemy-settings-item">
-                      <div class="settings-title">PDFモード</div>
-                      <select class="settings-select alchemy-select" id="alchemy-pdf-mode">
-                        <option selected>Auto</option>
-                        <option>PDFテキスト</option>
-                        <option>OCR</option>
-                      </select>
+                      <div class="settings-title">OCR / PDF</div>
+                      <div class="alchemy-settings-inline">
+                        <select class="settings-select alchemy-select" id="alchemy-ocr-language">
+                          <option selected>jpn+eng</option>
+                          <option>eng</option>
+                          <option>jpn</option>
+                        </select>
+                        <select class="settings-select alchemy-select" id="alchemy-pdf-mode">
+                          <option selected>Auto</option>
+                          <option>PDFテキスト</option>
+                          <option>OCR</option>
+                        </select>
+                      </div>
                     </div>
                     <div class="alchemy-settings-item">
                       <div class="settings-title">ショートカット</div>
@@ -484,125 +494,143 @@
                   </div>
                 </div>
                 <div class="alchemy-panel-body">
-                  <div class="alchemy-input-card">
-                    <div class="alchemy-input-header">
-                      <div class="alchemy-input-title">入力</div>
-                      <button
-                        class="panel-button ghost"
-                        id="alchemy-capture-button"
-                        type="button"
-                        aria-label="スクリーンショット"
-                      >
-                        カメラ
+                  <div class="alchemy-magic-input">
+                    <div
+                      class="alchemy-magic-dropzone"
+                      id="alchemy-paste-box"
+                      contenteditable="true"
+                      data-placeholder="ここにドロップ または 貼り付け"
+                    ></div>
+                    <div class="alchemy-magic-actions">
+                      <button class="alchemy-magic-btn" id="alchemy-capture-button" type="button" title="画面キャプチャ">
+                        <span class="alchemy-magic-icon">
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        </span>
+                        <span class="alchemy-magic-label">画面</span>
                       </button>
+                      <button class="alchemy-magic-btn" id="alchemy-file-pick" type="button" title="ファイルを選択">
+                         <span class="alchemy-magic-icon">
+                           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                         </span>
+                         <span class="alchemy-magic-label">ファイル</span>
+                      </button>
+                      <button class="alchemy-magic-btn" id="alchemy-clipboard-run" type="button" title="クリップボードから解析">
+                         <span class="alchemy-magic-icon">
+                           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                         </span>
+                         <span class="alchemy-magic-label">貼付</span>
+                      </button>
+                      <!-- Hidden utility elements for TS compatibility -->
+                      <button id="alchemy-paste-run" type="button" hidden></button>
+                      <input id="alchemy-file-input" type="file" hidden />
+                      <span id="alchemy-file-name" hidden></span>
+                      <button id="alchemy-file-run" hidden></button>
                     </div>
-                    <div class="alchemy-input-body">
-                      <div class="alchemy-input-block">
-                        <div class="alchemy-input-label">貼り付け</div>
-                        <div
-                          class="alchemy-paste-box"
-                          id="alchemy-paste-box"
-                          contenteditable="true"
-                          data-placeholder="ここに貼り付け"
-                        ></div>
-                        <div class="alchemy-input-actions">
-                          <button class="panel-button" id="alchemy-paste-run" type="button">
-                            取り込み
-                          </button>
-                          <button
-                            class="panel-button ghost"
-                            id="alchemy-clipboard-run"
-                            type="button"
-                          >
-                            クリップボードから取り込み
-                          </button>
-                        </div>
-                        <div class="alchemy-input-status" id="alchemy-paste-status"></div>
+                    <div class="alchemy-status-line" id="alchemy-paste-status"></div>
+                  </div>
+
+                  <div class="alchemy-list-container">
+                    <div class="alchemy-empty" id="alchemy-empty">
+                      <div class="alchemy-empty-icon">
+                        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       </div>
-                      <div class="alchemy-input-block">
-                        <div class="alchemy-input-label">ファイル</div>
-                        <div class="alchemy-file-row">
-                          <span class="alchemy-file-name" id="alchemy-file-name">未選択</span>
-                          <button class="panel-button ghost" id="alchemy-file-pick" type="button">
-                            選択
-                          </button>
-                          <button class="panel-button" id="alchemy-file-run" type="button">
-                            取り込み
-                          </button>
-                          <input
-                            class="alchemy-file-input"
-                            id="alchemy-file-input"
-                            type="file"
-                            hidden
-                          />
-                        </div>
+                      <div class="alchemy-empty-text">
+                        ここにファイルをドロップ<br>
+                        または ボタンから追加
+                      </div>
+                      <div class="alchemy-empty-sub">
+                        画像・PDF・HTML・テキストに対応
                       </div>
                     </div>
+                    <div class="alchemy-list" id="alchemy-list"></div>
                   </div>
-                  <div class="alchemy-empty" id="alchemy-empty">
-                    貼り付けやキャプチャの結果がここに表示されます。
-                  </div>
-                  <div class="alchemy-list" id="alchemy-list"></div>
+
                   <template id="alchemy-item-template">
                     <div class="alchemy-item" data-kind="">
                       <div class="alchemy-item-header">
-                        <span class="alchemy-item-kind"></span>
-                        <span class="alchemy-item-tag"></span>
+                        <div class="alchemy-item-badges">
+                          <span class="alchemy-badge kind-badge alchemy-item-kind"></span>
+                          <span class="alchemy-badge tag-badge alchemy-item-tag"></span>
+                        </div>
                         <span class="alchemy-item-score"></span>
                       </div>
+                      
                       <div class="alchemy-item-preview">
                         <div class="alchemy-preview-box" data-preview="latex" hidden>
                           <div class="alchemy-preview-latex"></div>
                         </div>
                         <div class="alchemy-preview-text" data-preview="text" hidden></div>
                         <div class="alchemy-preview-image" data-preview="image" hidden></div>
-                        <table class="alchemy-preview-table" data-preview="table" hidden></table>
+                        <div class="alchemy-preview-table-wrap" data-preview="table" hidden>
+                           <table class="alchemy-preview-table"></table>
+                        </div>
                       </div>
-                      <div class="alchemy-item-snippet">
-                        <div class="alchemy-snippet-label">LaTeX</div>
-                        <textarea
-                          class="alchemy-snippet-text"
-                          data-role="snippet"
-                          readonly
-                          spellcheck="false"
-                        ></textarea>
-                      </div>
+
                       <div class="alchemy-item-controls">
-                        <div class="alchemy-item-selects">
-                          <select
-                            class="settings-select alchemy-select"
-                            data-role="mode"
-                            hidden
-                          ></select>
-                          <select class="settings-select alchemy-select" data-role="format"></select>
-                        </div>
-                        <div class="alchemy-item-actions">
-                          <button class="panel-button ghost" type="button" data-action="discard">
-                            破棄
-                          </button>
-                          <button class="panel-button ghost" type="button" data-action="edit">
-                            編集して挿入
-                          </button>
-                          <button class="panel-button" type="button" data-action="apply">
-                            挿入
-                          </button>
-                        </div>
+                         <div class="alchemy-item-options">
+                            <select class="alchemy-mini-select" data-role="mode" hidden></select>
+                            <select class="alchemy-mini-select" data-role="format"></select>
+                         </div>
+                         <div class="alchemy-item-actions">
+                            <button class="alchemy-action-btn ghost" type="button" data-action="discard" title="破棄">
+                               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                            <button class="alchemy-action-btn ghost" type="button" data-action="edit" title="編集">
+                               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <button class="alchemy-action-btn primary" type="button" data-action="apply" title="挿入">
+                               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                               <span>挿入</span>
+                            </button>
+                         </div>
+                      </div>
+                      
+                      <div class="alchemy-item-snippet" hidden> <!-- Hidden by default, maybe toggleable? Or use edit modal -->
+                        <textarea class="alchemy-snippet-text" data-role="snippet" readonly spellcheck="false"></textarea>
                       </div>
                     </div>
                   </template>
                 </div>
                 <div class="alchemy-panel-footer">
-                  <button class="panel-button ghost" id="alchemy-discard" type="button">
-                    破棄
-                  </button>
-                  <button class="panel-button" id="alchemy-apply" type="button">
-                    挿入
-                  </button>
-                  <button class="panel-button" id="alchemy-apply-all" type="button">
-                    全件挿入
-                  </button>
+                  <button class="panel-button ghost" id="alchemy-discard" type="button">すべて破棄</button>
+                  <button class="panel-button" id="alchemy-apply" type="button" hidden>挿入</button>
+                  <button class="panel-button primary" id="alchemy-apply-all" type="button">すべて挿入</button>
                 </div>
               </div>
+            </div>
+          </div>
+          <div class="panel no-header" data-panel="ai">
+            <div class="panel-header">
+              <span class="panel-title">AI</span>
+            </div>
+            <div class="panel-body ai-panel" id="ai-panel">
+              <div class="ai-panel-header">
+                <div class="ai-title">AIアシスタント</div>
+                <div class="ai-header-actions">
+                  <!-- Clear history button removed -->
+                </div>
+              </div>
+              <div class="ai-chats">
+
+                <div class="ai-chats-list" id="ai-chat-list"></div>
+              </div>
+              <div class="ai-chat" id="ai-chat">
+                <div class="ai-chat-log" id="ai-chat-log"></div>
+                <div class="ai-proposals" id="ai-proposals"></div>
+              </div>
+              <div class="ai-chat-input">
+                <textarea
+                  class="ai-chat-textarea"
+                  id="ai-input"
+                  rows="3"
+                ></textarea>
+                <button class="panel-button" id="ai-send" type="button" aria-label="送信">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="ai-status" id="ai-status" aria-live="polite"></div>
             </div>
           </div>
           <div class="panel no-header" data-panel="git">
@@ -805,7 +833,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">インデント</span>
-                        <span class="settings-desc">整形時のインデント幅/タブを選択します。</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-indent">
@@ -818,39 +845,50 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">\begin / \end を別行にする</span>
-                        <span class="settings-desc">環境の開始/終了を必ず独立行にします。</span>
                       </div>
-                      <button class="settings-toggle" id="editor-format-begin-end" type="button">ON</button>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-format-begin-end">
+                          <input class="settings-switch-input" id="editor-format-begin-end" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">document をインデントしない</span>
-                        <span class="settings-desc">document 本文を追加インデントしません。</span>
                       </div>
-                      <button
-                        class="settings-toggle"
-                        id="editor-format-document-noindent"
-                        type="button"
-                      >ON</button>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-format-document-noindent">
+                          <input class="settings-switch-input" id="editor-format-document-noindent" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">数式の & を揃える</span>
-                        <span class="settings-desc">align などの & 揃えを行います。</span>
                       </div>
-                      <button class="settings-toggle" id="editor-format-align-math" type="button">ON</button>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-format-align-math">
+                          <input class="settings-switch-input" id="editor-format-align-math" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">表の & を揃える</span>
-                        <span class="settings-desc">tabular などの & 揃えを行います。</span>
                       </div>
-                      <button class="settings-toggle" id="editor-format-align-table" type="button">ON</button>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-format-align-table">
+                          <input class="settings-switch-input" id="editor-format-align-table" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">空行の扱い</span>
-                        <span class="settings-desc">連続する空行の扱いを選択します。</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-blank-lines">
@@ -863,16 +901,21 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">\begin / \end を揃える</span>
-                        <span class="settings-desc">
-                          ブロック挿入時に環境の先頭と末尾のインデントを揃えます。
-                        </span>
                       </div>
-                      <button class="settings-toggle" id="editor-align-env" type="button">ON</button>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-align-env">
+                          <input class="settings-switch-input" id="editor-align-env" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">verbatim 系環境</span>
-                        <span class="settings-desc">整形対象外にしたい環境名を追加します。</span>
+                      </div>
+                      <div class="settings-help-text">
+                        以下の環境内は整形を行わず、原文のまま保持します。<br>
+                        `minted` や `lstlisting` などのコードブロック環境や、独自の整形ルールを持つ環境を追加してください。
                       </div>
                     </div>
                     <div class="settings-inline">
@@ -886,7 +929,7 @@
                         追加
                       </button>
                     </div>
-                    <div class="env-registry-hint" id="editor-format-verbatim-hint">
+                    <div class="env-registry-hint is-hidden" id="editor-format-verbatim-hint">
                       環境名のみ入力してください。`\begin{...}` や `*` は不要です。
                     </div>
                     <div class="env-registry-list" id="editor-format-verbatim-list"></div>
@@ -904,9 +947,10 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">検出対象の環境</span>
-                        <span class="settings-desc">
-                          \begin{...} の環境名を追加・無効化できます。*版は自動対応。
-                        </span>
+                      </div>
+                      <div class="settings-help-text">
+                        ここで追加された環境は、サイドバーのブロック編集機能や、整形の対象として認識されます。<br>
+                        デフォルトの環境（align, tabularなど）に加え、独自に定義した環境などを追加してください。
                       </div>
                     </div>
                     <div class="env-registry">
@@ -925,7 +969,7 @@
                           追加
                         </button>
                       </div>
-                      <div class="env-registry-hint" id="env-registry-hint">
+                      <div class="env-registry-hint is-hidden" id="env-registry-hint">
                         環境名のみ入力してください。`\begin{...}` や `*` は不要です。
                       </div>
                       <div class="env-registry-lists">
@@ -990,7 +1034,6 @@
                     <div class="settings-item env-item" data-env="lualatex">
                       <div class="settings-label">
                         <span class="settings-title">TeX Distribution</span>
-                        <span class="settings-desc">LuaLaTeX の利用可否を確認します。</span>
                       </div>
                       <div class="settings-control">
                         <span class="env-badge checking">確認中...</span>
@@ -1002,7 +1045,6 @@
                     <div class="settings-item env-item" data-env="latexmk">
                       <div class="settings-label">
                         <span class="settings-title">latexmk</span>
-                        <span class="settings-desc">ビルド自動化ツールの状態を確認します。</span>
                       </div>
                       <div class="settings-control">
                         <span class="env-badge checking">確認中...</span>
@@ -1014,7 +1056,6 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">環境チェック</span>
-                        <span class="settings-desc">インストール状況を再確認します。</span>
                       </div>
                       <div class="settings-control">
                         <button class="panel-button ghost" id="settings-env-refresh" type="button">

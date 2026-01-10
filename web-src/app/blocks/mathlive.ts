@@ -293,8 +293,12 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
           display: none !important;
         }
         .ML__container {
+          position: relative !important; /* Anchor for absolute child */
           justify-content: flex-start !important;
+          align-items: flex-start !important; /* Force top alignment */
           padding-right: 2px !important;
+          height: auto !important; /* Allow growth */
+          min-height: 100% !important;
         }
         .ML__content {
           flex: 1 1 auto !important;

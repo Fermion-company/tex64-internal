@@ -2,15 +2,7 @@ import { reconstructionBlock } from "./context.js";
 import type { AppContext } from "../context.js";
 import type { BlockContent, BlockEditMode, BlockType, MathKey } from "../types.js";
 import type { BlockContext, MathEditCell } from "./types.js";
-import {
-  PLACEHOLDER_LATEX,
-  applyScriptToText,
-  applyTemplateToText,
-  getMathFieldSelectionRange,
-  indexToOffset,
-  offsetToIndex,
-} from "./math-input-utils.js";
-import type { ScriptKind } from "./math-input-utils.js";
+import { PLACEHOLDER_LATEX } from "./math-input-utils.js";
 
 export type BlockInputApi = {
   getActiveBlockType: () => BlockType;
@@ -85,12 +77,122 @@ export const initBlockInputUi = (
     { value: "gather", label: "gather*", shortLabel: "GTH" },
     { value: "none", label: "囲まない", shortLabel: "RAW" },
   ];
+  const ALIGNED_ENV_BEGIN = "\\begin{aligned}";
+  const ALIGNED_ENV_END = "\\end{aligned}";
+
+  const isEscapedAt = (text: string, index: number) => {
+    let count = 0;
+    for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
+      count += 1;
+    }
+    return count % 2 === 1;
+  };
+
+  const hasUnescapedAmpersand = (text: string) => {
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === "&" && !isEscapedAt(text, i)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const hasLineBreak = (text: string) => {
+    for (let i = 0; i < text.length - 1; i += 1) {
+      if (text[i] === "\\" && text[i + 1] === "\\" && !isEscapedAt(text, i)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const shouldWrapAligned = (text: string) => {
+    if (!text) {
+      return false;
+    }
+    if (text.includes("\\begin{") || text.includes("\\end{")) {
+      return false;
+    }
+    return hasUnescapedAmpersand(text) || hasLineBreak(text);
+  };
+
+  const wrapAligned = (text: string) => `${ALIGNED_ENV_BEGIN}\n${text}\n${ALIGNED_ENV_END}`;
+
+  const unwrapAligned = (text: string) => {
+    const start = text.indexOf(ALIGNED_ENV_BEGIN);
+    const end = text.lastIndexOf(ALIGNED_ENV_END);
+    if (start === -1 || end === -1) {
+      return { value: text, didUnwrap: false };
+    }
+    const before = text.slice(0, start).trim();
+    const after = text.slice(end + ALIGNED_ENV_END.length).trim();
+    if (before || after) {
+      return { value: text, didUnwrap: false };
+    }
+    let inner = text.slice(start + ALIGNED_ENV_BEGIN.length, end);
+    if (inner.startsWith("\n")) {
+      inner = inner.slice(1);
+    }
+    if (inner.endsWith("\n")) {
+      inner = inner.slice(0, -1);
+    }
+    return { value: inner, didUnwrap: true };
+  };
+
+  const splitAlignedRows = (text: string) => {
+    const rows: string[] = [];
+    let current = "";
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === "\\" && text[i + 1] === "\\" && !isEscapedAt(text, i)) {
+        rows.push(current);
+        current = "";
+        i += 1;
+        continue;
+      }
+      current += text[i];
+    }
+    rows.push(current);
+    return rows;
+  };
+
+  const isEmptyAlignedRow = (row: string) => {
+    const cleaned = row.replace(/\\placeholder\{\}/g, "").replace(/\s+/g, "");
+    return cleaned === "" || cleaned === "&";
+  };
+
+  const stripEmptyAlignedRows = (text: string) => {
+    const rows = splitAlignedRows(text);
+    const kept = rows.filter((row) => !(rows.length > 1 && isEmptyAlignedRow(row)));
+    if (kept.length === 0) {
+      return "";
+    }
+    return kept.join("\\\\");
+  };
+
+  const normalizeMathValueForOutput = (value: string) => {
+    if (!mathFieldWrapped) {
+      return value;
+    }
+    const { value: unwrapped, didUnwrap } = unwrapAligned(value);
+    return didUnwrap ? unwrapped : value;
+  };
+
+  const prepareMathValueForField = (value: string) => {
+    if (!value) {
+      return value;
+    }
+    if (!shouldWrapAligned(value)) {
+      return value;
+    }
+    return wrapAligned(value);
+  };
 
   let activeBlockType: BlockType = "math";
   let tableEditMode: "grid" | "raw" = "grid";
   let mathInput: HTMLElement | null = null;
   let mathInputFallback: string | null = null;
   let currentMathValue = "";
+  let mathFieldWrapped = false;
   let mathKeyboardVisibilityHandler = () => {};
   let mathInsertMode: MathInsertMode = "inline";
   let mathInlineWrap: MathInlineWrap = "inline-dollar";
@@ -309,19 +411,25 @@ export const initBlockInputUi = (
 
   const setMathInputElement = (element: HTMLElement | null) => {
     mathInput = element;
+    mathFieldWrapped = false;
     if (!mathInput) {
       return;
     }
     if (!currentMathValue) {
       return;
     }
+    const resolvedValue =
+      mathInput instanceof HTMLTextAreaElement
+        ? currentMathValue
+        : prepareMathValueForField(currentMathValue);
     if (mathInput instanceof HTMLTextAreaElement) {
-      mathInput.value = currentMathValue;
+      mathInput.value = resolvedValue;
       return;
     }
+    mathFieldWrapped = resolvedValue !== currentMathValue;
     writeMathFieldValue(
       mathInput as { setValue?: (value: string) => void; value?: string },
-      currentMathValue
+      resolvedValue
     );
   };
 
@@ -333,38 +441,55 @@ export const initBlockInputUi = (
 
   const getMathInputValue = () => {
     if (mathInputFallback !== null) {
-      return mathInputFallback;
+      return normalizeMathValueForOutput(mathInputFallback);
     }
     if (!mathInput) {
       return "";
     }
     if (mathInput instanceof HTMLElement && mathInput.tagName.toLowerCase() === "math-field") {
-      currentMathValue = readMathFieldValue(
+      const rawValue = readMathFieldValue(
         mathInput as { getValue?: (format?: string) => unknown; value?: unknown }
       );
-      return currentMathValue;
+      if (mathFieldWrapped) {
+        const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
+        if (didUnwrap) {
+          currentMathValue = unwrapped;
+          return unwrapped;
+        }
+        mathFieldWrapped = false;
+      }
+      currentMathValue = rawValue;
+      return rawValue;
     }
 
     if (mathInput instanceof HTMLTextAreaElement) {
+      mathFieldWrapped = false;
       currentMathValue = mathInput.value;
       return currentMathValue;
     }
+    mathFieldWrapped = false;
     const value = (mathInput as { value?: string }).value;
     return typeof value === "string" ? value : "";
   };
 
   const setMathInputValue = (value: string) => {
-    currentMathValue = value;
     if (!mathInput) {
+      currentMathValue = value;
+      mathFieldWrapped = false;
       return;
     }
     if (mathInput instanceof HTMLTextAreaElement) {
+      mathFieldWrapped = false;
+      currentMathValue = value;
       mathInput.value = value;
       return;
     }
+    const preparedValue = prepareMathValueForField(value);
+    mathFieldWrapped = preparedValue !== value;
+    currentMathValue = value;
     writeMathFieldValue(
       mathInput as { setValue?: (value: string) => void; value?: string },
-      value
+      preparedValue
     );
   };
 
@@ -385,14 +510,18 @@ export const initBlockInputUi = (
     if (!mathInput) {
       return;
     }
+    if (mathInput instanceof HTMLElement && mathInput.tagName.toLowerCase() === "math-field") {
+      return;
+    }
     mathInput.addEventListener("input", () => {
       if (mathInput instanceof HTMLTextAreaElement) {
+        mathFieldWrapped = false;
         currentMathValue = mathInput.value;
-      } else {
-        currentMathValue = readMathFieldValue(
-          mathInput as { getValue?: (format?: string) => unknown; value?: unknown }
-        );
+        return;
       }
+      mathFieldWrapped = false;
+      const value = (mathInput as { value?: string }).value;
+      currentMathValue = typeof value === "string" ? value : "";
     });
   };
 
@@ -420,10 +549,54 @@ export const initBlockInputUi = (
       }
     };
 
+    let mathFieldNormalizing = false;
+
     const syncMathFieldValue = () => {
-      currentMathValue = readMathFieldValue(
+      if (mathFieldNormalizing) {
+        return;
+      }
+      const rawValue = readMathFieldValue(
         mathfield as { getValue?: (format?: string) => unknown; value?: unknown }
       );
+      if (mathFieldWrapped) {
+        const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
+        if (didUnwrap) {
+          const trimmed = stripEmptyAlignedRows(unwrapped);
+          if (trimmed !== unwrapped) {
+            mathFieldNormalizing = true;
+            writeMathFieldValue(
+              mathfield as { setValue?: (value: string) => void; value?: string },
+              wrapAligned(trimmed)
+            );
+            currentMathValue = trimmed;
+            mathFieldWrapped = true;
+            mathFieldNormalizing = false;
+            return;
+          }
+          currentMathValue = unwrapped;
+          return;
+        }
+        mathFieldWrapped = false;
+      }
+      if (shouldWrapAligned(rawValue)) {
+        const preparedValue = wrapAligned(rawValue);
+        mathFieldNormalizing = true;
+        writeMathFieldValue(
+          mathfield as { setValue?: (value: string) => void; value?: string },
+          preparedValue
+        );
+        const mathfieldApi = mathfield as { lastOffset?: number; position?: number };
+        if (typeof mathfieldApi.lastOffset === "number") {
+          mathfieldApi.position = Math.max(0, mathfieldApi.lastOffset - 1);
+        } else {
+          mathfieldApi.position = 0;
+        }
+        currentMathValue = rawValue;
+        mathFieldWrapped = true;
+        mathFieldNormalizing = false;
+        return;
+      }
+      currentMathValue = rawValue;
     };
     mathfield.addEventListener("input", syncMathFieldValue);
     mathfield.addEventListener("change", syncMathFieldValue);
@@ -568,11 +741,12 @@ export const initBlockInputUi = (
   const getBlockDraft = (): { snippet: string; content: BlockContent } | null => {
     if (activeBlockType === "math") {
       const formula = getMathInputValue();
-      const snippet = buildMathSnippet(formula);
+      const normalizedFormula = normalizeMathValueForOutput(formula);
+      const snippet = buildMathSnippet(normalizedFormula);
       if (!snippet.trim()) {
         return null;
       }
-      return { snippet, content: { formula: formula.trim() } };
+      return { snippet, content: { formula: normalizedFormula.trim() } };
     }
     if (tableEditMode === "raw") {
       const raw = getTableRawValue();
@@ -592,161 +766,18 @@ export const initBlockInputUi = (
     };
   };
 
-  const applyScript = (
-    kind: ScriptKind,
-    values: { subValue?: string | null; supValue?: string | null; base?: string | null } = {}
-  ) => {
-    if (!mathInput) {
-      return false;
-    }
-    if (mathInput instanceof HTMLTextAreaElement) {
-      const start = mathInput.selectionStart ?? mathInput.value.length;
-      const end = mathInput.selectionEnd ?? mathInput.value.length;
-      const result = applyScriptToText(
-        mathInput.value,
-        { start, end },
-        kind,
-        {
-          placeholder: "",
-          base: values.base,
-          subValue: values.subValue,
-          supValue: values.supValue,
-        }
-      );
-      mathInput.value = result.text;
-      mathInput.setSelectionRange(result.selectionStart, result.selectionEnd);
-      mathInput.focus();
-      currentMathValue = result.text;
-      mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-      updateMathPreview();
-      return true;
-    }
-
-    const mathField = mathInput as any;
-    const text = readMathFieldValue(mathField);
-    const offsets = getMathFieldSelectionRange(mathField);
-    const selection = {
-      start: offsetToIndex(mathField, offsets.start),
-      end: offsetToIndex(mathField, offsets.end),
-    };
-    const result = applyScriptToText(text, selection, kind, {
-      placeholder: PLACEHOLDER_LATEX,
-      base: values.base,
-      subValue: values.subValue,
-      supValue: values.supValue,
-    });
-    writeMathFieldValue(mathField, result.text);
-    currentMathValue = result.text;
-    const startOffset = indexToOffset(mathField, result.selectionStart);
-    const endOffset = indexToOffset(mathField, result.selectionEnd);
-    if (startOffset === endOffset) {
-      mathField.selection = startOffset;
-    } else {
-      mathField.selection = { ranges: [[startOffset, endOffset]] };
-    }
-    mathField.focus?.();
-    mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-    updateMathPreview();
-    return true;
-  };
-
-  const applyTemplate = (
-    template: string,
-    options: {
-      mode: "wrap" | "after";
-      target?: number;
-      separator?: string;
-      scope?: "selection-or-atom" | "selection";
-    }
-  ) => {
-    if (!mathInput) {
-      return false;
-    }
-    if (mathInput instanceof HTMLTextAreaElement) {
-      const start = mathInput.selectionStart ?? mathInput.value.length;
-      const end = mathInput.selectionEnd ?? mathInput.value.length;
-      const result = applyTemplateToText(
-        mathInput.value,
-        { start, end },
-        template,
-        {
-          placeholder: "",
-          baseMode: options.mode,
-          baseIndex: options.target,
-          baseSeparator: options.separator,
-          baseScope: options.scope,
-        }
-      );
-      mathInput.value = result.text;
-      mathInput.setSelectionRange(result.selectionStart, result.selectionEnd);
-      mathInput.focus();
-      currentMathValue = result.text;
-      mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-      updateMathPreview();
-      return true;
-    }
-
-    const mathField = mathInput as any;
-    const text = readMathFieldValue(mathField);
-    const offsets = getMathFieldSelectionRange(mathField);
-    const selection = {
-      start: offsetToIndex(mathField, offsets.start),
-      end: offsetToIndex(mathField, offsets.end),
-    };
-    const result = applyTemplateToText(text, selection, template, {
-      placeholder: PLACEHOLDER_LATEX,
-      baseMode: options.mode,
-      baseIndex: options.target,
-      baseSeparator: options.separator,
-      baseScope: options.scope,
-    });
-    writeMathFieldValue(mathField, result.text);
-    currentMathValue = result.text;
-    const startOffset = indexToOffset(mathField, result.selectionStart);
-    const endOffset = indexToOffset(mathField, result.selectionEnd);
-    if (startOffset === endOffset) {
-      mathField.selection = startOffset;
-    } else {
-      mathField.selection = { ranges: [[startOffset, endOffset]] };
-    }
-    mathField.focus?.();
-    mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-    updateMathPreview();
-    return true;
+  const resolveInsertValue = (key: MathKey, isTextArea: boolean) => {
+    const source = isTextArea && key.fallback ? key.fallback : key.latex;
+    const placeholder = isTextArea ? "" : PLACEHOLDER_LATEX;
+    return source.replace(/#\?/g, placeholder);
   };
 
   const insertMathKey = (key: MathKey) => {
     if (!mathInput) {
       return;
     }
-    if (key.scriptKind) {
-      const values = {
-        base: key.scriptBase,
-        subValue: key.scriptSubValue,
-        supValue: key.scriptSupValue,
-      };
-      if (key.scriptKind === "sub") {
-        values.subValue = key.scriptSubValue ?? key.scriptValue;
-      }
-      if (key.scriptKind === "sup") {
-        values.supValue = key.scriptSupValue ?? key.scriptValue;
-      }
-      if (applyScript(key.scriptKind, values)) {
-        return;
-      }
-    }
-    if (key.templateKind) {
-      if (
-        applyTemplate(key.latex, {
-          mode: key.templateKind,
-          target: key.templateTarget,
-          separator: key.templateSeparator,
-          scope: key.templateScope,
-        })
-      ) {
-        return;
-      }
-    }
+    const isTextArea = mathInput instanceof HTMLTextAreaElement;
+    const insertValue = resolveInsertValue(key, isTextArea);
     const mathField = mathInput as {
       insert?: (value: string, options?: Record<string, unknown>) => void;
       executeCommand?: (...args: unknown[]) => boolean;
@@ -755,10 +786,13 @@ export const initBlockInputUi = (
     };
 
     mathField.focus?.();
+    if (!insertValue) {
+      return;
+    }
 
     if (typeof mathField.executeCommand === "function") {
       try {
-        mathField.executeCommand("insert", key.latex);
+        mathField.executeCommand("insert", insertValue);
         updateMathPreview();
         return;
       } catch (e) {
@@ -767,12 +801,11 @@ export const initBlockInputUi = (
     }
 
     if (typeof mathField.insert === "function") {
-      mathField.insert(key.latex, { focus: true, feedback: false });
+      mathField.insert(insertValue, { focus: true, feedback: false });
       updateMathPreview();
       return;
     }
 
-    const insertValue = key.fallback ?? key.latex;
     if (mathInput instanceof HTMLTextAreaElement) {
       const start = mathInput.selectionStart ?? mathInput.value.length;
       const end = mathInput.selectionEnd ?? mathInput.value.length;

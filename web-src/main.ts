@@ -16,6 +16,7 @@ import { initMagicCapture } from "./app/magic-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
+import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
 import { createViewer } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
@@ -84,6 +85,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let issuesUi: ReturnType<typeof initIssuesUi>;
   let rootSelectorUi: ReturnType<typeof initRootSelectorUi>;
   let resizerUi: ReturnType<typeof initSidebarResizer>;
+  let aiChatUi: ReturnType<typeof initAiChatUi> | null = null;
   const primaryViewer = createViewer({
     editorViewer,
     editorViewerImage,
@@ -321,6 +323,15 @@ window.addEventListener("DOMContentLoaded", () => {
     getActiveFilePath: () => editorSession.getActiveFilePath(),
   });
 
+  aiChatUi = initAiChatUi(appContext, {
+    postToNative: (payload, silent) => postToNative(payload, silent),
+    getActiveFilePath: () => editorSession.getActiveFilePath(),
+    diffModal: {
+      showDiffModal: diffModalApi.showDiffModal,
+      setDiffContext: diffModalApi.setDiffContext,
+    },
+  });
+
   const blockInputApi = initBlockInputUi(appContext, {
     enableTableBlocks: ENABLE_TABLE_BLOCKS,
     getActiveBlockContext: () => activeBlockContext,
@@ -443,6 +454,14 @@ window.addEventListener("DOMContentLoaded", () => {
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
     postToNative: (message) => {
       postToNative(message);
+    },
+    openSearchResult: (result) => {
+      const existingGroup = editorSession
+        .getEditorGroups()
+        .find((group) => group.openTabs.includes(result.path));
+      const targetGroupKey =
+        existingGroup?.key ?? editorSession.getActiveEditorGroupKey();
+      editorSession.jumpToFileLine(result.path, result.line, targetGroupKey);
     },
   });
 
@@ -647,6 +666,7 @@ window.addEventListener("DOMContentLoaded", () => {
       requestRestore: (hash) => gitOps.requestRestore(hash),
       setupActions: () => gitOps.setupActions(),
     },
+    aiOps: aiChatUi,
     blockInsert: blockInsertApi,
     buildOps: {
       setupActionButtons: () => buildOps.setupActionButtons(),
@@ -705,6 +725,17 @@ window.addEventListener("DOMContentLoaded", () => {
       handleImageSaved: (payload) => {
         pasteAlchemy?.handleImageSaved(payload);
       },
+    },
+    agent: {
+      handleSettings: (settings) => aiChatUi?.handleSettings(settings),
+      handleStatus: (state, message, conversationId) =>
+        aiChatUi?.handleStatus(state, message, conversationId),
+      handleMessage: (text, conversationId) => aiChatUi?.handleMessage(text, conversationId),
+      handleTool: (payload) => aiChatUi?.handleTool(payload),
+      handleProposal: (proposal) => aiChatUi?.handleProposal(proposal),
+      handleApplyResult: (payload) => aiChatUi?.handleApplyResult(payload),
+      handleError: (message, conversationId) =>
+        aiChatUi?.handleError(message, conversationId),
     },
     capture: {
       openCapture: () => {

@@ -56,7 +56,7 @@ export const initSearchUi = (context, deps) => {
                 item.appendChild(line);
                 item.appendChild(preview);
                 item.addEventListener("click", () => {
-                    deps.postToNative({ type: "openFile", path: result.path, line: result.line });
+                    deps.openSearchResult(result);
                 });
                 groupDiv.appendChild(item);
             });

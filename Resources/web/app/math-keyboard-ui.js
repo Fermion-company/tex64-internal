@@ -152,6 +152,10 @@ export const initMathKeyboard = (context, deps) => {
             button.type = "button";
             button.className = "math-keyboard-key";
             renderMathKeyLabel(button, resolved);
+            if (resolved.hint && button.classList.contains("has-math")) {
+                button.classList.add("has-hint");
+                button.setAttribute("data-key-hint", resolved.hint);
+            }
             if (!button.classList.contains("has-math")) {
                 const labelLength = Array.from(resolved.label).length;
                 if (labelLength > 4) {
