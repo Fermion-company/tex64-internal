@@ -30,7 +30,7 @@ E2E:
 - UI の見た目は `Resources/web/index.html` / `Resources/web/theme.css` / `Resources/web/pdf-viewer.*` を編集（ロジックは `web-src` 側）。
 - 整形のベースは `Resources/latexindent.yaml`。実際の上書き設定は `.tex64/.format/` に生成される。
 - `.tex64/` はワークスペースの内部状態（settings/blocks/trash）。手で編集しない。
-- 実装を変えたら対応する implementation（`docs/implementation.md` / `AI implementation.md`）を必ず更新する。
+- 実装を変えたら対応する機能別 implementation（`AI implementation.md` など。一覧は `docs/implementation.md`）を必ず更新する。
 
 ## 安全な変更ガイド（AI/自動化向け）
 
