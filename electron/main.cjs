@@ -4,9 +4,6 @@ const {
   dialog,
   ipcMain,
   shell,
-  clipboard,
-  nativeImage,
-  globalShortcut,
 } = require("electron");
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -14,7 +11,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
 const FormatterService = require("./services/formatter.cjs");
-const { GitService } = require("./services/git.cjs");
+
 const { IndexerService } = require("./services/indexer.cjs");
 const { PDFWindowManager } = require("./services/pdf.cjs");
 const { SynctexService } = require("./services/synctex.cjs");
@@ -26,7 +23,7 @@ const { UserSettingsService } = require("./services/user-settings.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
-const { createGitHandlers } = require("./handlers/git.cjs");
+
 const { createMiscHandlers } = require("./handlers/misc.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
 
@@ -37,7 +34,6 @@ const state = {
   mainWindow: null,
   currentWorkspacePath: null,
   userSettings: null,
-  captureShortcut: null,
   lastBuildPdfPath: null,
   formatWarningShown: false,
 };
@@ -53,7 +49,7 @@ const buildService = new BuildService();
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
 const searchService = new SearchService();
-const gitService = new GitService();
+
 const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
@@ -121,29 +117,6 @@ const ensureUserSettings = () => {
   return state.userSettings;
 };
 
-const registerCaptureShortcut = (shortcut) => {
-  if (!state.mainWindow) {
-    return;
-  }
-  if (state.captureShortcut) {
-    globalShortcut.unregister(state.captureShortcut);
-    state.captureShortcut = null;
-  }
-  if (!shortcut || typeof shortcut !== "string") {
-    return;
-  }
-  const ok = globalShortcut.register(shortcut, () => {
-    if (state.mainWindow) {
-      state.mainWindow.show();
-      state.mainWindow.focus();
-    }
-    sendToRenderer("capture:open", {});
-  });
-  if (ok) {
-    state.captureShortcut = shortcut;
-  }
-};
-
 const workspaceHandlers = createWorkspaceHandlers({
   dialog,
   shell,
@@ -190,27 +163,13 @@ const buildHandlers = createBuildHandlers({
   delay,
 });
 
-const gitHandlers = createGitHandlers({
-  gitService,
-  sendToRenderer,
-  sendIssues,
-  ensureWorkspace: workspaceHandlers.ensureWorkspace,
-  isE2E,
-});
+
 
 const miscHandlers = createMiscHandlers({
   envService,
   ensureUserSettings,
-  registerCaptureShortcut,
-  clipboard,
-  nativeImage,
   workspace,
   sendToRenderer,
-  resolveWorkspacePath: workspaceHandlers.resolveWorkspacePath,
-  updateWorkspaceIfNeeded: workspaceHandlers.updateWorkspaceIfNeeded,
-  fsp,
-  path,
-  WorkspaceError,
   blocksStore,
 });
 
@@ -230,12 +189,6 @@ app.whenReady().then(() => {
     }
   }
   createMainWindow();
-  ensureUserSettings()
-    .getAlchemySettings()
-    .then((settings) => {
-      registerCaptureShortcut(settings.shortcut);
-    })
-    .catch(() => {});
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -245,7 +198,6 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  globalShortcut.unregisterAll();
   if (process.platform !== "darwin") {
     app.quit();
   }
@@ -363,38 +315,7 @@ ipcMain.on("tex64", (_event, message) => {
     workspaceHandlers.handleSearch(message.query);
     return;
   }
-  if (type === "gitStatus") {
-    gitHandlers.handleGitStatus();
-    return;
-  }
-  if (type === "gitInit") {
-    gitHandlers.handleGitInit();
-    return;
-  }
-  if (type === "gitCommit") {
-    gitHandlers.handleGitCommit(message.message);
-    return;
-  }
-  if (type === "gitSetRemote") {
-    gitHandlers.handleGitSetRemote(message.url);
-    return;
-  }
-  if (type === "gitPull") {
-    gitHandlers.handleGitPull();
-    return;
-  }
-  if (type === "gitPush") {
-    gitHandlers.handleGitPush();
-    return;
-  }
-  if (type === "gitRestore") {
-    gitHandlers.handleGitRestore(message.hash);
-    return;
-  }
-  if (type === "gitDiff") {
-    gitHandlers.handleGitDiff(message.mode, message.hash);
-    return;
-  }
+
   if (type === "blocks:save") {
     miscHandlers.handleBlocksSave(message.entry);
     return;
@@ -405,14 +326,6 @@ ipcMain.on("tex64", (_event, message) => {
   }
   if (type === "alchemy:settings:set") {
     miscHandlers.handleAlchemySettingsSet(message.settings);
-    return;
-  }
-  if (type === "alchemy:clipboard:read") {
-    miscHandlers.handleAlchemyClipboardRead(message.requestId);
-    return;
-  }
-  if (type === "alchemy:save-image") {
-    miscHandlers.handleAlchemySaveImage(message);
     return;
   }
   if (type === "consoleLog") {

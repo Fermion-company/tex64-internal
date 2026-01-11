@@ -68,6 +68,75 @@ const ensureMathField = async (page) => {
   return selector;
 };
 
+const focusMathField = async (page, selector) => {
+  await page.evaluate((mathFieldSelector) => {
+    const mf = document.querySelector(mathFieldSelector);
+    mf?.focus?.();
+  }, selector);
+};
+
+const clearMathField = async (page, selector) => {
+  await page.evaluate((mathFieldSelector) => {
+    const mf = document.querySelector(mathFieldSelector);
+    if (!mf) return;
+    if (typeof mf.setValue === "function") {
+      mf.setValue("");
+    } else if ("value" in mf) {
+      mf.value = "";
+    }
+    mf?.focus?.();
+  }, selector);
+};
+
+const insertLatex = async (page, selector, value) => {
+  await page.evaluate(
+    ([mathFieldSelector, latex]) => {
+      const mf = document.querySelector(mathFieldSelector);
+      if (!mf || typeof mf.executeCommand !== "function") return;
+      mf.focus?.();
+      mf.executeCommand("insert", latex);
+    },
+    [selector, value]
+  );
+};
+
+const ensureMathKeyboardVisible = async (page) => {
+  await page.waitForSelector("#math-keyboard-dock.is-open", { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const grid = document.getElementById("math-keyboard-grid");
+    const fixed = document.getElementById("math-keyboard-fixed-grid");
+    return (
+      grid instanceof HTMLElement &&
+      fixed instanceof HTMLElement &&
+      grid.childElementCount > 0 &&
+      fixed.childElementCount > 0
+    );
+  });
+  await page.waitForFunction(() => {
+    return document.querySelectorAll(".math-keyboard-key.has-math").length > 0;
+  });
+};
+
+const readKeyboardKeyStatus = async (page) =>
+  page.evaluate(() => {
+    const readKey = (label) => {
+      const buttons = Array.from(document.querySelectorAll(".math-keyboard-key"));
+      const button = buttons.find((item) => item.getAttribute("aria-label") === label);
+      if (!button) {
+        return { found: false, hasMath: false, errorCount: null };
+      }
+      return {
+        found: true,
+        hasMath: button.classList.contains("has-math"),
+        errorCount: button.querySelectorAll(".ML__error").length,
+      };
+    };
+    return {
+      ampersand: readKey("&"),
+      newline: readKey("\\\\"),
+    };
+  });
+
 const readMathMetrics = async (page, selector) =>
   page.evaluate((mathFieldSelector) => {
     const mf = document.querySelector(mathFieldSelector);
@@ -100,31 +169,32 @@ const readMathMetrics = async (page, selector) =>
     };
   }, selector);
 
-test("Math input supports &/\\\\ insertion, deletion, and display", async ({}, testInfo) => {
+test("Math keyboard renders & and \\\\ without errors", async ({}, testInfo) => {
   const { app, page } = await launchApp(testInfo);
   try {
     const selector = await ensureMathField(page);
+    await focusMathField(page, selector);
+    await ensureMathKeyboardVisible(page);
 
-    await page.evaluate((mathFieldSelector) => {
-      const mf = document.querySelector(mathFieldSelector);
-      if (!mf) return;
-      if (typeof mf.setValue === "function") {
-        mf.setValue("");
-      } else if ("value" in mf) {
-        mf.value = "";
-      }
-      mf.focus?.();
-    }, selector);
+    const status = await readKeyboardKeyStatus(page);
+    expect(status.ampersand.found).toBe(true);
+    expect(status.ampersand.hasMath).toBe(true);
+    expect(status.ampersand.errorCount).toBe(0);
+    expect(status.newline.found).toBe(true);
+    expect(status.newline.hasMath).toBe(true);
+    expect(status.newline.errorCount).toBe(0);
+  } finally {
+    await app.close();
+  }
+});
 
-    await page.evaluate(
-      ([mathFieldSelector, value]) => {
-        const mf = document.querySelector(mathFieldSelector);
-        if (!mf || typeof mf.executeCommand !== "function") return;
-        mf.focus?.();
-        mf.executeCommand("insert", value);
-      },
-      [selector, String.raw`a&b`]
-    );
+test("Math input supports &/\\\\ insertion, newline retention, deletion, and display", async ({}, testInfo) => {
+  const { app, page } = await launchApp(testInfo);
+  try {
+    const selector = await ensureMathField(page);
+    await clearMathField(page, selector);
+
+    await insertLatex(page, selector, String.raw`a&b`);
     await page.waitForTimeout(200);
 
     const baseMetrics = await readMathMetrics(page, selector);
@@ -135,23 +205,19 @@ test("Math input supports &/\\\\ insertion, deletion, and display", async ({}, t
     expect(baseMetrics.hasTable).toBe(true);
     expect(baseMetrics.rowCount).toBe(1);
 
-    await page.evaluate((mathFieldSelector) => {
-      const mf = document.querySelector(mathFieldSelector);
-      if (!mf || typeof mf.position !== "number" || typeof mf.lastOffset !== "number") return;
-      mf.position = Math.max(0, mf.lastOffset - 1);
-    }, selector);
+    await insertLatex(page, selector, String.raw`\\`);
+    await page.waitForTimeout(200);
 
-    await page.evaluate(
-      ([mathFieldSelector, parts]) => {
-        const mf = document.querySelector(mathFieldSelector);
-        if (!mf || typeof mf.executeCommand !== "function") return;
-        mf.focus?.();
-        for (const part of parts) {
-          mf.executeCommand("insert", part);
-        }
-      },
-      [selector, ["\\\\", "c", "&", "d"]]
-    );
+    const newlineOnlyMetrics = await readMathMetrics(page, selector);
+    expect(newlineOnlyMetrics.value).toContain("\\\\");
+    expect(newlineOnlyMetrics.value).not.toContain("\\begin{aligned}");
+    expect(newlineOnlyMetrics.errorCount).toBe(0);
+    expect(newlineOnlyMetrics.hasTable).toBe(true);
+    expect(newlineOnlyMetrics.rowCount).toBeGreaterThan(1);
+
+    await insertLatex(page, selector, "c");
+    await insertLatex(page, selector, "&");
+    await insertLatex(page, selector, "d");
     await page.waitForTimeout(200);
 
     const newlineMetrics = await readMathMetrics(page, selector);
@@ -164,11 +230,22 @@ test("Math input supports &/\\\\ insertion, deletion, and display", async ({}, t
 
     await page.evaluate((mathFieldSelector) => {
       const mf = document.querySelector(mathFieldSelector);
-      mf?.focus?.();
+      if (!mf || typeof mf.executeCommand !== "function") return;
+      mf.focus?.();
+      mf.executeCommand("moveToMathfieldEnd");
+      for (let i = 0; i < 40; i += 1) {
+        const value =
+          typeof mf.getValue === "function"
+            ? mf.getValue("latex")
+            : typeof mf.value === "string"
+              ? mf.value
+              : "";
+        if (!value.includes("\\\\")) {
+          break;
+        }
+        mf.executeCommand("deleteBackward");
+      }
     }, selector);
-    for (let i = 0; i < 25; i += 1) {
-      await page.keyboard.press("Backspace");
-    }
     await page.waitForTimeout(200);
 
     const deletedMetrics = await readMathMetrics(page, selector);

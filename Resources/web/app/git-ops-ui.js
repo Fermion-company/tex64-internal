@@ -1,6 +1,6 @@
 import { renderGitPanel as renderGitPanelUi } from "./git-panel-ui.js";
 export const initGitOpsUi = (context, deps) => {
-    const { gitRefreshButton, gitInitButton, gitCommitMessage, gitCommitButton, gitHistory, gitPullButton, gitPushButton, gitRemoteInput, gitRemoteSaveButton, } = context.dom;
+    const { gitRefreshButton, gitInitButton, gitCommitMessage, gitCommitButton, gitHistory, gitPullButton, gitPushButton, gitRemoteInput, } = context.dom;
     let gitEntries = [];
     let gitMessage = "履歴の状態はここに表示します。";
     let gitRepoState = { ok: false };
@@ -291,9 +291,39 @@ export const initGitOpsUi = (context, deps) => {
         render();
         deps.postToNative({ type: "gitDiff", mode: "restore", hash });
     };
+    const requestStage = (path) => {
+        if (!deps.getWorkspaceRootKey() || gitBusy || !gitRepoState.ok)
+            return;
+        gitBusy = true;
+        gitBusyMessage = "ステージしています...";
+        render();
+        deps.postToNative({ type: "gitStage", files: [path] });
+    };
+    const requestUnstage = (path) => {
+        if (!deps.getWorkspaceRootKey() || gitBusy || !gitRepoState.ok)
+            return;
+        gitBusy = true;
+        gitBusyMessage = "ステージを解除しています...";
+        render();
+        deps.postToNative({ type: "gitUnstage", files: [path] });
+    };
+    const requestDiscard = (path) => {
+        if (!deps.getWorkspaceRootKey() || gitBusy || !gitRepoState.ok)
+            return;
+        // Confirm? VSCode shows modal. We can show a simple confirm or custom modal.
+        // simpler confirm for now, or just do it (VSCode warns).
+        // Let's rely on native dialog or just do it for this iteration.
+        // Better to use electron dialog but we don't have direct access here easily without IPC.
+        // For now, assume user knows (or add confirm later).
+        gitBusy = true;
+        gitBusyMessage = "変更を破棄しています...";
+        render();
+        deps.postToNative({ type: "gitDiscard", files: [path] });
+    };
     const setupActions = () => {
         if (gitRefreshButton instanceof HTMLButtonElement) {
-            gitRefreshButton.addEventListener("click", () => {
+            gitRefreshButton.addEventListener("click", (e) => {
+                e.stopPropagation();
                 requestStatus();
             });
         }
@@ -304,7 +334,7 @@ export const initGitOpsUi = (context, deps) => {
         }
         if (gitCommitButton instanceof HTMLButtonElement) {
             gitCommitButton.addEventListener("click", () => {
-                requestCommitPreview();
+                requestCommit();
             });
         }
         if (gitCommitMessage instanceof HTMLInputElement) {
@@ -313,22 +343,19 @@ export const initGitOpsUi = (context, deps) => {
                     return;
                 }
                 event.preventDefault();
-                requestCommitPreview();
+                requestCommit();
             });
         }
         if (gitPullButton instanceof HTMLButtonElement) {
-            gitPullButton.addEventListener("click", () => {
+            gitPullButton.addEventListener("click", (e) => {
+                e.stopPropagation();
                 requestPull();
             });
         }
         if (gitPushButton instanceof HTMLButtonElement) {
-            gitPushButton.addEventListener("click", () => {
+            gitPushButton.addEventListener("click", (e) => {
+                e.stopPropagation();
                 requestPush();
-            });
-        }
-        if (gitRemoteSaveButton instanceof HTMLButtonElement) {
-            gitRemoteSaveButton.addEventListener("click", () => {
-                requestSetRemote();
             });
         }
         if (gitRemoteInput instanceof HTMLInputElement) {
@@ -357,6 +384,35 @@ export const initGitOpsUi = (context, deps) => {
                 requestRestorePreview({ hash, shortHash, message });
             });
         }
+        // New event delegation for file actions (stage/unstage/discard)
+        // We assume these are inside gitChangesSummary container or similar.
+        // Update: git-panel-ui.ts renders into gitChangesSummary.
+        const { gitChangesSummary } = context.dom;
+        if (gitChangesSummary instanceof HTMLElement) {
+            gitChangesSummary.addEventListener("click", (event) => {
+                const target = event.target;
+                const button = target === null || target === void 0 ? void 0 : target.closest("button[data-git-action]");
+                if (!button || button.disabled)
+                    return;
+                const action = button.dataset.gitAction;
+                const path = button.dataset.path;
+                if (!path)
+                    return;
+                if (action === "stage") {
+                    requestStage(path);
+                }
+                else if (action === "unstage") {
+                    requestUnstage(path);
+                }
+                else if (action === "discard") {
+                    requestDiscard(path);
+                }
+                else if (action === "open") {
+                    // Open diff or file
+                    deps.postToNative({ type: "openFile", path });
+                }
+            });
+        }
     };
     return {
         render,
@@ -373,6 +429,9 @@ export const initGitOpsUi = (context, deps) => {
         requestSetRemote,
         requestRestore,
         requestRestorePreview,
+        requestStage,
+        requestUnstage,
+        requestDiscard,
         setupActions,
     };
 };

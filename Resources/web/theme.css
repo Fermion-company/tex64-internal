@@ -1144,6 +1144,7 @@ math-field.block-math-field::placeholder {
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1359,9 +1360,8 @@ math-field.block-math-field::placeholder {
   gap: 12px;
   min-height: 0;
   padding: 8px 10px 12px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  overflow: hidden;
+  padding: 0;
 }
 
 .git-header {
@@ -1371,6 +1371,7 @@ math-field.block-math-field::placeholder {
   padding: 10px 12px;
   display: grid;
   gap: 6px;
+  flex: 0 0 auto;
 }
 
 .git-repo-row {
@@ -1446,8 +1447,10 @@ math-field.block-math-field::placeholder {
 }
 
 .git-section {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
 }
 
 .git-commit-section {
@@ -1541,10 +1544,11 @@ math-field.block-math-field::placeholder {
 
 .git-changes-summary {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  min-height: 18px;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 8px;
 }
 
 .git-change-hint {
@@ -3238,6 +3242,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 0;
   gap: 0;
   overflow: hidden;
+  border-radius: 16px; /* Increased radius */
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45); /* Stronger shadow */
+  background: var(--panel-strong); /* Ensure panel background */
 }
 
 .modal-title {
@@ -3254,9 +3261,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .diff-modal-header {
   align-items: flex-start;
-  padding: 20px 24px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: #1b232e;
+  padding: 24px 32px 20px; /* Increased padding */
+  border-bottom: 1px solid var(--panel-border-strong);
+  background: var(--panel-header); /* Use variable */
 }
 
 .diff-header-left {
@@ -3267,8 +3274,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .diff-title {
-  font-size: 13px;
+  font-size: 16px; /* Larger title */
   font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin-bottom: 4px; /* Space below title */
 }
 
 .diff-meta-row {
@@ -3292,13 +3302,44 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .diff-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px; /* Increased gap */
 }
 
 .diff-header-actions .panel-button {
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 8px 16px; /* Larger touch target */
+  font-size: 13px;
   border-radius: 8px;
+  min-width: 80px; /* Consistent width */
+  justify-content: center;
+}
+
+#diff-modal-cancel {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+
+#diff-modal-cancel:hover {
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+#diff-modal-submit {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+  border: none;
+  box-shadow: 0 2px 8px rgba(121, 126, 249, 0.3);
+}
+
+#diff-modal-submit:hover {
+  background: var(--accent-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(121, 126, 249, 0.4);
+}
+
+#diff-modal-submit:active {
+  transform: translateY(0);
 }
 
 .diff-summary {
@@ -3338,15 +3379,20 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .diff-modal-body {
-  border-top: 1px solid rgba(255, 255, 255, 0.02);
-  padding: 18px 22px 22px;
+  border-top: none; /* Removed double border visual */
+  padding: 0 32px 32px; /* Side padding matches header */
+  background: var(--panel-header); /* Extend background down */
+  display: flex;
+  flex-direction: column;
 }
 
 .block-diff-container {
-  height: min(72vh, 680px);
-  background: #1e1e1e;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  height: min(75vh, 720px);
+  background: #1A1D23; /* Darker editor bg */
+  border-radius: 12px;
+  border: 1px solid var(--panel-border-strong);
+  overflow: hidden; /* Ensure radius clips content */
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .modal-row {
@@ -3626,6 +3672,15 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: rgba(133, 181, 255, 0.9);
 }
 
+.monaco-editor .monaco-ghost-caret {
+  width: 2px;
+  margin-left: -1px;
+  background: var(--vscode-editorCursor-foreground);
+  opacity: 1;
+  pointer-events: none;
+  border-radius: 1px;
+}
+
 .panel[data-panel="alchemy"] .panel-body {
   grid-template-rows: 1fr;
   padding: 0;
@@ -3634,7 +3689,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .alchemy-panel {
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto 1fr;
   min-height: 0;
   height: 100%;
   width: 100%;
@@ -3729,6 +3784,39 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 16px;
   min-height: 0;
   overflow: hidden;
+}
+
+/* --- Import Area --- */
+.alchemy-import {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.alchemy-import-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.alchemy-file-name {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.alchemy-import-help {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.alchemy-import-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* --- Magic Input Area --- */
@@ -5035,4 +5123,354 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .block-format-selector[data-active="none"]::before {
   transform: translateX(200%);
+}
+
+/* Git Panel Enhancements */
+.git-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 12px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--panel-border);
+  letter-spacing: 0.05em;
+  margin-top: 0;
+}
+
+.git-file-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.git-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.git-file-item:hover {
+  background: var(--control-bg);
+}
+
+.git-status-letter {
+  font-weight: 700;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.git-status-letter.status-M { color: var(--warning-text); }
+.git-status-letter.status-A { color: var(--status); }
+.git-status-letter.status-D { color: var(--danger-text); }
+.git-status-letter.status-\?\? { color: var(--status); } /* Untracked usually green or specific color */
+.git-status-letter.status-U { color: var(--danger-text); }
+
+.git-file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.git-file-name {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-file-dir {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-file-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.git-file-item:hover .git-file-actions {
+  opacity: 1;
+}
+
+.git-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.git-action-btn:hover {
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+/* --- New Git Panel Styles (VS Code Style) --- */
+
+.git-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.git-section[open] {
+  flex: 1; /* Expand to fill space */
+  min-height: 0; 
+}
+
+/* If both open, share space? Or usage specific? 
+   Usually "Changes" is roughly 50-70% and Graph is rest. 
+   Let's default to flex-grow: 1 for Changes and flex-grow: 1 for Graph 
+   so they split evenly if neither has content overriding. 
+   But "Changes" content determines height usually.
+*/
+#git-changes-section[open] {
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+#git-history-section[open] {
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--panel-border);
+}
+
+.git-section-summary {
+  list-style: none; /* Hide default triangle */
+  cursor: pointer;
+  padding: 4px 8px; /* Tighter padding */
+  font-size: 11px;
+  font-weight: 700; 
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg); /* or standard panel header bg */
+}
+
+/* Custom Arrow */
+.git-section-summary::-webkit-details-marker {
+  display: none;
+}
+.git-section-summary::before {
+  content: "›"; /* Simplistic arrow */
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 400;
+  transform: rotate(0deg);
+  transition: transform 0.1s;
+  font-size: 12px;
+}
+.git-section[open] > .git-section-summary::before {
+  transform: rotate(90deg);
+}
+
+.git-section-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.git-section-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0; /* Show on hover? VS Code shows usually on hover or always if active */
+  transition: opacity 0.1s;
+}
+.git-section-summary:hover .git-section-actions {
+  opacity: 1;
+}
+
+/* Commit Area */
+.git-commit-area {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg); /* Should match panel bg */
+}
+
+.git-commit-input-wrapper {
+  position: relative;
+}
+
+.git-commit-input {
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.git-commit-input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.git-commit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  background: #0E639C; /* VS Code Blue */
+  color: white;
+  border: none;
+  border-radius: 2px; /* Square-ish */
+  padding: 6px 12px;
+  font-size: 13px; /* Slightly larger */
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.git-commit-button:hover {
+  background: #1177BB;
+}
+.git-commit-button:disabled {
+  background: #3A3D41;
+  color: #888;
+  cursor: not-allowed;
+}
+
+.git-changes-container {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* History List / Graph imitation */
+.git-history-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0;
+  position: relative;
+}
+
+.git-history-item {
+  position: relative;
+  padding: 6px 12px 6px 24px; /* Left padding for rail */
+  border-bottom: 1px solid var(--panel-border-strong); /* Faint separator */
+  cursor: default;
+}
+
+/* The Rail Line */
+.git-history-item::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #444; /* Dark gray line */
+}
+
+/* The Node Dot */
+.git-history-item::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 10px; /* Centered roughly vs first line of text */
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #007acc; /* Blue node */
+  border: 2px solid var(--bg); /* Gap from line */
+  z-index: 1;
+}
+
+/* First item (HEAD) often different? */
+.git-history-item[data-current="true"]::after {
+   background: transparent;
+   border: 2px solid #007acc; /* Hollow circle */
+}
+
+/* Fix line for first/last items if desired (clip top/bottom) 
+   But simpler is fine. 
+*/
+
+.git-history-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-history-meta {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* Robust Fixes */
+.panel-button.icon-only {
+  padding: 0;
+  width: 24px;
+  min-width: 24px;
+  justify-content: center;
+}
+
+.git-commit-area {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  width: 100%;
+}
+
+.git-commit-input-wrapper {
+  width: 100%;
+}
+
+.git-commit-button {
+  flex-shrink: 0;
+  height: 28px;
+  white-space: nowrap;
+}
+
+/* Prevent button crushing globally in Git panel */
+.git-action-btn {
+  flex-shrink: 0;
+}
+
+.panel-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Ensure Changes/Graph header buttons don't crush */
+.git-section-actions .panel-button {
+  flex-shrink: 0;
 }

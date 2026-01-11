@@ -3,12 +3,7 @@ const fsp = require("fs/promises");
 
 const DEFAULT_SETTINGS = {
   alchemy: {
-    defaultMath: "display",
-    defaultTable: "tabular",
-    defaultFigure: "includegraphics",
     ocrLanguage: "jpn+eng",
-    pdfMode: "Auto",
-    shortcut: "Ctrl+Shift+2",
   },
   agent: {
     temperature: 0.2,

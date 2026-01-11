@@ -1,0 +1,9 @@
+{
+  "alchemy": {
+    "ocrLanguage": "eng"
+  },
+  "agent": {
+    "temperature": 0.2,
+    "maxOutputTokens": 2048
+  }
+}

@@ -68,7 +68,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -124,35 +124,26 @@ export const initBridgeHandlers = (deps) => {
             case "alchemy:settings":
                 (_s = deps.alchemy) === null || _s === void 0 ? void 0 : _s.handleSettings(message.payload);
                 break;
-            case "alchemy:clipboard":
-                (_u = (_t = deps.alchemy) === null || _t === void 0 ? void 0 : _t.handleClipboardPayload) === null || _u === void 0 ? void 0 : _u.call(_t, message.payload);
-                break;
-            case "alchemy:image-saved":
-                (_w = (_v = deps.alchemy) === null || _v === void 0 ? void 0 : _v.handleImageSaved) === null || _w === void 0 ? void 0 : _w.call(_v, message.payload);
-                break;
-            case "capture:open":
-                (_x = deps.capture) === null || _x === void 0 ? void 0 : _x.openCapture();
-                break;
             case "agent:settings":
-                (_y = deps.agent) === null || _y === void 0 ? void 0 : _y.handleSettings(message.payload.settings);
+                (_t = deps.agent) === null || _t === void 0 ? void 0 : _t.handleSettings(message.payload.settings);
                 break;
             case "agent:status":
-                (_z = deps.agent) === null || _z === void 0 ? void 0 : _z.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
+                (_u = deps.agent) === null || _u === void 0 ? void 0 : _u.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
                 break;
             case "agent:message":
-                (_0 = deps.agent) === null || _0 === void 0 ? void 0 : _0.handleMessage((_1 = message.payload.text) !== null && _1 !== void 0 ? _1 : "", message.payload.conversationId);
+                (_v = deps.agent) === null || _v === void 0 ? void 0 : _v.handleMessage((_w = message.payload.text) !== null && _w !== void 0 ? _w : "", message.payload.conversationId);
                 break;
             case "agent:tool":
-                (_2 = deps.agent) === null || _2 === void 0 ? void 0 : _2.handleTool(message.payload);
+                (_x = deps.agent) === null || _x === void 0 ? void 0 : _x.handleTool(message.payload);
                 break;
             case "agent:proposal":
-                (_3 = deps.agent) === null || _3 === void 0 ? void 0 : _3.handleProposal(message.payload.proposal);
+                (_y = deps.agent) === null || _y === void 0 ? void 0 : _y.handleProposal(message.payload.proposal);
                 break;
             case "agent:applyResult":
-                (_4 = deps.agent) === null || _4 === void 0 ? void 0 : _4.handleApplyResult(message.payload);
+                (_z = deps.agent) === null || _z === void 0 ? void 0 : _z.handleApplyResult(message.payload);
                 break;
             case "agent:error":
-                (_5 = deps.agent) === null || _5 === void 0 ? void 0 : _5.handleError((_6 = message.payload.message) !== null && _6 !== void 0 ? _6 : "AIエラー", message.payload.conversationId);
+                (_0 = deps.agent) === null || _0 === void 0 ? void 0 : _0.handleError((_1 = message.payload.message) !== null && _1 !== void 0 ? _1 : "AIエラー", message.payload.conversationId);
                 break;
             default:
                 break;

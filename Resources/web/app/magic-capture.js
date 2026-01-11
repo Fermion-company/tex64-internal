@@ -1,12 +1,37 @@
 export const initMagicCapture = (context, deps) => {
-    var _a;
     const { captureCropCanvas, captureCropSelection, captureCropGuide, captureCropImage, captureCropSize, } = context.dom;
-    const captureApi = (_a = context.bridgeWindow.tex64Capture) !== null && _a !== void 0 ? _a : null;
+    const getCaptureApi = () => {
+        var _a;
+        return (_a = context.bridgeWindow.tex64Capture) !== null && _a !== void 0 ? _a : null;
+    };
     let sources = [];
     let selectedSource = null;
     let isDragging = false;
     let dragStart = { x: 0, y: 0 };
     let selection = { x: 0, y: 0, width: 0, height: 0 };
+    const captureIssueMessages = new Set([
+        "画面キャプチャが利用できません。",
+        "画面キャプチャが利用できません。画面収録の許可を確認してください。",
+        "ウィンドウ一覧の取得に失敗しました。",
+        "ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。",
+        "取り込み可能なウィンドウがありません。画面収録の許可を確認してください。",
+        "切り取りに失敗しました。",
+    ]);
+    const clearCaptureIssues = () => {
+        if (!deps.getCurrentIssues)
+            return;
+        const current = deps.getCurrentIssues();
+        if (current.length === 0)
+            return;
+        const isCaptureOnly = current.every((issue) => captureIssueMessages.has(issue.message));
+        if (!isCaptureOnly)
+            return;
+        deps.updateIssues(0, "", "info", []);
+    };
+    const setStatus = (message) => {
+        var _a;
+        (_a = deps.setStatus) === null || _a === void 0 ? void 0 : _a.call(deps, message);
+    };
     const resolveImageGeometry = () => {
         if (!(captureCropCanvas instanceof HTMLElement))
             return null;
@@ -131,10 +156,10 @@ export const initMagicCapture = (context, deps) => {
     };
     const openCapture = async () => {
         var _a;
+        clearCaptureIssues();
+        const captureApi = getCaptureApi();
         if (!(captureApi === null || captureApi === void 0 ? void 0 : captureApi.listSources)) {
-            deps.updateIssues(1, "画面キャプチャが利用できません。", "error", [
-                { severity: "error", message: "画面キャプチャが利用できません。" },
-            ]);
+            setStatus("画面キャプチャが利用できません。画面収録の許可を確認してください。");
             return;
         }
         try {
@@ -143,13 +168,11 @@ export const initMagicCapture = (context, deps) => {
             });
         }
         catch (error) {
-            deps.updateIssues(1, "ウィンドウ一覧の取得に失敗しました。", "error", [
-                { severity: "error", message: "ウィンドウ一覧の取得に失敗しました。" },
-            ]);
+            setStatus("ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。");
             return;
         }
         if (sources.length === 0) {
-            deps.updateIssues(0, "取り込み可能なウィンドウがありません。", "info", []);
+            setStatus("取り込み可能なウィンドウがありません。画面収録の許可を確認してください。");
             return;
         }
         deps.captureUi.openWindowPicker(sources, (_a = selectedSource === null || selectedSource === void 0 ? void 0 : selectedSource.id) !== null && _a !== void 0 ? _a : null);
@@ -187,12 +210,10 @@ export const initMagicCapture = (context, deps) => {
         onCropApply: () => {
             const dataUrl = cropToDataUrl();
             if (!dataUrl) {
-                deps.updateIssues(1, "切り取りに失敗しました。", "error", [
-                    { severity: "error", message: "切り取りに失敗しました。" },
-                ]);
+                setStatus("切り取りに失敗しました。");
                 return;
             }
-            deps.pasteAlchemy.handleCaptureImage(dataUrl, "キャプチャ");
+            deps.onCaptureImage(dataUrl);
             deps.captureUi.closeCropper();
         },
     });

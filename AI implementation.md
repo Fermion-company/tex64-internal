@@ -15,10 +15,11 @@ This document specifies the **MVP** for integrating an agentic AI assistant into
 
 ## 2. Model Choice (Cost-Minimal)
 
-From the Gemini Developer API pricing page, the lowest cost text model is:
+From the Gemini Developer API, the recommended model for agentic use is:
 
-- **Model**: `gemini-2.0-flash-lite`
-- **Price**: **$0.075 / 1M input tokens**, **$0.30 / 1M output tokens** (paid tier)
+- **Model**: `gemini-3-flash-preview`
+- **Price**: ~**$0.10 / 1M input tokens**, ~**$0.40 / 1M output tokens** (paid tier)
+- **Features**: 1M token context, function calling, code execution, thinking support
 
 This model is fixed in code for the MVP (no UI toggle), and enforced by the proxy.
 
@@ -80,18 +81,21 @@ MVP constraints:
 
 ---
 
-## 6. Tools (MVP)
+## 6. Tools
 
 **Read/inspect**
-- `list_files(directory?)`
-- `read_file(path)`
-- `search_files(query)`
+- `list_files(directory?)` - ファイル一覧取得
+- `read_file(path)` - 単一ファイル読み取り
+- `read_files(paths[])` - 複数ファイル一括読み取り
+- `search_files(query)` - テキスト検索
+- `get_project_structure(maxDepth?)` - ツリー形式で構造取得
 
-**Write (proposal only)**
-- `propose_write(path, content, summary?)`
-  - Stores proposal in memory
-  - Sends proposal to UI
-  - Requires user confirmation in diff modal
+**Write (proposal only - requires user confirmation)**
+- `propose_write(path, content, summary?)` - 新規作成/上書き
+- `propose_patch(path, search, replace, summary?)` - 部分編集
+- `propose_delete(path, summary?)` - ファイル削除
+- `propose_rename(oldPath, newPath, summary?)` - リネーム/移動
+- `propose_create_directory(path, summary?)` - ディレクトリ作成
 
 ---
 
@@ -124,7 +128,7 @@ Diff modal is reused for preview + apply.
 ## 9. API Key / Model
 
 - **API key** is stored on Vercel as `GEMINI_API_KEY`.
-- **Model** is fixed to `gemini-2.0-flash-lite` on the proxy (override via `GEMINI_MODEL` if needed).
+- **Model** is fixed to `gemini-3-flash-preview` on the proxy (override via `GEMINI_MODEL` if needed).
 - App connects to the proxy via the built-in default (override with `TEX64_AI_PROXY_URL`).
 - Optional runtime tuning (`temperature`, `maxOutputTokens`) stays in `tex64-user-settings.json`.
 
@@ -133,7 +137,7 @@ Diff modal is reused for preview + apply.
 1. Deploy this repo to Vercel.
 2. Set Environment Variables:
    - `GEMINI_API_KEY` (required)
-   - `GEMINI_MODEL` (optional, defaults to `gemini-2.0-flash-lite`)
+   - `GEMINI_MODEL` (optional, defaults to `gemini-3-flash-preview`)
 3. (Optional) In the app runtime, override the proxy URL:
    - `TEX64_AI_PROXY_URL=https://<your-vercel-domain>/api/ai-chat`
 

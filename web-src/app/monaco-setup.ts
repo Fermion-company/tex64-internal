@@ -1,6 +1,6 @@
 import type { AppContext } from "./context.js";
 import type { IndexEntry } from "./types.js";
-import type { EditorSessionApi, EditorGroupState } from "./editor-session.js";
+import type { EditorGroupKey, EditorSessionApi, EditorGroupState } from "./editor-session.js";
 import { dedupeByKey, pickCitationEntries } from "./index-utils.js";
 
 type MonacoSetupDeps = {
@@ -24,6 +24,15 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
   const { editorHost, editorHostSecondary } = context.dom;
 
   let completionRegistered = false;
+  const ghostCaretControllers: Array<{ key: EditorGroupKey; hide: () => void }> = [];
+
+  const hideGhostCarets = (activeKey?: EditorGroupKey) => {
+    ghostCaretControllers.forEach((controller) => {
+      if (!activeKey || controller.key !== activeKey) {
+        controller.hide();
+      }
+    });
+  };
 
   const registerCompletionProvider = (monaco: {
     languages?: {
@@ -252,7 +261,7 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
         glyphMargin: true,
         minimap: { enabled: false },
         scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
-        fontFamily: '"SF Mono", Menlo, monospace',
+        fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
         fontSize: 12,
         lineHeight: 20,
         lineNumbersMinChars: 3,
@@ -267,6 +276,20 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
 
       const createEditorForGroup = (group: EditorGroupState, host: HTMLElement) => {
         const editor = monacoWindow.monaco?.editor?.create(host, editorOptions) as {
+          addContentWidget?: (widget: {
+            getId: () => string;
+            getDomNode: () => HTMLElement;
+            getPosition: () =>
+              | { position: { lineNumber: number; column: number }; preference: number[] }
+              | null;
+          }) => void;
+          layoutContentWidget?: (widget: {
+            getId: () => string;
+            getDomNode: () => HTMLElement;
+            getPosition: () =>
+              | { position: { lineNumber: number; column: number }; preference: number[] }
+              | null;
+          }) => void;
           onDidChangeModelContent: (listener: () => void) => void;
           onDidChangeCursorPosition?: (
             listener: (event: { position: { lineNumber: number; column: number } }) => void
@@ -276,11 +299,110 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
               selection: { positionLineNumber: number; positionColumn: number };
             }) => void
           ) => void;
+          onDidBlurEditorWidget?: (listener: () => void) => void;
           onDidFocusEditorWidget?: (listener: () => void) => void;
+          onDidScrollChange?: (listener: () => void) => void;
+          executeEdits?: (
+            source: string,
+            edits: Array<{ range: unknown; text: string; forceMoveMarkers?: boolean }>
+          ) => void;
+          getPosition?: () => { lineNumber: number; column: number } | null;
+          getSelection?: () => unknown | null;
           getValue: () => string;
           focus?: () => void;
         } & any;
+        const editorAny = editor as {
+          addContentWidget?: (widget: {
+            getId: () => string;
+            getDomNode: () => HTMLElement;
+            getPosition: () =>
+              | { position: { lineNumber: number; column: number }; preference: number[] }
+              | null;
+          }) => void;
+          layoutContentWidget?: (widget: {
+            getId: () => string;
+            getDomNode: () => HTMLElement;
+            getPosition: () =>
+              | { position: { lineNumber: number; column: number }; preference: number[] }
+              | null;
+          }) => void;
+          onDidBlurEditorWidget?: (listener: () => void) => void;
+          onDidScrollChange?: (listener: () => void) => void;
+          getPosition?: () => { lineNumber: number; column: number } | null;
+          getSelection?: () => unknown | null;
+          executeEdits?: (
+            source: string,
+            edits: Array<{ range: unknown; text: string; forceMoveMarkers?: boolean }>
+          ) => void;
+        };
         group.editor = editor;
+
+        const ghostCaretNode = document.createElement("div");
+        ghostCaretNode.className = "monaco-ghost-caret";
+        ghostCaretNode.style.height = `${editorOptions.lineHeight}px`;
+        ghostCaretNode.setAttribute("aria-hidden", "true");
+
+        let ghostCaretPosition: { lineNumber: number; column: number } | null = null;
+        let ghostCaretVisible = false;
+        const ghostCaretPreference =
+          (monacoWindow.monaco as any)?.editor?.ContentWidgetPositionPreference?.EXACT ?? 0;
+        const ghostCaretWidget = {
+          getId: () => `tex64-ghost-caret-${group.key}`,
+          getDomNode: () => ghostCaretNode,
+          getPosition: () => {
+            if (!ghostCaretVisible || !ghostCaretPosition) {
+              return null;
+            }
+            return {
+              position: ghostCaretPosition,
+              preference: [ghostCaretPreference],
+            };
+          },
+        };
+        editorAny.addContentWidget?.(ghostCaretWidget);
+
+        const updateGhostCaretPosition = (
+          position?: { lineNumber: number; column: number } | null
+        ) => {
+          if (!position) {
+            return;
+          }
+          ghostCaretPosition = {
+            lineNumber: position.lineNumber,
+            column: position.column,
+          };
+          if (ghostCaretVisible) {
+            editorAny.layoutContentWidget?.(ghostCaretWidget);
+          }
+        };
+
+        const hideGhostCaret = () => {
+          if (!ghostCaretVisible) {
+            return;
+          }
+          ghostCaretVisible = false;
+          editorAny.layoutContentWidget?.(ghostCaretWidget);
+        };
+
+        const showGhostCaret = () => {
+          if (!deps.editorSession.isActiveGroup(group)) {
+            hideGhostCaret();
+            return;
+          }
+          if (!ghostCaretPosition) {
+            updateGhostCaretPosition(editorAny.getPosition?.() ?? null);
+          }
+          if (!ghostCaretPosition) {
+            return;
+          }
+          if (ghostCaretVisible) {
+            return;
+          }
+          ghostCaretVisible = true;
+          editorAny.layoutContentWidget?.(ghostCaretWidget);
+        };
+
+        ghostCaretControllers.push({ key: group.key, hide: hideGhostCaret });
         if (context.isE2E) {
           if (group.key === "primary") {
             (window as { __tex64Editor?: unknown }).__tex64Editor = editor;
@@ -300,7 +422,6 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
           const data = (e as CompositionEvent).data;
           if (!data && group.compositionText) {
             if (group.composingFilePath === group.currentFilePath) {
-              const editorAny = editor as any;
               const selection = editorAny.getSelection();
               if (selection) {
                 editorAny.executeEdits("ime-recover", [
@@ -319,8 +440,19 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
           deps.editorSession.handleCompositionEnd(group);
         });
         editor.onDidFocusEditorWidget?.(() => {
+          hideGhostCarets(group.key);
+          hideGhostCaret();
           deps.editorSession.setActiveGroup(group.key, { focusEditor: false });
           deps.fileTree.setTreeFocus(false);
+        });
+        editorAny.onDidBlurEditorWidget?.(() => {
+          updateGhostCaretPosition(editorAny.getPosition?.() ?? null);
+          showGhostCaret();
+        });
+        editorAny.onDidScrollChange?.(() => {
+          if (ghostCaretVisible) {
+            editorAny.layoutContentWidget?.(ghostCaretWidget);
+          }
         });
         editor.onDidChangeModelContent(() => {
           if (group.isApplyingFile) {
@@ -341,6 +473,7 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
         });
         editor.onDidChangeCursorPosition?.(
           (e: { position: { lineNumber: number; column: number } }) => {
+            updateGhostCaretPosition(e.position);
             if (
               group.currentFilePath &&
               group.currentFilePath.endsWith(".tex") &&
@@ -352,6 +485,10 @@ export const initMonacoSetup = (context: AppContext, deps: MonacoSetupDeps) => {
         );
         editor.onDidChangeCursorSelection?.(
           (e: { selection: { positionLineNumber: number; positionColumn: number } }) => {
+            updateGhostCaretPosition({
+              lineNumber: e.selection.positionLineNumber,
+              column: e.selection.positionColumn,
+            });
             if (
               group.currentFilePath &&
               group.currentFilePath.endsWith(".tex") &&

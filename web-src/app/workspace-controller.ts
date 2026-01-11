@@ -56,9 +56,7 @@ type WorkspaceControllerDeps = {
   searchUi: {
     reset: (message?: string) => void;
   };
-  gitOps: {
-    reset: () => void;
-  };
+
   diffModal: {
     setDiffContext: (context: DiffContext) => void;
   };
@@ -188,7 +186,7 @@ export const initWorkspaceController = (
     }
     deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });
     deps.searchUi.reset();
-    deps.gitOps.reset();
+
     deps.diffModal.setDiffContext(null);
     deps.settingsUi.loadWorkspaceSettings();
     deps.envRegistry.reload(false);

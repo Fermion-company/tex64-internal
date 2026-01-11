@@ -2,6 +2,14 @@ import { dedupeByKey, pickCitationEntries } from "./index-utils.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     let completionRegistered = false;
+    const ghostCaretControllers = [];
+    const hideGhostCarets = (activeKey) => {
+        ghostCaretControllers.forEach((controller) => {
+            if (!activeKey || controller.key !== activeKey) {
+                controller.hide();
+            }
+        });
+    };
     const registerCompletionProvider = (monaco) => {
         var _a, _b, _c, _d, _e;
         if (completionRegistered || !((_a = monaco.languages) === null || _a === void 0 ? void 0 : _a.registerCompletionItemProvider)) {
@@ -148,7 +156,7 @@ export const initMonacoSetup = (context, deps) => {
             glyphMargin: true,
             minimap: { enabled: false },
             scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
-            fontFamily: '"SF Mono", Menlo, monospace',
+            fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
             fontSize: 12,
             lineHeight: 20,
             lineNumbersMinChars: 3,
@@ -161,9 +169,71 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
+            const editorAny = editor;
             group.editor = editor;
+            const ghostCaretNode = document.createElement("div");
+            ghostCaretNode.className = "monaco-ghost-caret";
+            ghostCaretNode.style.height = `${editorOptions.lineHeight}px`;
+            ghostCaretNode.setAttribute("aria-hidden", "true");
+            let ghostCaretPosition = null;
+            let ghostCaretVisible = false;
+            const ghostCaretPreference = (_f = (_e = (_d = (_c = monacoWindow.monaco) === null || _c === void 0 ? void 0 : _c.editor) === null || _d === void 0 ? void 0 : _d.ContentWidgetPositionPreference) === null || _e === void 0 ? void 0 : _e.EXACT) !== null && _f !== void 0 ? _f : 0;
+            const ghostCaretWidget = {
+                getId: () => `tex64-ghost-caret-${group.key}`,
+                getDomNode: () => ghostCaretNode,
+                getPosition: () => {
+                    if (!ghostCaretVisible || !ghostCaretPosition) {
+                        return null;
+                    }
+                    return {
+                        position: ghostCaretPosition,
+                        preference: [ghostCaretPreference],
+                    };
+                },
+            };
+            (_g = editorAny.addContentWidget) === null || _g === void 0 ? void 0 : _g.call(editorAny, ghostCaretWidget);
+            const updateGhostCaretPosition = (position) => {
+                var _a;
+                if (!position) {
+                    return;
+                }
+                ghostCaretPosition = {
+                    lineNumber: position.lineNumber,
+                    column: position.column,
+                };
+                if (ghostCaretVisible) {
+                    (_a = editorAny.layoutContentWidget) === null || _a === void 0 ? void 0 : _a.call(editorAny, ghostCaretWidget);
+                }
+            };
+            const hideGhostCaret = () => {
+                var _a;
+                if (!ghostCaretVisible) {
+                    return;
+                }
+                ghostCaretVisible = false;
+                (_a = editorAny.layoutContentWidget) === null || _a === void 0 ? void 0 : _a.call(editorAny, ghostCaretWidget);
+            };
+            const showGhostCaret = () => {
+                var _a, _b, _c;
+                if (!deps.editorSession.isActiveGroup(group)) {
+                    hideGhostCaret();
+                    return;
+                }
+                if (!ghostCaretPosition) {
+                    updateGhostCaretPosition((_b = (_a = editorAny.getPosition) === null || _a === void 0 ? void 0 : _a.call(editorAny)) !== null && _b !== void 0 ? _b : null);
+                }
+                if (!ghostCaretPosition) {
+                    return;
+                }
+                if (ghostCaretVisible) {
+                    return;
+                }
+                ghostCaretVisible = true;
+                (_c = editorAny.layoutContentWidget) === null || _c === void 0 ? void 0 : _c.call(editorAny, ghostCaretWidget);
+            };
+            ghostCaretControllers.push({ key: group.key, hide: hideGhostCaret });
             if (context.isE2E) {
                 if (group.key === "primary") {
                     window.__tex64Editor = editor;
@@ -184,7 +254,6 @@ export const initMonacoSetup = (context, deps) => {
                 const data = e.data;
                 if (!data && group.compositionText) {
                     if (group.composingFilePath === group.currentFilePath) {
-                        const editorAny = editor;
                         const selection = editorAny.getSelection();
                         if (selection) {
                             editorAny.executeEdits("ime-recover", [
@@ -202,9 +271,22 @@ export const initMonacoSetup = (context, deps) => {
                 group.composingFilePath = null;
                 deps.editorSession.handleCompositionEnd(group);
             });
-            (_c = editor.onDidFocusEditorWidget) === null || _c === void 0 ? void 0 : _c.call(editor, () => {
+            (_h = editor.onDidFocusEditorWidget) === null || _h === void 0 ? void 0 : _h.call(editor, () => {
+                hideGhostCarets(group.key);
+                hideGhostCaret();
                 deps.editorSession.setActiveGroup(group.key, { focusEditor: false });
                 deps.fileTree.setTreeFocus(false);
+            });
+            (_j = editorAny.onDidBlurEditorWidget) === null || _j === void 0 ? void 0 : _j.call(editorAny, () => {
+                var _a, _b;
+                updateGhostCaretPosition((_b = (_a = editorAny.getPosition) === null || _a === void 0 ? void 0 : _a.call(editorAny)) !== null && _b !== void 0 ? _b : null);
+                showGhostCaret();
+            });
+            (_k = editorAny.onDidScrollChange) === null || _k === void 0 ? void 0 : _k.call(editorAny, () => {
+                var _a;
+                if (ghostCaretVisible) {
+                    (_a = editorAny.layoutContentWidget) === null || _a === void 0 ? void 0 : _a.call(editorAny, ghostCaretWidget);
+                }
             });
             editor.onDidChangeModelContent(() => {
                 if (group.isApplyingFile) {
@@ -223,15 +305,20 @@ export const initMonacoSetup = (context, deps) => {
                     deps.editorSession.scheduleAutoSave();
                 }
             });
-            (_d = editor.onDidChangeCursorPosition) === null || _d === void 0 ? void 0 : _d.call(editor, (e) => {
+            (_l = editor.onDidChangeCursorPosition) === null || _l === void 0 ? void 0 : _l.call(editor, (e) => {
+                updateGhostCaretPosition(e.position);
                 if (group.currentFilePath &&
                     group.currentFilePath.endsWith(".tex") &&
                     deps.editorSession.isActiveGroup(group)) {
                     deps.onCursorPositionChange(e.position);
                 }
             });
-            (_e = editor.onDidChangeCursorSelection) === null || _e === void 0 ? void 0 : _e.call(editor, (e) => {
+            (_m = editor.onDidChangeCursorSelection) === null || _m === void 0 ? void 0 : _m.call(editor, (e) => {
                 var _a;
+                updateGhostCaretPosition({
+                    lineNumber: e.selection.positionLineNumber,
+                    column: e.selection.positionColumn,
+                });
                 if (group.currentFilePath &&
                     group.currentFilePath.endsWith(".tex") &&
                     deps.editorSession.isActiveGroup(group)) {

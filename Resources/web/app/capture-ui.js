@@ -1,5 +1,5 @@
 export const initCaptureUi = (context, deps = {}) => {
-    const { captureWindowModal, captureWindowCancel, captureWindowSearch, captureWindowGrid, captureWindowItemTemplate, captureWindowShortcut, captureCropModal, captureCropRetry, captureCropCancel, captureCropApply, captureCropImage, captureCropSize, } = context.dom;
+    const { captureWindowModal, captureWindowCancel, captureWindowSearch, captureWindowGrid, captureWindowItemTemplate, captureCropModal, captureCropRetry, captureCropCancel, captureCropApply, captureCropImage, captureCropSize, } = context.dom;
     let sources = [];
     let selectedId = null;
     let searchText = "";
@@ -78,11 +78,6 @@ export const initCaptureUi = (context, deps = {}) => {
     const closeCropper = () => {
         setModalOpen(captureCropModal, false);
     };
-    const setShortcutLabel = (label) => {
-        if (captureWindowShortcut instanceof HTMLElement) {
-            captureWindowShortcut.textContent = label;
-        }
-    };
     const setCropSizeLabel = (label) => {
         if (captureCropSize instanceof HTMLElement) {
             captureCropSize.textContent = label;
@@ -143,7 +138,6 @@ export const initCaptureUi = (context, deps = {}) => {
         closeWindowPicker,
         openCropper,
         closeCropper,
-        setShortcutLabel,
         setCropSizeLabel,
         setHandlers: (next) => {
             handlers = { ...handlers, ...next };

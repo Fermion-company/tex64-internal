@@ -8,119 +8,92 @@ const setElementHidden = (element, hidden) => {
         element.hidden = hidden;
     }
 };
-const getGitStatusKind = (status) => {
-    const normalized = status.replace(/\s+/g, "");
-    if (normalized === "??") {
-        return "new";
-    }
-    if (normalized.includes("U")) {
-        return "conflict";
-    }
-    if (normalized.includes("R")) {
-        return "renamed";
-    }
-    if (normalized.includes("D")) {
-        return "deleted";
-    }
-    if (normalized.includes("A")) {
-        return "added";
-    }
-    if (normalized.includes("M")) {
-        return "modified";
-    }
-    return "modified";
+const createIcon = (name) => {
+    const i = document.createElement("i");
+    i.className = `icon icon-${name}`; // Assumes icon font or similar class
+    // Fallback if no icon font: use text or svg.
+    // simpler: use text char for now, will replace with proper icon later if needed.
+    // Actually common VSCode icons: + (plus), - (minus), ↩ (undo/discard)
+    return i;
 };
-const formatGitStatusLabel = (status) => {
-    var _a;
-    const kind = getGitStatusKind(status);
-    const labels = {
-        new: "新規",
-        conflict: "競合",
-        renamed: "名前変更",
-        deleted: "削除",
-        added: "追加",
-        modified: "変更",
-    };
-    return (_a = labels[kind]) !== null && _a !== void 0 ? _a : "変更";
-};
-const formatGitStatusShort = (status) => {
-    const normalized = status.replace(/\s+/g, "");
-    if (normalized === "??") {
-        return "?";
-    }
-    if (normalized.includes("U")) {
-        return "C";
-    }
-    if (normalized.includes("R")) {
-        return "R";
-    }
-    if (normalized.includes("D")) {
-        return "D";
-    }
-    if (normalized.includes("A")) {
-        return "A";
-    }
-    if (normalized.includes("M")) {
-        return "M";
-    }
-    return normalized.slice(0, 1) || "M";
-};
-const countGitStatusKinds = (entries) => {
-    const counts = {
-        new: 0,
-        conflict: 0,
-        renamed: 0,
-        deleted: 0,
-        added: 0,
-        modified: 0,
-    };
-    entries.forEach((entry) => {
-        const kind = getGitStatusKind(entry.status);
-        counts[kind] += 1;
-    });
-    return counts;
-};
-const renderGitStatus = (target, entries, message) => {
-    if (!(target instanceof HTMLElement)) {
+const renderFileList = (container, entries, title, type) => {
+    if (entries.length === 0)
         return;
-    }
-    target.innerHTML = "";
-    if (entries.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "panel-placeholder";
-        empty.textContent = message;
-        target.appendChild(empty);
-        return;
-    }
-    entries.forEach((entry) => {
+    const header = document.createElement("div");
+    header.className = "git-section-header";
+    header.textContent = `${title} (${entries.length})`; // VSCode style: "Staged Changes (N)"
+    container.appendChild(header);
+    const list = document.createElement("div");
+    list.className = "git-file-list";
+    entries.forEach(entry => {
         var _a;
         const item = document.createElement("div");
-        item.className = "git-item";
-        const main = document.createElement("div");
-        main.className = "git-item-main";
-        const normalizedPath = entry.path.replace(/\\/g, "/");
-        const parts = normalizedPath.split("/").filter(Boolean);
-        const nameText = (_a = parts.pop()) !== null && _a !== void 0 ? _a : entry.path;
-        const dirText = parts.join("/");
-        const name = document.createElement("div");
-        name.className = "git-item-name";
-        name.textContent = nameText;
-        name.title = entry.path;
-        main.appendChild(name);
-        if (dirText) {
-            const meta = document.createElement("div");
-            meta.className = "git-item-meta";
-            meta.textContent = dirText;
-            main.appendChild(meta);
+        item.className = "git-file-item";
+        // Status letter (M, A, D, U, ?)
+        const statusLetter = document.createElement("span");
+        statusLetter.className = `git-status-letter status-${entry.status} is-${type}`;
+        statusLetter.textContent = entry.status;
+        // File path/name
+        const nameData = document.createElement("div");
+        nameData.className = "git-file-info";
+        const nameParams = entry.path.split("/");
+        const fileName = (_a = nameParams.pop()) !== null && _a !== void 0 ? _a : entry.path;
+        const dirName = nameParams.join("/");
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "git-file-name";
+        nameSpan.textContent = fileName;
+        const dirSpan = document.createElement("span");
+        dirSpan.className = "git-file-dir";
+        dirSpan.textContent = dirName;
+        nameData.append(nameSpan, dirSpan);
+        // Actions
+        const actions = document.createElement("div");
+        actions.className = "git-file-actions";
+        // Open File (click on item usually opens, but explicit button is good too)
+        const openBtn = document.createElement("button");
+        openBtn.className = "git-action-btn";
+        openBtn.title = "ファイルを開く";
+        openBtn.dataset.gitAction = "open";
+        openBtn.dataset.path = entry.path;
+        openBtn.innerHTML = "<svg width='16' height='16' viewBox='0 0 16 16' fill='currentColor'><path d='M13.71 4.29l-3-3L10 1H4L3 2v12l1 1h9l1-1V5l-.29-.71zM13 14H4V2h5v4h4v8zm-3-9V2l2.29 2.29L10 5z'/></svg>"; // File icon
+        actions.appendChild(openBtn);
+        if (type === "staged") {
+            // Unstage (-)
+            const unstageBtn = document.createElement("button");
+            unstageBtn.className = "git-action-btn";
+            unstageBtn.title = "ステージ解除";
+            unstageBtn.dataset.gitAction = "unstage";
+            unstageBtn.dataset.path = entry.path;
+            unstageBtn.innerHTML = "<svg width='16' height='16' viewBox='0 0 16 16' fill='currentColor'><path d='M14 8H2V7h12v1z'/></svg>"; // Minus
+            actions.appendChild(unstageBtn);
         }
-        const status = document.createElement("span");
-        const kind = getGitStatusKind(entry.status);
-        status.className = `git-item-status is-${kind}`;
-        status.textContent = formatGitStatusShort(entry.status);
-        status.title = formatGitStatusLabel(entry.status);
-        item.append(main, status);
-        target.appendChild(item);
+        else {
+            // Stage (+)
+            const stageBtn = document.createElement("button");
+            stageBtn.className = "git-action-btn";
+            stageBtn.title = "ステージ";
+            stageBtn.dataset.gitAction = "stage";
+            stageBtn.dataset.path = entry.path;
+            stageBtn.innerHTML = "<svg width='16' height='16' viewBox='0 0 16 16' fill='currentColor'><path d='M14 7v1H9v5H8V8H3V7h5V2h1v5h5z'/></svg>"; // Plus
+            actions.appendChild(stageBtn);
+            // Discard (Undo)
+            const discardBtn = document.createElement("button");
+            discardBtn.className = "git-action-btn";
+            discardBtn.title = "変更を破棄";
+            discardBtn.dataset.gitAction = "discard";
+            discardBtn.dataset.path = entry.path;
+            discardBtn.innerHTML = "<svg width='16' height='16' viewBox='0 0 16 16' fill='currentColor'><path d='M13.5 4l-2.5 2.5-2.5-2.5h2c0-2.21-1.79-4-4-4S2.5 1.79 2.5 4H1c0-3.31 2.69-6 6-6s6 2.69 6 6h.5zm-7 12c3.31 0 6-2.69 6-6h-1.5c0 2.21-1.79 4-4 4s-4-1.79-4-4H.5c0 3.31 2.69 6 6 6z'/></svg>"; // Undo/Refresh like
+            // Better discard icon: 
+            // <path d="M2.5 4v2h2l-2-2zm12 8v-2h-2l2 2zM6 14.5a6.48 6.48 0 0 0 4.54-1.85l-1.06-1.06A4.98 4.98 0 0 1 6 13a5 5 0 0 1-5-5h-1a6 6 0 0 0 6 6.5zm0-9a4.98 4.98 0 0 1 3.46 1.39l1.06-1.06A6.48 6.48 0 0 0 6 1.5a6 6 0 0 0-6 6.5h1A5 5 0 0 1 6 5.5z"/> (Discard changes)
+            // Just use '↶' text for simplicity or custom SVG.
+            // Using standard discard arrow.
+            discardBtn.innerHTML = "<svg width='16' height='16' viewBox='0 0 16 16' fill='currentColor'><path d='M13.5 2l-1.5 1.5 1.5 1.5v-3zm-6 0v10l-4-4h2.5c0-2.21 1.79-4 4-4h.5V2H7.5z'/></svg>"; // A discard-ish arrow
+            actions.appendChild(discardBtn);
+        }
+        item.append(statusLetter, nameData, actions);
+        list.appendChild(item);
     });
+    container.appendChild(list);
 };
 const renderGitChangesSummary = (target, entries, repoState) => {
     if (!(target instanceof HTMLElement)) {
@@ -141,26 +114,16 @@ const renderGitChangesSummary = (target, entries, repoState) => {
         target.appendChild(hint);
         return;
     }
-    const counts = countGitStatusKinds(entries);
-    const order = [
-        { kind: "modified", label: "M", title: "変更" },
-        { kind: "added", label: "A", title: "追加" },
-        { kind: "new", label: "?", title: "新規" },
-        { kind: "deleted", label: "D", title: "削除" },
-        { kind: "renamed", label: "R", title: "名前変更" },
-        { kind: "conflict", label: "C", title: "競合" },
-    ];
-    order.forEach(({ kind, label, title }) => {
-        const count = counts[kind];
-        if (!count) {
-            return;
-        }
-        const pill = document.createElement("span");
-        pill.className = `git-change-pill is-${kind}`;
-        pill.textContent = `${label} ${count}`;
-        pill.title = title;
-        target.appendChild(pill);
-    });
+    // Split entries into Staged and Unstaged (Changes)
+    // entries have `staged: boolean`
+    const staged = entries.filter(e => e.staged);
+    const changes = entries.filter(e => !e.staged);
+    if (staged.length > 0) {
+        renderFileList(target, staged, "ステージされている変更", "staged");
+    }
+    if (changes.length > 0) {
+        renderFileList(target, changes, "変更", "changes");
+    }
 };
 const buildBranchLabel = (state) => {
     var _a;
@@ -225,6 +188,10 @@ const renderGitHistory = (target, entries, message, state) => {
         target.appendChild(empty);
         return;
     }
+    // Simplified validation: allow restore if not busy?
+    // Original allowed restore only if clean working tree.
+    // We can keep it or relax it (restore might conflict).
+    // Let's keep original safe check: canRestoreBase = no local changes.
     const canRestoreBase = state.repoState.ok &&
         !state.busy &&
         state.statusEntries.length === 0 &&
@@ -302,8 +269,10 @@ const buildGitSyncMessage = (state) => {
 };
 export const renderGitPanel = (context, state) => {
     var _a, _b;
-    const { gitStatus, gitHistory, gitSummaryText, gitBranchName, gitBranchSync, gitRemoteName, gitChangesCount, gitChangesSummary, gitGuide, gitGuideText, gitSyncText, gitInitRow, gitInitButton, gitCommitMessage, gitCommitButton, gitCommitSection, gitHistorySection, gitSyncSection, gitRemoteSection, gitPullButton, gitPushButton, gitRemoteInput, gitRemoteSaveButton, gitRefreshButton, } = context.dom;
-    renderGitStatus(gitStatus, state.entries, state.message);
+    const { gitStatus, gitHistory, gitSummaryText, gitBranchName, gitBranchSync, gitRemoteName, gitChangesCount, gitChangesSummary, gitGuide, gitGuideText, gitSyncText, gitInitRow, gitInitButton, gitCommitMessage, gitCommitButton, gitCommitSection, gitHistorySection, gitSyncSection, gitRemoteSection, gitPullButton, gitPushButton, gitRemoteInput, gitRefreshButton, } = context.dom;
+    // Status is deprecated in new design? used for file list?
+    // renderGitStatus(gitStatus, state.entries, state.message); 
+    // We reuse gitChangesSummary for the main list.
     renderGitChangesSummary(gitChangesSummary, state.entries, state.repoState);
     renderGitHistory(gitHistory, state.historyEntries, state.historyMessage, {
         repoState: state.repoState,
@@ -341,7 +310,11 @@ export const renderGitPanel = (context, state) => {
     const gitUnavailable = state.repoState.reason === "git-missing";
     const hasChanges = state.entries.length > 0;
     const branchDetached = state.branchState.detached === true;
-    const canCommit = repoReady && hasChanges && !state.busy;
+    // Can commit if repo ready and NOT busy.
+    // VSCode allows empty commit? Usually no.
+    // Check if there are STAGED changes.
+    const stagedCount = state.entries.filter(e => e.staged).length;
+    const canCommit = repoReady && stagedCount > 0 && !state.busy;
     const canSync = repoReady && state.remoteState.exists && !branchDetached && !hasChanges && !state.busy;
     setElementHidden(gitInitRow, repoReady || gitUnavailable || !hasWorkspace);
     setElementHidden(gitCommitSection, !repoReady);
@@ -368,9 +341,6 @@ export const renderGitPanel = (context, state) => {
         if (document.activeElement !== gitRemoteInput) {
             gitRemoteInput.value = (_b = state.remoteState.url) !== null && _b !== void 0 ? _b : "";
         }
-    }
-    if (gitRemoteSaveButton instanceof HTMLButtonElement) {
-        gitRemoteSaveButton.disabled = !repoReady || state.busy;
     }
     if (gitRefreshButton instanceof HTMLButtonElement) {
         gitRefreshButton.disabled = state.busy;

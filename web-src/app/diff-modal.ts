@@ -377,7 +377,8 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
         selectionHighlight: false,
         lineNumbers: "on",
         fontSize: 12,
-        fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+        lineHeight: 20,
+        fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
       });
     } else {
       const diffEditorAny = diffEditor as {

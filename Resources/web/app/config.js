@@ -22,10 +22,10 @@ export const tabConfig = {
     },
     alchemy: {
         label: "取り込み",
-        outline: "貼り付け / キャプチャ",
-        title: "Paste Alchemy",
-        desc: "貼り付けやキャプチャを部品として挿入します。",
-        hint: "プレビューを確認して確定します。",
+        outline: "キャプチャ → OCR",
+        title: "取り込み",
+        desc: "ウィンドウを切り取ってOCRし、TeXとして挿入します。",
+        hint: "キャプチャして変換します。",
     },
     ai: {
         label: "AI",

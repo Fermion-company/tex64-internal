@@ -46,23 +46,64 @@ const bridgeApi = {
 const captureApi = {
   listSources: async (options = {}) => {
     const size = options.thumbnailSize ?? { width: 1600, height: 900 };
-    const sources = await desktopCapturer.getSources({
-      types: ["window"],
-      thumbnailSize: size,
-      fetchWindowIcons: true,
-    });
-    return sources.map((source) => {
+
+    const fetchSources = async (types, fetchWindowIcons = false) => {
+      const params = { types, thumbnailSize: size };
+      if (fetchWindowIcons && types.includes("window")) {
+        params.fetchWindowIcons = true;
+      }
+      return desktopCapturer.getSources(params);
+    };
+
+    const mapSource = (source) => {
       const thumbnail = source.thumbnail;
-      const size = thumbnail.getSize();
+      const thumbSize = thumbnail.getSize();
+      const idPrefix =
+        typeof source.id === "string" ? source.id.split(":")[0] : "";
+      const isScreen = idPrefix === "screen";
       return {
         id: source.id,
         title: source.name,
-        app: source.appIcon ? source.name.split(" - ")[0] : "",
-        thumbnailUrl: thumbnail.toDataURL(),
-        width: size.width,
-        height: size.height,
+        app: isScreen ? "画面" : source.appIcon ? source.name.split(" - ")[0] : "",
+        thumbnailUrl:
+          typeof thumbnail.isEmpty === "function" && thumbnail.isEmpty()
+            ? ""
+            : thumbnail.toDataURL(),
+        width: thumbSize.width,
+        height: thumbSize.height,
       };
-    });
+    };
+
+    let sources = [];
+    let lastError = null;
+
+    try {
+      sources = await fetchSources(["window"], true);
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (sources.length === 0) {
+      try {
+        sources = await fetchSources(["window"], false);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (sources.length === 0) {
+      try {
+        sources = await fetchSources(["screen"], false);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (sources.length === 0 && lastError) {
+      throw lastError;
+    }
+
+    return sources.map(mapSource);
   },
 };
 

@@ -70,7 +70,7 @@ const handler = async (req, res) => {
 
   const model = typeof process.env.GEMINI_MODEL === "string"
     ? process.env.GEMINI_MODEL.trim()
-    : "gemini-2.0-flash-lite";
+    : "gemini-3-flash-preview";
 
   const upstreamUrl = `${GEMINI_ENDPOINT}/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
   const upstreamBody = {

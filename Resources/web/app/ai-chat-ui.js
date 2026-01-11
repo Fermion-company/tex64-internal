@@ -198,12 +198,36 @@ export const initAiChatUi = (context, deps) => {
         path.className = "ai-proposal-path";
         path.textContent = proposal.path;
         header.append(icon, path);
-        if (proposal.isNewFile) {
-            const badge = document.createElement("span");
-            badge.className = "ai-proposal-badge";
-            badge.textContent = "新規";
-            header.appendChild(badge);
+        // Add badge based on proposal type
+        const proposalType = proposal.type || (proposal.isNewFile ? "new" : "write");
+        const badge = document.createElement("span");
+        badge.className = "ai-proposal-badge";
+        switch (proposalType) {
+            case "delete":
+                badge.textContent = "削除";
+                badge.style.background = "var(--danger, #dc3545)";
+                break;
+            case "rename":
+                badge.textContent = "移動";
+                badge.style.background = "var(--warning, #ffc107)";
+                badge.style.color = "#000";
+                break;
+            case "mkdir":
+                badge.textContent = "フォルダ";
+                badge.style.background = "var(--info, #17a2b8)";
+                break;
+            case "patch":
+                badge.textContent = "部分編集";
+                badge.style.background = "var(--secondary, #6c757d)";
+                break;
+            case "new":
+                badge.textContent = "新規";
+                break;
+            default:
+                badge.textContent = "編集";
+                break;
         }
+        header.appendChild(badge);
         const summary = document.createElement("div");
         summary.className = "ai-proposal-summary";
         summary.textContent = proposal.summary || "ファイルの変更案";
@@ -212,15 +236,26 @@ export const initAiChatUi = (context, deps) => {
         const previewButton = document.createElement("button");
         previewButton.type = "button";
         previewButton.className = "panel-button";
-        previewButton.textContent = "差分を確認";
+        // Customize button text based on type
+        const buttonText = proposalType === "delete" ? "削除を確認"
+            : proposalType === "mkdir" ? "作成を確認"
+                : "差分を確認";
+        previewButton.textContent = buttonText;
         previewButton.addEventListener("click", () => {
             var _a;
             pendingProposalId = proposal.id;
             deps.diffModal.setDiffContext({ type: "aiApply", proposalId: proposal.id });
+            const modalTitle = proposalType === "delete" ? "削除の確認"
+                : proposalType === "rename" ? "移動の確認"
+                    : proposalType === "mkdir" ? "フォルダ作成の確認"
+                        : "AI提案の確認";
+            const submitLabel = proposalType === "delete" ? "削除"
+                : proposalType === "mkdir" ? "作成"
+                    : "適用";
             deps.diffModal.showDiffModal((_a = proposal.originalContent) !== null && _a !== void 0 ? _a : "", proposal.content, 0, {
-                title: "AI提案の確認",
+                title: modalTitle,
                 fileName: proposal.path,
-                submitLabel: "適用",
+                submitLabel: submitLabel,
             });
         });
         actions.appendChild(previewButton);
@@ -421,7 +456,7 @@ export const initAiChatUi = (context, deps) => {
     }
     if (aiInput instanceof HTMLTextAreaElement) {
         aiInput.addEventListener("keydown", (event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
                 event.preventDefault();
                 handleSend();
             }

@@ -48,7 +48,7 @@ export type MathKey = {
   shiftTemplateScope?: "selection-or-atom" | "selection";
 };
 export type SearchResult = { path: string; line: number; preview: string };
-export type GitEntry = { status: string; path: string };
+export type GitEntry = { status: string; path: string; staged?: boolean };
 export type GitHistoryEntry = {
   hash: string;
   shortHash: string;

@@ -9,9 +9,8 @@ import { initEditorSession } from "./app/editor-session.js";
 import { initEditorTabsUi } from "./app/editor-tabs-ui.js";
 import { initEnvRegistry } from "./app/env-registry-ui.js";
 import { initFileTreeUi } from "./app/file-tree-ui.js";
-import { initAlchemyPreviewUi } from "./app/alchemy-preview-ui.js";
+import { initAlchemyConvert } from "./app/alchemy-convert.js";
 import { initCaptureUi } from "./app/capture-ui.js";
-import { initPasteAlchemy } from "./app/paste-alchemy.js";
 import { initMagicCapture } from "./app/magic-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
@@ -26,7 +25,6 @@ import { initBlockInputUi } from "./app/blocks/input-ui.js";
 import { initMathLive } from "./app/blocks/mathlive.js";
 import { initBlockInsertFlow } from "./app/blocks/insert-flow.js";
 import { initBuildOpsUi } from "./app/build-ops-ui.js";
-import { initGitOpsUi } from "./app/git-ops-ui.js";
 import { initIssuesUi } from "./app/issues-ui.js";
 import { initOutlineUi } from "./app/outline-ui.js";
 import { initRootSelectorUi } from "./app/root-selector-ui.js";
@@ -47,19 +45,18 @@ window.addEventListener("DOMContentLoaded", () => {
     let blockAutoDetect = null;
     let blockEditSession = null;
     let blockInsertApi = null;
-    let pasteAlchemy = null;
-    let magicCapture = null;
     let triggerBlockInsert = () => { };
     let resetBlockSession = (_options) => { };
     let editorSession;
     let editorTabsUi;
     let buildOps;
-    let gitOps;
     let outlineUi;
     let issuesUi;
     let rootSelectorUi;
     let resizerUi;
     let aiChatUi = null;
+    let alchemyConvert = null;
+    let magicCapture = null;
     const primaryViewer = createViewer({
         editorViewer,
         editorViewerImage,
@@ -105,12 +102,11 @@ window.addEventListener("DOMContentLoaded", () => {
     const getCurrentIssues = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getCurrentIssues()) !== null && _a !== void 0 ? _a : []; };
     let setPendingBuildIssuesFocus = (_value) => { };
     let onFilesTabActive = () => { };
-    let onGitTabActive = () => { };
     let onSettingsTabActive = () => { };
     let updateMathKeyboardVisibility = () => { };
     const tabController = initTabController(appContext, {
         onFilesTabActive: () => onFilesTabActive(),
-        onGitTabActive: () => onGitTabActive(),
+        onGitTabActive: () => { },
         onSettingsTabActive: () => onSettingsTabActive(),
         updateMathKeyboardVisibility: () => updateMathKeyboardVisibility(),
     });
@@ -134,41 +130,6 @@ window.addEventListener("DOMContentLoaded", () => {
     });
     onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
     const contextMenu = initContextMenu(appContext);
-    const alchemyPreviewUi = initAlchemyPreviewUi(appContext, {
-        onSettingsChange: (settings) => {
-            postToNative({ type: "alchemy:settings:set", settings }, true);
-        },
-        onShortcutSave: (shortcut) => {
-            postToNative({ type: "alchemy:settings:set", settings: { shortcut } }, true);
-        },
-        onInputPayload: (payload) => {
-            pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.handleClipboardPayload(payload);
-        },
-        onClipboardImport: () => {
-            pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.requestClipboardRead();
-        },
-        onCaptureRequest: () => {
-            magicCapture === null || magicCapture === void 0 ? void 0 : magicCapture.openCapture();
-        },
-        onEditItem: (id) => { var _a; return (_a = pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.getItemSnippet(id)) !== null && _a !== void 0 ? _a : Promise.resolve(""); },
-        onApplyEditedSnippet: (id, snippet) => {
-            pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.applyEditedSnippet(id, snippet);
-        },
-        onOpenChange: (open) => {
-            if (open) {
-                const currentTab = tabController.getActiveTab();
-                if (currentTab !== "alchemy") {
-                    lastNonAlchemyTab = currentTab;
-                    setActiveTab("alchemy");
-                }
-                return;
-            }
-            if (tabController.getActiveTab() === "alchemy") {
-                setActiveTab(lastNonAlchemyTab || "files");
-            }
-        },
-    });
-    const captureUi = initCaptureUi(appContext);
     const launcherUi = initLauncherUi(appContext, {
         onCreate: (template) => {
             postToNative({ type: "createProject", template });
@@ -258,17 +219,28 @@ window.addEventListener("DOMContentLoaded", () => {
         getMonacoApi: appActions.getMonacoApi,
     });
     onFilesTabActive = () => editorSession.updateMiniOutline();
-    pasteAlchemy = initPasteAlchemy(appContext, {
-        alchemyPreview: alchemyPreviewUi,
+    alchemyConvert = initAlchemyConvert(appContext, {
         editorSession,
-        postToNative: (payload, silent) => postToNative(payload, silent),
         updateIssues: updateIssuesProxy,
         getMonacoApi: appActions.getMonacoApi,
+        onSettingsChange: (settings) => {
+            postToNative({ type: "alchemy:settings:set", settings }, true);
+        },
+        onCaptureRequest: () => {
+            magicCapture === null || magicCapture === void 0 ? void 0 : magicCapture.openCapture();
+        },
     });
+    const captureUi = initCaptureUi(appContext);
     magicCapture = initMagicCapture(appContext, {
         captureUi,
-        pasteAlchemy,
+        onCaptureImage: (imageDataUrl) => {
+            alchemyConvert === null || alchemyConvert === void 0 ? void 0 : alchemyConvert.handleCaptureImage(imageDataUrl);
+        },
         updateIssues: updateIssuesProxy,
+        getCurrentIssues,
+        setStatus: (message) => {
+            alchemyConvert === null || alchemyConvert === void 0 ? void 0 : alchemyConvert.setStatus(message);
+        },
     });
     const diffModalApi = initDiffModal(appContext, {
         getMonacoApi: appActions.getMonacoApi,
@@ -478,15 +450,6 @@ window.addEventListener("DOMContentLoaded", () => {
             buildFormatSettingsPayload: settingsUi.buildFormatSettingsPayload,
         },
     });
-    gitOps = initGitOpsUi(appContext, {
-        postToNative: (payload, silent) => postToNative(payload, silent),
-        updateIssues: updateIssuesProxy,
-        diffModal: {
-            showPatchModal: diffModalApi.showPatchModal,
-        },
-        getWorkspaceRootKey,
-    });
-    onGitTabActive = () => gitOps.requestStatus();
     rootSelectorUi = initRootSelectorUi(appContext, {
         getWorkspaceRootKey,
         getWorkspaceFiles,
@@ -538,7 +501,6 @@ window.addEventListener("DOMContentLoaded", () => {
         settingsUi,
         launcherUi,
         searchUi,
-        gitOps,
         diffModal: {
             setDiffContext: diffModalApi.setDiffContext,
         },
@@ -589,7 +551,6 @@ window.addEventListener("DOMContentLoaded", () => {
         console.error("updateMathPreview error:", e);
     }
     searchUi.render();
-    gitOps.reset();
     rootSelectorUi.render();
     buildOps.updateSynctexButtonState();
     settingsUi.loadStartupSettings();
@@ -613,9 +574,9 @@ window.addEventListener("DOMContentLoaded", () => {
             closeDiffModal: diffModalApi.closeDiffModal,
         },
         gitOps: {
-            requestCommit: () => gitOps.requestCommit(),
-            requestRestore: (hash) => gitOps.requestRestore(hash),
-            setupActions: () => gitOps.setupActions(),
+            requestCommit: () => { },
+            requestRestore: (_hash) => { },
+            setupActions: () => { },
         },
         aiOps: aiChatUi,
         blockInsert: blockInsertApi,
@@ -650,9 +611,9 @@ window.addEventListener("DOMContentLoaded", () => {
             handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
         },
         git: {
-            handleUpdate: (payload) => gitOps.handleUpdate(payload),
-            handleDiff: (payload) => gitOps.handleDiff(payload),
-            handleActionResult: (payload) => gitOps.handleActionResult(payload),
+            handleUpdate: (_payload) => { },
+            handleDiff: (_payload) => { },
+            handleActionResult: (_payload) => { },
         },
         build: {
             setBuildState: (state, message) => buildOps.setBuildState(state, message),
@@ -662,16 +623,7 @@ window.addEventListener("DOMContentLoaded", () => {
         },
         alchemy: {
             handleSettings: ({ settings }) => {
-                alchemyPreviewUi.setSettings(settings);
-                if (settings === null || settings === void 0 ? void 0 : settings.shortcut) {
-                    captureUi.setShortcutLabel(settings.shortcut);
-                }
-            },
-            handleClipboardPayload: (payload) => {
-                pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.handleClipboardPayload(payload);
-            },
-            handleImageSaved: (payload) => {
-                pasteAlchemy === null || pasteAlchemy === void 0 ? void 0 : pasteAlchemy.handleImageSaved(payload);
+                alchemyConvert === null || alchemyConvert === void 0 ? void 0 : alchemyConvert.setSettings(settings);
             },
         },
         agent: {
@@ -682,11 +634,6 @@ window.addEventListener("DOMContentLoaded", () => {
             handleProposal: (proposal) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposal(proposal),
             handleApplyResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleApplyResult(payload),
             handleError: (message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleError(message, conversationId),
-        },
-        capture: {
-            openCapture: () => {
-                magicCapture === null || magicCapture === void 0 ? void 0 : magicCapture.openCapture();
-            },
         },
         editorSession: {
             handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),

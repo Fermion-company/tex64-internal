@@ -20,7 +20,6 @@ export type CaptureUiApi = {
   closeWindowPicker: () => void;
   openCropper: (options?: { imageUrl?: string; sizeLabel?: string }) => void;
   closeCropper: () => void;
-  setShortcutLabel: (label: string) => void;
   setCropSizeLabel: (label: string) => void;
   setHandlers: (handlers: CaptureUiDeps) => void;
 };
@@ -35,7 +34,6 @@ export const initCaptureUi = (
     captureWindowSearch,
     captureWindowGrid,
     captureWindowItemTemplate,
-    captureWindowShortcut,
     captureCropModal,
     captureCropRetry,
     captureCropCancel,
@@ -123,12 +121,6 @@ export const initCaptureUi = (
     setModalOpen(captureCropModal as HTMLElement | null, false);
   };
 
-  const setShortcutLabel = (label: string) => {
-    if (captureWindowShortcut instanceof HTMLElement) {
-      captureWindowShortcut.textContent = label;
-    }
-  };
-
   const setCropSizeLabel = (label: string) => {
     if (captureCropSize instanceof HTMLElement) {
       captureCropSize.textContent = label;
@@ -188,7 +180,6 @@ export const initCaptureUi = (
     closeWindowPicker,
     openCropper,
     closeCropper,
-    setShortcutLabel,
     setCropSizeLabel,
     setHandlers: (next) => {
       handlers = { ...handlers, ...next };

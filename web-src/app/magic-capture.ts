@@ -1,17 +1,17 @@
 import type { AppContext } from "./context.js";
 import type { IssuesStatus, IssueItem } from "./types.js";
 import type { CaptureUiApi, CaptureWindowSource } from "./capture-ui.js";
-import type { PasteAlchemyApi } from "./paste-alchemy.js";
-
 type MagicCaptureDeps = {
   captureUi: CaptureUiApi;
-  pasteAlchemy: PasteAlchemyApi;
+  onCaptureImage: (imageDataUrl: string) => void;
   updateIssues: (
     count: number,
     summary: string,
     status: IssuesStatus,
     issues: IssueItem[]
   ) => void;
+  getCurrentIssues?: () => IssueItem[];
+  setStatus?: (message: string) => void;
 };
 
 export type MagicCaptureApi = {
@@ -35,7 +35,7 @@ export const initMagicCapture = (
     captureCropSize,
   } = context.dom;
 
-  const captureApi =
+  const getCaptureApi = () =>
     (context.bridgeWindow as {
       tex64Capture?: {
         listSources?: (options?: {
@@ -49,6 +49,28 @@ export const initMagicCapture = (
   let isDragging = false;
   let dragStart = { x: 0, y: 0 };
   let selection = { x: 0, y: 0, width: 0, height: 0 };
+
+  const captureIssueMessages = new Set([
+    "画面キャプチャが利用できません。",
+    "画面キャプチャが利用できません。画面収録の許可を確認してください。",
+    "ウィンドウ一覧の取得に失敗しました。",
+    "ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。",
+    "取り込み可能なウィンドウがありません。画面収録の許可を確認してください。",
+    "切り取りに失敗しました。",
+  ]);
+
+  const clearCaptureIssues = () => {
+    if (!deps.getCurrentIssues) return;
+    const current = deps.getCurrentIssues();
+    if (current.length === 0) return;
+    const isCaptureOnly = current.every((issue) => captureIssueMessages.has(issue.message));
+    if (!isCaptureOnly) return;
+    deps.updateIssues(0, "", "info", []);
+  };
+
+  const setStatus = (message: string) => {
+    deps.setStatus?.(message);
+  };
 
   const resolveImageGeometry = () => {
     if (!(captureCropCanvas instanceof HTMLElement)) return null;
@@ -178,10 +200,10 @@ export const initMagicCapture = (
   };
 
   const openCapture = async () => {
+    clearCaptureIssues();
+    const captureApi = getCaptureApi();
     if (!captureApi?.listSources) {
-      deps.updateIssues(1, "画面キャプチャが利用できません。", "error", [
-        { severity: "error", message: "画面キャプチャが利用できません。" },
-      ]);
+      setStatus("画面キャプチャが利用できません。画面収録の許可を確認してください。");
       return;
     }
     try {
@@ -189,13 +211,11 @@ export const initMagicCapture = (
         thumbnailSize: { width: 1600, height: 900 },
       });
     } catch (error) {
-      deps.updateIssues(1, "ウィンドウ一覧の取得に失敗しました。", "error", [
-        { severity: "error", message: "ウィンドウ一覧の取得に失敗しました。" },
-      ]);
+      setStatus("ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。");
       return;
     }
     if (sources.length === 0) {
-      deps.updateIssues(0, "取り込み可能なウィンドウがありません。", "info", []);
+      setStatus("取り込み可能なウィンドウがありません。画面収録の許可を確認してください。");
       return;
     }
     deps.captureUi.openWindowPicker(sources, selectedSource?.id ?? null);
@@ -232,12 +252,10 @@ export const initMagicCapture = (
     onCropApply: () => {
       const dataUrl = cropToDataUrl();
       if (!dataUrl) {
-        deps.updateIssues(1, "切り取りに失敗しました。", "error", [
-          { severity: "error", message: "切り取りに失敗しました。" },
-        ]);
+        setStatus("切り取りに失敗しました。");
         return;
       }
-      deps.pasteAlchemy.handleCaptureImage(dataUrl, "キャプチャ");
+      deps.onCaptureImage(dataUrl);
       deps.captureUi.closeCropper();
     },
   });

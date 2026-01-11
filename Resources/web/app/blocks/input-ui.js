@@ -89,11 +89,11 @@ export const initBlockInputUi = (context, deps) => {
     };
     const stripEmptyAlignedRows = (text) => {
         const rows = splitAlignedRows(text);
-        const kept = rows.filter((row) => !(rows.length > 1 && isEmptyAlignedRow(row)));
-        if (kept.length === 0) {
-            return "";
+        if (rows.length <= 1) {
+            return text;
         }
-        return kept.join("\\\\");
+        const hasNonEmpty = rows.some((row) => !isEmptyAlignedRow(row));
+        return hasNonEmpty ? text : "";
     };
     const normalizeMathValueForOutput = (value) => {
         if (!mathFieldWrapped) {
