@@ -30,6 +30,7 @@ type BlockInputDeps = {
   getActiveMathEditCell: () => MathEditCell | null;
   getActiveBlockEditMode: () => BlockEditMode;
   onMathFieldSubmit?: () => void;
+  onMathCaptureRequest?: () => void;
 };
 
 export const initBlockInputUi = (
@@ -45,6 +46,7 @@ export const initBlockInputUi = (
     blockTableRaw,
     blockTableRawInput,
     blockSettingsButton,
+    blockCaptureButton,
     blockSettingsModal,
     blockSettingsClose,
     blockSettingsBack,
@@ -847,6 +849,15 @@ export const initBlockInputUi = (
   if (blockSettingsButton instanceof HTMLButtonElement) {
     blockSettingsButton.addEventListener("click", () => {
       setBlockSettingsOpen(!blockSettingsOpen);
+    });
+  }
+
+  if (blockCaptureButton instanceof HTMLButtonElement) {
+    blockCaptureButton.addEventListener("click", () => {
+      if (activeBlockType !== "math") {
+        setActiveBlockType("math");
+      }
+      deps.onMathCaptureRequest?.();
     });
   }
 

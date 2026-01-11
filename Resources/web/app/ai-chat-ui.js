@@ -89,12 +89,13 @@ export const initAiChatUi = (context, deps) => {
         return chat;
     };
     const updateSendState = () => {
-        const disabled = Boolean(runningConversationId);
+        const isRunning = Boolean(runningConversationId);
         if (aiSend instanceof HTMLButtonElement) {
-            aiSend.disabled = disabled;
+            aiSend.disabled = isRunning;
+            aiSend.classList.toggle("is-loading", isRunning);
         }
         if (aiInput instanceof HTMLTextAreaElement) {
-            aiInput.disabled = disabled;
+            aiInput.disabled = isRunning;
         }
     };
     const updateStatusDisplay = () => {
@@ -438,8 +439,7 @@ export const initAiChatUi = (context, deps) => {
         }
         appendMessage({ role: "user", text }, chat.id);
         aiInput.value = "";
-        chat.statusMessage = "送信中...";
-        updateStatusDisplay();
+        // No status text - button visual indicates sending
         runningConversationId = chat.id;
         updateSendState();
         deps.postToNative({

@@ -125,6 +125,15 @@ export const initMagicCapture = (
   const updateSelectionUi = () => {
     if (!(captureCropSelection instanceof HTMLElement)) return;
     if (!(captureCropGuide instanceof HTMLElement)) return;
+    
+    if (selection.width < 2 || selection.height < 2) {
+      captureCropSelection.style.display = "none";
+      captureCropGuide.style.display = "none";
+      return;
+    }
+    captureCropSelection.style.display = "block";
+    captureCropGuide.style.display = "block";
+
     captureCropSelection.style.left = `${selection.x}px`;
     captureCropSelection.style.top = `${selection.y}px`;
     captureCropSelection.style.width = `${selection.width}px`;
@@ -145,17 +154,8 @@ export const initMagicCapture = (
   };
 
   const resetSelection = () => {
-    const geometry = resolveImageGeometry();
-    if (!geometry) return;
-    const { offsetX, offsetY, displayWidth, displayHeight } = geometry;
-    const width = displayWidth * 0.6;
-    const height = displayHeight * 0.6;
-    selection = {
-      x: offsetX + (displayWidth - width) / 2,
-      y: offsetY + (displayHeight - height) / 2,
-      width,
-      height,
-    };
+    // Start with no selection as requested by user
+    selection = { x: 0, y: 0, width: 0, height: 0 };
     updateSelectionUi();
   };
 
@@ -208,7 +208,7 @@ export const initMagicCapture = (
     }
     try {
       sources = await captureApi.listSources({
-        thumbnailSize: { width: 1600, height: 900 },
+        thumbnailSize: { width: 3840, height: 2160 },
       });
     } catch (error) {
       setStatus("ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。");
@@ -243,11 +243,14 @@ export const initMagicCapture = (
       selectedSource = null;
     },
     onCropRetry: () => {
+      // User requested: "Back" closes entire flow, not return to picker
       deps.captureUi.closeCropper();
-      void openCapture();
     },
     onCropCancel: () => {
-      deps.captureUi.closeCropper();
+      // User requested: "Esc cancels current crop, but screen shouldn't close"
+      if (selection.width > 0 || selection.height > 0) {
+        resetSelection();
+      }
     },
     onCropApply: () => {
       const dataUrl = cropToDataUrl();
@@ -260,36 +263,134 @@ export const initMagicCapture = (
     },
   });
 
+  let interactionMode: "idle" | "create" | "move" | "resize" = "idle";
+  let resizeHandle = "";
+  let startSelection = { x: 0, y: 0, width: 0, height: 0 };
+
   if (captureCropCanvas instanceof HTMLElement) {
     captureCropCanvas.addEventListener("pointerdown", (event) => {
       const geometry = resolveImageGeometry();
       if (!geometry) return;
+      
+      const target = event.target as HTMLElement;
       const rect = captureCropCanvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
-      isDragging = true;
+      
       dragStart = { x, y };
+      startSelection = { ...selection };
+      captureCropCanvas.setPointerCapture(event.pointerId);
+
+      // Check handle resize
+      if (target.classList.contains("capture-crop-handle")) {
+        interactionMode = "resize";
+        if (target.classList.contains("tl")) resizeHandle = "tl";
+        else if (target.classList.contains("tr")) resizeHandle = "tr";
+        else if (target.classList.contains("bl")) resizeHandle = "bl";
+        else if (target.classList.contains("br")) resizeHandle = "br";
+        return;
+      }
+
+      // Check moving (if clicking strictly inside selection)
+      // We use a small buffer or check if target is selection/guide
+      if (
+        (target === captureCropSelection || captureCropSelection?.contains(target)) &&
+        !target.classList.contains("capture-crop-handle")
+      ) {
+        interactionMode = "move";
+        return;
+      }
+
+      // Otherwise create new selection
+      interactionMode = "create";
       selection = clampSelection({ x, y, width: 0, height: 0 });
       updateSelectionUi();
-      captureCropCanvas.setPointerCapture(event.pointerId);
     });
+
     captureCropCanvas.addEventListener("pointermove", (event) => {
-      if (!isDragging) return;
       const rect = captureCropCanvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
-      const next = {
-        x: Math.min(dragStart.x, x),
-        y: Math.min(dragStart.y, y),
-        width: Math.abs(x - dragStart.x),
-        height: Math.abs(y - dragStart.y),
-      };
-      selection = clampSelection(next);
-      updateSelectionUi();
+
+      // Update cursor when idle
+      if (interactionMode === "idle") {
+        const target = event.target as HTMLElement;
+        if (target.classList.contains("capture-crop-handle")) {
+          // let CSS handle it
+        } else if (
+          target === captureCropSelection ||
+          (captureCropSelection?.contains(target) && !target.classList.contains("capture-crop-handle"))
+        ) {
+          captureCropCanvas.style.cursor = "move";
+        } else {
+          captureCropCanvas.style.cursor = "crosshair";
+        }
+        return;
+      }
+
+      const dx = x - dragStart.x;
+      const dy = y - dragStart.y;
+      const geometry = resolveImageGeometry();
+      if (!geometry) return;
+      const { offsetX, offsetY, displayWidth, displayHeight } = geometry;
+
+      if (interactionMode === "move") {
+        let nextX = startSelection.x + dx;
+        let nextY = startSelection.y + dy;
+        
+        // Constrain to image bounds
+        nextX = Math.max(offsetX, Math.min(nextX, offsetX + displayWidth - startSelection.width));
+        nextY = Math.max(offsetY, Math.min(nextY, offsetY + displayHeight - startSelection.height));
+
+        selection = { ...startSelection, x: nextX, y: nextY };
+        updateSelectionUi();
+        return;
+      }
+
+      if (interactionMode === "resize") {
+        let next = { ...startSelection };
+
+        if (resizeHandle.includes("l")) {
+          next.x = Math.min(startSelection.x + startSelection.width, Math.max(offsetX, startSelection.x + dx));
+          next.width = startSelection.width + (startSelection.x - next.x);
+        }
+        if (resizeHandle.includes("r")) {
+          next.width = Math.min(offsetX + displayWidth - startSelection.x, Math.max(0, startSelection.width + dx));
+        }
+        if (resizeHandle.includes("t")) {
+          next.y = Math.min(startSelection.y + startSelection.height, Math.max(offsetY, startSelection.y + dy));
+          next.height = startSelection.height + (startSelection.y - next.y);
+        }
+        if (resizeHandle.includes("b")) {
+          next.height = Math.min(offsetY + displayHeight - startSelection.y, Math.max(0, startSelection.height + dy));
+        }
+
+        // Handle negative flip (optional, for now simple clamping)
+        selection = {
+          x: next.x,
+          y: next.y,
+          width: next.width,
+          height: next.height
+        };
+        updateSelectionUi();
+        return;
+      }
+
+      if (interactionMode === "create") {
+         const next = {
+          x: Math.min(dragStart.x, x),
+          y: Math.min(dragStart.y, y),
+          width: Math.abs(x - dragStart.x),
+          height: Math.abs(y - dragStart.y),
+        };
+        selection = clampSelection(next);
+        updateSelectionUi();
+      }
     });
+
     captureCropCanvas.addEventListener("pointerup", (event) => {
-      if (!isDragging) return;
-      isDragging = false;
+      if (interactionMode === "idle") return;
+      interactionMode = "idle";
       captureCropCanvas.releasePointerCapture(event.pointerId);
       updateSelectionUi();
     });

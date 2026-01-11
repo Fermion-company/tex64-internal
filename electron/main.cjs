@@ -1,6 +1,7 @@
 const {
   app,
   BrowserWindow,
+  desktopCapturer,
   dialog,
   ipcMain,
   shell,
@@ -20,6 +21,7 @@ const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs")
 const { EnvService } = require("./services/env.cjs");
 const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
+const { MathOcrService } = require("./services/math-ocr.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
@@ -54,6 +56,14 @@ const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
+let mathOcrService = null;
+
+const getMathOcrService = () => {
+  if (!mathOcrService) {
+    mathOcrService = new MathOcrService({ appPath: app.getAppPath() });
+  }
+  return mathOcrService;
+};
 
 const createMainWindow = () => {
   const preloadPath = path.join(__dirname, "preload.cjs");
@@ -201,6 +211,74 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+// Desktop capture IPC handler
+ipcMain.handle("tex64:capture:getSources", async (_event, options) => {
+  const size = options?.thumbnailSize ?? { width: 1600, height: 900 };
+
+  const fetchSources = async (types, fetchWindowIcons = false) => {
+    const params = { types, thumbnailSize: size };
+    if (fetchWindowIcons && types.includes("window")) {
+      params.fetchWindowIcons = true;
+    }
+    return desktopCapturer.getSources(params);
+  };
+
+  const mapSource = (source) => {
+    const thumbnail = source.thumbnail;
+    const thumbSize = thumbnail.getSize();
+    const idPrefix =
+      typeof source.id === "string" ? source.id.split(":")[0] : "";
+    const isScreen = idPrefix === "screen";
+    return {
+      id: source.id,
+      title: source.name,
+      app: isScreen ? "画面" : source.appIcon ? source.name.split(" - ")[0] : "",
+      thumbnailUrl:
+        typeof thumbnail.isEmpty === "function" && thumbnail.isEmpty()
+          ? ""
+          : thumbnail.toDataURL(),
+      width: thumbSize.width,
+      height: thumbSize.height,
+    };
+  };
+
+  let sources = [];
+  let lastError = null;
+
+  try {
+    sources = await fetchSources(["window"], true);
+  } catch (error) {
+    lastError = error;
+  }
+
+  if (sources.length === 0) {
+    try {
+      sources = await fetchSources(["window"], false);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (sources.length === 0) {
+    try {
+      sources = await fetchSources(["screen"], false);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (sources.length === 0 && lastError) {
+    throw lastError;
+  }
+
+  return sources.map(mapSource);
+});
+
+ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
+  const service = getMathOcrService();
+  return service.recognize(payload);
 });
 
 ipcMain.on("tex64", (_event, message) => {

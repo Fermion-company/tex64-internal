@@ -16,4 +16,4 @@
 - `web-src` に Git UI を移植し、`electron/handlers` + `electron/services` で Git 操作を実装する。
 
 ## ユーザーメモ
-
+最初はいらないかもしれない

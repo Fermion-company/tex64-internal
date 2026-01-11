@@ -145,11 +145,18 @@ export type CaptureBridge = {
     thumbnailSize?: { width: number; height: number };
   }) => Promise<CaptureSource[]>;
 };
+export type MathOcrBridge = {
+  run?: (payload: { data: ArrayBuffer; width: number; height: number }) => Promise<{
+    latex?: string;
+    error?: string;
+  }>;
+};
 export type BridgeWindow = Window &
   typeof globalThis & {
     webkit?: WebkitBridge;
     tex64Bridge?: ElectronBridge;
     tex64Capture?: CaptureBridge;
+    tex64MathOcr?: MathOcrBridge;
     tex64SetBuildState?: (payload: { state: BuildState; message?: string }) => void;
     tex64UpdateIssues?: (payload: {
       count: number;

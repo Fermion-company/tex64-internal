@@ -1,0 +1,21 @@
+{
+  "encoder": "encoder.onnx",
+  "decoder": "decoder.onnx",
+  "tokenizer": "tokenizer.json",
+  "encoderInput": "image",
+  "encoderOutput": "context",
+  "decoderInputTokens": "tokens",
+  "decoderInputContext": "context",
+  "decoderOutput": "logits",
+  "bosToken": 1,
+  "eosToken": 2,
+  "padToken": 0,
+  "maxSeqLen": 512,
+  "decodeStrategy": "top_k",
+  "filterThres": 0.9,
+  "temperature": 0.2,
+  "maxWidth": 672,
+  "maxHeight": 192,
+  "minWidth": 32,
+  "minHeight": 32
+}

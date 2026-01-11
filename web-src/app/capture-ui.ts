@@ -92,6 +92,14 @@ export const initCaptureUi = (
     });
   };
 
+  const handleWindowPickerKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeWindowPicker();
+      handlers.onWindowCancel?.();
+    }
+  };
+
   const openWindowPicker = (nextSources: CaptureWindowSource[], nextSelected?: string | null) => {
     sources = nextSources;
     selectedId = nextSelected ?? null;
@@ -101,10 +109,23 @@ export const initCaptureUi = (
     }
     renderSources();
     setModalOpen(captureWindowModal as HTMLElement | null, true);
+    window.addEventListener("keydown", handleWindowPickerKeyDown);
   };
 
   const closeWindowPicker = () => {
     setModalOpen(captureWindowModal as HTMLElement | null, false);
+    window.removeEventListener("keydown", handleWindowPickerKeyDown);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handlers.onCropApply?.();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      handlers.onCropCancel?.();
+    }
   };
 
   const openCropper = (options?: { imageUrl?: string; sizeLabel?: string }) => {
@@ -115,10 +136,12 @@ export const initCaptureUi = (
       captureCropSize.textContent = options.sizeLabel;
     }
     setModalOpen(captureCropModal as HTMLElement | null, true);
+    window.addEventListener("keydown", handleKeyDown);
   };
 
   const closeCropper = () => {
     setModalOpen(captureCropModal as HTMLElement | null, false);
+    window.removeEventListener("keydown", handleKeyDown);
   };
 
   const setCropSizeLabel = (label: string) => {

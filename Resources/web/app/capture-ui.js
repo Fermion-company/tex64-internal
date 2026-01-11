@@ -53,6 +53,14 @@ export const initCaptureUi = (context, deps = {}) => {
             captureWindowGrid.appendChild(fragment);
         });
     };
+    const handleWindowPickerKeyDown = (event) => {
+        var _a;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeWindowPicker();
+            (_a = handlers.onWindowCancel) === null || _a === void 0 ? void 0 : _a.call(handlers);
+        }
+    };
     const openWindowPicker = (nextSources, nextSelected) => {
         sources = nextSources;
         selectedId = nextSelected !== null && nextSelected !== void 0 ? nextSelected : null;
@@ -62,9 +70,22 @@ export const initCaptureUi = (context, deps = {}) => {
         }
         renderSources();
         setModalOpen(captureWindowModal, true);
+        window.addEventListener("keydown", handleWindowPickerKeyDown);
     };
     const closeWindowPicker = () => {
         setModalOpen(captureWindowModal, false);
+        window.removeEventListener("keydown", handleWindowPickerKeyDown);
+    };
+    const handleKeyDown = (event) => {
+        var _a, _b;
+        if (event.key === "Enter") {
+            event.preventDefault();
+            (_a = handlers.onCropApply) === null || _a === void 0 ? void 0 : _a.call(handlers);
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            (_b = handlers.onCropCancel) === null || _b === void 0 ? void 0 : _b.call(handlers);
+        }
     };
     const openCropper = (options) => {
         if (captureCropImage instanceof HTMLImageElement && (options === null || options === void 0 ? void 0 : options.imageUrl)) {
@@ -74,9 +95,11 @@ export const initCaptureUi = (context, deps = {}) => {
             captureCropSize.textContent = options.sizeLabel;
         }
         setModalOpen(captureCropModal, true);
+        window.addEventListener("keydown", handleKeyDown);
     };
     const closeCropper = () => {
         setModalOpen(captureCropModal, false);
+        window.removeEventListener("keydown", handleKeyDown);
     };
     const setCropSizeLabel = (label) => {
         if (captureCropSize instanceof HTMLElement) {

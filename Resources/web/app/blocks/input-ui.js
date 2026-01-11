@@ -1,7 +1,7 @@
 import { reconstructionBlock } from "./context.js";
 import { PLACEHOLDER_LATEX } from "./math-input-utils.js";
 export const initBlockInputUi = (context, deps) => {
-    const { blockToggleButtons, blockForms, blockTableRows, blockTableCols, blockTableGrid, blockTableRaw, blockTableRawInput, blockSettingsButton, blockSettingsModal, blockSettingsClose, blockSettingsBack, blockSettingsPages, blockSettingsMenuItems, blockSettingsInlineOptions, blockSettingsDisplayOptions, blockFormatButton, blockFormatMenu, blockFormatOptions, } = context.dom;
+    const { blockToggleButtons, blockForms, blockTableRows, blockTableCols, blockTableGrid, blockTableRaw, blockTableRawInput, blockSettingsButton, blockCaptureButton, blockSettingsModal, blockSettingsClose, blockSettingsBack, blockSettingsPages, blockSettingsMenuItems, blockSettingsInlineOptions, blockSettingsDisplayOptions, blockFormatButton, blockFormatMenu, blockFormatOptions, } = context.dom;
     const MATH_INSERT_MODE_KEY = "tex64.math-insert-mode";
     const MATH_INSERT_INLINE_KEY = "tex64.math-insert-inline-wrap";
     const MATH_INSERT_DISPLAY_KEY = "tex64.math-insert-display-wrap";
@@ -696,6 +696,15 @@ export const initBlockInputUi = (context, deps) => {
     if (blockSettingsButton instanceof HTMLButtonElement) {
         blockSettingsButton.addEventListener("click", () => {
             setBlockSettingsOpen(!blockSettingsOpen);
+        });
+    }
+    if (blockCaptureButton instanceof HTMLButtonElement) {
+        blockCaptureButton.addEventListener("click", () => {
+            var _a;
+            if (activeBlockType !== "math") {
+                setActiveBlockType("math");
+            }
+            (_a = deps.onMathCaptureRequest) === null || _a === void 0 ? void 0 : _a.call(deps);
         });
     }
     if (blockSettingsClose instanceof HTMLButtonElement) {

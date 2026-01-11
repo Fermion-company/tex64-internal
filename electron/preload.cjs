@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, desktopCapturer } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 let postMessageHandler = (payload) => {
   ipcRenderer.send("tex64", payload);
@@ -46,65 +46,20 @@ const bridgeApi = {
 const captureApi = {
   listSources: async (options = {}) => {
     const size = options.thumbnailSize ?? { width: 1600, height: 900 };
-
-    const fetchSources = async (types, fetchWindowIcons = false) => {
-      const params = { types, thumbnailSize: size };
-      if (fetchWindowIcons && types.includes("window")) {
-        params.fetchWindowIcons = true;
-      }
-      return desktopCapturer.getSources(params);
-    };
-
-    const mapSource = (source) => {
-      const thumbnail = source.thumbnail;
-      const thumbSize = thumbnail.getSize();
-      const idPrefix =
-        typeof source.id === "string" ? source.id.split(":")[0] : "";
-      const isScreen = idPrefix === "screen";
-      return {
-        id: source.id,
-        title: source.name,
-        app: isScreen ? "画面" : source.appIcon ? source.name.split(" - ")[0] : "",
-        thumbnailUrl:
-          typeof thumbnail.isEmpty === "function" && thumbnail.isEmpty()
-            ? ""
-            : thumbnail.toDataURL(),
-        width: thumbSize.width,
-        height: thumbSize.height,
-      };
-    };
-
-    let sources = [];
-    let lastError = null;
-
+    console.log("[tex64Capture] Invoking main process to get sources...");
     try {
-      sources = await fetchSources(["window"], true);
+      const sources = await ipcRenderer.invoke("tex64:capture:getSources", { thumbnailSize: size });
+      console.log("[tex64Capture] Got sources from main process:", sources.length);
+      return sources;
     } catch (error) {
-      lastError = error;
+      console.error("[tex64Capture] Error from main process:", error);
+      throw error;
     }
-
-    if (sources.length === 0) {
-      try {
-        sources = await fetchSources(["window"], false);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    if (sources.length === 0) {
-      try {
-        sources = await fetchSources(["screen"], false);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    if (sources.length === 0 && lastError) {
-      throw lastError;
-    }
-
-    return sources.map(mapSource);
   },
+};
+
+const mathOcrApi = {
+  run: async (payload) => ipcRenderer.invoke("tex64:math-ocr:run", payload),
 };
 
 Object.defineProperty(bridgeApi, "postMessage", {
@@ -120,7 +75,9 @@ Object.defineProperty(bridgeApi, "postMessage", {
 if (isE2E) {
   globalThis.tex64Bridge = bridgeApi;
   globalThis.tex64Capture = captureApi;
+  globalThis.tex64MathOcr = mathOcrApi;
 } else {
   contextBridge.exposeInMainWorld("tex64Bridge", bridgeApi);
   contextBridge.exposeInMainWorld("tex64Capture", captureApi);
+  contextBridge.exposeInMainWorld("tex64MathOcr", mathOcrApi);
 }

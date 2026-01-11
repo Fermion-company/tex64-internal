@@ -38,4 +38,3 @@
 - DnD payload は `application/x-tex64-item` を使用。
 
 ## ユーザーメモ
-

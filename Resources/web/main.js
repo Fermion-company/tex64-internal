@@ -12,9 +12,12 @@ import { initFileTreeUi } from "./app/file-tree-ui.js";
 import { initAlchemyConvert } from "./app/alchemy-convert.js";
 import { initCaptureUi } from "./app/capture-ui.js";
 import { initMagicCapture } from "./app/magic-capture.js";
+import { initMathCaptureUi } from "./app/math-capture-ui.js";
+import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
+import { recognizeMath } from "./app/math-ocr.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
 import { createViewer } from "./app/viewer.js";
@@ -57,6 +60,7 @@ window.addEventListener("DOMContentLoaded", () => {
     let aiChatUi = null;
     let alchemyConvert = null;
     let magicCapture = null;
+    let mathCapture = null;
     const primaryViewer = createViewer({
         editorViewer,
         editorViewerImage,
@@ -219,6 +223,70 @@ window.addEventListener("DOMContentLoaded", () => {
         getMonacoApi: appActions.getMonacoApi,
     });
     onFilesTabActive = () => editorSession.updateMiniOutline();
+    let mathCaptureBusy = false;
+    const stripMathCaptureWrapper = (value) => {
+        const trimmed = value.trim();
+        const wrappers = [
+            ["$$", "$$"],
+            ["$", "$"],
+            ["\\(", "\\)"],
+            ["\\[", "\\]"],
+        ];
+        for (const [start, end] of wrappers) {
+            if (trimmed.startsWith(start) && trimmed.endsWith(end)) {
+                const inner = trimmed.slice(start.length, -end.length).trim();
+                if (inner) {
+                    return inner;
+                }
+            }
+        }
+        return trimmed;
+    };
+    const normalizeMathCaptureText = (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return "";
+        }
+        const collapsed = trimmed.replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+        return stripMathCaptureWrapper(collapsed);
+    };
+    const handleMathCaptureImage = (imageDataUrl) => {
+        if (mathCaptureBusy) {
+            return;
+        }
+        if (!imageDataUrl) {
+            const message = "キャプチャ画像がありません。";
+            updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+            return;
+        }
+        mathCaptureBusy = true;
+        recognizeMath(imageDataUrl)
+            .then((latex) => {
+            const normalized = normalizeMathCaptureText(latex);
+            if (!normalized) {
+                const message = "OCR結果が空でした。";
+                updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+                return;
+            }
+            blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.setMode("insert");
+            blockInputApi.setActiveBlockType("math");
+            blockInputApi.setMathInputValue(normalized);
+        })
+            .catch((error) => {
+            const message = error instanceof Error ? error.message : "OCRに失敗しました。";
+            updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+        })
+            .finally(() => {
+            mathCaptureBusy = false;
+        });
+    };
+    const diffModalApi = initDiffModal(appContext, {
+        getMonacoApi: appActions.getMonacoApi,
+        getActiveFilePath: () => editorSession.getActiveFilePath(),
+    });
+    const setPendingBlockApply = (payload) => {
+        pendingBlockApply = payload;
+    };
     alchemyConvert = initAlchemyConvert(appContext, {
         editorSession,
         updateIssues: updateIssuesProxy,
@@ -229,6 +297,8 @@ window.addEventListener("DOMContentLoaded", () => {
         onCaptureRequest: () => {
             magicCapture === null || magicCapture === void 0 ? void 0 : magicCapture.openCapture();
         },
+        setPendingBlockApply,
+        showDiffModal: diffModalApi.showDiffModal,
     });
     const captureUi = initCaptureUi(appContext);
     magicCapture = initMagicCapture(appContext, {
@@ -242,9 +312,17 @@ window.addEventListener("DOMContentLoaded", () => {
             alchemyConvert === null || alchemyConvert === void 0 ? void 0 : alchemyConvert.setStatus(message);
         },
     });
-    const diffModalApi = initDiffModal(appContext, {
-        getMonacoApi: appActions.getMonacoApi,
-        getActiveFilePath: () => editorSession.getActiveFilePath(),
+    const mathCaptureUi = initMathCaptureUi(appContext);
+    mathCapture = initMathCapture(appContext, {
+        captureUi: mathCaptureUi,
+        onCaptureImage: (imageDataUrl) => {
+            handleMathCaptureImage(imageDataUrl);
+        },
+        updateIssues: updateIssuesProxy,
+        getCurrentIssues,
+        setStatus: (message) => {
+            updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+        },
     });
     aiChatUi = initAiChatUi(appContext, {
         postToNative: (payload, silent) => postToNative(payload, silent),
@@ -261,6 +339,9 @@ window.addEventListener("DOMContentLoaded", () => {
         getActiveBlockEditMode: () => activeBlockEditMode,
         onMathFieldSubmit: () => {
             triggerBlockInsert();
+        },
+        onMathCaptureRequest: () => {
+            mathCapture === null || mathCapture === void 0 ? void 0 : mathCapture.openCapture();
         },
     });
     if (isE2E) {

@@ -19,4 +19,4 @@
 - build/format/save 等の失敗も Issues に集約される。
 
 ## ユーザーメモ
-
+issueの表示が正しくないことを治療
