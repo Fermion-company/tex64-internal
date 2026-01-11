@@ -19,3 +19,6 @@
 - `Project implementation.md`
 - `Settings implementation.md`
 - `Git implementation.md`
+
+## ユーザーメモ
+

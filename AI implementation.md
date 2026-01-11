@@ -53,3 +53,6 @@
   - `agent.maxOutputTokens`
 - 既定 proxy: `https://tex64.vercel.app/api/ai-chat`
 - 上書き: `TEX64_AI_PROXY_URL`
+
+## ユーザーメモ
+

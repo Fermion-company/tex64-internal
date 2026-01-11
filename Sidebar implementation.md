@@ -22,3 +22,6 @@
 
 - localStorage:
   - `tex64.sidebar.primaryTabs`: 表示タブ一覧。
+
+## ユーザーメモ
+

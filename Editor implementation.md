@@ -44,3 +44,6 @@
 
 - build/format は Main 側サービスへ委譲。
 - SyncTeX は `.tex` のみ、ビルド成功時に自動 forward（設定で制御）。
+
+## ユーザーメモ
+

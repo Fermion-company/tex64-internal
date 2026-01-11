@@ -36,3 +36,6 @@
 - `..` / 絶対パスは禁止、ファイル名の末尾 `/` は禁止。
 - 未保存がある対象の rename/move は拒否。
 - DnD payload は `application/x-tex64-item` を使用。
+
+## ユーザーメモ
+
