@@ -42,7 +42,6 @@ import { initSettingsUi } from "./app/settings-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import type {
   BlockContext,
-  MathEditCell,
   DetectedBlockSnapshot,
   PendingBlockApply,
 } from "./app/blocks/types.js";
@@ -202,7 +201,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const detectedBlockUi = initDetectedBlockUi(dom);
 
   let activeBlockContext: BlockContext | null = null;
-  let activeMathEditCell: MathEditCell | null = null;
   let currentBlockDraft: { snippet: string; content: any } | null = null;
   /* const settingsAutoBuildButton = document.getElementById("settings-auto-build"); */ // Removed
 
@@ -271,6 +269,20 @@ window.addEventListener("DOMContentLoaded", () => {
     getMonacoApi: appActions.getMonacoApi,
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
+
+  const openInSecondaryEditor = (path: string, line?: number) => {
+    if (!editorSession.getSplitViewEnabled()) {
+      editorSession.setSplitViewEnabled(true);
+    }
+    if (typeof line === "number") {
+      editorSession.jumpToFileLine(path, line, "secondary", {
+        force: true,
+        focus: false,
+      });
+      return;
+    }
+    editorSession.requestOpenFile(path, "secondary", true);
+  };
 
   let mathCaptureBusy = false;
 
@@ -393,7 +405,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const blockInputApi = initBlockInputUi(appContext, {
     enableTableBlocks: ENABLE_TABLE_BLOCKS,
     getActiveBlockContext: () => activeBlockContext,
-    getActiveMathEditCell: () => activeMathEditCell,
     getActiveBlockEditMode: () => activeBlockEditMode,
     onMathFieldSubmit: () => {
       triggerBlockInsert();
@@ -436,15 +447,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   blockAutoDetect = initBlockAutoDetection({
     envRegistry,
-    enableTableBlocks: ENABLE_TABLE_BLOCKS,
     getActiveGroup: () => editorSession.getActiveGroup(),
     getActiveBlockContext: () => activeBlockContext,
     setActiveBlockContext: (context) => {
       activeBlockContext = context;
-    },
-    getActiveMathEditCell: () => activeMathEditCell,
-    setActiveMathEditCell: (cell) => {
-      activeMathEditCell = cell;
     },
     getActiveBlockEditMode: () => activeBlockEditMode,
     setActiveBlockEditMode: (mode) => {
@@ -461,10 +467,7 @@ window.addEventListener("DOMContentLoaded", () => {
       currentBlockDraft = draft;
     },
     setAutoDetectedUi,
-    setTableEditMode: blockInputApi.setTableEditMode,
     setMathInputValue: blockInputApi.setMathInputValue,
-    setTableRawValue: blockInputApi.setTableRawValue,
-    isMathInputFocused: blockInputApi.isMathInputFocused,
   });
   blockEditSession = initBlockEditSession({
     getActiveGroup: () => editorSession.getActiveGroup(),
@@ -488,6 +491,7 @@ window.addEventListener("DOMContentLoaded", () => {
     requestFormatCurrentFile: (source) => {
       buildOps.requestFormatCurrentFile(source);
     },
+    requestFormatPreview: (payload) => buildOps.requestFormatPreview(payload),
     postToNative: (payload, silent) => postToNative(payload, silent),
     getIsE2E: () => isE2E,
     getMathInputValue: blockInputApi.getMathInputValue,
@@ -517,12 +521,7 @@ window.addEventListener("DOMContentLoaded", () => {
       postToNative(message);
     },
     openSearchResult: (result) => {
-      const existingGroup = editorSession
-        .getEditorGroups()
-        .find((group) => group.openTabs.includes(result.path));
-      const targetGroupKey =
-        existingGroup?.key ?? editorSession.getActiveEditorGroupKey();
-      editorSession.jumpToFileLine(result.path, result.line, targetGroupKey);
+      openInSecondaryEditor(result.path, result.line);
     },
   });
 
@@ -530,7 +529,6 @@ window.addEventListener("DOMContentLoaded", () => {
     blockPreviewActive = false;
     activeBlockOriginalSnippet = null;
     activeBlockContext = null;
-    activeMathEditCell = null;
     activeBlockEditMode = "none";
     detectedBlockSnapshot = null;
     pendingBlockApply = null;
@@ -594,6 +592,7 @@ window.addEventListener("DOMContentLoaded", () => {
     renderEditorTabs: (group) => editorTabsUi.render(group),
     requestOpenFile: editorSession.requestOpenFile,
     getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
+    setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
     settings: {
       getPdfViewerMode: settingsUi.getPdfViewerMode,
       getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,
@@ -625,16 +624,23 @@ window.addEventListener("DOMContentLoaded", () => {
     getIndexSections,
     getIndexTodos,
     onJumpToLocation: (entry) => {
-      editorSession.jumpToLocation(entry);
+      if (!entry.path || !entry.line) {
+        return;
+      }
+      openInSecondaryEditor(entry.path, entry.line);
     },
     onJumpToSection: (entry) => {
-      editorSession.jumpToFileLine(entry.path, entry.line, editorSession.getActiveEditorGroupKey());
+      openInSecondaryEditor(entry.path, entry.line);
     },
   });
   issuesUi = initIssuesUi(appContext, {
     parseIssueDetail: editorSession.parseIssueDetail,
     onFocusIssue: (issue) => {
       editorSession.focusIssue(issue);
+    },
+    onOpenRuntimeSettings: () => {
+      setActiveTab("settings");
+      settingsUi.openSettingsPage("runtime");
     },
   });
   workspaceController = initWorkspaceController(appContext, {
@@ -769,6 +775,9 @@ window.addEventListener("DOMContentLoaded", () => {
       handleSettings: ({ settings }) => {
         alchemyConvert?.setSettings(settings);
       },
+    },
+    settings: {
+      updateEnvStatus: (command, available) => settingsUi.updateEnvStatus(command, available),
     },
     agent: {
       handleSettings: (settings) => aiChatUi?.handleSettings(settings),

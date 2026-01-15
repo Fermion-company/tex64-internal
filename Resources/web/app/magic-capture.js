@@ -126,6 +126,9 @@ export const initMagicCapture = (context, deps) => {
         if (!geometry)
             return null;
         const { offsetX, offsetY, displayWidth, displayHeight, naturalWidth, naturalHeight } = geometry;
+        if (selection.width < 2 || selection.height < 2) {
+            return { x: 0, y: 0, width: naturalWidth, height: naturalHeight, naturalWidth, naturalHeight };
+        }
         const scaleX = naturalWidth / displayWidth;
         const scaleY = naturalHeight / displayHeight;
         const x = Math.max(0, Math.round((selection.x - offsetX) * scaleX));

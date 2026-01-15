@@ -4,31 +4,19 @@ export const initBuildOpsUi = (context, deps) => {
     let formatPending = false;
     let formatWarningShown = false;
     let currentBuildLog = null;
-    const resolvePdfTargetGroupKey = (preferredKey, pdfPath) => {
-        if (pdfPath) {
-            const existing = deps
-                .getEditorGroups()
-                .find((group) => group.openTabs.includes(pdfPath));
-            if (existing) {
-                return existing.key;
-            }
+    const formatPreviewRequests = new Map();
+    const formatPreviewIgnore = new Set();
+    const isEnvMissingMessage = (message) => {
+        const lower = message.toLowerCase();
+        const hasMissing = message.includes("見つかりません") || lower.includes("not found");
+        return hasMissing && lower.includes("synctex");
+    };
+    const resolvePdfSyncGroup = (pdfPath) => {
+        var _a;
+        if (!pdfPath) {
+            return null;
         }
-        if (!deps.getSplitViewEnabled()) {
-            return preferredKey;
-        }
-        const groups = deps.getEditorGroups();
-        const preferred = groups.find((group) => group.key === preferredKey);
-        if (!preferred) {
-            return preferredKey;
-        }
-        if (preferred.openTabs.length === 0) {
-            return preferred.key;
-        }
-        const other = groups.find((group) => group.key !== preferred.key);
-        if (other && other.openTabs.length === 0) {
-            return other.key;
-        }
-        return preferred.key;
+        return ((_a = deps.getEditorGroups().find((group) => group.openTabs.includes(pdfPath))) !== null && _a !== void 0 ? _a : null);
     };
     const updateSynctexButtonState = () => {
         if (!(synctexButton instanceof HTMLButtonElement)) {
@@ -157,6 +145,38 @@ export const initBuildOpsUi = (context, deps) => {
             }
         }
     };
+    const requestFormatPreview = (payload) => new Promise((resolve) => {
+        var _a;
+        const source = (_a = payload.source) !== null && _a !== void 0 ? _a : `blockInsertPreview:${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+        const ok = deps.postToNative({
+            type: "formatFile",
+            path: payload.path,
+            content: payload.content,
+            source,
+            formatSettings: deps.settings.buildFormatSettingsPayload(),
+        }, true);
+        if (!ok) {
+            resolve({
+                path: payload.path,
+                ok: false,
+                error: "整形のリクエストに失敗しました。",
+                source,
+            });
+            return;
+        }
+        const timeoutId = window.setTimeout(() => {
+            formatPreviewRequests.delete(source);
+            formatPreviewIgnore.add(source);
+            window.setTimeout(() => formatPreviewIgnore.delete(source), 30000);
+            resolve({
+                path: payload.path,
+                ok: false,
+                error: "整形がタイムアウトしました。",
+                source,
+            });
+        }, 15000);
+        formatPreviewRequests.set(source, { resolve, timeoutId });
+    });
     const handleSaveFormatError = (formatError) => {
         if (formatError && !formatWarningShown) {
             formatWarningShown = true;
@@ -167,6 +187,19 @@ export const initBuildOpsUi = (context, deps) => {
     };
     const handleFormatResult = (payload) => {
         var _a, _b, _c;
+        if (payload.source && formatPreviewRequests.has(payload.source)) {
+            const pending = formatPreviewRequests.get(payload.source);
+            if (pending) {
+                window.clearTimeout(pending.timeoutId);
+                formatPreviewRequests.delete(payload.source);
+                pending.resolve(payload);
+            }
+            return;
+        }
+        if (payload.source && formatPreviewIgnore.has(payload.source)) {
+            formatPreviewIgnore.delete(payload.source);
+            return;
+        }
         formatInFlight = false;
         if (!payload.ok) {
             if (!formatWarningShown) {
@@ -201,28 +234,37 @@ export const initBuildOpsUi = (context, deps) => {
         }
     };
     const handleSynctexForwardResult = (payload) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f;
         if (!payload) {
             return;
         }
         if (payload.ok) {
             if (deps.settings.getPdfViewerMode() === "tab" && typeof payload.page === "number") {
-                const targetKey = resolvePdfTargetGroupKey(deps.getActiveEditorGroupKey(), payload.pdfPath);
-                const targetGroup = (_a = deps.getEditorGroups().find((group) => group.key === targetKey)) !== null && _a !== void 0 ? _a : deps.getActiveGroup();
-                if (payload.pdfPath && targetGroup.viewer.getViewerMode() !== "pdf") {
-                    deps.requestOpenFile(payload.pdfPath, targetKey);
+                const pdfPath = (_a = payload.pdfPath) !== null && _a !== void 0 ? _a : null;
+                const openedGroup = (_c = (_b = resolvePdfSyncGroup(pdfPath)) !== null && _b !== void 0 ? _b : deps.getEditorGroups().find((group) => group.key === "secondary")) !== null && _c !== void 0 ? _c : deps.getActiveGroup();
+                const hasPdfTab = pdfPath ? openedGroup.openTabs.includes(pdfPath) : false;
+                if (openedGroup.key === "secondary" && hasPdfTab && !deps.getSplitViewEnabled()) {
+                    deps.setSplitViewEnabled(true);
                 }
-                targetGroup.viewer.syncPdf({
+                if (pdfPath && hasPdfTab) {
+                    if (openedGroup.currentFilePath !== pdfPath) {
+                        deps.requestOpenFile(pdfPath, openedGroup.key, true);
+                    }
+                }
+                openedGroup.viewer.syncPdf({
                     page: payload.page,
-                    x: (_b = payload.x) !== null && _b !== void 0 ? _b : 0,
-                    y: (_c = payload.y) !== null && _c !== void 0 ? _c : 0,
+                    x: (_d = payload.x) !== null && _d !== void 0 ? _d : 0,
+                    y: (_e = payload.y) !== null && _e !== void 0 ? _e : 0,
                 });
             }
             return;
         }
-        deps.updateIssues(1, (_d = payload.error) !== null && _d !== void 0 ? _d : "SyncTeX に失敗しました。", "error", [
-            { severity: "error", message: (_e = payload.error) !== null && _e !== void 0 ? _e : "SyncTeX に失敗しました。" },
-        ]);
+        const errorMessage = (_f = payload.error) !== null && _f !== void 0 ? _f : "SyncTeX に失敗しました。";
+        const issue = { severity: "error", message: errorMessage };
+        if (isEnvMissingMessage(errorMessage)) {
+            issue.action = "open-runtime";
+        }
+        deps.updateIssues(1, errorMessage, "error", [issue]);
     };
     const setupActionButtons = () => {
         if (buildButton instanceof HTMLButtonElement) {
@@ -260,6 +302,7 @@ export const initBuildOpsUi = (context, deps) => {
         setBuildState,
         startBuild,
         requestFormatCurrentFile,
+        requestFormatPreview,
         handleFormatResult,
         handleSaveFormatError,
         handleBuildLog,

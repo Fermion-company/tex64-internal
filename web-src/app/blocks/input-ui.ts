@@ -1,7 +1,7 @@
 import { reconstructionBlock } from "./context.js";
 import type { AppContext } from "../context.js";
 import type { BlockContent, BlockEditMode, BlockType, MathKey } from "../types.js";
-import type { BlockContext, MathEditCell } from "./types.js";
+import type { BlockContext } from "./types.js";
 import { PLACEHOLDER_LATEX } from "./math-input-utils.js";
 
 export type BlockInputApi = {
@@ -27,7 +27,6 @@ export type BlockInputApi = {
 type BlockInputDeps = {
   enableTableBlocks: boolean;
   getActiveBlockContext: () => BlockContext | null;
-  getActiveMathEditCell: () => MathEditCell | null;
   getActiveBlockEditMode: () => BlockEditMode;
   onMathFieldSubmit?: () => void;
   onMathCaptureRequest?: () => void;
@@ -638,10 +637,6 @@ export const initBlockInputUi = (
     if (!trimmed) {
       return "";
     }
-    const context = deps.getActiveBlockContext();
-    if (context?.type === "table") {
-      return reconstructionBlock(context, raw);
-    }
     if (trimmed.startsWith("\\begin{")) {
       return trimmed;
     }
@@ -650,17 +645,7 @@ export const initBlockInputUi = (
 
   const buildMathSnippet = (formula: string) => {
     const context = deps.getActiveBlockContext();
-    const activeMathEditCell = deps.getActiveMathEditCell();
-    if (context?.type === "math") {
-      if (activeMathEditCell && activeMathEditCell.context === context) {
-        const replacement =
-          activeMathEditCell.range.leading + formula + activeMathEditCell.range.trailing;
-        const updatedInner =
-          activeMathEditCell.inner.slice(0, activeMathEditCell.range.start) +
-          replacement +
-          activeMathEditCell.inner.slice(activeMathEditCell.range.end);
-        return reconstructionBlock(context, updatedInner);
-      }
+    if (context) {
       return reconstructionBlock(context, formula);
     }
 

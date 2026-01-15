@@ -472,7 +472,6 @@ export const initEnvRegistry = (context, deps) => {
     return {
         isEnvDisabled,
         isMathEnvName: (name) => mathEnvNames.has(name),
-        isTableEnvName: (name) => tableEnvNames.has(name),
         getCustomEnvRegistry: () => customEnvRegistry,
         reload: (allowTabSwitch = false) => {
             loadEnvRegistryState();

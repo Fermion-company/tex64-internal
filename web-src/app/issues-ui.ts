@@ -11,6 +11,7 @@ type IssueDetail = {
 type IssuesUiDeps = {
   parseIssueDetail: (issue: IssueItem) => IssueDetail;
   onFocusIssue: (issue: IssueItem) => void;
+  onOpenRuntimeSettings?: () => void;
 };
 
 export type IssuesUiApi = {
@@ -39,6 +40,9 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
       item.type = "button";
       item.className = "issue-item";
       item.dataset.severity = issue.severity;
+      if (issue.action) {
+        item.dataset.action = issue.action;
+      }
 
       const header = document.createElement("div");
       header.className = "issue-header";
@@ -67,10 +71,18 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
 
       const hint = document.createElement("div");
       hint.className = "issue-hintline";
-      hint.textContent = "クリックで該当行へ移動";
+      const isRuntimeAction =
+        issue.action === "open-runtime" && typeof deps.onOpenRuntimeSettings === "function";
+      hint.textContent = isRuntimeAction
+        ? "クリックで実行環境を開く"
+        : "クリックで該当行へ移動";
 
       item.append(header, message, hint);
       item.addEventListener("click", () => {
+        if (isRuntimeAction) {
+          deps.onOpenRuntimeSettings?.();
+          return;
+        }
         deps.onFocusIssue(issue);
       });
       issuesList.appendChild(item);

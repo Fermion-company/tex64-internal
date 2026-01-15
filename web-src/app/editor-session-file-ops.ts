@@ -18,6 +18,7 @@ type PendingReveal = {
   path: string;
   line: number;
   group: EditorGroupKey;
+  focus?: boolean;
 };
 
 export type FileOpsState = {
@@ -40,6 +41,7 @@ type FileOpsDeps = {
   isActiveGroup: (group: EditorGroupState) => boolean;
   resolveAutoOpenGroupKey: (preferredKey: EditorGroupKey) => EditorGroupKey;
   findGroupKeyByPath: (path: string) => EditorGroupKey | null;
+  setSplitViewEnabled: (enabled: boolean) => void;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
   clearJumpHighlight: (group: EditorGroupState) => void;
   clearTemporaryTabs: (group: EditorGroupState, keepPath?: string) => void;
@@ -49,7 +51,11 @@ type FileOpsDeps = {
   setEditorLanguage: (group: EditorGroupState, path: string) => void;
   updateBreadcrumbs: () => void;
   updateMiniOutline: () => void;
-  revealLine: (group: EditorGroupState, line: number) => void;
+  revealLine: (
+    group: EditorGroupState,
+    line: number,
+    options?: { focus?: boolean }
+  ) => void;
   forEachEditorGroup: (handler: (group: EditorGroupState) => void) => void;
   scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
   getLanguageIdForPath: (path: string) => string;
@@ -68,6 +74,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     isActiveGroup,
     resolveAutoOpenGroupKey,
     findGroupKeyByPath,
+    setSplitViewEnabled,
     cacheCurrentBuffer,
     clearJumpHighlight,
     clearTemporaryTabs,
@@ -244,7 +251,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       state.pendingReveal.path === path &&
       state.pendingReveal.group === group.key
     ) {
-      revealLine(group, state.pendingReveal.line);
+      revealLine(group, state.pendingReveal.line, { focus: state.pendingReveal.focus });
       state.pendingReveal = null;
     }
     if (isActiveGroup(group) && editor.focus) {
@@ -425,28 +432,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       pendingIndex >= 0
         ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
         : getActiveEditorGroupKey();
-    if (pendingIndex < 0 && payload.path) {
-      const existingGroupKey = findGroupKeyByPath(payload.path);
-      if (existingGroupKey) {
-        targetGroupKey = existingGroupKey;
-      } else {
-        targetGroupKey = resolveAutoOpenGroupKey(targetGroupKey);
-      }
-    }
-    const targetGroup = getEditorGroup(targetGroupKey);
-    if (payload.error) {
-      if (
-        state.pendingReveal &&
-        state.pendingReveal.path === payload.path &&
-        state.pendingReveal.group === targetGroupKey
-      ) {
-        state.pendingReveal = null;
-      }
-      deps.updateIssues(1, payload.error, "error", [
-        { severity: "error", message: payload.error },
-      ]);
-      return;
-    }
     const type = (payload as any).type;
     if (type === "searchResult") {
       deps.search.handleSearchUpdate(payload as any);
@@ -477,6 +462,33 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         : isTextFilePath(path)
         ? "text"
         : "unsupported");
+    if (pendingIndex < 0) {
+      if (kind === "pdf") {
+        setSplitViewEnabled(true);
+        targetGroupKey = "secondary";
+      } else {
+        const existingGroupKey = findGroupKeyByPath(path);
+        if (existingGroupKey) {
+          targetGroupKey = existingGroupKey;
+        } else {
+          targetGroupKey = resolveAutoOpenGroupKey(targetGroupKey);
+        }
+      }
+    }
+    const targetGroup = getEditorGroup(targetGroupKey);
+    if (payload.error) {
+      if (
+        state.pendingReveal &&
+        state.pendingReveal.path === payload.path &&
+        state.pendingReveal.group === targetGroupKey
+      ) {
+        state.pendingReveal = null;
+      }
+      deps.updateIssues(1, payload.error, "error", [
+        { severity: "error", message: payload.error },
+      ]);
+      return;
+    }
     if (kind === "image" || kind === "pdf") {
       applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType);
       return;

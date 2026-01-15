@@ -23,6 +23,21 @@ export const initSettingsUi = (context, deps) => {
     const editorPdfViewerModeKey = "tex64.editor.pdfViewerMode";
     const editorAlignEnvKey = "tex64.editor.alignEnv";
     const editorFormatSettingsKey = "tex64.editor.formatSettings";
+    const texEngineCommands = new Set(["lualatex", "pdflatex", "xelatex", "uplatex"]);
+    const envCheckTargets = [
+        "lualatex",
+        "pdflatex",
+        "xelatex",
+        "uplatex",
+        "latexmk",
+        "latexindent",
+        "synctex",
+    ];
+    const envDisplayTargets = ["lualatex", "latexmk", "latexindent", "synctex"];
+    const envCheckState = new Map();
+    let envCheckRetryTimer = null;
+    let envCheckRetryCount = 0;
+    const envCheckMaxRetries = 4;
     const updateEngineUI = () => {
         if (!(settingsCompileEngineSelect instanceof HTMLSelectElement)) {
             return;
@@ -31,15 +46,7 @@ export const initSettingsUi = (context, deps) => {
         const hasOption = Array.from(settingsCompileEngineSelect.options).some((option) => option.value === savedEngine);
         settingsCompileEngineSelect.value = hasOption ? savedEngine : "lualatex";
     };
-    const checkEnvironmentStatus = () => {
-        deps.postToNative({ type: "env:check", command: "lualatex" }, true);
-        deps.postToNative({ type: "env:check", command: "latexmk" }, true);
-    };
-    const updateEnvStatus = (command, available) => {
-        let envName = command;
-        if (command === "lualatex" || command === "pdflatex") {
-            envName = "lualatex";
-        }
+    const renderEnvStatus = (envName, available) => {
         const item = document.querySelector(`.env-item[data-env="${envName}"]`);
         if (!item) {
             return;
@@ -47,16 +54,67 @@ export const initSettingsUi = (context, deps) => {
         const statusBadge = item.querySelector(".env-badge");
         const actionBtn = item.querySelector(".env-btn");
         if (statusBadge) {
-            statusBadge.className = available ? "env-badge ok" : "env-badge error";
-            statusBadge.textContent = available ? "利用可能" : "未検出";
-        }
-        if (actionBtn instanceof HTMLElement) {
-            actionBtn.classList.toggle("is-hidden", available);
-            if (!available) {
-                actionBtn.textContent = "インストール";
-                actionBtn.removeAttribute("disabled");
+            if (available === null) {
+                statusBadge.className = "env-badge checking";
+                statusBadge.textContent = "確認中...";
+            }
+            else {
+                statusBadge.className = available ? "env-badge ok" : "env-badge error";
+                statusBadge.textContent = available ? "利用可能" : "未検出";
             }
         }
+        if (actionBtn instanceof HTMLElement) {
+            actionBtn.classList.remove("is-hidden");
+            if (available === null) {
+                actionBtn.setAttribute("disabled", "true");
+                return;
+            }
+            actionBtn.removeAttribute("disabled");
+            actionBtn.textContent = available ? "更新/再インストール" : "インストール";
+        }
+    };
+    const checkEnvironmentStatus = (isRetry = false) => {
+        if (!isRetry) {
+            envCheckRetryCount = 0;
+        }
+        if (envCheckRetryTimer !== null) {
+            window.clearTimeout(envCheckRetryTimer);
+            envCheckRetryTimer = null;
+        }
+        envDisplayTargets.forEach((envName) => renderEnvStatus(envName, null));
+        envCheckTargets.forEach((command) => envCheckState.delete(command));
+        let postedAll = true;
+        envCheckTargets.forEach((command) => {
+            if (!deps.postToNative({ type: "env:check", command }, true)) {
+                postedAll = false;
+            }
+        });
+        if (postedAll) {
+            envCheckRetryCount = 0;
+            return;
+        }
+        envCheckRetryCount += 1;
+        if (envCheckRetryCount >= envCheckMaxRetries) {
+            envCheckRetryCount = 0;
+            envDisplayTargets.forEach((envName) => renderEnvStatus(envName, false));
+            return;
+        }
+        envCheckRetryTimer = window.setTimeout(() => {
+            envCheckRetryTimer = null;
+            checkEnvironmentStatus(true);
+        }, 400);
+    };
+    const updateEnvStatus = (command, available) => {
+        if (!command) {
+            return;
+        }
+        envCheckState.set(command, available);
+        if (texEngineCommands.has(command)) {
+            const hasEngine = Array.from(texEngineCommands).some((engine) => envCheckState.get(engine) === true);
+            renderEnvStatus("lualatex", hasEngine);
+            return;
+        }
+        renderEnvStatus(command, available);
     };
     const envBtns = Array.from(document.querySelectorAll(".env-btn"));
     envBtns.forEach((btn) => {
@@ -259,6 +317,9 @@ export const initSettingsUi = (context, deps) => {
         });
         if (settingsPanel instanceof HTMLElement) {
             settingsPanel.scrollTop = 0;
+        }
+        if (pageId === "runtime") {
+            checkEnvironmentStatus();
         }
     };
     const loadEditorAlignEnvState = () => {
@@ -526,6 +587,7 @@ export const initSettingsUi = (context, deps) => {
         checkEnvironmentStatus,
         updateEnvStatus,
         refreshCompileEngine: updateEngineUI,
+        openSettingsPage: (pageId) => setSettingsPage(pageId),
         loadStartupSettings,
         loadWorkspaceSettings,
     };

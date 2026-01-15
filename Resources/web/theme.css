@@ -180,9 +180,14 @@ body.has-launcher .app {
 
 .launcher-title {
   font-family: "Menlo", "SF Mono", monospace;
-  font-size: 30px;
-  letter-spacing: 0.12em;
-  text-transform: lowercase;
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, #FFFFFF 0%, #A5B4FC 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 20px rgba(121, 126, 249, 0.4));
 }
 
 .launcher-tagline {
@@ -325,22 +330,27 @@ body.has-launcher .app {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  font-size: 11px;
+  gap: 12px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: 14px;
 }
 
-.brand-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(92, 156, 255, 0.18);
+.brand-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 0 10px var(--accent-soft);
 }
 
 .brand-name {
-  text-transform: uppercase;
+  font-family: "Menlo", "SF Mono", monospace;
+  background: linear-gradient(to right, #fff, #a5b4fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 8px rgba(121, 126, 249, 0.3));
 }
 
 .top-actions {
@@ -769,9 +779,8 @@ math-field.block-math-field {
   width: max-content;
   min-width: 100%;
   height: auto; /* Auto expand */
-  min-height: 120px;
-  padding: 16px; /* Restore padding for ascenders */
-  padding-top: 24px; /* Explicit top buffer for tall matrices */
+  min-height: 100%;
+  padding: 6px 0 10px;
   font-size: 20px;
   line-height: normal; /* Keep normal line-height */
   background: transparent; /* Transparent to show container bg */
@@ -789,18 +798,63 @@ math-field.block-math-field {
 
 .block-math-input-container {
   min-height: 120px;
-  max-height: 300px;
   height: auto;
   border: 1px solid var(--input-border);
   background: var(--input-bg);
   border-radius: 10px;
   display: block;
-  padding: 16px;
+  padding: 0;
   color: var(--text);
   position: relative;
-  overflow-y: auto;
-  overflow-x: auto;
+  overflow: hidden;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.block-math-scroll {
+  min-height: 120px;
+  max-height: 300px;
+  width: 100%;
+  overflow: auto;
+  padding: 16px 44px 16px 16px;
+  scrollbar-gutter: stable both-edges;
+}
+
+.block-math-menu-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 24px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border-strong);
+  background: rgba(18, 22, 28, 0.85);
+  color: var(--text);
+  cursor: pointer;
+  z-index: 2;
+}
+
+.block-math-menu-toggle:hover {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
+.block-math-menu-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.block-math-menu-line {
+  width: 14px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.85;
 }
 
 .block-math-input-container:focus-within {
@@ -1795,20 +1849,22 @@ math-field.block-math-field::placeholder {
 .settings-nav-item {
   display: grid;
   gap: 4px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-strong);
+  padding: 12px 0;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--panel-border);
+  background: transparent;
   text-align: left;
   color: var(--text);
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .settings-nav-item:hover {
-  border-color: var(--accent-soft-strong);
-  background: var(--panel-muted);
-  transform: translateY(-1px);
+  background: transparent;
+  transform: translateX(4px);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .settings-nav-item:active {
@@ -1816,8 +1872,10 @@ math-field.block-math-field::placeholder {
 }
 
 .settings-nav-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.01em;
 }
 
 .settings-nav-desc {
@@ -1844,11 +1902,11 @@ math-field.block-math-field::placeholder {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 12px;
-  background: rgba(16, 20, 26, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  margin: -12px -14px 12px;
-  padding: 12px 14px;
+  background: rgba(16, 20, 26, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  margin: -12px -16px 20px; /* Wider bleed */
+  padding: 16px 24px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
@@ -1864,94 +1922,183 @@ math-field.block-math-field::placeholder {
 }
 
 .settings-group {
-  display: grid;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 0; /* Remove gap, use padding on items */
+  padding: 16px; /* Increased padding */
+  margin-bottom: 32px;
 }
 
 .settings-group-title {
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 4px; /* Reduced since padding handles most */
 }
 
 .settings-item {
   display: grid;
-  gap: 10px;
-  padding: 4px 0;
+  grid-template-columns: 1fr minmax(200px, auto);
+  gap: 24px;
+  align-items: center; /* Center alignment for cleaner look */
+  padding: 16px 0; /* More padding */
+  border-bottom: 1px solid var(--panel-border);
+  min-height: 72px; /* Consistent height */
+}
+
+/* Remove border from last item */
+.settings-item:last-child {
+  border-bottom: none;
+}
+
+/* When the container is narrow, stack smoothly */
+@container (max-width: 480px) {
+  .settings-item {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 16px 0;
+  }
+}
+
+/* When the container is narrow, stack smoothly */
+@container (max-width: 480px) {
+  .settings-item {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* Fallback for no container queries or just media query */
+@media (max-width: 600px) {
+  .settings-item {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 }
 
 .settings-label {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+  padding-top: 4px; /* Align with input */
 }
 
 .settings-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text);
+  letter-spacing: 0.01em;
 }
 
 .settings-desc {
-  font-size: 10px;
-  color: var(--muted);
+  font-size: 12px;
+  color: var(--text-soft);
+  line-height: 1.5;
+  opacity: 0.8;
 }
 
 .settings-help-text {
   font-size: 11px;
   line-height: 1.5;
-  color: var(--text-soft);
-  padding: 4px 0;
+  color: var(--muted);
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  margin-top: 8px;
+  border: 1px solid var(--panel-border);
 }
 
 .settings-control {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px;
+  display: flex;
   align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .settings-select {
   width: 100%;
-  min-width: 0;
-  background: var(--input-bg);
+  min-width: 160px;
+  max-width: 280px;
+  background: rgba(0, 0, 0, 0.2);
   color: var(--text);
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238B949E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px;
+}
+
+.settings-select:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-color: var(--text-soft);
+}
+
+.settings-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background-color: rgba(0, 0, 0, 0.4);
 }
 
 .settings-inline {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 6px;
+  display: flex;
+  gap: 8px;
   align-items: center;
+  width: 100%;
 }
 
 .settings-input {
   width: 100%;
   min-width: 0;
-  background: var(--input-bg);
+  background: rgba(0, 0, 0, 0.2);
   color: var(--text);
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: rgba(0, 0, 0, 0.4);
 }
 
 .settings-path {
-  color: var(--text);
+  color: var(--text-soft);
   font-size: 11px;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  padding: 6px 8px;
+  font-family: "SF Mono", Menlo, monospace;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 12px;
   word-break: break-all;
+  line-height: 1.4;
+  user-select: text;
+  transition: color 0.2s;
+}
+
+.settings-path:not(:empty):hover {
+  color: var(--text);
+  border-color: var(--panel-border-strong);
 }
 
 .settings-toggle {
@@ -2833,11 +2980,19 @@ math-field.block-math-field::placeholder {
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
-  padding: 0 2px;
+  padding: 4px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  margin-right: -4px;
 }
 
 .editor-tab-close:hover {
   color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .editor-status {
@@ -3642,6 +3797,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--muted);
 }
 
+.issue-item[data-action="open-runtime"] .issue-hintline {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
 .monaco-editor .issue-line-highlight {
   background: var(--danger-faint);
 }
@@ -3655,7 +3815,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .monaco-editor .detected-block-highlight {
-  background: rgba(133, 181, 255, 0.18);
+  background: rgba(210, 153, 34, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(210, 153, 34, 0.35);
   border-radius: 3px;
 }
 
@@ -3671,7 +3832,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: rgba(133, 181, 255, 0.9);
+  background: #E3B341;
+  box-shadow: 0 0 0 2px rgba(210, 153, 34, 0.22);
 }
 
 .monaco-editor .monaco-ghost-caret {

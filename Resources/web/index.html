@@ -14,7 +14,7 @@
       <div class="launcher-grid" aria-hidden="true"></div>
       <div class="launcher-card" role="dialog" aria-modal="true">
         <div class="launcher-brand">
-          <div class="launcher-title">tex64</div>
+          <div class="launcher-title">Tex64</div>
           <div class="launcher-tagline">LaTeX編集の起点</div>
         </div>
         <div class="launcher-note">最初にプロジェクトを選択してください。</div>
@@ -59,8 +59,8 @@
     <div class="app">
       <header class="topbar">
         <div class="brand" aria-hidden="true">
-          <span class="brand-dot"></span>
-          <span class="brand-name">tex64</span>
+          <img src="./assets/icon.jpg" class="brand-icon" alt="" />
+          <span class="brand-name">Tex64</span>
         </div>
         <div class="top-actions">
           <button
@@ -804,7 +804,7 @@
                     <div class="settings-page-title">数式/表 環境</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">数式/表 環境</div>
+
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">検出対象の環境</span>
@@ -895,6 +895,7 @@
                     <div class="settings-item env-item" data-env="lualatex">
                       <div class="settings-label">
                         <span class="settings-title">TeX Distribution</span>
+                        <span class="settings-desc">TeX Live / MacTeX / BasicTeX / MiKTeX など、LaTeX エンジンと基本ツール一式。</span>
                       </div>
                       <div class="settings-control">
                         <span class="env-badge checking">確認中...</span>
@@ -906,6 +907,7 @@
                     <div class="settings-item env-item" data-env="latexmk">
                       <div class="settings-label">
                         <span class="settings-title">latexmk</span>
+                        <span class="settings-desc">ビルドを自動化するコマンド。TeX Distribution に同梱されることが多い。</span>
                       </div>
                       <div class="settings-control">
                         <span class="env-badge checking">確認中...</span>
@@ -913,6 +915,34 @@
                           インストール
                         </button>
                       </div>
+                    </div>
+                    <div class="settings-item env-item" data-env="latexindent">
+                      <div class="settings-label">
+                        <span class="settings-title">latexindent</span>
+                        <span class="settings-desc">整形（Format）に使用。TeX Distribution に同梱されることが多い。</span>
+                      </div>
+                      <div class="settings-control">
+                        <span class="env-badge checking">確認中...</span>
+                        <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
+                          インストール
+                        </button>
+                      </div>
+                    </div>
+                    <div class="settings-item env-item" data-env="synctex">
+                      <div class="settings-label">
+                        <span class="settings-title">SyncTeX</span>
+                        <span class="settings-desc">PDF へのジャンプに使用。TeX Distribution に同梱されることが多い。</span>
+                      </div>
+                      <div class="settings-control">
+                        <span class="env-badge checking">確認中...</span>
+                        <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
+                          インストール
+                        </button>
+                      </div>
+                    </div>
+                    <div class="settings-help-text">
+                      本アプリのビルド/整形/SyncTeX には TeX Distribution と
+                      latexmk / latexindent / synctex が必要です（多くは同梱）。
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">

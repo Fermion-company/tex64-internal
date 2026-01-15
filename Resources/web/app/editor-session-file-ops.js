@@ -1,6 +1,6 @@
 import { isImageFilePath, isPdfFilePath, isTextFilePath } from "./files.js";
 export const createEditorSessionFileOps = (ctx) => {
-    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
+    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const applyViewerFile = (group, path, kind, data, mimeType) => {
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
@@ -137,7 +137,7 @@ export const createEditorSessionFileOps = (ctx) => {
         if (state.pendingReveal &&
             state.pendingReveal.path === path &&
             state.pendingReveal.group === group.key) {
-            revealLine(group, state.pendingReveal.line);
+            revealLine(group, state.pendingReveal.line, { focus: state.pendingReveal.focus });
             state.pendingReveal = null;
         }
         if (isActiveGroup(group) && editor.focus) {
@@ -291,27 +291,6 @@ export const createEditorSessionFileOps = (ctx) => {
         let targetGroupKey = pendingIndex >= 0
             ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
             : getActiveEditorGroupKey();
-        if (pendingIndex < 0 && payload.path) {
-            const existingGroupKey = findGroupKeyByPath(payload.path);
-            if (existingGroupKey) {
-                targetGroupKey = existingGroupKey;
-            }
-            else {
-                targetGroupKey = resolveAutoOpenGroupKey(targetGroupKey);
-            }
-        }
-        const targetGroup = getEditorGroup(targetGroupKey);
-        if (payload.error) {
-            if (state.pendingReveal &&
-                state.pendingReveal.path === payload.path &&
-                state.pendingReveal.group === targetGroupKey) {
-                state.pendingReveal = null;
-            }
-            deps.updateIssues(1, payload.error, "error", [
-                { severity: "error", message: payload.error },
-            ]);
-            return;
-        }
         const type = payload.type;
         if (type === "searchResult") {
             deps.search.handleSearchUpdate(payload);
@@ -340,6 +319,33 @@ export const createEditorSessionFileOps = (ctx) => {
                 : isTextFilePath(path)
                     ? "text"
                     : "unsupported");
+        if (pendingIndex < 0) {
+            if (kind === "pdf") {
+                setSplitViewEnabled(true);
+                targetGroupKey = "secondary";
+            }
+            else {
+                const existingGroupKey = findGroupKeyByPath(path);
+                if (existingGroupKey) {
+                    targetGroupKey = existingGroupKey;
+                }
+                else {
+                    targetGroupKey = resolveAutoOpenGroupKey(targetGroupKey);
+                }
+            }
+        }
+        const targetGroup = getEditorGroup(targetGroupKey);
+        if (payload.error) {
+            if (state.pendingReveal &&
+                state.pendingReveal.path === payload.path &&
+                state.pendingReveal.group === targetGroupKey) {
+                state.pendingReveal = null;
+            }
+            deps.updateIssues(1, payload.error, "error", [
+                { severity: "error", message: payload.error },
+            ]);
+            return;
+        }
         if (kind === "image" || kind === "pdf") {
             applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType);
             return;

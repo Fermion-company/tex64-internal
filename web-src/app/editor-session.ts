@@ -119,7 +119,12 @@ export type EditorSessionApi = {
   clearJumpHighlight: (group: EditorGroupState) => void;
   scheduleAutoSave: () => void;
   requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
-  jumpToFileLine: (path: string, line: number, groupKey: EditorGroupKey) => void;
+  jumpToFileLine: (
+    path: string,
+    line: number,
+    groupKey: EditorGroupKey,
+    options?: { force?: boolean; focus?: boolean }
+  ) => void;
   jumpToLocation: (entry: IndexEntry) => void;
   applyFormattedContent: (
     group: EditorGroupState,
@@ -417,7 +422,11 @@ export const initEditorSession = (
     jumpDecorations[group.key] = editor.deltaDecorations(decorations, []);
   };
 
-  const revealLine = (group: EditorGroupState, line: number) => {
+  const revealLine = (
+    group: EditorGroupState,
+    line: number,
+    options: { focus?: boolean } = {}
+  ) => {
     const monacoApi = deps.getMonacoApi();
     if (!group.editor || !monacoApi) {
       return;
@@ -443,7 +452,9 @@ export const initEditorSession = (
     ]);
     editor.revealLineInCenter(line);
     editor.setPosition({ lineNumber: line, column: 1 });
-    editor.focus();
+    if (options.focus !== false) {
+      editor.focus();
+    }
   };
 
   const pickInitialFilePath = () => {
@@ -782,6 +793,7 @@ export const initEditorSession = (
     isActiveGroup,
     resolveAutoOpenGroupKey,
     findGroupKeyByPath,
+    setSplitViewEnabled,
     cacheCurrentBuffer,
     clearJumpHighlight,
     clearTemporaryTabs,
@@ -797,16 +809,25 @@ export const initEditorSession = (
     getLanguageIdForPath,
   });
 
-  const jumpToFileLine = (path: string, line: number, groupKey: EditorGroupKey) => {
-    const targetGroupKey = resolveOpenTargetGroupKey(path, groupKey);
+  const jumpToFileLine = (
+    path: string,
+    line: number,
+    groupKey: EditorGroupKey,
+    options: { force?: boolean; focus?: boolean } = {}
+  ) => {
+    const forceOpen = options.force === true;
+    const focus = options.focus;
+    const targetGroupKey = forceOpen
+      ? groupKey
+      : resolveOpenTargetGroupKey(path, groupKey);
     const targetGroup = getEditorGroup(targetGroupKey);
     if (targetGroup.currentFilePath === path) {
-      revealLine(targetGroup, line);
+      revealLine(targetGroup, line, { focus });
       return;
     }
-    const requested = requestOpenFile(path, targetGroupKey);
+    const requested = requestOpenFile(path, targetGroupKey, forceOpen);
     if (requested) {
-      fileOpsState.pendingReveal = { path, line, group: targetGroupKey };
+      fileOpsState.pendingReveal = { path, line, group: targetGroupKey, focus };
     }
   };
 

@@ -208,7 +208,7 @@ export const initEditorSession = (context, deps) => {
         const editor = group.editor;
         jumpDecorations[group.key] = editor.deltaDecorations(decorations, []);
     };
-    const revealLine = (group, line) => {
+    const revealLine = (group, line, options = {}) => {
         const monacoApi = deps.getMonacoApi();
         if (!group.editor || !monacoApi) {
             return;
@@ -227,7 +227,9 @@ export const initEditorSession = (context, deps) => {
         ]);
         editor.revealLineInCenter(line);
         editor.setPosition({ lineNumber: line, column: 1 });
-        editor.focus();
+        if (options.focus !== false) {
+            editor.focus();
+        }
     };
     const pickInitialFilePath = () => {
         const rootFilePath = deps.getRootFilePath();
@@ -535,6 +537,7 @@ export const initEditorSession = (context, deps) => {
         isActiveGroup,
         resolveAutoOpenGroupKey,
         findGroupKeyByPath,
+        setSplitViewEnabled,
         cacheCurrentBuffer,
         clearJumpHighlight,
         clearTemporaryTabs,
@@ -549,16 +552,20 @@ export const initEditorSession = (context, deps) => {
         scheduleAfterComposition,
         getLanguageIdForPath,
     });
-    const jumpToFileLine = (path, line, groupKey) => {
-        const targetGroupKey = resolveOpenTargetGroupKey(path, groupKey);
+    const jumpToFileLine = (path, line, groupKey, options = {}) => {
+        const forceOpen = options.force === true;
+        const focus = options.focus;
+        const targetGroupKey = forceOpen
+            ? groupKey
+            : resolveOpenTargetGroupKey(path, groupKey);
         const targetGroup = getEditorGroup(targetGroupKey);
         if (targetGroup.currentFilePath === path) {
-            revealLine(targetGroup, line);
+            revealLine(targetGroup, line, { focus });
             return;
         }
-        const requested = requestOpenFile(path, targetGroupKey);
+        const requested = requestOpenFile(path, targetGroupKey, forceOpen);
         if (requested) {
-            fileOpsState.pendingReveal = { path, line, group: targetGroupKey };
+            fileOpsState.pendingReveal = { path, line, group: targetGroupKey, focus };
         }
     };
     const jumpToLocation = (entry) => {

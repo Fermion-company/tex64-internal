@@ -26,14 +26,14 @@ class EncoderWrapper(torch.nn.Module):
 
 
 class DecoderWrapper(torch.nn.Module):
-    def __init__(self, decoder, pad_token):
+    def __init__(self, decoder_net, pad_token):
         super().__init__()
-        self.decoder = decoder
+        self.decoder_net = decoder_net
         self.pad_token = pad_token
 
     def forward(self, tokens, context):
         mask = tokens != self.pad_token
-        return self.decoder(tokens, mask=mask, context=context)
+        return self.decoder_net(tokens, mask=mask, context=context)
 
 
 def load_args(config_path, checkpoint_path):
@@ -71,7 +71,7 @@ def export_onnx(args, output_dir):
         opset_version=17,
     )
 
-    decoder = DecoderWrapper(model.decoder, args.pad_token)
+    decoder = DecoderWrapper(model.decoder.net, args.pad_token)
     dummy_tokens = torch.full((1, 1), args.bos_token, dtype=torch.long)
     torch.onnx.export(
         decoder,
@@ -100,7 +100,7 @@ def export_onnx(args, output_dir):
         "eosToken": args.eos_token,
         "padToken": args.pad_token,
         "maxSeqLen": args.max_seq_len,
-        "decodeStrategy": "top_k",
+        "decodeStrategy": "greedy",
         "filterThres": 0.9,
         "temperature": args.get("temperature", 0.2),
         "maxWidth": args.max_width,

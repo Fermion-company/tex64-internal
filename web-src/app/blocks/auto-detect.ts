@@ -4,7 +4,6 @@ import type {
   BlockContext,
   DetectedBlockSnapshot,
   DetectedLatexBlock,
-  MathEditCell,
 } from "./types.js";
 import type { BlockEditMode, BlockType } from "../types.js";
 
@@ -44,9 +43,7 @@ type DetectedCandidate = {
   detected: DetectedLatexBlock;
   snapshot: DetectedBlockSnapshot;
   context: BlockContext | null;
-  mathEditCell: MathEditCell | null;
   mathInputValue: string;
-  tableRawValue: string;
   highlightRange: HighlightRange;
   cursorLineNumber?: number;
 };
@@ -54,15 +51,11 @@ type DetectedCandidate = {
 type BlockAutoDetectDeps = {
   envRegistry: {
     isEnvDisabled: (name: string) => boolean;
-    isTableEnvName: (name: string) => boolean;
     isMathEnvName: (name: string) => boolean;
   };
-  enableTableBlocks: boolean;
   getActiveGroup: () => EditorGroup;
   getActiveBlockContext: () => BlockContext | null;
   setActiveBlockContext: (context: BlockContext | null) => void;
-  getActiveMathEditCell: () => MathEditCell | null;
-  setActiveMathEditCell: (cell: MathEditCell | null) => void;
   getActiveBlockEditMode: () => BlockEditMode;
   setActiveBlockEditMode: (mode: BlockEditMode) => void;
   setActiveBlockType: (type: BlockType) => void;
@@ -70,10 +63,7 @@ type BlockAutoDetectDeps = {
   setDetectedBlockSnapshot: (snapshot: DetectedBlockSnapshot | null) => void;
   setCurrentBlockDraft: (draft: BlockDraft | null) => void;
   setAutoDetectedUi: (enabled: boolean, lineNumber?: number) => void;
-  setTableEditMode: (mode: "grid" | "raw") => void;
   setMathInputValue: (value: string) => void;
-  setTableRawValue: (value: string) => void;
-  isMathInputFocused: () => boolean;
 };
 
 export type BlockAutoDetectApi = {
@@ -97,9 +87,7 @@ export const initBlockAutoDetection = (
 
   const blockDetector = createLatexBlockDetector({
     isEnvDisabled: deps.envRegistry.isEnvDisabled,
-    isTableEnvName: deps.envRegistry.isTableEnvName,
     isMathEnvName: deps.envRegistry.isMathEnvName,
-    enableTableBlocks: deps.enableTableBlocks,
   });
 
   const shouldUpdateDetectedBlock = (
@@ -130,7 +118,6 @@ export const initBlockAutoDetection = (
     start: number,
     end: number,
     context: BlockContext | null,
-    type: BlockType,
     cursorLineNumber?: number,
     highlightRange?: HighlightRange
   ) => {
@@ -141,7 +128,7 @@ export const initBlockAutoDetection = (
     let highlightStart = start;
     let highlightEnd = start;
     let showInline = false;
-    if (type === "math" && context) {
+    if (context) {
       const innerStart = start + context.prefix.length;
       const innerEnd = end - context.suffix.length;
       if (innerEnd > innerStart) {
@@ -238,23 +225,6 @@ export const initBlockAutoDetection = (
     };
   };
 
-  const resolveMathEditCell = (
-    detected: DetectedLatexBlock,
-    context: BlockContext | null
-  ): { cell: MathEditCell | null; value: string; highlightRange: HighlightRange } => {
-    if (detected.type !== "math") {
-      return { cell: null, value: "", highlightRange: null };
-    }
-    const detectedInner = context
-      ? getInnerContent(context, { trim: false })
-      : detected.content;
-    return {
-      cell: null,
-      value: detectedInner,
-      highlightRange: null,
-    };
-  };
-
   const applyDetectedBlock = (
     detected: DetectedLatexBlock,
     text: string,
@@ -281,10 +251,7 @@ export const initBlockAutoDetection = (
       blocksTab?.click();
     }
     const snippet = detected.fullMatch ?? text.slice(detected.start, detected.end);
-    const context = snippet
-      ? parseBlockContext(snippet, { isTableEnvName: deps.envRegistry.isTableEnvName })
-      : null;
-    const mathResult = resolveMathEditCell(detected, context);
+    const context = snippet ? parseBlockContext(snippet) : null;
     const detectedInner = context
       ? getInnerContent(context, { trim: false })
       : detected.content;
@@ -299,10 +266,8 @@ export const initBlockAutoDetection = (
         modelVersion: typeof model.getVersionId === "function" ? model.getVersionId() : 0,
       },
       context,
-      mathEditCell: mathResult.cell,
-      mathInputValue: mathResult.value,
-      tableRawValue: detectedInner,
-      highlightRange: mathResult.highlightRange,
+      mathInputValue: detectedInner,
+      highlightRange: null,
       cursorLineNumber,
     };
     deps.setAutoDetectedUi(true, cursorLineNumber ?? model.getPositionAt(detected.start).lineNumber);
@@ -311,9 +276,8 @@ export const initBlockAutoDetection = (
         detected.start,
         detected.end,
         context,
-        detected.type,
         cursorLineNumber,
-        mathResult.highlightRange
+        currentCandidate.highlightRange
       );
     }
   };
@@ -327,8 +291,7 @@ export const initBlockAutoDetection = (
     if (!model) {
       return;
     }
-    const { detected, snapshot, context, mathEditCell, mathInputValue, tableRawValue } =
-      currentCandidate;
+    const { detected, snapshot, context, mathInputValue } = currentCandidate;
     const updatedSnapshot = {
       ...snapshot,
       modelVersion: typeof model.getVersionId === "function" ? model.getVersionId() : 0,
@@ -342,20 +305,11 @@ export const initBlockAutoDetection = (
     deps.setDetectedBlockSnapshot(updatedSnapshot);
     const startPos = model.getPositionAt(detected.start);
     deps.setAutoDetectedUi(true, startPos.lineNumber);
-    if (detected.type === "math") {
-      deps.setActiveMathEditCell(mathEditCell);
-      deps.setMathInputValue(mathInputValue);
-      deps.setTableEditMode("grid");
-    } else {
-      deps.setActiveMathEditCell(null);
-      deps.setTableEditMode("raw");
-      deps.setTableRawValue(tableRawValue);
-    }
+    deps.setMathInputValue(mathInputValue);
     highlightDetectedBlock(
       detected.start,
       detected.end,
       context,
-      detected.type,
       currentCandidate.cursorLineNumber ?? startPos.lineNumber,
       currentCandidate.highlightRange
     );
@@ -375,8 +329,6 @@ export const initBlockAutoDetection = (
         deps.setActiveBlockContext(null);
         deps.setActiveBlockOriginalSnippet(null);
       }
-      deps.setActiveMathEditCell(null);
-      deps.setTableEditMode("grid");
     }
     if (options?.clearActive || deps.getActiveBlockEditMode() !== "detected") {
       clearBlockHighlight();

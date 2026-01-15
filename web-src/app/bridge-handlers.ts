@@ -165,6 +165,10 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
     deps.build.handleFormatResult(payload);
   };
 
+  bridgeWindow.tex64SynctexForwardResult = (payload) => {
+    deps.build.handleSynctexForwardResult(payload);
+  };
+
   bridgeWindow.tex64RenameResult = (payload) => {
     deps.editorSession.handleRenameResult(payload);
   };

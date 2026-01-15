@@ -42,6 +42,17 @@ type BlockInsertDeps = {
   updateFallback: (message: string) => void;
   getEditorAlignEnvEnabled: () => boolean;
   requestFormatCurrentFile: (source: string) => void;
+  requestFormatPreview?: (payload: {
+    path: string;
+    content: string;
+    source?: string;
+  }) => Promise<{
+    path: string;
+    ok: boolean;
+    content?: string;
+    error?: string;
+    source?: string;
+  }>;
   postToNative?: (
     payload: { type: string; [key: string]: unknown },
     silent?: boolean
@@ -130,6 +141,44 @@ export const initBlockInsertFlow = (
     };
   };
 
+  const findChangedRange = (before: string, after: string) => {
+    if (before === after) {
+      return null;
+    }
+    const maxStart = Math.min(before.length, after.length);
+    let start = 0;
+    while (start < maxStart && before[start] === after[start]) {
+      start += 1;
+    }
+    let endBefore = before.length;
+    let endAfter = after.length;
+    while (endBefore > start && endAfter > start) {
+      if (before[endBefore - 1] !== after[endAfter - 1]) {
+        break;
+      }
+      endBefore -= 1;
+      endAfter -= 1;
+    }
+    return { start, endBefore, endAfter };
+  };
+
+  const toEditorRangeFromOffsets = (
+    model: {
+      getPositionAt: (offset: number) => { lineNumber: number; column: number };
+    },
+    startOffset: number,
+    endOffset: number
+  ) => {
+    const startPos = model.getPositionAt(startOffset);
+    const endPos = model.getPositionAt(endOffset);
+    return {
+      startLineNumber: startPos.lineNumber,
+      startColumn: startPos.column,
+      endLineNumber: endPos.lineNumber,
+      endColumn: endPos.column,
+    };
+  };
+
   const normalizeSelection = (selection: {
     startLineNumber: number;
     startColumn: number;
@@ -213,14 +262,22 @@ export const initBlockInsertFlow = (
     const mode: BlockApplyMode =
       applyPayload?.mode ?? (blockMode === "edit" ? "detected" : "new");
 
-    let snippet = draft.snippet;
+    let snippet = applyPayload?.replaceSnippet ?? draft.snippet;
+    const preferredRange = applyPayload?.replaceRange ?? null;
     let insertPosition: { lineNumber: number; column: number } | null = null;
     let insertRange = applyPayload
       ? applyPayload.insertRange ?? null
       : mode === "new"
         ? resolveEmptyLineInsertRange(editor)
         : null;
-    if (mode === "detected") {
+    if (preferredRange) {
+      range = new monacoApiAny.Range(
+        preferredRange.startLineNumber,
+        preferredRange.startColumn,
+        preferredRange.endLineNumber,
+        preferredRange.endColumn
+      );
+    } else if (mode === "detected") {
       const snapshot = applyPayload?.detectedSnapshot ?? deps.getDetectedBlockSnapshot();
       if (!snapshot || !model?.getPositionAt) {
         return;
@@ -295,7 +352,7 @@ export const initBlockInsertFlow = (
     deps.resetBlockSession({ applyMode: mode });
   };
 
-  const triggerInsert = () => {
+  const triggerInsert = async () => {
     const activeGroup = deps.getActiveGroup();
     if (!activeGroup.editor) {
       return;
@@ -348,37 +405,13 @@ export const initBlockInsertFlow = (
         column: insertRange.startColumn,
       };
     }
-    const formattedSnippet =
+    let formattedSnippet =
       mode === "new"
         ? formatSnippetForInsert(draft.snippet, editorForDetect.getModel?.(), insertPosition, {
             alignEnv: deps.getEditorAlignEnvEnabled(),
           })
         : draft.snippet;
-    const resolvedDraft = { ...draft, snippet: formattedSnippet };
-
-    if (deps.getIsE2E()) {
-      (window as {
-        __tex64LastDraft?: {
-          formula: string;
-          snippet: string | null;
-          detectedSnippet: string | null;
-        };
-      }).__tex64LastDraft = {
-        formula: deps.getMathInputValue(),
-        snippet: resolvedDraft.snippet,
-        detectedSnippet: detectedSnapshot?.snippet ?? null,
-      };
-    }
-
-    const applyPayload: PendingBlockApply = {
-      mode,
-      draft: resolvedDraft,
-      detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
-      insertPosition,
-      insertRange,
-    };
-    deps.setPendingBlockApply(applyPayload);
-    deps.setCurrentBlockDraft(resolvedDraft);
+    let resolvedDraft = { ...draft, snippet: formattedSnippet };
 
     const editorModel = editorForDetect.getModel?.();
     const hasPositionAt = (model: {
@@ -407,15 +440,101 @@ export const initBlockInsertFlow = (
         startOffset = offset;
         endOffset = offset;
       }
+      let replaceRange: PendingBlockApply["replaceRange"] = null;
+      let replaceSnippet: PendingBlockApply["replaceSnippet"] = null;
+      let diffStartOffset = startOffset;
+      let diffEndOffset = endOffset;
+      const filePath = activeGroup.currentFilePath;
+      const canPreviewFormat =
+        !!deps.requestFormatPreview &&
+        typeof filePath === "string" &&
+        filePath.toLowerCase().endsWith(".tex");
+      if (canPreviewFormat && typeof model.getOffsetAt === "function") {
+        const originalContent = model.getValue();
+        const rawModified =
+          originalContent.slice(0, startOffset) +
+          formattedSnippet +
+          originalContent.slice(endOffset);
+        const previewResult = await deps.requestFormatPreview?.({
+          path: filePath,
+          content: rawModified,
+        });
+        if (previewResult?.ok && typeof previewResult.content === "string") {
+          const change = findChangedRange(originalContent, previewResult.content);
+          if (change) {
+            formattedSnippet = previewResult.content.slice(change.start, change.endAfter);
+            resolvedDraft = { ...draft, snippet: formattedSnippet };
+            diffStartOffset = change.start;
+            diffEndOffset = change.endBefore;
+            replaceRange = toEditorRangeFromOffsets(
+              model,
+              diffStartOffset,
+              diffEndOffset
+            );
+            replaceSnippet = formattedSnippet;
+          }
+        }
+      }
+
+      if (deps.getIsE2E()) {
+        (window as {
+          __tex64LastDraft?: {
+            formula: string;
+            snippet: string | null;
+            detectedSnippet: string | null;
+          };
+        }).__tex64LastDraft = {
+          formula: deps.getMathInputValue(),
+          snippet: resolvedDraft.snippet,
+          detectedSnippet: detectedSnapshot?.snippet ?? null,
+        };
+      }
+
+      const applyPayload: PendingBlockApply = {
+        mode,
+        draft: resolvedDraft,
+        detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
+        insertPosition,
+        insertRange,
+        replaceRange,
+        replaceSnippet,
+      };
+      deps.setPendingBlockApply(applyPayload);
+      deps.setCurrentBlockDraft(resolvedDraft);
+
       const diffContext = buildDiffPreviewContext(
         model,
-        startOffset,
-        endOffset,
+        diffStartOffset,
+        diffEndOffset,
         resolvedDraft.snippet
       );
       deps.showDiffModal(diffContext.original, diffContext.modified, diffContext.lineOffset);
       return;
     }
+
+    if (deps.getIsE2E()) {
+      (window as {
+        __tex64LastDraft?: {
+          formula: string;
+          snippet: string | null;
+          detectedSnippet: string | null;
+        };
+      }).__tex64LastDraft = {
+        formula: deps.getMathInputValue(),
+        snippet: resolvedDraft.snippet,
+        detectedSnippet: detectedSnapshot?.snippet ?? null,
+      };
+    }
+
+    const applyPayload: PendingBlockApply = {
+      mode,
+      draft: resolvedDraft,
+      detectedSnapshot: mode === "detected" ? detectedSnapshot : null,
+      insertPosition,
+      insertRange,
+    };
+    deps.setPendingBlockApply(applyPayload);
+    deps.setCurrentBlockDraft(resolvedDraft);
 
     const originalSnippet =
       mode === "detected" ? detectedSnapshot?.snippet ?? "" : "";

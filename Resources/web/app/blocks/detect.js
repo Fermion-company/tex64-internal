@@ -1,5 +1,5 @@
 import { getEnvBaseName, normalizeEnvName } from "../env-registry.js";
-import { consumeBracketArg, isEscapedAt } from "./tex-utils.js";
+import { isEscapedAt } from "./tex-utils.js";
 const RAW_ENV_NAMES = new Set(["verbatim", "Verbatim", "lstlisting", "minted"]);
 const MATH_ENV_HINTS = [
     "math",
@@ -15,125 +15,6 @@ const MATH_ENV_HINTS = [
     "array",
     "formula",
 ];
-const splitMathCells = (inner) => {
-    const ranges = [];
-    let braceDepth = 0;
-    let cellStart = 0;
-    const pushCell = (end) => {
-        ranges.push({ start: cellStart, end });
-    };
-    for (let i = 0; i < inner.length; i += 1) {
-        const char = inner[i];
-        if (char === "%" && !isEscapedAt(inner, i)) {
-            while (i < inner.length && inner[i] !== "\n") {
-                i += 1;
-            }
-            continue;
-        }
-        if (char === "{" && !isEscapedAt(inner, i)) {
-            braceDepth += 1;
-            continue;
-        }
-        if (char === "}" && !isEscapedAt(inner, i)) {
-            braceDepth = Math.max(0, braceDepth - 1);
-            continue;
-        }
-        if (braceDepth !== 0) {
-            continue;
-        }
-        if (char === "&" && !isEscapedAt(inner, i)) {
-            pushCell(i);
-            cellStart = i + 1;
-            continue;
-        }
-        if (char === "\\" && inner[i + 1] === "\\" && !isEscapedAt(inner, i)) {
-            pushCell(i);
-            let cursor = i + 2;
-            if (inner[cursor] === "*") {
-                cursor += 1;
-            }
-            if (inner[cursor] === "[") {
-                const next = consumeBracketArg(inner, cursor);
-                if (next > cursor) {
-                    cursor = next;
-                }
-            }
-            cellStart = cursor;
-            i = Math.max(i, cursor - 1);
-        }
-    }
-    pushCell(inner.length);
-    return ranges;
-};
-export const resolveMathCellAtOffset = (inner, offset) => {
-    var _a, _b, _c, _d;
-    const ranges = splitMathCells(inner);
-    if (ranges.length === 0) {
-        return { start: 0, end: inner.length, leading: "", trailing: "" };
-    }
-    let selected = ranges[0];
-    for (const range of ranges) {
-        if (offset < range.start) {
-            break;
-        }
-        selected = range;
-        if (offset <= range.end) {
-            break;
-        }
-    }
-    const raw = inner.slice(selected.start, selected.end);
-    const leading = (_b = (_a = raw.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : "";
-    const trailing = (_d = (_c = raw.match(/\s*$/)) === null || _c === void 0 ? void 0 : _c[0]) !== null && _d !== void 0 ? _d : "";
-    return {
-        start: selected.start,
-        end: selected.end,
-        leading,
-        trailing,
-    };
-};
-export const resolveMathCellForRange = (inner, startOffset, endOffset) => {
-    var _a, _b, _c, _d;
-    const ranges = splitMathCells(inner);
-    if (ranges.length === 0) {
-        return { start: 0, end: inner.length, leading: "", trailing: "" };
-    }
-    const normalizedStart = Math.max(0, Math.min(inner.length, Math.min(startOffset, endOffset)));
-    const normalizedEnd = Math.max(0, Math.min(inner.length, Math.max(startOffset, endOffset)));
-    if (normalizedStart === normalizedEnd) {
-        return resolveMathCellAtOffset(inner, normalizedStart);
-    }
-    let selected = ranges[0];
-    let bestOverlap = 0;
-    for (const range of ranges) {
-        const overlapStart = Math.max(range.start, normalizedStart);
-        const overlapEnd = Math.min(range.end, normalizedEnd);
-        const overlap = Math.max(0, overlapEnd - overlapStart);
-        if (overlap > bestOverlap) {
-            bestOverlap = overlap;
-            selected = range;
-            continue;
-        }
-        if (overlap === bestOverlap) {
-            const currentLength = selected.end - selected.start;
-            const nextLength = range.end - range.start;
-            if (nextLength < currentLength) {
-                selected = range;
-            }
-        }
-    }
-    if (bestOverlap === 0) {
-        return resolveMathCellAtOffset(inner, normalizedStart);
-    }
-    const raw = inner.slice(selected.start, selected.end);
-    const leading = (_b = (_a = raw.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : "";
-    const trailing = (_d = (_c = raw.match(/\s*$/)) === null || _c === void 0 ? void 0 : _c[0]) !== null && _d !== void 0 ? _d : "";
-    return {
-        start: selected.start,
-        end: selected.end,
-        leading,
-        trailing,
-    };
-};
 export const createLatexBlockDetector = (deps) => {
     const looksLikeMathEnv = (name) => {
         const base = getEnvBaseName(normalizeEnvName(name)).toLowerCase();
@@ -143,9 +24,6 @@ export const createLatexBlockDetector = (deps) => {
         const base = getEnvBaseName(normalizeEnvName(name));
         if (deps.isEnvDisabled(base)) {
             return null;
-        }
-        if (deps.isTableEnvName(base)) {
-            return deps.enableTableBlocks ? "table" : null;
         }
         if (deps.isMathEnvName(base)) {
             return "math";
@@ -314,12 +192,9 @@ export const createLatexBlockDetector = (deps) => {
             return null;
         }
         candidates.sort((a, b) => {
-            const sizeDiff = (a.end - a.start) - (b.end - b.start);
+            const sizeDiff = (b.end - b.start) - (a.end - a.start);
             if (sizeDiff !== 0) {
                 return sizeDiff;
-            }
-            if (a.type !== b.type) {
-                return a.type === "math" ? -1 : 1;
             }
             return a.start - b.start;
         });
@@ -338,12 +213,9 @@ export const createLatexBlockDetector = (deps) => {
         const containing = candidates.filter((candidate) => candidate.start <= normalizedStart && candidate.end >= normalizedEnd);
         if (containing.length > 0) {
             containing.sort((a, b) => {
-                const sizeDiff = (a.end - a.start) - (b.end - b.start);
+                const sizeDiff = (b.end - b.start) - (a.end - a.start);
                 if (sizeDiff !== 0) {
                     return sizeDiff;
-                }
-                if (a.type !== b.type) {
-                    return a.type === "math" ? -1 : 1;
                 }
                 return a.start - b.start;
             });
@@ -355,12 +227,9 @@ export const createLatexBlockDetector = (deps) => {
             if (overlapA !== overlapB) {
                 return overlapB - overlapA;
             }
-            const sizeDiff = (a.end - a.start) - (b.end - b.start);
+            const sizeDiff = (b.end - b.start) - (a.end - a.start);
             if (sizeDiff !== 0) {
                 return sizeDiff;
-            }
-            if (a.type !== b.type) {
-                return a.type === "math" ? -1 : 1;
             }
             return a.start - b.start;
         });

@@ -364,9 +364,17 @@ const createWorkspaceHandlers = (deps) => {
         .catch((error) => ({ ok: false, error: error?.message ?? String(error) }));
       if (result.warning && !state.formatWarningShown) {
         state.formatWarningShown = true;
-        sendIssues(1, result.warning, "info", [
-          { severity: "warning", message: result.warning, line: null },
-        ]);
+        const lower = result.warning.toLowerCase();
+        const isEnvMissing =
+          (result.warning.includes("見つかりません") || lower.includes("not found")) &&
+          lower.includes("latexindent");
+        const issue = {
+          severity: "warning",
+          message: result.warning,
+          line: null,
+          ...(isEnvMissing ? { action: "open-runtime" } : {}),
+        };
+        sendIssues(1, result.warning, "info", [issue]);
       }
       if (!result.ok) {
         if (!state.formatWarningShown) {

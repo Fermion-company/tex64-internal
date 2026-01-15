@@ -60,7 +60,10 @@ let mathOcrService = null;
 
 const getMathOcrService = () => {
   if (!mathOcrService) {
-    mathOcrService = new MathOcrService({ appPath: app.getAppPath() });
+    mathOcrService = new MathOcrService({
+      appPath: app.getAppPath(),
+      userDataPath: app.getPath("userData"),
+    });
   }
   return mathOcrService;
 };
@@ -215,6 +218,41 @@ app.on("window-all-closed", () => {
 
 // Desktop capture IPC handler
 ipcMain.handle("tex64:capture:getSources", async (_event, options) => {
+  if (process.env.TEX180_E2E === "1") {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows.find((win) => !win.isDestroyed()) ?? null;
+    if (!mainWindow) {
+      throw new Error("E2E capture failed: no window available.");
+    }
+    const image = await mainWindow.capturePage();
+    const size = image.getSize();
+    const target = options?.thumbnailSize ?? null;
+    let thumbnail = image;
+    if (target) {
+      const scale = Math.min(
+        target.width / size.width,
+        target.height / size.height,
+        1
+      );
+      const width = Math.max(1, Math.round(size.width * scale));
+      const height = Math.max(1, Math.round(size.height * scale));
+      if (width !== size.width || height !== size.height) {
+        thumbnail = image.resize({ width, height });
+      }
+    }
+    const thumbSize = thumbnail.getSize();
+    return [
+      {
+        id: "e2e:main-window",
+        title: mainWindow.getTitle() || "E2E Window",
+        app: "tex64",
+        thumbnailUrl: thumbnail.toDataURL(),
+        width: thumbSize.width,
+        height: thumbSize.height,
+      },
+    ];
+  }
+
   const size = options?.thumbnailSize ?? { width: 1600, height: 900 };
 
   const fetchSources = async (types, fetchWindowIcons = false) => {

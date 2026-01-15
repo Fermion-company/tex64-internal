@@ -21,6 +21,11 @@
 ## 環境チェック
 
 - `env:check` / `env:install` を Main に送信し結果を表示。
+- TeX Distribution は `lualatex` / `pdflatex` / `xelatex` / `uplatex` のいずれかを検出できれば利用可能扱い。
+- `latexmk` / `latexindent` / `synctex` もチェック対象。
+- `env:checkResult` は `bridge-handlers` 経由で Settings UI に反映される。
+- `latexindent` / `synctex` のインストール導線は TeX Distribution（basictex）に紐付ける。
+- 実行環境のボタンは常時表示で、検出済みでも更新/再インストールを実行できる。
 
 ## ユーザーメモ
 内容を調整

@@ -17,8 +17,12 @@
   },
   "dependencies": {
     "mathlive": "^0.108.2",
-    "pdfjs-dist": "^4.7.76",
+    "node-fetch": "^2.6.7",
     "onnxruntime-node": "^1.23.2",
-    "tesseract.js": "^5.1.1"
+    "pdfjs-dist": "^4.7.76",
+    "tesseract.js": "^5.1.1",
+    "tr46": "^0.0.3",
+    "webidl-conversions": "^3.0.0",
+    "whatwg-url": "^5.0.0"
   }
 }

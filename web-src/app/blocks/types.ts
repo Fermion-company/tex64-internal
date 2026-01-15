@@ -1,28 +1,15 @@
-import type { BlockApplyMode, BlockContent, BlockType } from "../types.js";
+import type { BlockApplyMode, BlockContent } from "../types.js";
 
 export type BlockContext = {
-  type: "math" | "table";
+  type: "math";
   originalSnippet: string;
   prefix: string;
   suffix: string;
   envName?: string;
 };
 
-export type MathCellRange = {
-  start: number;
-  end: number;
-  leading: string;
-  trailing: string;
-};
-
-export type MathEditCell = {
-  context: BlockContext;
-  inner: string;
-  range: MathCellRange;
-};
-
 export type DetectedBlockSnapshot = {
-  type: BlockType;
+  type: "math";
   start: number;
   end: number;
   snippet: string;
@@ -41,10 +28,17 @@ export type PendingBlockApply = {
     endLineNumber: number;
     endColumn: number;
   } | null;
+  replaceRange?: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  } | null;
+  replaceSnippet?: string | null;
 };
 
 export type DetectedLatexBlock = {
-  type: "math" | "table";
+  type: "math";
   content: string;
   start: number;
   end: number;

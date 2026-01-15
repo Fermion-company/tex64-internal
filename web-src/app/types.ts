@@ -3,12 +3,14 @@ export type DragPayload = { path: string; kind: "file" | "dir" };
 
 export type BuildState = "idle" | "building" | "success" | "failed";
 export type IssuesStatus = "success" | "error" | "info";
+export type IssueAction = "open-runtime";
 export type IssueItem = {
   severity: "error" | "warning";
   message: string;
   line?: number;
   column?: number;
   path?: string;
+  action?: IssueAction;
 };
 export type IndexEntry = { key: string; path: string; line: number };
 export type SectionEntry = { title: string; path: string; line: number; level: number };
@@ -146,7 +148,12 @@ export type CaptureBridge = {
   }) => Promise<CaptureSource[]>;
 };
 export type MathOcrBridge = {
-  run?: (payload: { data: ArrayBuffer; width: number; height: number }) => Promise<{
+  run?: (payload: {
+    data: ArrayBuffer;
+    width: number;
+    height: number;
+    imageDataUrl?: string;
+  }) => Promise<{
     latex?: string;
     error?: string;
   }>;
@@ -199,6 +206,14 @@ export type BridgeWindow = Window &
       content?: string;
       error?: string;
       source?: string;
+    }) => void;
+    tex64SynctexForwardResult?: (payload: {
+      ok?: boolean;
+      error?: string;
+      page?: number;
+      x?: number;
+      y?: number;
+      pdfPath?: string | null;
     }) => void;
     tex64RenameResult?: (payload: {
       oldPath: string;

@@ -507,10 +507,6 @@ export const initBlockInputUi = (context, deps) => {
         if (!trimmed) {
             return "";
         }
-        const context = deps.getActiveBlockContext();
-        if ((context === null || context === void 0 ? void 0 : context.type) === "table") {
-            return reconstructionBlock(context, raw);
-        }
         if (trimmed.startsWith("\\begin{")) {
             return trimmed;
         }
@@ -518,15 +514,7 @@ export const initBlockInputUi = (context, deps) => {
     };
     const buildMathSnippet = (formula) => {
         const context = deps.getActiveBlockContext();
-        const activeMathEditCell = deps.getActiveMathEditCell();
-        if ((context === null || context === void 0 ? void 0 : context.type) === "math") {
-            if (activeMathEditCell && activeMathEditCell.context === context) {
-                const replacement = activeMathEditCell.range.leading + formula + activeMathEditCell.range.trailing;
-                const updatedInner = activeMathEditCell.inner.slice(0, activeMathEditCell.range.start) +
-                    replacement +
-                    activeMathEditCell.inner.slice(activeMathEditCell.range.end);
-                return reconstructionBlock(context, updatedInner);
-            }
+        if (context) {
             return reconstructionBlock(context, formula);
         }
         const trimmed = formula.trim();

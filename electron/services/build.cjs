@@ -2,6 +2,22 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
+const isEnvMissingMessage = (message) => {
+  if (!message) {
+    return false;
+  }
+  const lower = message.toLowerCase();
+  const hasMissing = message.includes("見つかりません") || lower.includes("not found");
+  const mentionsTool =
+    lower.includes("latexmk") ||
+    lower.includes("lualatex") ||
+    lower.includes("pdflatex") ||
+    lower.includes("xelatex") ||
+    lower.includes("uplatex") ||
+    message.includes("TeX環境");
+  return hasMissing && mentionsTool;
+};
+
 class BuildService {
   constructor() {
     this.isBuilding = false;
@@ -40,7 +56,17 @@ class BuildService {
       const result = await this.runLatexmk(rootPath, mainFileName, engine);
       output = result.output;
       status = result.status;
-    } catch (_error) {
+    } catch (error) {
+      const message = error?.message ?? String(error);
+      if (isEnvMissingMessage(message)) {
+        const issue = {
+          severity: "error",
+          message: "latexmk が見つかりません。TeX環境を確認してください。",
+          line: null,
+          action: "open-runtime",
+        };
+        return { kind: "failure", summary: issue.message, issues: [issue] };
+      }
       const issue = {
         severity: "error",
         message: "ビルドの起動に失敗しました。",
@@ -54,6 +80,20 @@ class BuildService {
       return { kind: "success", summary: "ビルド成功", issues, pdfPath, log: output };
     }
     const summary = this.failureSummary(output, issues, mainFileName);
+    if (isEnvMissingMessage(summary)) {
+      const fallback = {
+        severity: "error",
+        message: summary,
+        line: null,
+        action: "open-runtime",
+      };
+      return {
+        kind: "failure",
+        summary,
+        issues: [fallback],
+        log: output,
+      };
+    }
     const fallback = {
       severity: "error",
       message: summary,

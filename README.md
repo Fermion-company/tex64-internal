@@ -115,6 +115,12 @@ E2E:
 - SyncTeX は「ビルド時のみ forward」。手動ボタンは無効。エラーは Issues に集約。
 - PDF の表示先はタブ/別ウィンドウを設定で切り替える。
 
+### 実行環境（ユーザー）
+
+- TeX Distribution（TeX Live / MacTeX / BasicTeX / MiKTeX など）が必要。
+- `latexmk` / `latexindent` / `synctex` を使用（通常は TeX Distribution に同梱）。
+- コンパイルエンジンは `lualatex` / `pdflatex` / `xelatex` / `uplatex` のいずれかが必要。
+
 ### アウトライン/検索/Issues
 
 - インデックスは章節/ラベル/引用/TODO/図表を収集。UI に表示するのは章節/TODO/ラベル/参考文献。

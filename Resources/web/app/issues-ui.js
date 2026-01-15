@@ -18,6 +18,9 @@ export const initIssuesUi = (context, deps) => {
             item.type = "button";
             item.className = "issue-item";
             item.dataset.severity = issue.severity;
+            if (issue.action) {
+                item.dataset.action = issue.action;
+            }
             const header = document.createElement("div");
             header.className = "issue-header";
             const badge = document.createElement("span");
@@ -43,9 +46,17 @@ export const initIssuesUi = (context, deps) => {
             message.textContent = detail.message || issue.message;
             const hint = document.createElement("div");
             hint.className = "issue-hintline";
-            hint.textContent = "クリックで該当行へ移動";
+            const isRuntimeAction = issue.action === "open-runtime" && typeof deps.onOpenRuntimeSettings === "function";
+            hint.textContent = isRuntimeAction
+                ? "クリックで実行環境を開く"
+                : "クリックで該当行へ移動";
             item.append(header, message, hint);
             item.addEventListener("click", () => {
+                var _a;
+                if (isRuntimeAction) {
+                    (_a = deps.onOpenRuntimeSettings) === null || _a === void 0 ? void 0 : _a.call(deps);
+                    return;
+                }
                 deps.onFocusIssue(issue);
             });
             issuesList.appendChild(item);

@@ -8,9 +8,7 @@ export const initBlockAutoDetection = (deps) => {
     let blockHighlightDecorations = [];
     const blockDetector = createLatexBlockDetector({
         isEnvDisabled: deps.envRegistry.isEnvDisabled,
-        isTableEnvName: deps.envRegistry.isTableEnvName,
         isMathEnvName: deps.envRegistry.isMathEnvName,
-        enableTableBlocks: deps.enableTableBlocks,
     });
     const shouldUpdateDetectedBlock = (detected, selectionRange) => {
         if (!currentDetectedBlock ||
@@ -28,7 +26,7 @@ export const initBlockAutoDetection = (deps) => {
         return (currentSelectionRange.start !== selectionRange.start ||
             currentSelectionRange.end !== selectionRange.end);
     };
-    const highlightDetectedBlock = (start, end, context, type, cursorLineNumber, highlightRange) => {
+    const highlightDetectedBlock = (start, end, context, cursorLineNumber, highlightRange) => {
         var _a, _b;
         const activeGroup = deps.getActiveGroup();
         if (!activeGroup.editor || !activeGroup.editor.deltaDecorations)
@@ -39,7 +37,7 @@ export const initBlockAutoDetection = (deps) => {
         let highlightStart = start;
         let highlightEnd = start;
         let showInline = false;
-        if (type === "math" && context) {
+        if (context) {
             const innerStart = start + context.prefix.length;
             const innerEnd = end - context.suffix.length;
             if (innerEnd > innerStart) {
@@ -123,19 +121,6 @@ export const initBlockAutoDetection = (deps) => {
             selection: normalized,
         };
     };
-    const resolveMathEditCell = (detected, context) => {
-        if (detected.type !== "math") {
-            return { cell: null, value: "", highlightRange: null };
-        }
-        const detectedInner = context
-            ? getInnerContent(context, { trim: false })
-            : detected.content;
-        return {
-            cell: null,
-            value: detectedInner,
-            highlightRange: null,
-        };
-    };
     const applyDetectedBlock = (detected, text, model, selectionOffsets, force = false, allowTabSwitch = true, cursorLineNumber, cursorOffset) => {
         var _a;
         const selectionRange = selectionOffsets
@@ -152,10 +137,7 @@ export const initBlockAutoDetection = (deps) => {
             blocksTab === null || blocksTab === void 0 ? void 0 : blocksTab.click();
         }
         const snippet = (_a = detected.fullMatch) !== null && _a !== void 0 ? _a : text.slice(detected.start, detected.end);
-        const context = snippet
-            ? parseBlockContext(snippet, { isTableEnvName: deps.envRegistry.isTableEnvName })
-            : null;
-        const mathResult = resolveMathEditCell(detected, context);
+        const context = snippet ? parseBlockContext(snippet) : null;
         const detectedInner = context
             ? getInnerContent(context, { trim: false })
             : detected.content;
@@ -170,15 +152,13 @@ export const initBlockAutoDetection = (deps) => {
                 modelVersion: typeof model.getVersionId === "function" ? model.getVersionId() : 0,
             },
             context,
-            mathEditCell: mathResult.cell,
-            mathInputValue: mathResult.value,
-            tableRawValue: detectedInner,
-            highlightRange: mathResult.highlightRange,
+            mathInputValue: detectedInner,
+            highlightRange: null,
             cursorLineNumber,
         };
         deps.setAutoDetectedUi(true, cursorLineNumber !== null && cursorLineNumber !== void 0 ? cursorLineNumber : model.getPositionAt(detected.start).lineNumber);
         if (deps.getActiveBlockEditMode() !== "detected") {
-            highlightDetectedBlock(detected.start, detected.end, context, detected.type, cursorLineNumber, mathResult.highlightRange);
+            highlightDetectedBlock(detected.start, detected.end, context, cursorLineNumber, currentCandidate.highlightRange);
         }
     };
     const activateDetectedBlock = () => {
@@ -191,7 +171,7 @@ export const initBlockAutoDetection = (deps) => {
         if (!model) {
             return;
         }
-        const { detected, snapshot, context, mathEditCell, mathInputValue, tableRawValue } = currentCandidate;
+        const { detected, snapshot, context, mathInputValue } = currentCandidate;
         const updatedSnapshot = {
             ...snapshot,
             modelVersion: typeof model.getVersionId === "function" ? model.getVersionId() : 0,
@@ -205,17 +185,8 @@ export const initBlockAutoDetection = (deps) => {
         deps.setDetectedBlockSnapshot(updatedSnapshot);
         const startPos = model.getPositionAt(detected.start);
         deps.setAutoDetectedUi(true, startPos.lineNumber);
-        if (detected.type === "math") {
-            deps.setActiveMathEditCell(mathEditCell);
-            deps.setMathInputValue(mathInputValue);
-            deps.setTableEditMode("grid");
-        }
-        else {
-            deps.setActiveMathEditCell(null);
-            deps.setTableEditMode("raw");
-            deps.setTableRawValue(tableRawValue);
-        }
-        highlightDetectedBlock(detected.start, detected.end, context, detected.type, (_c = currentCandidate.cursorLineNumber) !== null && _c !== void 0 ? _c : startPos.lineNumber, currentCandidate.highlightRange);
+        deps.setMathInputValue(mathInputValue);
+        highlightDetectedBlock(detected.start, detected.end, context, (_c = currentCandidate.cursorLineNumber) !== null && _c !== void 0 ? _c : startPos.lineNumber, currentCandidate.highlightRange);
     };
     const clearDetectedBlockState = (options) => {
         if (!currentDetectedBlock && !(options === null || options === void 0 ? void 0 : options.force)) {
@@ -231,8 +202,6 @@ export const initBlockAutoDetection = (deps) => {
                 deps.setActiveBlockContext(null);
                 deps.setActiveBlockOriginalSnippet(null);
             }
-            deps.setActiveMathEditCell(null);
-            deps.setTableEditMode("grid");
         }
         if ((options === null || options === void 0 ? void 0 : options.clearActive) || deps.getActiveBlockEditMode() !== "detected") {
             clearBlockHighlight();

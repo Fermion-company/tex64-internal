@@ -15,9 +15,3 @@ yarn-debug.log*
 yarn-error.log*
 .vercel
 .venv/
-
-# Local OCR model outputs (generated)
-Resources/math-ocr/encoder.onnx
-Resources/math-ocr/decoder.onnx
-Resources/math-ocr/tokenizer.json
-Resources/math-ocr/config.json

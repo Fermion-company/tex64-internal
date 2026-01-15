@@ -17,6 +17,7 @@
 ## 補足
 
 - build/format/save 等の失敗も Issues に集約される。
+- 環境依存エラーは `IssueItem.action = "open-runtime"` を付けて実行環境ページへ誘導する。
 
 ## ユーザーメモ
 issueの表示が正しくないことを治療

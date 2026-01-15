@@ -68,8 +68,22 @@ export const initMathLive = (context, deps) => {
                 // ignore value override failures
             }
         }
+        const scrollHost = document.createElement("div");
+        scrollHost.className = "block-math-scroll";
+        scrollHost.appendChild(mathfield);
+        const menuToggle = document.createElement("button");
+        menuToggle.type = "button";
+        menuToggle.className = "block-math-menu-toggle";
+        menuToggle.setAttribute("aria-label", "数式メニュー");
+        menuToggle.setAttribute("aria-haspopup", "menu");
+        menuToggle.innerHTML = `
+      <span class="block-math-menu-line"></span>
+      <span class="block-math-menu-line"></span>
+      <span class="block-math-menu-line"></span>
+    `;
         blockMathInputContainer.innerHTML = "";
-        blockMathInputContainer.appendChild(mathfield);
+        blockMathInputContainer.appendChild(scrollHost);
+        blockMathInputContainer.appendChild(menuToggle);
         const closeMathFieldMenu = () => {
             var _a;
             const internalMenu = (_a = mathfield._mathfield) === null || _a === void 0 ? void 0 : _a.menu;
@@ -93,15 +107,34 @@ export const initMathLive = (context, deps) => {
                 }
             }
         };
+        const toggleMathFieldMenu = () => {
+            const executeCommand = mathfield
+                .executeCommand;
+            if (typeof executeCommand === "function") {
+                executeCommand.call(mathfield, "toggleContextMenu");
+            }
+        };
+        menuToggle.addEventListener("pointerdown", (event) => {
+            event.stopPropagation();
+        });
+        menuToggle.addEventListener("click", (event) => {
+            var _a;
+            event.preventDefault();
+            event.stopPropagation();
+            toggleMathFieldMenu();
+            (_a = mathfield.focus) === null || _a === void 0 ? void 0 : _a.call(mathfield);
+        });
         blockMathInputContainer.addEventListener("pointerdown", (event) => {
             const path = typeof event.composedPath === "function" ? event.composedPath() : [];
             const clickedMenuToggle = path.some((node) => {
-                var _a, _b, _c;
+                var _a, _b, _c, _d;
                 if (!(node instanceof HTMLElement))
                     return false;
-                if (((_a = node.getAttribute) === null || _a === void 0 ? void 0 : _a.call(node, "part")) === "menu-toggle")
+                if ((_a = node.classList) === null || _a === void 0 ? void 0 : _a.contains("block-math-menu-toggle"))
                     return true;
-                return (_c = (_b = node.classList) === null || _b === void 0 ? void 0 : _b.contains("ML__menu-toggle")) !== null && _c !== void 0 ? _c : false;
+                if (((_b = node.getAttribute) === null || _b === void 0 ? void 0 : _b.call(node, "part")) === "menu-toggle")
+                    return true;
+                return (_d = (_c = node.classList) === null || _c === void 0 ? void 0 : _c.contains("ML__menu-toggle")) !== null && _d !== void 0 ? _d : false;
             });
             if (!clickedMenuToggle) {
                 closeMathFieldMenu();
@@ -267,11 +300,17 @@ export const initMathLive = (context, deps) => {
         button[part="virtual-keyboard-toggle"] {
           display: none !important;
         }
+        .ML__menu-toggle {
+          display: none !important;
+        }
+        button[part="menu-toggle"] {
+          display: none !important;
+        }
         .ML__container {
           position: relative !important; /* Anchor for absolute child */
           justify-content: flex-start !important;
           align-items: flex-start !important; /* Force top alignment */
-          padding-right: 2px !important;
+          padding-right: 0 !important;
           height: auto !important; /* Allow growth */
           min-height: 100% !important;
         }

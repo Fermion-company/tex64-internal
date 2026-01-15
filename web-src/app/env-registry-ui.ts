@@ -10,7 +10,6 @@ import type { AppContext } from "./context.js";
 export type EnvRegistryApi = {
   isEnvDisabled: (name: string) => boolean;
   isMathEnvName: (name: string) => boolean;
-  isTableEnvName: (name: string) => boolean;
   getCustomEnvRegistry: () => LatexEnvRegistryEntry[];
   reload: (allowTabSwitch?: boolean) => void;
 };
@@ -611,7 +610,6 @@ export const initEnvRegistry = (
   return {
     isEnvDisabled,
     isMathEnvName: (name) => mathEnvNames.has(name),
-    isTableEnvName: (name) => tableEnvNames.has(name),
     getCustomEnvRegistry: () => customEnvRegistry,
     reload: (allowTabSwitch = false) => {
       loadEnvRegistryState();

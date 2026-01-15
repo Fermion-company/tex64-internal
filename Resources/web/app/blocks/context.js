@@ -15,18 +15,6 @@ const OPTIONAL_BRACKET_ENVS = new Set([
     "gathered",
     "multlined",
     "empheq",
-    "table",
-    "tabular",
-    "tabularx",
-    "tabulary",
-    "longtable",
-    "ltablex",
-    "xltabular",
-    "tabu",
-    "longtabu",
-    "supertabular",
-    "tblr",
-    "longtblr",
     "mathpar",
     "mathparpagebreakable",
 ]);
@@ -40,17 +28,6 @@ const REQUIRED_ENV_ARGS = {
     subnumcases: 1,
     array: 1,
     subarray: 1,
-    tabular: 1,
-    tabularx: 2,
-    tabulary: 2,
-    longtable: 1,
-    ltablex: 2,
-    xltabular: 2,
-    tabu: 1,
-    longtabu: 1,
-    supertabular: 1,
-    tblr: 1,
-    longtblr: 1,
     IEEEeqnarray: 1,
     IEEEeqnarraybox: 1,
     darray: 1,
@@ -93,9 +70,6 @@ const consumeEnvArguments = (snippet, startIndex, envName) => {
         }
     }
     let requiredCount = (_a = REQUIRED_ENV_ARGS[base]) !== null && _a !== void 0 ? _a : 0;
-    if (base === "tabular" && envName.endsWith("*")) {
-        requiredCount = 2;
-    }
     for (let i = 0; i < requiredCount; i += 1) {
         cursor = skipEnvWhitespace(snippet, cursor);
         if (snippet[cursor] !== "{") {
@@ -130,7 +104,7 @@ const splitDisplayWrapper = (snippet, open, close) => {
     }
     return { prefix, suffix };
 };
-export const parseBlockContext = (snippet, deps) => {
+export const parseBlockContext = (snippet) => {
     // 1. Double Dollar (Display)
     const ddMatch = snippet.match(/^(\$\$)([\s\S]*?)(\$\$)$/);
     if (ddMatch) {
@@ -181,9 +155,8 @@ export const parseBlockContext = (snippet, deps) => {
             const prefixEnd = consumeEnvArguments(snippet, envBeginMatch[0].length, envName);
             const prefix = snippet.slice(0, prefixEnd);
             const suffix = endToken;
-            const base = getEnvBaseName(envName);
             return {
-                type: deps.isTableEnvName(base) ? "table" : "math",
+                type: "math",
                 originalSnippet: snippet,
                 prefix,
                 suffix,
