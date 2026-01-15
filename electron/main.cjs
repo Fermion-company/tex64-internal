@@ -155,6 +155,11 @@ const agentService = new AgentService({
   sendToRenderer,
   updateWorkspaceIfNeeded: workspaceHandlers.updateWorkspaceIfNeeded,
   requestIndex: workspaceHandlers.requestIndex,
+  buildService,
+  sendBuildState,
+  sendBuildLog,
+  sendIssues,
+  indexerService,
 });
 
 const buildHandlers = createBuildHandlers({
@@ -431,6 +436,10 @@ ipcMain.on("tex64", (_event, message) => {
     workspaceHandlers.handleSearch(message.query);
     return;
   }
+  if (type === "search:renameSymbol") {
+    agentHandlers.handleSearchRename(message);
+    return;
+  }
 
   if (type === "blocks:save") {
     miscHandlers.handleBlocksSave(message.entry);
@@ -476,6 +485,10 @@ ipcMain.on("tex64", (_event, message) => {
     return;
   }
 
+  if (type === "settings:response") {
+    agentHandlers.handleSettingsResponse(message);
+    return;
+  }
 
   // Environment IPC
   if (type === "env:check") {

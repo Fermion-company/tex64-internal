@@ -1,0 +1,290 @@
+% !TEX encoding = UTF-8 Unicode
+% !TEX TS-program = lualatex
+\documentclass{ltjsarticle}
+\usepackage{amsmath,amssymb,amsthm} % amsthmを追加
+\usepackage{bm}         % 太字ベクトル用
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{booktabs}   % きれいな表のため
+\usepackage{multirow}   % 縦方向のセル結合のため
+
+% 定理環境の定義
+\theoremstyle{definition}
+\newtheorem{theorem}{定理}
+\newtheorem{definition}[theorem]{定義}
+\newtheorem{lemma}[theorem]{補題}
+
+% タイトル情報
+\title{標準的なLaTeX文書（拡張版）}
+\author{著者名}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\begin{abstract}
+この文書は、LaTeXの標準的な機能に加えて、数式や表のより高度な記述例をまとめたものです。
+\end{abstract}
+
+\section{はじめに}
+LaTeXは数式の組版に優れています。ここでは様々な数式や表のレイアウトを紹介します。
+
+\section{数式の例}
+
+\subsection{基本的な記号とギリシャ文字}
+基本的な演算: $a + b$, $a \times b$, $a \div b$, $a \pm b$\\
+分数と根号: $\frac{a}{b}$, $\sqrt{x}$, $\sqrt[3]{y}$\\
+上付き・下付き: $x^2$, $a_n$, ${}_{n}C_{r}$\\
+ギリシャ文字: $\alpha, \beta, \gamma, \delta, \pi, \theta, \Omega, \Sigma$
+
+\subsection{三角関数・対数・極限}
+\begin{equation}
+  \sin^2 \theta + \cos^2 \theta = 1
+\end{equation}
+\begin{equation}
+  \lim_{x \to 0} \frac{\sin x}{x} = 1, \quad \log_a M^p = p \log_a M
+\end{equation}
+
+\subsection{総和・積分}
+\begin{equation}
+  \sum_{k=1}^{n} k = \frac{1}{2}n(n+1)
+\end{equation}
+\begin{equation}
+  \int_{a}^{b} f(x) dx = \left[ F(x) \right]_{a}^{b} = F(b) - F(a)
+\end{equation}
+
+\subsection{行列 (Matrices)}
+行列には \texttt{pmatrix} (丸括弧) や \texttt{bmatrix} (角括弧) などを使います。
+
+\begin{equation}
+  A = \begin{pmatrix}
+    a & b \\
+    c & d
+  \end{pmatrix}, \quad
+  \bm{x} = \begin{bmatrix}
+    x_1 \\
+    x_2 \\
+    \vdots \\
+    x_n
+  \end{bmatrix}
+\end{equation}
+
+\begin{equation}
+   M = \begin{pmatrix}
+    \displaystyle \int_{a}^{b} f(x)dx & \displaystyle \sum_{k=1}^{\infty} \frac{1}{k^2} & \displaystyle \prod_{i=1}^{n} (x - x_i) \\
+    \displaystyle \frac{\partial^2 \Psi}{\partial x^2} & \displaystyle \lim_{n \to \infty} \left( 1 + \frac{x}{n} \right)^n & \displaystyle \sqrt[3]{\frac{x^3 + y^3}{z^3}} \\
+    \displaystyle \oint_{\partial S} \mathbf{E} \cdot d\mathbf{l} & \displaystyle \sum_{n=0}^{\infty} \frac{f^{(n)}(a)}{n!} (x-a)^n & \displaystyle \int_{-\infty}^{\infty} e^{-x^2} dx
+   \end{pmatrix}
+\end{equation}
+
+\subsection{連立方程式と場合分け}
+\texttt{cases} 環境を使用します。
+
+\begin{equation}
+  |x| = \begin{cases}
+    x & (x \ge 0) \\
+    -x & (x < 0)
+  \end{cases}
+\end{equation}
+
+\subsection{複数行の数式 (align)}
+\texttt{align} 環境を使って、等号記号などで位置を揃えます。
+
+\begin{align}
+  (a+b)^3 &= (a+b)(a+b)^2 \\
+          &= (a+b)(a^2 + 2ab + b^2) \\
+          &= a^3 + 3a^2b + 3ab^2 + b^3 \label{eq:expansion}
+\end{align}
+式(\ref{eq:expansion})のようにラベルを参照できます。
+
+\section{定理と証明}
+\begin{definition}
+  偶数とは、2で割り切れる整数のことである。
+\end{definition}
+
+\begin{theorem}
+  偶数と偶数の和は偶数である。
+\end{theorem}
+
+\begin{proof}
+  証明をここに書きます。\qed
+\end{proof}
+
+\section{表の例}
+
+\subsection{罫線を工夫した表 (booktabs)}
+\texttt{booktabs} パッケージを使うと、プロフェッショナルな表が作れます。
+
+\begin{table}[htbp]
+  \centering
+  \caption{成績一覧（booktabs使用）}
+  \begin{tabular}{lrr} \toprule
+    氏名 & 数学 & 英語 \\ \midrule
+    山田 & 85 & 70 \\
+    佐藤 & 90 & 88 \\
+    鈴木 & 75 & 92 \\ \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{セルの結合 (multirow, multicolumn)}
+\texttt{multirow} や \texttt{multicolumn} を使ってセルを結合します。
+
+\begin{table}[htbp]
+  \centering
+  \caption{複雑な表の例}
+  \begin{tabular}{|c|c|c|c|} \hline
+    \multirow{2}{*}{クラス} & \multicolumn{2}{c|}{性別} & \multirow{2}{*}{合計} \\ \cline{2-3}
+     & 男 & 女 & \\ \hline
+    A組 & 15 & 14 & 29 \\ \hline
+    B組 & 16 & 15 & 31 \\ \hline
+  \end{tabular}
+\end{table}
+
+\section{文章要素の例}
+
+\subsection{箇条書き}
+\begin{itemize}
+  \item 重要なポイント
+  \item 補足事項
+  \item 注意点
+\end{itemize}
+
+\subsection{番号付きリスト}
+\begin{enumerate}
+  \item 手順の確認
+  \item 計算の実行
+  \item 結果の整理
+\end{enumerate}
+
+\subsection{説明リスト}
+\begin{description}
+  \item[定義] 用語の意味をまとめる。
+  \item[手順] 作業の流れを整理する。
+  \item[注意] 見落としやすい点を強調する。
+\end{description}
+
+\subsection{引用と脚注}
+\begin{quote}
+  短い引用文をここに示します。文献の抜粋やメモなどを想定します。
+\end{quote}
+本文中で脚注\footnote{脚注の例です。詳細な説明を補足します。}を追加します。
+
+\subsection{コード表示}
+\begin{verbatim}
+for i in range(3):
+    print(i)
+\end{verbatim}
+
+\subsection{URLと図}
+URL の例: \url{https://example.com/tex64}
+\begin{figure}[htbp]
+  \centering
+  \fbox{\rule{0pt}{120pt}\rule{180pt}{0pt}}
+  \caption{ダミー図の例}
+\end{figure}
+
+\section{SyncTeXテスト用サンプル}
+\subsection{見出しと段落}
+% TEST: section-text
+\subsubsection{小見出し}
+これはSyncTeXのテスト用に追加したテキストです。
+% TEST: paragraph
+\paragraph{段落見出し}
+段落のテキストと短い説明文を入れます。
+% TEST: subparagraph
+\subparagraph{小段落}
+小段落のサンプル文です。
+
+\subsection{数式系}
+% TEST: inline-math
+本文中の数式: $E = mc^2$, $\int_0^1 x^2 dx$。
+% TEST: equation
+\begin{equation}
+  \nabla \cdot \mathbf{E} = \frac{\rho}{\varepsilon_0}
+\end{equation}
+% TEST: alignat
+\begin{alignat}{2}
+  f(x) &= x^2 + 1 &\quad& \text{(多項式)} \\
+  g(x) &= \sin x   &\quad& \text{(三角関数)}
+\end{alignat}
+% TEST: gather
+\begin{gather}
+  a^2 + b^2 = c^2 \\
+  e^{i\pi} + 1 = 0
+\end{gather}
+% TEST: multline
+\begin{multline}
+  (x + y + z)^3 = x^3 + y^3 + z^3 + 3x^2y + 3x^2z + 3y^2x + 3y^2z \\
+  + 3z^2x + 3z^2y + 6xyz
+\end{multline}
+% TEST: cases
+\begin{equation}
+  f(x) = \begin{cases}
+    x^2 & (x \ge 0) \\
+    -x  & (x < 0)
+  \end{cases}
+\end{equation}
+% TEST: array
+\[
+  \begin{array}{ccc}
+    1 & 0 & 0 \\
+    0 & 1 & 0 \\
+    0 & 0 & 1
+  \end{array}
+\]
+
+\subsection{リストと引用}
+% TEST: itemize
+\begin{itemize}
+  \item 箇条書きの項目
+  \item 追加の項目
+\end{itemize}
+% TEST: enumerate
+\begin{enumerate}
+  \item 手順1
+  \item 手順2
+\end{enumerate}
+% TEST: description
+\begin{description}
+  \item[用語] 説明を入れます。
+  \item[補足] 追加情報を入れます。
+\end{description}
+% TEST: quote
+\begin{quote}
+  引用テキストのサンプルです。
+\end{quote}
+% TEST: fallback
+% このコメント行はSyncTeXのフォールバック確認用です。
+% TEST: verbatim
+\begin{verbatim}
+def greet():
+    print("hello")
+\end{verbatim}
+
+\subsection{図表}
+% TEST: table
+\begin{table}[htbp]
+  \centering
+  \caption{追加サンプル表}
+  \begin{tabular}{lcr}
+    左 & 中央 & 右 \\
+    A & B & C \\
+  \end{tabular}
+\end{table}
+% TEST: figure
+\begin{figure}[htbp]
+  \centering
+  \fbox{\rule{0pt}{80pt}\rule{120pt}{0pt}}
+  \caption{追加サンプル図}
+\end{figure}
+
+\section{参考文献}
+\begin{thebibliography}{9}
+  \bibitem{lamport} Leslie Lamport. \textit{\LaTeX: A Document Preparation System}. Addison-Wesley, 1994.
+  \bibitem{example} 著者名. 『書名』. 出版社, 2023.
+\end{thebibliography}
+
+\end{document}

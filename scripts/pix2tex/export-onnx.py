@@ -68,7 +68,9 @@ def export_onnx(args, output_dir):
         input_names=["image"],
         output_names=["context"],
         dynamic_axes={"image": {2: "height", 3: "width"}, "context": {1: "seq_len"}},
-        opset_version=17,
+        opset_version=18,
+        do_constant_folding=False,
+        dynamo=False,
     )
 
     decoder = DecoderWrapper(model.decoder.net, args.pad_token)
@@ -84,7 +86,9 @@ def export_onnx(args, output_dir):
             "context": {1: "ctx_len"},
             "logits": {1: "seq_len"},
         },
-        opset_version=17,
+        opset_version=18,
+        do_constant_folding=False,
+        dynamo=False,
     )
 
     config = {

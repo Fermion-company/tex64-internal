@@ -7,12 +7,12 @@ Required files:
 - `tokenizer.json`
 
 Config notes:
-- `decodeStrategy`: `top_k` (pix2tex default), `top_p`, or `greedy`
+- `decodeStrategy`: `greedy` (pix2text default), `top_k`, or `top_p`
 - `filterThres`: threshold used for `top_k` / `top_p` (default `0.9`)
+- `decoderStartToken`: initial token ID for decoding (pix2text uses `</s>`)
 
-Export workflow (developer machine):
-1) Install Python + PyTorch and pix2tex dependencies.
-2) Run `python scripts/pix2tex/export-onnx.py --output Resources/math-ocr`.
-3) Copy `config.template.json` to `config.json` if the script did not create it.
+Model source:
+- The current math OCR model uses `breezedeus/pix2text-mfr` (encoder/decoder ONNX + tokenizer).
+- Preprocessor reference lives in `preprocessor_config.json` (resize to 384×384, mean/std 0.5).
 
 At runtime the app loads these files for offline LaTeX OCR.

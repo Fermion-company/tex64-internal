@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import type { IssueItem } from "./types.js";
+import { getIssueResolution } from "./issue-resolution.js";
 
 type IssueDetail = {
   path: string | null;
@@ -69,18 +70,29 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
       message.className = "issue-message";
       message.textContent = detail.message || issue.message;
 
+      const resolution = document.createElement("div");
+      resolution.className = "issue-resolution";
+      resolution.textContent = getIssueResolution(issue) ?? "";
+
       const hint = document.createElement("div");
       hint.className = "issue-hintline";
       const isRuntimeAction =
         issue.action === "open-runtime" && typeof deps.onOpenRuntimeSettings === "function";
+      const hasJumpTarget = Boolean(detail.path || detail.line);
+      item.disabled = !isRuntimeAction && !hasJumpTarget;
       hint.textContent = isRuntimeAction
         ? "クリックで実行環境を開く"
-        : "クリックで該当行へ移動";
+        : hasJumpTarget
+        ? "クリックで該当行へ移動"
+        : "位置情報がないため移動できません";
 
-      item.append(header, message, hint);
+      item.append(header, message, resolution, hint);
       item.addEventListener("click", () => {
         if (isRuntimeAction) {
           deps.onOpenRuntimeSettings?.();
+          return;
+        }
+        if (!hasJumpTarget) {
           return;
         }
         deps.onFocusIssue(issue);

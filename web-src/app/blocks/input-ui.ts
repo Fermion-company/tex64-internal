@@ -170,12 +170,77 @@ export const initBlockInputUi = (
     return hasNonEmpty ? text : "";
   };
 
-  const normalizeMathValueForOutput = (value: string) => {
-    if (!mathFieldWrapped) {
+  const normalizeMatrixSyntax = (value: string) => {
+    if (!value) {
       return value;
     }
-    const { value: unwrapped, didUnwrap } = unwrapAligned(value);
-    return didUnwrap ? unwrapped : value;
+    return value.replace(
+      /\\begin\{((?:[p|b|B|v|V])?matrix)\}([\s\S]*?)\\end\{\1\}/g,
+      (match, env: string, body: string) => {
+        if (body.includes("&") || body.includes("\\\\")) {
+          return match;
+        }
+        const cells: string[] = [];
+        let i = 0;
+        let valid = true;
+        while (i < body.length) {
+          const ch = body[i];
+          if (ch === "{") {
+            let depth = 0;
+            const start = i + 1;
+            for (; i < body.length; i += 1) {
+              const inner = body[i];
+              if (inner === "{") depth += 1;
+              if (inner === "}") {
+                depth -= 1;
+                if (depth === 0) {
+                  cells.push(body.slice(start, i).trim());
+                  i += 1;
+                  break;
+                }
+              }
+            }
+            if (depth !== 0) {
+              valid = false;
+              break;
+            }
+            continue;
+          }
+          if (!/\s/.test(ch)) {
+            const start = i;
+            while (i < body.length && !/\s/.test(body[i])) {
+              i += 1;
+            }
+            cells.push(body.slice(start, i).trim());
+            continue;
+          }
+          i += 1;
+        }
+        if (!valid) {
+          return match;
+        }
+        const filtered = cells.filter((cell) => cell.length > 0);
+        if (filtered.length === 0) {
+          return match;
+        }
+        const size = Math.sqrt(filtered.length);
+        const n = Math.round(size);
+        if (!Number.isFinite(size) || n * n !== filtered.length) {
+          return match;
+        }
+        const rows: string[] = [];
+        for (let r = 0; r < n; r += 1) {
+          const row = filtered.slice(r * n, (r + 1) * n);
+          rows.push(row.join("&"));
+        }
+        return `\\begin{${env}}${rows.join("\\\\")}\\end{${env}}`;
+      }
+    );
+  };
+
+  const normalizeMathValueForOutput = (value: string) => {
+    const resolved = mathFieldWrapped ? unwrapAligned(value).value : value;
+    return normalizeMatrixSyntax(resolved);
   };
 
   const prepareMathValueForField = (value: string) => {

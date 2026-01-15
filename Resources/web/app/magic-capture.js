@@ -28,9 +28,17 @@ export const initMagicCapture = (context, deps) => {
             return;
         deps.updateIssues(0, "", "info", []);
     };
+    const reportIssue = (message) => {
+        if (!message)
+            return;
+        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    };
     const setStatus = (message) => {
         var _a;
         (_a = deps.setStatus) === null || _a === void 0 ? void 0 : _a.call(deps, message);
+        if (message) {
+            reportIssue(message);
+        }
     };
     const resolveImageGeometry = () => {
         if (!(captureCropCanvas instanceof HTMLElement))

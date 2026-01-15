@@ -5,23 +5,21 @@ const DEFAULT_CONFIG = {
   encoder: "encoder.onnx",
   decoder: "decoder.onnx",
   tokenizer: "tokenizer.json",
-  encoderInput: "image",
-  encoderOutput: "context",
-  decoderInputTokens: "tokens",
-  decoderInputContext: "context",
+  encoderInput: "pixel_values",
+  encoderOutput: "last_hidden_state",
+  decoderInputTokens: "input_ids",
+  decoderInputContext: "encoder_hidden_states",
   decoderOutput: "logits",
   bosToken: 1,
   eosToken: 2,
   padToken: 0,
+  decoderStartToken: 2,
   maxSeqLen: 512,
   decodeStrategy: "greedy",
   filterThres: 0.9,
   topP: 0.9,
-  temperature: 0.2,
-  maxWidth: 672,
-  maxHeight: 192,
-  minWidth: 32,
-  minHeight: 32,
+  temperature: 1.0,
+  channels: 3,
 };
 
 const FALLBACK_MIN_CONFIDENCE = 70;
@@ -41,8 +39,9 @@ const buildIdToToken = (tokenizer) => {
 const decodeTokens = (tokens, idToToken) => {
   const text = tokens.map((id) => idToToken[id] ?? "").join("");
   return text
-    .replace(/\[PAD\]|\[BOS\]|\[EOS\]/g, "")
+    .replace(/<pad>|<s>|<\/s>|<unk>|<mask>/g, "")
     .replace(/Ġ/g, " ")
+    .replace(/▁/g, " ")
     .trim();
 };
 
@@ -76,6 +75,174 @@ const postProcessLatex = (value) => {
   return result;
 };
 
+const fixMatrixSeparators = (value) => {
+  if (!value) return value;
+  return value.replace(
+    /\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}/g,
+    (match, body) => {
+      if (body.includes("&") || body.includes("\\\\")) {
+        return match;
+      }
+      const cells = [];
+      let i = 0;
+      let valid = true;
+      while (i < body.length) {
+        const ch = body[i];
+        if (ch === "{") {
+          let depth = 0;
+          const start = i + 1;
+          for (; i < body.length; i += 1) {
+            const inner = body[i];
+            if (inner === "{") depth += 1;
+            if (inner === "}") {
+              depth -= 1;
+              if (depth === 0) {
+                cells.push(body.slice(start, i).trim());
+                i += 1;
+                break;
+              }
+            }
+          }
+          if (depth !== 0) {
+            valid = false;
+            break;
+          }
+          continue;
+        }
+        if (!/\s/.test(ch)) {
+          const start = i;
+          while (i < body.length && !/\s/.test(body[i])) {
+            i += 1;
+          }
+          cells.push(body.slice(start, i).trim());
+          continue;
+        }
+        i += 1;
+      }
+      if (!valid) {
+        return match;
+      }
+      const filtered = cells.filter((cell) => cell.length > 0);
+      if (filtered.length === 0) {
+        return match;
+      }
+      const size = Math.sqrt(filtered.length);
+      const n = Math.round(size);
+      if (!Number.isFinite(size) || n * n !== filtered.length) {
+        return match;
+      }
+      const rows = [];
+      for (let r = 0; r < n; r += 1) {
+        const row = filtered.slice(r * n, (r + 1) * n);
+        rows.push(row.join("&"));
+      }
+      return `\\begin{matrix}${rows.join("\\\\")}\\end{matrix}`;
+    }
+  );
+};
+
+const splitMatrixRows = (text) => {
+  const rows = [];
+  let current = "";
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\\" && text[i + 1] === "\\") {
+      rows.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+    current += text[i];
+  }
+  rows.push(current);
+  return rows;
+};
+
+const stripOuterBraces = (text) => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return trimmed;
+  }
+  let depth = 0;
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed[i];
+    if (ch === "{") depth += 1;
+    if (ch === "}") depth -= 1;
+    if (depth === 0 && i < trimmed.length - 1) {
+      return trimmed;
+    }
+  }
+  return trimmed.slice(1, -1).trim();
+};
+
+const matrixBodyToBinom = (body) => {
+  const rows = splitMatrixRows(body).map((row) => row.trim()).filter(Boolean);
+  if (rows.length === 2 && rows.every((row) => !row.includes("&"))) {
+    return `\\binom{${stripOuterBraces(rows[0])}}{${stripOuterBraces(rows[1])}}`;
+  }
+  if (rows.length === 1 && !rows[0].includes("&")) {
+    const cells = [];
+    let i = 0;
+    let valid = true;
+    while (i < rows[0].length) {
+      const ch = rows[0][i];
+      if (ch === "{") {
+        let depth = 0;
+        const start = i + 1;
+        for (; i < rows[0].length; i += 1) {
+          const inner = rows[0][i];
+          if (inner === "{") depth += 1;
+          if (inner === "}") {
+            depth -= 1;
+            if (depth === 0) {
+              cells.push(rows[0].slice(start, i).trim());
+              i += 1;
+              break;
+            }
+          }
+        }
+        if (depth !== 0) {
+          valid = false;
+          break;
+        }
+        continue;
+      }
+      if (!/\s/.test(ch)) {
+        const start = i;
+        while (i < rows[0].length && !/\s/.test(rows[0][i])) {
+          i += 1;
+        }
+        cells.push(rows[0].slice(start, i).trim());
+        continue;
+      }
+      i += 1;
+    }
+    if (!valid) {
+      return null;
+    }
+    if (cells.length === 2) {
+      return `\\binom{${stripOuterBraces(cells[0])}}{${stripOuterBraces(cells[1])}}`;
+    }
+  }
+  return null;
+};
+
+const normalizeBinom = (value) => {
+  if (!value) return value;
+  const replaceWithBinom = (match, body) => {
+    const result = matrixBodyToBinom(body);
+    return result ? result : match;
+  };
+  let output = value.replace(
+    /\\left\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\\right\)/g,
+    replaceWithBinom
+  );
+  output = output.replace(
+    /\(\s*\\begin\{matrix\}([\s\S]*?)\\end\{matrix\}\s*\)/g,
+    (match, body) => replaceWithBinom(match, body)
+  );
+  return output;
+};
+
 const normalizeFallbackText = (value) => {
   if (!value) return "";
   let cleaned = value.replace(/\s+/g, "");
@@ -95,8 +262,8 @@ const isSimpleFormula = (value) =>
 const looksLikeGarbage = (value) => {
   if (!value) return true;
   const trimmed = value.trim();
-  if (trimmed.length > 120) return true;
-  if ((trimmed.match(/\\pi/g) ?? []).length > 4) return true;
+  if (trimmed.length > 300) return true;
+  if ((trimmed.match(/\\pi/g) ?? []).length > 8) return true;
   if (trimmed.includes("\\begin{array}")) return true;
   if ((trimmed.match(/[A-Za-z0-9]/g) ?? []).length === 0) return true;
   return false;
@@ -165,8 +332,16 @@ const filterTopP = (logits, thres) => {
   return filtered;
 };
 
-const sampleFromProbs = (probs) => {
-  const target = Math.random();
+const createRng = (seed) => {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+};
+
+const sampleFromProbs = (probs, rng = Math.random) => {
+  const target = rng();
   let cumulative = 0;
   for (let i = 0; i < probs.length; i += 1) {
     cumulative += probs[i];
@@ -313,10 +488,11 @@ class MathOcrService {
     let pix2texError = null;
 
     try {
+      const channels = Number.isFinite(config.channels) ? config.channels : 1;
       const imageTensor = new this.ort.Tensor(
         "float32",
         floatData,
-        [1, 1, height, width]
+        [1, channels, height, width]
       );
       const encoderFeeds = {
         [config.encoderInput]: imageTensor,
@@ -328,9 +504,15 @@ class MathOcrService {
       }
 
       const bosToken = config.bosToken;
+      const decoderStartToken = Number.isFinite(config.decoderStartToken)
+        ? config.decoderStartToken
+        : bosToken;
       const eosToken = config.eosToken;
       const maxSeqLen = config.maxSeqLen;
-      const tokens = [bosToken];
+      const minTokens = Math.max(5, Math.round(width / 90));
+      const rng = createRng((width * 1000 + height) >>> 0);
+      const isE2E = process.env.TEX180_E2E === "1";
+      const tokens = [decoderStartToken];
 
       for (let step = 0; step < maxSeqLen; step += 1) {
         const trimmed = tokens.slice(-maxSeqLen);
@@ -370,15 +552,27 @@ class MathOcrService {
               : filterTopP(slice, filterThres);
           const scaled = filtered.map((value) => value / temperature);
           const probs = softmax(scaled);
-          nextToken = sampleFromProbs(probs);
+          nextToken = sampleFromProbs(probs, rng);
         } else {
           let maxValue = -Infinity;
+          let secondValue = -Infinity;
+          let maxIndex = 0;
+          let secondIndex = 0;
           for (let i = 0; i < vocabSize; i += 1) {
             const value = logits[offset + i];
             if (value > maxValue) {
+              secondValue = maxValue;
+              secondIndex = maxIndex;
               maxValue = value;
-              nextToken = i;
+              maxIndex = i;
+            } else if (value > secondValue) {
+              secondValue = value;
+              secondIndex = i;
             }
+          }
+          nextToken = maxIndex;
+          if (nextToken === eosToken && tokens.length < minTokens && secondIndex !== eosToken) {
+            nextToken = secondIndex;
           }
         }
 
@@ -389,14 +583,13 @@ class MathOcrService {
       }
 
       const decoded = decodeTokens(tokens, this.idToToken);
-      latex = postProcessLatex(decoded);
+      latex = normalizeBinom(fixMatrixSeparators(postProcessLatex(decoded)));
     } catch (error) {
       pix2texError = error instanceof Error ? error : new Error("Math OCR failed.");
     }
 
     const shouldTryFallback =
-      !!imageDataUrl &&
-      (pix2texError || !latex || looksLikeGarbage(latex) || !isSimpleFormula(latex));
+      !!imageDataUrl && (pix2texError || !latex || looksLikeGarbage(latex));
 
     if (shouldTryFallback) {
       const fallback = await this.recognizeFallback(imageDataUrl).catch(() => ({
@@ -409,11 +602,19 @@ class MathOcrService {
         fallbackConfidence === null ||
         fallbackConfidence <= 0 ||
         fallbackConfidence >= FALLBACK_MIN_CONFIDENCE;
+      const fallbackAddsScript =
+        (fallbackText.includes("^") && !latex.includes("^")) ||
+        (fallbackText.includes("_") && !latex.includes("_"));
+      const shouldPreferFallback =
+        !latex ||
+        pix2texError ||
+        looksLikeGarbage(latex) ||
+        (fallbackAddsScript && fallbackText.length >= latex.length);
       if (
         fallbackText &&
         confidentEnough &&
         isSimpleFormula(fallbackText) &&
-        (!latex || pix2texError || looksLikeGarbage(latex) || !isSimpleFormula(latex))
+        shouldPreferFallback
       ) {
         return { latex: fallbackText };
       }

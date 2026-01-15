@@ -94,16 +94,39 @@ export type RootSource = "auto" | "manual";
 export type LauncherTemplate = "paper" | "lecture";
 export type AgentStatusState = "idle" | "running" | "error";
 export type AgentSettings = {
-  apiKey: string;
-  model: string;
+  apiKey?: string;
+  model?: string;
   temperature: number;
   maxOutputTokens: number;
+  maxIterations?: number;
+  stream?: boolean;
+  autoApply?: boolean;
+  autoBuild?: boolean;
+  maxFileBytes?: number;
+  maxReadFiles?: number;
+  openFileMaxBytes?: number;
+  openFileMaxChars?: number;
+  allowedTopLevel?: string[];
+  blockedTopLevel?: string[];
+  textExtensions?: string[];
+  extraTextExtensions?: string[];
+};
+export type AppSettingsSnapshot = {
+  compileEngine: string;
+  autoSynctexOnBuild: boolean;
+  pdfViewerMode: "window" | "tab";
+  alignEnv: boolean;
+  formatSettings: EditorFormatSettings;
 };
 export type AgentProposal = {
   id: string;
+  type?: "write" | "patch" | "delete" | "rename" | "mkdir";
   path: string;
+  oldPath?: string;
   content: string;
   originalContent?: string;
+  encoding?: "utf8" | "base64";
+  isBinary?: boolean;
   summary?: string;
   isNewFile?: boolean;
   conversationId?: string;
@@ -227,6 +250,7 @@ export type BridgeWindow = Window &
       conversationId?: string;
     }) => void;
     tex64AgentMessage?: (payload: { text: string; conversationId?: string }) => void;
+    tex64AgentMessageDelta?: (payload: { text: string; conversationId?: string }) => void;
     tex64AgentTool?: (payload: {
       name: string;
       summary?: string;

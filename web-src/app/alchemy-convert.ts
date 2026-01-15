@@ -78,6 +78,11 @@ export const initAlchemyConvert = (
   let busy = false;
   let captureItems: CaptureItem[] = [];
 
+  const reportIssue = (message: string) => {
+    if (!message) return;
+    deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+  };
+
   const setStatus = (message: string) => {
     if (alchemyStatusLine instanceof HTMLElement) {
       alchemyStatusLine.textContent = message;
@@ -132,7 +137,9 @@ export const initAlchemyConvert = (
       localStorage.setItem("tex64_capture_board", JSON.stringify(captureItems));
     } catch (e) {
       console.error("Failed to save capture board", e);
-      setStatus("保存容量が一杯です。古いアイテムを削除してください。");
+      const message = "保存容量が一杯です。古いアイテムを削除してください。";
+      setStatus(message);
+      reportIssue(message);
     }
   };
 
@@ -257,7 +264,9 @@ export const initAlchemyConvert = (
   const handleCaptureImage = (imageDataUrl: string) => {
     if (busy) return;
     if (!imageDataUrl) {
-      setStatus("画像がありません。");
+      const message = "画像がありません。";
+      setStatus(message);
+      reportIssue(message);
       return;
     }
     setBusy(true);
@@ -268,7 +277,9 @@ export const initAlchemyConvert = (
       .then((result) => {
         const text = result.text?.trim() ?? "";
         if (!text) {
-          setStatus("文字を検出できませんでした。");
+          const message = "文字を検出できませんでした。";
+          setStatus(message);
+          reportIssue(message);
         } else {
           setStatus(""); // Clear status on success as requested
         }
@@ -278,6 +289,7 @@ export const initAlchemyConvert = (
       .catch((error) => {
         const message = error instanceof Error ? error.message : "解析失敗";
         setStatus(message);
+        reportIssue(message);
         // Add item with error indication? Or just add image.
         addItem(imageDataUrl, "(解析失敗)");
       })
@@ -328,7 +340,9 @@ export const initAlchemyConvert = (
 
   const handleFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      setStatus("対応していないファイル形式です（画像のみ）");
+      const message = "対応していないファイル形式です（画像のみ）";
+      setStatus(message);
+      reportIssue(message);
       return;
     }
     const reader = new FileReader();

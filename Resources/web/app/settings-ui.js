@@ -399,6 +399,18 @@ export const initSettingsUi = (context, deps) => {
     const saveEditorPdfViewerModeState = () => {
         localStorage.setItem(editorPdfViewerModeKey, pdfViewerMode);
     };
+    const setCompileEngine = (engine) => {
+        if (!engine || !texEngineCommands.has(engine)) {
+            return;
+        }
+        localStorage.setItem(compileEngineKey, engine);
+        updateEngineUI();
+    };
+    const setEditorAlignEnvEnabled = (enabled) => {
+        editorAlignEnvEnabled = Boolean(enabled);
+        saveEditorAlignEnvState();
+        updateEditorAlignEnvUI();
+    };
     const toggleEditorAlignEnv = () => {
         editorAlignEnvEnabled = !editorAlignEnvEnabled;
         saveEditorAlignEnvState();
@@ -458,6 +470,11 @@ export const initSettingsUi = (context, deps) => {
         saveEditorAutoSynctexBuildState();
         updateEditorAutoSynctexBuildUI();
     };
+    const setEditorAutoSynctexBuildEnabled = (enabled) => {
+        autoSynctexOnBuildEnabled = Boolean(enabled);
+        saveEditorAutoSynctexBuildState();
+        updateEditorAutoSynctexBuildUI();
+    };
     const setPdfViewerMode = (mode) => {
         pdfViewerMode = mode;
         saveEditorPdfViewerModeState();
@@ -471,6 +488,37 @@ export const initSettingsUi = (context, deps) => {
         loadStartupSettings();
         loadEditorAlignEnvState();
         loadEditorFormatSettings();
+    };
+    const getSettingsSnapshot = () => ({
+        compileEngine: localStorage.getItem(compileEngineKey) || "lualatex",
+        autoSynctexOnBuild: autoSynctexOnBuildEnabled,
+        pdfViewerMode,
+        alignEnv: editorAlignEnvEnabled,
+        formatSettings: {
+            ...editorFormatSettings,
+            customVerbatim: [...editorFormatSettings.customVerbatim],
+        },
+    });
+    const applySettingsPatch = (patch) => {
+        if (!patch || typeof patch !== "object") {
+            return getSettingsSnapshot();
+        }
+        if (typeof patch.compileEngine === "string") {
+            setCompileEngine(patch.compileEngine);
+        }
+        if (typeof patch.autoSynctexOnBuild === "boolean") {
+            setEditorAutoSynctexBuildEnabled(patch.autoSynctexOnBuild);
+        }
+        if (patch.pdfViewerMode === "window" || patch.pdfViewerMode === "tab") {
+            setPdfViewerMode(patch.pdfViewerMode);
+        }
+        if (typeof patch.alignEnv === "boolean") {
+            setEditorAlignEnvEnabled(patch.alignEnv);
+        }
+        if (patch.formatSettings && typeof patch.formatSettings === "object") {
+            setEditorFormatSettings(patch.formatSettings);
+        }
+        return getSettingsSnapshot();
     };
     setSettingsPage(activeSettingsPage);
     updateEngineUI();
@@ -584,6 +632,8 @@ export const initSettingsUi = (context, deps) => {
         getAutoSynctexOnBuildEnabled: () => autoSynctexOnBuildEnabled,
         getPdfViewerMode: () => pdfViewerMode,
         buildFormatSettingsPayload,
+        getSettingsSnapshot,
+        applySettingsPatch,
         checkEnvironmentStatus,
         updateEnvStatus,
         refreshCompileEngine: updateEngineUI,

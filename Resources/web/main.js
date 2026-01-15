@@ -84,8 +84,30 @@ window.addEventListener("DOMContentLoaded", () => {
         viewers: { primary: primaryViewer, secondary: secondaryViewer },
     });
     let updateIssues = (_count, _summary, _status, _issues) => { };
+    let lastIssueSnapshot = null;
+    const recordIssuesSnapshot = (count, summary, status, issues) => {
+        lastIssueSnapshot = {
+            count,
+            summary,
+            status,
+            issues,
+            updatedAt: Date.now(),
+        };
+    };
     const updateIssuesProxy = (count, summary, status, issues) => {
-        updateIssues(count, summary, status, issues);
+        const normalizedIssues = issues.length > 0
+            ? issues
+            : count > 0
+                ? [
+                    {
+                        severity: status === "error" ? "error" : "warning",
+                        message: (summary === null || summary === void 0 ? void 0 : summary.trim()) || "エラーが発生しました。",
+                    },
+                ]
+                : [];
+        const normalizedCount = count > 0 ? Math.max(count, normalizedIssues.length) : normalizedIssues.length;
+        recordIssuesSnapshot(normalizedCount, summary, status, normalizedIssues);
+        updateIssues(normalizedCount, summary, status, normalizedIssues);
     };
     const postToNative = initBridgeSender({
         bridgeWindow,
@@ -218,6 +240,7 @@ window.addEventListener("DOMContentLoaded", () => {
         },
         search: {
             handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
+            handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
         },
         getMonacoApi: appActions.getMonacoApi,
     });
@@ -254,13 +277,72 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         return trimmed;
     };
+    const stripLatexCommandBlocks = (value, commands) => {
+        let result = "";
+        for (let i = 0; i < value.length; i += 1) {
+            if (value[i] !== "\\") {
+                result += value[i];
+                continue;
+            }
+            let name = "";
+            let cursor = i + 1;
+            while (cursor < value.length && /[A-Za-z]/.test(value[cursor])) {
+                name += value[cursor];
+                cursor += 1;
+            }
+            if (!name || !commands.has(name)) {
+                result += value[i];
+                continue;
+            }
+            while (cursor < value.length && /\s/.test(value[cursor])) {
+                cursor += 1;
+            }
+            if (value[cursor] !== "{") {
+                result += value[i];
+                continue;
+            }
+            let depth = 0;
+            let end = cursor;
+            for (; end < value.length; end += 1) {
+                if (value[end] === "{") {
+                    depth += 1;
+                }
+                else if (value[end] === "}") {
+                    depth -= 1;
+                    if (depth === 0) {
+                        break;
+                    }
+                }
+            }
+            if (depth === 0) {
+                i = end;
+                continue;
+            }
+            result += value[i];
+        }
+        return result;
+    };
     const normalizeMathCaptureText = (value) => {
         const trimmed = value.trim();
         if (!trimmed) {
             return "";
         }
-        const collapsed = trimmed.replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
-        return stripMathCaptureWrapper(collapsed);
+        const unwrapped = stripMathCaptureWrapper(trimmed);
+        const noWhitespace = unwrapped.replace(/\s+/g, "");
+        const textCommands = new Set([
+            "text",
+            "mbox",
+            "textnormal",
+            "textrm",
+            "textsf",
+            "texttt",
+            "textbf",
+            "textit",
+        ]);
+        let cleaned = stripLatexCommandBlocks(noWhitespace, textCommands);
+        cleaned = cleaned.replace(/\\newline/g, "").replace(/\\\\/g, "");
+        cleaned = cleaned.replace(/[^A-Za-z0-9\\{}_^=+\-*/().,\[\]|<>!:]/g, "");
+        return cleaned;
     };
     const handleMathCaptureImage = (imageDataUrl) => {
         if (mathCaptureBusy) {
@@ -339,10 +421,9 @@ window.addEventListener("DOMContentLoaded", () => {
     aiChatUi = initAiChatUi(appContext, {
         postToNative: (payload, silent) => postToNative(payload, silent),
         getActiveFilePath: () => editorSession.getActiveFilePath(),
-        diffModal: {
-            showDiffModal: diffModalApi.showDiffModal,
-            setDiffContext: diffModalApi.setDiffContext,
-        },
+        getActiveFileSnapshot: () => editorSession.getActiveFileSnapshot(),
+        getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
+        getRecentIssuesSnapshot: () => lastIssueSnapshot,
     });
     const blockInputApi = initBlockInputUi(appContext, {
         enableTableBlocks: ENABLE_TABLE_BLOCKS,
@@ -449,6 +530,32 @@ window.addEventListener("DOMContentLoaded", () => {
         getWorkspaceRootKey: appActions.getWorkspaceRootKey,
         postToNative: (message) => {
             postToNative(message);
+        },
+        openAiPanel: () => {
+            setActiveTab("ai");
+        },
+        buildRenameContext: () => {
+            const context = {};
+            const activeSnapshot = editorSession.getActiveFileSnapshot();
+            if (activeSnapshot) {
+                context.activeFilePath = activeSnapshot.path;
+                context.activeFileContent = activeSnapshot.content;
+                context.activeFileIsDirty = activeSnapshot.isDirty;
+                context.activeFileContentTruncated = false;
+                context.activeFileContentLength = activeSnapshot.content.length;
+            }
+            const openSnapshots = editorSession.getOpenFileSnapshots({
+                maxFiles: 0,
+                maxChars: 0,
+            });
+            if (openSnapshots) {
+                const dirtySnapshots = openSnapshots.snapshots.filter((snapshot) => snapshot.isDirty);
+                if (dirtySnapshots.length > 0) {
+                    context.openFiles = openSnapshots.files;
+                    context.openFileSnapshots = dirtySnapshots;
+                }
+            }
+            return context;
         },
         openSearchResult: (result) => {
             openInSecondaryEditor(result.path, result.line);
@@ -690,7 +797,8 @@ window.addEventListener("DOMContentLoaded", () => {
     };
     initBridgeHandlers({
         bridgeWindow,
-        updateIssues: workspaceController.updateIssues,
+        postToNative: (payload, silent) => postToNative(payload, silent),
+        updateIssues: updateIssuesProxy,
         handleWorkspaceUpdate: workspaceController.handleWorkspaceUpdate,
         handleIndexUpdate: workspaceController.handleIndexUpdate,
         handleLauncherStatus,
@@ -715,11 +823,14 @@ window.addEventListener("DOMContentLoaded", () => {
         },
         settings: {
             updateEnvStatus: (command, available) => settingsUi.updateEnvStatus(command, available),
+            getSettingsSnapshot: () => settingsUi.getSettingsSnapshot(),
+            applySettingsPatch: (patch) => settingsUi.applySettingsPatch(patch),
         },
         agent: {
             handleSettings: (settings) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleSettings(settings),
             handleStatus: (state, message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleStatus(state, message, conversationId),
             handleMessage: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessage(text, conversationId),
+            handleMessageDelta: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageDelta(text, conversationId),
             handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),
             handleProposal: (proposal) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposal(proposal),
             handleApplyResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleApplyResult(payload),
@@ -729,9 +840,11 @@ window.addEventListener("DOMContentLoaded", () => {
             handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),
             handleSaveResult: (payload) => editorSession.handleSaveResult(payload),
             handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
+            applyContentToOpenFile: (path, content, options) => editorSession.applyContentToOpenFile(path, content, options),
         },
     });
     postToNative({ type: "alchemy:settings:get" }, true);
+    postToNative({ type: "agent:settings:get" }, true);
     initMonacoSetup(appContext, {
         editorSession,
         editorTabs: {

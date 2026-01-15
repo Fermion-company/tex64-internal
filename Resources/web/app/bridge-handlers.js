@@ -54,6 +54,10 @@ export const initBridgeHandlers = (deps) => {
         var _a;
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleMessage(payload.text, payload.conversationId);
     };
+    bridgeWindow.tex64AgentMessageDelta = (payload) => {
+        var _a, _b;
+        (_b = (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleMessageDelta) === null || _b === void 0 ? void 0 : _b.call(_a, payload.text, payload.conversationId);
+    };
     bridgeWindow.tex64AgentTool = (payload) => {
         var _a;
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleTool(payload);
@@ -71,7 +75,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -91,62 +95,110 @@ export const initBridgeHandlers = (deps) => {
             case "updateSearch":
                 (_e = bridgeWindow.tex64UpdateSearch) === null || _e === void 0 ? void 0 : _e.call(bridgeWindow, message.payload);
                 break;
+            case "search:renameResult":
+                (_g = (_f = deps.search).handleRenameResult) === null || _g === void 0 ? void 0 : _g.call(_f, message.payload);
+                break;
             case "updateGit":
-                (_f = bridgeWindow.tex64UpdateGit) === null || _f === void 0 ? void 0 : _f.call(bridgeWindow, message.payload);
+                (_h = bridgeWindow.tex64UpdateGit) === null || _h === void 0 ? void 0 : _h.call(bridgeWindow, message.payload);
                 break;
             case "updateGitDiff":
-                (_g = bridgeWindow.tex64UpdateGitDiff) === null || _g === void 0 ? void 0 : _g.call(bridgeWindow, message.payload);
+                (_j = bridgeWindow.tex64UpdateGitDiff) === null || _j === void 0 ? void 0 : _j.call(bridgeWindow, message.payload);
                 break;
             case "gitActionResult":
-                (_h = bridgeWindow.tex64UpdateGitActionResult) === null || _h === void 0 ? void 0 : _h.call(bridgeWindow, message.payload);
+                (_k = bridgeWindow.tex64UpdateGitActionResult) === null || _k === void 0 ? void 0 : _k.call(bridgeWindow, message.payload);
                 break;
             case "openFileResult":
-                (_j = bridgeWindow.tex64OpenFileResult) === null || _j === void 0 ? void 0 : _j.call(bridgeWindow, message.payload);
+                (_l = bridgeWindow.tex64OpenFileResult) === null || _l === void 0 ? void 0 : _l.call(bridgeWindow, message.payload);
                 break;
             case "saveResult":
-                (_k = bridgeWindow.tex64SaveResult) === null || _k === void 0 ? void 0 : _k.call(bridgeWindow, message.payload);
+                (_m = bridgeWindow.tex64SaveResult) === null || _m === void 0 ? void 0 : _m.call(bridgeWindow, message.payload);
                 break;
             case "formatResult":
-                (_l = bridgeWindow.tex64FormatResult) === null || _l === void 0 ? void 0 : _l.call(bridgeWindow, message.payload);
+                (_o = bridgeWindow.tex64FormatResult) === null || _o === void 0 ? void 0 : _o.call(bridgeWindow, message.payload);
                 break;
             case "buildLog":
-                deps.build.handleBuildLog((_o = (_m = message.payload) === null || _m === void 0 ? void 0 : _m.log) !== null && _o !== void 0 ? _o : null);
+                deps.build.handleBuildLog((_q = (_p = message.payload) === null || _p === void 0 ? void 0 : _p.log) !== null && _q !== void 0 ? _q : null);
                 break;
             case "synctex:forwardResult":
                 deps.build.handleSynctexForwardResult(message.payload);
                 break;
             case "renameResult":
-                (_p = bridgeWindow.tex64RenameResult) === null || _p === void 0 ? void 0 : _p.call(bridgeWindow, message.payload);
+                (_r = bridgeWindow.tex64RenameResult) === null || _r === void 0 ? void 0 : _r.call(bridgeWindow, message.payload);
                 break;
             case "env:checkResult":
-                (_q = deps.settings) === null || _q === void 0 ? void 0 : _q.updateEnvStatus((_r = message.payload.command) !== null && _r !== void 0 ? _r : "", Boolean(message.payload.available));
+                (_s = deps.settings) === null || _s === void 0 ? void 0 : _s.updateEnvStatus((_t = message.payload.command) !== null && _t !== void 0 ? _t : "", Boolean(message.payload.available));
                 break;
             case "launcherStatus":
                 deps.handleLauncherStatus(message.payload);
                 break;
             case "alchemy:settings":
-                (_s = deps.alchemy) === null || _s === void 0 ? void 0 : _s.handleSettings(message.payload);
+                (_u = deps.alchemy) === null || _u === void 0 ? void 0 : _u.handleSettings(message.payload);
                 break;
             case "agent:settings":
-                (_t = deps.agent) === null || _t === void 0 ? void 0 : _t.handleSettings(message.payload.settings);
+                (_v = deps.agent) === null || _v === void 0 ? void 0 : _v.handleSettings(message.payload.settings);
                 break;
+            case "settings:request": {
+                const payload = message.payload;
+                const requestId = payload === null || payload === void 0 ? void 0 : payload.requestId;
+                if (!requestId) {
+                    break;
+                }
+                let snapshot = null;
+                let ok = false;
+                if ((payload === null || payload === void 0 ? void 0 : payload.action) === "set") {
+                    snapshot = (_z = (_x = (_w = deps.settings) === null || _w === void 0 ? void 0 : _w.applySettingsPatch) === null || _x === void 0 ? void 0 : _x.call(_w, (_y = payload.settings) !== null && _y !== void 0 ? _y : {})) !== null && _z !== void 0 ? _z : null;
+                    ok = Boolean(snapshot);
+                }
+                else {
+                    snapshot = (_2 = (_1 = (_0 = deps.settings) === null || _0 === void 0 ? void 0 : _0.getSettingsSnapshot) === null || _1 === void 0 ? void 0 : _1.call(_0)) !== null && _2 !== void 0 ? _2 : null;
+                    ok = Boolean(snapshot);
+                }
+                const keys = Array.isArray(payload === null || payload === void 0 ? void 0 : payload.keys) ? payload.keys : [];
+                let settings = snapshot;
+                if (snapshot && keys.length > 0) {
+                    const filtered = {};
+                    const snapshotRecord = snapshot;
+                    keys.forEach((key) => {
+                        if (key in snapshotRecord) {
+                            filtered[key] = snapshotRecord[key];
+                        }
+                    });
+                    settings = filtered;
+                }
+                deps.postToNative({
+                    type: "settings:response",
+                    requestId,
+                    ok,
+                    settings,
+                    error: ok ? undefined : "設定が取得できませんでした。",
+                }, true);
+                break;
+            }
             case "agent:status":
-                (_u = deps.agent) === null || _u === void 0 ? void 0 : _u.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
+                (_3 = deps.agent) === null || _3 === void 0 ? void 0 : _3.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
                 break;
             case "agent:message":
-                (_v = deps.agent) === null || _v === void 0 ? void 0 : _v.handleMessage((_w = message.payload.text) !== null && _w !== void 0 ? _w : "", message.payload.conversationId);
+                (_4 = deps.agent) === null || _4 === void 0 ? void 0 : _4.handleMessage((_5 = message.payload.text) !== null && _5 !== void 0 ? _5 : "", message.payload.conversationId);
+                break;
+            case "agent:messageDelta":
+                (_7 = (_6 = deps.agent) === null || _6 === void 0 ? void 0 : _6.handleMessageDelta) === null || _7 === void 0 ? void 0 : _7.call(_6, (_8 = message.payload.text) !== null && _8 !== void 0 ? _8 : "", message.payload.conversationId);
                 break;
             case "agent:tool":
-                (_x = deps.agent) === null || _x === void 0 ? void 0 : _x.handleTool(message.payload);
+                (_9 = deps.agent) === null || _9 === void 0 ? void 0 : _9.handleTool(message.payload);
                 break;
             case "agent:proposal":
-                (_y = deps.agent) === null || _y === void 0 ? void 0 : _y.handleProposal(message.payload.proposal);
+                (_10 = deps.agent) === null || _10 === void 0 ? void 0 : _10.handleProposal(message.payload.proposal);
                 break;
             case "agent:applyResult":
-                (_z = deps.agent) === null || _z === void 0 ? void 0 : _z.handleApplyResult(message.payload);
+                (_11 = deps.agent) === null || _11 === void 0 ? void 0 : _11.handleApplyResult(message.payload);
                 break;
             case "agent:error":
-                (_0 = deps.agent) === null || _0 === void 0 ? void 0 : _0.handleError((_1 = message.payload.message) !== null && _1 !== void 0 ? _1 : "AIエラー", message.payload.conversationId);
+                (_12 = deps.agent) === null || _12 === void 0 ? void 0 : _12.handleError((_13 = message.payload.message) !== null && _13 !== void 0 ? _13 : "AIエラー", message.payload.conversationId);
+                break;
+            case "agent:applyContent":
+                deps.editorSession.applyContentToOpenFile((_14 = message.payload.path) !== null && _14 !== void 0 ? _14 : "", (_15 = message.payload.content) !== null && _15 !== void 0 ? _15 : "", message.payload.updateSaved !== false
+                    ? { updateSaved: true }
+                    : undefined);
                 break;
             default:
                 break;

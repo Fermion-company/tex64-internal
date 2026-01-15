@@ -523,8 +523,9 @@
                 <div class="ai-chats-list" id="ai-chat-list"></div>
               </div>
               <div class="ai-chat" id="ai-chat">
-                <div class="ai-chat-log" id="ai-chat-log"></div>
-                <div class="ai-proposals" id="ai-proposals"></div>
+                <div class="ai-chat-log" id="ai-chat-log">
+                  <div class="ai-proposals" id="ai-proposals"></div>
+                </div>
                 <div class="ai-chat-input">
                   <textarea
                     class="ai-chat-textarea"
@@ -614,6 +615,47 @@
                   placeholder="ワークスペース検索"
                 >
                 <button class="panel-button" id="search-button" type="button">検索</button>
+              </div>
+              <div class="search-rename" id="search-rename">
+                <div class="search-rename-header">
+                  <div class="search-rename-title">シンボルリネーム</div>
+                  <div class="search-rename-desc">\\label / \\ref / \\cite のキーをまとめて更新</div>
+                </div>
+                <div class="search-rename-grid">
+                  <label class="search-rename-label" for="search-rename-from">現在のキー</label>
+                  <input
+                    class="search-rename-input"
+                    id="search-rename-from"
+                    type="text"
+                    placeholder="fig:old"
+                  >
+                  <label class="search-rename-label" for="search-rename-to">新しいキー</label>
+                  <input
+                    class="search-rename-input"
+                    id="search-rename-to"
+                    type="text"
+                    placeholder="fig:new"
+                  >
+                </div>
+                <div class="search-rename-options">
+                  <label class="search-rename-option">
+                    <input id="search-rename-label" type="checkbox" checked>
+                    <span>ラベル/参照（\\label, \\ref）</span>
+                  </label>
+                  <label class="search-rename-option">
+                    <input id="search-rename-cite" type="checkbox" checked>
+                    <span>引用キー（\\cite / .bib）</span>
+                  </label>
+                </div>
+                <div class="search-rename-actions">
+                  <button class="panel-button" id="search-rename-run" type="button">提案を作成</button>
+                  <button class="panel-button ghost" id="search-rename-open-ai" type="button">
+                    AI提案を開く
+                  </button>
+                </div>
+                <div class="search-rename-status" id="search-rename-status">
+                  ラベル名や引用キーを入力してください。
+                </div>
               </div>
               <div class="search-results" id="search-results"></div>
             </div>

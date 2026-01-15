@@ -68,8 +68,16 @@ export const initMagicCapture = (
     deps.updateIssues(0, "", "info", []);
   };
 
+  const reportIssue = (message: string) => {
+    if (!message) return;
+    deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+  };
+
   const setStatus = (message: string) => {
     deps.setStatus?.(message);
+    if (message) {
+      reportIssue(message);
+    }
   };
 
   const resolveImageGeometry = () => {

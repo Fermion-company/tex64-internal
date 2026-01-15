@@ -91,6 +91,16 @@ export type EditorSessionDeps = {
       results?: SearchResult[];
       message?: string;
     }) => void;
+    handleRenameResult?: (payload: {
+      ok: boolean;
+      from?: string;
+      to?: string;
+      fileCount?: number;
+      appliedCount?: number;
+      skippedCount?: number;
+      error?: string;
+      conversationId?: string;
+    }) => void;
   };
   getMonacoApi: () => Record<string, unknown> | null;
 };
@@ -101,6 +111,20 @@ export type EditorSessionApi = {
   getActiveGroup: () => EditorGroupState;
   getActiveEditorGroupKey: () => EditorGroupKey;
   getActiveFilePath: () => string | null;
+  getActiveFileSnapshot: () => { path: string; content: string; isDirty: boolean } | null;
+  getOpenFileSnapshots: (options?: {
+    maxFiles?: number;
+    maxChars?: number;
+  }) => {
+    files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
+    snapshots: Array<{
+      path: string;
+      content: string;
+      isDirty: boolean;
+      truncated: boolean;
+      contentLength: number;
+    }>;
+  };
   isActiveGroup: (group: EditorGroupState) => boolean;
   forEachEditorGroup: (handler: (group: EditorGroupState) => void) => void;
   setEditorGroupEmptyState: (group: EditorGroupState, isEmpty: boolean) => void;
@@ -132,6 +156,11 @@ export type EditorSessionApi = {
     content: string,
     options?: { updateSaved?: boolean }
   ) => void;
+  applyContentToOpenFile: (
+    path: string,
+    content: string,
+    options?: { updateSaved?: boolean }
+  ) => boolean;
   saveCurrentFile: () => Promise<boolean>;
   requestInitialOpen: () => void;
   openPendingFileIfReady: () => void;
@@ -257,6 +286,79 @@ export const initEditorSession = (
   const getActiveEditorGroupKey = () => activeEditorGroup;
   const getActiveFilePath = () => getActiveGroup().currentFilePath;
   const getActiveEditor = () => getActiveGroup().editor;
+  const getActiveFileSnapshot = () => {
+    const group = getActiveGroup();
+    if (!group.currentFilePath || !isTextFilePath(group.currentFilePath)) {
+      return null;
+    }
+    const entry = monacoModels.get(group.currentFilePath);
+    const editor = group.editor as { getValue?: () => string } | null;
+    const content = entry?.model?.getValue?.() ?? editor?.getValue?.() ?? null;
+    if (content === null) {
+      return null;
+    }
+    return { path: group.currentFilePath, content, isDirty: group.isDirty };
+  };
+  const getOpenFileSnapshots = (options?: { maxFiles?: number; maxChars?: number }) => {
+    const rawMaxFiles = options?.maxFiles ?? 8;
+    const maxFiles = rawMaxFiles > 0 ? rawMaxFiles : Number.POSITIVE_INFINITY;
+    const rawMaxChars = options?.maxChars ?? 20000;
+    const maxChars = rawMaxChars > 0 ? rawMaxChars : Number.POSITIVE_INFINITY;
+    const files = new Map();
+    const snapshots = [];
+    const pushSnapshot = (path: string, isDirty: boolean) => {
+      if (snapshots.length >= maxFiles || !isTextFilePath(path)) {
+        return;
+      }
+      const entry = monacoModels.get(path);
+      const editorGroupKey = findGroupKeyByPath(path);
+      const group = editorGroupKey ? getEditorGroup(editorGroupKey) : null;
+      const editor = group?.editor as { getValue?: () => string } | null;
+      const rawContent = entry?.model?.getValue?.() ?? editor?.getValue?.() ?? null;
+      if (rawContent === null) {
+        return;
+      }
+      const truncated = Number.isFinite(maxChars) && rawContent.length > maxChars;
+      const content = truncated ? rawContent.slice(0, maxChars) : rawContent;
+      snapshots.push({
+        path,
+        content,
+        isDirty,
+        truncated,
+        contentLength: rawContent.length,
+      });
+    };
+    forEachEditorGroup((group) => {
+      group.openTabs.forEach((path) => {
+        if (!path) {
+          return;
+        }
+        if (!files.has(path)) {
+          files.set(path, {
+            path,
+            isDirty: dirtyFiles.has(path),
+            isActive: group.currentFilePath === path,
+          });
+        } else {
+          const entry = files.get(path);
+          entry.isDirty = entry.isDirty || dirtyFiles.has(path);
+          entry.isActive = entry.isActive || group.currentFilePath === path;
+        }
+      });
+    });
+    const entries = Array.from(files.values());
+    entries.forEach((entry) => {
+      if (entry.isDirty && !entry.isActive) {
+        pushSnapshot(entry.path, entry.isDirty);
+      }
+    });
+    entries.forEach((entry) => {
+      if (!entry.isDirty && !entry.isActive) {
+        pushSnapshot(entry.path, entry.isDirty);
+      }
+    });
+    return { files: Array.from(files.values()), snapshots };
+  };
   const isActiveGroup = (group: EditorGroupState) => group.key === activeEditorGroup;
   const getOtherGroupKey = (key: EditorGroupKey): EditorGroupKey =>
     key === "primary" ? "secondary" : "primary";
@@ -343,10 +445,10 @@ export const initEditorSession = (
 
   const parseIssueDetail = (issue: IssueItem) => {
     const trimmed = issue.message.trim();
+    const filePattern = String.raw`((?:[A-Za-z]:)?[^:\s]+?\.[A-Za-z0-9]+)`;
     const match =
-      trimmed.match(/^(.+?\.tex):(\d+):(\d+):\s*(.+)$/) ??
-      trimmed.match(/^(.+?\.tex):(\d+):\s*(.+)$/) ??
-      trimmed.match(/^(.+?):(\d+):\s*(.+)$/);
+      trimmed.match(new RegExp(`^${filePattern}:(\\d+):(\\d+):\\s*(.+)$`)) ??
+      trimmed.match(new RegExp(`^${filePattern}:(\\d+):\\s*(.+)$`));
     if (match) {
       const path = issue.path ?? match[1];
       const line = issue.line ?? Number.parseInt(match[2], 10);
@@ -381,6 +483,10 @@ export const initEditorSession = (
     const detail = parseIssueDetail(issue);
     if (detail.path && detail.line) {
       jumpToFileLine(detail.path, detail.line, activeEditorGroup);
+      return;
+    }
+    if (detail.path && !detail.line) {
+      requestOpenFile(detail.path, activeEditorGroup, true);
       return;
     }
     if (!detail.line) {
@@ -809,6 +915,20 @@ export const initEditorSession = (
     getLanguageIdForPath,
   });
 
+  const applyContentToOpenFile = (
+    path: string,
+    content: string,
+    options?: { updateSaved?: boolean }
+  ) => {
+    const targetGroupKey = findGroupKeyByPath(path);
+    if (!targetGroupKey) {
+      return false;
+    }
+    const targetGroup = getEditorGroup(targetGroupKey);
+    applyFormattedContent(targetGroup, path, content, options);
+    return true;
+  };
+
   const jumpToFileLine = (
     path: string,
     line: number,
@@ -996,6 +1116,8 @@ export const initEditorSession = (
     getActiveGroup,
     getActiveEditorGroupKey,
     getActiveFilePath,
+    getActiveFileSnapshot,
+    getOpenFileSnapshots,
     isActiveGroup,
     forEachEditorGroup,
     setEditorGroupEmptyState,
@@ -1017,6 +1139,7 @@ export const initEditorSession = (
     jumpToFileLine,
     jumpToLocation,
     applyFormattedContent,
+    applyContentToOpenFile,
     saveCurrentFile,
     requestInitialOpen,
     openPendingFileIfReady,

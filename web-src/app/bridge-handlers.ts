@@ -10,6 +10,7 @@ import type {
   AgentProposal,
   AgentSettings,
   AgentStatusState,
+  AppSettingsSnapshot,
   RootSource,
   SearchResult,
   SectionEntry,
@@ -18,6 +19,10 @@ import type { AlchemySettings } from "./alchemy-convert.js";
 
 type BridgeHandlersDeps = {
   bridgeWindow: BridgeWindow;
+  postToNative: (
+    payload: { type: string; [key: string]: unknown },
+    silent?: boolean
+  ) => boolean;
   updateIssues: (
     count: number,
     summary: string,
@@ -48,6 +53,16 @@ type BridgeHandlersDeps = {
       results?: SearchResult[];
       message?: string;
     }) => void;
+    handleRenameResult?: (payload: {
+      ok: boolean;
+      from?: string;
+      to?: string;
+      fileCount?: number;
+      appliedCount?: number;
+      skippedCount?: number;
+      error?: string;
+      conversationId?: string;
+    }) => void;
   };
   git: {
     handleUpdate: (payload: GitStatusPayload) => void;
@@ -71,6 +86,8 @@ type BridgeHandlersDeps = {
   };
   settings?: {
     updateEnvStatus: (command: string, available: boolean) => void;
+    getSettingsSnapshot?: () => AppSettingsSnapshot;
+    applySettingsPatch?: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
   };
   agent?: {
     handleSettings: (settings: AgentSettings) => void;
@@ -80,6 +97,7 @@ type BridgeHandlersDeps = {
       conversationId?: string
     ) => void;
     handleMessage: (text: string, conversationId?: string) => void;
+    handleMessageDelta?: (text: string, conversationId?: string) => void;
     handleTool: (payload: {
       name: string;
       summary?: string;
@@ -114,6 +132,11 @@ type BridgeHandlersDeps = {
       newPath: string;
       isDirectory: boolean;
     }) => void;
+    applyContentToOpenFile: (
+      path: string,
+      content: string,
+      options?: { updateSaved?: boolean }
+    ) => void;
   };
 };
 
@@ -185,6 +208,10 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
     deps.agent?.handleMessage(payload.text, payload.conversationId);
   };
 
+  bridgeWindow.tex64AgentMessageDelta = (payload) => {
+    deps.agent?.handleMessageDelta?.(payload.text, payload.conversationId);
+  };
+
   bridgeWindow.tex64AgentTool = (payload) => {
     deps.agent?.handleTool(payload);
   };
@@ -247,6 +274,20 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           results: SearchResult[];
           message?: string;
         });
+        break;
+      case "search:renameResult":
+        deps.search.handleRenameResult?.(
+          message.payload as {
+            ok: boolean;
+            from?: string;
+            to?: string;
+            fileCount?: number;
+            appliedCount?: number;
+            skippedCount?: number;
+            error?: string;
+            conversationId?: string;
+          }
+        );
         break;
       case "updateGit":
         bridgeWindow.tex64UpdateGit?.(message.payload as GitStatusPayload);
@@ -318,6 +359,50 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           (message.payload as { settings: AgentSettings }).settings
         );
         break;
+      case "settings:request": {
+        const payload = message.payload as {
+          requestId?: string;
+          action?: "get" | "set";
+          keys?: string[];
+          settings?: Partial<AppSettingsSnapshot>;
+        };
+        const requestId = payload?.requestId;
+        if (!requestId) {
+          break;
+        }
+        let snapshot: AppSettingsSnapshot | null = null;
+        let ok = false;
+        if (payload?.action === "set") {
+          snapshot = deps.settings?.applySettingsPatch?.(payload.settings ?? {}) ?? null;
+          ok = Boolean(snapshot);
+        } else {
+          snapshot = deps.settings?.getSettingsSnapshot?.() ?? null;
+          ok = Boolean(snapshot);
+        }
+        const keys = Array.isArray(payload?.keys) ? payload.keys : [];
+        let settings = snapshot;
+        if (snapshot && keys.length > 0) {
+          const filtered = {};
+          const snapshotRecord = snapshot as Record<string, unknown>;
+          keys.forEach((key) => {
+            if (key in snapshotRecord) {
+              filtered[key] = snapshotRecord[key];
+            }
+          });
+          settings = filtered as AppSettingsSnapshot;
+        }
+        deps.postToNative(
+          {
+            type: "settings:response",
+            requestId,
+            ok,
+            settings,
+            error: ok ? undefined : "設定が取得できませんでした。",
+          },
+          true
+        );
+        break;
+      }
       case "agent:status":
         deps.agent?.handleStatus(
           (message.payload as {
@@ -343,6 +428,12 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           (message.payload as { text?: string; conversationId?: string }).conversationId
         );
         break;
+      case "agent:messageDelta":
+        deps.agent?.handleMessageDelta?.(
+          (message.payload as { text?: string; conversationId?: string }).text ?? "",
+          (message.payload as { text?: string; conversationId?: string }).conversationId
+        );
+        break;
       case "agent:tool":
         deps.agent?.handleTool(
           message.payload as { name: string; summary?: string; conversationId?: string }
@@ -363,6 +454,15 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           (message.payload as { message?: string; conversationId?: string }).message ??
             "AIエラー",
           (message.payload as { message?: string; conversationId?: string }).conversationId
+        );
+        break;
+      case "agent:applyContent":
+        deps.editorSession.applyContentToOpenFile(
+          (message.payload as { path?: string; content?: string }).path ?? "",
+          (message.payload as { path?: string; content?: string }).content ?? "",
+          (message.payload as { updateSaved?: boolean }).updateSaved !== false
+            ? { updateSaved: true }
+            : undefined
         );
         break;
       default:

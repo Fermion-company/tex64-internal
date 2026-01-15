@@ -22,6 +22,11 @@ export const initAlchemyConvert = (context, deps) => {
     let settingsOpen = false;
     let busy = false;
     let captureItems = [];
+    const reportIssue = (message) => {
+        if (!message)
+            return;
+        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    };
     const setStatus = (message) => {
         if (alchemyStatusLine instanceof HTMLElement) {
             alchemyStatusLine.textContent = message;
@@ -71,7 +76,9 @@ export const initAlchemyConvert = (context, deps) => {
         }
         catch (e) {
             console.error("Failed to save capture board", e);
-            setStatus("保存容量が一杯です。古いアイテムを削除してください。");
+            const message = "保存容量が一杯です。古いアイテムを削除してください。";
+            setStatus(message);
+            reportIssue(message);
         }
     };
     const addItem = (image, text) => {
@@ -178,7 +185,9 @@ export const initAlchemyConvert = (context, deps) => {
         if (busy)
             return;
         if (!imageDataUrl) {
-            setStatus("画像がありません。");
+            const message = "画像がありません。";
+            setStatus(message);
+            reportIssue(message);
             return;
         }
         setBusy(true);
@@ -189,7 +198,9 @@ export const initAlchemyConvert = (context, deps) => {
             var _a, _b;
             const text = (_b = (_a = result.text) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
             if (!text) {
-                setStatus("文字を検出できませんでした。");
+                const message = "文字を検出できませんでした。";
+                setStatus(message);
+                reportIssue(message);
             }
             else {
                 setStatus(""); // Clear status on success as requested
@@ -200,6 +211,7 @@ export const initAlchemyConvert = (context, deps) => {
             .catch((error) => {
             const message = error instanceof Error ? error.message : "解析失敗";
             setStatus(message);
+            reportIssue(message);
             // Add item with error indication? Or just add image.
             addItem(imageDataUrl, "(解析失敗)");
         })
@@ -243,7 +255,9 @@ export const initAlchemyConvert = (context, deps) => {
     }
     const handleFile = (file) => {
         if (!file.type.startsWith("image/")) {
-            setStatus("対応していないファイル形式です（画像のみ）");
+            const message = "対応していないファイル形式です（画像のみ）";
+            setStatus(message);
+            reportIssue(message);
             return;
         }
         const reader = new FileReader();

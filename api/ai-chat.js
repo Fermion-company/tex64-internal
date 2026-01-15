@@ -61,6 +61,7 @@ const handler = async (req, res) => {
     tools,
     toolConfig,
     generationConfig,
+    stream,
   } = body;
 
   if (!Array.isArray(contents)) {
@@ -72,7 +73,12 @@ const handler = async (req, res) => {
     ? process.env.GEMINI_MODEL.trim()
     : "gemini-3-flash-preview";
 
-  const upstreamUrl = `${GEMINI_ENDPOINT}/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
+  const acceptHeader = typeof req.headers?.accept === "string" ? req.headers.accept : "";
+  const wantsStream = Boolean(stream) || acceptHeader.includes("text/event-stream");
+  const endpointAction = wantsStream ? "streamGenerateContent" : "generateContent";
+  const upstreamUrl = `${GEMINI_ENDPOINT}/${encodeURIComponent(
+    model
+  )}:${endpointAction}?key=${apiKey}${wantsStream ? "&alt=sse" : ""}`;
   const upstreamBody = {
     contents,
     systemInstruction,
@@ -87,6 +93,40 @@ const handler = async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(upstreamBody),
     });
+    if (wantsStream) {
+      res.statusCode = upstream.status;
+      const contentType = upstream.headers.get("content-type") || "";
+      if (!upstream.ok) {
+        const raw = await upstream.text();
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(raw || "{}");
+        return;
+      }
+      if (contentType.includes("text/event-stream")) {
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.flushHeaders?.();
+      } else {
+        res.setHeader(
+          "Content-Type",
+          contentType || "application/json; charset=utf-8"
+        );
+      }
+      if (!upstream.body) {
+        res.end();
+        return;
+      }
+      req.on("close", () => {
+        upstream.body?.cancel?.();
+      });
+      for await (const chunk of upstream.body) {
+        res.write(chunk);
+      }
+      res.end();
+      return;
+    }
+
     const raw = await upstream.text();
     res.statusCode = upstream.status;
     res.setHeader("Content-Type", "application/json; charset=utf-8");

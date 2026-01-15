@@ -1,11 +1,18 @@
+import { buildLineDiff } from "./diff.js";
+import { getIssueResolution } from "./issue-resolution.js";
+const MAX_ACTIVE_FILE_CONTEXT_CHARS = 12000;
+const MAX_OPEN_FILE_CONTEXT_CHARS = 12000;
+const MAX_OPEN_FILE_SNAPSHOTS = Number.POSITIVE_INFINITY;
+const MAX_RECENT_ISSUES = 5;
 export const initAiChatUi = (context, deps) => {
     const { aiChatLog, aiChat, aiProposals, aiInput, aiSend, aiStatus, aiClear, aiChatList, aiChatNew, } = context.dom;
     const chats = [];
     const chatIndex = new Map();
     const proposalIndex = new Map();
     let activeChatId = null;
-    let pendingProposalId = null;
     let runningConversationId = null;
+    let agentSettings = null;
+    const streamingMessages = new Map();
     const makeChatId = () => `chat-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     // --- Two-Stage View State ---
     let viewMode = "list";
@@ -59,11 +66,17 @@ export const initAiChatUi = (context, deps) => {
         }
         return activeChatId ? (_b = chatIndex.get(activeChatId)) !== null && _b !== void 0 ? _b : null : null;
     };
+    const resolveChatTitle = (chatId) => {
+        if (chatId === "search-rename") {
+            return "シンボルリネーム";
+        }
+        return `Chat ${chats.length + 1}`;
+    };
     const ensureChat = (chatId) => {
         if (chatId && !chatIndex.has(chatId)) {
             const chat = {
                 id: chatId,
-                title: `Chat ${chats.length + 1}`,
+                title: resolveChatTitle(chatId),
                 messages: [],
                 proposals: new Map(),
                 statusMessage: "待機中",
@@ -119,12 +132,119 @@ export const initAiChatUi = (context, deps) => {
             aiStatus.textContent = "";
         }
     };
+    const resolveMaxChars = (value, fallback) => {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+            return fallback;
+        }
+        if (value <= 0) {
+            return Number.POSITIVE_INFINITY;
+        }
+        return value;
+    };
+    const buildActiveFileContext = () => {
+        var _a, _b;
+        const maxChars = resolveMaxChars(agentSettings === null || agentSettings === void 0 ? void 0 : agentSettings.openFileMaxChars, MAX_ACTIVE_FILE_CONTEXT_CHARS);
+        const snapshot = (_b = (_a = deps.getActiveFileSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
+        const fallbackPath = deps.getActiveFilePath();
+        if (!snapshot) {
+            return fallbackPath ? { activeFilePath: fallbackPath } : {};
+        }
+        let content = snapshot.content;
+        let truncated = false;
+        if (Number.isFinite(maxChars) && content.length > maxChars) {
+            content = content.slice(0, maxChars);
+            truncated = true;
+        }
+        return {
+            activeFilePath: snapshot.path,
+            activeFileContent: content,
+            activeFileIsDirty: snapshot.isDirty,
+            activeFileContentTruncated: truncated,
+            activeFileContentLength: snapshot.content.length,
+        };
+    };
+    const buildOpenFilesContext = () => {
+        var _a;
+        const maxChars = resolveMaxChars(agentSettings === null || agentSettings === void 0 ? void 0 : agentSettings.openFileMaxChars, MAX_OPEN_FILE_CONTEXT_CHARS);
+        const openSnapshots = (_a = deps.getOpenFileSnapshots) === null || _a === void 0 ? void 0 : _a.call(deps, {
+            maxFiles: MAX_OPEN_FILE_SNAPSHOTS,
+            maxChars,
+        });
+        if (!openSnapshots) {
+            return {};
+        }
+        return {
+            openFiles: openSnapshots.files,
+            openFileSnapshots: openSnapshots.snapshots,
+        };
+    };
+    const buildIssuesContext = () => {
+        var _a;
+        const snapshot = (_a = deps.getRecentIssuesSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps);
+        if (!snapshot || !Array.isArray(snapshot.issues) || snapshot.issues.length === 0) {
+            return {};
+        }
+        const items = snapshot.issues.slice(0, MAX_RECENT_ISSUES).map((issue) => ({
+            severity: issue.severity,
+            message: issue.message,
+            path: issue.path,
+            line: issue.line,
+            column: issue.column,
+            action: issue.action,
+            resolution: getIssueResolution(issue),
+        }));
+        return {
+            recentIssueSummary: snapshot.summary,
+            recentIssueStatus: snapshot.status,
+            recentIssuesUpdatedAt: new Date(snapshot.updatedAt).toISOString(),
+            recentIssues: items,
+        };
+    };
+    const getChatLog = () => aiChatLog instanceof HTMLElement ? aiChatLog : null;
+    const getProposalsContainer = () => aiProposals instanceof HTMLElement ? aiProposals : null;
+    const ensureProposalsEmbedded = () => {
+        const chatLog = getChatLog();
+        const proposals = getProposalsContainer();
+        if (!chatLog || !proposals) {
+            return null;
+        }
+        if (proposals.parentElement !== chatLog) {
+            chatLog.appendChild(proposals);
+        }
+        else if (chatLog.lastElementChild !== proposals) {
+            chatLog.appendChild(proposals);
+        }
+        return proposals;
+    };
+    const appendToChatLog = (element) => {
+        const chatLog = getChatLog();
+        if (!chatLog) {
+            return;
+        }
+        const proposals = getProposalsContainer();
+        if (proposals && proposals.parentElement === chatLog) {
+            chatLog.insertBefore(element, proposals);
+        }
+        else {
+            chatLog.appendChild(element);
+        }
+    };
+    const getLastMessageElement = () => {
+        const chatLog = getChatLog();
+        if (!chatLog) {
+            return null;
+        }
+        const nodes = chatLog.querySelectorAll(".ai-message");
+        if (nodes.length === 0) {
+            return null;
+        }
+        return nodes[nodes.length - 1];
+    };
     function setActiveChat(chatId) {
         if (!chatIndex.has(chatId)) {
             return;
         }
         activeChatId = chatId;
-        pendingProposalId = null;
         // Update title in toolbar
         const chat = getChat(chatId);
         if (chat) {
@@ -169,6 +289,48 @@ export const initAiChatUi = (context, deps) => {
         }
         return wrapper;
     };
+    const updateMessageElement = (wrapper, text) => {
+        if (!wrapper) {
+            return;
+        }
+        const content = wrapper.querySelector(".ai-message-content");
+        if (content instanceof HTMLElement) {
+            content.textContent = text;
+        }
+    };
+    const ensureStreamingMessage = (chatId) => {
+        const existing = streamingMessages.get(chatId);
+        if (existing) {
+            return existing;
+        }
+        const chat = ensureChat(chatId);
+        if (!chat) {
+            return null;
+        }
+        const message = { role: "assistant", text: "" };
+        chat.messages.push(message);
+        let element = null;
+        if (chat.id === activeChatId && aiChatLog instanceof HTMLElement) {
+            element = createMessageElement(message);
+            appendToChatLog(element);
+            if (aiChat instanceof HTMLElement) {
+                aiChat.scrollTop = aiChat.scrollHeight;
+            }
+        }
+        const entry = { message, element };
+        streamingMessages.set(chatId, entry);
+        return entry;
+    };
+    const finalizeStreamingMessage = (chatId, text) => {
+        const entry = streamingMessages.get(chatId);
+        if (!entry) {
+            return false;
+        }
+        entry.message.text = text;
+        updateMessageElement(entry.element, text);
+        streamingMessages.delete(chatId);
+        return true;
+    };
     const appendMessage = (message, chatId) => {
         const chat = ensureChat(chatId);
         if (!chat) {
@@ -181,12 +343,13 @@ export const initAiChatUi = (context, deps) => {
         if (!(aiChatLog instanceof HTMLElement)) {
             return;
         }
-        aiChatLog.appendChild(createMessageElement(message));
+        appendToChatLog(createMessageElement(message));
         if (aiChat instanceof HTMLElement) {
             aiChat.scrollTop = aiChat.scrollHeight;
         }
     };
     const createProposalCard = (proposal) => {
+        var _a, _b;
         const card = document.createElement("div");
         card.className = "ai-proposal";
         card.dataset.proposalId = proposal.id;
@@ -199,8 +362,11 @@ export const initAiChatUi = (context, deps) => {
         path.className = "ai-proposal-path";
         path.textContent = proposal.path;
         header.append(icon, path);
+        const originalContent = (_a = proposal.originalContent) !== null && _a !== void 0 ? _a : "";
+        const modifiedContent = (_b = proposal.content) !== null && _b !== void 0 ? _b : "";
+        const isBinary = proposal.isBinary === true;
         // Add badge based on proposal type
-        const proposalType = proposal.type || (proposal.isNewFile ? "new" : "write");
+        const proposalType = proposal.isNewFile ? "new" : proposal.type || "write";
         const badge = document.createElement("span");
         badge.className = "ai-proposal-badge";
         switch (proposalType) {
@@ -234,33 +400,134 @@ export const initAiChatUi = (context, deps) => {
         summary.textContent = proposal.summary || "ファイルの変更案";
         const actions = document.createElement("div");
         actions.className = "ai-proposal-actions";
-        const previewButton = document.createElement("button");
-        previewButton.type = "button";
-        previewButton.className = "panel-button";
-        // Customize button text based on type
-        const buttonText = proposalType === "delete" ? "削除を確認"
-            : proposalType === "mkdir" ? "作成を確認"
-                : "差分を確認";
-        previewButton.textContent = buttonText;
-        previewButton.addEventListener("click", () => {
-            var _a;
-            pendingProposalId = proposal.id;
-            deps.diffModal.setDiffContext({ type: "aiApply", proposalId: proposal.id });
-            const modalTitle = proposalType === "delete" ? "削除の確認"
-                : proposalType === "rename" ? "移動の確認"
-                    : proposalType === "mkdir" ? "フォルダ作成の確認"
-                        : "AI提案の確認";
-            const submitLabel = proposalType === "delete" ? "削除"
-                : proposalType === "mkdir" ? "作成"
-                    : "適用";
-            deps.diffModal.showDiffModal((_a = proposal.originalContent) !== null && _a !== void 0 ? _a : "", proposal.content, 0, {
-                title: modalTitle,
-                fileName: proposal.path,
-                submitLabel: submitLabel,
-            });
+        const diffToggle = document.createElement("button");
+        diffToggle.type = "button";
+        diffToggle.className = "panel-button ghost";
+        diffToggle.textContent = proposalType === "mkdir" || proposalType === "rename"
+            ? "詳細を見る"
+            : "差分を見る";
+        const applyButton = document.createElement("button");
+        applyButton.type = "button";
+        applyButton.className = "panel-button";
+        applyButton.textContent =
+            proposalType === "delete"
+                ? "削除"
+                : proposalType === "mkdir"
+                    ? "作成"
+                    : proposalType === "rename"
+                        ? "移動"
+                        : "適用";
+        applyButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            deps.postToNative({ type: "agent:apply", proposalId: proposal.id });
         });
-        actions.appendChild(previewButton);
-        card.append(header, summary, actions);
+        const diffContainer = document.createElement("div");
+        diffContainer.className = "ai-proposal-diff";
+        const buildDiffSummary = () => {
+            const beforeText = originalContent.trimEnd();
+            const afterText = modifiedContent.trimEnd();
+            const beforeLines = beforeText.length ? beforeText.split(/\r?\n/) : [""];
+            const afterLines = afterText.length ? afterText.split(/\r?\n/) : [""];
+            const diffLines = buildLineDiff(beforeLines, afterLines);
+            let adds = 0;
+            let dels = 0;
+            diffLines.forEach((entry) => {
+                if (entry.type === "add") {
+                    adds += 1;
+                }
+                else if (entry.type === "del") {
+                    dels += 1;
+                }
+            });
+            const summaryRow = document.createElement("div");
+            summaryRow.className = "diff-summary ai-proposal-diff-summary";
+            if (adds === 0 && dels === 0) {
+                const text = document.createElement("span");
+                text.textContent = "変更なし";
+                summaryRow.appendChild(text);
+                return summaryRow;
+            }
+            const add = document.createElement("span");
+            add.className = "diff-summary-item is-add";
+            add.textContent = `+${adds}`;
+            const del = document.createElement("span");
+            del.className = "diff-summary-item is-del";
+            del.textContent = `-${dels}`;
+            summaryRow.append(add, del);
+            return summaryRow;
+        };
+        const buildDiffLines = () => {
+            const beforeText = originalContent.trimEnd();
+            const afterText = modifiedContent.trimEnd();
+            if (beforeText === afterText) {
+                const empty = document.createElement("div");
+                empty.className = "ai-proposal-diff-empty";
+                empty.textContent = "変更なし";
+                return empty;
+            }
+            const beforeLines = beforeText.length ? beforeText.split(/\r?\n/) : [""];
+            const afterLines = afterText.length ? afterText.split(/\r?\n/) : [""];
+            const diffLines = buildLineDiff(beforeLines, afterLines);
+            const diffBody = document.createElement("div");
+            diffBody.className = "ai-diff";
+            diffLines.forEach((entry) => {
+                const line = document.createElement("div");
+                line.className = `ai-diff-line is-${entry.type}`;
+                const prefix = entry.type === "add" ? "+" : entry.type === "del" ? "-" : " ";
+                line.textContent = `${prefix} ${entry.line}`;
+                diffBody.appendChild(line);
+            });
+            return diffBody;
+        };
+        const renderDiff = () => {
+            diffContainer.replaceChildren();
+            const headerRow = document.createElement("div");
+            headerRow.className = "ai-proposal-diff-header";
+            if (proposalType === "rename") {
+                const renameText = document.createElement("div");
+                renameText.className = "ai-proposal-diff-note";
+                const oldPath = proposal.oldPath ? proposal.oldPath : "";
+                renameText.textContent = oldPath ? `${oldPath} → ${proposal.path}` : proposal.path;
+                headerRow.appendChild(renameText);
+            }
+            else if (proposalType === "mkdir") {
+                const note = document.createElement("div");
+                note.className = "ai-proposal-diff-note";
+                note.textContent = "新しいフォルダを作成します。";
+                headerRow.appendChild(note);
+            }
+            else if (isBinary) {
+                const note = document.createElement("div");
+                note.className = "ai-proposal-diff-note";
+                note.textContent = "バイナリファイルのため差分プレビューは省略しています。";
+                headerRow.appendChild(note);
+            }
+            else {
+                headerRow.appendChild(buildDiffSummary());
+            }
+            diffContainer.appendChild(headerRow);
+            if (!(proposalType === "rename" || proposalType === "mkdir" || isBinary)) {
+                diffContainer.appendChild(buildDiffLines());
+            }
+        };
+        diffToggle.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const isOpen = diffContainer.classList.toggle("is-open");
+            diffToggle.textContent =
+                proposalType === "mkdir" || proposalType === "rename"
+                    ? isOpen
+                        ? "詳細を閉じる"
+                        : "詳細を見る"
+                    : isOpen
+                        ? "差分を閉じる"
+                        : "差分を見る";
+            if (isOpen && !diffContainer.dataset.ready) {
+                renderDiff();
+                diffContainer.dataset.ready = "true";
+            }
+        });
+        actions.append(diffToggle, applyButton);
+        card.append(header, summary, actions, diffContainer);
         return card;
     };
     function renderChatList() {
@@ -383,14 +650,27 @@ export const initAiChatUi = (context, deps) => {
         if (!chat) {
             return;
         }
-        aiChatLog === null || aiChatLog === void 0 ? void 0 : aiChatLog.replaceChildren();
-        aiProposals === null || aiProposals === void 0 ? void 0 : aiProposals.replaceChildren();
+        const chatLog = getChatLog();
+        chatLog === null || chatLog === void 0 ? void 0 : chatLog.replaceChildren();
         chat.messages.forEach((message) => {
-            aiChatLog === null || aiChatLog === void 0 ? void 0 : aiChatLog.appendChild(createMessageElement(message));
+            const element = createMessageElement(message);
+            if (chatLog) {
+                chatLog.appendChild(element);
+            }
         });
-        chat.proposals.forEach((proposal) => {
-            aiProposals === null || aiProposals === void 0 ? void 0 : aiProposals.appendChild(createProposalCard(proposal));
-        });
+        const proposals = ensureProposalsEmbedded();
+        if (proposals) {
+            proposals.replaceChildren();
+            proposals.classList.toggle("is-hidden", chat.proposals.size === 0);
+            chat.proposals.forEach((proposal) => {
+                proposals.appendChild(createProposalCard(proposal));
+            });
+        }
+        const streamingEntry = streamingMessages.get(chat.id);
+        const lastMessage = getLastMessageElement();
+        if (streamingEntry && lastMessage) {
+            streamingEntry.element = lastMessage;
+        }
         if (aiChat instanceof HTMLElement) {
             aiChat.scrollTop = aiChat.scrollHeight;
         }
@@ -447,7 +727,9 @@ export const initAiChatUi = (context, deps) => {
             message: text,
             conversationId: chat.id,
             context: {
-                activeFilePath: deps.getActiveFilePath(),
+                ...buildActiveFileContext(),
+                ...buildOpenFilesContext(),
+                ...buildIssuesContext(),
             },
         });
     };
@@ -470,6 +752,9 @@ export const initAiChatUi = (context, deps) => {
             }
             chat.messages = [];
             chat.proposals.clear();
+            if (chat.id) {
+                streamingMessages.delete(chat.id);
+            }
             renderChatContent();
             proposalIndex.forEach((value, key) => {
                 if (value === chat.id) {
@@ -488,6 +773,7 @@ export const initAiChatUi = (context, deps) => {
         });
     }
     const handleSettings = (_settings) => {
+        agentSettings = _settings;
         updateSendState();
     };
     const handleStatus = (state, message, conversationId) => {
@@ -511,7 +797,14 @@ export const initAiChatUi = (context, deps) => {
         }
     };
     const handleMessage = (text, conversationId) => {
-        appendMessage({ role: "assistant", text }, conversationId);
+        if (conversationId && finalizeStreamingMessage(conversationId, text)) {
+            if (aiChat instanceof HTMLElement) {
+                aiChat.scrollTop = aiChat.scrollHeight;
+            }
+        }
+        else {
+            appendMessage({ role: "assistant", text }, conversationId);
+        }
         if (conversationId && runningConversationId === conversationId) {
             runningConversationId = null;
             updateSendState();
@@ -521,6 +814,21 @@ export const initAiChatUi = (context, deps) => {
             chat.statusMessage = "待機中";
         }
         updateStatusDisplay();
+    };
+    const handleMessageDelta = (text, conversationId) => {
+        const chatId = conversationId !== null && conversationId !== void 0 ? conversationId : activeChatId;
+        if (!chatId || !text) {
+            return;
+        }
+        const entry = ensureStreamingMessage(chatId);
+        if (!entry) {
+            return;
+        }
+        entry.message.text += text;
+        updateMessageElement(entry.element, entry.message.text);
+        if (aiChat instanceof HTMLElement) {
+            aiChat.scrollTop = aiChat.scrollHeight;
+        }
     };
     const handleTool = (payload) => {
         // const summary = payload.summary ? `: ${payload.summary}` : "";
@@ -534,7 +842,14 @@ export const initAiChatUi = (context, deps) => {
         chat.proposals.set(proposal.id, proposal);
         proposalIndex.set(proposal.id, chat.id);
         if (chat.id === activeChatId) {
-            aiProposals === null || aiProposals === void 0 ? void 0 : aiProposals.appendChild(createProposalCard(proposal));
+            const proposals = ensureProposalsEmbedded();
+            if (proposals) {
+                proposals.classList.remove("is-hidden");
+                proposals.appendChild(createProposalCard(proposal));
+            }
+            if (aiChat instanceof HTMLElement) {
+                aiChat.scrollTop = aiChat.scrollHeight;
+            }
         }
     };
     const handleApplyResult = (payload) => {
@@ -551,7 +866,11 @@ export const initAiChatUi = (context, deps) => {
         if (payload.ok) {
             chat.proposals.delete(payload.proposalId);
             proposalIndex.delete(payload.proposalId);
-            (_a = aiProposals === null || aiProposals === void 0 ? void 0 : aiProposals.querySelector(`[data-proposal-id="${payload.proposalId}"]`)) === null || _a === void 0 ? void 0 : _a.remove();
+            const proposals = getProposalsContainer();
+            (_a = proposals === null || proposals === void 0 ? void 0 : proposals.querySelector(`[data-proposal-id="${payload.proposalId}"]`)) === null || _a === void 0 ? void 0 : _a.remove();
+            if (proposals && chat.proposals.size === 0) {
+                proposals.classList.add("is-hidden");
+            }
             appendMessage({ role: "system", text: `適用完了: ${proposal.path}` }, chat.id);
         }
         else {
@@ -564,22 +883,17 @@ export const initAiChatUi = (context, deps) => {
         if (chat) {
             chat.statusMessage = message;
         }
+        if (conversationId) {
+            streamingMessages.delete(conversationId);
+        }
         if (conversationId && runningConversationId === conversationId) {
             runningConversationId = null;
             updateSendState();
         }
         updateStatusDisplay();
     };
-    const applyPendingFromDiffModal = () => {
-        if (!pendingProposalId) {
-            return;
-        }
-        deps.postToNative({ type: "agent:apply", proposalId: pendingProposalId });
-        pendingProposalId = null;
-    };
-    const clearPending = () => {
-        pendingProposalId = null;
-    };
+    const applyPendingFromDiffModal = () => { };
+    const clearPending = () => { };
     if (chats.length === 0) {
         const initial = createChat();
         activeChatId = initial.id;
@@ -592,6 +906,7 @@ export const initAiChatUi = (context, deps) => {
         handleSettings,
         handleStatus,
         handleMessage,
+        handleMessageDelta,
         handleTool,
         handleProposal,
         handleApplyResult,

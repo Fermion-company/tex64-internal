@@ -1,19 +1,11 @@
 import type { BridgeWindow } from "./types.js";
 
-const DIVABLE = 32;
-const MAX_WIDTH = 672;
-const MAX_HEIGHT = 192;
-const MIN_WIDTH = 32;
-const MIN_HEIGHT = 32;
-const MIN_OCR_SIZE = 100;
-const MAX_UPSCALE = 4;
-const CROP_PAD_X = 0.05;
-const CROP_PAD_Y = 0.1;
-const CROP_PAD_MIN = 2;
+const TARGET_WIDTH = 384;
+const TARGET_HEIGHT = 384;
 const CONTRAST_FACTOR = 1.5;
 const SHARPNESS_FACTOR = 1.5;
-const NORMALIZE_MEAN = 0.7931;
-const NORMALIZE_STD = 0.1738;
+const NORMALIZE_MEAN = 0.5;
+const NORMALIZE_STD = 0.5;
 
 type MathOcrPayload = {
   data: ArrayBuffer;
@@ -39,21 +31,19 @@ const createCanvas = (width: number, height: number) => {
 
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 
-const scaleCanvas = (canvas: HTMLCanvasElement, scale: number) => {
-  const width = Math.max(1, Math.round(canvas.width * scale));
-  const height = Math.max(1, Math.round(canvas.height * scale));
-  if (width === canvas.width && height === canvas.height) {
+const resizeCanvas = (canvas: HTMLCanvasElement, width: number, height: number) => {
+  if (canvas.width === width && canvas.height === height) {
     return canvas;
   }
-  const scaled = createCanvas(width, height);
-  const ctx = scaled.getContext("2d");
+  const resized = createCanvas(width, height);
+  const ctx = resized.getContext("2d");
   if (!ctx) {
     throw new Error("キャンバスの初期化に失敗しました。");
   }
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(canvas, 0, 0, width, height);
-  return scaled;
+  return resized;
 };
 
 const enhanceCanvas = (
@@ -109,23 +99,36 @@ const enhanceCanvas = (
   return canvas;
 };
 
-const upscaleIfSmall = (canvas: HTMLCanvasElement) => {
-  if (canvas.width >= MIN_OCR_SIZE && canvas.height >= MIN_OCR_SIZE) {
-    return canvas;
+const estimateContrast = (canvas: HTMLCanvasElement) => {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return 0;
   }
-  const scale = Math.max(MIN_OCR_SIZE / canvas.width, MIN_OCR_SIZE / canvas.height);
-  let scaled = scaleCanvas(canvas, scale);
-  scaled = enhanceCanvas(scaled, CONTRAST_FACTOR, SHARPNESS_FACTOR);
-  return scaled;
+  const { width, height } = canvas;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const { data } = imageData;
+  const count = width * height;
+  if (count === 0) return 0;
+  let mean = 0;
+  for (let i = 0; i < count; i += 1) {
+    mean += data[i * 4];
+  }
+  mean /= count;
+  let variance = 0;
+  for (let i = 0; i < count; i += 1) {
+    const diff = data[i * 4] - mean;
+    variance += diff * diff;
+  }
+  variance /= count;
+  return Math.sqrt(variance);
 };
 
-const scaleToFit = (canvas: HTMLCanvasElement) => {
-  const scale = Math.min(MAX_WIDTH / canvas.width, MAX_HEIGHT / canvas.height);
-  if (scale <= 1) {
-    return canvas;
+const enhanceForOcr = (canvas: HTMLCanvasElement) => {
+  const contrast = estimateContrast(canvas);
+  if (contrast < 10) {
+    return enhanceCanvas(canvas, CONTRAST_FACTOR + 0.2, SHARPNESS_FACTOR + 0.1);
   }
-  const limited = Math.min(scale, MAX_UPSCALE);
-  return scaleCanvas(canvas, limited);
+  return canvas;
 };
 
 const getImageData = (image: HTMLImageElement) => {
@@ -138,11 +141,11 @@ const getImageData = (image: HTMLImageElement) => {
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
 };
 
-const computePadData = (imageData: ImageData) => {
+const computeMaskData = (imageData: ImageData) => {
   const { data, width, height } = imageData;
   let alphaMin = 255;
   let alphaMax = 0;
-  const luminance = new Float32Array(width * height);
+  const luminance = new Uint8ClampedArray(width * height);
   for (let i = 0; i < width * height; i += 1) {
     const idx = i * 4;
     const r = data[idx];
@@ -150,46 +153,44 @@ const computePadData = (imageData: ImageData) => {
     const b = data[idx + 2];
     const a = data[idx + 3];
     const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    luminance[i] = l;
+    luminance[i] = clampByte(l);
     if (a < alphaMin) alphaMin = a;
     if (a > alphaMax) alphaMax = a;
   }
   const useAlpha = alphaMin !== alphaMax;
-  let min = Infinity;
-  let max = -Infinity;
-  const normalized = new Float32Array(width * height);
+  const normalized = new Uint8ClampedArray(width * height);
+  let min = 255;
+  let max = 0;
   for (let i = 0; i < width * height; i += 1) {
-    const idx = i * 4;
-    const raw = useAlpha ? 255 - data[idx + 3] : luminance[i];
-    normalized[i] = raw;
+    const raw = useAlpha ? 255 - data[i * 4 + 3] : luminance[i];
     if (raw < min) min = raw;
     if (raw > max) max = raw;
+    normalized[i] = raw;
   }
   const scale = max > min ? 255 / (max - min) : 0;
   let mean = 0;
   for (let i = 0; i < normalized.length; i += 1) {
-    const value = (normalized[i] - min) * scale;
-    normalized[i] = value;
-    mean += value;
+    const value = scale > 0 ? (normalized[i] - min) * scale : 0;
+    const clamped = clampByte(value);
+    normalized[i] = clamped;
+    mean += clamped;
   }
   mean /= normalized.length || 1;
+
   const threshold = 128;
-  const gray = new Uint8ClampedArray(width * height);
-  const dataOut = new Uint8ClampedArray(width * height);
+  const mask = new Uint8ClampedArray(width * height);
   if (mean > threshold) {
     for (let i = 0; i < normalized.length; i += 1) {
       const value = normalized[i];
-      dataOut[i] = value;
-      gray[i] = value < threshold ? 255 : 0;
+      mask[i] = value < threshold ? 255 : 0;
     }
   } else {
     for (let i = 0; i < normalized.length; i += 1) {
-      const value = 255 - normalized[i];
-      dataOut[i] = value;
-      gray[i] = normalized[i] > threshold ? 255 : 0;
+      const value = normalized[i];
+      mask[i] = value > threshold ? 255 : 0;
     }
   }
-  return { dataOut, gray, width, height };
+  return { mask, width, height };
 };
 
 const computeBoundingBox = (gray: Uint8ClampedArray, width: number, height: number) => {
@@ -202,8 +203,8 @@ const computeBoundingBox = (gray: Uint8ClampedArray, width: number, height: numb
     for (let x = 0; x < width; x += 1) {
       if (gray[row + x] > 0) {
         if (x < minX) minX = x;
-        if (y < minY) minY = y;
         if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
         if (y > maxY) maxY = y;
       }
     }
@@ -224,130 +225,61 @@ const expandBoundingBox = (
   width: number,
   height: number
 ) => {
-  const padX = Math.max(CROP_PAD_MIN, Math.round(box.width * CROP_PAD_X));
-  const padY = Math.max(CROP_PAD_MIN, Math.round(box.height * CROP_PAD_Y));
-  const x = Math.max(0, box.x - padX);
-  const y = Math.max(0, box.y - padY);
-  const x2 = Math.min(width, box.x + box.width + padX);
-  const y2 = Math.min(height, box.y + box.height + padY);
+  const baseMargin = Math.round(Math.min(box.width, box.height) * 0.06);
+  const margin = Math.min(64, Math.max(12, baseMargin));
+  const x = Math.max(0, box.x - margin);
+  const y = Math.max(0, box.y - margin);
+  const maxX = Math.min(width, box.x + box.width + margin);
+  const maxY = Math.min(height, box.y + box.height + margin);
   return {
     x,
     y,
-    width: Math.max(1, x2 - x),
-    height: Math.max(1, y2 - y),
+    width: Math.max(1, maxX - x),
+    height: Math.max(1, maxY - y),
   };
 };
 
-const canvasFromGray = (gray: Uint8ClampedArray, width: number, height: number) => {
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
-  }
-  const output = ctx.createImageData(width, height);
-  for (let i = 0; i < width * height; i += 1) {
-    const value = gray[i];
-    const idx = i * 4;
-    output.data[idx] = value;
-    output.data[idx + 1] = value;
-    output.data[idx + 2] = value;
-    output.data[idx + 3] = 255;
-  }
-  ctx.putImageData(output, 0, 0);
-  return canvas;
-};
-
-const padCanvas = (canvas: HTMLCanvasElement) => {
-  const targetWidth = Math.ceil(canvas.width / DIVABLE) * DIVABLE;
-  const targetHeight = Math.ceil(canvas.height / DIVABLE) * DIVABLE;
-  if (targetWidth === canvas.width && targetHeight === canvas.height) {
-    return canvas;
-  }
-  const padded = createCanvas(targetWidth, targetHeight);
-  const ctx = padded.getContext("2d");
-  if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
-  }
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, targetWidth, targetHeight);
-  ctx.drawImage(canvas, 0, 0);
-  return padded;
-};
-
-const enforceMinMax = (canvas: HTMLCanvasElement) => {
-  let { width, height } = canvas;
-  if (width > MAX_WIDTH || height > MAX_HEIGHT) {
-    const ratio = Math.max(width / MAX_WIDTH, height / MAX_HEIGHT);
-    width = Math.max(1, Math.round(width / ratio));
-    height = Math.max(1, Math.round(height / ratio));
-    const scaled = createCanvas(width, height);
-    const ctx = scaled.getContext("2d");
-    if (!ctx) {
-      throw new Error("キャンバスの初期化に失敗しました。");
-    }
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(canvas, 0, 0, width, height);
-    canvas = scaled;
-  }
-  if (canvas.width < MIN_WIDTH || canvas.height < MIN_HEIGHT) {
-    const targetWidth = Math.max(canvas.width, MIN_WIDTH);
-    const targetHeight = Math.max(canvas.height, MIN_HEIGHT);
-    const padded = createCanvas(targetWidth, targetHeight);
-    const ctx = padded.getContext("2d");
-    if (!ctx) {
-      throw new Error("キャンバスの初期化に失敗しました。");
-    }
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, targetWidth, targetHeight);
-    ctx.drawImage(canvas, 0, 0);
-    canvas = padded;
-  }
-  return canvas;
-};
-
-const padToMax = (canvas: HTMLCanvasElement) => {
-  if (canvas.width === MAX_WIDTH && canvas.height === MAX_HEIGHT) {
-    return canvas;
-  }
-  const padded = createCanvas(MAX_WIDTH, MAX_HEIGHT);
-  const ctx = padded.getContext("2d");
-  if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
-  }
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, MAX_WIDTH, MAX_HEIGHT);
-  ctx.drawImage(canvas, 0, 0);
-  return padded;
-};
 
 const preprocessImage = async (dataUrl: string): Promise<MathOcrPayload> => {
   const image = await loadImage(dataUrl);
   const imageData = getImageData(image);
-  const { dataOut, gray, width, height } = computePadData(imageData);
-  const box = expandBoundingBox(computeBoundingBox(gray, width, height), width, height);
-  const cropped = new Uint8ClampedArray(box.width * box.height);
-  for (let y = 0; y < box.height; y += 1) {
-    const srcOffset = (box.y + y) * width + box.x;
-    const dstOffset = y * box.width;
-    cropped.set(dataOut.subarray(srcOffset, srcOffset + box.width), dstOffset);
+  const { mask, width, height } = computeMaskData(imageData);
+  const rawBox = computeBoundingBox(mask, width, height);
+  const box = expandBoundingBox(rawBox, width, height);
+  let canvas = createCanvas(box.width, box.height);
+  const cropCtx = canvas.getContext("2d");
+  if (!cropCtx) {
+    throw new Error("キャンバスの初期化に失敗しました。");
   }
-  let canvas = canvasFromGray(cropped, box.width, box.height);
-  canvas = upscaleIfSmall(canvas);
-  canvas = scaleToFit(canvas);
-  canvas = padCanvas(canvas);
-  canvas = enforceMinMax(canvas);
-  canvas = padToMax(canvas);
+  cropCtx.drawImage(
+    image,
+    box.x,
+    box.y,
+    box.width,
+    box.height,
+    0,
+    0,
+    box.width,
+    box.height
+  );
+  canvas = enhanceForOcr(canvas);
+  canvas = resizeCanvas(canvas, TARGET_WIDTH, TARGET_HEIGHT);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("キャンバスの初期化に失敗しました。");
   }
   const finalData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  const floatData = new Float32Array(canvas.width * canvas.height);
-  for (let i = 0; i < canvas.width * canvas.height; i += 1) {
-    const value = finalData[i * 4] / 255;
-    floatData[i] = (value - NORMALIZE_MEAN) / NORMALIZE_STD;
+  const pixelCount = canvas.width * canvas.height;
+  const floatData = new Float32Array(pixelCount * 3);
+  for (let i = 0; i < pixelCount; i += 1) {
+    const idx = i * 4;
+    const r = finalData[idx] / 255;
+    const g = finalData[idx + 1] / 255;
+    const b = finalData[idx + 2] / 255;
+    floatData[i] = (r - NORMALIZE_MEAN) / NORMALIZE_STD;
+    floatData[i + pixelCount] = (g - NORMALIZE_MEAN) / NORMALIZE_STD;
+    floatData[i + pixelCount * 2] = (b - NORMALIZE_MEAN) / NORMALIZE_STD;
   }
   return {
     data: floatData.buffer,

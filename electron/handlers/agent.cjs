@@ -18,6 +18,47 @@ const createAgentHandlers = (deps) => {
     await agentService.run({ message, context, conversationId });
   };
 
+  const handleSearchRename = async (payload) => {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+    const conversationId =
+      typeof payload.conversationId === "string" && payload.conversationId.trim()
+        ? payload.conversationId.trim()
+        : "search-rename";
+    if (payload.context && typeof payload.context === "object") {
+      agentService.setContext(conversationId, payload.context);
+    }
+    const result = await agentService.executeToolCall(
+      {
+        name: "rename_latex_symbol",
+        args: {
+          from: payload.from,
+          to: payload.to,
+          kinds: payload.kinds,
+          extensions: payload.extensions,
+        },
+      },
+      conversationId
+    );
+    const files = Array.isArray(result?.files) ? result.files : [];
+    const appliedCount = files.reduce((sum, entry) => {
+      const value = typeof entry.appliedCount === "number" ? entry.appliedCount : 0;
+      return sum + value;
+    }, 0);
+    const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+    sendToRenderer("search:renameResult", {
+      ok: !result?.error,
+      from: payload.from,
+      to: payload.to,
+      fileCount: files.length,
+      appliedCount,
+      skippedCount,
+      error: result?.error,
+      conversationId,
+    });
+  };
+
   const handleAgentAbort = () => {
     agentService.abort();
   };
@@ -33,6 +74,13 @@ const createAgentHandlers = (deps) => {
     agentService.clearConversation(conversationId || "default");
   };
 
+  const handleSettingsResponse = (payload) => {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+    agentService.handleSettingsResponse(payload);
+  };
+
   return {
     handleAgentSettingsGet,
     handleAgentSettingsSet,
@@ -40,6 +88,8 @@ const createAgentHandlers = (deps) => {
     handleAgentAbort,
     handleAgentApply,
     handleAgentClear,
+    handleSearchRename,
+    handleSettingsResponse,
   };
 };
 

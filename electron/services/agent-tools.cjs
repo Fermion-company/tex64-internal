@@ -15,7 +15,7 @@ const AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "read_file",
-    description: "Read a text file from the workspace.",
+    description: "Read a file from the workspace (supports base64 for binary).",
     parameters: {
       type: "object",
       properties: {
@@ -23,13 +23,22 @@ const AGENT_TOOL_DECLARATIONS = [
           type: "string",
           description: "Relative file path from workspace root",
         },
+        encoding: {
+          type: "string",
+          description: "Optional encoding: utf8 (default) or base64 for binary",
+        },
+        binary: {
+          type: "boolean",
+          description: "Shortcut to request base64 output for binary files",
+        },
       },
       required: ["path"],
     },
   },
   {
     name: "read_files",
-    description: "Read multiple text files at once. More efficient than multiple read_file calls.",
+    description:
+      "Read multiple files at once. More efficient than multiple read_file calls.",
     parameters: {
       type: "object",
       properties: {
@@ -37,6 +46,14 @@ const AGENT_TOOL_DECLARATIONS = [
           type: "array",
           items: { type: "string" },
           description: "Array of relative file paths from workspace root",
+        },
+        encoding: {
+          type: "string",
+          description: "Optional encoding: utf8 (default) or base64 for binary",
+        },
+        binary: {
+          type: "boolean",
+          description: "Shortcut to request base64 output for binary files",
         },
       },
       required: ["paths"],
@@ -71,6 +88,138 @@ const AGENT_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: "get_index",
+    description: "Get LaTeX project index (labels, references, citations, sections, figures, tables, todos).",
+    parameters: {
+      type: "object",
+      properties: {
+        kinds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Filter kinds (labels, references, citations, sections, figures, tables, todos)",
+        },
+        query: {
+          type: "string",
+          description: "Optional filter keyword for keys/titles",
+        },
+        limit: {
+          type: "number",
+          description: "Max entries per kind (default: 200)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "rename_latex_symbol",
+    description:
+      "Rename LaTeX label/citation keys across the workspace (updates \\label/\\ref/\\cite and .bib entries).",
+    parameters: {
+      type: "object",
+      properties: {
+        from: {
+          type: "string",
+          description: "Existing symbol key to rename",
+        },
+        to: {
+          type: "string",
+          description: "New symbol key",
+        },
+        kinds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Kinds to rename: label, ref, cite (default: label + cite)",
+        },
+        extensions: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional file extensions to scan (default: tex,bib,sty,cls,ltx,dtx)",
+        },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "run_build",
+    description: "Run LaTeX build for verification (no automatic apply).",
+    parameters: {
+      type: "object",
+      properties: {
+        mainFile: {
+          type: "string",
+          description: "Main .tex file path (relative). Defaults to root file or main.tex.",
+        },
+        engine: {
+          type: "string",
+          description: "Engine: lualatex, pdflatex, xelatex, uplatex (optional).",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "run_command",
+    description: "Run a shell command in the workspace and return stdout/stderr.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "Shell command to execute",
+        },
+        cwd: {
+          type: "string",
+          description: "Optional working directory (relative to workspace root)",
+        },
+        env: {
+          type: "object",
+          description: "Optional environment variables",
+          additionalProperties: { type: "string" },
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Optional timeout in milliseconds",
+        },
+        maxOutputBytes: {
+          type: "number",
+          description: "Optional max output bytes (0 or negative for unlimited)",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "get_app_settings",
+    description: "Get application settings (compile engine, editor options, format settings).",
+    parameters: {
+      type: "object",
+      properties: {
+        keys: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional keys to filter (compileEngine, autoSynctexOnBuild, pdfViewerMode, alignEnv, formatSettings)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "set_app_settings",
+    description: "Update application settings and return the updated snapshot.",
+    parameters: {
+      type: "object",
+      properties: {
+        settings: {
+          type: "object",
+          description: "Partial settings to update",
+          additionalProperties: true,
+        },
+      },
+      required: ["settings"],
+    },
+  },
+  {
     name: "propose_write",
     description:
       "Propose writing content to a file. This never applies changes automatically.",
@@ -85,6 +234,10 @@ const AGENT_TOOL_DECLARATIONS = [
           type: "string",
           description: "Full content to write",
         },
+        encoding: {
+          type: "string",
+          description: "Optional encoding: utf8 (default) or base64 for binary",
+        },
         summary: {
           type: "string",
           description: "Short summary for the user",
@@ -96,7 +249,7 @@ const AGENT_TOOL_DECLARATIONS = [
   {
     name: "propose_patch",
     description:
-      "Propose a partial edit to a file using search and replace. More efficient than rewriting the entire file.",
+      "Propose partial edits using search and replace (supports multiple edits and files).",
     parameters: {
       type: "object",
       properties: {
@@ -112,12 +265,42 @@ const AGENT_TOOL_DECLARATIONS = [
           type: "string",
           description: "Text to replace the search text with",
         },
+        replaceAll: {
+          type: "boolean",
+          description: "Replace all occurrences (default: false)",
+        },
+        edits: {
+          type: "array",
+          description: "Batch edits across one or more files",
+          items: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Relative file path from workspace root",
+              },
+              search: {
+                type: "string",
+                description: "Exact text to search for in the file",
+              },
+              replace: {
+                type: "string",
+                description: "Text to replace the search text with",
+              },
+              replaceAll: {
+                type: "boolean",
+                description: "Replace all occurrences (default: false)",
+              },
+            },
+            required: ["path", "search", "replace"],
+          },
+        },
         summary: {
           type: "string",
           description: "Short summary for the user",
         },
       },
-      required: ["path", "search", "replace"],
+      required: [],
     },
   },
   {
@@ -183,4 +366,3 @@ const AGENT_TOOL_DECLARATIONS = [
 module.exports = {
   AGENT_TOOL_DECLARATIONS,
 };
-

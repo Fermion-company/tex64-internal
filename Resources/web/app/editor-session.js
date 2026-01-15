@@ -70,6 +70,83 @@ export const initEditorSession = (context, deps) => {
     const getActiveEditorGroupKey = () => activeEditorGroup;
     const getActiveFilePath = () => getActiveGroup().currentFilePath;
     const getActiveEditor = () => getActiveGroup().editor;
+    const getActiveFileSnapshot = () => {
+        var _a, _b, _c, _d, _e;
+        const group = getActiveGroup();
+        if (!group.currentFilePath || !isTextFilePath(group.currentFilePath)) {
+            return null;
+        }
+        const entry = monacoModels.get(group.currentFilePath);
+        const editor = group.editor;
+        const content = (_e = (_c = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : (_d = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _d === void 0 ? void 0 : _d.call(editor)) !== null && _e !== void 0 ? _e : null;
+        if (content === null) {
+            return null;
+        }
+        return { path: group.currentFilePath, content, isDirty: group.isDirty };
+    };
+    const getOpenFileSnapshots = (options) => {
+        var _a, _b;
+        const rawMaxFiles = (_a = options === null || options === void 0 ? void 0 : options.maxFiles) !== null && _a !== void 0 ? _a : 8;
+        const maxFiles = rawMaxFiles > 0 ? rawMaxFiles : Number.POSITIVE_INFINITY;
+        const rawMaxChars = (_b = options === null || options === void 0 ? void 0 : options.maxChars) !== null && _b !== void 0 ? _b : 20000;
+        const maxChars = rawMaxChars > 0 ? rawMaxChars : Number.POSITIVE_INFINITY;
+        const files = new Map();
+        const snapshots = [];
+        const pushSnapshot = (path, isDirty) => {
+            var _a, _b, _c, _d, _e;
+            if (snapshots.length >= maxFiles || !isTextFilePath(path)) {
+                return;
+            }
+            const entry = monacoModels.get(path);
+            const editorGroupKey = findGroupKeyByPath(path);
+            const group = editorGroupKey ? getEditorGroup(editorGroupKey) : null;
+            const editor = group === null || group === void 0 ? void 0 : group.editor;
+            const rawContent = (_e = (_c = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : (_d = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _d === void 0 ? void 0 : _d.call(editor)) !== null && _e !== void 0 ? _e : null;
+            if (rawContent === null) {
+                return;
+            }
+            const truncated = Number.isFinite(maxChars) && rawContent.length > maxChars;
+            const content = truncated ? rawContent.slice(0, maxChars) : rawContent;
+            snapshots.push({
+                path,
+                content,
+                isDirty,
+                truncated,
+                contentLength: rawContent.length,
+            });
+        };
+        forEachEditorGroup((group) => {
+            group.openTabs.forEach((path) => {
+                if (!path) {
+                    return;
+                }
+                if (!files.has(path)) {
+                    files.set(path, {
+                        path,
+                        isDirty: dirtyFiles.has(path),
+                        isActive: group.currentFilePath === path,
+                    });
+                }
+                else {
+                    const entry = files.get(path);
+                    entry.isDirty = entry.isDirty || dirtyFiles.has(path);
+                    entry.isActive = entry.isActive || group.currentFilePath === path;
+                }
+            });
+        });
+        const entries = Array.from(files.values());
+        entries.forEach((entry) => {
+            if (entry.isDirty && !entry.isActive) {
+                pushSnapshot(entry.path, entry.isDirty);
+            }
+        });
+        entries.forEach((entry) => {
+            if (!entry.isDirty && !entry.isActive) {
+                pushSnapshot(entry.path, entry.isDirty);
+            }
+        });
+        return { files: Array.from(files.values()), snapshots };
+    };
     const isActiveGroup = (group) => group.key === activeEditorGroup;
     const getOtherGroupKey = (key) => key === "primary" ? "secondary" : "primary";
     const resolveAutoOpenGroupKey = (preferredKey) => {
@@ -145,13 +222,14 @@ export const initEditorSession = (context, deps) => {
         issueDecorations = editor.deltaDecorations(issueDecorations, []);
     };
     const parseIssueDetail = (issue) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g;
         const trimmed = issue.message.trim();
-        const match = (_b = (_a = trimmed.match(/^(.+?\.tex):(\d+):(\d+):\s*(.+)$/)) !== null && _a !== void 0 ? _a : trimmed.match(/^(.+?\.tex):(\d+):\s*(.+)$/)) !== null && _b !== void 0 ? _b : trimmed.match(/^(.+?):(\d+):\s*(.+)$/);
+        const filePattern = String.raw `((?:[A-Za-z]:)?[^:\s]+?\.[A-Za-z0-9]+)`;
+        const match = (_a = trimmed.match(new RegExp(`^${filePattern}:(\\d+):(\\d+):\\s*(.+)$`))) !== null && _a !== void 0 ? _a : trimmed.match(new RegExp(`^${filePattern}:(\\d+):\\s*(.+)$`));
         if (match) {
-            const path = (_c = issue.path) !== null && _c !== void 0 ? _c : match[1];
-            const line = (_d = issue.line) !== null && _d !== void 0 ? _d : Number.parseInt(match[2], 10);
-            const column = (_e = issue.column) !== null && _e !== void 0 ? _e : (match.length > 4 && match[3] && /^\d+$/.test(match[3])
+            const path = (_b = issue.path) !== null && _b !== void 0 ? _b : match[1];
+            const line = (_c = issue.line) !== null && _c !== void 0 ? _c : Number.parseInt(match[2], 10);
+            const column = (_d = issue.column) !== null && _d !== void 0 ? _d : (match.length > 4 && match[3] && /^\d+$/.test(match[3])
                 ? Number.parseInt(match[3], 10)
                 : null);
             let message = match.length > 4 ? match[4].trim() : match[3].trim();
@@ -164,9 +242,9 @@ export const initEditorSession = (context, deps) => {
             return { path, line: Number.isFinite(line) ? line : null, column, message };
         }
         return {
-            path: (_f = issue.path) !== null && _f !== void 0 ? _f : null,
-            line: (_g = issue.line) !== null && _g !== void 0 ? _g : null,
-            column: (_h = issue.column) !== null && _h !== void 0 ? _h : null,
+            path: (_e = issue.path) !== null && _e !== void 0 ? _e : null,
+            line: (_f = issue.line) !== null && _f !== void 0 ? _f : null,
+            column: (_g = issue.column) !== null && _g !== void 0 ? _g : null,
             message: trimmed,
         };
     };
@@ -179,6 +257,10 @@ export const initEditorSession = (context, deps) => {
         const detail = parseIssueDetail(issue);
         if (detail.path && detail.line) {
             jumpToFileLine(detail.path, detail.line, activeEditorGroup);
+            return;
+        }
+        if (detail.path && !detail.line) {
+            requestOpenFile(detail.path, activeEditorGroup, true);
             return;
         }
         if (!detail.line) {
@@ -552,6 +634,15 @@ export const initEditorSession = (context, deps) => {
         scheduleAfterComposition,
         getLanguageIdForPath,
     });
+    const applyContentToOpenFile = (path, content, options) => {
+        const targetGroupKey = findGroupKeyByPath(path);
+        if (!targetGroupKey) {
+            return false;
+        }
+        const targetGroup = getEditorGroup(targetGroupKey);
+        applyFormattedContent(targetGroup, path, content, options);
+        return true;
+    };
     const jumpToFileLine = (path, line, groupKey, options = {}) => {
         const forceOpen = options.force === true;
         const focus = options.focus;
@@ -721,6 +812,8 @@ export const initEditorSession = (context, deps) => {
         getActiveGroup,
         getActiveEditorGroupKey,
         getActiveFilePath,
+        getActiveFileSnapshot,
+        getOpenFileSnapshots,
         isActiveGroup,
         forEachEditorGroup,
         setEditorGroupEmptyState,
@@ -742,6 +835,7 @@ export const initEditorSession = (context, deps) => {
         jumpToFileLine,
         jumpToLocation,
         applyFormattedContent,
+        applyContentToOpenFile,
         saveCurrentFile,
         requestInitialOpen,
         openPendingFileIfReady,
