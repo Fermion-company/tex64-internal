@@ -11,6 +11,7 @@ const fsp = require("fs/promises");
 const path = require("path");
 const { spawn } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
+const { LintService } = require("./services/lint.cjs");
 const FormatterService = require("./services/formatter.cjs");
 
 const { IndexerService } = require("./services/indexer.cjs");
@@ -49,6 +50,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const workspace = new WorkspaceManager();
 const buildService = new BuildService();
+const lintService = new LintService();
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
 const searchService = new SearchService();
@@ -179,6 +181,7 @@ const buildHandlers = createBuildHandlers({
   fs,
   path,
   buildService,
+  lintService,
   formatterService,
   workspace,
   pdfWindowManager,
@@ -380,8 +383,28 @@ ipcMain.on("tex64", (_event, message) => {
     });
     return;
   }
+  if (type === "build:clean") {
+    buildHandlers.handleClean(message.mainFile, { deep: message.deep === true });
+    return;
+  }
+  if (type === "lint:run") {
+    buildHandlers.handleLint(message.mainFile);
+    return;
+  }
   if (type === "openFile") {
     workspaceHandlers.handleOpenFile(message.path);
+    return;
+  }
+  if (type === "file:preview") {
+    workspaceHandlers.handleFilePreview(message.requestId, message.path);
+    return;
+  }
+  if (type === "file:excerpt") {
+    workspaceHandlers.handleFileExcerpt(message.requestId, message.path, {
+      line: message.line,
+      radius: message.radius,
+      maxLines: message.maxLines,
+    });
     return;
   }
   if (type === "saveFile") {
@@ -444,6 +467,10 @@ ipcMain.on("tex64", (_event, message) => {
   }
   if (type === "detectRoot") {
     workspaceHandlers.handleDetectRoot();
+    return;
+  }
+  if (type === "build:profiles:update") {
+    workspaceHandlers.handleBuildProfilesUpdate(message.profiles, message.activeId);
     return;
   }
   if (type === "requestIndex") {

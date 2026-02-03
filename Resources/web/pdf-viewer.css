@@ -30,8 +30,105 @@ body {
 }
 
 .pdf-body {
-  position: relative;
+  display: flex;
   min-height: 0;
+  overflow: hidden;
+}
+
+.pdf-sidebar {
+  width: 260px;
+  flex: 0 0 auto;
+  background: var(--panel);
+  border-right: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pdf-sidebar.is-hidden {
+  display: none;
+}
+
+.pdf-sidebar-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.pdf-tab {
+  flex: 1 1 auto;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-strong);
+  color: var(--text-soft);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pdf-tab.is-active {
+  border-color: rgba(92, 156, 255, 0.5);
+  color: var(--text);
+  background: rgba(92, 156, 255, 0.14);
+}
+
+.pdf-sidebar-panel {
+  display: none;
+  padding: 10px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.pdf-sidebar-panel.is-active {
+  display: block;
+}
+
+.pdf-outline-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.pdf-outline-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pdf-thumb {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.pdf-thumb:hover {
+  border-color: rgba(92, 156, 255, 0.5);
+}
+
+.pdf-thumb canvas {
+  width: 56px;
+  height: auto;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.pdf-thumb-label {
+  font-size: 12px;
+  color: var(--text-soft);
 }
 
 .pdf-toolbar {
@@ -117,8 +214,9 @@ body {
 }
 
 .pdf-scroll {
-  position: absolute;
-  inset: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   background: radial-gradient(circle at top, rgba(92, 156, 255, 0.08), transparent 60%);
   padding: 16px 18px 40px;
@@ -162,4 +260,8 @@ body {
   box-shadow: 0 0 12px rgba(92, 156, 255, 0.45);
   transform: translate(-50%, -50%);
   pointer-events: none;
+}
+
+body.is-inverted .page {
+  filter: invert(1) hue-rotate(180deg);
 }

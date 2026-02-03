@@ -1,9 +1,11 @@
 import { registerCompletionProvider } from "./monaco-completion.js";
+import { registerHoverProvider } from "./monaco-hover.js";
 import { createInlineCompletionController } from "./monaco-inline.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const completionState = { registered: false };
+    const hoverState = { registered: false };
     const inlineController = createInlineCompletionController({
         editorSession: deps.editorSession,
         getGhostCompletionEnabled: deps.getGhostCompletionEnabled,
@@ -61,7 +63,16 @@ export const initMonacoSetup = (context, deps) => {
             getActiveFilePath: deps.editorSession.getActiveFilePath,
             getIndexLabels: deps.getIndexLabels,
             getIndexCitations: deps.getIndexCitations,
+            getWorkspaceFiles: deps.getWorkspaceFiles,
         }, completionState);
+        registerHoverProvider(monacoWindow.monaco, {
+            getActiveFilePath: deps.editorSession.getActiveFilePath,
+            getWorkspaceFiles: deps.getWorkspaceFiles,
+            getIndexLabels: deps.getIndexLabels,
+            getIndexCitations: deps.getIndexCitations,
+            requestFilePreview: deps.requestFilePreview,
+            requestFileExcerpt: deps.requestFileExcerpt,
+        }, hoverState);
         inlineController.registerInlineCompletionProvider(monacoWindow.monaco);
         const themeName = applyMonacoTheme(monacoWindow.monaco);
         const editorOptions = {

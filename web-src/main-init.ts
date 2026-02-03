@@ -15,6 +15,8 @@ import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 import { createApiCompletionBroker } from "./app/api-completion.js";
+import { createFilePreviewBroker } from "./app/file-preview.js";
+import { createFileExcerptBroker } from "./app/file-excerpt.js";
 import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
@@ -198,6 +200,12 @@ export const initMain = () => {
   const apiCompletionBroker = createApiCompletionBroker((payload, silent) =>
     postToNative(payload, silent)
   );
+  const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
+    postToNative(payload, silent)
+  );
+  const fileExcerptBroker = createFileExcerptBroker((payload, silent) =>
+    postToNative(payload, silent)
+  );
   let workspaceController: ReturnType<typeof initWorkspaceController> | null = null;
   const getWorkspaceRootKey = () => workspaceController?.getWorkspaceRootKey() ?? null;
   const getWorkspaceFiles = () => workspaceController?.getWorkspaceFiles() ?? [];
@@ -206,6 +214,8 @@ export const initMain = () => {
     workspaceController?.getWorkspaceName() ?? "ワークスペース未選択";
   const getRootFilePath = () => workspaceController?.getRootFilePath() ?? null;
   const getRootSource = () => workspaceController?.getRootSource() ?? "auto";
+  const getBuildProfiles = () => workspaceController?.getBuildProfiles() ?? [];
+  const getBuildProfileId = () => workspaceController?.getBuildProfileId() ?? null;
   const getIndexLabels = () => workspaceController?.getIndexLabels() ?? [];
   const getIndexCitations = () => workspaceController?.getIndexCitations() ?? [];
   const getIndexSections = () => workspaceController?.getIndexSections() ?? [];
@@ -237,6 +247,8 @@ export const initMain = () => {
   const settingsUi = initSettingsUi(appContext, {
     envRegistry,
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
+    getBuildProfiles,
+    getBuildProfileId,
     postToNative: (payload, silent) => postToNative(payload, silent),
     onGhostCompletionChange: (enabled) => {
       pendingGhostCompletionEnabled = enabled;
@@ -685,6 +697,7 @@ export const initMain = () => {
     issuesUi,
     editorSession: {
       clearIssueHighlight: editorSession.clearIssueHighlight,
+      syncIssueMarkers: editorSession.syncIssueMarkers,
       syncWorkspaceFiles: editorSession.syncWorkspaceFiles,
       requestInitialOpen: editorSession.requestInitialOpen,
     },
@@ -760,12 +773,57 @@ export const initMain = () => {
     blockInsert: blockInsertApi,
     buildOps: {
       setupActionButtons: () => buildOps.setupActionButtons(),
+      startBuild: () => buildOps.startBuild(),
     },
     rootSelectorUi: {
       setupActions: () => rootSelectorUi.setupActions(),
     },
   });
   uiEvents.setup();
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const anchor = target.closest("a");
+    const href = anchor?.getAttribute("href") ?? "";
+    if (!href.startsWith("tex64://")) {
+      return;
+    }
+    let url: URL | null = null;
+    try {
+      url = new URL(href);
+    } catch {
+      url = null;
+    }
+    if (!url) {
+      return;
+    }
+    const action = url.hostname || url.pathname.replace(/^\/+/, "");
+    if (action !== "view-on-pdf") {
+      return;
+    }
+    const path = url.searchParams.get("path") ?? "";
+    const line = Number.parseInt(url.searchParams.get("line") ?? "", 10);
+    const column = Number.parseInt(url.searchParams.get("column") ?? "1", 10);
+    if (!path || !Number.isFinite(line) || line < 1) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    postToNative(
+      {
+        type: "synctex:forward",
+        path,
+        line,
+        column: Number.isFinite(column) && column > 0 ? column : 1,
+        fallbackToTop: true,
+        pdfViewerMode: settingsUi.getPdfViewerMode(),
+      },
+      false
+    );
+  });
 
   const fallbackPrimary = document.getElementById("editor-fallback");
   const fallbackSecondary = editorFallbackSecondary;
@@ -836,6 +894,12 @@ export const initMain = () => {
         apiCompletionBroker.handleCompletionResult(payload),
       handleUsage: (payload) => apiCompletionBroker.handleUsage(payload),
     },
+    filePreview: {
+      handlePreviewResult: (payload) => filePreviewBroker.handlePreviewResult(payload),
+    },
+    fileExcerpt: {
+      handleExcerptResult: (payload) => fileExcerptBroker.handleExcerptResult(payload),
+    },
     editorSession: {
       handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),
       handleSaveResult: (payload) => editorSession.handleSaveResult(payload),
@@ -861,10 +925,14 @@ export const initMain = () => {
     setMonacoApi: (api) => appActions.setMonacoApi(api),
     getIndexLabels,
     getIndexCitations,
+    getWorkspaceFiles,
     onCursorPositionChange: handleCursorPositionChange,
     onCursorSelectionChange: handleCursorPositionChange,
     getGhostCompletionEnabled: () => settingsUi.getGhostCompletionEnabled(),
     getGhostCompletionConfig: () => settingsUi.getGhostCompletionConfig(),
+    requestFilePreview: (path) => filePreviewBroker.requestPreview(path),
+    requestFileExcerpt: (path, line, options) =>
+      fileExcerptBroker.requestExcerpt(path, line, options),
     requestApiCompletion: (payload) =>
       apiCompletionBroker.requestCompletion(payload),
   });

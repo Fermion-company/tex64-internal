@@ -2,8 +2,13 @@ import type { AppContext } from "./context.js";
 import type { IndexEntry } from "./types.js";
 import type { EditorGroupKey, EditorSessionApi, EditorGroupState } from "./editor-session.js";
 import { registerCompletionProvider } from "./monaco-completion.js";
+import { registerHoverProvider, type HoverState } from "./monaco-hover.js";
 import { createInlineCompletionController } from "./monaco-inline.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
+
+type FileExcerptResult =
+  | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
+  | { ok: false; error?: string };
 
 type MonacoSetupDeps = {
   editorSession: EditorSessionApi;
@@ -18,6 +23,15 @@ type MonacoSetupDeps = {
   setMonacoApi: (api: Record<string, unknown>) => void;
   getIndexLabels: () => IndexEntry[];
   getIndexCitations: () => IndexEntry[];
+  getWorkspaceFiles: () => string[];
+  requestFilePreview?: (
+    path: string
+  ) => Promise<{ ok: boolean; dataUrl?: string | null; error?: string }>;
+  requestFileExcerpt?: (
+    path: string,
+    line: number,
+    options?: { radius?: number; maxLines?: number }
+  ) => Promise<FileExcerptResult>;
   onCursorPositionChange: (position: { lineNumber: number; column: number }) => void;
   onCursorSelectionChange?: (position: { lineNumber: number; column: number }) => void;
   getGhostCompletionEnabled: () => boolean;
@@ -45,6 +59,7 @@ export const initMonacoSetup = (
   const { editorHost, editorHostSecondary } = context.dom;
 
   const completionState = { registered: false };
+  const hoverState: HoverState = { registered: false };
   const inlineController = createInlineCompletionController({
     editorSession: deps.editorSession,
     getGhostCompletionEnabled: deps.getGhostCompletionEnabled,
@@ -173,8 +188,21 @@ export const initMonacoSetup = (
           getActiveFilePath: deps.editorSession.getActiveFilePath,
           getIndexLabels: deps.getIndexLabels,
           getIndexCitations: deps.getIndexCitations,
+          getWorkspaceFiles: deps.getWorkspaceFiles,
         },
         completionState
+      );
+      registerHoverProvider(
+        monacoWindow.monaco,
+        {
+          getActiveFilePath: deps.editorSession.getActiveFilePath,
+          getWorkspaceFiles: deps.getWorkspaceFiles,
+          getIndexLabels: deps.getIndexLabels,
+          getIndexCitations: deps.getIndexCitations,
+          requestFilePreview: deps.requestFilePreview,
+          requestFileExcerpt: deps.requestFileExcerpt,
+        },
+        hoverState
       );
       inlineController.registerInlineCompletionProvider(monacoWindow.monaco);
       const themeName = applyMonacoTheme(monacoWindow.monaco);

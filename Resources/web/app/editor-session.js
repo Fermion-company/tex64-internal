@@ -248,6 +248,55 @@ export const initEditorSession = (context, deps) => {
             message: trimmed,
         };
     };
+    const syncIssueMarkers = (issues) => {
+        var _a;
+        const monacoApi = deps.getMonacoApi();
+        if (!monacoApi || monacoModels.size === 0) {
+            return;
+        }
+        const monacoApiAny = monacoApi;
+        if (typeof ((_a = monacoApiAny.editor) === null || _a === void 0 ? void 0 : _a.setModelMarkers) !== "function") {
+            return;
+        }
+        const activePath = getActiveFilePath();
+        const markersByPath = new Map();
+        const pushMarker = (targetPath, marker) => {
+            const current = markersByPath.get(targetPath);
+            if (current) {
+                current.push(marker);
+            }
+            else {
+                markersByPath.set(targetPath, [marker]);
+            }
+        };
+        issues.forEach((issue) => {
+            var _a;
+            const detail = parseIssueDetail(issue);
+            const targetPath = (_a = detail.path) !== null && _a !== void 0 ? _a : activePath;
+            if (!targetPath) {
+                return;
+            }
+            const line = Number.isFinite(detail.line) ? detail.line : null;
+            if (!line || line < 1) {
+                return;
+            }
+            const column = Number.isFinite(detail.column) ? detail.column : 1;
+            const severity = issue.severity === "error" ? 8 : 4;
+            pushMarker(targetPath, {
+                severity,
+                message: detail.message || issue.message,
+                startLineNumber: line,
+                startColumn: Math.max(1, column),
+                endLineNumber: line,
+                endColumn: Math.max(1, column) + 1,
+            });
+        });
+        monacoModels.forEach((entry, path) => {
+            var _a, _b, _c;
+            const markers = (_a = markersByPath.get(path)) !== null && _a !== void 0 ? _a : [];
+            (_c = (_b = monacoApiAny.editor) === null || _b === void 0 ? void 0 : _b.setModelMarkers) === null || _c === void 0 ? void 0 : _c.call(_b, entry.model, "tex64", markers);
+        });
+    };
     const focusIssue = (issue) => {
         const activeGroup = getActiveGroup();
         const monacoApi = deps.getMonacoApi();
@@ -840,6 +889,7 @@ export const initEditorSession = (context, deps) => {
         requestInitialOpen,
         openPendingFileIfReady,
         clearIssueHighlight,
+        syncIssueMarkers,
         parseIssueDetail,
         focusIssue,
         handleOpenFileResult,

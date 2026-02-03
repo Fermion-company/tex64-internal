@@ -7,6 +7,7 @@ import type {
   IssuesStatus,
   RootSource,
   SectionEntry,
+  BuildProfile,
 } from "./types.js";
 
 type WorkspaceUpdatePayload = {
@@ -16,6 +17,8 @@ type WorkspaceUpdatePayload = {
   folders?: string[];
   rootFile?: string;
   rootSource?: RootSource;
+  buildProfiles?: BuildProfile[];
+  buildProfileId?: string;
 };
 
 type IndexUpdatePayload = {
@@ -36,6 +39,7 @@ type WorkspaceControllerDeps = {
   };
   editorSession: {
     clearIssueHighlight: () => void;
+    syncIssueMarkers: (issues: IssueItem[]) => void;
     syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
     requestInitialOpen: () => void;
   };
@@ -86,6 +90,8 @@ export type WorkspaceControllerApi = {
   getWorkspaceName: () => string;
   getRootFilePath: () => string | null;
   getRootSource: () => RootSource;
+  getBuildProfiles: () => BuildProfile[];
+  getBuildProfileId: () => string | null;
   getIndexLabels: () => IndexEntry[];
   getIndexCitations: () => IndexEntry[];
   getIndexSections: () => SectionEntry[];
@@ -104,6 +110,8 @@ export const initWorkspaceController = (
   } = context.dom;
 
   let currentIssues: IssueItem[] = [];
+  let baseIssues: IssueItem[] = [];
+  let duplicateLabelIssues: IssueItem[] = [];
   let pendingBuildIssuesFocus = false;
   let indexLabels: IndexEntry[] = [];
   let indexCitations: IndexEntry[] = [];
@@ -115,6 +123,8 @@ export const initWorkspaceController = (
   let workspaceRootKey: string | null = null;
   let rootFilePath: string | null = null;
   let rootSource: RootSource = "auto";
+  let buildProfiles: BuildProfile[] = [];
+  let buildProfileId: string | null = null;
 
   const setText = (element: HTMLElement | null, text: string) => {
     if (element) {
@@ -137,26 +147,105 @@ export const initWorkspaceController = (
     }
   };
 
+  const computeDuplicateLabelIssues = (labels: IndexEntry[]) => {
+    if (!Array.isArray(labels) || labels.length === 0) {
+      return [];
+    }
+    const byKey = new Map<string, IndexEntry[]>();
+    labels.forEach((entry) => {
+      if (!entry || typeof entry.key !== "string" || typeof entry.path !== "string") {
+        return;
+      }
+      const key = entry.key.trim();
+      if (!key) {
+        return;
+      }
+      const list = byKey.get(key);
+      if (list) {
+        list.push(entry);
+      } else {
+        byKey.set(key, [entry]);
+      }
+    });
+    const keys = Array.from(byKey.keys()).sort((a, b) => a.localeCompare(b, "ja"));
+    const issues: IssueItem[] = [];
+    const maxLocationsShown = 4;
+    for (const key of keys) {
+      const entries = byKey.get(key) ?? [];
+      if (entries.length <= 1) {
+        continue;
+      }
+      entries.sort((a, b) => {
+        if (a.path !== b.path) {
+          return a.path.localeCompare(b.path, "ja");
+        }
+        return a.line - b.line;
+      });
+      const locations = entries.map((entry) => `${entry.path}:${entry.line}`);
+      const shown = locations.slice(0, maxLocationsShown).join(", ");
+      const rest = locations.length > maxLocationsShown ? ` +${locations.length - maxLocationsShown}` : "";
+      const detailText = shown ? `${shown}${rest}` : "(location unavailable)";
+      for (const entry of entries) {
+        if (issues.length >= 80) {
+          break;
+        }
+        issues.push({
+          severity: "warning",
+          message: `Duplicate label: ${key} (${detailText})`,
+          path: entry.path,
+          line: entry.line,
+        });
+      }
+      if (issues.length >= 80) {
+        break;
+      }
+    }
+    return issues;
+  };
+
+  const mergeIssues = () => {
+    const merged: IssueItem[] = [];
+    const seen = new Set<string>();
+    const push = (issue: IssueItem) => {
+      const token = `${issue.severity}|${issue.path ?? ""}|${issue.line ?? ""}|${issue.column ?? ""}|${issue.message}`;
+      if (seen.has(token)) {
+        return;
+      }
+      seen.add(token);
+      merged.push(issue);
+    };
+    baseIssues.forEach(push);
+    duplicateLabelIssues.forEach(push);
+
+    const hasError = merged.some((issue) => issue.severity === "error");
+    const status: IssuesStatus = hasError ? "error" : merged.length > 0 ? "info" : "success";
+
+    currentIssues = merged;
+    setIssuesStatus(status);
+    deps.issuesUi.render(merged);
+    deps.editorSession.syncIssueMarkers(merged);
+
+    if (issuesTab instanceof HTMLElement) {
+      const hasAlert = merged.length > 0 && status === "error";
+      issuesTab.classList.toggle("is-alert", hasAlert);
+    }
+    if (merged.length === 0) {
+      deps.editorSession.clearIssueHighlight();
+    }
+    if (pendingBuildIssuesFocus && merged.length > 0 && status === "error") {
+      pendingBuildIssuesFocus = false;
+      deps.setActiveTab("issues");
+    }
+  };
+
   const updateIssues = (
     count: number,
     summary: string,
     status: IssuesStatus,
     issues: IssueItem[]
   ) => {
-    currentIssues = issues;
-    setIssuesStatus(status);
-    deps.issuesUi.render(issues);
-    if (issuesTab instanceof HTMLElement) {
-      const hasAlert = count > 0 && status === "error";
-      issuesTab.classList.toggle("is-alert", hasAlert);
-    }
-    if (count === 0) {
-      deps.editorSession.clearIssueHighlight();
-    }
-    if (pendingBuildIssuesFocus && count > 0 && status === "error") {
-      pendingBuildIssuesFocus = false;
-      deps.setActiveTab("issues");
-    }
+    baseIssues = issues;
+    mergeIssues();
   };
 
   const handleWorkspaceUpdate = (payload: WorkspaceUpdatePayload) => {
@@ -179,6 +268,11 @@ export const initWorkspaceController = (
       payload.rootSource === "manual" || payload.rootSource === "auto"
         ? payload.rootSource
         : "auto";
+    buildProfiles = Array.isArray(payload.buildProfiles) ? payload.buildProfiles : [];
+    buildProfileId =
+      typeof payload.buildProfileId === "string" && payload.buildProfileId.trim()
+        ? payload.buildProfileId.trim()
+        : null;
     deps.buildOps.updateSynctexButtonState();
     const rootChanged = Boolean(previousRoot && previousRoot !== payload.rootPath);
     if (rootChanged) {
@@ -200,6 +294,8 @@ export const initWorkspaceController = (
     indexCitations = Array.isArray(payload.citations) ? payload.citations : [];
     indexSections = Array.isArray(payload.sections) ? payload.sections : [];
     indexTodos = Array.isArray(payload.todos) ? payload.todos : [];
+    duplicateLabelIssues = computeDuplicateLabelIssues(indexLabels);
+    mergeIssues();
     deps.outlineUi.render();
   };
 
@@ -217,6 +313,8 @@ export const initWorkspaceController = (
     getWorkspaceName: () => workspaceName,
     getRootFilePath: () => rootFilePath,
     getRootSource: () => rootSource,
+    getBuildProfiles: () => buildProfiles,
+    getBuildProfileId: () => buildProfileId,
     getIndexLabels: () => indexLabels,
     getIndexCitations: () => indexCitations,
     getIndexSections: () => indexSections,

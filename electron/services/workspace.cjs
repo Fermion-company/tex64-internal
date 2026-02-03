@@ -79,6 +79,29 @@ const writeUtf8File = async (filePath, content) => {
   await fsp.writeFile(filePath, buffer);
 };
 
+const extractTexMagicRoot = (content) => {
+  if (!content) {
+    return null;
+  }
+  const lines = content.split(/\r?\n/).slice(0, 40);
+  for (const line of lines) {
+    const match = line.match(/^\s*%\s*!\s*TEX\s+root\s*=\s*(.+?)\s*$/i);
+    if (!match) {
+      continue;
+    }
+    const raw = (match[1] ?? "").trim();
+    if (!raw) {
+      continue;
+    }
+    const unquoted = raw.replace(/^['"]|['"]$/g, "").trim();
+    if (!unquoted) {
+      continue;
+    }
+    return unquoted;
+  }
+  return null;
+};
+
 class WorkspaceManager {
   constructor() {
     this.rootPath = null;
@@ -160,7 +183,10 @@ class WorkspaceManager {
     }
     this.rootFileInfo = { path: normalizeRelativePath(trimmed), source: "manual" };
     this.rootInfoRootPath = this.rootPath;
-    await this.saveSettings({ rootFile: normalizeRelativePath(trimmed) });
+    await this.updateSettings((settings) => {
+      settings.rootFile = normalizeRelativePath(trimmed);
+      return settings;
+    });
     return this.rootFileInfo;
   }
 
@@ -175,7 +201,10 @@ class WorkspaceManager {
     } else {
       this.rootFileInfo = null;
     }
-    await this.removeSettings();
+    await this.updateSettings((settings) => {
+      delete settings.rootFile;
+      return settings;
+    });
     return this.rootFileInfo;
   }
 
@@ -571,6 +600,102 @@ class WorkspaceManager {
     return candidates[0].path;
   }
 
+  async resolveTexRootFromMagic(relativePath, options = {}) {
+    if (!this.rootPath) {
+      return null;
+    }
+    const maxDepth = Number.isFinite(options?.maxDepth)
+      ? Math.max(1, Math.floor(options.maxDepth))
+      : 5;
+    const visited = new Set();
+    let current = normalizeRelativePath(relativePath ?? "");
+    let resolvedAtLeastOnce = false;
+
+    for (let depth = 0; depth < maxDepth; depth += 1) {
+      const token = current.toLowerCase();
+      if (visited.has(token)) {
+        return null;
+      }
+      visited.add(token);
+      const absPath = this.resolvePath(current);
+      const content = await readUtf8File(absPath).catch(() => null);
+      if (content === null) {
+        return null;
+      }
+      const magic = extractTexMagicRoot(content);
+      if (!magic) {
+        return resolvedAtLeastOnce ? current : null;
+      }
+      const baseDir = path.dirname(absPath);
+      const candidates = [];
+      candidates.push(magic);
+      if (!path.extname(magic)) {
+        candidates.push(`${magic}.tex`);
+      }
+      let next = null;
+      for (const candidate of candidates) {
+        const resolvedAbs = path.resolve(baseDir, candidate);
+        const rootResolved = path.resolve(this.rootPath);
+        if (resolvedAbs !== rootResolved && !resolvedAbs.startsWith(rootResolved + path.sep)) {
+          continue;
+        }
+        const stat = await fsp.stat(resolvedAbs).catch(() => null);
+        if (!stat || !stat.isFile()) {
+          continue;
+        }
+        if (path.extname(resolvedAbs).toLowerCase() !== ".tex") {
+          continue;
+        }
+        next = normalizeRelativePath(path.relative(this.rootPath, resolvedAbs));
+        break;
+      }
+      if (!next) {
+        return null;
+      }
+      resolvedAtLeastOnce = true;
+      current = next;
+    }
+    return resolvedAtLeastOnce ? current : null;
+  }
+
+  async updateSettings(mutator) {
+    if (!this.rootPath) {
+      throw new Error(WorkspaceError.invalidPath);
+    }
+    const directory = path.join(this.rootPath, ".tex64");
+    await ensureDirectory(directory);
+    const settingsPath = path.join(directory, "settings.json");
+
+    const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
+    let settings = {};
+    if (exists) {
+      settings = await readUtf8File(settingsPath)
+        .then((raw) => JSON.parse(raw))
+        .catch(() => ({}));
+      if (!settings || typeof settings !== "object") {
+        settings = {};
+      }
+    }
+
+    const next = mutator(settings) ?? settings;
+    const normalized = next && typeof next === "object" ? next : {};
+
+    Object.keys(normalized).forEach((key) => {
+      if (normalized[key] === undefined) {
+        delete normalized[key];
+      }
+    });
+
+    const keys = Object.keys(normalized);
+    if (keys.length === 0) {
+      await fsp.unlink(settingsPath).catch(() => null);
+      return;
+    }
+
+    const payload = JSON.stringify(normalized, null, 2);
+    await writeUtf8File(settingsPath, payload);
+  }
+
   async loadSettings() {
     if (!this.rootPath) {
       return null;
@@ -615,7 +740,10 @@ class WorkspaceManager {
     const normalizedNew = normalizeRelativePath(newPath);
     if (currentRoot === normalizedOld) {
       this.rootFileInfo = { path: normalizedNew, source: "manual" };
-      this.saveSettings({ rootFile: normalizedNew }).catch(() => null);
+      this.updateSettings((settings) => {
+        settings.rootFile = normalizedNew;
+        return settings;
+      }).catch(() => null);
       return;
     }
     const prefix = normalizedOld + "/";
@@ -625,7 +753,10 @@ class WorkspaceManager {
     const suffix = currentRoot.slice(prefix.length);
     const updatedPath = `${normalizedNew}/${suffix}`;
     this.rootFileInfo = { path: updatedPath, source: "manual" };
-    this.saveSettings({ rootFile: updatedPath }).catch(() => null);
+    this.updateSettings((settings) => {
+      settings.rootFile = updatedPath;
+      return settings;
+    }).catch(() => null);
   }
 
   updateRootOverrideAfterDelete(deletedPath) {
@@ -639,7 +770,10 @@ class WorkspaceManager {
     const normalizedDeleted = normalizeRelativePath(deletedPath);
     if (currentRoot === normalizedDeleted || currentRoot.startsWith(normalizedDeleted + "/")) {
       this.rootFileInfo = null;
-      this.removeSettings().catch(() => null);
+      this.updateSettings((settings) => {
+        delete settings.rootFile;
+        return settings;
+      }).catch(() => null);
     }
   }
 

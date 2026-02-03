@@ -3,6 +3,7 @@ const createBuildHandlers = (deps) => {
     fs,
     path,
     buildService,
+    lintService,
     formatterService,
     workspace,
     pdfWindowManager,
@@ -60,6 +61,28 @@ const createBuildHandlers = (deps) => {
     }
   };
 
+  const resolveBuildProfile = async () => {
+    const settings = await workspace.loadSettings().catch(() => null);
+    const activeId = typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";
+    if (!activeId) {
+      return null;
+    }
+    const profiles = Array.isArray(settings?.buildProfiles) ? settings.buildProfiles : [];
+    const selected = profiles.find(
+      (profile) => profile && typeof profile === "object" && profile.id === activeId
+    );
+    if (!selected) {
+      return null;
+    }
+    const outDir =
+      typeof selected.outDir === "string" && selected.outDir.trim() ? selected.outDir.trim() : null;
+    const extraArgs =
+      typeof selected.extraArgs === "string" && selected.extraArgs.trim()
+        ? selected.extraArgs.trim()
+        : null;
+    return { outDir, extraArgs };
+  };
+
   const handleBuild = async (mainFile, options = {}) => {
     const buildMessage = "ビルド中...";
     sendBuildState("building", buildMessage);
@@ -72,10 +95,18 @@ const createBuildHandlers = (deps) => {
     }
     await updateWorkspaceIfNeeded(rootPath);
     const rootInfo = await workspace.rootInfo().catch(() => null);
-    const targetFile =
-      (mainFile && mainFile.trim() ? mainFile : null) ||
-      rootInfo?.path ||
-      "main.tex";
+    const requestedFile = mainFile && mainFile.trim() ? mainFile.trim() : null;
+    let targetFile = rootInfo?.path || "main.tex";
+    if (requestedFile && requestedFile.endsWith(".tex")) {
+      const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
+      if (magicRoot) {
+        targetFile = magicRoot;
+      } else if (!rootInfo?.path) {
+        targetFile = requestedFile;
+      }
+    } else if (requestedFile && !rootInfo?.path) {
+      targetFile = requestedFile;
+    }
     if (options.format && typeof targetFile === "string" && targetFile.endsWith(".tex")) {
       const formatResult = await formatterService
         .formatFile(rootPath, targetFile, options.formatSettings)
@@ -87,7 +118,8 @@ const createBuildHandlers = (deps) => {
         ]);
       }
     }
-    const result = await buildService.build(rootPath, targetFile, options.engine);
+    const buildProfile = await resolveBuildProfile().catch(() => null);
+    const result = await buildService.build(rootPath, targetFile, options.engine, buildProfile);
     if (result.kind === "busy") {
       sendBuildState("building", buildMessage);
       sendIssues(0, "すでにビルド中です。", "info", []);
@@ -130,6 +162,102 @@ const createBuildHandlers = (deps) => {
       const summaryText = result.issues[0]?.message ?? result.summary;
       sendBuildState("failed", result.summary);
       sendIssues(count, summaryText, "error", result.issues);
+    }
+  };
+
+  const handleClean = async (mainFile, options = {}) => {
+    const message = "clean 中...";
+    sendIssues(0, message, "info", []);
+    sendBuildLog(null);
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      sendIssues(1, "ワークスペースが選択されていません。", "error", [
+        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      ]);
+      return;
+    }
+    await updateWorkspaceIfNeeded(rootPath);
+    const rootInfo = await workspace.rootInfo().catch(() => null);
+    const requestedFile = mainFile && mainFile.trim() ? mainFile.trim() : null;
+    let targetFile = rootInfo?.path || "main.tex";
+    if (requestedFile && requestedFile.endsWith(".tex")) {
+      const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
+      if (magicRoot) {
+        targetFile = magicRoot;
+      } else if (!rootInfo?.path) {
+        targetFile = requestedFile;
+      }
+    } else if (requestedFile && !rootInfo?.path) {
+      targetFile = requestedFile;
+    }
+    const buildProfile = await resolveBuildProfile().catch(() => null);
+    const deep = options.deep === true;
+    const result = await buildService.clean(rootPath, targetFile, { deep }, buildProfile);
+    if (result.kind === "busy") {
+      sendIssues(0, "すでに処理中です。", "info", []);
+      return;
+    }
+    sendBuildLog(result.log ?? null);
+    if (result.kind === "success") {
+      sendIssues(0, result.summary ?? "clean 完了", "success", []);
+      return;
+    }
+    if (result.kind === "failure") {
+      const count = Math.max(result.issues.length, 1);
+      const summaryText = result.issues[0]?.message ?? result.summary;
+      sendIssues(count, summaryText, "error", result.issues);
+    }
+  };
+
+  const handleLint = async (mainFile) => {
+    if (!lintService) {
+      sendIssues(1, "lint 機能が利用できません。", "error", [
+        { severity: "error", message: "lint 機能が利用できません。", line: null },
+      ]);
+      return;
+    }
+    const message = "Lint 中...";
+    sendIssues(0, message, "info", []);
+    sendBuildLog(null);
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      sendIssues(1, "ワークスペースが選択されていません。", "error", [
+        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      ]);
+      return;
+    }
+    await updateWorkspaceIfNeeded(rootPath);
+    const rootInfo = await workspace.rootInfo().catch(() => null);
+    const requestedFile = mainFile && mainFile.trim() ? mainFile.trim() : null;
+    let targetFile = rootInfo?.path || "main.tex";
+    if (requestedFile && requestedFile.endsWith(".tex")) {
+      const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
+      if (magicRoot) {
+        targetFile = magicRoot;
+      } else if (!rootInfo?.path) {
+        targetFile = requestedFile;
+      }
+    } else if (requestedFile && !rootInfo?.path) {
+      targetFile = requestedFile;
+    }
+
+    const result = await lintService.lint(rootPath, targetFile);
+    if (result.kind === "busy") {
+      sendIssues(0, "すでに処理中です。", "info", []);
+      return;
+    }
+    sendBuildLog(result.log ?? null);
+    if (result.kind === "failure") {
+      const count = Math.max(result.issues.length, 1);
+      const summaryText = result.issues[0]?.message ?? result.summary;
+      sendIssues(count, summaryText, "error", result.issues);
+      return;
+    }
+    const issueCount = Array.isArray(result.issues) ? result.issues.length : 0;
+    if (issueCount > 0) {
+      sendIssues(issueCount, result.summary ?? "Lint: 警告があります。", "info", result.issues);
+    } else {
+      sendIssues(0, result.summary ?? "Lint 完了", "success", []);
     }
   };
 
@@ -312,7 +440,7 @@ const createBuildHandlers = (deps) => {
     });
   };
 
-  return { handleBuild, handleSynctexForward, handleSynctexReverse };
+  return { handleBuild, handleClean, handleLint, handleSynctexForward, handleSynctexReverse };
 };
 
 module.exports = { createBuildHandlers };

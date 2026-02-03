@@ -12,15 +12,44 @@
     <div class="pdf-app">
       <header class="pdf-toolbar">
         <div class="pdf-toolbar-group">
+          <button class="pdf-btn ghost" id="pdf-sidebar-toggle" type="button" title="サイドバー">
+            ☰
+          </button>
           <span class="pdf-title" id="pdf-title">PDF Viewer</span>
         </div>
         <div class="pdf-toolbar-group">
+          <button class="pdf-btn ghost" id="pdf-prev" type="button" title="前のページ">◀</button>
+          <input class="pdf-page-input" id="pdf-page-input" type="number" min="1" value="1" aria-label="ページ">
+          <span class="pdf-page-count" id="pdf-page-count">/ 0</span>
+          <button class="pdf-btn ghost" id="pdf-next" type="button" title="次のページ">▶</button>
+          <button class="pdf-btn ghost" id="pdf-zoom-out" type="button" title="縮小">−</button>
+          <span class="pdf-zoom-label" id="pdf-zoom-label">100%</span>
+          <button class="pdf-btn ghost" id="pdf-zoom-in" type="button" title="拡大">＋</button>
+          <button class="pdf-btn ghost" id="pdf-fit-width" type="button" title="幅に合わせる">幅</button>
+          <button class="pdf-btn ghost" id="pdf-fit-page" type="button" title="ページに合わせる">頁</button>
+          <button class="pdf-btn ghost" id="pdf-rotate-left" type="button" title="左回転">⟲</button>
+          <button class="pdf-btn ghost" id="pdf-rotate-right" type="button" title="右回転">⟳</button>
+          <input class="pdf-search-input" id="pdf-search-input" type="text" placeholder="検索">
+          <button class="pdf-btn ghost" id="pdf-search-prev" type="button" title="前を検索">↑</button>
+          <button class="pdf-btn ghost" id="pdf-search-next" type="button" title="次を検索">↓</button>
+          <button class="pdf-btn ghost" id="pdf-invert" type="button" title="反転">Invert</button>
+          <button class="pdf-btn ghost" id="pdf-download" type="button" title="ダウンロード">DL</button>
+          <button class="pdf-btn ghost" id="pdf-print" type="button" title="印刷">Print</button>
+          <button class="pdf-btn ghost" id="pdf-reload" type="button" title="再読み込み">Reload</button>
         </div>
         <div class="pdf-toolbar-group">
           <span class="pdf-status" id="pdf-status">待機中</span>
         </div>
       </header>
       <div class="pdf-body" id="pdf-body">
+        <aside class="pdf-sidebar is-hidden" id="pdf-sidebar" aria-label="PDF サイドバー">
+          <div class="pdf-sidebar-tabs">
+            <button class="pdf-tab is-active" id="pdf-tab-outline" type="button">Outline</button>
+            <button class="pdf-tab" id="pdf-tab-thumbs" type="button">Thumbnails</button>
+          </div>
+          <div class="pdf-sidebar-panel is-active" id="pdf-outline" aria-label="Outline"></div>
+          <div class="pdf-sidebar-panel" id="pdf-thumbnails" aria-label="Thumbnails"></div>
+        </aside>
         <div class="pdf-scroll" id="pdf-scroll">
           <div class="pdf-pages pdfViewer" id="pdf-pages"></div>
         </div>

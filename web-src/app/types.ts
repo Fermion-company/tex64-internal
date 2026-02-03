@@ -52,6 +52,12 @@ export type MathKey = {
 export type SearchResult = { path: string; line: number; preview: string };
 export type FileNode = { name: string; path: string; type: "file" | "dir"; children: FileNode[] };
 export type RootSource = "auto" | "manual";
+export type BuildProfile = {
+  id: string;
+  name: string;
+  outDir?: string | null;
+  extraArgs?: string | null;
+};
 export type LauncherTemplate = "paper" | "lecture";
 export type AgentStatusState = "idle" | "running" | "error";
 export type AgentSettings = {

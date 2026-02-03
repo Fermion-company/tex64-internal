@@ -95,11 +95,20 @@ const createWorkspaceHandlers = (deps) => {
     }
     let rootFile = "";
     let rootSource = "";
+    let buildProfiles = [];
+    let buildProfileId = "";
     try {
       const info = await workspace.rootInfo();
       if (info?.path) {
         rootFile = info.path;
         rootSource = info.source;
+      }
+      const settings = await workspace.loadSettings().catch(() => null);
+      if (Array.isArray(settings?.buildProfiles)) {
+        buildProfiles = settings.buildProfiles;
+      }
+      if (typeof settings?.buildProfileId === "string") {
+        buildProfileId = settings.buildProfileId;
       }
     } catch (error) {
       if (!errorMessage) {
@@ -113,6 +122,8 @@ const createWorkspaceHandlers = (deps) => {
       folders,
       rootFile,
       rootSource,
+      buildProfiles,
+      buildProfileId,
     });
     if (errorMessage) {
       sendIssues(1, errorMessage, "error", [
@@ -283,6 +294,141 @@ const createWorkspaceHandlers = (deps) => {
       sendToRenderer("openFileResult", { path: relativePath, content, kind: "text" });
     } catch (error) {
       sendToRenderer("openFileResult", { path: relativePath, error: error.message });
+    }
+  };
+
+  const handleFilePreview = async (requestId, relativePath) => {
+    const rootPath = ensureWorkspace();
+    if (!requestId || typeof requestId !== "string") {
+      return;
+    }
+    if (!rootPath) {
+      sendToRenderer("file:previewResult", {
+        requestId,
+        ok: false,
+        error: "ワークスペースが選択されていません。",
+      });
+      return;
+    }
+    await updateWorkspaceIfNeeded(rootPath);
+    if (!isImageFilePath(relativePath)) {
+      sendToRenderer("file:previewResult", {
+        requestId,
+        ok: false,
+        path: relativePath,
+        error: "プレビューできない形式です。",
+      });
+      return;
+    }
+    try {
+      const data = await workspace.readBinaryFile(relativePath);
+      const maxBytes = 1024 * 1024 * 2;
+      if (data.length > maxBytes) {
+        sendToRenderer("file:previewResult", {
+          requestId,
+          ok: false,
+          path: relativePath,
+          error: "画像が大きすぎます（2MBまで）。",
+        });
+        return;
+      }
+      const ext = getFileExtension(relativePath);
+      sendToRenderer("file:previewResult", {
+        requestId,
+        ok: true,
+        path: relativePath,
+        mimeType: IMAGE_MIME_TYPES.get(ext) || "image/*",
+        data: data.toString("base64"),
+      });
+    } catch (error) {
+      sendToRenderer("file:previewResult", {
+        requestId,
+        ok: false,
+        path: relativePath,
+        error: error.message,
+      });
+    }
+  };
+
+  const handleFileExcerpt = async (requestId, relativePath, options = {}) => {
+    const rootPath = ensureWorkspace();
+    if (!requestId || typeof requestId !== "string") {
+      return;
+    }
+    if (!rootPath) {
+      sendToRenderer("file:excerptResult", {
+        requestId,
+        ok: false,
+        error: "ワークスペースが選択されていません。",
+      });
+      return;
+    }
+    await updateWorkspaceIfNeeded(rootPath);
+    if (!isTextFilePath(relativePath)) {
+      sendToRenderer("file:excerptResult", {
+        requestId,
+        ok: false,
+        path: relativePath,
+        error: "抜粋できない形式です。",
+      });
+      return;
+    }
+
+    const lineNumber = Number.parseInt(options.line ?? "1", 10);
+    const radius = Number.isFinite(options.radius)
+      ? Math.min(180, Math.max(0, Math.floor(options.radius)))
+      : 6;
+    const maxLines = Number.isFinite(options.maxLines)
+      ? Math.min(360, Math.max(1, Math.floor(options.maxLines)))
+      : Math.min(2 * radius + 1, 25);
+    const center = Number.isFinite(lineNumber) && lineNumber > 0 ? lineNumber : 1;
+
+    try {
+      const content = await workspace.readFile(relativePath);
+      const allLines = content.split(/\r?\n/);
+      const total = allLines.length;
+      const startLine = Math.max(1, center - radius);
+      const endLine = Math.min(total, center + radius);
+      let excerptLines = allLines.slice(startLine - 1, endLine);
+      let truncated = false;
+      if (excerptLines.length > maxLines) {
+        excerptLines = excerptLines.slice(0, maxLines);
+        truncated = true;
+      }
+
+      const maxBytes = 12_000;
+      let joined = excerptLines.join("\n");
+      if (Buffer.byteLength(joined, "utf8") > maxBytes) {
+        const clipped = [];
+        let currentBytes = 0;
+        for (const line of excerptLines) {
+          const nextBytes = Buffer.byteLength(`${line}\n`, "utf8");
+          if (currentBytes + nextBytes > maxBytes) {
+            truncated = true;
+            break;
+          }
+          clipped.push(line);
+          currentBytes += nextBytes;
+        }
+        excerptLines = clipped;
+        joined = excerptLines.join("\n");
+      }
+
+      sendToRenderer("file:excerptResult", {
+        requestId,
+        ok: true,
+        path: relativePath,
+        startLine,
+        lines: excerptLines,
+        ...(truncated ? { truncated: true } : {}),
+      });
+    } catch (error) {
+      sendToRenderer("file:excerptResult", {
+        requestId,
+        ok: false,
+        path: relativePath,
+        error: error.message,
+      });
     }
   };
 
@@ -667,6 +813,68 @@ const createWorkspaceHandlers = (deps) => {
     }
   };
 
+  const handleBuildProfilesUpdate = async (profiles, activeId) => {
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      sendIssues(1, "ワークスペースが選択されていません。", "error", [
+        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      ]);
+      return;
+    }
+    const normalized = Array.isArray(profiles) ? profiles : [];
+    const cleaned = normalized
+      .map((profile) => (profile && typeof profile === "object" ? profile : null))
+      .filter(Boolean)
+      .map((profile) => {
+        const id =
+          typeof profile.id === "string" ? profile.id.trim() : "";
+        const name =
+          typeof profile.name === "string" ? profile.name.trim() : "";
+        const outDir =
+          typeof profile.outDir === "string" ? profile.outDir.trim() : "";
+        const extraArgs =
+          typeof profile.extraArgs === "string" ? profile.extraArgs.trim() : "";
+        if (!id) {
+          return null;
+        }
+        return {
+          id,
+          name: name || id,
+          outDir: outDir || null,
+          extraArgs: extraArgs || null,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 20);
+
+    const nextActive =
+      typeof activeId === "string" ? activeId.trim() : "";
+    const activeExists = cleaned.some((profile) => profile.id === nextActive);
+    const resolvedActive = activeExists ? nextActive : "";
+
+    try {
+      await workspace.updateSettings((settings) => {
+        if (cleaned.length > 0) {
+          settings.buildProfiles = cleaned;
+        } else {
+          delete settings.buildProfiles;
+        }
+        if (resolvedActive) {
+          settings.buildProfileId = resolvedActive;
+        } else {
+          delete settings.buildProfileId;
+        }
+        return settings;
+      });
+      await sendWorkspace(rootPath);
+      sendIssues(0, "ビルドプロファイルを更新しました。", "success", []);
+    } catch (error) {
+      sendIssues(1, error.message, "error", [
+        { severity: "error", message: error.message, line: null },
+      ]);
+    }
+  };
+
   const handleIndexRequest = () => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
@@ -707,6 +915,8 @@ const createWorkspaceHandlers = (deps) => {
     handleOpenWorkspace,
     handleCreateProject,
     handleOpenFile,
+    handleFilePreview,
+    handleFileExcerpt,
     handleSaveFile,
     handleFormatFile,
     handleCreateFile,
@@ -720,6 +930,7 @@ const createWorkspaceHandlers = (deps) => {
     handleUndoFileOperation,
     handleSetRoot,
     handleDetectRoot,
+    handleBuildProfilesUpdate,
     handleIndexRequest,
     handleSearch,
   };

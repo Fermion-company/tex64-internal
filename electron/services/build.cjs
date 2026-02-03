@@ -18,24 +18,125 @@ const isEnvMissingMessage = (message) => {
   return hasMissing && mentionsTool;
 };
 
+const splitArgsString = (input) => {
+  if (!input || typeof input !== "string") {
+    return [];
+  }
+  const result = [];
+  let current = "";
+  let quote = null;
+  let escaped = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+        continue;
+      }
+      current += char;
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        result.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) {
+    result.push(current);
+  }
+  return result;
+};
+
+const pickOutDirFromLatexmkArgs = (args) => {
+  if (!Array.isArray(args)) {
+    return null;
+  }
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (typeof arg !== "string") {
+      continue;
+    }
+    if (arg.startsWith("-outdir=")) {
+      return arg.slice("-outdir=".length).trim() || null;
+    }
+    if (arg === "-outdir") {
+      const next = typeof args[index + 1] === "string" ? args[index + 1].trim() : "";
+      return next || null;
+    }
+  }
+  return null;
+};
+
+const normalizeOutDir = (rootPath, outDir) => {
+  if (!outDir || typeof outDir !== "string") {
+    return null;
+  }
+  const trimmed = outDir.trim();
+  if (!trimmed || trimmed === ".") {
+    return null;
+  }
+  if (path.isAbsolute(trimmed)) {
+    return null;
+  }
+  const resolved = path.resolve(rootPath, trimmed);
+  const rootResolved = path.resolve(rootPath);
+  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
+    return null;
+  }
+  const relative = path.relative(rootResolved, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative.split(path.sep).join(path.sep);
+};
+
 class BuildService {
   constructor() {
     this.isBuilding = false;
   }
 
-  async build(rootPath, mainFileName = "main.tex", engine = "lualatex") {
+  async build(rootPath, mainFileName = "main.tex", engine = "lualatex", buildProfile = null) {
     if (this.isBuilding) {
       return { kind: "busy" };
     }
     this.isBuilding = true;
     try {
-      return await this.runBuild(rootPath, mainFileName, engine);
+      return await this.runBuild(rootPath, mainFileName, engine, buildProfile);
     } finally {
       this.isBuilding = false;
     }
   }
 
-  async runBuild(rootPath, mainFileName, engine) {
+  async clean(rootPath, mainFileName = "main.tex", options = {}, buildProfile = null) {
+    if (this.isBuilding) {
+      return { kind: "busy" };
+    }
+    this.isBuilding = true;
+    try {
+      return await this.runClean(rootPath, mainFileName, options, buildProfile);
+    } finally {
+      this.isBuilding = false;
+    }
+  }
+
+  async runBuild(rootPath, mainFileName, engine, buildProfile) {
     const mainFilePath = path.join(rootPath, mainFileName);
     if (!fs.existsSync(mainFilePath)) {
       const issue = {
@@ -45,15 +146,34 @@ class BuildService {
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
-    const pdfPath = path.join(
-      path.dirname(mainFilePath),
-      `${path.basename(mainFileName, path.extname(mainFileName))}.pdf`
-    );
+    const { outDir, extraArgs, hasExplicitOutDirArg, outDirRequested } =
+      this.resolveLatexmkProfile(rootPath, mainFileName, buildProfile);
+    if (outDirRequested && !outDir) {
+      const issue = {
+        severity: "error",
+        message: "outDir が不正です。",
+        line: null,
+      };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
+    const jobName = path.basename(mainFileName, path.extname(mainFileName));
+    const pdfBase = `${jobName}.pdf`;
+    const fallbackDir = path.dirname(mainFileName ?? "");
+    const pdfDir = outDir
+      ? path.join(rootPath, outDir)
+      : fallbackDir && fallbackDir !== "."
+      ? path.join(rootPath, fallbackDir)
+      : rootPath;
+    const pdfPath = path.join(pdfDir, pdfBase);
 
     let output = "";
     let status = 1;
     try {
-      const result = await this.runLatexmk(rootPath, mainFileName, engine);
+      const result = await this.runLatexmk(rootPath, mainFileName, engine, {
+        outDir,
+        extraArgs,
+        hasExplicitOutDirArg,
+      });
       output = result.output;
       status = result.status;
     } catch (error) {
@@ -107,7 +227,99 @@ class BuildService {
     };
   }
 
-  async runLatexmk(rootPath, mainFileName, engine) {
+  async runClean(rootPath, mainFileName, options, buildProfile) {
+    const mainFilePath = path.join(rootPath, mainFileName);
+    if (!fs.existsSync(mainFilePath)) {
+      const issue = {
+        severity: "error",
+        message: `${mainFileName} が見つかりません。`,
+        line: null,
+      };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
+    const deep = options?.deep === true;
+    const { outDir, extraArgs, hasExplicitOutDirArg, outDirRequested } =
+      this.resolveLatexmkProfile(rootPath, mainFileName, buildProfile);
+    if (outDirRequested && !outDir) {
+      const issue = {
+        severity: "error",
+        message: "outDir が不正です。",
+        line: null,
+      };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
+    let output = "";
+    let status = 1;
+    try {
+      const result = await this.runLatexmkClean(rootPath, mainFileName, {
+        deep,
+        outDir,
+        extraArgs,
+        hasExplicitOutDirArg,
+      });
+      output = result.output;
+      status = result.status;
+    } catch (error) {
+      const message = error?.message ?? String(error);
+      if (isEnvMissingMessage(message)) {
+        const issue = {
+          severity: "error",
+          message: "latexmk が見つかりません。TeX環境を確認してください。",
+          line: null,
+          action: "open-runtime",
+        };
+        return { kind: "failure", summary: issue.message, issues: [issue] };
+      }
+      const issue = {
+        severity: "error",
+        message: "clean の起動に失敗しました。",
+        line: null,
+      };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
+    if (status === 0) {
+      return {
+        kind: "success",
+        summary: deep ? "clean（全削除）完了" : "clean 完了",
+        issues: [],
+        log: output,
+      };
+    }
+    const summary = "clean に失敗しました。";
+    return {
+      kind: "failure",
+      summary,
+      issues: [
+        {
+          severity: "error",
+          message: summary,
+          line: null,
+        },
+      ],
+      log: output,
+    };
+  }
+
+  resolveLatexmkProfile(rootPath, mainFileName, buildProfile) {
+    const rawExtra = typeof buildProfile?.extraArgs === "string" ? buildProfile.extraArgs : "";
+    const extraArgs = splitArgsString(rawExtra);
+    const outDirFromArgs = pickOutDirFromLatexmkArgs(extraArgs);
+    const rawOutDir =
+      typeof buildProfile?.outDir === "string" ? buildProfile.outDir.trim() : "";
+    const derivedOutDir = path.dirname(mainFileName ?? "");
+    const outDirCandidate =
+      outDirFromArgs || rawOutDir || (derivedOutDir && derivedOutDir !== "." ? derivedOutDir : "");
+    const outDir = normalizeOutDir(rootPath, outDirCandidate);
+    const outDirRequested = Boolean(outDirFromArgs || rawOutDir);
+    return {
+      outDir,
+      extraArgs,
+      hasExplicitOutDirArg: Boolean(outDirFromArgs),
+      outDirRequested,
+    };
+  }
+
+  async runLatexmk(rootPath, mainFileName, engine, options = {}) {
     const latexmkPath = this.findLatexmk();
     if (!latexmkPath) {
       throw new Error("latexmk not found");
@@ -124,9 +336,13 @@ class BuildService {
 
     const args = [];
     args.push("-g");
-    const outputDir = path.dirname(mainFileName ?? "");
-    if (outputDir && outputDir !== ".") {
-      args.push(`-outdir=${outputDir}`);
+    const outDir =
+      typeof options?.outDir === "string" && options.outDir.trim()
+        ? options.outDir.trim()
+        : null;
+    const hasExplicitOutDirArg = options?.hasExplicitOutDirArg === true;
+    if (!hasExplicitOutDirArg && outDir) {
+      args.push(`-outdir=${outDir}`);
     }
     args.push(
       engineFlag,
@@ -134,8 +350,31 @@ class BuildService {
       "-interaction=nonstopmode",
       "-halt-on-error",
       "-file-line-error",
+      ...(Array.isArray(options?.extraArgs) ? options.extraArgs : []),
       mainFileName
     );
+    const env = { ...process.env };
+    env.PATH = this.extendPath(env.PATH);
+    const result = await this.runProcess(latexmkPath, args, rootPath, env);
+    return result;
+  }
+
+  async runLatexmkClean(rootPath, mainFileName, options = {}) {
+    const latexmkPath = this.findLatexmk();
+    if (!latexmkPath) {
+      throw new Error("latexmk not found");
+    }
+    const args = [];
+    args.push(options.deep === true ? "-C" : "-c");
+    const outDir =
+      typeof options?.outDir === "string" && options.outDir.trim()
+        ? options.outDir.trim()
+        : null;
+    const hasExplicitOutDirArg = options?.hasExplicitOutDirArg === true;
+    if (!hasExplicitOutDirArg && outDir) {
+      args.push(`-outdir=${outDir}`);
+    }
+    args.push(...(Array.isArray(options?.extraArgs) ? options.extraArgs : []), mainFileName);
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
     const result = await this.runProcess(latexmkPath, args, rootPath, env);

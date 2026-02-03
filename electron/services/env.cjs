@@ -11,10 +11,29 @@ class EnvService {
     return this.platform;
   }
 
+  extendPath(existingPath) {
+    const base = existingPath ?? "";
+    const extra = [];
+    if (this.platform === "darwin") {
+      extra.push("/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin");
+    } else if (this.platform === "win32") {
+      extra.push(
+        "C:\\texlive\\2024\\bin\\windows",
+        "C:\\texlive\\2023\\bin\\windows",
+        "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",
+        "C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\x64"
+      );
+    }
+    const parts = [...extra, base].filter(Boolean);
+    return parts.join(require("path").delimiter);
+  }
+
   async checkCommand(command) {
     try {
       const checkCmd = this.platform === "win32" ? `where ${command}` : `which ${command}`;
-      await execAsync(checkCmd);
+      const env = { ...process.env };
+      env.PATH = this.extendPath(env.PATH);
+      await execAsync(checkCmd, { env });
       return true;
     } catch (error) {
       return false;

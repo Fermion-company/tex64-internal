@@ -2,7 +2,7 @@ import { buildFormatSettingsPayload as buildFormatSettingsPayloadFromSettings, d
 import { clampNumber, loadGhostCompletionConfig, saveGhostCompletionConfig, } from "./settings-completion.js";
 import { createEnvStatusManager } from "./settings-env.js";
 export const initSettingsUi = (context, deps) => {
-    const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons, settingsCompileEngineSelect, settingsEnvRefresh, editorAlignEnvToggle, editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, editorAutoSynctexBuildToggle, editorReverseSynctexToggle, editorGhostCompletionToggle, editorGhostCompletionDebounce, editorGhostCompletionMaxChars, editorPdfWindowToggle, } = context.dom;
+    const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons, settingsCompileEngineSelect, settingsBuildProfileSelect, settingsBuildProfileName, settingsBuildOutDir, settingsBuildExtraArgs, settingsBuildProfileAdd, settingsBuildProfileDelete, settingsBuildProfileHint, settingsBuildCleanButton, settingsBuildCleanAllButton, settingsEnvRefresh, editorAlignEnvToggle, editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, editorAutoSynctexBuildToggle, editorReverseSynctexToggle, editorGhostCompletionToggle, editorGhostCompletionDebounce, editorGhostCompletionMaxChars, editorPdfWindowToggle, } = context.dom;
     let activeSettingsPage = null;
     let editorAlignEnvEnabled = true;
     let editorFormatSettings = {
@@ -14,6 +14,9 @@ export const initSettingsUi = (context, deps) => {
     let ghostCompletionDebounceMs = 260;
     let ghostCompletionMaxChars = 140;
     let pdfViewerMode = "window";
+    let buildProfiles = [];
+    let buildProfileId = null;
+    let buildProfileSaveTimer = null;
     const compileEngineKey = "tex64.compileEngine";
     const editorAutoSynctexOnBuildKey = "tex64.editor.autoSynctexOnBuild";
     const editorReverseSynctexKey = "tex64.editor.reverseSynctex";
@@ -35,8 +38,9 @@ export const initSettingsUi = (context, deps) => {
         "latexmk",
         "latexindent",
         "synctex",
+        "chktex",
     ];
-    const envDisplayTargets = ["lualatex", "latexmk", "latexindent", "synctex"];
+    const envDisplayTargets = ["lualatex", "latexmk", "latexindent", "synctex", "chktex"];
     const envManager = createEnvStatusManager({
         postToNative: deps.postToNative,
         envCheckTargets,
@@ -177,6 +181,150 @@ export const initSettingsUi = (context, deps) => {
         if (editorPdfWindowToggle instanceof HTMLInputElement) {
             editorPdfWindowToggle.checked = pdfViewerMode === "window";
         }
+    };
+    const isWorkspaceReadyForBuildProfiles = () => Boolean(deps.getWorkspaceRootKey());
+    const loadBuildProfileState = () => {
+        const profiles = deps.getBuildProfiles();
+        buildProfiles = Array.isArray(profiles)
+            ? profiles
+                .map((profile) => (profile && typeof profile === "object" ? profile : null))
+                .filter(Boolean)
+                .map((profile) => {
+                var _a, _b, _c, _d;
+                return ({
+                    id: String((_a = profile.id) !== null && _a !== void 0 ? _a : "").trim(),
+                    name: String((_b = profile.name) !== null && _b !== void 0 ? _b : "").trim(),
+                    outDir: typeof profile.outDir === "string"
+                        ? ((_c = profile.outDir) === null || _c === void 0 ? void 0 : _c.trim()) || null
+                        : null,
+                    extraArgs: typeof profile.extraArgs === "string"
+                        ? ((_d = profile.extraArgs) === null || _d === void 0 ? void 0 : _d.trim()) || null
+                        : null,
+                });
+            })
+                .filter((profile) => profile.id)
+            : [];
+        const active = deps.getBuildProfileId();
+        buildProfileId = typeof active === "string" && active.trim() ? active.trim() : null;
+    };
+    const updateBuildProfileHint = (text) => {
+        if (settingsBuildProfileHint instanceof HTMLElement) {
+            settingsBuildProfileHint.textContent = text;
+        }
+    };
+    const getSelectedBuildProfileId = () => {
+        if (!(settingsBuildProfileSelect instanceof HTMLSelectElement)) {
+            return "";
+        }
+        return settingsBuildProfileSelect.value;
+    };
+    const renderBuildProfileSelect = () => {
+        if (!(settingsBuildProfileSelect instanceof HTMLSelectElement)) {
+            return;
+        }
+        settingsBuildProfileSelect.innerHTML = "";
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = "Default";
+        settingsBuildProfileSelect.appendChild(defaultOption);
+        buildProfiles.forEach((profile) => {
+            const option = document.createElement("option");
+            option.value = profile.id;
+            option.textContent = profile.name || profile.id;
+            settingsBuildProfileSelect.appendChild(option);
+        });
+        const preferred = buildProfileId !== null && buildProfileId !== void 0 ? buildProfileId : "";
+        const hasPreferred = Array.from(settingsBuildProfileSelect.options).some((option) => option.value === preferred);
+        settingsBuildProfileSelect.value = hasPreferred ? preferred : "";
+    };
+    const renderBuildProfileFields = () => {
+        var _a, _b, _c, _d;
+        const enabled = isWorkspaceReadyForBuildProfiles();
+        const selectedId = getSelectedBuildProfileId();
+        const selected = selectedId && selectedId !== ""
+            ? (_a = buildProfiles.find((profile) => profile.id === selectedId)) !== null && _a !== void 0 ? _a : null
+            : null;
+        const isCustom = Boolean(selected);
+        if (settingsBuildProfileName instanceof HTMLInputElement) {
+            settingsBuildProfileName.disabled = !enabled || !isCustom;
+            settingsBuildProfileName.value = (_b = selected === null || selected === void 0 ? void 0 : selected.name) !== null && _b !== void 0 ? _b : "";
+        }
+        if (settingsBuildOutDir instanceof HTMLInputElement) {
+            settingsBuildOutDir.disabled = !enabled || !isCustom;
+            settingsBuildOutDir.value = (_c = selected === null || selected === void 0 ? void 0 : selected.outDir) !== null && _c !== void 0 ? _c : "";
+        }
+        if (settingsBuildExtraArgs instanceof HTMLInputElement) {
+            settingsBuildExtraArgs.disabled = !enabled || !isCustom;
+            settingsBuildExtraArgs.value = (_d = selected === null || selected === void 0 ? void 0 : selected.extraArgs) !== null && _d !== void 0 ? _d : "";
+        }
+        if (settingsBuildProfileAdd instanceof HTMLButtonElement) {
+            settingsBuildProfileAdd.disabled = !enabled;
+        }
+        if (settingsBuildProfileDelete instanceof HTMLButtonElement) {
+            settingsBuildProfileDelete.disabled = !enabled || !isCustom;
+        }
+        if (settingsBuildCleanButton instanceof HTMLButtonElement) {
+            settingsBuildCleanButton.disabled = !enabled;
+        }
+        if (settingsBuildCleanAllButton instanceof HTMLButtonElement) {
+            settingsBuildCleanAllButton.disabled = !enabled;
+        }
+        if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
+            settingsBuildProfileSelect.disabled = !enabled;
+        }
+        updateBuildProfileHint(enabled
+            ? isCustom
+                ? "変更は自動で保存されます。"
+                : "Default は tex64 の標準設定です。プロジェクト固有の outDir や biber/shell-escape が必要な場合はプロファイルを作成してください。"
+            : "ワークスペースを開くとビルドプロファイルを編集できます。");
+    };
+    const renderBuildProfilesUi = () => {
+        loadBuildProfileState();
+        renderBuildProfileSelect();
+        renderBuildProfileFields();
+    };
+    const generateBuildProfileId = () => {
+        var _a;
+        if (typeof ((_a = window.crypto) === null || _a === void 0 ? void 0 : _a.randomUUID) === "function") {
+            return window.crypto.randomUUID();
+        }
+        const rand = Math.random().toString(36).slice(2, 8);
+        return `profile-${Date.now().toString(36)}-${rand}`;
+    };
+    const postBuildProfilesUpdate = (silent = true) => {
+        const activeId = getSelectedBuildProfileId();
+        deps.postToNative({
+            type: "build:profiles:update",
+            profiles: buildProfiles,
+            activeId,
+        }, silent);
+    };
+    const scheduleBuildProfilesSave = () => {
+        if (buildProfileSaveTimer !== null) {
+            window.clearTimeout(buildProfileSaveTimer);
+            buildProfileSaveTimer = null;
+        }
+        buildProfileSaveTimer = window.setTimeout(() => {
+            buildProfileSaveTimer = null;
+            postBuildProfilesUpdate(true);
+        }, 320);
+    };
+    const updateSelectedProfile = (patch) => {
+        const selectedId = getSelectedBuildProfileId();
+        if (!selectedId) {
+            return;
+        }
+        const index = buildProfiles.findIndex((profile) => profile.id === selectedId);
+        if (index < 0) {
+            return;
+        }
+        const current = buildProfiles[index];
+        const next = {
+            ...current,
+            ...patch,
+            id: current.id,
+        };
+        buildProfiles = buildProfiles.map((profile) => profile.id === selectedId ? next : profile);
     };
     const setSettingsPage = (pageId) => {
         activeSettingsPage = pageId;
@@ -454,6 +602,7 @@ export const initSettingsUi = (context, deps) => {
         loadStartupSettings();
         loadEditorAlignEnvState();
         loadEditorFormatSettings();
+        renderBuildProfilesUi();
     };
     const getSettingsSnapshot = () => ({
         compileEngine: localStorage.getItem(compileEngineKey) || "lualatex",
@@ -626,6 +775,121 @@ export const initSettingsUi = (context, deps) => {
     if (editorPdfWindowToggle instanceof HTMLInputElement) {
         editorPdfWindowToggle.addEventListener("change", () => {
             setPdfViewerMode(editorPdfWindowToggle.checked ? "window" : "tab");
+        });
+    }
+    if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
+        settingsBuildProfileSelect.addEventListener("change", () => {
+            renderBuildProfileFields();
+            postBuildProfilesUpdate(true);
+        });
+    }
+    if (settingsBuildProfileAdd instanceof HTMLButtonElement) {
+        settingsBuildProfileAdd.addEventListener("click", () => {
+            if (!isWorkspaceReadyForBuildProfiles()) {
+                return;
+            }
+            const id = generateBuildProfileId();
+            const next = { id, name: "New profile", outDir: null, extraArgs: null };
+            buildProfiles = buildProfiles.concat(next);
+            buildProfileId = id;
+            renderBuildProfileSelect();
+            if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
+                settingsBuildProfileSelect.value = id;
+            }
+            renderBuildProfileFields();
+            postBuildProfilesUpdate(false);
+        });
+    }
+    if (settingsBuildProfileDelete instanceof HTMLButtonElement) {
+        settingsBuildProfileDelete.addEventListener("click", () => {
+            if (!isWorkspaceReadyForBuildProfiles()) {
+                return;
+            }
+            const selectedId = getSelectedBuildProfileId();
+            if (!selectedId) {
+                return;
+            }
+            const selected = buildProfiles.find((profile) => profile.id === selectedId);
+            if (!selected) {
+                return;
+            }
+            const ok = window.confirm(`プロファイル「${selected.name || selected.id}」を削除しますか？`);
+            if (!ok) {
+                return;
+            }
+            buildProfiles = buildProfiles.filter((profile) => profile.id !== selectedId);
+            buildProfileId = null;
+            renderBuildProfileSelect();
+            renderBuildProfileFields();
+            postBuildProfilesUpdate(false);
+        });
+    }
+    const handleBuildProfileTextChange = () => {
+        if (!isWorkspaceReadyForBuildProfiles()) {
+            return;
+        }
+        const selectedId = getSelectedBuildProfileId();
+        if (!selectedId) {
+            return;
+        }
+        const name = settingsBuildProfileName instanceof HTMLInputElement
+            ? settingsBuildProfileName.value.trim()
+            : "";
+        const outDir = settingsBuildOutDir instanceof HTMLInputElement
+            ? settingsBuildOutDir.value.trim()
+            : "";
+        const extraArgs = settingsBuildExtraArgs instanceof HTMLInputElement
+            ? settingsBuildExtraArgs.value.trim()
+            : "";
+        updateSelectedProfile({
+            name: name || selectedId,
+            outDir: outDir || null,
+            extraArgs: extraArgs || null,
+        });
+        if (settingsBuildProfileSelect instanceof HTMLSelectElement) {
+            const option = Array.from(settingsBuildProfileSelect.options).find((entry) => entry.value === selectedId);
+            if (option) {
+                option.textContent = name || selectedId;
+            }
+        }
+        updateBuildProfileHint("保存中...");
+        scheduleBuildProfilesSave();
+    };
+    if (settingsBuildProfileName instanceof HTMLInputElement) {
+        settingsBuildProfileName.addEventListener("input", () => {
+            handleBuildProfileTextChange();
+        });
+    }
+    if (settingsBuildOutDir instanceof HTMLInputElement) {
+        settingsBuildOutDir.addEventListener("input", () => {
+            handleBuildProfileTextChange();
+        });
+    }
+    if (settingsBuildExtraArgs instanceof HTMLInputElement) {
+        settingsBuildExtraArgs.addEventListener("input", () => {
+            handleBuildProfileTextChange();
+        });
+    }
+    const requestBuildClean = (deep) => {
+        if (!isWorkspaceReadyForBuildProfiles()) {
+            return;
+        }
+        const message = deep
+            ? "clean -C を実行します。PDF なども削除されます。よろしいですか？"
+            : "clean を実行します。補助ファイルを削除します。よろしいですか？";
+        if (!window.confirm(message)) {
+            return;
+        }
+        deps.postToNative({ type: "build:clean", deep: deep === true }, false);
+    };
+    if (settingsBuildCleanButton instanceof HTMLButtonElement) {
+        settingsBuildCleanButton.addEventListener("click", () => {
+            requestBuildClean(false);
+        });
+    }
+    if (settingsBuildCleanAllButton instanceof HTMLButtonElement) {
+        settingsBuildCleanAllButton.addEventListener("click", () => {
+            requestBuildClean(true);
         });
     }
     if (settingsEnvRefresh instanceof HTMLButtonElement) {

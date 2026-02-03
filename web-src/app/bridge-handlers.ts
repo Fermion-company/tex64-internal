@@ -13,7 +13,10 @@ import type {
   SectionEntry,
   ApiCompletionResultPayload,
   ApiUsageSnapshot,
+  BuildProfile,
 } from "./types.js";
+import type { FilePreviewResultPayload } from "./file-preview.js";
+import type { FileExcerptResultPayload } from "./file-excerpt.js";
 
 type BridgeHandlersDeps = {
   bridgeWindow: BridgeWindow;
@@ -34,6 +37,8 @@ type BridgeHandlersDeps = {
     folders?: string[];
     rootFile?: string;
     rootSource?: RootSource;
+    buildProfiles?: BuildProfile[];
+    buildProfileId?: string;
   }) => void;
   handleIndexUpdate: (payload: {
     labels?: IndexEntry[];
@@ -150,6 +155,12 @@ type BridgeHandlersDeps = {
       options?: { updateSaved?: boolean }
     ) => void;
   };
+  filePreview?: {
+    handlePreviewResult: (payload: FilePreviewResultPayload) => void;
+  };
+  fileExcerpt?: {
+    handleExcerptResult: (payload: FileExcerptResultPayload) => void;
+  };
 };
 
 export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
@@ -259,6 +270,8 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           folders?: string[];
           rootFile?: string;
           rootSource?: RootSource;
+          buildProfiles?: BuildProfile[];
+          buildProfileId?: string;
         });
         break;
       case "updateIndex":
@@ -454,6 +467,12 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         deps.api?.handleUsage(
           message.payload as { snapshot?: ApiUsageSnapshot }
         );
+        break;
+      case "file:previewResult":
+        deps.filePreview?.handlePreviewResult(message.payload as FilePreviewResultPayload);
+        break;
+      case "file:excerptResult":
+        deps.fileExcerpt?.handleExcerptResult(message.payload as FileExcerptResultPayload);
         break;
       case "agent:applyContent":
         deps.editorSession.applyContentToOpenFile(

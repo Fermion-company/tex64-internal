@@ -2158,6 +2158,20 @@ math-field.block-math-field::placeholder {
   color: var(--text);
 }
 
+.outline-item-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
+#outline-mode-current.is-active,
+#outline-mode-project.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
 .outline-item.is-active {
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -2682,6 +2696,33 @@ math-field.block-math-field::placeholder {
 }
 
 #format-button:active {
+  transform: translateY(1px);
+}
+
+#synctex-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: 8px;
+  padding: 6px 12px;
+  height: 32px;
+  margin: 2px 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#synctex-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--panel-border-strong);
+  color: var(--text);
+}
+
+#synctex-button:active {
   transform: translateY(1px);
 }
 
@@ -4883,4 +4924,14 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .block-format-selector[data-active="none"]::before {
   transform: translateX(200%);
+}
+
+.tex64-hover-math {
+  display: inline-block;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  max-width: 520px;
+  overflow: auto;
 }

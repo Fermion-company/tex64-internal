@@ -165,6 +165,7 @@ export type EditorSessionApi = {
   requestInitialOpen: () => void;
   openPendingFileIfReady: () => void;
   clearIssueHighlight: () => void;
+  syncIssueMarkers: (issues: IssueItem[]) => void;
   parseIssueDetail: (issue: IssueItem) => {
     path: string | null;
     line: number | null;
@@ -472,6 +473,78 @@ export const initEditorSession = (
       column: issue.column ?? null,
       message: trimmed,
     };
+  };
+
+  const syncIssueMarkers = (issues: IssueItem[]) => {
+    const monacoApi = deps.getMonacoApi();
+    if (!monacoApi || monacoModels.size === 0) {
+      return;
+    }
+    const monacoApiAny = monacoApi as {
+      editor?: {
+        setModelMarkers?: (
+          model: unknown,
+          owner: string,
+          markers: Array<{
+            severity: number;
+            message: string;
+            startLineNumber: number;
+            startColumn: number;
+            endLineNumber: number;
+            endColumn: number;
+          }>
+        ) => void;
+      };
+    };
+    if (typeof monacoApiAny.editor?.setModelMarkers !== "function") {
+      return;
+    }
+    const activePath = getActiveFilePath();
+    const markersByPath = new Map<
+      string,
+      Array<{
+        severity: number;
+        message: string;
+        startLineNumber: number;
+        startColumn: number;
+        endLineNumber: number;
+        endColumn: number;
+      }>
+    >();
+    const pushMarker = (targetPath: string, marker: any) => {
+      const current = markersByPath.get(targetPath);
+      if (current) {
+        current.push(marker);
+      } else {
+        markersByPath.set(targetPath, [marker]);
+      }
+    };
+    issues.forEach((issue) => {
+      const detail = parseIssueDetail(issue);
+      const targetPath = detail.path ?? activePath;
+      if (!targetPath) {
+        return;
+      }
+      const line = Number.isFinite(detail.line) ? (detail.line as number) : null;
+      if (!line || line < 1) {
+        return;
+      }
+      const column = Number.isFinite(detail.column) ? (detail.column as number) : 1;
+      const severity = issue.severity === "error" ? 8 : 4;
+      pushMarker(targetPath, {
+        severity,
+        message: detail.message || issue.message,
+        startLineNumber: line,
+        startColumn: Math.max(1, column),
+        endLineNumber: line,
+        endColumn: Math.max(1, column) + 1,
+      });
+    });
+
+    monacoModels.forEach((entry, path) => {
+      const markers = markersByPath.get(path) ?? [];
+      monacoApiAny.editor?.setModelMarkers?.(entry.model as unknown, "tex64", markers);
+    });
   };
 
   const focusIssue = (issue: IssueItem) => {
@@ -1144,6 +1217,7 @@ export const initEditorSession = (
     requestInitialOpen,
     openPendingFileIfReady,
     clearIssueHighlight,
+    syncIssueMarkers,
     parseIssueDetail,
     focusIssue,
     handleOpenFileResult,

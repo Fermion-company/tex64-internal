@@ -91,6 +91,14 @@
             整形
           </button>
           <button
+            id="synctex-button"
+            type="button"
+            aria-label="SyncTeX"
+            title="SyncTeX (Forward)"
+          >
+            SyncTeX
+          </button>
+          <button
             id="build-button"
             type="button"
             aria-label="ビルド"
@@ -259,6 +267,14 @@
           <div class="panel no-header" data-panel="outline">
             <div class="panel-header">
               <span class="panel-title">アウトライン</span>
+              <div class="panel-header-actions">
+                <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
+                  Current
+                </button>
+                <button class="panel-button ghost" id="outline-mode-project" type="button" aria-pressed="false">
+                  Project
+                </button>
+              </div>
             </div>
             <div class="panel-body outline-panel">
               <div class="outline-empty" id="outline-empty">インデックスを作成中です。</div>
@@ -510,6 +526,9 @@
           <div class="panel no-header" data-panel="issues">
             <div class="panel-header">
               <span class="panel-title">エラー</span>
+              <div class="panel-header-actions">
+                <button class="panel-button ghost" id="lint-button" type="button">Lint</button>
+              </div>
             </div>
             <div class="panel-body issues-panel-body">
               <div class="issues-empty" id="issues-empty">問題はありません。</div>
@@ -821,6 +840,69 @@
                         </label>
                       </div>
                     </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">ビルドプロファイル</span>
+                        <span class="settings-desc">プロジェクトの流儀に合わせて latexmk の出力先や追加オプションを切り替えます。</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-build-profile"></select>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">プロファイル名</span>
+                      </div>
+                      <div class="settings-control">
+                        <input class="settings-input" id="settings-build-profile-name" type="text" placeholder="My profile">
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">outDir</span>
+                        <span class="settings-desc">生成物の出力先（空ならデフォルト）。例: build</span>
+                      </div>
+                      <div class="settings-control">
+                        <input class="settings-input" id="settings-build-outdir" type="text" placeholder="build">
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">latexmk 追加オプション</span>
+                        <span class="settings-desc">例: -use-biber -shell-escape</span>
+                      </div>
+                      <div class="settings-control">
+                        <input class="settings-input" id="settings-build-extra-args" type="text" placeholder="-use-biber -shell-escape">
+                      </div>
+                    </div>
+                    <div class="settings-inline">
+                      <button class="panel-button" id="settings-build-profile-add" type="button">
+                        追加
+                      </button>
+                      <button class="panel-button ghost" id="settings-build-profile-delete" type="button">
+                        削除
+                      </button>
+                    </div>
+                    <div class="settings-help-text" id="settings-build-profile-hint">
+                      Default は tex64 の標準設定です。プロジェクト固有の outDir や biber/shell-escape が必要な場合はプロファイルを作成してください。
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">clean</span>
+                        <span class="settings-desc">補助ファイル（.aux/.log/.synctex.gz 等）を削除します。</span>
+                      </div>
+                      <div class="settings-control settings-inline">
+                        <button class="panel-button ghost" id="settings-build-clean" type="button">
+                          clean
+                        </button>
+                        <button class="panel-button ghost" id="settings-build-clean-all" type="button">
+                          clean -C
+                        </button>
+                      </div>
+                    </div>
+                    <div class="settings-help-text">
+                      clean -C は PDF なども削除します。実行前に確認ダイアログが表示されます。
+                    </div>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="runtime" aria-hidden="true">
@@ -868,6 +950,18 @@
                         </button>
                       </div>
                     </div>
+                    <div class="settings-item env-item" data-env="chktex">
+                      <div class="settings-label">
+                        <span class="settings-title">ChkTeX</span>
+                        <span class="settings-desc">lint（文章/LaTeXの静的チェック）に使用。TeX Distribution に同梱されることが多い。</span>
+                      </div>
+                      <div class="settings-control">
+                        <span class="env-badge checking">確認中...</span>
+                        <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
+                          インストール
+                        </button>
+                      </div>
+                    </div>
                     <div class="settings-item env-item" data-env="synctex">
                       <div class="settings-label">
                         <span class="settings-title">SyncTeX</span>
@@ -882,7 +976,7 @@
                     </div>
                     <div class="settings-help-text">
                       本アプリのビルド/整形/SyncTeX には TeX Distribution と
-                      latexmk / latexindent / synctex が必要です（多くは同梱）。
+                      latexmk / latexindent / chktex / synctex が必要です（多くは同梱）。
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">

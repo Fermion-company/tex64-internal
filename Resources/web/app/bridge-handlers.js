@@ -69,7 +69,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -186,8 +186,14 @@ export const initBridgeHandlers = (deps) => {
             case "api:usage":
                 (_11 = deps.api) === null || _11 === void 0 ? void 0 : _11.handleUsage(message.payload);
                 break;
+            case "file:previewResult":
+                (_12 = deps.filePreview) === null || _12 === void 0 ? void 0 : _12.handlePreviewResult(message.payload);
+                break;
+            case "file:excerptResult":
+                (_13 = deps.fileExcerpt) === null || _13 === void 0 ? void 0 : _13.handleExcerptResult(message.payload);
+                break;
             case "agent:applyContent":
-                deps.editorSession.applyContentToOpenFile((_12 = message.payload.path) !== null && _12 !== void 0 ? _12 : "", (_13 = message.payload.content) !== null && _13 !== void 0 ? _13 : "", message.payload.updateSaved !== false
+                deps.editorSession.applyContentToOpenFile((_14 = message.payload.path) !== null && _14 !== void 0 ? _14 : "", (_15 = message.payload.content) !== null && _15 !== void 0 ? _15 : "", message.payload.updateSaved !== false
                     ? { updateSaved: true }
                     : undefined);
                 break;

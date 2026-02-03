@@ -719,13 +719,48 @@ class AgentService {
         const requestedMain = typeof args.mainFile === "string" ? args.mainFile.trim() : "";
         const requestedEngine = typeof args.engine === "string" ? args.engine.trim() : "";
         const rootInfo = await this.workspace.rootInfo().catch(() => null);
-        const targetFile = requestedMain || rootInfo?.path || "main.tex";
+        const requestedFile = requestedMain && requestedMain.trim() ? requestedMain.trim() : null;
+        let targetFile = rootInfo?.path || "main.tex";
+        if (requestedFile && requestedFile.endsWith(".tex")) {
+          const magicRoot = await this.workspace
+            .resolveTexRootFromMagic(requestedFile)
+            .catch(() => null);
+          if (magicRoot) {
+            targetFile = magicRoot;
+          } else if (!rootInfo?.path) {
+            targetFile = requestedFile;
+          }
+        } else if (requestedFile && !rootInfo?.path) {
+          targetFile = requestedFile;
+        }
         this.sendBuildState?.("building", "AIがビルド中...");
         this.sendIssues?.(0, "AIがビルド中...", "info", []);
+        const settings = await this.workspace.loadSettings().catch(() => null);
+        const activeId =
+          typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";
+        const profiles = Array.isArray(settings?.buildProfiles) ? settings.buildProfiles : [];
+        const selected = activeId
+          ? profiles.find(
+              (profile) => profile && typeof profile === "object" && profile.id === activeId
+            )
+          : null;
+        const buildProfile = selected
+          ? {
+              outDir:
+                typeof selected.outDir === "string" && selected.outDir.trim()
+                  ? selected.outDir.trim()
+                  : null,
+              extraArgs:
+                typeof selected.extraArgs === "string" && selected.extraArgs.trim()
+                  ? selected.extraArgs.trim()
+                  : null,
+            }
+          : null;
         const result = await this.buildService.build(
           rootPath,
           targetFile,
-          requestedEngine || "lualatex"
+          requestedEngine || "lualatex",
+          buildProfile
         );
         if (result.kind === "busy") {
           this.sendBuildState?.("building", "すでにビルド中です。");

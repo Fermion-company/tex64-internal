@@ -1,6 +1,8 @@
 export const initWorkspaceController = (context, deps) => {
     const { issuesTab, workspaceLabel, settingsWorkspace, } = context.dom;
     let currentIssues = [];
+    let baseIssues = [];
+    let duplicateLabelIssues = [];
     let pendingBuildIssuesFocus = false;
     let indexLabels = [];
     let indexCitations = [];
@@ -12,6 +14,8 @@ export const initWorkspaceController = (context, deps) => {
     let workspaceRootKey = null;
     let rootFilePath = null;
     let rootSource = "auto";
+    let buildProfiles = [];
+    let buildProfileId = null;
     const setText = (element, text) => {
         if (element) {
             element.textContent = text;
@@ -29,21 +33,98 @@ export const initWorkspaceController = (context, deps) => {
             issuesTab.dataset.status = status;
         }
     };
-    const updateIssues = (count, summary, status, issues) => {
-        currentIssues = issues;
+    const computeDuplicateLabelIssues = (labels) => {
+        var _a;
+        if (!Array.isArray(labels) || labels.length === 0) {
+            return [];
+        }
+        const byKey = new Map();
+        labels.forEach((entry) => {
+            if (!entry || typeof entry.key !== "string" || typeof entry.path !== "string") {
+                return;
+            }
+            const key = entry.key.trim();
+            if (!key) {
+                return;
+            }
+            const list = byKey.get(key);
+            if (list) {
+                list.push(entry);
+            }
+            else {
+                byKey.set(key, [entry]);
+            }
+        });
+        const keys = Array.from(byKey.keys()).sort((a, b) => a.localeCompare(b, "ja"));
+        const issues = [];
+        const maxLocationsShown = 4;
+        for (const key of keys) {
+            const entries = (_a = byKey.get(key)) !== null && _a !== void 0 ? _a : [];
+            if (entries.length <= 1) {
+                continue;
+            }
+            entries.sort((a, b) => {
+                if (a.path !== b.path) {
+                    return a.path.localeCompare(b.path, "ja");
+                }
+                return a.line - b.line;
+            });
+            const locations = entries.map((entry) => `${entry.path}:${entry.line}`);
+            const shown = locations.slice(0, maxLocationsShown).join(", ");
+            const rest = locations.length > maxLocationsShown ? ` +${locations.length - maxLocationsShown}` : "";
+            const detailText = shown ? `${shown}${rest}` : "(location unavailable)";
+            for (const entry of entries) {
+                if (issues.length >= 80) {
+                    break;
+                }
+                issues.push({
+                    severity: "warning",
+                    message: `Duplicate label: ${key} (${detailText})`,
+                    path: entry.path,
+                    line: entry.line,
+                });
+            }
+            if (issues.length >= 80) {
+                break;
+            }
+        }
+        return issues;
+    };
+    const mergeIssues = () => {
+        const merged = [];
+        const seen = new Set();
+        const push = (issue) => {
+            var _a, _b, _c;
+            const token = `${issue.severity}|${(_a = issue.path) !== null && _a !== void 0 ? _a : ""}|${(_b = issue.line) !== null && _b !== void 0 ? _b : ""}|${(_c = issue.column) !== null && _c !== void 0 ? _c : ""}|${issue.message}`;
+            if (seen.has(token)) {
+                return;
+            }
+            seen.add(token);
+            merged.push(issue);
+        };
+        baseIssues.forEach(push);
+        duplicateLabelIssues.forEach(push);
+        const hasError = merged.some((issue) => issue.severity === "error");
+        const status = hasError ? "error" : merged.length > 0 ? "info" : "success";
+        currentIssues = merged;
         setIssuesStatus(status);
-        deps.issuesUi.render(issues);
+        deps.issuesUi.render(merged);
+        deps.editorSession.syncIssueMarkers(merged);
         if (issuesTab instanceof HTMLElement) {
-            const hasAlert = count > 0 && status === "error";
+            const hasAlert = merged.length > 0 && status === "error";
             issuesTab.classList.toggle("is-alert", hasAlert);
         }
-        if (count === 0) {
+        if (merged.length === 0) {
             deps.editorSession.clearIssueHighlight();
         }
-        if (pendingBuildIssuesFocus && count > 0 && status === "error") {
+        if (pendingBuildIssuesFocus && merged.length > 0 && status === "error") {
             pendingBuildIssuesFocus = false;
             deps.setActiveTab("issues");
         }
+    };
+    const updateIssues = (count, summary, status, issues) => {
+        baseIssues = issues;
+        mergeIssues();
     };
     const handleWorkspaceUpdate = (payload) => {
         var _a;
@@ -64,6 +145,11 @@ export const initWorkspaceController = (context, deps) => {
             payload.rootSource === "manual" || payload.rootSource === "auto"
                 ? payload.rootSource
                 : "auto";
+        buildProfiles = Array.isArray(payload.buildProfiles) ? payload.buildProfiles : [];
+        buildProfileId =
+            typeof payload.buildProfileId === "string" && payload.buildProfileId.trim()
+                ? payload.buildProfileId.trim()
+                : null;
         deps.buildOps.updateSynctexButtonState();
         const rootChanged = Boolean(previousRoot && previousRoot !== payload.rootPath);
         if (rootChanged) {
@@ -83,6 +169,8 @@ export const initWorkspaceController = (context, deps) => {
         indexCitations = Array.isArray(payload.citations) ? payload.citations : [];
         indexSections = Array.isArray(payload.sections) ? payload.sections : [];
         indexTodos = Array.isArray(payload.todos) ? payload.todos : [];
+        duplicateLabelIssues = computeDuplicateLabelIssues(indexLabels);
+        mergeIssues();
         deps.outlineUi.render();
     };
     return {
@@ -99,6 +187,8 @@ export const initWorkspaceController = (context, deps) => {
         getWorkspaceName: () => workspaceName,
         getRootFilePath: () => rootFilePath,
         getRootSource: () => rootSource,
+        getBuildProfiles: () => buildProfiles,
+        getBuildProfileId: () => buildProfileId,
         getIndexLabels: () => indexLabels,
         getIndexCitations: () => indexCitations,
         getIndexSections: () => indexSections,

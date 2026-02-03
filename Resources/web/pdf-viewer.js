@@ -49,6 +49,12 @@ const initPdfViewer = () => {
   const bridge = resolveBridge();
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
+  const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");
+  const sidebarEl = document.getElementById("pdf-sidebar");
+  const outlineTabBtn = document.getElementById("pdf-tab-outline");
+  const thumbsTabBtn = document.getElementById("pdf-tab-thumbs");
+  const outlineEl = document.getElementById("pdf-outline");
+  const thumbnailsEl = document.getElementById("pdf-thumbnails");
   const pageInput = document.getElementById("pdf-page-input");
   const pageCountEl = document.getElementById("pdf-page-count");
   const prevBtn = document.getElementById("pdf-prev");
@@ -63,6 +69,7 @@ const initPdfViewer = () => {
   const searchInput = document.getElementById("pdf-search-input");
   const searchPrevBtn = document.getElementById("pdf-search-prev");
   const searchNextBtn = document.getElementById("pdf-search-next");
+  const invertBtn = document.getElementById("pdf-invert");
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
@@ -91,6 +98,11 @@ const initPdfViewer = () => {
     pendingSync: null,
     activeMarker: null,
     lastSync: null,
+    markerTimer: null,
+    sidebarVisible: false,
+    sidebarTab: "outline",
+    thumbObserver: null,
+    thumbRendered: new Set(),
   };
 
   const eventBus = new EventBus();
@@ -115,6 +127,24 @@ const initPdfViewer = () => {
   const setStatus = (text) => {
     if (statusEl) statusEl.textContent = text;
   };
+
+  const invertKey = "tex64.pdf.invert";
+  const setInverted = (enabled) => {
+    document.body.classList.toggle("is-inverted", enabled === true);
+    try {
+      localStorage.setItem(invertKey, enabled === true ? "true" : "false");
+    } catch {
+      // ignore
+    }
+  };
+  try {
+    const storedInvert = localStorage.getItem(invertKey);
+    if (storedInvert === "true") {
+      document.body.classList.add("is-inverted");
+    }
+  } catch {
+    // ignore
+  }
 
   const updateZoomLabel = (value = state.scale) => {
     if (!zoomLabel) return;
@@ -194,9 +224,213 @@ const initPdfViewer = () => {
   };
 
   const clearSyncMarker = () => {
+    if (state.markerTimer) {
+      clearTimeout(state.markerTimer);
+      state.markerTimer = null;
+    }
     if (state.activeMarker) {
       state.activeMarker.remove();
       state.activeMarker = null;
+    }
+  };
+
+  const sidebarVisibleKey = "tex64.pdf.sidebarVisible";
+  const sidebarTabKey = "tex64.pdf.sidebarTab";
+
+  const setSidebarVisible = (visible) => {
+    state.sidebarVisible = visible === true;
+    if (sidebarEl) {
+      sidebarEl.classList.toggle("is-hidden", !state.sidebarVisible);
+    }
+    try {
+      localStorage.setItem(sidebarVisibleKey, state.sidebarVisible ? "true" : "false");
+    } catch {
+      // ignore
+    }
+  };
+
+  const setSidebarTab = (tab) => {
+    state.sidebarTab = tab === "thumbs" ? "thumbs" : "outline";
+    if (outlineTabBtn) {
+      outlineTabBtn.classList.toggle("is-active", state.sidebarTab === "outline");
+    }
+    if (thumbsTabBtn) {
+      thumbsTabBtn.classList.toggle("is-active", state.sidebarTab === "thumbs");
+    }
+    if (outlineEl) {
+      outlineEl.classList.toggle("is-active", state.sidebarTab === "outline");
+    }
+    if (thumbnailsEl) {
+      thumbnailsEl.classList.toggle("is-active", state.sidebarTab === "thumbs");
+    }
+    try {
+      localStorage.setItem(sidebarTabKey, state.sidebarTab);
+    } catch {
+      // ignore
+    }
+  };
+
+  try {
+    const storedVisible = localStorage.getItem(sidebarVisibleKey);
+    if (storedVisible === "true") {
+      state.sidebarVisible = true;
+    }
+    const storedTab = localStorage.getItem(sidebarTabKey);
+    if (storedTab === "thumbs" || storedTab === "outline") {
+      state.sidebarTab = storedTab;
+    }
+  } catch {
+    // ignore
+  }
+  setSidebarVisible(state.sidebarVisible);
+  setSidebarTab(state.sidebarTab);
+
+  const clearSidebarContent = () => {
+    if (outlineEl) {
+      outlineEl.innerHTML = "";
+    }
+    if (thumbnailsEl) {
+      thumbnailsEl.innerHTML = "";
+    }
+    if (state.thumbObserver) {
+      state.thumbObserver.disconnect();
+      state.thumbObserver = null;
+    }
+    state.thumbRendered.clear();
+  };
+
+  const renderOutline = async () => {
+    if (!outlineEl) {
+      return;
+    }
+    outlineEl.innerHTML = "";
+    if (!state.doc) {
+      outlineEl.textContent = "PDF が未読み込みです。";
+      return;
+    }
+    const outline = await state.doc.getOutline().catch(() => null);
+    if (!Array.isArray(outline) || outline.length === 0) {
+      outlineEl.textContent = "Outline がありません。";
+      return;
+    }
+
+    const renderItems = (items, depth = 0) => {
+      items.forEach((item) => {
+        if (!item) {
+          return;
+        }
+        const title = typeof item.title === "string" ? item.title.trim() : "";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "pdf-outline-item";
+        button.textContent = title || "(untitled)";
+        button.style.paddingLeft = `${8 + depth * 12}px`;
+        const dest = item.dest ?? null;
+        if (dest) {
+          button.addEventListener("click", () => {
+            linkService.goToDestination(dest);
+          });
+        } else {
+          button.disabled = true;
+        }
+        outlineEl.appendChild(button);
+        if (Array.isArray(item.items) && item.items.length > 0) {
+          renderItems(item.items, depth + 1);
+        }
+      });
+    };
+
+    renderItems(outline, 0);
+  };
+
+  const renderThumbnail = async (pageNumber, canvas) => {
+    if (!state.doc || !canvas || state.thumbRendered.has(pageNumber)) {
+      return;
+    }
+    state.thumbRendered.add(pageNumber);
+    const page = await state.doc.getPage(pageNumber).catch(() => null);
+    if (!page) {
+      return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const targetWidth = 56 * dpr;
+    const viewport = page.getViewport({ scale: 1 });
+    const scale = viewport?.width ? targetWidth / viewport.width : 0.12;
+    const thumbViewport = page.getViewport({ scale });
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    canvas.width = Math.max(1, Math.floor(thumbViewport.width));
+    canvas.height = Math.max(1, Math.floor(thumbViewport.height));
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: thumbViewport }).promise.catch(() => null);
+  };
+
+  const renderThumbnails = () => {
+    if (!thumbnailsEl) {
+      return;
+    }
+    thumbnailsEl.innerHTML = "";
+    if (!state.doc || !state.pageCount) {
+      thumbnailsEl.textContent = "PDF が未読み込みです。";
+      return;
+    }
+    if (state.thumbObserver) {
+      state.thumbObserver.disconnect();
+    }
+    state.thumbRendered.clear();
+
+    const observer =
+      typeof IntersectionObserver === "function"
+        ? new IntersectionObserver(
+            (entries) => {
+              entries.forEach((entry) => {
+                if (!entry.isIntersecting) {
+                  return;
+                }
+                const target = entry.target;
+                if (!(target instanceof HTMLElement)) {
+                  return;
+                }
+                const page = Number.parseInt(target.dataset.page ?? "", 10);
+                const canvas = target.querySelector("canvas");
+                if (Number.isFinite(page) && canvas instanceof HTMLCanvasElement) {
+                  renderThumbnail(page, canvas);
+                }
+                observer.unobserve(target);
+              });
+            },
+            { root: thumbnailsEl, rootMargin: "200px" }
+          )
+        : null;
+    state.thumbObserver = observer;
+
+    for (let page = 1; page <= state.pageCount; page += 1) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "pdf-thumb";
+      button.dataset.page = String(page);
+
+      const canvas = document.createElement("canvas");
+      button.appendChild(canvas);
+
+      const label = document.createElement("div");
+      label.className = "pdf-thumb-label";
+      label.textContent = `${page}`;
+      button.appendChild(label);
+
+      button.addEventListener("click", () => {
+        scrollToPage(page);
+      });
+
+      thumbnailsEl.appendChild(button);
+      if (observer) {
+        observer.observe(button);
+      } else {
+        renderThumbnail(page, canvas);
+      }
     }
   };
 
@@ -285,12 +519,24 @@ const initPdfViewer = () => {
       top: pageView.div.offsetTop + viewY - scrollEl.clientHeight / 2,
       behavior: "auto",
     });
+    if (pageView.div) {
+      const marker = document.createElement("div");
+      marker.className = "pdf-sync-marker";
+      marker.style.left = `${viewX}px`;
+      marker.style.top = `${viewY}px`;
+      pageView.div.appendChild(marker);
+      state.activeMarker = marker;
+      state.markerTimer = setTimeout(() => {
+        clearSyncMarker();
+      }, 1400);
+    }
   };
 
   const loadDocument = async (url, path) => {
     state.url = url;
     state.path = path;
     state.pendingSync = null;
+    clearSidebarContent();
     clearSyncMarker();
     setStatus("読み込み中...");
     try {
@@ -303,6 +549,8 @@ const initPdfViewer = () => {
       }
       pdfViewer.setDocument(state.doc);
       linkService.setDocument(state.doc, null);
+      renderOutline();
+      renderThumbnails();
       setStatus("準備完了");
     } catch (error) {
       setStatus("読み込みに失敗しました。");
@@ -512,6 +760,32 @@ const initPdfViewer = () => {
   if (rotateRightBtn) {
     rotateRightBtn.addEventListener("click", () => {
       rotate("right");
+    });
+  }
+
+  if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener("click", () => {
+      setSidebarVisible(!state.sidebarVisible);
+    });
+  }
+
+  if (outlineTabBtn) {
+    outlineTabBtn.addEventListener("click", () => {
+      setSidebarVisible(true);
+      setSidebarTab("outline");
+    });
+  }
+
+  if (thumbsTabBtn) {
+    thumbsTabBtn.addEventListener("click", () => {
+      setSidebarVisible(true);
+      setSidebarTab("thumbs");
+    });
+  }
+
+  if (invertBtn) {
+    invertBtn.addEventListener("click", () => {
+      setInverted(!document.body.classList.contains("is-inverted"));
     });
   }
 

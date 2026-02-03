@@ -122,6 +122,7 @@ export const initBuildOpsUi = (
     buildButton,
     formatButton,
     synctexButton,
+    lintButton,
     issuesLog,
     issuesLogContent,
   } = context.dom;
@@ -155,8 +156,14 @@ export const initBuildOpsUi = (
     if (!(synctexButton instanceof HTMLButtonElement)) {
       return;
     }
-    synctexButton.disabled = true;
-    synctexButton.style.display = "none";
+    const activePath = deps.getActiveFilePath();
+    const rootPath = deps.getRootFilePath();
+    const targetPath =
+      activePath && activePath.endsWith(".tex") ? activePath : rootPath;
+    const enabled = Boolean(targetPath && targetPath.endsWith(".tex"));
+    synctexButton.disabled = !enabled;
+    synctexButton.style.display = "inline-flex";
+    synctexButton.textContent = "SyncTeX";
   };
 
   const handleBuildLog = (log: string | null) => {
@@ -431,12 +438,13 @@ export const initBuildOpsUi = (
           resolvePdfSyncGroup(pdfPath) ??
           deps.getEditorGroups().find((group) => group.key === "secondary") ??
           deps.getActiveGroup();
-        const hasPdfTab = pdfPath ? openedGroup.openTabs.includes(pdfPath) : false;
-        if (openedGroup.key === "secondary" && hasPdfTab && !deps.getSplitViewEnabled()) {
+        const shouldSplit = openedGroup.key === "secondary";
+        if (shouldSplit && !deps.getSplitViewEnabled()) {
           deps.setSplitViewEnabled(true);
         }
-        if (pdfPath && hasPdfTab) {
-          if (openedGroup.currentFilePath !== pdfPath) {
+        if (pdfPath) {
+          const hasPdfTab = openedGroup.openTabs.includes(pdfPath);
+          if (!hasPdfTab || openedGroup.currentFilePath !== pdfPath) {
             deps.requestOpenFile(pdfPath, openedGroup.key, true);
           }
         }
@@ -485,6 +493,66 @@ export const initBuildOpsUi = (
     if (formatButton instanceof HTMLButtonElement) {
       formatButton.addEventListener("click", () => {
         requestFormatCurrentFile("manual");
+      });
+    }
+
+    if (synctexButton instanceof HTMLButtonElement) {
+      synctexButton.addEventListener("click", () => {
+        if (synctexButton.disabled) {
+          return;
+        }
+        const activeGroup = deps.getActiveGroup();
+        if (activeGroup.isDirty && activeGroup.currentFilePath) {
+          deps
+            .saveCurrentFile()
+            .then((ok) => {
+              if (ok) {
+                requestSynctexForward(null, { fallbackToTop: true });
+              }
+            })
+            .catch((message: string) => {
+              deps.updateIssues(1, message, "error", [
+                { severity: "error", message },
+              ]);
+            });
+          return;
+        }
+        requestSynctexForward(null, { fallbackToTop: true });
+      });
+    }
+
+    if (lintButton instanceof HTMLButtonElement) {
+      const runLint = () => {
+        const mainFile = deps.getRootFilePath() ?? deps.getActiveFilePath();
+        deps.postToNative(
+          {
+            type: "lint:run",
+            mainFile,
+          },
+          false
+        );
+      };
+      lintButton.addEventListener("click", () => {
+        if (lintButton.disabled) {
+          return;
+        }
+        const activeGroup = deps.getActiveGroup();
+        if (activeGroup.isDirty && activeGroup.currentFilePath) {
+          deps
+            .saveCurrentFile()
+            .then((ok) => {
+              if (ok) {
+                runLint();
+              }
+            })
+            .catch((message: string) => {
+              deps.updateIssues(1, message, "error", [
+                { severity: "error", message },
+              ]);
+            });
+          return;
+        }
+        runLint();
       });
     }
   };
