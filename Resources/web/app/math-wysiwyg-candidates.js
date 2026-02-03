@@ -45,7 +45,10 @@ export const OPERATOR_TRIGGERS = {
     "<=>": [{ latex: "\\Leftrightarrow", label: "⇔", displayLatex: "\\Leftrightarrow" }],
     "+-": [{ latex: "\\pm", label: "±", displayLatex: "\\pm" }],
     "-+": [{ latex: "\\mp", label: "∓", displayLatex: "\\mp" }],
-    "...": [{ latex: "\\ldots", label: "…", displayLatex: "\\ldots" }],
+    "...": [
+        { latex: "\\ldots", label: "…", displayLatex: "\\ldots" },
+        { latex: "\\cdots", label: "⋯", displayLatex: "\\cdots" },
+    ],
     "d/dx": [
         {
             latex: "\\frac{\\mathrm{d}#?}{\\mathrm{d}#?}",
@@ -90,6 +93,64 @@ const getPrefixMatches = (prefix) => {
     }
     return TRIGGER_KEYS_SORTED.slice(start, end);
 };
+const buildNgramIndex = (items, n) => {
+    const map = new Map();
+    if (n <= 0) {
+        return map;
+    }
+    items.forEach((item) => {
+        if (item.length < n) {
+            return;
+        }
+        // Avoid duplicating the same n-gram for one trigger (e.g. "aaaa").
+        const seen = new Set();
+        for (let i = 0; i <= item.length - n; i += 1) {
+            const gram = item.slice(i, i + n);
+            if (seen.has(gram)) {
+                continue;
+            }
+            seen.add(gram);
+            const existing = map.get(gram);
+            if (existing) {
+                existing.push(item);
+            }
+            else {
+                map.set(gram, [item]);
+            }
+        }
+    });
+    return map;
+};
+const CONTAINS_INDEX_2 = buildNgramIndex(TRIGGER_KEYS, 2);
+const CONTAINS_INDEX_3 = buildNgramIndex(TRIGGER_KEYS, 3);
+const getContainsCandidates = (query) => {
+    if (!query) {
+        return [];
+    }
+    const useTrigram = query.length >= 3;
+    const n = useTrigram ? 3 : 2;
+    if (query.length < n) {
+        return [];
+    }
+    const index = useTrigram ? CONTAINS_INDEX_3 : CONTAINS_INDEX_2;
+    let best = null;
+    const seen = new Set();
+    for (let i = 0; i <= query.length - n; i += 1) {
+        const gram = query.slice(i, i + n);
+        if (seen.has(gram)) {
+            continue;
+        }
+        seen.add(gram);
+        const matches = index.get(gram);
+        if (!matches) {
+            continue;
+        }
+        if (!best || matches.length < best.length) {
+            best = matches;
+        }
+    }
+    return best !== null && best !== void 0 ? best : [];
+};
 export const buildOperatorCandidates = (token) => {
     const entries = OPERATOR_TRIGGERS[token];
     if (!entries) {
@@ -131,7 +192,7 @@ export const buildWordCandidates = (token, options = {}) => {
         });
     });
     if (canContains) {
-        TRIGGER_KEYS.forEach((trigger) => {
+        getContainsCandidates(normalized).forEach((trigger) => {
             if (trigger === normalized || trigger.startsWith(normalized)) {
                 return;
             }

@@ -6,12 +6,9 @@
   "main": "electron/main.cjs",
   "scripts": {
     "electron:dev": "electron .",
-    "e2e": "playwright test",
-    "e2e:install": "playwright install",
     "web:build": "tsc -p web-src/tsconfig.json"
   },
   "devDependencies": {
-    "@playwright/test": "^1.57.0",
     "electron": "^31.0.0",
     "typescript": "^5.5.4"
   },

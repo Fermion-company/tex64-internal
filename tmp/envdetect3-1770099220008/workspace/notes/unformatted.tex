@@ -1,0 +1,20 @@
+\documentclass{article}
+\usepackage{verbatim}
+\newenvironment{myverbatim}{\verbatim}{\endverbatim}
+\begin{document}
+  \section{Format Test}
+    TODO: clean up indentation in \detokenize{TEX64_SEARCH_TOKEN}.
+  \begin{itemize}
+  \item first
+      \item second
+\end{itemize}
+\begin{align}
+  a&=b+c\\
+   d &= e + f
+\end{align}
+\begin{myverbatim}
+\begin{itemize}
+\item should-not-change
+\end{itemize}
+\end{myverbatim}
+\end{document}

@@ -195,6 +195,19 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       });
     }
 
+    // MathLive doesn't support some LaTeX font commands natively (e.g. \mathds),
+    // but macros let us render them while preserving the original command in `getValue("latex")`.
+    try {
+      if ("macros" in mathfield) {
+        mathfield.macros = {
+          ...(mathfield.macros ?? {}),
+          mathds: { def: "\\mathbb{#1}", args: 1 },
+        };
+      }
+    } catch {
+      // ignore macro configuration failures
+    }
+
     try {
       if ("menuItems" in mathfield) {
         const blockedLabels = [

@@ -1,0 +1,11 @@
+\documentclass{article}
+\usepackage{verbatim}
+\newenvironment{myverbatim}{\verbatim}{\endverbatim}
+\begin{document}
+\section{Custom Verbatim}
+\begin{myverbatim}
+\begin{itemize}
+\item should not reformat
+\end{itemize}
+\end{myverbatim}
+\end{document}

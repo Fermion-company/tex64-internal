@@ -130,6 +130,150 @@ const MANUAL_TRIGGERS = [
         ],
     },
     {
+        trigger: "min",
+        priority: 85,
+        pack: "math",
+        candidates: [
+            { latex: "\\min", label: "min", displayLatex: "\\min" },
+            { latex: "\\min_{#?}", label: "min_{ }", displayLatex: "\\min_{x}" },
+        ],
+    },
+    {
+        trigger: "max",
+        priority: 85,
+        pack: "math",
+        candidates: [
+            { latex: "\\max", label: "max", displayLatex: "\\max" },
+            { latex: "\\max_{#?}", label: "max_{ }", displayLatex: "\\max_{x}" },
+        ],
+    },
+    {
+        trigger: "sup",
+        priority: 85,
+        pack: "math",
+        candidates: [
+            { latex: "\\sup", label: "sup", displayLatex: "\\sup" },
+            { latex: "\\sup_{#?}", label: "sup_{ }", displayLatex: "\\sup_{x}" },
+        ],
+    },
+    {
+        trigger: "gcd",
+        priority: 85,
+        pack: "math",
+        candidates: [{ latex: "\\gcd", label: "gcd", displayLatex: "\\gcd" }],
+    },
+    {
+        trigger: "lcm",
+        priority: 85,
+        pack: "math",
+        candidates: [
+            {
+                latex: "\\operatorname{lcm}",
+                label: "lcm",
+                displayLatex: "\\operatorname{lcm}",
+            },
+        ],
+    },
+    {
+        trigger: "mod",
+        priority: 80,
+        pack: "math",
+        candidates: [
+            { latex: "\\bmod", label: "bmod", displayLatex: "\\bmod" },
+            { latex: "\\pmod{#?}", label: "pmod", displayLatex: "\\pmod{n}" },
+        ],
+    },
+    {
+        trigger: "sgn",
+        priority: 80,
+        pack: "math",
+        candidates: [
+            {
+                latex: "\\operatorname{sgn}",
+                label: "sgn",
+                displayLatex: "\\operatorname{sgn}",
+            },
+        ],
+    },
+    {
+        trigger: "det",
+        priority: 90,
+        pack: "math",
+        candidates: [{ latex: "\\det", label: "det", displayLatex: "\\det" }],
+    },
+    {
+        trigger: "tr",
+        priority: 90,
+        pack: "math",
+        candidates: [
+            {
+                latex: "\\operatorname{tr}",
+                label: "tr",
+                displayLatex: "\\operatorname{tr}",
+            },
+        ],
+    },
+    {
+        trigger: "rank",
+        priority: 90,
+        pack: "math",
+        candidates: [
+            {
+                latex: "\\operatorname{rank}",
+                label: "rank",
+                displayLatex: "\\operatorname{rank}",
+            },
+        ],
+    },
+    {
+        trigger: "ker",
+        priority: 90,
+        pack: "math",
+        candidates: [{ latex: "\\ker", label: "ker", displayLatex: "\\ker" }],
+    },
+    {
+        trigger: "dim",
+        priority: 90,
+        pack: "math",
+        candidates: [{ latex: "\\dim", label: "dim", displayLatex: "\\dim" }],
+    },
+    {
+        trigger: "Var",
+        priority: 85,
+        pack: "cs",
+        candidates: [
+            {
+                latex: "\\operatorname{Var}",
+                label: "Var",
+                displayLatex: "\\operatorname{Var}",
+            },
+        ],
+    },
+    {
+        trigger: "Cov",
+        priority: 85,
+        pack: "cs",
+        candidates: [
+            {
+                latex: "\\operatorname{Cov}",
+                label: "Cov",
+                displayLatex: "\\operatorname{Cov}",
+            },
+        ],
+    },
+    {
+        trigger: "set",
+        priority: 90,
+        pack: "cs",
+        candidates: [
+            {
+                latex: "\\left\\{#? \\mid #?\\right\\}",
+                label: "{ x | ... }",
+                displayLatex: "\\left\\{x \\mid x>0\\right\\}",
+            },
+        ],
+    },
+    {
         trigger: "matrix",
         priority: 100,
         candidates: [
@@ -295,6 +439,48 @@ const MANUAL_TRIGGERS = [
         ],
     },
     {
+        trigger: "overbrace",
+        priority: 80,
+        pack: "personal",
+        candidates: [
+            { latex: "\\overbrace{#?}", label: "overbrace", displayLatex: "\\overbrace{x}" },
+            { latex: "\\overbrace{#?}^{#?}", label: "overbrace^", displayLatex: "\\overbrace{x}^{n}" },
+        ],
+    },
+    {
+        trigger: "underbrace",
+        priority: 80,
+        pack: "personal",
+        candidates: [
+            { latex: "\\underbrace{#?}", label: "underbrace", displayLatex: "\\underbrace{x}" },
+            { latex: "\\underbrace{#?}_{#?}", label: "underbrace_", displayLatex: "\\underbrace{x}_{n}" },
+        ],
+    },
+    {
+        trigger: "boxed",
+        priority: 75,
+        pack: "personal",
+        candidates: [{ latex: "\\boxed{#?}", label: "boxed", displayLatex: "\\boxed{x}" }],
+    },
+    {
+        trigger: "cancel",
+        priority: 75,
+        pack: "personal",
+        candidates: [
+            { latex: "\\cancel{#?}", label: "cancel", displayLatex: "\\cancel{x}" },
+            { latex: "\\bcancel{#?}", label: "bcancel", displayLatex: "\\bcancel{x}" },
+            { latex: "\\xcancel{#?}", label: "xcancel", displayLatex: "\\xcancel{x}" },
+        ],
+    },
+    {
+        trigger: "cancelto",
+        priority: 70,
+        pack: "personal",
+        candidates: [
+            { latex: "\\cancelto{#?}{#?}", label: "cancelto", displayLatex: "\\cancelto{0}{x}" },
+        ],
+    },
+    {
         trigger: "tilde",
         priority: 80,
         candidates: [{ latex: "\\tilde{#?}", label: "~", displayLatex: "\\tilde{x}" }],
@@ -423,7 +609,11 @@ const MANUAL_TRIGGERS = [
     {
         trigger: "inf",
         priority: 100,
-        candidates: [{ latex: "\\infty", label: "∞", displayLatex: "\\infty" }],
+        candidates: [
+            { latex: "\\infty", label: "∞", displayLatex: "\\infty" },
+            { latex: "\\inf", label: "inf", displayLatex: "\\inf" },
+            { latex: "\\inf_{#?}", label: "inf_{ }", displayLatex: "\\inf_{x}" },
+        ],
     },
     {
         trigger: "infty",
@@ -857,6 +1047,12 @@ const MANUAL_TRIGGERS = [
         candidates: [{ latex: "\\Rightarrow", label: "⇒", displayLatex: "\\Rightarrow" }],
     },
     {
+        trigger: "impliedby",
+        priority: 85,
+        pack: "cs",
+        candidates: [{ latex: "\\Leftarrow", label: "⇐", displayLatex: "\\Leftarrow" }],
+    },
+    {
         trigger: "cdot",
         priority: 85,
         candidates: [{ latex: "\\cdot", label: "⋅", displayLatex: "\\cdot" }],
@@ -1070,6 +1266,30 @@ const MANUAL_TRIGGERS = [
         ],
     },
     {
+        trigger: "d3dx3",
+        priority: 90,
+        pack: "math",
+        candidates: [
+            {
+                latex: "\\frac{\\mathrm{d}^3 #?}{\\mathrm{d}#?^3}",
+                label: "d^3/dx^3",
+                displayLatex: "\\frac{\\mathrm{d}^3 y}{\\mathrm{d}x^3}",
+            },
+        ],
+    },
+    {
+        trigger: "p3dx3",
+        priority: 90,
+        pack: "math",
+        candidates: [
+            {
+                latex: "\\frac{\\partial^3 #?}{\\partial #?^3}",
+                label: "∂^3/∂x^3",
+                displayLatex: "\\frac{\\partial^3 f}{\\partial x^3}",
+            },
+        ],
+    },
+    {
         trigger: "divergence",
         priority: 90,
         pack: "physics",
@@ -1170,6 +1390,45 @@ const MANUAL_TRIGGERS = [
         candidates: [{ latex: "\\mathit{#?}", label: "it", displayLatex: "\\mathit{ABC}" }],
     },
     {
+        trigger: "mathscr",
+        priority: 80,
+        pack: "personal",
+        candidates: [{ latex: "\\mathscr{#?}", label: "scr", displayLatex: "\\mathscr{A}" }],
+    },
+    {
+        trigger: "scr",
+        priority: 80,
+        pack: "personal",
+        candidates: [{ latex: "\\mathscr{#?}", label: "scr", displayLatex: "\\mathscr{A}" }],
+    },
+    {
+        trigger: "boldsymbol",
+        priority: 80,
+        pack: "personal",
+        candidates: [
+            { latex: "\\boldsymbol{#?}", label: "bold", displayLatex: "\\boldsymbol{x}" },
+            { latex: "\\bm{#?}", label: "bm", displayLatex: "\\bm{x}" },
+        ],
+    },
+    {
+        trigger: "bm",
+        priority: 80,
+        pack: "personal",
+        candidates: [{ latex: "\\bm{#?}", label: "bm", displayLatex: "\\bm{x}" }],
+    },
+    {
+        trigger: "mathds",
+        priority: 80,
+        pack: "personal",
+        candidates: [{ latex: "\\mathds{#?}", label: "ds", displayLatex: "\\mathbb{A}" }],
+    },
+    {
+        trigger: "ds",
+        priority: 80,
+        pack: "personal",
+        candidates: [{ latex: "\\mathds{#?}", label: "ds", displayLatex: "\\mathbb{A}" }],
+    },
+    {
         trigger: "op",
         priority: 80,
         candidates: [
@@ -1192,8 +1451,23 @@ const MANUAL_TRIGGERS = [
         priority: 80,
         candidates: [
             {
+                latex: "\\begin{array}{cc}#?&#?\\\\#?&#?\\end{array}",
+                label: "array{cc}",
+                displayLatex: "\\begin{array}{cc}a&b\\\\c&d\\end{array}",
+            },
+            {
+                latex: "\\begin{array}{ccc}#?&#?&#?\\\\#?&#?&#?\\end{array}",
+                label: "array{ccc}",
+                displayLatex: "\\begin{array}{ccc}a&b&c\\\\d&e&f\\end{array}",
+            },
+            {
+                latex: "\\begin{array}{rcl}#?&=&#?\\\\#?&=&#?\\end{array}",
+                label: "array{rcl}",
+                displayLatex: "\\begin{array}{rcl}a&=&b\\\\c&=&d\\end{array}",
+            },
+            {
                 latex: "\\begin{array}{#?}#?\\end{array}",
-                label: "array",
+                label: "array{...}",
                 displayLatex: "\\begin{array}{cc}a&b\\\\c&d\\end{array}",
             },
         ],
@@ -1268,6 +1542,38 @@ const MANUAL_TRIGGERS = [
         priority: 70,
         pack: "jp",
         candidates: [{ latex: "\\sqrt{#?}", label: "√", displayLatex: "\\sqrt{x}" }],
+    },
+    {
+        trigger: "bunsuu",
+        priority: 70,
+        pack: "jp",
+        candidates: [{ latex: "\\frac{#?}{#?}", label: "a/b", displayLatex: "\\frac{a}{b}" }],
+    },
+    {
+        trigger: "gyouretsu",
+        priority: 70,
+        pack: "jp",
+        candidates: [
+            {
+                latex: "\\begin{pmatrix}#?&#?\\\\#?&#?\\end{pmatrix}",
+                label: "pmatrix",
+                displayLatex: "\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}",
+            },
+        ],
+    },
+    {
+        trigger: "bekutoru",
+        priority: 70,
+        pack: "jp",
+        candidates: [{ latex: "\\vec{#?}", label: "→x", displayLatex: "\\vec{x}" }],
+    },
+    {
+        trigger: "kakko",
+        priority: 70,
+        pack: "jp",
+        candidates: [
+            { latex: "\\left(#?\\right)", label: "( )", displayLatex: "\\left(x\\right)" },
+        ],
     },
 ];
 const ALIAS_TRIGGERS = [

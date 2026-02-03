@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex main"] 1768578374.4727 "main.aux" "main.bbl" "main" 1768578375.54758 0
+["bibtex main"] 1770106990.80673 "main.aux" "main.bbl" "main" 1770106991.8466 0
   "./refs.bib" 1768575459.10069 456 3db99a228dff3009b1dbadf77c1cdff2 ""
   "/usr/local/texlive/2024/texmf-dist/bibtex/bst/base/plain.bst" 1292289607 20613 bd3fbfa9f64872b81ac57a0dd2ed855f ""
-  "main.aux" 1768578375.22874 3529 b331a1f2271ab8d807d789b49e8f2cb3 "lualatex"
+  "main.aux" 1770106991.54812 3529 b331a1f2271ab8d807d789b49e8f2cb3 "lualatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["lualatex"] 1768578374.55863 "main.tex" "main.pdf" "main" 1768578375.54771 0
+["lualatex"] 1770106990.89651 "main.tex" "main.pdf" "main" 1770106991.84673 0
   "/Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmmono10-regular.luc" 1767148550.69757 81837 ac5b1b311ade3065c5dda4c0bbd0f8cb ""
   "/Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman10-bold.luc" 1766813714.81052 128410 d0a7d6c5b84cb323c732980fd1a15945 ""
   "/Users/wedd/Library/texlive/2024/texmf-var/luatex-cache/generic/fonts/otl/lmroman10-italic.luc" 1766813714.91235 136312 0e3e64866d362ca6507213d4e45d4d17 ""
@@ -165,13 +165,13 @@
   "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1714800338.55124 5467645 128b85b7cde5f5edc5cb7f1dd7ff8736 ""
   "/usr/local/texlive/2024/texmf-var/web2c/luahbtex/lualatex.fmt" 1714800260 12255192 275bf7f30ced6b4d01ffbcc33153c70c ""
   "figures/sample-image.png" 1768575512.83952 493 2586101e3d8141404c6f8687fb0d5d4c ""
-  "main.aux" 1768578375.22874 3529 b331a1f2271ab8d807d789b49e8f2cb3 "lualatex"
-  "main.bbl" 1768578374.55593 392 bd724276f4a31943f3753c2a8a74f6fe "bibtex main"
-  "main.lof" 1768578375.22992 205 7ff04edcfb5bfb9275b715abe441d079 "lualatex"
-  "main.lot" 1768578375.23005 172 c355a36bb2c6ae4b4c392cd03f8a2563 "lualatex"
-  "main.out" 1768578375.22959 1306 0fd47baef7000d4c2a8dea39c2eba053 "lualatex"
-  "main.tex" 1768578362.71236 967 3680f9db0e0ac140c137bc1122871486 ""
-  "main.toc" 1768578375.22987 1044 39af32314669810db72b3e4b554e158a "lualatex"
+  "main.aux" 1770106991.54812 3529 b331a1f2271ab8d807d789b49e8f2cb3 "lualatex"
+  "main.bbl" 1770106990.89447 392 bd724276f4a31943f3753c2a8a74f6fe "bibtex main"
+  "main.lof" 1770106991.54973 205 7ff04edcfb5bfb9275b715abe441d079 "lualatex"
+  "main.lot" 1770106991.54977 172 c355a36bb2c6ae4b4c392cd03f8a2563 "lualatex"
+  "main.out" 1770106991.54949 1306 0fd47baef7000d4c2a8dea39c2eba053 "lualatex"
+  "main.tex" 1770017921.03915 967 3680f9db0e0ac140c137bc1122871486 ""
+  "main.toc" 1770106991.54969 1044 39af32314669810db72b3e4b554e158a "lualatex"
   "sections/appendix.tex" 1768578362.71277 498 959adc6e2f34d6dfcd6c2388d154a532 ""
   "sections/blocks.tex" 1768575444.05084 601 533735923f2d5a737afd6354ab4c07e9 ""
   "sections/discussion.tex" 1768575448.26547 245 c88bddb9a6441789348a41fcc6af51ef ""

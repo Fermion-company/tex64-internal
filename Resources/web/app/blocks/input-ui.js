@@ -29,6 +29,8 @@ export const initBlockInputUi = (context, deps) => {
     let mathFieldWrapped = false;
     let mathKeyboardVisibilityHandler = () => { };
     let mathWysiwygApi = null;
+    let openMatrixOpsPaletteForSuggestButton = null;
+    let globalWysiwygKeydownBound = false;
     let mathInsertMode = "inline";
     let mathInlineWrap = "inline-dollar";
     let mathDisplayWrap = "display-bracket";
@@ -378,61 +380,39 @@ export const initBlockInputUi = (context, deps) => {
             }
             return false;
         };
-        const openSlashCandidates = () => {
-            if (!mathWysiwygApi) {
-                return false;
-            }
+        const tryWrapSelectionWithFraction = () => {
+            var _a;
             const mathfieldApi = mathfield;
             if (typeof mathfieldApi.getValue !== "function") {
                 return false;
             }
-            const applyFraction = () => {
-                var _a;
-                const rawValue = (_a = mathfieldApi.getValue) === null || _a === void 0 ? void 0 : _a.call(mathfieldApi, "latex");
-                if (typeof rawValue !== "string") {
-                    return;
+            const selection = getMathFieldSelectionRange(mathfieldApi);
+            if (selection.start === selection.end) {
+                return false;
+            }
+            const selectedLatex = mathfieldApi.getValue(selection.start, selection.end, "latex");
+            if (typeof selectedLatex !== "string") {
+                return false;
+            }
+            const insertLatex = `\\frac{${selectedLatex}}{${PLACEHOLDER_LATEX}}`;
+            let inserted = false;
+            if (typeof mathfieldApi.executeCommand === "function") {
+                try {
+                    inserted = Boolean(mathfieldApi.executeCommand("insert", insertLatex));
                 }
-                const selection = getMathFieldSelectionRange(mathfieldApi);
-                const selectionIndex = {
-                    start: offsetToIndex(mathfieldApi, selection.start),
-                    end: offsetToIndex(mathfieldApi, selection.end),
-                };
-                const result = applyTemplateToText(rawValue, selectionIndex, "\\\\frac{#?}{#?}", {
-                    placeholder: PLACEHOLDER_LATEX,
-                    baseMode: "wrap",
-                    baseIndex: 0,
-                    baseScope: "selection-or-atom",
-                });
-                if (typeof mathfieldApi.setValue === "function") {
-                    mathfieldApi.setValue(result.text);
+                catch {
+                    inserted = false;
                 }
-                else if (typeof mathfieldApi.value === "string") {
-                    mathfieldApi.value = result.text;
-                }
-                const startOffset = indexToOffset(mathfieldApi, result.selectionStart);
-                const endOffset = indexToOffset(mathfieldApi, result.selectionEnd);
-                setSelectionRange(mathfieldApi, startOffset, endOffset);
-                mathfield.dispatchEvent(new Event("input", { bubbles: true }));
-            };
-            const applySlash = () => {
-                insertMathKey({ label: "/", latex: "/" });
-            };
-            mathWysiwygApi.openCustomCandidates([
-                {
-                    id: "fraction",
-                    label: "a/b",
-                    hint: "/",
-                    displayLatex: "\\\\frac{a}{b}",
-                    apply: applyFraction,
-                },
-                {
-                    id: "slash",
-                    label: "/",
-                    hint: "/",
-                    displayLatex: "/",
-                    apply: applySlash,
-                },
-            ], { selectedIndex: 0 });
+            }
+            if (!inserted && typeof mathfieldApi.insert === "function") {
+                mathfieldApi.insert(insertLatex, { focus: true, feedback: false });
+                inserted = true;
+            }
+            if (!inserted) {
+                return false;
+            }
+            (_a = mathfieldApi.focus) === null || _a === void 0 ? void 0 : _a.call(mathfieldApi);
+            mathfield.dispatchEvent(new Event("input", { bubbles: true }));
             return true;
         };
         const MATRIX_ENV_NAMES = new Set([
@@ -672,13 +652,137 @@ export const initBlockInputUi = (context, deps) => {
         };
         const tryInsertMatrixRow = () => tryApplyMatrixEdit("row");
         const tryInsertMatrixColumn = () => tryApplyMatrixEdit("column");
+        const openMatrixOpsPalette = () => {
+            if (!mathWysiwygApi) {
+                return false;
+            }
+            const mathfieldApi = mathfield;
+            if (typeof mathfieldApi.getValue !== "function") {
+                return false;
+            }
+            const selection = getMathFieldSelectionRange(mathfieldApi);
+            const latex = mathfieldApi.getValue("latex");
+            if (typeof latex !== "string") {
+                return false;
+            }
+            const cursorIndex = offsetToIndex(mathfieldApi, selection.end);
+            const env = findMatrixEnvironment(latex, cursorIndex);
+            if (!env) {
+                return false;
+            }
+            const applyCommand = (command) => (mf) => {
+                var _a;
+                if (typeof mf.executeCommand !== "function") {
+                    return;
+                }
+                try {
+                    const ok = Boolean(mf.executeCommand(command));
+                    if (ok) {
+                        (_a = mf.dispatchEvent) === null || _a === void 0 ? void 0 : _a.call(mf, new Event("input", { bubbles: true }));
+                    }
+                }
+                catch {
+                    // ignore
+                }
+            };
+            mathWysiwygApi.openCustomCandidates([
+                { id: "matrix-op:add-row", label: "+row", hint: "行を追加", apply: applyCommand("addRowAfter") },
+                { id: "matrix-op:add-col", label: "+col", hint: "列を追加", apply: applyCommand("addColumnAfter") },
+                { id: "matrix-op:remove-row", label: "-row", hint: "行を削除", apply: applyCommand("removeRow") },
+                { id: "matrix-op:remove-col", label: "-col", hint: "列を削除", apply: applyCommand("removeColumn") },
+            ]);
+            return true;
+        };
+        openMatrixOpsPaletteForSuggestButton = () => {
+            if (mathInput !== mathfield) {
+                return false;
+            }
+            return openMatrixOpsPalette();
+        };
         const handleMathFieldKeydown = (event) => {
+            var _a;
             if (event.isComposing) {
                 return;
             }
             if (mathWysiwygApi === null || mathWysiwygApi === void 0 ? void 0 : mathWysiwygApi.handleKeydown(event)) {
-                event.stopPropagation();
+                event.stopImmediatePropagation();
                 return;
+            }
+            if (event.key === "/" &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey &&
+                !event.shiftKey) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                if (!tryWrapSelectionWithFraction()) {
+                    insertMathKey({ label: "/", latex: "/" });
+                    mathfield.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+                closeWysiwygSuggestions();
+                return;
+            }
+            if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
+                const mathfieldApi = mathfield;
+                if (!event.metaKey && !event.ctrlKey) {
+                    let handled = false;
+                    if (typeof mathfieldApi.executeCommand === "function") {
+                        try {
+                            handled = Boolean(mathfieldApi.executeCommand("addRowAfter"));
+                        }
+                        catch {
+                            handled = false;
+                        }
+                    }
+                    if (!handled) {
+                        handled = tryInsertMatrixRow();
+                    }
+                    if (handled) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        closeWysiwygSuggestions();
+                        mathfield.dispatchEvent(new Event("input", { bubbles: true }));
+                        return;
+                    }
+                }
+                else {
+                    let handled = false;
+                    if (typeof mathfieldApi.executeCommand === "function") {
+                        const before = typeof mathfieldApi.getValue === "function"
+                            ? mathfieldApi.getValue("latex")
+                            : null;
+                        try {
+                            const ok = Boolean(mathfieldApi.executeCommand("addColumnAfter"));
+                            if (ok) {
+                                const after = typeof mathfieldApi.getValue === "function"
+                                    ? mathfieldApi.getValue("latex")
+                                    : null;
+                                handled =
+                                    typeof before === "string" && typeof after === "string"
+                                        ? before !== after
+                                        : ok;
+                            }
+                        }
+                        catch {
+                            handled = false;
+                        }
+                    }
+                    if (!handled) {
+                        handled = tryInsertMatrixColumn();
+                    }
+                    if (handled) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        closeWysiwygSuggestions();
+                        mathfield.dispatchEvent(new Event("input", { bubbles: true }));
+                        return;
+                    }
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    closeWysiwygSuggestions();
+                    (_a = deps.onMathFieldSubmit) === null || _a === void 0 ? void 0 : _a.call(deps);
+                    return;
+                }
             }
             if (event.key === "Tab" && !event.metaKey && !event.ctrlKey && !event.altKey) {
                 event.preventDefault();
@@ -695,8 +799,20 @@ export const initBlockInputUi = (context, deps) => {
         if (shadowRoot) {
             shadowRoot.addEventListener("keydown", handleMathFieldKeydown, { capture: true });
         }
+        // When the suggestion panel is open, intercept keydown at the document capture phase.
+        // This keeps navigation keys for the panel even when other parts of the app listen to keys.
+        if (!globalWysiwygKeydownBound) {
+            globalWysiwygKeydownBound = true;
+            document.addEventListener("keydown", (event) => {
+                if (!mathWysiwygApi) {
+                    return;
+                }
+                if (mathWysiwygApi.handleKeydown(event)) {
+                    event.stopImmediatePropagation();
+                }
+            }, { capture: true });
+        }
         mathfield.addEventListener("keydown", (e) => {
-            var _a;
             if (mathWysiwygApi === null || mathWysiwygApi === void 0 ? void 0 : mathWysiwygApi.handleKeydown(e)) {
                 return;
             }
@@ -704,41 +820,16 @@ export const initBlockInputUi = (context, deps) => {
                 return;
             }
             if (!e.metaKey && !e.altKey && e.ctrlKey && e.key === ".") {
-                const opened = mathWysiwygApi === null || mathWysiwygApi === void 0 ? void 0 : mathWysiwygApi.openExplicitSuggestions();
-                if (opened) {
+                const opened = Boolean(mathWysiwygApi === null || mathWysiwygApi === void 0 ? void 0 : mathWysiwygApi.openExplicitSuggestions());
+                const fallbackOpened = opened ? false : openMatrixOpsPalette();
+                if (opened || fallbackOpened) {
                     e.preventDefault();
                 }
                 return;
-            }
-            if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-                if (tryInsertMatrixRow()) {
-                    closeWysiwygSuggestions();
-                    e.preventDefault();
-                    return;
-                }
-            }
-            if (e.key === "Enter" && !e.shiftKey && !e.altKey && (e.metaKey || e.ctrlKey)) {
-                if (tryInsertMatrixColumn()) {
-                    closeWysiwygSuggestions();
-                    e.preventDefault();
-                    return;
-                }
-            }
-            if (!e.metaKey && !e.ctrlKey && !e.altKey) {
-                if (e.key === "/" && openSlashCandidates()) {
-                    e.preventDefault();
-                    return;
-                }
             }
             if (e.key === "Escape") {
                 closeWysiwygSuggestions();
                 mathfield.blur();
-                return;
-            }
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                closeWysiwygSuggestions();
-                e.preventDefault();
-                (_a = deps.onMathFieldSubmit) === null || _a === void 0 ? void 0 : _a.call(deps);
                 return;
             }
         });
@@ -965,6 +1056,11 @@ export const initBlockInputUi = (context, deps) => {
         insertKey: (key) => insertMathKey(key),
         autoSuggest: mathWysiwygSettings.autoSuggest,
         enabledPacks: mathWysiwygSettings.enabledPacks,
+        getMruStorageKey: () => {
+            var _a;
+            const rootKey = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
+            return rootKey ? `tex64.math-wysiwyg.mru.${rootKey}` : "tex64.math-wysiwyg.mru";
+        },
     });
     const setBlockSettingsPage = (page) => {
         activeBlockSettingsPage = page;
@@ -1005,7 +1101,9 @@ export const initBlockInputUi = (context, deps) => {
             if (!mathInput) {
                 return;
             }
-            if (mathWysiwygApi === null || mathWysiwygApi === void 0 ? void 0 : mathWysiwygApi.openExplicitSuggestions()) {
+            const opened = Boolean(mathWysiwygApi === null || mathWysiwygApi === void 0 ? void 0 : mathWysiwygApi.openExplicitSuggestions());
+            const fallbackOpened = opened ? false : Boolean(openMatrixOpsPaletteForSuggestButton === null || openMatrixOpsPaletteForSuggestButton === void 0 ? void 0 : openMatrixOpsPaletteForSuggestButton());
+            if (opened || fallbackOpened) {
                 if (typeof mathInput.focus === "function") {
                     (_b = (_a = mathInput).focus) === null || _b === void 0 ? void 0 : _b.call(_a);
                 }

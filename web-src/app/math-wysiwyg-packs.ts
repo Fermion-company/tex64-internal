@@ -1,4 +1,4 @@
-export type WysiwygPackId = "core" | "math" | "physics" | "cs" | "jp";
+export type WysiwygPackId = "core" | "math" | "physics" | "cs" | "personal" | "jp";
 
 export type WysiwygPackInfo = {
   id: WysiwygPackId;
@@ -38,6 +38,13 @@ export const WYSIWYG_PACKS: WysiwygPackInfo[] = [
     toggleable: true,
   },
   {
+    id: "personal",
+    label: "個人/装飾",
+    description: "boxed/cancel/bm等（好みが分かれる）",
+    defaultEnabled: false,
+    toggleable: true,
+  },
+  {
     id: "jp",
     label: "日本語トリガー",
     description: "ローマ字入力（例: sekibun）",
@@ -49,4 +56,3 @@ export const WYSIWYG_PACKS: WysiwygPackInfo[] = [
 export const DEFAULT_WYSIWYG_PACKS: WysiwygPackId[] = WYSIWYG_PACKS.filter(
   (pack) => pack.defaultEnabled
 ).map((pack) => pack.id);
-

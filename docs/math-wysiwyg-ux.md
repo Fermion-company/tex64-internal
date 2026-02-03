@@ -2,6 +2,15 @@
 
 Source: user feedback 2026-02-02.
 
+## Status (as of 2026-02-03)
+- Implemented: auto-suggest min length (>= 3, with 2-letter allowlist for pi/mu/nu/xi), manual trigger via Ctrl+., ArrowUp/Down navigation + Enter apply + Esc close, Tab reserved for placeholders, safe replacement via selection + insert (no full setValue slicing)
+- Implemented: operator auto-replace for common tokens (<=, >=, !=, ->, <-, <->, =>, <=>, +-, -+, ..., d/dx, ∂/∂x)
+- Implemented: selection + `/` wraps into `\\frac{(selection)}{\\placeholder{}}`, otherwise inserts literal `/`
+- Implemented: matrix/cases structure editing: Enter adds row, Cmd/Ctrl+Enter adds column; Ctrl+. in matrix/cases can open a small ops palette (add/remove row/col). The "候補" button now also falls back to this palette when there is no token to suggest.
+- Implemented: MRU ranking (project-scoped localStorage key); packs (core/math/physics/cs/personal/jp)
+- Implemented: candidate indexing: prefix uses a sorted range lookup; contains search uses an n-gram index (avoids scanning all triggers per keystroke)
+- Implemented: dictionary additions (examples): det/tr/rank/ker/dim, Var/Cov, set-builder template, higher derivatives; plus common-but-personal commands (under/overbrace, boxed, cancel(+to) variants, mathscr/boldsymbol/bm/mathds), new operators (min/max/sup/gcd/lcm/mod/sgn, impliedby), JP triggers, and array presets (cc/ccc/rcl)
+
 ## 1) Key UX failures (highest impact)
 - Auto-suggest on 1-letter tokens creates constant noise and slows typing. Require a min token length for auto; allow explicit/manual trigger for 1-letter tokens.
 - Tab is captured by suggestions and conflicts with MathLive placeholder navigation. Keep Tab for placeholders; move suggestion navigation to ArrowUp/ArrowDown (optional Ctrl+Tab for cycling).

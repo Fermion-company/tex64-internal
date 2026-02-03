@@ -327,6 +327,7 @@ export const initMain = () => {
         });
         const blockInputApi = initBlockInputUi(appContext, {
             getActiveBlockContext: () => activeBlockContext,
+            getWorkspaceRootKey: appActions.getWorkspaceRootKey,
             onMathFieldSubmit: () => {
                 triggerBlockInsert();
             },

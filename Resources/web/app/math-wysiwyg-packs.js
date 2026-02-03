@@ -28,6 +28,13 @@ export const WYSIWYG_PACKS = [
         toggleable: true,
     },
     {
+        id: "personal",
+        label: "個人/装飾",
+        description: "boxed/cancel/bm等（好みが分かれる）",
+        defaultEnabled: false,
+        toggleable: true,
+    },
+    {
         id: "jp",
         label: "日本語トリガー",
         description: "ローマ字入力（例: sekibun）",

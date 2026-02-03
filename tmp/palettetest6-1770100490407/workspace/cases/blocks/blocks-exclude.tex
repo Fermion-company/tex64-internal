@@ -1,0 +1,14 @@
+\section{Excluded Environments}
+\begin{verbatim}
+$This is verbatim and should be ignored by block detection.$
+\end{verbatim}
+
+\begin{lstlisting}
+$This is lstlisting and should be ignored too.$
+\end{lstlisting}
+
+\begin{minted}{python}
+print("$This is minted and should be ignored too.$")
+\end{minted}
+
+Normal math $x+y$ should still be detected.

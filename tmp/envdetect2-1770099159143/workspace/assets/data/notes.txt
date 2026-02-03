@@ -1,0 +1,2 @@
+Plain text fixture for editor text mode.
+Second line for line navigation.

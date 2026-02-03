@@ -1,0 +1,33 @@
+\documentclass{article}
+\usepackage{verbatim}
+\newenvironment{myverbatim}{\verbatim}{\endverbatim}
+\begin{document}
+\section{Format Settings}
+
+\begin{itemize}
+\item first
+  \item second
+\end{itemize}
+
+\begin{align}
+  a&=b+c\\
+  d &= e + f
+\end{align}
+
+\begin{myverbatim}
+\begin{itemize}
+\item do not touch
+\end{itemize}
+\end{myverbatim}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ll}
+name&value\\
+A&1\\
+B&2
+\end{tabular}
+\caption{Alignment test}
+\label{tab:format}
+\end{table}
+\end{document}

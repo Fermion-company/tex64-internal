@@ -3,6 +3,21 @@
 このファイルは、サジェストで出てくる候補を **TeX コマンド基準** で整理した一覧です。  
 `#?` は入力用プレースホルダー（MathLive 内で入力欄）を表します。
 
+## サジェストの使い方（最新版）
+- 自動サジェストは **英字トークン3文字以上** で発火（containsは4文字以上）
+- 手動サジェストは **`Ctrl + .`** または UI の「候補」ボタン
+- 候補操作: **↑/↓** で移動、**Enter** で挿入、**Esc** で閉じる  
+  Tab はプレースホルダ移動に専用化（サジェストは奪わない）
+- **手動のみ** / **パックON/OFF** は「候補/サジェスト」設定で変更可能
+- 「個人/装飾」パックはデフォルトOFF（自動候補のノイズ削減）。手動サジェストならOFFでも候補に出ます
+- 最近使った候補は **MRU** で上位に来る
+
+## 入力ショートカット（MathLive）
+- 選択範囲がある状態で `/` を押すと `\\frac{(選択)}{\\placeholder{}}` に変換（選択なしは `/` を挿入）
+- 行列/ケース内で **Enter=行追加**, **Cmd/Ctrl+Enter=列追加**
+- 行列/ケース内で「行/列の追加・削除」パレットが出る（`Ctrl + .` / 「候補」ボタンで開く。↑/↓で選択、Enterで実行）
+- 演算子トリガーは自動変換（例）: `<=`, `>=`, `!=`, `->`, `<-`, `<->`, `=>`, `<=>`, `+-`, `-+`, `...`, `d/dx`, `∂/∂x`
+
 ## Operators / Calculus
 - `\\sum`
   - variants: `\\sum_{#?}^{#?}`
@@ -14,7 +29,7 @@
   - aliases: `product`, `multiplication`
   - note: `sum` でも候補に含まれます
 - `\\int`
-  - variants: `\\int_{#?}^{#?}`, `\\iint`, `\\iiint`, `\\oint`
+  - variants: `\\int #? \\, \\mathrm{d}#?`, `\\int_{#?}^{#?}`, `\\iint`, `\\iiint`, `\\oint`
   - triggers: `int`
   - aliases: `integral`, `integrate`, `integration`, `antiderivative`
 - `\\sqrt`
@@ -46,8 +61,12 @@
   - aliases: `deriv`, `d/dx`
 - `\\frac{\\mathrm{d}^2 #?}{\\mathrm{d}#?^2}`
   - triggers: `d2dx2`
+- `\\frac{\\mathrm{d}^3 #?}{\\mathrm{d}#?^3}`
+  - triggers: `d3dx3`
 - `\\frac{\\partial^2 #?}{\\partial #?^2}`
   - triggers: `p2dx2`
+- `\\frac{\\partial^3 #?}{\\partial #?^3}`
+  - triggers: `p3dx3`
 - `\\frac{\\partial #?}{\\partial #?}`
   - triggers: `pdx`
   - aliases: `partiald`, `∂/∂x`
@@ -85,7 +104,8 @@
 - `\\begin{aligned}#? &= #?\\\\#? &= #?\\end{aligned}`
   - triggers: `aligned`
   - aliases: `align`
-- `\\begin{array}{#?}#?\\end{array}`
+- `\\begin{array}{cc}#?&#?\\\\#?&#?\\end{array}`
+  - variants: `\\begin{array}{ccc}#?&#?&#?\\\\#?&#?&#?\\end{array}`, `\\begin{array}{rcl}#?&=&#?\\\\#?&=&#?\\end{array}`, `\\begin{array}{#?}#?\\end{array}`
   - triggers: `array`
   - aliases: `cases2`, `table`
 
@@ -106,6 +126,24 @@
   - triggers: `arcsin`, `arccos`, `arctan`
   - aliases: `arcsine`, `arccosine`, `arctangent`
 
+## Linear Algebra / Operators
+- `\\det`, `\\ker`, `\\dim`
+  - triggers: `det`, `ker`, `dim`
+- `\\operatorname{tr}`
+  - triggers: `tr`
+- `\\operatorname{rank}`
+  - triggers: `rank`
+- `\\min`, `\\max`, `\\sup`
+  - triggers: `min`, `max`, `sup`
+- `\\inf`（※ `inf` は `\\infty` も候補に含みます）
+  - triggers: `inf`
+- `\\gcd`, `\\operatorname{lcm}`
+  - triggers: `gcd`, `lcm`
+- `\\bmod`, `\\pmod{#?}`
+  - triggers: `mod`
+- `\\operatorname{sgn}`
+  - triggers: `sgn`
+
 ## Fonts / Styles
 - `\\mathbb{#?}`
   - triggers: `mathbb`, `bb`
@@ -117,11 +155,36 @@
   - triggers: `mathtt`, `tt`
 - `\\mathit{#?}`
   - triggers: `mathit`, `it`
+- `\\mathscr{#?}`
+  - triggers: `mathscr`, `scr`
+  - pack: 個人/装飾
+- `\\boldsymbol{#?}`, `\\bm{#?}`
+  - triggers: `boldsymbol`, `bm`
+  - pack: 個人/装飾
+- `\\mathds{#?}`
+  - triggers: `mathds`, `ds`
+  - pack: 個人/装飾
+  - note: MathLive側は `\\mathds` 非対応なので、エディタ内表示は `\\mathbb` にマクロ変換して見せる（出力latexは `\\mathds{...}` のまま）
+
+## Decorations
+- `\\overbrace{#?}^{#?}`, `\\underbrace{#?}_{#?}`
+  - triggers: `overbrace`, `underbrace`
+  - pack: 個人/装飾
+- `\\boxed{#?}`
+  - triggers: `boxed`
+  - pack: 個人/装飾
+- `\\cancel{#?}`, `\\bcancel{#?}`, `\\xcancel{#?}`
+  - triggers: `cancel`
+  - variants: `\\cancelto{#?}{#?}`
+  - triggers: `cancelto`
+  - pack: 個人/装飾
 
 ## Sets / Logic
 - `\\in`, `\\notin`
   - triggers: `in`, `notin`
   - aliases: `element`, `notelement`
+- `\\left\\{#? \\mid #?\\right\\}`
+  - triggers: `set`
 - `\\subset`, `\\subseteq`
   - triggers: `subset`
   - aliases: `subseteq`, `subsetof`
@@ -140,6 +203,8 @@
   - aliases: `intersection`
 - `\\forall`, `\\exists`, `\\iff`
   - triggers: `forall`, `exists`, `iff`
+- `\\Leftarrow`（implied by）
+  - triggers: `impliedby`
 - `\\therefore`, `\\because`
   - triggers: `therefore`, `because`
 - `\\emptyset`
@@ -166,9 +231,9 @@
 - `\\ll`, `\\gg`
   - triggers: `ll`, `gg`
 - `\\mid`, `\\nmid`
-  - triggers: `mid`, `nmid`
+  - triggers: `mid`, `nmid` (operator: `||` は `\\mid` を候補に出す)
 - `\\parallel`, `\\perp`
-  - triggers: `parallel`, `perp`
+  - triggers: `parallel`, `perp` (operator: `||` は `\\parallel` を候補に出す)
 - `\\approx`, `\\sim`, `\\simeq`
   - triggers: `approx`
   - aliases: `sim`, `simeq`, `similar`, `approximately`
@@ -179,7 +244,7 @@
   - triggers: `propto`
   - aliases: `proportional`
 - `\\stackrel{def}{=}`
-  - triggers: `defeq`
+  - triggers: `defeq` (operator: `:=`)
 
 ## Arrows / Maps
 - `\\to`, `\\rightarrow`
@@ -294,6 +359,7 @@
 - `\\text{#?}`
   - triggers: `text`
   - aliases: `mathrmtext`
+  - note: In the MathLive WYSIWYG field, this suggestion switches the editor to text mode (so typing yields `\\text{...}`) and avoids inserting a placeholder.
 - `\\mathrm{#?}`, `\\mathbf{#?}`, `\\mathcal{#?}`
   - triggers: `rm`, `bf`, `cal`
   - aliases: `roman`, `bold`, `script`
@@ -332,6 +398,8 @@
 - `\\mathbb{E}`
   - triggers: `expect`
   - aliases: `expectation`
+- `\\operatorname{Var}`, `\\operatorname{Cov}`
+  - triggers: `var`, `cov`
 
 ## Greek Letters
 - `\\alpha`, `\\beta`

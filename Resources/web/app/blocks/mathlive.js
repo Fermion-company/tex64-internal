@@ -1,7 +1,7 @@
 export const initMathLive = (context, deps) => {
     const { blockMathInputContainer } = context.dom;
     const setupMathField = async () => {
-        var _a;
+        var _a, _b;
         if (!blockMathInputContainer) {
             console.error("MathLive container not found");
             return;
@@ -170,6 +170,19 @@ export const initMathLive = (context, deps) => {
                 locale: "ja",
             });
         }
+        // MathLive doesn't support some LaTeX font commands natively (e.g. \mathds),
+        // but macros let us render them while preserving the original command in `getValue("latex")`.
+        try {
+            if ("macros" in mathfield) {
+                mathfield.macros = {
+                    ...((_a = mathfield.macros) !== null && _a !== void 0 ? _a : {}),
+                    mathds: { def: "\\mathbb{#1}", args: 1 },
+                };
+            }
+        }
+        catch {
+            // ignore macro configuration failures
+        }
         try {
             if ("menuItems" in mathfield) {
                 const blockedLabels = [
@@ -272,7 +285,7 @@ export const initMathLive = (context, deps) => {
                         .filter(Boolean);
                     return cleanDividers(filtered);
                 };
-                const currentMenuItems = (_a = mathfield.menuItems) !== null && _a !== void 0 ? _a : [];
+                const currentMenuItems = (_b = mathfield.menuItems) !== null && _b !== void 0 ? _b : [];
                 mathfield.menuItems = filterMenuItems(currentMenuItems);
             }
         }
