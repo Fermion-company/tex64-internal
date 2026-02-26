@@ -85,6 +85,80 @@ const quotePythonString = (value) => {
   );
 };
 
+const escapeAppleScriptString = (value) =>
+  String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
+const runAppleScript = (lines) => {
+  const args = [];
+  for (const line of lines) {
+    args.push("-e", line);
+  }
+  exec("osascript", args);
+};
+
+const configureDsStoreViaDmgbuild = ({
+  absAppPath,
+  volumePath,
+  iconSize,
+  iconTextSize,
+  backgroundFile,
+  windowX,
+  windowY,
+  windowWidth,
+  windowHeight,
+  appIconX,
+  appIconY,
+  applicationsIconX,
+  applicationsIconY,
+}) => {
+  const python = resolvePython();
+  const dmgVendorDir = path.resolve("node_modules", "dmg-builder", "vendor");
+  const dmgbuildCore = path.join(dmgVendorDir, "dmgbuild", "core.py");
+
+  const iconLocations = [
+    `${quotePythonString(path.basename(absAppPath))}: (${appIconX}, ${appIconY})`,
+    `${quotePythonString("Applications")}: (${applicationsIconX}, ${applicationsIconY})`,
+  ].join(",\n");
+
+  const env = {
+    ...process.env,
+    PYTHONIOENCODING: "utf8",
+    volumePath,
+    iconSize: String(iconSize),
+    iconTextSize: String(iconTextSize),
+    backgroundFile: String(backgroundFile),
+    windowX: String(windowX),
+    windowY: String(windowY),
+    windowWidth: String(windowWidth),
+    windowHeight: String(windowHeight),
+    iconLocations,
+  };
+
+  exec(python, [dmgbuildCore], {
+    env,
+    cwd: dmgVendorDir,
+  });
+
+  // Finder on recent macOS releases prefers the BKGD/pict records for DMG backgrounds.
+  // dmgbuild writes the icvp/pBBk style; add the newer records to increase compatibility.
+  const injectScript = [
+    "import os, sys",
+    `sys.path.append(${quotePythonString(path.join(dmgVendorDir))})`,
+    "from ds_store import DSStore",
+    "from mac_alias import Alias",
+    "volume=os.environ['volumePath']",
+    "bg=os.environ['backgroundFile']",
+    "ds=os.path.join(volume, '.DS_Store')",
+    "alias=Alias.for_file(bg).to_bytes()",
+    "with DSStore.open(ds, 'r+') as d:",
+    "  d['.']['BKGD'] = ('blob', b'PctB\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00')",
+    "  d['.']['pict'] = ('blob', alias)",
+    "  d['.']['ICVO'] = ('bool', True)",
+  ].join("\n");
+
+  exec(python, ["-c", injectScript], { env });
+};
+
 const main = () => {
   requireMacOs();
 
@@ -114,9 +188,9 @@ const main = () => {
   const windowY = Number.parseInt(readOption("--windowY", "510"), 10);
 
   const appIconX = Number.parseInt(readOption("--appIconX", "180"), 10);
-  const appIconY = Number.parseInt(readOption("--appIconY", "160"), 10);
+  const appIconY = Number.parseInt(readOption("--appIconY", "300"), 10);
   const applicationsIconX = Number.parseInt(readOption("--applicationsIconX", "460"), 10);
-  const applicationsIconY = Number.parseInt(readOption("--applicationsIconY", "160"), 10);
+  const applicationsIconY = Number.parseInt(readOption("--applicationsIconY", "300"), 10);
   const extraMb = Number.parseInt(readOption("--extraMb", "160"), 10);
 
   const dryRun = hasFlag("--dry-run");
@@ -148,6 +222,8 @@ const main = () => {
       srcFolder,
       "-volname",
       volumeName,
+      "-layout",
+      "SPUD",
       "-anyowners",
       "-nospotlight",
       "-format",
@@ -193,46 +269,88 @@ const main = () => {
         exec("ln", ["-s", "/Applications", applicationsLink]);
       }
 
-      // Background (Retina TIFF)
+      // Background image
       const backgroundDir = path.join(volumePath, ".background");
       ensureDir(backgroundDir);
-      const backgroundTiff = path.join(backgroundDir, "1.tiff");
-      safeUnlink(backgroundTiff);
-      exec("tiffutil", [
-        "-cathidpicheck",
-        path.resolve(background1x),
-        path.resolve(background2x),
-        "-out",
-        backgroundTiff,
-      ]);
+      const backgroundPng = path.join(backgroundDir, "background.png");
+      fs.copyFileSync(path.resolve(background1x), backgroundPng);
+      // Optional: keep a 2x asset for future tweaks/inspection (Finder does not auto-pick it).
+      const backgroundPng2x = path.join(backgroundDir, "background@2x.png");
+      try {
+        fs.copyFileSync(path.resolve(background2x), backgroundPng2x);
+      } catch {}
 
-      // Finder layout (.DS_Store)
-      const python = resolvePython();
-      const iconLocations = [
-        `${quotePythonString(path.basename(absAppPath))}: (${appIconX}, ${appIconY})`,
-        `${quotePythonString("Applications")}: (${applicationsIconX}, ${applicationsIconY})`,
-      ].join(",\n");
+      const diskName = escapeAppleScriptString(path.basename(volumePath));
+      const appName = escapeAppleScriptString(path.basename(absAppPath));
+      const right = windowX + windowWidth;
+      const bottom = windowY + windowHeight;
 
-      const env = {
-        ...process.env,
-        PYTHONIOENCODING: "utf8",
-        volumePath,
-        iconSize: String(iconSize),
-        iconTextSize: String(iconTextSize),
-        backgroundFile: backgroundTiff,
-        windowX: String(windowX),
-        windowY: String(windowY),
-        windowWidth: String(windowWidth),
-        windowHeight: String(windowHeight),
-        iconLocations,
-      };
+      const allowPlain = hasFlag("--allow-plain");
+      const disableFinder = hasFlag("--no-finder") || process.env.TEX64_DMG_NO_FINDER === "1";
 
-      const dmgVendorDir = path.resolve("node_modules", "dmg-builder", "vendor");
-      const dmgbuildCore = path.join(dmgVendorDir, "dmgbuild", "core.py");
-      exec(python, [dmgbuildCore], {
-        env,
-        cwd: dmgVendorDir,
-      });
+      let finderOk = false;
+      if (!disableFinder) {
+        try {
+          // Configure Finder to write the .DS_Store itself.
+          // This is the most reliable way to get background artwork + icon placement to render in Finder.
+          runAppleScript([
+            'tell application "Finder"',
+            `tell disk "${diskName}"`,
+            "open",
+            "delay 1",
+            "set theWindow to container window",
+            "set current view of theWindow to icon view",
+            "set toolbar visible of theWindow to false",
+            "set statusbar visible of theWindow to false",
+            `set the bounds of theWindow to {${windowX}, ${windowY}, ${right}, ${bottom}}`,
+            "delay 0.5",
+            "set theViewOptions to the icon view options of theWindow",
+            "set arrangement of theViewOptions to not arranged",
+            `set icon size of theViewOptions to ${iconSize}`,
+            `set text size of theViewOptions to ${iconTextSize}`,
+            'set background picture of theViewOptions to file ".background:background.png"',
+            `set position of item "${appName}" of theWindow to {${appIconX}, ${appIconY}}`,
+            `set position of item "Applications" of theWindow to {${applicationsIconX}, ${applicationsIconY}}`,
+            "delay 1",
+            "update without registering applications",
+            "delay 1",
+            "close theWindow",
+            "delay 2",
+            "end tell",
+            "end tell",
+          ]);
+          finderOk = true;
+        } catch (error) {
+          console.warn("WARN: Finder layout automation failed; falling back to dmgbuild .DS_Store.");
+          if (!allowPlain) {
+            console.warn(
+              "WARN: If this is your machine, allow Terminal to control Finder: System Settings → Privacy & Security → Automation."
+            );
+          }
+        }
+      }
+
+      if (!finderOk) {
+        if (allowPlain) {
+          console.warn("WARN: DMG will be created without a customized Finder layout (--allow-plain).");
+        } else {
+          configureDsStoreViaDmgbuild({
+            absAppPath,
+            volumePath,
+            iconSize,
+            iconTextSize,
+            backgroundFile: backgroundPng,
+            windowX,
+            windowY,
+            windowWidth,
+            windowHeight,
+            appIconX,
+            appIconY,
+            applicationsIconX,
+            applicationsIconY,
+          });
+        }
+      }
     }
   } finally {
     if (!dryRun && device) {
@@ -282,4 +400,3 @@ const main = () => {
 };
 
 main();
-

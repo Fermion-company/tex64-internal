@@ -96,11 +96,11 @@
       "contents": [
         {
           "x": 180,
-          "y": 160
+          "y": 300
         },
         {
           "x": 460,
-          "y": 160,
+          "y": 300,
           "type": "link",
           "path": "/Applications",
           "name": "Applications"
