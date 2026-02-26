@@ -143,6 +143,28 @@ jobs:
             npx --no-install electron-builder --mac --x64 --publish never
           fi
 
+      - name: Rebuild DMG (HFS+ background)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          appPath="dist/mac-${{ matrix.arch }}/TeX64.app"
+          if [ ! -d "$appPath" ]; then
+            appPath="dist/mac/TeX64.app"
+          fi
+          if [ ! -d "$appPath" ]; then
+            echo "::error::TeX64.app not found under dist/"
+            find dist -maxdepth 3 -name 'TeX64.app' -type d -print || true
+            exit 1
+          fi
+
+          out="dist/TeX64-${version}-mac-${{ matrix.arch }}.dmg"
+          node scripts/build-macos-dmg.cjs \
+            --app "$appPath" \
+            --out "$out" \
+            --volumeName "TeX64 ${version}"
+
       - name: Cleanup signing files
         if: always()
         shell: bash

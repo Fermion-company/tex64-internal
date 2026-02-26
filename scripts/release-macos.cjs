@@ -254,7 +254,7 @@ function buildUnpackedApp(arch) {
   execInherit("npx", builderArgs, { env: builderEnv });
 }
 
-function buildArtifactsFromApp(appPath, arch) {
+function buildArtifactsFromApp(appPath, arch, productName, version) {
   const builderEnv = {
     ...process.env,
     CSC_IDENTITY_AUTO_DISCOVERY: "false",
@@ -262,15 +262,24 @@ function buildArtifactsFromApp(appPath, arch) {
 
   const archFlag = resolveArchFlag(arch);
 
-  const dmgArgs = ["--no-install", "electron-builder", "--mac", "dmg"];
-  if (archFlag) dmgArgs.push(archFlag);
-  dmgArgs.push("--publish", "never", "--prepackaged", appPath);
-  execInherit("npx", dmgArgs, { env: builderEnv });
-
   const zipArgs = ["--no-install", "electron-builder", "--mac", "zip"];
   if (archFlag) zipArgs.push(archFlag);
   zipArgs.push("--publish", "never", "--prepackaged", appPath);
   execInherit("npx", zipArgs, { env: builderEnv });
+
+  // Electron-builder creates an APFS DMG on Apple Silicon by default, which does not
+  // reliably render background artwork in Finder on recent macOS releases.
+  // Build a HFS+ DMG stage and apply layout via dmgbuild for a consistent installer UI.
+  const outDmg = path.join(path.resolve("dist"), `${productName}-${version}-mac-${arch}.dmg`);
+  execInherit("node", [
+    "scripts/build-macos-dmg.cjs",
+    "--app",
+    appPath,
+    "--out",
+    outDmg,
+    "--volumeName",
+    `${productName} ${version}`,
+  ]);
 }
 
 function ensureEmptyDir(dirPath) {
@@ -367,7 +376,7 @@ function main() {
 
     verifyGatekeeper(appPath);
 
-    buildArtifactsFromApp(appPath, builtArch);
+    buildArtifactsFromApp(appPath, builtArch, productName, version);
 
     const baseName = `${productName}-${version}-mac-${builtArch}`;
     const dmgPath = path.join(distDir, `${baseName}.dmg`);

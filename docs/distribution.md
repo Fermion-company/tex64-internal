@@ -22,7 +22,10 @@ TeX64 の DMG は、Finder の背景を `assets/dmg/background.png`（+ `assets/
 - ソース: `assets/dmg/background.html`
 - 再生成: `npm run -s dmg:background`
 
-また、`/Applications` へのショートカットは electron-builder の `type: "link"` で作成します（CI でも安定）。
+また、`/Applications` へのショートカットは DMG 生成時に作成します。
+
+補足: Electron-builder は Apple Silicon で **APFS DMG** を作ることがあり、最近の macOS で Finder の背景が表示されないケースがあります。
+そのため `npm run -s release:mac`（署名/Notarization 含む）では、`scripts/build-macos-dmg.cjs` で **HFS+ DMG** を生成して背景/UIを安定させています。
 
 ```bash
 npm run electron:pack
