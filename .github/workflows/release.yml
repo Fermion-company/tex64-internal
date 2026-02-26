@@ -294,7 +294,7 @@ jobs:
               "update/stable.json" \
               "s3://${bucket}/${updatePrefix}/stable.json" \
               --cache-control "public,max-age=60"
-          fi
+              fi
 
       - name: Publish release assets
         if: startsWith(github.ref, 'refs/tags/v')
