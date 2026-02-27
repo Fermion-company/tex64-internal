@@ -34,6 +34,23 @@ const writeFileIfMissing = async (filePath, content, encoding = "utf8") => {
 
 const resolvePath = (...parts) => path.resolve(projectRoot, ...parts);
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+const isPngFile = async (filePath) => {
+  try {
+    const handle = await fsp.open(filePath, "r");
+    try {
+      const buffer = Buffer.alloc(PNG_MAGIC.length);
+      await handle.read(buffer, 0, buffer.length, 0);
+      return buffer.equals(PNG_MAGIC);
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+};
+
 const ENTITLEMENTS_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -97,8 +114,8 @@ const ensureMacIcons = async () => {
   await ensureDir(iconDir);
 
   const pngPath = resolvePath("Resources", "icons", "tex64.png");
-  if (!(await fileExists(pngPath))) {
-    execInherit("sips", ["-Z", "1024", sourceJpg, "--out", pngPath]);
+  if (!(await fileExists(pngPath)) || !(await isPngFile(pngPath))) {
+    execInherit("sips", ["-s", "format", "png", "-Z", "1024", sourceJpg, "--out", pngPath]);
   }
 
   const iconsetDir = resolvePath("Resources", "icons", "tex64.iconset");
@@ -124,10 +141,20 @@ const ensureMacIcons = async () => {
 
   for (const { name, size } of sizes) {
     const outPath = path.join(iconsetDir, name);
-    if (await fileExists(outPath)) {
+    if ((await fileExists(outPath)) && (await isPngFile(outPath))) {
       continue;
     }
-    execInherit("sips", ["-z", String(size), String(size), sourceJpg, "--out", outPath]);
+    execInherit("sips", [
+      "-s",
+      "format",
+      "png",
+      "-z",
+      String(size),
+      String(size),
+      sourceJpg,
+      "--out",
+      outPath,
+    ]);
   }
 
   execInherit("iconutil", ["--convert", "icns", "--output", icnsPath, iconsetDir]);
