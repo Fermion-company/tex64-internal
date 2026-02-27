@@ -592,9 +592,6 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   };
   service.proposals.set(id, proposal);
   service.sendToRenderer("agent:proposal", { proposal });
-  if (service.agentOptions.autoApply) {
-    await service.applyProposal(id);
-  }
   return { status: "proposed", proposalId: id };
 };
 
@@ -750,12 +747,6 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       path: prepared.path,
       appliedCount: prepared.appliedCount,
     });
-  }
-
-  if (service.agentOptions.autoApply) {
-    for (const entry of proposals) {
-      await service.applyProposal(entry.proposalId);
-    }
   }
 
   return {
@@ -923,9 +914,6 @@ const handleProposeCreateDirectory = async (service, args, policy, conversationI
   };
   service.proposals.set(id, proposal);
   service.sendToRenderer("agent:proposal", { proposal });
-  if (service.agentOptions.autoApply) {
-    await service.applyProposal(id);
-  }
   return { status: "proposed", proposalId: id };
 };
 

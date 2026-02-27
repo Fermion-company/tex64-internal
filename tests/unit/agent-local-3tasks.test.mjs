@@ -188,6 +188,144 @@ test("agent completes local search → patch proposal → apply → build flow",
   }
 });
 
+test("agent never auto-applies proposals (explicit user apply required)", async () => {
+  const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-agent-autoapply-"));
+  const mainFile = path.join(rootPath, "main.tex");
+
+  const original = [
+    "\\documentclass{article}",
+    "\\title{Old Title}",
+    "\\begin{document}",
+    "\\maketitle",
+    "Hello",
+    "\\end{document}",
+    "",
+  ].join("\n");
+
+  await fsp.writeFile(mainFile, original, "utf8");
+
+  try {
+    const rendererEvents = [];
+    const auditEvents = [];
+
+    const workspace = {
+      getRootPath: () => rootPath,
+      resolvePath: (relativePath) => path.join(rootPath, relativePath),
+      writeFile: async (relativePath, content) => {
+        await fsp.writeFile(path.join(rootPath, relativePath), content, "utf8");
+      },
+      listFiles: async () => ["main.tex"],
+      rootInfo: async () => ({ path: "main.tex" }),
+      resolveTexRootFromMagic: async (relativePath) => relativePath,
+      loadSettings: async () => ({ buildProfileId: "", buildProfiles: [] }),
+    };
+
+    const ensureUserSettings = () => ({
+      getAgentSettings: async () => ({
+        stream: false,
+        autoApply: true,
+        autoBuild: false,
+        allowRunCommand: false,
+        maxIterations: 10,
+      }),
+      updateAgentSettings: async () => ({}),
+    });
+
+    let modelCalls = 0;
+    const requestAiChat = async () => {
+      modelCalls += 1;
+
+      if (modelCalls === 1) {
+        return {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  {
+                    functionCall: {
+                      name: "propose_patch",
+                      args: {
+                        path: "main.tex",
+                        search: "Old Title",
+                        replace: "New Title",
+                        summary: "Update title",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+
+      return {
+        candidates: [
+          {
+            content: {
+              role: "model",
+              parts: [{ text: "提案を作成しました。差分を確認して適用してください。" }],
+            },
+          },
+        ],
+      };
+    };
+
+    const service = new AgentService({
+      workspace,
+      searchService: null,
+      ensureUserSettings,
+      sendToRenderer: (type, payload) => {
+        rendererEvents.push({ type, payload });
+      },
+      updateWorkspaceIfNeeded: async () => {},
+      requestIndex: () => {},
+      buildService: null,
+      sendBuildState: () => {},
+      sendBuildLog: () => {},
+      sendIssues: () => {},
+      indexerService: null,
+      apiUsageService: null,
+      auditService: { append: async (event) => auditEvents.push(event) },
+      sessionsService: null,
+      requestAiChat,
+    });
+
+    const context = {
+      activeFilePath: "main.tex",
+      activeFileContent: original,
+      activeFileIsDirty: false,
+      activeFileContentLength: original.length,
+    };
+
+    await service.run({
+      message: "main.tex のタイトルを New Title に変えて。",
+      context,
+      conversationId: "auto-apply",
+    });
+
+    const contentAfterRun = await fsp.readFile(mainFile, "utf8");
+    assert.equal(contentAfterRun, original);
+
+    const proposals = Array.from(service.proposals.values());
+    assert.equal(proposals.length, 1);
+    assert.equal(proposals[0].type, "patch");
+
+    const toolEventNames = rendererEvents
+      .filter((event) => event.type === "agent:tool")
+      .map((event) => event.payload?.name)
+      .filter(Boolean);
+    assert.ok(toolEventNames.includes("propose_patch"));
+
+    const auditTypes = auditEvents.map((event) => event.eventType).filter(Boolean);
+    assert.ok(auditTypes.includes("run_start"));
+    assert.ok(auditTypes.includes("tool_call"));
+  } finally {
+    await fsp.rm(rootPath, { recursive: true, force: true });
+  }
+});
+
 test("agent completes build → fix proposal → apply → rebuild flow", async () => {
   const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-agent-buildfix-"));
   const mainFile = path.join(rootPath, "main.tex");
@@ -488,4 +626,3 @@ test("agent completes style sweep proposal across multiple files", async () => {
     await fsp.rm(rootPath, { recursive: true, force: true });
   }
 });
-

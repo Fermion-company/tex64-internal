@@ -527,7 +527,7 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
     "- 変更は重要度で判断し、重大な不整合・ビルド失敗・論旨破綻に直結しない軽微な気になる点は無理に直さない",
     "- 闇雲に変更せず、ユーザーとの対話・明示指示・現在の文脈から必要性を見極めてツール呼び出しと変更提案を行う",
     "- 検証が必要なタスクでは run_build を使って確認する（ユーザー依頼がある場合は必ず実行）",
-    "- 変更は全て propose_* で提案する（適用はユーザー承認、または autoApply 有効時に自動）",
+    "- 変更は全て propose_* で提案する（適用は必ずユーザー承認）",
     "- 1回の応答で、関連するまとまった変更（複数ファイル/複数箇所）を提案してよい",
     "- 変更前に必ず read_file / read_files で現状を確認する（アクティブファイルのスナップショットが提供されている場合はそれを利用してよい）",
     "- 必要ならツール呼び出しを複数回繰り返してよい（1回で終える必要はない）",
@@ -1294,7 +1294,7 @@ class AgentService {
         { min: 1, max: 30 }
       ),
       stream: settings?.stream !== false,
-      autoApply: settings?.autoApply === true,
+      autoApply: false,
       autoBuild: settings?.autoBuild === true,
       allowRunCommand: settings?.allowRunCommand === true,
     };
@@ -2450,12 +2450,6 @@ class AgentService {
             path: prepared.path,
             appliedCount: prepared.appliedCount,
           });
-        }
-
-        if (this.agentOptions.autoApply) {
-          for (const entry of proposals) {
-            await this.applyProposal(entry.proposalId);
-          }
         }
 
         return {
