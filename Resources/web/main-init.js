@@ -40,6 +40,7 @@ import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
+import { initI18n } from "./app/i18n.js";
 const MAX_ERROR_REPORT_MESSAGE = 2000;
 const ERROR_REPORT_DEDUPE_WINDOW_MS = 30000;
 const ERROR_REPORTING_ENABLED_KEY = "tex64.errorReporting.enabled.v1";
@@ -201,6 +202,7 @@ const initGlobalErrorReporting = (postToNative, isEnabled = () => true) => {
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
         var _a;
+        initI18n();
         requestAnimationFrame(() => {
             document.body.classList.add("is-ready");
         });
@@ -429,6 +431,7 @@ export const initMain = () => {
                 editorSession.recordCursorPosition(activeGroup.currentFilePath, position);
             }
             blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.handleCursorPositionChange(position);
+            aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshContextBar();
         };
         let lastBuildMainFile = null;
         let blockPreviewActive = false;
@@ -519,6 +522,15 @@ export const initMain = () => {
             postToNative: (payload, silent) => postToNative(payload, silent),
             getActiveFilePath: () => editorSession.getActiveFilePath(),
             getActiveFileSnapshot: () => editorSession.getActiveFileSnapshot(),
+            getActiveCursorPosition: () => {
+                const path = editorSession.getActiveFilePath();
+                if (!path)
+                    return null;
+                const stored = editorSession.getStoredCursorPosition(path);
+                if (!stored)
+                    return null;
+                return { lineNumber: stored.line, column: stored.column };
+            },
             getActiveSelectionSnapshot: () => editorSession.getActiveSelectionSnapshot(),
             getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
             getRecentIssuesSnapshot: () => lastIssueSnapshot,

@@ -42,6 +42,7 @@ import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
+import { initI18n } from "./app/i18n.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -239,12 +240,13 @@ const initGlobalErrorReporting = (
 
 export const initMain = () => {
   window.addEventListener("DOMContentLoaded", () => {
-  requestAnimationFrame(() => {
-    document.body.classList.add("is-ready");
-  });
+    initI18n();
+    requestAnimationFrame(() => {
+      document.body.classList.add("is-ready");
+    });
 
-  const dom = getDomRefs();
-  const {
+    const dom = getDomRefs();
+    const {
     tabs,
     settingsTab,
     editorHost,
@@ -527,6 +529,7 @@ export const initMain = () => {
       editorSession.recordCursorPosition(activeGroup.currentFilePath, position);
     }
     blockEditSession?.handleCursorPositionChange(position);
+    aiChatUi?.refreshContextBar();
   };
 
   let lastBuildMainFile: string | null = null;
@@ -624,6 +627,13 @@ export const initMain = () => {
     postToNative: (payload, silent) => postToNative(payload, silent),
     getActiveFilePath: () => editorSession.getActiveFilePath(),
     getActiveFileSnapshot: () => editorSession.getActiveFileSnapshot(),
+    getActiveCursorPosition: () => {
+      const path = editorSession.getActiveFilePath();
+      if (!path) return null;
+      const stored = editorSession.getStoredCursorPosition(path);
+      if (!stored) return null;
+      return { lineNumber: stored.line, column: stored.column };
+    },
     getActiveSelectionSnapshot: () => editorSession.getActiveSelectionSnapshot(),
     getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
     getRecentIssuesSnapshot: () => lastIssueSnapshot,

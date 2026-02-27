@@ -3,9 +3,10 @@ import { clampNumber, loadGhostCompletionConfig, saveGhostCompletionConfig, } fr
 import { createEnvStatusManager, } from "./settings-env.js";
 import { initBuildProfilesUi } from "./settings-build-profiles.js";
 import { TEX64_LINKS } from "./platform-links.js";
+import { getUiLocale, normalizeUiLocale, onUiLocaleChange, setUiLocale, } from "./i18n.js";
 export const initSettingsUi = (context, deps) => {
     var _a, _b;
-    const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons, settingsCompileEngineSelect, settingsEnvRefresh, editorAlignEnvToggle, editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, editorWordWrapToggle, editorAutoSynctexBuildToggle, editorReverseSynctexToggle, editorGhostCompletionToggle, editorGhostCompletionDebounce, editorGhostCompletionMaxChars, editorPdfWindowToggle, settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, settingsAuthStatus, settingsAuthLogin, settingsAuthLogout, settingsRuntimeAttention, settingsAccountAttention, settingsRuntimeInstallStatus, settingsRuntimeSetupStatus, settingsRuntimeOnboardingStatus, settingsRuntimeRunFirstBuild, settingsRuntimeOpenGettingStarted, settingsRuntimeOpenInstallDocs, settingsRuntimeOpenTexDocs, settingsFeedbackCategory, settingsFeedbackMessage, settingsFeedbackEmail, settingsFeedbackIncludeDiagnostics, settingsFeedbackSend, settingsFeedbackStatus, settingsErrorReportingEnabled, settingsLinkTerms, settingsLinkPrivacy, settingsLinkCommercial, settingsLinkRefund, settingsLinkSupport, settingsLinkContact, settingsLinkReleases, } = context.dom;
+    const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons, settingsCompileEngineSelect, settingsEnvRefresh, editorAlignEnvToggle, editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, editorWordWrapToggle, settingsUiLanguageSelect, editorAutoSynctexBuildToggle, editorReverseSynctexToggle, editorGhostCompletionToggle, editorGhostCompletionDebounce, editorGhostCompletionMaxChars, editorPdfWindowToggle, settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, settingsAuthStatus, settingsAuthLogin, settingsAuthLogout, settingsRuntimeAttention, settingsAccountAttention, settingsRuntimeInstallStatus, settingsRuntimeSetupStatus, settingsRuntimeOnboardingStatus, settingsRuntimeRunFirstBuild, settingsRuntimeOpenGettingStarted, settingsRuntimeOpenInstallDocs, settingsRuntimeOpenTexDocs, settingsFeedbackCategory, settingsFeedbackMessage, settingsFeedbackEmail, settingsFeedbackIncludeDiagnostics, settingsFeedbackSend, settingsFeedbackStatus, settingsErrorReportingEnabled, settingsLinkTerms, settingsLinkPrivacy, settingsLinkCommercial, settingsLinkRefund, settingsLinkSupport, settingsLinkContact, settingsLinkReleases, } = context.dom;
     let activeSettingsPage = null;
     let editorAlignEnvEnabled = true;
     let editorWordWrapEnabled = false;
@@ -36,6 +37,20 @@ export const initSettingsUi = (context, deps) => {
     const editorAutoSynctexOnBuildKey = "tex64.editor.autoSynctexOnBuild";
     const editorReverseSynctexKey = "tex64.editor.reverseSynctex";
     const editorGhostCompletionKey = "tex64.editor.ghostCompletion";
+    const syncUiLocaleSelect = () => {
+        if (settingsUiLanguageSelect instanceof HTMLSelectElement) {
+            settingsUiLanguageSelect.value = getUiLocale();
+        }
+    };
+    syncUiLocaleSelect();
+    onUiLocaleChange(() => syncUiLocaleSelect());
+    if (settingsUiLanguageSelect instanceof HTMLSelectElement) {
+        settingsUiLanguageSelect.addEventListener("change", () => {
+            var _a;
+            const next = (_a = normalizeUiLocale(settingsUiLanguageSelect.value)) !== null && _a !== void 0 ? _a : "ja";
+            setUiLocale(next);
+        });
+    }
     const editorGhostCompletionDebounceKey = "tex64.editor.ghostCompletion.debounceMs";
     const editorGhostCompletionMaxCharsKey = "tex64.editor.ghostCompletion.maxChars";
     const editorAutoSynctexOnPdfOpenKey = "tex64.editor.autoSynctexOnPdfOpen";

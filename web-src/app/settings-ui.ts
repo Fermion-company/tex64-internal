@@ -26,6 +26,12 @@ import {
 } from "./settings-env.js";
 import { initBuildProfilesUi } from "./settings-build-profiles.js";
 import { TEX64_LINKS } from "./platform-links.js";
+import {
+  getUiLocale,
+  normalizeUiLocale,
+  onUiLocaleChange,
+  setUiLocale,
+} from "./i18n.js";
 
 type SettingsUiDeps = {
   envRegistry: EnvRegistryApi;
@@ -125,6 +131,7 @@ export const initSettingsUi = (
     editorFormatVerbatimHint,
     editorFormatVerbatimList,
     editorWordWrapToggle,
+    settingsUiLanguageSelect,
     editorAutoSynctexBuildToggle,
     editorReverseSynctexToggle,
     editorGhostCompletionToggle,
@@ -198,6 +205,22 @@ export const initSettingsUi = (
   const editorAutoSynctexOnBuildKey = "tex64.editor.autoSynctexOnBuild";
   const editorReverseSynctexKey = "tex64.editor.reverseSynctex";
   const editorGhostCompletionKey = "tex64.editor.ghostCompletion";
+  const syncUiLocaleSelect = () => {
+    if (settingsUiLanguageSelect instanceof HTMLSelectElement) {
+      settingsUiLanguageSelect.value = getUiLocale();
+    }
+  };
+
+  syncUiLocaleSelect();
+  onUiLocaleChange(() => syncUiLocaleSelect());
+
+  if (settingsUiLanguageSelect instanceof HTMLSelectElement) {
+    settingsUiLanguageSelect.addEventListener("change", () => {
+      const next = normalizeUiLocale(settingsUiLanguageSelect.value) ?? "ja";
+      setUiLocale(next);
+    });
+  }
+
   const editorGhostCompletionDebounceKey = "tex64.editor.ghostCompletion.debounceMs";
   const editorGhostCompletionMaxCharsKey = "tex64.editor.ghostCompletion.maxChars";
   const editorAutoSynctexOnPdfOpenKey = "tex64.editor.autoSynctexOnPdfOpen";
