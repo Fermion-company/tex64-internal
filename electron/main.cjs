@@ -29,6 +29,7 @@ const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
 const { ApiUsageService } = require("./services/api-usage.cjs");
 const { PlatformAccessService } = require("./services/platform-access.cjs");
+const { createMainErrorReporter } = require("./services/main-error-reporter.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 
@@ -309,107 +310,26 @@ const agentHandlers = createAgentHandlers({
   platformService: getPlatformAccessService(),
 });
 
-const MAIN_ERROR_DEDUP_WINDOW_MS = 30_000;
-const MAIN_ERROR_DEDUP_LIMIT = 200;
-const mainErrorFingerprintMap = new Map();
 let errorReportingEnabled = true;
-
-const clampMainErrorText = (value, maxLength = 4000) => {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-  return trimmed.slice(0, maxLength);
-};
-
-const toMainErrorMessage = (value) => {
-  if (value instanceof Error) {
-    const message = clampMainErrorText(value.message);
-    if (message) {
-      return message;
-    }
-  }
-  if (typeof value === "string") {
-    return clampMainErrorText(value);
-  }
-  if (value == null) {
-    return "Unknown error";
-  }
-  try {
-    return clampMainErrorText(JSON.stringify(value));
-  } catch {
-    return clampMainErrorText(String(value));
-  }
-};
-
-const toMainErrorStack = (value) => {
-  if (value instanceof Error) {
-    const stack = clampMainErrorText(value.stack, 16000);
-    if (stack) {
-      return stack;
-    }
-  }
-  return null;
-};
-
-const shouldReportMainError = (fingerprint) => {
-  const now = Date.now();
-  for (const [key, at] of mainErrorFingerprintMap) {
-    if (!Number.isFinite(at) || now - at > MAIN_ERROR_DEDUP_WINDOW_MS) {
-      mainErrorFingerprintMap.delete(key);
-    }
-  }
-  if (!fingerprint) {
-    return true;
-  }
-  const seenAt = mainErrorFingerprintMap.get(fingerprint);
-  if (Number.isFinite(seenAt) && now - seenAt <= MAIN_ERROR_DEDUP_WINDOW_MS) {
-    return false;
-  }
-  mainErrorFingerprintMap.set(fingerprint, now);
-  if (mainErrorFingerprintMap.size > MAIN_ERROR_DEDUP_LIMIT) {
-    const first = mainErrorFingerprintMap.keys().next();
-    if (first && !first.done) {
-      mainErrorFingerprintMap.delete(first.value);
-    }
-  }
-  return true;
-};
-
-const reportMainProcessError = (kind, value, diagnostics = {}) => {
-  if (!errorReportingEnabled) {
-    return;
-  }
-  const message = toMainErrorMessage(value);
-  if (!message) {
-    return;
-  }
-  const stack = toMainErrorStack(value);
-  const fingerprint = `${kind}::${message}::${stack || ""}`;
-  if (!shouldReportMainError(fingerprint)) {
-    return;
-  }
-  Promise.resolve(
+const mainErrorReporter = createMainErrorReporter({
+  isEnabled: () => errorReportingEnabled,
+  sendReport: (report) =>
     miscHandlers.handleErrorReportSend({
       report: {
-        kind,
-        source: "app-main",
-        message,
-        stack: stack || undefined,
+        ...report,
         diagnostics: {
           processPlatform: process.platform,
           processArch: process.arch,
-          ...diagnostics,
+          ...(report?.diagnostics && typeof report.diagnostics === "object"
+            ? report.diagnostics
+            : {}),
         },
       },
-    })
-  ).catch(() => {});
+    }),
+});
+
+const reportMainProcessError = (kind, value, diagnostics = {}) => {
+  mainErrorReporter.report(kind, value, diagnostics);
 };
 
 process.on("uncaughtExceptionMonitor", (error, origin) => {
@@ -992,8 +912,8 @@ ipcMain.on("tex64", (_event, message) => {
     agentHandlers.handleAgentProposalDismiss(message.proposalId);
     return;
   }
-  if (type === "agent:undoLastApply") {
-    agentHandlers.handleAgentUndoLastApply(message.conversationId);
+  if (type === "agent:undoLastRunApply") {
+    agentHandlers.handleAgentUndoLastRunApply(message.conversationId);
     return;
   }
   if (type === "agent:clear") {

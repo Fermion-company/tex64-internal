@@ -4,7 +4,6 @@ import type { AgentProposal } from "./types.js";
 
 export type ProposalCardDeps = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
-  continueAfterApply: Set<string>;
   dismissProposal: (proposalId: string) => void;
   setPendingProposalId: (value: string | null) => void;
   showDiffModal?: (
@@ -99,23 +98,6 @@ export const createProposalCard = (proposal: AgentProposal, deps: ProposalCardDe
       : "適用";
   applyButton.addEventListener("click", (event) => {
     event.stopPropagation();
-    deps.postToNative({ type: "agent:apply", proposalId: proposal.id });
-  });
-
-  const applyNextButton = document.createElement("button");
-  applyNextButton.type = "button";
-  applyNextButton.className = "panel-button ghost";
-  applyNextButton.textContent =
-    proposalType === "delete"
-      ? "削除して次へ"
-      : proposalType === "mkdir"
-      ? "作成して次へ"
-      : proposalType === "rename"
-      ? "移動して次へ"
-      : "適用して次へ";
-  applyNextButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    deps.continueAfterApply.add(proposal.id);
     deps.postToNative({ type: "agent:apply", proposalId: proposal.id });
   });
 
@@ -251,7 +233,7 @@ export const createProposalCard = (proposal: AgentProposal, deps: ProposalCardDe
     }
   });
 
-  actions.append(previewButton, cancelButton, applyButton, applyNextButton);
+  actions.append(previewButton, cancelButton, applyButton);
   card.append(header, summary, actions, diffContainer);
   return card;
 };

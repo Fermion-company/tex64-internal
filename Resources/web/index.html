@@ -454,6 +454,12 @@
                   <button class="ai-btn-icon ai-btn-stop" id="ai-stop" type="button" disabled aria-label="停止">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                   </button>
+                  <button class="ai-btn-icon ai-btn-undo" id="ai-undo" type="button" aria-label="取り消し">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M9 14l-4-4 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M5 10h9a6 6 0 1 1 0 12h-4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
                   <button class="ai-btn-icon ai-btn-send" id="ai-send" type="button" aria-label="送信">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
                   </button>
@@ -642,7 +648,7 @@
                       </div>
                     </div>
                   </div>
-                  <div class="settings-group">
+                  <div class="settings-group is-hidden" data-temp-hidden-ghost-completion>
                     <div class="settings-group-title">ゴースト補完</div>
                     <div class="settings-item">
                       <div class="settings-label">

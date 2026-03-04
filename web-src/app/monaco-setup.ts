@@ -10,6 +10,8 @@ import { createInlineCompletionController } from "./monaco-inline.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
 
+const GHOST_COMPLETION_TEMP_DISABLED = true;
+
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
   | { ok: false; error?: string };
@@ -66,9 +68,11 @@ export const initMonacoSetup = (
 
   const completionState = { registered: false };
   const hoverState: HoverState = { registered: false };
+  const isGhostCompletionEnabled = () =>
+    !GHOST_COMPLETION_TEMP_DISABLED && deps.getGhostCompletionEnabled();
   const inlineController = createInlineCompletionController({
     editorSession: deps.editorSession,
-    getGhostCompletionEnabled: deps.getGhostCompletionEnabled,
+    getGhostCompletionEnabled: isGhostCompletionEnabled,
     getGhostCompletionConfig: deps.getGhostCompletionConfig,
     requestApiCompletion: deps.requestApiCompletion,
   });
@@ -83,9 +87,10 @@ export const initMonacoSetup = (
   };
 
   const setInlineSuggestEnabled = (enabled: boolean) => {
+    const resolvedEnabled = !GHOST_COMPLETION_TEMP_DISABLED && enabled;
     deps.editorSession.forEachEditorGroup((group) => {
       const editorAny = group.editor as { updateOptions?: (options: unknown) => void } | null;
-      editorAny?.updateOptions?.({ inlineSuggest: { enabled } });
+      editorAny?.updateOptions?.({ inlineSuggest: { enabled: resolvedEnabled } });
     });
   };
 
@@ -223,7 +228,9 @@ export const initMonacoSetup = (
         },
         hoverState
       );
-      inlineController.registerInlineCompletionProvider(monacoWindow.monaco);
+      if (!GHOST_COMPLETION_TEMP_DISABLED) {
+        inlineController.registerInlineCompletionProvider(monacoWindow.monaco);
+      }
       const themeName = applyMonacoTheme(monacoWindow.monaco);
       const editorOptions = {
         value: "",
@@ -257,7 +264,7 @@ export const initMonacoSetup = (
         },
         occurrencesHighlight: false,
         selectionHighlight: false,
-        inlineSuggest: { enabled: deps.getGhostCompletionEnabled() },
+        inlineSuggest: { enabled: isGhostCompletionEnabled() },
       };
 
       const createEditorForGroup = (group: EditorGroupState, host: HTMLElement) => {
@@ -432,7 +439,7 @@ export const initMonacoSetup = (
           delays.forEach((delay) => {
             const timerId = window.setTimeout(() => {
               inlineAutoTriggerTimers = inlineAutoTriggerTimers.filter((id) => id !== timerId);
-              if (!deps.getGhostCompletionEnabled()) {
+              if (!isGhostCompletionEnabled()) {
                 return;
               }
               if (!deps.editorSession.isActiveGroup(group)) {

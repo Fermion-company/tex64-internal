@@ -509,7 +509,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "agent:tool":
         deps.agent?.handleTool(
-          message.payload as { name: string; summary?: string; conversationId?: string }
+          message.payload as { name: string; label?: string; summary?: string; conversationId?: string }
         );
         break;
       case "agent:proposal":

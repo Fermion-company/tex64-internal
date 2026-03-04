@@ -142,7 +142,7 @@ const AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "run_build",
-    description: "Run LaTeX build for verification (no automatic apply).",
+    description: "Run LaTeX build for verification.",
     parameters: {
       type: "object",
       properties: {
@@ -190,6 +190,135 @@ const AGENT_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: "open_terminal_session",
+    description: "Open a persistent shell session bound to the workspace.",
+    parameters: {
+      type: "object",
+      properties: {
+        shell: {
+          type: "string",
+          description: "Optional shell path (default: user's SHELL or /bin/zsh)",
+        },
+        cwd: {
+          type: "string",
+          description: "Optional working directory (relative to workspace root)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "execute_bash_command",
+    description:
+      "Execute any shell command inside a persistent terminal session. Creates a session when sessionId is omitted.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description: "Shell command text to execute",
+        },
+        sessionId: {
+          type: "string",
+          description: "Existing terminal session ID (optional)",
+        },
+        shell: {
+          type: "string",
+          description: "Shell path used only when creating a new session",
+        },
+        cwd: {
+          type: "string",
+          description: "Working directory used only when creating a new session",
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Command timeout in milliseconds",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "send_terminal_input",
+    description: "Send raw input to a running terminal session (for interactive commands).",
+    parameters: {
+      type: "object",
+      properties: {
+        sessionId: {
+          type: "string",
+          description: "Terminal session ID",
+        },
+        chars: {
+          type: "string",
+          description: "Raw characters to send (e.g. newline or Ctrl-C)",
+        },
+      },
+      required: ["sessionId", "chars"],
+    },
+  },
+  {
+    name: "read_terminal_output",
+    description: "Read incremental output from a terminal session.",
+    parameters: {
+      type: "object",
+      properties: {
+        sessionId: {
+          type: "string",
+          description: "Terminal session ID",
+        },
+        since: {
+          type: "number",
+          description: "Offset returned by previous read_terminal_output call",
+        },
+        maxChars: {
+          type: "number",
+          description: "Maximum characters to return",
+        },
+      },
+      required: ["sessionId"],
+    },
+  },
+  {
+    name: "kill_terminal",
+    description: "Terminate a terminal session.",
+    parameters: {
+      type: "object",
+      properties: {
+        sessionId: {
+          type: "string",
+          description: "Terminal session ID",
+        },
+        signal: {
+          type: "string",
+          description: "Optional process signal (default: SIGTERM)",
+        },
+      },
+      required: ["sessionId"],
+    },
+  },
+  {
+    name: "search_web",
+    description: "Search the web for external information.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of results",
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Request timeout in milliseconds",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "get_app_settings",
     description: "Get application settings (compile engine, editor options, format settings).",
     parameters: {
@@ -220,9 +349,176 @@ const AGENT_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: "read_scratchpad",
+    description: "Read the agent scratchpad memo for this conversation.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "write_scratchpad",
+    description: "Write or append to the agent scratchpad memo.",
+    parameters: {
+      type: "object",
+      properties: {
+        content: {
+          type: "string",
+          description: "Scratchpad content",
+        },
+        mode: {
+          type: "string",
+          description: "replace (default), append, or clear",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "write_file",
+    description: "Directly write content to a file (auto-applied with undo support).",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Relative file path from workspace root",
+        },
+        content: {
+          type: "string",
+          description: "Full content to write",
+        },
+        encoding: {
+          type: "string",
+          description: "Optional encoding: utf8 (default) or base64 for binary",
+        },
+        summary: {
+          type: "string",
+          description: "Short summary for the user",
+        },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "patch_file",
+    description: "Directly apply partial edits using search/replace.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Relative file path from workspace root",
+        },
+        search: {
+          type: "string",
+          description: "Exact text to search for in the file",
+        },
+        replace: {
+          type: "string",
+          description: "Text to replace the search text with",
+        },
+        replaceAll: {
+          type: "boolean",
+          description: "Replace all occurrences (default: false)",
+        },
+        edits: {
+          type: "array",
+          description: "Batch edits across one or more files",
+          items: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Relative file path from workspace root",
+              },
+              search: {
+                type: "string",
+                description: "Exact text to search for in the file",
+              },
+              replace: {
+                type: "string",
+                description: "Text to replace the search text with",
+              },
+              replaceAll: {
+                type: "boolean",
+                description: "Replace all occurrences (default: false)",
+              },
+            },
+            required: ["path", "search", "replace"],
+          },
+        },
+        summary: {
+          type: "string",
+          description: "Short summary for the user",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "delete_file",
+    description: "Delete a file (auto-applied with undo support).",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Relative file path from workspace root",
+        },
+        summary: {
+          type: "string",
+          description: "Reason for deletion",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "rename_file",
+    description: "Rename or move a file (auto-applied with undo support).",
+    parameters: {
+      type: "object",
+      properties: {
+        oldPath: {
+          type: "string",
+          description: "Current relative file path",
+        },
+        newPath: {
+          type: "string",
+          description: "New relative file path",
+        },
+        summary: {
+          type: "string",
+          description: "Reason for rename/move",
+        },
+      },
+      required: ["oldPath", "newPath"],
+    },
+  },
+  {
+    name: "create_directory",
+    description: "Create a new directory (auto-applied with undo support).",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Relative directory path to create",
+        },
+        summary: {
+          type: "string",
+          description: "Reason for creating directory",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
     name: "propose_write",
     description:
-      "Propose writing content to a file. This never applies changes automatically.",
+      "Write content to a file (auto-applied by default, with undo support).",
     parameters: {
       type: "object",
       properties: {
@@ -249,7 +545,7 @@ const AGENT_TOOL_DECLARATIONS = [
   {
     name: "propose_patch",
     description:
-      "Propose partial edits using search and replace (supports multiple edits and files).",
+      "Apply partial edits using search and replace (supports multiple edits and files).",
     parameters: {
       type: "object",
       properties: {
@@ -305,7 +601,7 @@ const AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "propose_delete",
-    description: "Propose deleting a file. Requires user confirmation.",
+    description: "Delete a file (auto-applied by default, with undo support).",
     parameters: {
       type: "object",
       properties: {
@@ -323,7 +619,7 @@ const AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "propose_rename",
-    description: "Propose renaming or moving a file. Requires user confirmation.",
+    description: "Rename or move a file (auto-applied by default, with undo support).",
     parameters: {
       type: "object",
       properties: {
@@ -345,7 +641,7 @@ const AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "propose_create_directory",
-    description: "Propose creating a new directory. Requires user confirmation.",
+    description: "Create a new directory (auto-applied by default, with undo support).",
     parameters: {
       type: "object",
       properties: {

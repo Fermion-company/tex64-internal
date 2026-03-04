@@ -74,22 +74,6 @@ export const createProposalCard = (proposal, deps) => {
         event.stopPropagation();
         deps.postToNative({ type: "agent:apply", proposalId: proposal.id });
     });
-    const applyNextButton = document.createElement("button");
-    applyNextButton.type = "button";
-    applyNextButton.className = "panel-button ghost";
-    applyNextButton.textContent =
-        proposalType === "delete"
-            ? "削除して次へ"
-            : proposalType === "mkdir"
-                ? "作成して次へ"
-                : proposalType === "rename"
-                    ? "移動して次へ"
-                    : "適用して次へ";
-    applyNextButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        deps.continueAfterApply.add(proposal.id);
-        deps.postToNative({ type: "agent:apply", proposalId: proposal.id });
-    });
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
     cancelButton.className = "panel-button ghost";
@@ -218,7 +202,7 @@ export const createProposalCard = (proposal, deps) => {
             diffContainer.dataset.ready = "true";
         }
     });
-    actions.append(previewButton, cancelButton, applyButton, applyNextButton);
+    actions.append(previewButton, cancelButton, applyButton);
     card.append(header, summary, actions, diffContainer);
     return card;
 };

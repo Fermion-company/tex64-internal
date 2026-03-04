@@ -166,7 +166,7 @@ const createAgentHandlers = (deps) => {
     }
     await agentService.run({
       message:
-        "直前のユーザー指示と会話の目的を最優先して、途中から継続してください。必要なら run_build で検証してから次の提案をしてください。",
+        "直前のユーザー指示と会話の目的を最優先して、途中から継続してください。必要なら編集とビルド検証を繰り返して完了まで進めてください。",
       context,
       conversationId: normalizedConversationId,
     });
@@ -224,8 +224,8 @@ const createAgentHandlers = (deps) => {
     await agentService.applyProposal(proposalId);
   };
 
-  const handleAgentUndoLastApply = async (conversationId) => {
-    await agentService.undoLastApply(conversationId);
+  const handleAgentUndoLastRunApply = async (conversationId) => {
+    await agentService.undoLastRunApply(conversationId);
   };
 
   const handleAgentClear = (conversationId) => {
@@ -245,7 +245,7 @@ const createAgentHandlers = (deps) => {
     handleAgentRun,
     handleAgentAbort,
     handleAgentApply,
-    handleAgentUndoLastApply,
+    handleAgentUndoLastRunApply,
     handleAgentClear,
     handleAgentStateGet,
     handleAgentResume,

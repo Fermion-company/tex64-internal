@@ -8,7 +8,7 @@ import test from "node:test";
 const require = createRequire(import.meta.url);
 const { AgentService } = require("../../electron/services/agent.cjs");
 
-test("agent completes local search → patch proposal → apply → build flow", async () => {
+test("agent completes local search → patch auto-apply → auto-build flow", async () => {
   const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-agent-local-"));
   const mainFile = path.join(rootPath, "main.tex");
 
@@ -43,7 +43,7 @@ test("agent completes local search → patch proposal → apply → build flow",
     const ensureUserSettings = () => ({
       getAgentSettings: async () => ({
         stream: false,
-        autoApply: false,
+        autoApply: true,
         autoBuild: true,
         allowRunCommand: false,
         maxIterations: 10,
@@ -159,7 +159,8 @@ test("agent completes local search → patch proposal → apply → build flow",
     });
 
     const contentAfterRun = await fsp.readFile(mainFile, "utf8");
-    assert.equal(contentAfterRun, original);
+    assert.ok(contentAfterRun.includes("New Title"));
+    assert.ok(!contentAfterRun.includes("Old Title"));
 
     const toolNames = rendererEvents
       .filter((event) => event.type === "agent:tool")
@@ -170,14 +171,7 @@ test("agent completes local search → patch proposal → apply → build flow",
     assert.ok(toolNames.includes("propose_patch"));
 
     const proposals = Array.from(service.proposals.values());
-    assert.equal(proposals.length, 1);
-    assert.equal(proposals[0].type, "patch");
-
-    await service.applyProposal(proposals[0].id);
-
-    const contentAfterApply = await fsp.readFile(mainFile, "utf8");
-    assert.ok(contentAfterApply.includes("New Title"));
-    assert.ok(!contentAfterApply.includes("Old Title"));
+    assert.equal(proposals.length, 0);
 
     assert.equal(buildCalls.length, 1);
     assert.equal(buildCalls[0][0], rootPath);
@@ -188,7 +182,7 @@ test("agent completes local search → patch proposal → apply → build flow",
   }
 });
 
-test("agent never auto-applies proposals (explicit user apply required)", async () => {
+test("agent forces auto-apply by default for smoother flow", async () => {
   const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-agent-autoapply-"));
   const mainFile = path.join(rootPath, "main.tex");
 
@@ -223,7 +217,7 @@ test("agent never auto-applies proposals (explicit user apply required)", async 
     const ensureUserSettings = () => ({
       getAgentSettings: async () => ({
         stream: false,
-        autoApply: true,
+        autoApply: false,
         autoBuild: false,
         allowRunCommand: false,
         maxIterations: 10,
@@ -306,11 +300,11 @@ test("agent never auto-applies proposals (explicit user apply required)", async 
     });
 
     const contentAfterRun = await fsp.readFile(mainFile, "utf8");
-    assert.equal(contentAfterRun, original);
+    assert.ok(contentAfterRun.includes("New Title"));
+    assert.ok(!contentAfterRun.includes("Old Title"));
 
     const proposals = Array.from(service.proposals.values());
-    assert.equal(proposals.length, 1);
-    assert.equal(proposals[0].type, "patch");
+    assert.equal(proposals.length, 0);
 
     const toolEventNames = rendererEvents
       .filter((event) => event.type === "agent:tool")
@@ -326,7 +320,7 @@ test("agent never auto-applies proposals (explicit user apply required)", async 
   }
 });
 
-test("agent completes build → fix proposal → apply → rebuild flow", async () => {
+test("agent completes build → fix auto-apply → auto-rebuild flow", async () => {
   const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-agent-buildfix-"));
   const mainFile = path.join(rootPath, "main.tex");
 
@@ -361,7 +355,7 @@ test("agent completes build → fix proposal → apply → rebuild flow", async 
     const ensureUserSettings = () => ({
       getAgentSettings: async () => ({
         stream: false,
-        autoApply: false,
+        autoApply: true,
         autoBuild: true,
         allowRunCommand: false,
         maxIterations: 10,
@@ -475,15 +469,13 @@ test("agent completes build → fix proposal → apply → rebuild flow", async 
       conversationId: "build-fix",
     });
 
-    assert.equal(buildCalls.length, 1);
+    assert.equal(buildCalls.length, 2);
     const proposals = Array.from(service.proposals.values());
-    assert.equal(proposals.length, 1);
-    await service.applyProposal(proposals[0].id);
+    assert.equal(proposals.length, 0);
 
     const contentAfterApply = await fsp.readFile(mainFile, "utf8");
     assert.ok(contentAfterApply.includes("\\begin{document}"));
     assert.ok(!contentAfterApply.includes("\\begn{document}"));
-    assert.equal(buildCalls.length, 2);
 
     const toolNames = rendererEvents
       .filter((event) => event.type === "agent:tool")
@@ -496,7 +488,7 @@ test("agent completes build → fix proposal → apply → rebuild flow", async 
   }
 });
 
-test("agent completes style sweep proposal across multiple files", async () => {
+test("agent completes style sweep auto-apply across multiple files", async () => {
   const rootPath = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-agent-style-"));
   const mainFile = path.join(rootPath, "main.tex");
   const chaptersDir = path.join(rootPath, "chapters");
@@ -526,7 +518,7 @@ test("agent completes style sweep proposal across multiple files", async () => {
     const ensureUserSettings = () => ({
       getAgentSettings: async () => ({
         stream: false,
-        autoApply: false,
+        autoApply: true,
         autoBuild: false,
         allowRunCommand: false,
         maxIterations: 6,
@@ -608,20 +600,13 @@ test("agent completes style sweep proposal across multiple files", async () => {
     });
 
     const proposals = Array.from(service.proposals.values());
-    assert.equal(proposals.length, 2);
-    proposals.sort((a, b) => String(a.path).localeCompare(String(b.path)));
-    assert.equal(proposals[0].path, "chapters/intro.tex");
-    assert.equal(proposals[1].path, "main.tex");
-
-    for (const proposal of proposals) {
-      await service.applyProposal(proposal.id);
-    }
+    assert.equal(proposals.length, 0);
 
     const updatedMain = await fsp.readFile(mainFile, "utf8");
     const updatedIntro = await fsp.readFile(introFile, "utf8");
     assert.equal(updatedMain.trim(), "the quick brown fox");
     assert.equal(updatedIntro.trim(), "the lazy dog");
-    assert.equal(buildCalls.length, 0);
+    assert.equal(buildCalls.length, 1);
   } finally {
     await fsp.rm(rootPath, { recursive: true, force: true });
   }

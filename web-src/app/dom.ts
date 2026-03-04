@@ -249,6 +249,7 @@ export const getDomRefs = () => ({
   aiHistoryList: document.getElementById("ai-history-list"),
   aiContextBar: document.getElementById("ai-context-bar"),
   aiStop: document.getElementById("ai-stop"),
+  aiUndo: document.getElementById("ai-undo"),
   mathCaptureWindowModal: document.getElementById("math-capture-window-modal"),
   mathCaptureWindowCancel: document.getElementById("math-capture-window-cancel"),
   mathCaptureWindowSearch: document.getElementById("math-capture-window-search"),
