@@ -58,7 +58,7 @@ const CONTINUATION_CUE_PATTERN =
 const CAPABILITY_QUESTION_PATTERN =
   /(?:何ができる|できること|できる機能|能力|capabilit|what\s+can\s+you\s+do|help\s+me\s+with)/i;
 const DOCUMENT_TOPIC_HINT_PATTERN =
-  /(?:latex|tex|\.tex\b|\\(?:documentclass|begin|end|section|subsection|label|ref|eqref|cite|input|include)\b|タイトル|著者|日付|概要|abstract|章|節|本文|段落|見出し|図|表|数式|引用|参照|ラベル|ビルド|compile|コンパイル|latexmk|lualatex|pdflatex|xelatex|uplatex|log|エラー|警告|overfull|undefined\s+(?:control|citation|reference))/i;
+  /(?:latex|tex|\.tex\b|\\(?:documentclass|begin|end|section|subsection|label|ref|eqref|cite|input|include)\b|タイトル|著者|日付|概要|abstract|章|節|セクション|本文|段落|見出し|図|表|数式|引用|参照|ラベル|ビルド|compile|コンパイル|latexmk|lualatex|pdflatex|xelatex|uplatex|log|エラー|警告|overfull|undefined\s+(?:control|citation|reference))/i;
 const EDIT_REQUEST_PATTERN =
   /(変えて|変える|変更して|変更する|修正して|修正する|直して|直す|なおして|なおす|書いて|書く|執筆して|執筆する|書き換えて|書き換える|書き足して|書き足す|書き加えて|書き加える|置換して|置換する|追加して|追加する|削除して|削除する|更新して|更新する|移動して|移動する|リネームして|リネームする|編集して|編集する|推敲して|推敲する|校正して|校正する|要約して|要約する|翻訳して|翻訳する|生成して|生成する|作成して|作成する|\brename\b|\bchange\b|\bupdate\b|\brewrite\b|\breplace\b|\bedit\b|\bdelete\b|\bremove\b|\binsert\b|\bappend\b|\bmodify\b|\btranslate\b|\bgenerate\b|\bcreate\b|\bwrite\b|\bdraft\b|\bcompose\b)/i;
 const VERIFICATION_REQUEST_PATTERN =

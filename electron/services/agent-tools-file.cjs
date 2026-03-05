@@ -240,13 +240,12 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     createdAt: Date.now(),
   };
   if (shouldAutoApply(service)) {
-    const apply = await autoApplyProposal(service, proposal);
+    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
     return {
       status: apply.ok ? "applied" : "apply_failed",
       proposalId: id,
       path: targetPath,
       apply,
-      autoBuild: apply.autoBuild ?? null,
       ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
     };
   }
@@ -325,27 +324,37 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     let originalContent = "";
     let baseContentHash = null;
     let baseSource = null;
-    const snapshot = service.getContextSnapshot(conversationId, targetPath);
-    if (snapshot && snapshot.content) {
-      if (snapshot.contentLength > policy.maxFileBytes) {
+    // Always read from disk first so that sequential propose_patch calls within the
+    // same run each operate on the current file content rather than a stale snapshot.
+    let diskRead = false;
+    try {
+      const resolved = service.workspace.resolvePath(targetPath);
+      const result = await readFileFromDisk(resolved);
+      if (result.binary) {
+        return { error: "バイナリファイルのため部分編集できません。" };
+      }
+      if (result.size > policy.maxFileBytes) {
         return { error: "ファイルが大きすぎます。" };
       }
-      originalContent = snapshot.content;
-      if (!snapshot.isDirty && !snapshot.truncated) {
-        baseContentHash = hashUtf8Text(snapshot.content);
-        baseSource = "snapshot";
-      }
-    } else {
-      try {
-        const resolved = service.workspace.resolvePath(targetPath);
-        const result = await readFileFromDisk(resolved);
-        if (result.binary) {
-          return { error: "バイナリファイルのため部分編集できません。" };
+      originalContent = result.content;
+      baseContentHash = result.contentHash;
+      baseSource = "disk";
+      diskRead = true;
+    } catch {
+      // File not on disk – fall back to snapshot.
+    }
+    if (!diskRead) {
+      const snapshot = service.getContextSnapshot(conversationId, targetPath);
+      if (snapshot && snapshot.content) {
+        if (snapshot.contentLength > policy.maxFileBytes) {
+          return { error: "ファイルが大きすぎます。" };
         }
-        originalContent = result.content;
-        baseContentHash = result.contentHash;
-        baseSource = "disk";
-      } catch {
+        originalContent = snapshot.content;
+        if (!snapshot.isDirty && !snapshot.truncated) {
+          baseContentHash = hashUtf8Text(snapshot.content);
+          baseSource = "snapshot";
+        }
+      } else {
         return { error: "ファイルが見つかりません。" };
       }
     }
@@ -424,18 +433,10 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   if (autoApply) {
     const successCount = proposals.filter((entry) => entry.ok).length;
     const hasFailure = proposals.length > successCount;
-    const autoBuild =
-      successCount > 0 && service?.agentOptions?.autoBuild === true
-        ? await service.executeToolCall(
-            { name: "run_build", args: {} },
-            conversationId || "default"
-          )
-        : null;
     return {
       status: hasFailure ? (successCount > 0 ? "partially_applied" : "apply_failed") : "applied",
       proposalIds: proposals.map((proposal) => proposal.proposalId),
       files: proposals,
-      autoBuild,
     };
   }
 
@@ -625,13 +626,12 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
     createdAt: Date.now(),
   };
   if (shouldAutoApply(service)) {
-    const apply = await autoApplyProposal(service, proposal);
+    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
     return {
       status: apply.ok ? "applied" : "apply_failed",
       proposalId: id,
       path: targetPath,
       apply,
-      autoBuild: apply.autoBuild ?? null,
       ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
     };
   }
@@ -702,13 +702,12 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
     createdAt: Date.now(),
   };
   if (shouldAutoApply(service)) {
-    const apply = await autoApplyProposal(service, proposal);
+    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
     return {
       status: apply.ok ? "applied" : "apply_failed",
       proposalId: id,
       path: newPath,
       apply,
-      autoBuild: apply.autoBuild ?? null,
       ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
     };
   }
