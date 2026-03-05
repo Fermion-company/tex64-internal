@@ -115,15 +115,21 @@ const appendTerminalOutput = (terminal, channel, text) => {
   }
   terminal.updatedAt = nowTs();
   if (channel === "stderr") {
-    terminal.stderr = trimHead(
-      `${terminal.stderr}${value}`,
-      terminal.maxHistoryChars
-    );
+    const combined = `${terminal.stderr}${value}`;
+    const trimmed = trimHead(combined, terminal.maxHistoryChars);
+    const removed = combined.length - trimmed.length;
+    terminal.stderr = trimmed;
+    if (removed > 0 && terminal.waiter) {
+      terminal.waiter.stderrStart = Math.max(0, terminal.waiter.stderrStart - removed);
+    }
   } else {
-    terminal.stdout = trimHead(
-      `${terminal.stdout}${value}`,
-      terminal.maxHistoryChars
-    );
+    const combined = `${terminal.stdout}${value}`;
+    const trimmed = trimHead(combined, terminal.maxHistoryChars);
+    const removed = combined.length - trimmed.length;
+    terminal.stdout = trimmed;
+    if (removed > 0 && terminal.waiter) {
+      terminal.waiter.stdoutStart = Math.max(0, terminal.waiter.stdoutStart - removed);
+    }
   }
   const combinedNext = `${terminal.combined}${value}`;
   if (combinedNext.length > terminal.maxHistoryChars) {
@@ -490,6 +496,29 @@ const terminateAllTerminals = (service) => {
   });
 };
 
+const gcIdleTerminals = (service, { maxIdleMs = 20 * 60 * 1000 } = {}) => {
+  ensureTerminalMap(service);
+  const cutoff = nowTs() - Math.max(60_000, Math.round(maxIdleMs));
+  const terminals = Array.from(service.terminalsById.values());
+  terminals.forEach((terminal) => {
+    if (!terminal || terminal.closed) {
+      return;
+    }
+    if (terminal.waiter) {
+      return;
+    }
+    if (typeof terminal.updatedAt !== "number" || terminal.updatedAt > cutoff) {
+      return;
+    }
+    try {
+      terminal.proc.kill("SIGTERM");
+    } catch {
+      // noop
+    }
+    unregisterTerminal(service, terminal.id, terminal.conversationId);
+  });
+};
+
 module.exports = {
   openTerminalSession,
   executeBashCommand,
@@ -498,4 +527,5 @@ module.exports = {
   killTerminalSession,
   terminateConversationTerminals,
   terminateAllTerminals,
+  gcIdleTerminals,
 };

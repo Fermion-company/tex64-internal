@@ -35,10 +35,6 @@ export const createProposalCard = (proposal, deps) => {
             badge.textContent = "フォルダ";
             badge.style.background = "var(--info, #17a2b8)";
             break;
-        case "patch":
-            badge.textContent = "部分編集";
-            badge.style.background = "var(--secondary, #6c757d)";
-            break;
         case "new":
             badge.textContent = "新規";
             break;
@@ -202,7 +198,7 @@ export const createProposalCard = (proposal, deps) => {
             diffContainer.dataset.ready = "true";
         }
     });
-    actions.append(previewButton, cancelButton, applyButton);
+    actions.append(previewButton, applyButton);
     card.append(header, summary, actions, diffContainer);
     return card;
 };

@@ -1,6 +1,6 @@
 import { updateMessageElement } from "./ai-chat-message.js";
 export const createAiChatIncomingHandlers = (options) => {
-    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, } = options;
+    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, postToNative, dismissProposal, } = options;
     const handleState = (state) => {
         const sessions = Array.isArray(state === null || state === void 0 ? void 0 : state.sessions) ? state.sessions : [];
         if (sessions.length === 0) {
@@ -21,7 +21,7 @@ export const createAiChatIncomingHandlers = (options) => {
         setActiveChatId(null);
         clearPendingAttachments();
         sessions.forEach((session) => {
-            var _a, _b;
+            var _a, _b, _c;
             if (!session || typeof session !== "object") {
                 return;
             }
@@ -60,6 +60,7 @@ export const createAiChatIncomingHandlers = (options) => {
             });
             const statusState = (_a = session.status) === null || _a === void 0 ? void 0 : _a.state;
             const statusMessage = typeof ((_b = session.status) === null || _b === void 0 ? void 0 : _b.message) === "string" ? session.status.message : "";
+            chat.hasUndo = ((_c = session.status) === null || _c === void 0 ? void 0 : _c.undoAvailable) === true;
             if (statusState === "running") {
                 runningConversations.add(chat.id);
                 chat.statusMessage = statusMessage || "思考中...";
@@ -73,15 +74,7 @@ export const createAiChatIncomingHandlers = (options) => {
                 chat.statusMessage = "";
             }
         });
-        const latest = sessions[sessions.length - 1];
-        if (latest && typeof latest.conversationId === "string") {
-            const chat = getChat(latest.conversationId);
-            if (chat) {
-                setActiveChatId(chat.id);
-                setChatTitle(chat);
-                renderChatContent();
-            }
-        }
+        // Always start with a fresh "new chat" view (history remains accessible)
         renderHistoryList();
         updateSendState();
         updateStatusDisplay();
@@ -177,7 +170,7 @@ export const createAiChatIncomingHandlers = (options) => {
         }
     };
     const handleApplyResult = (payload) => {
-        var _a, _b;
+        var _a;
         const chatId = proposalIndex.get(payload.proposalId);
         const chat = getChat(chatId);
         if (!chat)
@@ -186,31 +179,118 @@ export const createAiChatIncomingHandlers = (options) => {
         if (!proposal)
             return;
         if (payload.ok) {
-            chat.proposals.delete(payload.proposalId);
-            proposalIndex.delete(payload.proposalId);
+            chat.hasUndo = true;
             if (chat.id === getActiveChatId()) {
-                const proposalsContainer = getProposalsContainer();
-                (_a = proposalsContainer === null || proposalsContainer === void 0 ? void 0 : proposalsContainer.querySelector(`[data-proposal-id="${payload.proposalId}"]`)) === null || _a === void 0 ? void 0 : _a.remove();
-                if (proposalsContainer && chat.proposals.size === 0) {
-                    proposalsContainer.classList.add("is-hidden");
+                const pc = getProposalsContainer();
+                const cardEl = pc === null || pc === void 0 ? void 0 : pc.querySelector(`[data-proposal-id="${payload.proposalId}"]`);
+                if (cardEl instanceof HTMLElement) {
+                    cardEl.classList.add("is-applied");
+                    const actionsEl = cardEl.querySelector(".ai-proposal-actions");
+                    if (actionsEl) {
+                        actionsEl.replaceChildren();
+                        const undoBtn = document.createElement("button");
+                        undoBtn.type = "button";
+                        undoBtn.className = "panel-button ghost";
+                        undoBtn.textContent = "取り消し";
+                        undoBtn.addEventListener("click", (e) => {
+                            e.stopPropagation();
+                            postToNative({ type: "agent:undoLastApply", conversationId: chat.id });
+                        });
+                        actionsEl.appendChild(undoBtn);
+                    }
+                    const badgeEl = cardEl.querySelector(".ai-proposal-badge");
+                    if (badgeEl instanceof HTMLElement) {
+                        badgeEl.textContent = "適用済み";
+                        badgeEl.style.background = "rgba(99, 102, 241, 0.1)";
+                        badgeEl.style.color = "#818cf8";
+                        badgeEl.style.borderColor = "rgba(99, 102, 241, 0.2)";
+                    }
                 }
             }
-            appendMessage({ role: "system", text: `適用完了: ${proposal.path}` }, chat.id);
             renderHistoryList();
+            updateSendState();
         }
         else {
             const label = payload.conflict ? "適用競合" : "適用失敗";
-            appendMessage({ role: "system", text: `${label}: ${(_b = payload.error) !== null && _b !== void 0 ? _b : "不明なエラー"}` }, chat.id);
+            appendMessage({ role: "system", text: `${label}: ${(_a = payload.error) !== null && _a !== void 0 ? _a : "不明なエラー"}` }, chat.id);
         }
     };
     const handleUndoResult = (payload) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d;
         const targetChatId = (_b = (_a = payload.conversationId) !== null && _a !== void 0 ? _a : getActiveChatId()) !== null && _b !== void 0 ? _b : undefined;
-        const line = payload.ok
-            ? `取り消し完了: ${(_d = (_c = payload.path) !== null && _c !== void 0 ? _c : payload.message) !== null && _d !== void 0 ? _d : "直前の適用を戻しました。"}`
-            : `取り消し失敗: ${(_e = payload.message) !== null && _e !== void 0 ? _e : "取り消せる操作がありません。"}`;
-        appendMessage({ role: "system", text: line }, targetChatId);
+        if (payload.ok) {
+            const chat = getChat(targetChatId);
+            if (chat && chat.id === getActiveChatId()) {
+                const pc = getProposalsContainer();
+                if (pc) {
+                    const cards = Array.from(pc.querySelectorAll(".ai-proposal.is-applied"));
+                    for (let ci = 0; ci < cards.length; ci++) {
+                        const cardEl = cards[ci];
+                        if (!(cardEl instanceof HTMLElement))
+                            continue;
+                        const pid = (_c = cardEl.dataset.proposalId) !== null && _c !== void 0 ? _c : "";
+                        const proposal = chat.proposals.get(pid);
+                        if (!proposal)
+                            continue;
+                        if (payload.path && proposal.path !== payload.path)
+                            continue;
+                        cardEl.classList.remove("is-applied");
+                        const badgeEl = cardEl.querySelector(".ai-proposal-badge");
+                        if (badgeEl instanceof HTMLElement) {
+                            const rawType = proposal.type || "write";
+                            const pType = rawType === "write" && proposal.isNewFile ? "new" : rawType;
+                            badgeEl.textContent = pType === "delete" ? "削除" : pType === "rename" ? "移動" : pType === "mkdir" ? "フォルダ" : pType === "new" ? "新規" : "編集";
+                            badgeEl.style.background = "";
+                            badgeEl.style.color = "";
+                            badgeEl.style.borderColor = "";
+                        }
+                        const actionsEl = cardEl.querySelector(".ai-proposal-actions");
+                        if (actionsEl) {
+                            actionsEl.replaceChildren();
+                            const previewBtn = document.createElement("button");
+                            previewBtn.type = "button";
+                            previewBtn.className = "panel-button ghost";
+                            previewBtn.textContent = "差分を見る";
+                            const cancelBtn = document.createElement("button");
+                            cancelBtn.type = "button";
+                            cancelBtn.className = "panel-button ghost";
+                            cancelBtn.textContent = "取り消し";
+                            cancelBtn.addEventListener("click", (e) => {
+                                e.stopPropagation();
+                                postToNative({ type: "agent:proposal:dismiss", proposalId: pid }, true);
+                                dismissProposal(pid);
+                            });
+                            const applyBtn = document.createElement("button");
+                            applyBtn.type = "button";
+                            applyBtn.className = "panel-button";
+                            applyBtn.textContent = "適用";
+                            applyBtn.addEventListener("click", (e) => {
+                                e.stopPropagation();
+                                postToNative({ type: "agent:apply", proposalId: pid });
+                            });
+                            actionsEl.append(previewBtn, applyBtn);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else {
+            appendMessage({ role: "system", text: `取り消し失敗: ${(_d = payload.message) !== null && _d !== void 0 ? _d : "取り消せる操作がありません。"}` }, targetChatId);
+        }
         updateContextBar();
+    };
+    const handleUndoAvailability = (payload) => {
+        const targetChat = ensureChat(payload.conversationId);
+        if (!targetChat) {
+            return;
+        }
+        targetChat.hasUndo = payload.available === true || (typeof payload.count === "number" && payload.count > 0);
+        renderHistoryList();
+        updateSendState();
+        if (targetChat.id === getActiveChatId()) {
+            updateStatusDisplay();
+        }
     };
     const handleError = (message, conversationId) => {
         var _a;
@@ -246,6 +326,7 @@ export const createAiChatIncomingHandlers = (options) => {
         handleProposal,
         handleApplyResult,
         handleUndoResult,
+        handleUndoAvailability,
         handleError,
     };
 };

@@ -1,0 +1,157 @@
+import type { MonacoModelEntry, EditorGroupState } from "./types.js";
+import type { EditorSessionRuntime } from "./runtime.js";
+import type { EditorSessionCoreOps } from "./core-ops.js";
+import type { EditorSessionSplitViewOps } from "./split-view-ops.js";
+import type { EditorSessionBufferOps } from "./buffer-ops.js";
+
+export type EditorSessionWorkspaceOps = {
+  handleRenameResult: (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => void;
+  syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
+  getDirtyPaths: () => Set<string>;
+};
+
+export const createEditorSessionWorkspaceOps = (
+  runtime: EditorSessionRuntime,
+  coreOps: EditorSessionCoreOps,
+  splitViewOps: EditorSessionSplitViewOps,
+  bufferOps: EditorSessionBufferOps
+): EditorSessionWorkspaceOps => {
+  const handleRenameResult = (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => {
+    const { oldPath, newPath } = payload;
+    const remapPath = (path: string) => {
+      if (payload.isDirectory) {
+        if (path === oldPath || path.startsWith(`${oldPath}/`)) {
+          return newPath + path.slice(oldPath.length);
+        }
+        return path;
+      }
+      return path === oldPath ? newPath : path;
+    };
+    runtime.deps.fileTree.handleRenameResult(payload);
+    coreOps.forEachEditorGroup((group) => {
+      group.openTabs = group.openTabs.map((entry) => remapPath(entry));
+      if (group.currentFilePath) {
+        const nextPath = remapPath(group.currentFilePath);
+        group.currentFilePath = nextPath;
+      }
+    });
+    if (runtime.monacoModels.size > 0) {
+      const updatedModels = new Map<string, MonacoModelEntry>();
+      runtime.monacoModels.forEach((entry, path) => {
+        updatedModels.set(remapPath(path), entry);
+      });
+      runtime.monacoModels.clear();
+      updatedModels.forEach((entry, path) => runtime.monacoModels.set(path, entry));
+    }
+    coreOps.forEachEditorGroup((group) => {
+      if (group.viewStates.size > 0) {
+        const updatedViewStates = new Map<string, unknown>();
+        group.viewStates.forEach((state, path) => {
+          updatedViewStates.set(remapPath(path), state);
+        });
+        group.viewStates.clear();
+        updatedViewStates.forEach((state, path) => group.viewStates.set(path, state));
+      }
+    });
+    if (runtime.dirtyFiles.size > 0) {
+      const updatedDirty = new Set<string>();
+      runtime.dirtyFiles.forEach((path) => {
+        updatedDirty.add(remapPath(path));
+      });
+      runtime.dirtyFiles.clear();
+      updatedDirty.forEach((path) => runtime.dirtyFiles.add(path));
+    }
+    coreOps.forEachEditorGroup((group) => {
+      if (group.currentFilePath) {
+        group.isDirty = runtime.dirtyFiles.has(group.currentFilePath);
+        bufferOps.setEditorLanguage(group, group.currentFilePath);
+      }
+      if (group.currentFilePath && !group.isDirty) {
+        const entry = runtime.monacoModels.get(group.currentFilePath);
+        if (entry) {
+          group.currentFileSavedContent = entry.savedContent;
+        } else if (group.editor) {
+          const editor = group.editor as { getValue: () => string };
+          group.currentFileSavedContent = editor.getValue();
+        }
+      }
+    });
+    splitViewOps.updateBreadcrumbs();
+    splitViewOps.updateMiniOutline();
+    runtime.deps.fileTree.render();
+    coreOps.forEachEditorGroup((group) => runtime.deps.editorTabs.render(group));
+  };
+
+  const syncWorkspaceFiles = (payload: { workspaceFiles: string[]; rootChanged: boolean }) => {
+    const { workspaceFiles, rootChanged } = payload;
+    if (rootChanged) {
+      runtime.fileOpsState.pendingReveal = null;
+      runtime.lastCursorPositions.clear();
+      runtime.deps.fileTree.clearSelection();
+      coreOps.forEachEditorGroup((group) => {
+        group.currentFilePath = null;
+        group.currentFileSavedContent = null;
+        group.isDirty = false;
+        group.openTabs = [];
+        group.viewStates.clear();
+        group.viewer.hideViewer();
+        bufferOps.clearEditorView(group);
+      });
+      runtime.monacoModels.clear();
+      runtime.dirtyFiles.clear();
+    }
+    if (runtime.monacoModels.size > 0) {
+      Array.from(runtime.monacoModels.keys()).forEach((path) => {
+        if (!workspaceFiles.includes(path)) {
+          runtime.monacoModels.delete(path);
+          runtime.dirtyFiles.delete(path);
+        }
+      });
+    }
+    coreOps.forEachEditorGroup((group) => {
+      if (group.viewStates.size > 0) {
+        Array.from(group.viewStates.keys()).forEach((path) => {
+          if (!workspaceFiles.includes(path)) {
+            group.viewStates.delete(path);
+          }
+        });
+      }
+      if (group.currentFilePath && !workspaceFiles.includes(group.currentFilePath)) {
+        group.currentFilePath = null;
+        group.currentFileSavedContent = null;
+        group.isDirty = false;
+        if (coreOps.isActiveGroup(group)) {
+          runtime.deps.fileTree.clearSelection();
+        }
+      }
+      if (group.openTabs.length > 0) {
+        group.openTabs = group.openTabs.filter((path) => workspaceFiles.includes(path));
+        if (group.currentFilePath && !group.openTabs.includes(group.currentFilePath)) {
+          group.currentFilePath = null;
+          group.currentFileSavedContent = null;
+          group.isDirty = false;
+        }
+      }
+      if (group.currentFilePath) {
+        group.isDirty = runtime.dirtyFiles.has(group.currentFilePath);
+      } else {
+        group.viewer.hideViewer();
+        bufferOps.clearEditorView(group);
+      }
+    });
+    runtime.deps.fileTree.loadOpenState();
+    runtime.deps.fileTree.render();
+    splitViewOps.updateBreadcrumbs();
+    coreOps.forEachEditorGroup((group) => runtime.deps.editorTabs.render(group));
+    runtime.deps.outline.render();
+  };
+
+  const getDirtyPaths = () => runtime.dirtyFiles;
+
+  return {
+    handleRenameResult,
+    syncWorkspaceFiles,
+    getDirtyPaths,
+  };
+};
+

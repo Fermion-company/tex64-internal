@@ -3,6 +3,78 @@ const escapeHtml = (text) => text
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+const renderInlineMarkdown = (text) => {
+    let html = escapeHtml(text);
+    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<em>$1</em>");
+    html = html.replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>');
+    return html;
+};
+const renderTextBlockHtml = (text) => {
+    var _a, _b, _c;
+    const lines = text.split(/\r?\n/);
+    const blocks = [];
+    let paragraphLines = [];
+    const flushParagraph = () => {
+        if (paragraphLines.length === 0)
+            return;
+        blocks.push(`<p>${paragraphLines.join("<br>")}</p>`);
+        paragraphLines = [];
+    };
+    for (let i = 0; i < lines.length; i += 1) {
+        const rawLine = (_a = lines[i]) !== null && _a !== void 0 ? _a : "";
+        const line = rawLine.trim();
+        if (!line) {
+            flushParagraph();
+            continue;
+        }
+        const heading = line.match(/^(#{1,3})\s+(.+)$/);
+        if (heading) {
+            flushParagraph();
+            const level = Math.min(3, heading[1].length);
+            const content = renderInlineMarkdown(heading[2].trim());
+            blocks.push(`<h${level} class="ai-md-heading ai-md-heading-${level}">${content}</h${level}>`);
+            continue;
+        }
+        const unordered = line.match(/^[-*]\s+(.+)$/);
+        if (unordered) {
+            flushParagraph();
+            const items = [];
+            let cursor = i;
+            while (cursor < lines.length) {
+                const listLine = ((_b = lines[cursor]) !== null && _b !== void 0 ? _b : "").trim();
+                const listItem = listLine.match(/^[-*]\s+(.+)$/);
+                if (!listItem)
+                    break;
+                items.push(`<li>${renderInlineMarkdown(listItem[1].trim())}</li>`);
+                cursor += 1;
+            }
+            blocks.push(`<ul class="ai-md-list">${items.join("")}</ul>`);
+            i = cursor - 1;
+            continue;
+        }
+        const ordered = line.match(/^\d+\.\s+(.+)$/);
+        if (ordered) {
+            flushParagraph();
+            const items = [];
+            let cursor = i;
+            while (cursor < lines.length) {
+                const listLine = ((_c = lines[cursor]) !== null && _c !== void 0 ? _c : "").trim();
+                const listItem = listLine.match(/^\d+\.\s+(.+)$/);
+                if (!listItem)
+                    break;
+                items.push(`<li>${renderInlineMarkdown(listItem[1].trim())}</li>`);
+                cursor += 1;
+            }
+            blocks.push(`<ol class="ai-md-list">${items.join("")}</ol>`);
+            i = cursor - 1;
+            continue;
+        }
+        paragraphLines.push(renderInlineMarkdown(line));
+    }
+    flushParagraph();
+    return blocks.join("");
+};
 const renderMarkdownHtml = (text) => {
     const blocks = [];
     const parts = text.split(/(```[\s\S]*?```)/g);
@@ -19,23 +91,9 @@ const renderMarkdownHtml = (text) => {
             }
         }
         else {
-            let html = escapeHtml(part);
-            html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-            html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<em>$1</em>");
-            html = html.replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>');
-            html = html.replace(/((?:^|\n)[-*] .+(?:\n[-*] .+)*)/g, (match) => {
-                const items = match.trim().split(/\n/).map((line) => `<li>${line.replace(/^[-*] /, "")}</li>`).join("");
-                return `<ul class="ai-md-list">${items}</ul>`;
-            });
-            html = html.replace(/((?:^|\n)\d+\. .+(?:\n\d+\. .+)*)/g, (match) => {
-                const items = match.trim().split(/\n/).map((line) => `<li>${line.replace(/^\d+\. /, "")}</li>`).join("");
-                return `<ol class="ai-md-list">${items}</ol>`;
-            });
-            html = html.replace(/\n\n+/g, "</p><p>");
-            html = html.replace(/\n/g, "<br>");
-            html = html.replace(/<p><\/p>/g, "");
+            const html = renderTextBlockHtml(part);
             if (html.trim())
-                blocks.push(`<p>${html}</p>`);
+                blocks.push(html);
         }
     }
     return blocks.join("");

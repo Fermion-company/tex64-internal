@@ -319,6 +319,29 @@ const AGENT_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: "read_url",
+    description:
+      "Fetch a public web page and return extracted text (HTML is converted to plain text).",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "HTTP/HTTPS URL to fetch",
+        },
+        maxChars: {
+          type: "number",
+          description: "Maximum characters to return (optional)",
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Request timeout in milliseconds (optional)",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
     name: "get_app_settings",
     description: "Get application settings (compile engine, editor options, format settings).",
     parameters: {
@@ -455,6 +478,37 @@ const AGENT_TOOL_DECLARATIONS = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: "replace_lines",
+    description:
+      "Replace a specific line range in a text file (1-based, inclusive). Auto-applied with undo support.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Relative file path from workspace root",
+        },
+        startLine: {
+          type: "number",
+          description: "1-based starting line number (inclusive)",
+        },
+        endLine: {
+          type: "number",
+          description: "1-based ending line number (inclusive, optional)",
+        },
+        content: {
+          type: "string",
+          description: "Replacement text for the specified line range",
+        },
+        summary: {
+          type: "string",
+          description: "Short summary for the user",
+        },
+      },
+      required: ["path", "startLine", "content"],
     },
   },
   {

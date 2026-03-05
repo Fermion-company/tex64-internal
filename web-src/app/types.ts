@@ -243,7 +243,7 @@ export type AgentUiSession = {
   workspaceRootPath?: string | null;
   createdAt?: number | null;
   updatedAt?: number | null;
-  status?: { state: AgentStatusState; message?: string };
+  status?: { state: AgentStatusState; message?: string; undoAvailable?: boolean; undoCount?: number };
   messages: Array<{ role: "user" | "assistant"; text: string }>;
   proposals: AgentProposal[];
 };

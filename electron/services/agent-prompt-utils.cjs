@@ -26,9 +26,27 @@ const buildStandaloneQuestionSystemPrompt = () =>
     "### ルール",
     "- ユーザーの最新メッセージを最優先し、必要なら前後の文脈も踏まえて答える。",
     "- 内部の機能名/実装詳細（ツール名・関数名・型など）は出さない。",
-    "- 「何ができる？」系の質問では、LaTeX執筆支援 → 推敲/構成改善 → 補助的な操作 の順で説明し、自然な例文を添える（ツール一覧は出さない）。",
+    "- 「何ができる？」系の質問では、TeX64内の執筆/推敲/ビルド検証/自動修正に限定して答える（汎用チャットAIの能力説明は禁止）。",
+    "- 「何ができる？」系は短く実務的に、3〜5項目の箇条書きで回答し、見出しは使わない。",
     "- 不確実な場合は推測と明記し、必要な確認は最小限（原則1問）にする。",
   ].join("\n");
+
+const buildCapabilityQuestionSystemPrompt = (options = {}) => {
+  const workspaceContext = Boolean(options?.workspaceContext);
+  return [
+    "あなたは TeX64 に統合されたAIアシスタントです。",
+    workspaceContext
+      ? "現在のワークスペース文脈を踏まえ、TeX64で今すぐ実行できる執筆支援だけを答えてください。"
+      : "TeX64で今すぐ実行できる執筆支援だけを答えてください。",
+    "",
+    "### ルール",
+    "- 汎用チャットAIとしての能力（メール作成、ブログ執筆、一般雑学など）を列挙しない。",
+    "- TeX64での実作業に直結する内容に限定する（例: 章生成、推敲、LaTeX修正、ビルドエラー修復）。",
+    "- 回答は3〜6項目の箇条書きのみ。各項目は「何ができるか + すぐ次にユーザーが取る行動」を1行で書く。",
+    "- Markdown見出し（#, ##, ###）は使わない。前置きは1文以内にする。",
+    "- 内部の機能名/実装詳細（ツール名・関数名・型など）は出さない。",
+  ].join("\n");
+};
 
 const resolveResponseModel = (response) => {
   if (!response || typeof response !== "object") {
@@ -103,6 +121,13 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
   const referencedFileErrors = Array.isArray(extras?.referencedFileErrors)
     ? extras.referencedFileErrors
     : [];
+  const scratchpadRaw = typeof extras?.scratchpad === "string" ? extras.scratchpad : "";
+  const scratchpadLimit = 8000;
+  const scratchpad =
+    scratchpadRaw.length > scratchpadLimit
+      ? scratchpadRaw.slice(scratchpadRaw.length - scratchpadLimit)
+      : scratchpadRaw;
+  const scratchpadTruncated = scratchpadRaw.length > scratchpad.length;
 
   const canIncludeContextForPath = (value) => {
     const normalized = normalizeWorkspaceRelativePath(rootPath, value);
@@ -129,9 +154,23 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
     "## ルール",
     "- ユーザーの最新の指示を最優先する（古い指示に引っ張られない）。",
     "- 編集が必要な場合は、必要な変更を即時適用して前進する。適用後は必要に応じて検証し、失敗時は修正を継続する。",
+    "- 執筆/章生成では、長文をチャットに貼らず、対象の .tex へ直接反映する（チャットは短い変更サマリと次の確認事項だけ）。",
+    "- 引用は捏造しない。\\cite{...} を追加するなら既存の .bib/キーを確認し、必要なら search_web→read_url で根拠を取ってから追加する。",
+    "- 変更は取り消せる前提で進める（やり直しが必要な場合は取り消し案も提示する）。",
     "- 内部の機能名/実装詳細（ツール名・関数名・型など）はユーザーに出さない。",
     "- 不変条件（数値/意味/編集範囲など）を厳守する。守れない場合は理由と代替案を2案以上出す。",
     "- 推測は推測と明記し、確認質問は最小限（原則1問）にする。",
+    "",
+    "## 進め方（重要）",
+    "- まず状況把握: recent issues / 参照ファイル / search_files / read_file を使い、根拠を集める。",
+    "- 編集は最小差分で: patch_file（search/replace）か replace_lines（行指定）で正確に更新する。",
+    "- 編集後は検証: run_build（autoBuildも走るが、必要なら明示的に実行）で必ず確認する。",
+    "- ビルド失敗時は継続: issues を読み、修正→再ビルドを成功まで繰り返す。途中で止めない。",
+    "- 章生成/改稿: 既存構成（\\section 等）と文体を揃え、差し込み位置を特定してから反映する。",
+    "- Web調査が必要なら search_web → read_url で本文を読み、必要部分だけを根拠として使う。",
+    "- 端末は execute_bash_command を優先（複雑なコマンド/パイプ/リダイレクト）。出力が途切れたら read_terminal_output を繰り返す。",
+    "- Git管理されている場合は、変更確認に git status / git diff を execute_bash_command で使う。",
+    "- 長いタスクは scratchpad を使う: Plan / 進捗 / Done条件 を write_scratchpad で更新し、迷子にならない。",
     "",
     `- ブロック対象: ${blockedLabel}${allowedLabel ? `（許可: ${allowedLabel}）` : ""}`,
     fileSizeLabel === "無制限"
@@ -155,6 +194,16 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
 
   if (explicitContextPaths.length > 0) {
     lines.push(`- User referenced files: ${explicitContextPaths.join(", ")}`);
+  }
+
+  lines.push("", "## Scratchpad");
+  if (scratchpad.trim()) {
+    if (scratchpadTruncated) {
+      lines.push("- Note: 末尾のみ抜粋（長すぎるため省略）");
+    }
+    lines.push("```", scratchpad, "```");
+  } else {
+    lines.push("- (empty) 長いタスクでは Plan / 進捗 / Done条件 を write_scratchpad で記録する。");
   }
 
   if (openFileLabel) {
@@ -338,6 +387,7 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
 module.exports = {
   buildSmalltalkSystemPrompt,
   buildStandaloneQuestionSystemPrompt,
+  buildCapabilityQuestionSystemPrompt,
   resolveResponseModel,
   buildSystemPrompt,
 };

@@ -25,7 +25,7 @@ const createWorkspace = (rootPath) => ({
   loadSettings: async () => ({ buildProfileId: "", buildProfiles: [] }),
 });
 
-const createService = (rootPath) =>
+const createService = (rootPath, messages = null) =>
   new AgentService({
     workspace: createWorkspace(rootPath),
     searchService: null,
@@ -39,7 +39,11 @@ const createService = (rootPath) =>
       }),
       updateAgentSettings: async () => ({}),
     }),
-    sendToRenderer: () => {},
+    sendToRenderer: (type, payload) => {
+      if (Array.isArray(messages)) {
+        messages.push({ type, payload });
+      }
+    },
     updateWorkspaceIfNeeded: async () => {},
     requestIndex: () => {},
     buildService: null,
@@ -58,7 +62,8 @@ test("direct edit aliases apply immediately and can be undone", async () => {
   const mainFile = path.join(rootPath, "main.tex");
   await fsp.writeFile(mainFile, "before\n", "utf8");
   try {
-    const service = createService(rootPath);
+    const messages = [];
+    const service = createService(rootPath, messages);
     const result = await service.executeToolCall(
       {
         name: "write_file",
@@ -74,6 +79,12 @@ test("direct edit aliases apply immediately and can be undone", async () => {
     assert.equal(undo.ok, true);
     const reverted = await fsp.readFile(mainFile, "utf8");
     assert.equal(reverted, "before\n");
+    const availabilityEvents = messages.filter((entry) => entry.type === "agent:undoAvailability");
+    assert.ok(availabilityEvents.length >= 2);
+    const first = availabilityEvents[0]?.payload ?? {};
+    const last = availabilityEvents[availabilityEvents.length - 1]?.payload ?? {};
+    assert.equal(first.available, true);
+    assert.equal(last.available, false);
   } finally {
     await fsp.rm(rootPath, { recursive: true, force: true });
   }

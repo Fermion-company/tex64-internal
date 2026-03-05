@@ -446,6 +446,125 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   };
 };
 
+const handleReplaceLines = async (service, args, policy, conversationId) => {
+  const targetPath = normalizePath(args.path);
+  const summary = typeof args.summary === "string" ? args.summary : "";
+  const startLineRaw = Number(args.startLine);
+  const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
+  if (!targetPath) {
+    return { error: "path が空です。" };
+  }
+  if (isBlockedPath(targetPath, policy)) {
+    return { error: "対象パスは編集禁止です。" };
+  }
+  if (!isTextExtension(targetPath, policy)) {
+    return { error: "テキストファイルのみ編集可能です。" };
+  }
+  if (!Number.isFinite(startLineRaw) || startLineRaw < 1) {
+    return { error: "startLine は 1 以上の数値が必要です。" };
+  }
+  if (!Number.isFinite(endLineRaw) || endLineRaw < startLineRaw) {
+    return { error: "endLine は startLine 以上の数値が必要です。" };
+  }
+  const startLine = Math.round(startLineRaw);
+  const endLine = Math.round(endLineRaw);
+  const replacementText = typeof args.content === "string" ? args.content : "";
+
+  let originalContent = "";
+  let baseContentHash = null;
+  let baseSource = null;
+  const snapshot = service.getContextSnapshot(conversationId, targetPath);
+  if (snapshot && snapshot.content) {
+    if (snapshot.contentLength > policy.maxFileBytes) {
+      return { error: "ファイルが大きすぎます。" };
+    }
+    originalContent = snapshot.content;
+    if (!snapshot.isDirty && !snapshot.truncated) {
+      baseContentHash = hashUtf8Text(snapshot.content);
+      baseSource = "snapshot";
+    }
+  } else {
+    try {
+      const resolved = service.workspace.resolvePath(targetPath);
+      const result = await readFileFromDisk(resolved);
+      if (result.binary) {
+        return { error: "バイナリファイルのため行置換できません。" };
+      }
+      originalContent = result.content;
+      baseContentHash = result.contentHash;
+      baseSource = "disk";
+    } catch {
+      return { error: "ファイルが見つかりません。" };
+    }
+  }
+
+  const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
+  const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
+  const originalLines = normalizedOriginal.split("\n");
+  const startIndex = startLine - 1;
+  const endIndex = endLine - 1;
+  if (startIndex < 0 || startIndex >= originalLines.length) {
+    return { error: "startLine が範囲外です。" };
+  }
+  if (endIndex < 0 || endIndex >= originalLines.length) {
+    return { error: "endLine が範囲外です。" };
+  }
+
+  const normalizedReplacement = replacementText.replace(/\r\n/g, "\n");
+  const replacementLines = normalizedReplacement.split("\n");
+  const updatedLines = [
+    ...originalLines.slice(0, startIndex),
+    ...replacementLines,
+    ...originalLines.slice(endIndex + 1),
+  ];
+  let updatedContent = updatedLines.join("\n");
+  if (newline === "\r\n") {
+    updatedContent = updatedContent.replace(/\n/g, "\r\n");
+  }
+  if (updatedContent === originalContent) {
+    return { error: "変更がありません。" };
+  }
+  if (Buffer.byteLength(updatedContent, "utf8") > policy.maxFileBytes) {
+    return { error: "内容が大きすぎます。" };
+  }
+
+  const id =
+    typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const lineRangeLabel = startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
+  const proposal = {
+    id,
+    type: "patch",
+    path: targetPath,
+    content: updatedContent,
+    originalContent,
+    summary: summary.trim() ? summary : `行置換: ${targetPath}:${lineRangeLabel}`,
+    isNewFile: false,
+    conversationId,
+    workspaceRootPath: service.workspace.getRootPath() || undefined,
+    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseExists: true,
+    baseSource: baseSource || undefined,
+    createdAt: Date.now(),
+  };
+
+  if (shouldAutoApply(service)) {
+    const apply = await autoApplyProposal(service, proposal);
+    return {
+      status: apply.ok ? "applied" : "apply_failed",
+      proposalId: id,
+      path: targetPath,
+      apply,
+      autoBuild: apply.autoBuild ?? null,
+      ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
+    };
+  }
+  service.proposals.set(id, proposal);
+  service.sendToRenderer("agent:proposal", { proposal });
+  return { status: "proposed", proposalId: id };
+};
+
 const handleProposeDelete = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
   const summary = typeof args.summary === "string" ? args.summary : "ファイル削除";
@@ -651,6 +770,7 @@ module.exports = {
   handleProposePatch,
   handleProposeRename,
   handleProposeWrite,
+  handleReplaceLines,
   handleReadFile,
   handleReadFiles,
   handleRunCommand,

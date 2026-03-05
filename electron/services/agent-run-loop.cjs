@@ -10,7 +10,11 @@ const {
   resolvePrefetchMaxChars, summarizeToolArgs, summarizeToolResult, TOOL_STATUS_LABELS,
 } = require("./agent-core-utils.cjs");
 const {
-  buildSmalltalkSystemPrompt, buildStandaloneQuestionSystemPrompt, buildSystemPrompt, resolveResponseModel,
+  buildCapabilityQuestionSystemPrompt,
+  buildSmalltalkSystemPrompt,
+  buildStandaloneQuestionSystemPrompt,
+  buildSystemPrompt,
+  resolveResponseModel,
 } = require("./agent-prompt-utils.cjs");
 
 const runAgentConversation = async (service, { message, parts, context, conversationId = "default" }) => {
@@ -171,9 +175,12 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     }
   }
 
-  const systemPrompt = routing.useWorkspaceContext
+  const systemPrompt = routing.pureCapabilityQuestion
+    ? buildCapabilityQuestionSystemPrompt({ workspaceContext: routing.useWorkspaceContext })
+    : routing.useWorkspaceContext
     ? buildSystemPrompt(context, rootPath, policy, options, {
         rootFileInfo,
+        scratchpad: service.scratchpadByConversation.get(targetConversationId) ?? "",
         referencedFileSnapshots,
         referencedFileErrors,
       })
@@ -273,6 +280,7 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     "read_files",
     "search_files",
     "search_web",
+    "read_url",
     "open_terminal_session",
     "execute_bash_command",
     "send_terminal_input",
@@ -287,6 +295,7 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     "set_app_settings",
     "write_file",
     "patch_file",
+    "replace_lines",
     "delete_file",
     "rename_file",
     "create_directory",
@@ -308,6 +317,7 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     "rename_latex_symbol",
     "write_file",
     "patch_file",
+    "replace_lines",
     "delete_file",
     "rename_file",
     "create_directory",
@@ -319,6 +329,8 @@ const runAgentConversation = async (service, { message, parts, context, conversa
   ]);
   let editedSinceLastBuild = false;
   let lastBuildStatus = null;
+  let lastBuildFailureSummary = null;
+  let lastBuildFailureIssues = null;
   let recoveryPromptCount = 0;
   let forceBuildCount = 0;
   const canRunBuild = declaredToolNames.has("run_build");
@@ -344,6 +356,27 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     return files.some((entry) => entry && entry.ok === true);
   };
   const updateLoopStateFromToolResult = (toolName, result) => {
+    const applyBuildResult = (buildResult) => {
+      const status = typeof buildResult?.status === "string" ? buildResult.status : null;
+      if (!status) {
+        return;
+      }
+      lastBuildStatus = status;
+      forceBuildCount += 1;
+      // A build has been attempted for the current working tree.
+      editedSinceLastBuild = false;
+      if (status === "failure") {
+        lastBuildFailureSummary =
+          typeof buildResult?.summary === "string" && buildResult.summary.trim()
+            ? clipText(buildResult.summary, 600)
+            : null;
+        lastBuildFailureIssues = Array.isArray(buildResult?.issues) ? buildResult.issues : [];
+        return;
+      }
+      lastBuildFailureSummary = null;
+      lastBuildFailureIssues = null;
+    };
+
     if (wasAppliedEdit(toolName, result)) {
       editedSinceLastBuild = true;
       forceBuildCount = 0;
@@ -351,19 +384,10 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     const autoBuildStatus =
       typeof result?.autoBuild?.status === "string" ? result.autoBuild.status : null;
     if (autoBuildStatus) {
-      lastBuildStatus = autoBuildStatus;
-      forceBuildCount += 1;
-      if (autoBuildStatus === "success") {
-        editedSinceLastBuild = false;
-      }
+      applyBuildResult(result.autoBuild);
     }
     if (toolName === "run_build") {
-      const status = typeof result?.status === "string" ? result.status : null;
-      lastBuildStatus = status;
-      forceBuildCount += 1;
-      if (status === "success") {
-        editedSinceLastBuild = false;
-      }
+      applyBuildResult(result);
     }
   };
 
@@ -390,7 +414,22 @@ const runAgentConversation = async (service, { message, parts, context, conversa
       return true;
     });
   };
-  const executeToolWithAudit = async (iteration, toolName, callArgs) => {
+  const READ_ONLY_TOOL_NAMES = new Set([
+    "list_files",
+    "read_file",
+    "read_files",
+    "search_files",
+    "search_web",
+    "read_url",
+    "get_project_structure",
+    "get_index",
+    "read_scratchpad",
+    "get_app_settings",
+    "read_terminal_output",
+  ]);
+  const MAX_PARALLEL_READONLY_TOOL_CALLS = 6;
+
+  const executeToolCallWithAuditRaw = async (iteration, toolName, callArgs) => {
     const argsSummary = summarizeToolArgs(toolName, callArgs);
     const argsDigest = digestJson(argsSummary);
     service.emitAuditEvent(
@@ -409,9 +448,13 @@ const runAgentConversation = async (service, { message, parts, context, conversa
       targetConversationId,
       run.token
     );
+    return { result, argsDigest };
+  };
+
+  const recordToolResult = (toolName, result) => {
     if (!isCurrentRun()) {
       exitReason = "superseded";
-      return { result, superseded: true };
+      return { superseded: true };
     }
     service.sendToRenderer("agent:tool", {
       name: toolName,
@@ -432,7 +475,74 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     });
     updateLoopStateFromToolResult(toolName, result);
     service.markSessionDirty(targetConversationId);
-    return { result, superseded: false };
+    return { superseded: false };
+  };
+
+  const executeToolWithAudit = async (iteration, toolName, callArgs) => {
+    const raw = await executeToolCallWithAuditRaw(iteration, toolName, callArgs);
+    return recordToolResult(toolName, raw.result);
+  };
+
+  const executeToolCallsFromParts = async (iteration, functionCallParts) => {
+    const pendingReadOnly = [];
+    const flushReadOnly = async () => {
+      if (pendingReadOnly.length === 0) {
+        return { superseded: false };
+      }
+      const batch = pendingReadOnly.splice(0, pendingReadOnly.length);
+      const batchResults = await Promise.all(
+        batch.map((entry) => executeToolCallWithAuditRaw(iteration, entry.toolName, entry.callArgs))
+      );
+      for (let index = 0; index < batch.length; index += 1) {
+        const { toolName } = batch[index];
+        const { result } = batchResults[index] ?? {};
+        const recorded = recordToolResult(toolName, result);
+        if (recorded.superseded) {
+          return recorded;
+        }
+      }
+      return { superseded: false };
+    };
+
+    for (const part of functionCallParts) {
+      const call = part?.functionCall;
+      const toolName = call?.name ?? "";
+      let callArgs = call?.args ?? {};
+      if (typeof callArgs === "string") {
+        try {
+          callArgs = JSON.parse(callArgs);
+        } catch {
+          callArgs = {};
+        }
+      }
+      if (!callArgs || typeof callArgs !== "object") {
+        callArgs = {};
+      }
+
+      const isReadOnly = READ_ONLY_TOOL_NAMES.has(toolName);
+      if (isReadOnly) {
+        pendingReadOnly.push({ toolName, callArgs });
+        if (pendingReadOnly.length >= MAX_PARALLEL_READONLY_TOOL_CALLS) {
+          const flushed = await flushReadOnly();
+          if (flushed.superseded) {
+            return flushed;
+          }
+        }
+        continue;
+      }
+
+      const flushed = await flushReadOnly();
+      if (flushed.superseded) {
+        return flushed;
+      }
+      const raw = await executeToolCallWithAuditRaw(iteration, toolName, callArgs);
+      const recorded = recordToolResult(toolName, raw.result);
+      if (recorded.superseded) {
+        return recorded;
+      }
+    }
+
+    return flushReadOnly();
   };
 
   try {
@@ -550,24 +660,9 @@ const runAgentConversation = async (service, { message, parts, context, conversa
         }
 
         if (functionCalls.length > 0) {
-          for (const part of functionCalls) {
-            const call = part.functionCall;
-            const toolName = call?.name ?? "";
-            let callArgs = call?.args ?? {};
-            if (typeof callArgs === "string") {
-              try {
-                callArgs = JSON.parse(callArgs);
-              } catch {
-                callArgs = {};
-              }
-            }
-            if (!callArgs || typeof callArgs !== "object") {
-              callArgs = {};
-            }
-            const execution = await executeToolWithAudit(i, toolName, callArgs);
-            if (execution.superseded) {
-              return;
-            }
+          const execution = await executeToolCallsFromParts(i, functionCalls);
+          if (execution.superseded) {
+            return;
           }
           continue;
         }
@@ -598,12 +693,41 @@ const runAgentConversation = async (service, { message, parts, context, conversa
             recoveryPromptCount < maxRecoveryPromptCount
           ) {
             recoveryPromptCount += 1;
+            const issues = Array.isArray(lastBuildFailureIssues) ? lastBuildFailureIssues : [];
+            const topIssues = issues
+              .filter((issue) => issue && typeof issue === "object" && issue.severity === "error")
+              .slice(0, 6);
+            const fallbackIssues = topIssues.length > 0 ? [] : issues.slice(0, 6);
+            const toLine = (issue) => {
+              const path = typeof issue?.path === "string" ? issue.path : "";
+              const line = typeof issue?.line === "number" ? issue.line : null;
+              const column = typeof issue?.column === "number" ? issue.column : null;
+              const message = typeof issue?.message === "string" ? issue.message : "";
+              const loc = path
+                ? `${path}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`
+                : "";
+              const head = loc ? `${loc}: ` : "";
+              return `- ${head}${clipText(message, 240)}`;
+            };
+            const issueLines = [...topIssues, ...fallbackIssues]
+              .map(toLine)
+              .filter((line) => line && line !== "- ")
+              .slice(0, 6);
+            const details = [];
+            if (lastBuildFailureSummary) {
+              details.push(`ビルド概要: ${lastBuildFailureSummary}`);
+            }
+            if (issueLines.length > 0) {
+              details.push("主なエラー:", ...issueLines);
+            }
+            const detailText = details.length > 0 ? `\n\n${details.join("\n")}` : "";
             conversation.push({
               role: "user",
               parts: [
                 {
                   text:
-                    "最新ビルドが失敗しています。エラー箇所を解析して修正し、ビルドが成功するまで継続してください。",
+                    "最新ビルドが失敗しています。エラー箇所を解析して修正し、ビルドが成功するまで継続してください。" +
+                    detailText,
                 },
               ],
             });

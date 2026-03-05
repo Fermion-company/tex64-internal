@@ -146,6 +146,11 @@ type BridgeHandlersDeps = {
       path?: string;
       conversationId?: string;
     }) => void;
+    handleUndoAvailability?: (payload: {
+      conversationId?: string;
+      available?: boolean;
+      count?: number;
+    }) => void;
     handleError: (message: string, conversationId?: string) => void;
   };
   api?: {
@@ -534,6 +539,15 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             message?: string;
             path?: string;
             conversationId?: string;
+          }
+        );
+        break;
+      case "agent:undoAvailability":
+        deps.agent?.handleUndoAvailability(
+          message.payload as {
+            conversationId?: string;
+            available?: boolean;
+            count?: number;
           }
         );
         break;

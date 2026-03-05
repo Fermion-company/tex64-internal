@@ -20,6 +20,7 @@ const {
   handleProposeCreateDirectory,
   handleProposeDelete,
   handleProposePatch,
+  handleReplaceLines,
   handleProposeRename,
   handleProposeWrite,
   handleReadFile,
@@ -28,7 +29,7 @@ const {
   readFileFromDisk,
 } = require("./agent-tools-file.cjs");
 const { handleSearchFiles } = require("./agent-tools-search.cjs");
-const { handleSearchWeb } = require("./agent-tools-web.cjs");
+const { handleSearchWeb, handleReadUrl } = require("./agent-tools-web.cjs");
 const {
   openTerminalSession,
   executeBashCommand,
@@ -115,9 +116,13 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       } else if (name === "search_web") {
         const query = clip(args.query, 48);
         if (query) detail = `${statusLabel}: ${query}`;
+      } else if (name === "read_url") {
+        const url = clip(args.url, 64);
+        if (url) detail = `${statusLabel}: ${url}`;
       } else if (
         name === "write_file" ||
         name === "patch_file" ||
+        name === "replace_lines" ||
         name === "delete_file" ||
         name === "rename_file" ||
         name === "create_directory" ||
@@ -151,6 +156,14 @@ const executeToolCall = async (service, toolCall, conversationId) => {
 
     if (name === "search_web") {
       return handleSearchWeb(service, args);
+    }
+
+    if (name === "read_url") {
+      return handleReadUrl(service, args);
+    }
+
+    if (name === "replace_lines") {
+      return handleReplaceLines(service, args, policy, conversationId);
     }
 
     if (name === "get_project_structure") {

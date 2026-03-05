@@ -17,7 +17,7 @@ const resolveMaxOutputTokens = (settings) => {
   return clampNumber(
     settings?.maxOutputTokens,
     DEFAULT_MAX_OUTPUT_TOKENS,
-    { min: 64, max: 4096 }
+    { min: 64, max: 8192 }
   );
 };
 

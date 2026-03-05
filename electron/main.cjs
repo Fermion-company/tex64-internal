@@ -11,7 +11,7 @@ const {
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
 const FormatterService = require("./services/formatter.cjs");
 
@@ -47,6 +47,14 @@ const e2eHeadless =
   isE2EContext && process.env.TEX64_E2E_FORCE_HEADLESS !== "0";
 if (e2eUserDataPath) {
   app.setPath("userData", path.resolve(e2eUserDataPath));
+} else if (!app.isPackaged) {
+  // Keep development runtime isolated from installed app cache/profile.
+  const devUserDataPath = path.join(app.getPath("appData"), "tex64-dev");
+  app.setPath("userData", devUserDataPath);
+}
+if (!app.isPackaged) {
+  app.setName("TeX64 Dev");
+  app.commandLine.appendSwitch("disable-http-cache");
 }
 
 const state = {
@@ -55,6 +63,38 @@ const state = {
   userSettings: null,
   lastBuildPdfPath: null,
   formatWarningShown: false,
+};
+
+const shouldRunStartupWebBuild = () => {
+  if (app.isPackaged) {
+    return false;
+  }
+  if (isE2EContext) {
+    return false;
+  }
+  if (process.env.TEX64_SKIP_STARTUP_WEB_BUILD === "1") {
+    return false;
+  }
+  return true;
+};
+
+const runStartupWebBuildIfNeeded = () => {
+  if (!shouldRunStartupWebBuild()) {
+    return;
+  }
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const build = spawnSync(npmCommand, ["run", "-s", "web:build"], {
+    cwd: app.getAppPath(),
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      TEX64_FROM_ELECTRON_STARTUP_BUILD: "1",
+    },
+  });
+  if (build.error || build.status !== 0) {
+    const reason = build.error?.message || `exit ${build.status}`;
+    console.warn(`[startup] web:build failed (${reason}); launching with existing Resources/web.`);
+  }
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -98,7 +138,7 @@ const createMainWindow = () => {
     minHeight: 600,
     show: !e2eHeadless,
     backgroundColor: "#1c2129",
-    title: "TeX64",
+    title: app.isPackaged ? "TeX64" : "TeX64 (Dev)",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 12, y: 10 },
     webPreferences: {
@@ -108,7 +148,17 @@ const createMainWindow = () => {
     },
   });
 
-  state.mainWindow.loadFile(indexPath);
+  const loadRenderer = () => {
+    state.mainWindow.loadFile(indexPath);
+  };
+  if (!app.isPackaged) {
+    state.mainWindow.webContents.session
+      .clearCache()
+      .catch(() => {})
+      .finally(loadRenderer);
+  } else {
+    loadRenderer();
+  }
   state.mainWindow.on("closed", () => {
     // Ensure any teardown work doesn't try to message a destroyed window.
     state.mainWindow = null;
@@ -491,6 +541,7 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) {
     return;
   }
+  runStartupWebBuildIfNeeded();
   createMainWindow();
   registerProtocolClient();
   while (pendingOAuthCallbackUrls.length > 0) {

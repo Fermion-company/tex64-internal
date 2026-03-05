@@ -42,6 +42,7 @@ const { executeToolCall } = require("./agent-tool-executor.cjs");
 const {
   terminateConversationTerminals,
   terminateAllTerminals,
+  gcIdleTerminals,
 } = require("./agent-terminal-runtime.cjs");
 const {
   resolveChatModel,
@@ -106,6 +107,14 @@ class AgentService {
     this.sessionsRestored = false;
     this.restorePromise = null;
     this.persistTimers = new Map();
+    this.terminalGcTimer = setInterval(() => {
+      try {
+        gcIdleTerminals(this);
+      } catch {
+        // ignore gc failures
+      }
+    }, 60_000);
+    this.terminalGcTimer?.unref?.();
 
     this.agentPolicy = buildAgentPolicy();
     this.agentOptions = {
@@ -118,6 +127,32 @@ class AgentService {
     this.autoBuildInProgress = false;
     this.pendingSettingsRequests = new Map();
     this.applyUndoStack = [];
+  }
+
+  getUndoAvailability(conversationId) {
+    const targetConversationId =
+      typeof conversationId === "string" && conversationId.trim()
+        ? conversationId.trim()
+        : "default";
+    let count = 0;
+    for (let i = 0; i < this.applyUndoStack.length; i += 1) {
+      const entry = this.applyUndoStack[i];
+      if (!entry || entry.conversationId !== targetConversationId) {
+        continue;
+      }
+      count += 1;
+    }
+    return {
+      conversationId: targetConversationId,
+      available: count > 0,
+      count,
+    };
+  }
+
+  emitUndoAvailability(conversationId) {
+    const payload = this.getUndoAvailability(conversationId);
+    this.sendToRenderer("agent:undoAvailability", payload);
+    return payload;
   }
 
   sendStatus(state, message, conversationId) {
@@ -210,6 +245,8 @@ class AgentService {
     this.workspaceRootByConversation.delete(normalized);
     this.lastStatusByConversation.delete(normalized);
     this.scratchpadByConversation.delete(normalized);
+    this.applyUndoStack = this.applyUndoStack.filter((entry) => entry?.conversationId !== normalized);
+    this.emitUndoAvailability(normalized);
     terminateConversationTerminals(this, normalized);
     if (this.sessionsService) {
       this.sessionsService.deleteSession(normalized).catch(() => {});

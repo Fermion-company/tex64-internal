@@ -410,6 +410,22 @@
               <span class="panel-title">AI</span>
             </div>
             <div class="panel-body ai-panel" id="ai-panel">
+              <div class="ai-login-overlay" id="ai-login-overlay">
+                <div class="ai-login-overlay-glow"></div>
+                <div class="ai-login-overlay-card">
+                  <div class="ai-login-overlay-icon-wrap">
+                    <svg class="ai-login-overlay-icon" viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2l2.4 7.2H22l-6 4.8 2.4 7.2L12 16.4 5.6 21.2 8 14 2 9.2h7.6z"/>
+                    </svg>
+                  </div>
+                  <div class="ai-login-overlay-title">AIでTeX執筆を加速しよう</div>
+                  <div class="ai-login-overlay-subtitle">ログインしてAIアシスタントを利用</div>
+                  <button class="ai-login-overlay-btn" id="ai-login-overlay-btn" type="button">
+                    <span>Googleでログイン</span>
+                    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 10h14M12 5l5 5-5 5"/></svg>
+                  </button>
+                </div>
+              </div>
               <div class="ai-topbar">
                 <button class="ai-icon-btn" id="ai-history-toggle" type="button" aria-label="履歴">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
@@ -427,6 +443,16 @@
               </div>
               <div class="ai-history" id="ai-history">
                 <div class="ai-history-list" id="ai-history-list"></div>
+              </div>
+              <div class="ai-chat-delete-modal" id="ai-chat-delete-modal">
+                <div class="ai-chat-delete-modal-card">
+                  <div class="ai-chat-delete-modal-title">チャットを削除</div>
+                  <div class="ai-chat-delete-modal-text">「<span id="ai-chat-delete-target"></span>」を削除しますか？</div>
+                  <div class="ai-chat-delete-modal-actions">
+                    <button class="panel-button ghost" id="ai-chat-delete-cancel" type="button">キャンセル</button>
+                    <button class="panel-button danger" id="ai-chat-delete-confirm" type="button">削除</button>
+                  </div>
+                </div>
               </div>
               <div class="ai-content" id="ai-chat">
                 <div class="ai-chat-log" id="ai-chat-log">

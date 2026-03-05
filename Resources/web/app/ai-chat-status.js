@@ -1,5 +1,5 @@
 export const createAiChatStatusController = (params) => {
-    const { aiStatus, aiAuthTopbar, aiUsageMeter, aiUsageMeterText, postToNative, requestAiAccessCheck, requestPlatformUsage, pricingFallbackUrl, state, } = params;
+    const { aiStatus, aiAuthTopbar, aiUsageMeter, aiUsageMeterText, postToNative, requestAiAccessCheck, requestPlatformUsage, pricingFallbackUrl, state, onStatusUpdate, } = params;
     const normalizeUsageSnapshot = (usage) => {
         if (!usage || typeof usage !== "object")
             return null;
@@ -218,7 +218,7 @@ export const createAiChatStatusController = (params) => {
             return;
         }
         if (needsLogin()) {
-            renderStatus("AI機能を使うにはGoogleログインが必要です。", "", withUtilityActions([{ action: "login", label: "Googleでログイン" }]));
+            renderStatus("");
             return;
         }
         if (isAiBlocked()) {
@@ -275,6 +275,7 @@ export const createAiChatStatusController = (params) => {
             requestPlatformUsage(false);
         }
         updateStatusDisplay();
+        onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
     };
     const handlePlatformAiAccess = (payload) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j;
@@ -315,6 +316,7 @@ export const createAiChatStatusController = (params) => {
             }
         }
         updateStatusDisplay();
+        onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
     };
     const handlePlatformUsage = (payload) => {
         var _a, _b;
@@ -323,6 +325,7 @@ export const createAiChatStatusController = (params) => {
             state.platformError = null;
         }
         updateStatusDisplay();
+        onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
     };
     const handlePlatformUpdate = (_payload) => { };
     return {

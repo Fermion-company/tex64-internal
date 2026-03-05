@@ -17,6 +17,7 @@ const TOOL_STATUS_LABELS = {
   read_terminal_output: "端末出力取得中",
   kill_terminal: "端末停止中",
   search_web: "Web検索中",
+  read_url: "Web取得中",
   rename_latex_symbol: "シンボルリネーム中",
   get_app_settings: "設定取得中",
   set_app_settings: "設定更新中",
@@ -24,6 +25,7 @@ const TOOL_STATUS_LABELS = {
   write_scratchpad: "メモ更新中",
   write_file: "ファイル更新中",
   patch_file: "ファイル更新中",
+  replace_lines: "ファイル更新中",
   delete_file: "ファイル更新中",
   rename_file: "ファイル更新中",
   create_directory: "ファイル更新中",
@@ -37,7 +39,7 @@ const MAX_USER_INLINE_DATA_BYTES = 5 * 1024 * 1024;
 const MAX_USER_INLINE_DATA_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_APPLY_UNDO_ENTRIES = 40;
 const DEFAULT_CHAT_MODEL = "gemini-3-flash-preview";
-const DEFAULT_MAX_OUTPUT_TOKENS = 1024;
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 const REQUEST_HISTORY_MAX_MESSAGES = 24;
 const REQUEST_HISTORY_MAX_CHARS = 64_000;
 const BASE64_DATA_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
@@ -58,9 +60,10 @@ const CAPABILITY_QUESTION_PATTERN =
 const DOCUMENT_TOPIC_HINT_PATTERN =
   /(?:latex|tex|\.tex\b|\\(?:documentclass|begin|end|section|subsection|label|ref|eqref|cite|input|include)\b|タイトル|著者|日付|概要|abstract|章|節|本文|段落|見出し|図|表|数式|引用|参照|ラベル|ビルド|compile|コンパイル|latexmk|lualatex|pdflatex|xelatex|uplatex|log|エラー|警告|overfull|undefined\s+(?:control|citation|reference))/i;
 const EDIT_REQUEST_PATTERN =
-  /(変えて|変える|変更して|変更する|修正して|修正する|直して|直す|なおして|なおす|書き換えて|書き換える|書き足して|書き足す|書き加えて|書き加える|置換して|置換する|追加して|追加する|削除して|削除する|更新して|更新する|移動して|移動する|リネームして|リネームする|編集して|編集する|推敲して|推敲する|校正して|校正する|要約して|要約する|翻訳して|翻訳する|生成して|生成する|作成して|作成する|\brename\b|\bchange\b|\bupdate\b|\brewrite\b|\breplace\b|\bedit\b|\bdelete\b|\bremove\b|\binsert\b|\bappend\b|\bmodify\b|\btranslate\b|\bgenerate\b|\bcreate\b)/i;
+  /(変えて|変える|変更して|変更する|修正して|修正する|直して|直す|なおして|なおす|書いて|書く|執筆して|執筆する|書き換えて|書き換える|書き足して|書き足す|書き加えて|書き加える|置換して|置換する|追加して|追加する|削除して|削除する|更新して|更新する|移動して|移動する|リネームして|リネームする|編集して|編集する|推敲して|推敲する|校正して|校正する|要約して|要約する|翻訳して|翻訳する|生成して|生成する|作成して|作成する|\brename\b|\bchange\b|\bupdate\b|\brewrite\b|\breplace\b|\bedit\b|\bdelete\b|\bremove\b|\binsert\b|\bappend\b|\bmodify\b|\btranslate\b|\bgenerate\b|\bcreate\b|\bwrite\b|\bdraft\b|\bcompose\b)/i;
 const VERIFICATION_REQUEST_PATTERN =
   /(ビルド|compile|コンパイル|check|検証|テスト|latexmk|lualatex|pdflatex|xelatex|uplatex)/i;
+const QUESTION_LIKE_PATTERN = /[?？]|(?:どう(?:やって|すれば)|how\s+to|how\s+do\s+i|what\s+is)/i;
 // Temperature profiles (midpoints of user-requested ranges):
 // - research themes / outlines / novel ideas: 0.65-0.8 -> 0.75
 // - drafting: 0.4-0.55 -> 0.5
@@ -341,6 +344,13 @@ const summarizeToolArgs = (toolName, argsLike) => {
       timeoutMs: Number.isFinite(args.timeoutMs) ? Math.round(args.timeoutMs) : null,
     };
   }
+  if (name === "read_url") {
+    return {
+      url: clipText(args.url, 260),
+      maxChars: Number.isFinite(args.maxChars) ? Math.round(args.maxChars) : null,
+      timeoutMs: Number.isFinite(args.timeoutMs) ? Math.round(args.timeoutMs) : null,
+    };
+  }
   if (name === "get_app_settings") {
     return { keys: Array.isArray(args.keys) ? args.keys.slice(0, 40).map((k) => clipText(k, 60)) : [] };
   }
@@ -380,6 +390,14 @@ const summarizeToolArgs = (toolName, argsLike) => {
       path: clipText(args.path, 260),
       edits: edits.length,
       replaceAll: args.replaceAll === true,
+    };
+  }
+  if (name === "replace_lines") {
+    return {
+      path: clipText(args.path, 260),
+      startLine: Number.isFinite(args.startLine) ? Math.round(args.startLine) : null,
+      endLine: Number.isFinite(args.endLine) ? Math.round(args.endLine) : null,
+      contentChars: typeof args.content === "string" ? args.content.length : 0,
     };
   }
   if (name === "propose_delete") {
@@ -478,6 +496,23 @@ const summarizeToolResult = (toolName, resultLike) => {
       })),
     };
   }
+  if (name === "read_url") {
+    const text = typeof result.text === "string" ? result.text : "";
+    return {
+      ...base,
+      status:
+        typeof result.status === "number" && Number.isFinite(result.status)
+          ? result.status
+          : null,
+      url: clipText(result.url, 200) || null,
+      contentType: clipText(result.contentType, 80) || null,
+      title: clipText(result.title, 120) || null,
+      bytes:
+        typeof result.bytes === "number" && Number.isFinite(result.bytes) ? result.bytes : null,
+      chars: text.length,
+      truncated: result.truncated === true,
+    };
+  }
   if (name === "read_scratchpad" || name === "write_scratchpad") {
     return {
       ...base,
@@ -491,6 +526,7 @@ const summarizeToolResult = (toolName, resultLike) => {
     name === "write_file" ||
     name === "propose_patch" ||
     name === "patch_file" ||
+    name === "replace_lines" ||
     name === "propose_delete" ||
     name === "delete_file" ||
     name === "propose_rename" ||
@@ -629,17 +665,29 @@ const deriveTurnRouting = (userText, conversation) => {
   const docHint = Boolean(text && DOCUMENT_TOPIC_HINT_PATTERN.test(text));
   const editRequest = Boolean(text && EDIT_REQUEST_PATTERN.test(text));
   const verifyRequest = Boolean(text && VERIFICATION_REQUEST_PATTERN.test(text));
-  const wantsWorkspace = Boolean(explicitWorkspaceRef || docHint || editRequest || verifyRequest);
-  const continueWorkspace = Boolean(continuationCue && conversationLooksLikeWorkspace(conversation));
+  const draftRequest = Boolean(text && DRAFT_REQUEST_PATTERN.test(text));
+  const proofreadRequest = Boolean(text && PROOFREAD_REQUEST_PATTERN.test(text));
+  const conversationIsWorkspaceLike = conversationLooksLikeWorkspace(conversation);
+  const wantsWorkspace = Boolean(
+    explicitWorkspaceRef || docHint || editRequest || verifyRequest || draftRequest || proofreadRequest
+  );
+  const continueWorkspace = Boolean(continuationCue && conversationIsWorkspaceLike);
+  const capabilityInWorkspace = Boolean(
+    capabilityQuestion && (wantsWorkspace || continueWorkspace || conversationIsWorkspaceLike)
+  );
   const useWorkspaceContext =
-    !greetingOnly && !topicReset && !capabilityQuestion && (wantsWorkspace || continueWorkspace);
+    !greetingOnly && !topicReset && (wantsWorkspace || continueWorkspace || capabilityInWorkspace);
   const mode = greetingOnly ? "smalltalk" : useWorkspaceContext ? "workspace" : "standalone";
-  const forceToolCall = verifyRequest ? "build" : editRequest ? "edit" : null;
+  const questionLike = Boolean(text && QUESTION_LIKE_PATTERN.test(text));
+  const pureCapabilityQuestion = capabilityQuestion && !editRequest && !verifyRequest;
+  const forceToolCall = verifyRequest ? "build" : editRequest && !questionLike ? "edit" : null;
   return {
     mode,
     useWorkspaceContext,
-    disableTools: mode !== "workspace",
+    disableTools: mode !== "workspace" || pureCapabilityQuestion,
     forceToolCall,
+    capabilityQuestion,
+    pureCapabilityQuestion,
   };
 };
 

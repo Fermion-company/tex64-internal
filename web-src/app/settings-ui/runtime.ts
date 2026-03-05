@@ -1,0 +1,86 @@
+import type { AppContext } from "../context.js";
+import { defaultEditorFormatSettings } from "../settings-format.js";
+import type { SettingsUiConfig, SettingsUiDeps, SettingsUiState, SettingsUiStorageKeys, SettingsUiStorageRanges } from "./types.js";
+
+export type SettingsUiRuntime = {
+  context: AppContext;
+  deps: SettingsUiDeps;
+  state: SettingsUiState;
+  keys: SettingsUiStorageKeys;
+  ranges: SettingsUiStorageRanges;
+  config: SettingsUiConfig;
+};
+
+export const createSettingsUiRuntime = (context: AppContext, deps: SettingsUiDeps): SettingsUiRuntime => {
+  const keys: SettingsUiStorageKeys = {
+    compileEngineKey: "tex64.compileEngine",
+    editorWordWrapKey: "tex64.editor.wordWrap",
+    editorAutoSynctexOnBuildKey: "tex64.editor.autoSynctexOnBuild",
+    editorReverseSynctexKey: "tex64.editor.reverseSynctex",
+    editorGhostCompletionKey: "tex64.editor.ghostCompletion",
+    editorGhostCompletionDebounceKey: "tex64.editor.ghostCompletion.debounceMs",
+    editorGhostCompletionMaxCharsKey: "tex64.editor.ghostCompletion.maxChars",
+    editorAutoSynctexOnPdfOpenKey: "tex64.editor.autoSynctexOnPdfOpen",
+    editorPdfViewerModeKey: "tex64.editor.pdfViewerMode",
+    editorAlignEnvKey: "tex64.editor.alignEnv",
+    editorFormatSettingsKey: "tex64.editor.formatSettings",
+    runtimeSetupPromptedKey: "tex64.runtimeSetupPrompted.v1",
+    firstBuildCompletedKey: "tex64.onboarding.firstBuildCompleted.v1",
+    updateLastAutoCheckAtKey: "tex64.update.lastAutoCheckAt.v1",
+    feedbackQueueKey: "tex64.feedback.queue.v1",
+    feedbackIncludeDiagnosticsKey: "tex64.feedback.includeDiagnostics.v1",
+    errorReportingEnabledKey: "tex64.errorReporting.enabled.v1",
+  };
+
+  const ranges: SettingsUiStorageRanges = {
+    ghostCompletionDebounceRange: { min: 0, max: 2000 },
+    ghostCompletionMaxCharsRange: { min: 20, max: 400 },
+  };
+
+  const texEngineCommands = new Set(["lualatex", "pdflatex", "xelatex", "uplatex"]);
+  const config: SettingsUiConfig = {
+    updateAutoCheckIntervalMs: 1000 * 60 * 60 * 6,
+    texEngineCommands,
+    envCheckTargets: [
+      "lualatex",
+      "pdflatex",
+      "xelatex",
+      "uplatex",
+      "latexmk",
+      "latexindent",
+      "synctex",
+    ],
+    envDisplayTargets: ["lualatex", "latexmk", "latexindent", "synctex"],
+  };
+
+  const state: SettingsUiState = {
+    activeSettingsPage: null,
+    editorAlignEnvEnabled: true,
+    editorWordWrapEnabled: false,
+    editorFormatSettings: {
+      ...defaultEditorFormatSettings,
+    },
+    autoSynctexOnBuildEnabled: true,
+    reverseSynctexEnabled: true,
+    ghostCompletionEnabled: true,
+    ghostCompletionDebounceMs: 120,
+    ghostCompletionMaxChars: 140,
+    pdfViewerMode: "window",
+    platformAuth: null,
+    platformUpdate: null,
+    platformUpdateStatus: null,
+    updateAutoCheckStarted: false,
+    updateAutoCheckTimer: null,
+    runtimeStatusSummary: null,
+    runtimeSetupPromptInFlight: false,
+    feedbackPending: false,
+    feedbackQueue: [],
+    feedbackFlushTimer: null,
+    feedbackInFlightId: null,
+    feedbackIncludeDiagnostics: false,
+    errorReportingEnabled: true,
+  };
+
+  return { context, deps, state, keys, ranges, config };
+};
+

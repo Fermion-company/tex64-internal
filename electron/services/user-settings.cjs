@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS = {
     model: "gemini-3-flash-preview",
     inlineModel: "gemini-2.5-flash-lite",
     temperature: 0.2,
-    maxOutputTokens: 1024,
+    maxOutputTokens: 8192,
     maxIterations: 12,
     stream: true,
     autoApply: true,

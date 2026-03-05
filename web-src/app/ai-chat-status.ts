@@ -25,6 +25,7 @@ type CreateAiChatStatusControllerParams = {
   requestPlatformUsage: (force?: boolean) => void;
   pricingFallbackUrl: string;
   state: AiChatPlatformState;
+  onStatusUpdate?: () => void;
 };
 
 export const createAiChatStatusController = (params: CreateAiChatStatusControllerParams) => {
@@ -38,6 +39,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     requestPlatformUsage,
     pricingFallbackUrl,
     state,
+    onStatusUpdate,
   } = params;
 
   const normalizeUsageSnapshot = (usage?: PlatformUsageSnapshot | null): PlatformUsageSnapshot | null => {
@@ -280,11 +282,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       return;
     }
     if (needsLogin()) {
-      renderStatus(
-        "AI機能を使うにはGoogleログインが必要です。",
-        "",
-        withUtilityActions([{ action: "login", label: "Googleでログイン" }])
-      );
+      renderStatus("");
       return;
     }
     if (isAiBlocked()) {
@@ -363,6 +361,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       requestPlatformUsage(false);
     }
     updateStatusDisplay();
+    onStatusUpdate?.();
   };
 
   const handlePlatformAiAccess = (payload: {
@@ -410,6 +409,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       }
     }
     updateStatusDisplay();
+    onStatusUpdate?.();
   };
 
   const handlePlatformUsage = (payload: {
@@ -421,6 +421,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       state.platformError = null;
     }
     updateStatusDisplay();
+    onStatusUpdate?.();
   };
 
   const handlePlatformUpdate = (_payload: {

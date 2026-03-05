@@ -183,6 +183,9 @@ const pushUndoEntry = (service, entry) => {
   if (service.applyUndoStack.length > MAX_APPLY_UNDO_ENTRIES) {
     service.applyUndoStack.splice(0, service.applyUndoStack.length - MAX_APPLY_UNDO_ENTRIES);
   }
+  if (typeof service.emitUndoAvailability === "function") {
+    service.emitUndoAvailability(entry.conversationId || "default");
+  }
 };
 
 const resolveTargetConversationId = (conversationId) =>
@@ -212,6 +215,9 @@ const findLatestUndoIndex = (service, conversationId, { requireRunId = false, ru
 const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRenderer = true } = {}) => {
   const requestedConversationId = resolveTargetConversationId(conversationId);
   if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= service.applyUndoStack.length) {
+    if (requestedConversationId && typeof service.emitUndoAvailability === "function") {
+      service.emitUndoAvailability(requestedConversationId);
+    }
     if (emitRenderer) {
       service.emitAuditEvent(
         "undo_last_apply",
@@ -340,6 +346,9 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
       targetConversationId || entry.conversationId
     );
     service.markSessionDirty(targetConversationId || entry.conversationId);
+    if (typeof service.emitUndoAvailability === "function") {
+      service.emitUndoAvailability(targetConversationId || entry.conversationId || "default");
+    }
     if (emitRenderer) {
       service.sendToRenderer("agent:undoResult", {
         ok: true,

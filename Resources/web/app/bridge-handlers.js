@@ -69,7 +69,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -192,41 +192,44 @@ export const initBridgeHandlers = (deps) => {
             case "agent:undoResult":
                 (_15 = deps.agent) === null || _15 === void 0 ? void 0 : _15.handleUndoResult(message.payload);
                 break;
+            case "agent:undoAvailability":
+                (_16 = deps.agent) === null || _16 === void 0 ? void 0 : _16.handleUndoAvailability(message.payload);
+                break;
             case "agent:error":
-                (_16 = deps.agent) === null || _16 === void 0 ? void 0 : _16.handleError((_17 = message.payload.message) !== null && _17 !== void 0 ? _17 : "AIエラー", message.payload.conversationId);
+                (_17 = deps.agent) === null || _17 === void 0 ? void 0 : _17.handleError((_18 = message.payload.message) !== null && _18 !== void 0 ? _18 : "AIエラー", message.payload.conversationId);
                 break;
             case "api:completionResult":
-                (_18 = deps.api) === null || _18 === void 0 ? void 0 : _18.handleCompletionResult(message.payload);
+                (_19 = deps.api) === null || _19 === void 0 ? void 0 : _19.handleCompletionResult(message.payload);
                 break;
             case "api:usage":
-                (_19 = deps.api) === null || _19 === void 0 ? void 0 : _19.handleUsage(message.payload);
+                (_20 = deps.api) === null || _20 === void 0 ? void 0 : _20.handleUsage(message.payload);
                 break;
             case "platform:auth":
-                (_20 = deps.platform) === null || _20 === void 0 ? void 0 : _20.handleAuth(message.payload);
+                (_21 = deps.platform) === null || _21 === void 0 ? void 0 : _21.handleAuth(message.payload);
                 break;
             case "platform:aiAccess":
-                (_21 = deps.platform) === null || _21 === void 0 ? void 0 : _21.handleAiAccess(message.payload);
+                (_22 = deps.platform) === null || _22 === void 0 ? void 0 : _22.handleAiAccess(message.payload);
                 break;
             case "platform:usage":
-                (_22 = deps.platform) === null || _22 === void 0 ? void 0 : _22.handleUsage(message.payload);
+                (_23 = deps.platform) === null || _23 === void 0 ? void 0 : _23.handleUsage(message.payload);
                 break;
             case "platform:update":
-                (_23 = deps.platform) === null || _23 === void 0 ? void 0 : _23.handleUpdate(message.payload);
+                (_24 = deps.platform) === null || _24 === void 0 ? void 0 : _24.handleUpdate(message.payload);
                 break;
             case "platform:updateStatus":
-                (_24 = deps.platform) === null || _24 === void 0 ? void 0 : _24.handleUpdateStatus(message.payload);
+                (_25 = deps.platform) === null || _25 === void 0 ? void 0 : _25.handleUpdateStatus(message.payload);
                 break;
             case "platform:feedback":
-                (_25 = deps.platform) === null || _25 === void 0 ? void 0 : _25.handleFeedback(message.payload);
+                (_26 = deps.platform) === null || _26 === void 0 ? void 0 : _26.handleFeedback(message.payload);
                 break;
             case "file:previewResult":
-                (_26 = deps.filePreview) === null || _26 === void 0 ? void 0 : _26.handlePreviewResult(message.payload);
+                (_27 = deps.filePreview) === null || _27 === void 0 ? void 0 : _27.handlePreviewResult(message.payload);
                 break;
             case "file:excerptResult":
-                (_27 = deps.fileExcerpt) === null || _27 === void 0 ? void 0 : _27.handleExcerptResult(message.payload);
+                (_28 = deps.fileExcerpt) === null || _28 === void 0 ? void 0 : _28.handleExcerptResult(message.payload);
                 break;
             case "agent:applyContent":
-                deps.editorSession.applyContentToOpenFile((_28 = message.payload.path) !== null && _28 !== void 0 ? _28 : "", (_29 = message.payload.content) !== null && _29 !== void 0 ? _29 : "", message.payload.updateSaved !== false
+                deps.editorSession.applyContentToOpenFile((_29 = message.payload.path) !== null && _29 !== void 0 ? _29 : "", (_30 = message.payload.content) !== null && _30 !== void 0 ? _30 : "", message.payload.updateSaved !== false
                     ? { updateSaved: true }
                     : undefined);
                 break;

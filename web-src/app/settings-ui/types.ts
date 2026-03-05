@@ -1,0 +1,123 @@
+import type { AppSettingsSnapshot, BuildProfile, EditorFormatSettings, FormatSettingsPayload, PlatformAuthSnapshot, PlatformUpdateSnapshot, PlatformUpdateStatusSnapshot } from "../types.js";
+import type { EnvRegistryApi } from "../env-registry-ui.js";
+import type { EnvStatusSummary } from "../settings-env.js";
+
+export type SettingsUiDeps = {
+  envRegistry: EnvRegistryApi;
+  getWorkspaceRootKey: () => string | null;
+  getBuildProfiles: () => BuildProfile[];
+  getBuildProfileId: () => string | null;
+  postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
+  onEditorWordWrapChange?: (enabled: boolean) => void;
+  onGhostCompletionChange?: (enabled: boolean) => void;
+  onGhostCompletionConfigChange?: (config: { debounceMs: number; maxChars: number }) => void;
+  onUpdateAttentionChange?: (hasAttention: boolean) => void;
+  onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
+  onRequestFirstBuild?: () => void;
+};
+
+export type FeedbackCategory = "bug" | "idea" | "other" | "general";
+
+export type FeedbackQueueItem = {
+  id: string;
+  category: FeedbackCategory;
+  message: string;
+  contactEmail?: string;
+  diagnostics?: Record<string, unknown>;
+  createdAt: number;
+  attempts: number;
+  nextRetryAt: number;
+};
+
+export type SettingsUiApi = {
+  getEditorAlignEnvEnabled: () => boolean;
+  getEditorWordWrapEnabled: () => boolean;
+  getAutoSynctexOnBuildEnabled: () => boolean;
+  getReverseSynctexEnabled: () => boolean;
+  getPdfViewerMode: () => "window" | "tab";
+  getGhostCompletionEnabled: () => boolean;
+  getGhostCompletionConfig: () => { debounceMs: number; maxChars: number };
+  buildFormatSettingsPayload: () => FormatSettingsPayload;
+  getSettingsSnapshot: () => AppSettingsSnapshot;
+  applySettingsPatch: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
+  checkEnvironmentStatus: () => void;
+  updateEnvStatus: (command: string, available: boolean) => void;
+  handleEnvInstallStart: (payload: { target?: string }) => void;
+  handleEnvInstallResult: (payload: { target?: string; success?: boolean; message?: string }) => void;
+  refreshCompileEngine: () => void;
+  handlePlatformFeedback: (payload: {
+    ok: boolean;
+    feedbackId?: string | null;
+    error?: { code?: string; message?: string };
+  }) => void;
+  handlePlatformAuth: (payload: { auth: PlatformAuthSnapshot; error?: { code?: string; message?: string } }) => void;
+  handlePlatformUpdate: (payload: {
+    source?: string;
+    update: PlatformUpdateSnapshot | null;
+    error?: { code?: string; message?: string };
+  }) => void;
+  handlePlatformUpdateStatus: (payload: { source?: string; status: PlatformUpdateStatusSnapshot }) => void;
+  openSettingsPage: (pageId: string | null) => void;
+  getRuntimeStatusSummary: () => EnvStatusSummary | null;
+  loadStartupSettings: () => void;
+  loadWorkspaceSettings: () => void;
+};
+
+export type SettingsUiStorageRanges = {
+  ghostCompletionDebounceRange: { min: number; max: number };
+  ghostCompletionMaxCharsRange: { min: number; max: number };
+};
+
+export type SettingsUiStorageKeys = {
+  compileEngineKey: string;
+  editorWordWrapKey: string;
+  editorAutoSynctexOnBuildKey: string;
+  editorReverseSynctexKey: string;
+  editorGhostCompletionKey: string;
+  editorGhostCompletionDebounceKey: string;
+  editorGhostCompletionMaxCharsKey: string;
+  editorAutoSynctexOnPdfOpenKey: string;
+  editorPdfViewerModeKey: string;
+  editorAlignEnvKey: string;
+  editorFormatSettingsKey: string;
+  runtimeSetupPromptedKey: string;
+  firstBuildCompletedKey: string;
+  updateLastAutoCheckAtKey: string;
+  feedbackQueueKey: string;
+  feedbackIncludeDiagnosticsKey: string;
+  errorReportingEnabledKey: string;
+};
+
+export type SettingsUiConfig = {
+  updateAutoCheckIntervalMs: number;
+  texEngineCommands: Set<string>;
+  envCheckTargets: string[];
+  envDisplayTargets: string[];
+};
+
+export type SettingsUiState = {
+  activeSettingsPage: string | null;
+  editorAlignEnvEnabled: boolean;
+  editorWordWrapEnabled: boolean;
+  editorFormatSettings: EditorFormatSettings;
+  autoSynctexOnBuildEnabled: boolean;
+  reverseSynctexEnabled: boolean;
+  ghostCompletionEnabled: boolean;
+  ghostCompletionDebounceMs: number;
+  ghostCompletionMaxChars: number;
+  pdfViewerMode: "window" | "tab";
+  platformAuth: PlatformAuthSnapshot | null;
+  platformUpdate: PlatformUpdateSnapshot | null;
+  platformUpdateStatus: PlatformUpdateStatusSnapshot | null;
+  updateAutoCheckStarted: boolean;
+  updateAutoCheckTimer: number | null;
+  runtimeStatusSummary: EnvStatusSummary | null;
+  runtimeSetupPromptInFlight: boolean;
+  feedbackPending: boolean;
+  feedbackQueue: FeedbackQueueItem[];
+  feedbackFlushTimer: number | null;
+  feedbackInFlightId: string | null;
+  feedbackIncludeDiagnostics: boolean;
+  errorReportingEnabled: boolean;
+};
+

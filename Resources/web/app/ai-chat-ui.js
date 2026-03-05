@@ -57,6 +57,22 @@ export const initAiChatUi = (context, deps) => {
             requestPlatformUsage(force);
         }, USAGE_REFRESH_DELAY_MS);
     };
+    // ── Login Overlay ──────────────────────────────────────
+    const aiLoginOverlay = document.getElementById("ai-login-overlay");
+    const aiLoginOverlayBtn = document.getElementById("ai-login-overlay-btn");
+    const showLoginOverlay = () => {
+        if (aiLoginOverlay)
+            aiLoginOverlay.classList.add("is-visible");
+    };
+    const hideLoginOverlay = () => {
+        if (aiLoginOverlay)
+            aiLoginOverlay.classList.remove("is-visible");
+    };
+    if (aiLoginOverlayBtn) {
+        aiLoginOverlayBtn.addEventListener("click", () => {
+            deps.postToNative({ type: "auth:google:start" });
+        });
+    }
     const { isAiBlocked, needsLogin, openExternalUrl, resolvePricingUrl, updateStatusDisplay, handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage, handlePlatformUpdate, } = createAiChatStatusController({
         aiStatus,
         aiAuthTopbar,
@@ -67,7 +83,21 @@ export const initAiChatUi = (context, deps) => {
         requestPlatformUsage,
         pricingFallbackUrl: TEX64_LINKS.pricing,
         state: platformState,
+        onStatusUpdate: () => {
+            if (needsLogin())
+                showLoginOverlay();
+            else
+                hideLoginOverlay();
+        },
     });
+    const _rawUpdateStatusDisplay = updateStatusDisplay;
+    const wrappedUpdateStatusDisplay = () => {
+        _rawUpdateStatusDisplay();
+        if (needsLogin())
+            showLoginOverlay();
+        else
+            hideLoginOverlay();
+    };
     const getChat = (chatId) => getChatState(chatIndex, activeChatId, chatId);
     const resolveChatTitle = (chatId) => {
         if (chatId === "search-rename")
@@ -107,7 +137,7 @@ export const initAiChatUi = (context, deps) => {
         setChatTitle(chat);
         clearPendingAttachments();
         renderChatContent();
-        updateStatusDisplay();
+        wrappedUpdateStatusDisplay();
         updateSendState();
         renderHistoryList();
     };
@@ -126,7 +156,7 @@ export const initAiChatUi = (context, deps) => {
             proposals.replaceChildren();
             proposals.classList.add("is-hidden");
         }
-        updateStatusDisplay();
+        wrappedUpdateStatusDisplay();
         updateSendState();
         renderHistoryList();
     };
@@ -135,9 +165,13 @@ export const initAiChatUi = (context, deps) => {
         aiHistoryList,
         aiHistoryToggle,
         chats,
+        chatIndex,
+        proposalIndex,
         runningConversations,
         getActiveChatId: () => activeChatId,
         switchActiveChat,
+        resetToNewChatState,
+        postToNative: deps.postToNative,
     });
     if (aiAuthTopbar instanceof HTMLButtonElement) {
         aiAuthTopbar.addEventListener("click", () => {
@@ -162,6 +196,7 @@ export const initAiChatUi = (context, deps) => {
         const active = getChat(activeChatId);
         const isRunning = Boolean(active && runningConversations.has(active.id));
         const canResume = Boolean(active && !isRunning && resumableConversations.has(active.id));
+        const canUndo = Boolean(active && active.hasUndo && !isRunning);
         if (aiSend instanceof HTMLButtonElement) {
             aiSend.disabled = isRunning;
             aiSend.classList.remove("is-loading");
@@ -175,11 +210,14 @@ export const initAiChatUi = (context, deps) => {
             aiAttachInput.disabled = isRunning;
         if (aiStop instanceof HTMLButtonElement) {
             aiStop.disabled = false;
-            aiStop.textContent = isRunning ? "停止" : "再開";
+            aiStop.innerHTML = isRunning
+                ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
+                : '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>';
             aiStop.style.display = isRunning || canResume ? "flex" : "none";
         }
         if (aiUndo instanceof HTMLButtonElement) {
-            aiUndo.disabled = isRunning;
+            aiUndo.style.display = canUndo ? "flex" : "none";
+            aiUndo.disabled = !canUndo;
         }
     };
     const buildContextPayload = createContextPayloadBuilder(deps);
@@ -376,7 +414,7 @@ export const initAiChatUi = (context, deps) => {
         needsLogin,
         requestAiAccessCheck,
         requestPlatformUsage,
-        updateStatusDisplay,
+        updateStatusDisplay: wrappedUpdateStatusDisplay,
         ensureChat,
         runningConversations,
         pendingAgentRequests,
@@ -420,7 +458,8 @@ export const initAiChatUi = (context, deps) => {
         needsLogin,
         requestAiAccessCheck,
         requestPlatformUsage,
-        updateStatusDisplay,
+        updateStatusDisplay: wrappedUpdateStatusDisplay,
+        showLoginOverlay,
         resolvePricingUrl,
         openExternalUrl,
         runningConversations,
@@ -433,7 +472,9 @@ export const initAiChatUi = (context, deps) => {
         resetToNewChatState,
     });
     const handleSettings = (s) => { agentSettings = s; updateSendState(); };
-    const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleError, } = createAiChatIncomingHandlers({
+    const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleError, } = createAiChatIncomingHandlers({
+        postToNative: deps.postToNative,
+        dismissProposal,
         chats,
         chatIndex,
         proposalIndex,
@@ -453,7 +494,7 @@ export const initAiChatUi = (context, deps) => {
         renderHistoryList,
         renderChatContent,
         updateSendState,
-        updateStatusDisplay,
+        updateStatusDisplay: wrappedUpdateStatusDisplay,
         upsertThinkingMessage,
         clearThinkingMessage,
         finalizeStreamingMessage,
@@ -474,7 +515,7 @@ export const initAiChatUi = (context, deps) => {
     requestPlatformState();
     return {
         handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
-        handleProposal, handleApplyResult, handleUndoResult, handleError,
+        handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleError,
         refreshContextBar: updateContextBar,
         handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
         handlePlatformUpdate,

@@ -287,6 +287,14 @@ const getUiState = async (service) => {
     const workspaceRootPath =
       service.workspaceRootByConversation.get(normalizedConversationId) ?? null;
     const lastStatus = service.lastStatusByConversation.get(normalizedConversationId) ?? null;
+    const undoCount = Array.isArray(service.applyUndoStack)
+      ? service.applyUndoStack.reduce((sum, entry) => {
+          if (!entry || entry.conversationId !== normalizedConversationId) {
+            return sum;
+          }
+          return sum + 1;
+        }, 0)
+      : 0;
     const state = service.runningControllers.has(normalizedConversationId)
       ? "running"
       : lastStatus?.state === "error"
@@ -299,7 +307,12 @@ const getUiState = async (service) => {
       workspaceRootPath,
       createdAt: meta?.createdAt ?? null,
       updatedAt: meta?.updatedAt ?? null,
-      status: { state, message: lastStatus?.message ?? "" },
+      status: {
+        state,
+        message: lastStatus?.message ?? "",
+        undoAvailable: undoCount > 0,
+        undoCount,
+      },
       messages,
       proposals,
     });

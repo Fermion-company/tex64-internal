@@ -1,5 +1,5 @@
 export const initAiChatEventBindings = (params) => {
-    const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
+    const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
     const handleSend = () => {
         if (!(aiInput instanceof HTMLTextAreaElement))
             return;
@@ -9,9 +9,14 @@ export const initAiChatEventBindings = (params) => {
         if (!text && !hasAttachments)
             return;
         if (isAiBlocked() || needsLogin()) {
-            requestAiAccessCheck(true);
-            requestPlatformUsage(true);
-            updateStatusDisplay();
+            if (needsLogin()) {
+                showLoginOverlay();
+            }
+            else {
+                requestAiAccessCheck(true);
+                requestPlatformUsage(true);
+                updateStatusDisplay();
+            }
             return;
         }
         if (!getActiveChatId()) {

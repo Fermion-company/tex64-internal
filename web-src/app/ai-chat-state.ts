@@ -11,6 +11,7 @@ export type ChatState = {
   messages: ChatMessage[];
   proposals: Map<string, AgentProposal>;
   statusMessage: string;
+  hasUndo: boolean;
   autonomous: boolean;
   autoLoopBudget: number;
 };
@@ -26,6 +27,7 @@ export const createChatState = (
   messages: [],
   proposals: new Map(),
   statusMessage: "待機中",
+  hasUndo: false,
   autonomous,
   autoLoopBudget,
 });

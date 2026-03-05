@@ -41,10 +41,22 @@ test("deriveTurnRouting: continuation cue keeps workspace when prior turns are w
   assert.equal(routing.disableTools, false);
 });
 
-test("deriveTurnRouting: capability question stays standalone (no tools)", () => {
+test("deriveTurnRouting: capability question without workspace context stays standalone (no tools)", () => {
   const routing = deriveTurnRouting("あなたには何ができる？", []);
   assert.equal(routing.mode, "standalone");
   assert.equal(routing.useWorkspaceContext, false);
+  assert.equal(routing.disableTools, true);
+});
+
+test("deriveTurnRouting: capability question keeps workspace context when conversation is workspace-like", () => {
+  const conversation = [
+    { role: "user", parts: [{ text: "main.tex の導入を書き換えて" }] },
+    { role: "tool", parts: [{ functionCall: { name: "write_file", args: { path: "main.tex" } } }] },
+    { role: "model", parts: [{ text: "修正しました。" }] },
+  ];
+  const routing = deriveTurnRouting("この状態で何ができる？", conversation);
+  assert.equal(routing.mode, "workspace");
+  assert.equal(routing.useWorkspaceContext, true);
   assert.equal(routing.disableTools, true);
 });
 

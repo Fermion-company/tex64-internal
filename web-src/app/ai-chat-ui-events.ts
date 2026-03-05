@@ -48,6 +48,7 @@ type InitAiChatEventBindingsParams = {
   requestAiAccessCheck: (force?: boolean) => void;
   requestPlatformUsage: (force?: boolean) => void;
   updateStatusDisplay: () => void;
+  showLoginOverlay: () => void;
   resolvePricingUrl: () => string;
   openExternalUrl: (url: string) => void;
   runningConversations: Set<string>;
@@ -91,6 +92,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     requestAiAccessCheck,
     requestPlatformUsage,
     updateStatusDisplay,
+    showLoginOverlay,
     resolvePricingUrl,
     openExternalUrl,
     runningConversations,
@@ -110,9 +112,13 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     const hasAttachments = pendingAttachments.length > 0;
     if (!text && !hasAttachments) return;
     if (isAiBlocked() || needsLogin()) {
-      requestAiAccessCheck(true);
-      requestPlatformUsage(true);
-      updateStatusDisplay();
+      if (needsLogin()) {
+        showLoginOverlay();
+      } else {
+        requestAiAccessCheck(true);
+        requestPlatformUsage(true);
+        updateStatusDisplay();
+      }
       return;
     }
 
