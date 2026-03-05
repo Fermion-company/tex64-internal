@@ -85,13 +85,13 @@ export type AiChatApi = {
   clearPending: () => void;
 };
 
-const AUTONOMOUS_LOOP_LIMIT = 8;
+const AUTONOMOUS_LOOP_LIMIT = 100;
 const USAGE_REFRESH_DELAY_MS = 300;
 
 export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi => {
   const {
     aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew,
-    aiTopbarTitle, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar,
+    aiModelSelect, aiTopbarTitle, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar,
     aiContextBar, aiStop, aiUndo,
   } = context.dom;
 
@@ -558,7 +558,26 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     resetToNewChatState,
   });
 
-  const handleSettings = (s: AgentSettings) => { agentSettings = s; updateSendState(); };
+  const syncModelSelect = (model?: string) => {
+    if (!(aiModelSelect instanceof HTMLSelectElement)) return;
+    const value = typeof model === "string" && model ? model : "gemini-3-flash-preview";
+    if (aiModelSelect.value !== value) {
+      aiModelSelect.value = value;
+    }
+  };
+
+  const handleSettings = (s: AgentSettings) => {
+    agentSettings = s;
+    syncModelSelect(s?.model);
+    updateSendState();
+  };
+
+  if (aiModelSelect instanceof HTMLSelectElement) {
+    aiModelSelect.addEventListener("change", () => {
+      const model = aiModelSelect.value;
+      deps.postToNative({ type: "agent:settings:set", settings: { model } }, true);
+    });
+  }
   const {
     handleState,
     handleStatus,
@@ -600,12 +619,15 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     scrollToBottom,
     appendMessage,
     disableAutonomous,
+    enableAutonomous,
     scheduleUsageRefresh,
     ensureProposalsEmbedded,
     buildProposalCard,
     getProposalsContainer,
     restoreDraftFromPending,
     updateContextBar,
+    buildContextPayload,
+    getAgentSettings: () => agentSettings,
   });
 
   resetToNewChatState();

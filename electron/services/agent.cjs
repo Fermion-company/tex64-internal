@@ -329,7 +329,7 @@ class AgentService {
       maxIterations: clampNumber(
         settings?.maxIterations,
         DEFAULT_MAX_ITERATIONS,
-        { min: 1, max: 120 }
+        { min: 1, max: 9999 }
       ),
       stream: settings?.stream !== false,
       autoApply: true,

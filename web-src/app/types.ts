@@ -65,7 +65,7 @@ export type BuildProfile = {
   extraArgs?: string | null;
 };
 
-export type AgentStatusState = "idle" | "running" | "error";
+export type AgentStatusState = "idle" | "running" | "error" | "resumable";
 export type AgentSettings = {
   apiKey?: string;
   model?: string;

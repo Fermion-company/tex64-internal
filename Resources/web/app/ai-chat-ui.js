@@ -11,10 +11,10 @@ import { createAiChatAttachmentsController } from "./ai-chat-attachments.js";
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
 import { createAiChatRunner } from "./ai-chat-runner.js";
 import { restorePendingAiDraft } from "./ai-chat-draft-restore.js";
-const AUTONOMOUS_LOOP_LIMIT = 8;
+const AUTONOMOUS_LOOP_LIMIT = 100;
 const USAGE_REFRESH_DELAY_MS = 300;
 export const initAiChatUi = (context, deps) => {
-    const { aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew, aiTopbarTitle, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar, aiContextBar, aiStop, aiUndo, } = context.dom;
+    const { aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew, aiModelSelect, aiTopbarTitle, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar, aiContextBar, aiStop, aiUndo, } = context.dom;
     const chats = [];
     const chatIndex = new Map();
     const proposalIndex = new Map();
@@ -471,7 +471,25 @@ export const initAiChatUi = (context, deps) => {
         disableAutonomous,
         resetToNewChatState,
     });
-    const handleSettings = (s) => { agentSettings = s; updateSendState(); };
+    const syncModelSelect = (model) => {
+        if (!(aiModelSelect instanceof HTMLSelectElement))
+            return;
+        const value = typeof model === "string" && model ? model : "gemini-3-flash-preview";
+        if (aiModelSelect.value !== value) {
+            aiModelSelect.value = value;
+        }
+    };
+    const handleSettings = (s) => {
+        agentSettings = s;
+        syncModelSelect(s?.model);
+        updateSendState();
+    };
+    if (aiModelSelect instanceof HTMLSelectElement) {
+        aiModelSelect.addEventListener("change", () => {
+            const model = aiModelSelect.value;
+            deps.postToNative({ type: "agent:settings:set", settings: { model } }, true);
+        });
+    }
     const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleError, } = createAiChatIncomingHandlers({
         postToNative: deps.postToNative,
         dismissProposal,
@@ -502,12 +520,15 @@ export const initAiChatUi = (context, deps) => {
         scrollToBottom,
         appendMessage,
         disableAutonomous,
+        enableAutonomous,
         scheduleUsageRefresh,
         ensureProposalsEmbedded,
         buildProposalCard,
         getProposalsContainer,
         restoreDraftFromPending,
         updateContextBar,
+        buildContextPayload,
+        getAgentSettings: () => agentSettings,
     });
     resetToNewChatState();
     updateContextBar();

@@ -552,7 +552,8 @@ const runAgentConversation = async (service, { message, parts, context, conversa
         return;
       }
       try {
-        const thinkingLabel = i === 0 ? "方針検討中" : "追加検討中";
+        const stepLabel = `${i + 1}/${maxIterations}`;
+        const thinkingLabel = i === 0 ? `方針検討中 (${stepLabel})` : `追加検討中 (${stepLabel})`;
         service.sendStatus("running", service.buildProgressMessage(thinkingLabel), targetConversationId);
         const handleDelta =
           options.stream === true
@@ -802,10 +803,10 @@ const runAgentConversation = async (service, { message, parts, context, conversa
     if (isCurrentRun()) {
       exitReason = "max_iterations";
       service.sendToRenderer("agent:message", {
-        text: "上限回数に達したため停止しました。",
+        text: `上限回数 (${maxIterations}) に達したため一時停止しました。自動的に続行します。`,
         conversationId: targetConversationId,
       });
-      service.sendStatus("idle", "待機中", targetConversationId);
+      service.sendStatus("resumable", "継続可能", targetConversationId);
       service.markSessionDirty(targetConversationId);
     }
   } finally {

@@ -1,6 +1,7 @@
 import { updateMessageElement } from "./ai-chat-message.js";
 export const createAiChatIncomingHandlers = (options) => {
-    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, postToNative, dismissProposal, } = options;
+    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, enableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, buildContextPayload, getAgentSettings, postToNative, dismissProposal, } = options;
+    const AUTONOMOUS_RESUME_DELAY_MS = 600;
     const handleState = (state) => {
         const sessions = Array.isArray(state === null || state === void 0 ? void 0 : state.sessions) ? state.sessions : [];
         if (sessions.length === 0) {
@@ -79,6 +80,34 @@ export const createAiChatIncomingHandlers = (options) => {
         updateSendState();
         updateStatusDisplay();
     };
+    const AUTONOMOUS_LOOP_LIMIT = 100;
+    const tryAutonomousContinuation = (chat) => {
+        if (!chat.autonomous || chat.autoLoopBudget <= 0)
+            return false;
+        chat.autoLoopBudget -= 1;
+        const round = AUTONOMOUS_LOOP_LIMIT - chat.autoLoopBudget;
+        chat.statusMessage = `自動継続中 (ラウンド ${round}/${AUTONOMOUS_LOOP_LIMIT})`;
+        runningConversations.add(chat.id);
+        resumableConversations.delete(chat.id);
+        upsertThinkingMessage(chat.id, chat.statusMessage);
+        renderHistoryList();
+        updateSendState();
+        updateStatusDisplay();
+        const contextToSend = buildContextPayload(getAgentSettings());
+        window.setTimeout(() => {
+            const posted = postToNative({ type: "agent:resume", conversationId: chat.id, context: contextToSend }, true);
+            if (!posted) {
+                runningConversations.delete(chat.id);
+                resumableConversations.add(chat.id);
+                chat.statusMessage = "";
+                clearThinkingMessage(chat.id);
+                renderHistoryList();
+                updateSendState();
+                updateStatusDisplay();
+            }
+        }, AUTONOMOUS_RESUME_DELAY_MS);
+        return true;
+    };
     const handleStatus = (state, message, conversationId) => {
         const chat = ensureChat(conversationId);
         if (!chat)
@@ -93,7 +122,16 @@ export const createAiChatIncomingHandlers = (options) => {
             runningConversations.delete(chat.id);
             chat.statusMessage = "";
             clearThinkingMessage(chat.id);
-            if (state === "error") {
+            if (state === "resumable") {
+                // max_iterations reached — try autonomous continuation
+                if (tryAutonomousContinuation(chat)) {
+                    // auto-continuation started, skip marking as idle
+                    return;
+                }
+                // fallback: mark as resumable for manual resume button
+                resumableConversations.add(chat.id);
+            }
+            else if (state === "error") {
                 resumableConversations.add(chat.id);
             }
             else {

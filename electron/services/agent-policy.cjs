@@ -3,7 +3,7 @@ const { normalizeRelativePath } = require("./workspace.cjs");
 
 const DEFAULT_MAX_FILE_BYTES = 400_000;
 const DEFAULT_MAX_READ_FILES = 16;
-const DEFAULT_MAX_ITERATIONS = 12;
+const DEFAULT_MAX_ITERATIONS = 500;
 const DEFAULT_TEXT_EXTENSIONS = [
   "tex",
   "bib",

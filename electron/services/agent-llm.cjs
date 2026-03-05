@@ -17,6 +17,60 @@ const normalizeModelName = (value) => {
   return trimmed.replace(/^models\//i, "");
 };
 
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY_MS = 1000;
+
+const sleep = (ms, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
+
+const fetchWithRetry = async (url, options, signal) => {
+  let lastError = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    if (signal?.aborted) {
+      throw new DOMException("The operation was aborted", "AbortError");
+    }
+    try {
+      const response = await fetch(url, options);
+      if (response.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = response.headers.get("retry-after");
+        const delayMs = retryAfter
+          ? Math.min(Number(retryAfter) * 1000 || INITIAL_RETRY_DELAY_MS, 30000)
+          : INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delayMs, signal);
+        continue;
+      }
+      if (response.status >= 500 && attempt < MAX_RETRIES) {
+        const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delayMs, signal);
+        continue;
+      }
+      return response;
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        throw err;
+      }
+      lastError = err;
+      if (attempt < MAX_RETRIES) {
+        const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delayMs, signal);
+        continue;
+      }
+    }
+  }
+  throw lastError ?? new Error("Request failed after retries.");
+};
+
 const requestGemini = async ({
   proxyUrl,
   model,
@@ -45,7 +99,7 @@ const requestGemini = async ({
     generationConfig,
     stream: Boolean(onDelta),
   };
-  const response = await fetch(proxyUrl, {
+  const response = await fetchWithRetry(proxyUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -53,7 +107,7 @@ const requestGemini = async ({
     },
     body: JSON.stringify(body),
     signal,
-  });
+  }, signal);
   const contentType = response.headers.get("content-type") || "";
   const resolvedModelHeader = response.headers.get("x-tex64-resolved-model") || "";
   const isSse = contentType.includes("text/event-stream");
@@ -188,4 +242,7 @@ const requestGemini = async ({
 module.exports = {
   DEFAULT_GEMINI_MODEL,
   requestGemini,
+  fetchWithRetry,
+  MAX_RETRIES,
+  INITIAL_RETRY_DELAY_MS,
 };
