@@ -357,6 +357,7 @@ export const initMain = () => {
             getActiveSelectionSnapshot: () => editorSession.getActiveSelectionSnapshot(),
             getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
             getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
+            getWorkspaceFiles,
             showDiffModal: diffModalApi.showDiffModal,
             setDiffContext: diffModalApi.setDiffContext,
         });
@@ -833,6 +834,8 @@ export const initMain = () => {
                 handleProposal: (proposal) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposal(proposal),
                 handleApplyResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleApplyResult(payload),
                 handleUndoResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleUndoResult(payload),
+                handleScratchpad: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleScratchpad(payload),
+                handleThought: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleThought(payload),
                 handleError: (message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleError(message, conversationId),
             },
             api: {
@@ -886,6 +889,13 @@ export const initMain = () => {
             getWorkspaceFiles,
             onCursorPositionChange: handleCursorPositionChange,
             onCursorSelectionChange: handleCursorPositionChange,
+            openAiWithSelection: () => {
+                setActiveTab("ai");
+                const input = document.getElementById("ai-input");
+                if (input instanceof HTMLTextAreaElement) {
+                    input.focus();
+                }
+            },
             getEditorWordWrapEnabled: () => settingsUi.getEditorWordWrapEnabled(),
             getGhostCompletionEnabled: () => settingsUi.getGhostCompletionEnabled(),
             getGhostCompletionConfig: () => settingsUi.getGhostCompletionConfig(),

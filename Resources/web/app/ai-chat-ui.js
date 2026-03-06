@@ -11,6 +11,7 @@ import { createAiChatAttachmentsController } from "./ai-chat-attachments.js";
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
 import { createAiChatRunner } from "./ai-chat-runner.js";
 import { restorePendingAiDraft } from "./ai-chat-draft-restore.js";
+import { createMentionController } from "./ai-chat-mention.js";
 const AUTONOMOUS_LOOP_LIMIT = 100;
 const USAGE_REFRESH_DELAY_MS = 300;
 export const initAiChatUi = (context, deps) => {
@@ -192,22 +193,31 @@ export const initAiChatUi = (context, deps) => {
     };
     if (aiInput instanceof HTMLTextAreaElement)
         aiInput.addEventListener("input", autoGrow);
+    // ── @-mention file picker ──
+    const mentionController = aiInput instanceof HTMLTextAreaElement && deps.getWorkspaceFiles
+        ? createMentionController({
+            aiInput,
+            getWorkspaceFiles: deps.getWorkspaceFiles,
+        })
+        : null;
     const updateSendState = () => {
         const active = getChat(activeChatId);
         const isRunning = Boolean(active && runningConversations.has(active.id));
         const canResume = Boolean(active && !isRunning && resumableConversations.has(active.id));
         const canUndo = Boolean(active && active.hasUndo && !isRunning);
+        // activeChatId === null は「新規チャット」画面 → 常に入力を有効にする（並列実行対応）
+        const blockInput = activeChatId !== null && isRunning;
         if (aiSend instanceof HTMLButtonElement) {
-            aiSend.disabled = isRunning;
+            aiSend.disabled = blockInput;
             aiSend.classList.remove("is-loading");
-            aiSend.style.display = isRunning ? "none" : "flex";
+            aiSend.style.display = blockInput ? "none" : "flex";
         }
         if (aiInput instanceof HTMLTextAreaElement)
-            aiInput.disabled = isRunning;
+            aiInput.disabled = blockInput;
         if (aiAttach instanceof HTMLButtonElement)
-            aiAttach.disabled = isRunning;
+            aiAttach.disabled = blockInput;
         if (aiAttachInput instanceof HTMLInputElement)
-            aiAttachInput.disabled = isRunning;
+            aiAttachInput.disabled = blockInput;
         if (aiStop instanceof HTMLButtonElement) {
             aiStop.disabled = false;
             aiStop.innerHTML = isRunning
@@ -220,7 +230,20 @@ export const initAiChatUi = (context, deps) => {
             aiUndo.disabled = !canUndo;
         }
     };
-    const buildContextPayload = createContextPayloadBuilder(deps);
+    const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+    const buildContextPayload = (agentSettings) => {
+        const payload = _rawBuildContextPayload(agentSettings);
+        if (mentionController) {
+            const paths = mentionController.getExplicitPaths();
+            if (paths.length > 0) {
+                const existing = Array.isArray(payload.explicitContextPaths)
+                    ? payload.explicitContextPaths
+                    : [];
+                payload.explicitContextPaths = [...existing, ...paths.filter((p) => !existing.includes(p))];
+            }
+        }
+        return payload;
+    };
     const getChatLog = () => (aiChatLog instanceof HTMLElement ? aiChatLog : null);
     const getProposalsContainer = () => (aiProposals instanceof HTMLElement ? aiProposals : null);
     const ensureProposalsEmbedded = () => {
@@ -286,11 +309,13 @@ export const initAiChatUi = (context, deps) => {
         appendToChatLog(createMessageElement(message));
         scrollToBottom();
     };
+    let setPendingAttachments = (_attachments) => { };
     ({
         getPendingAttachments,
         renderAttachmentBar,
         clearPendingAttachments,
         addImageFiles,
+        setPendingAttachments,
     } = createAiChatAttachmentsController({
         aiAttachments,
         aiAttachInput,
@@ -408,7 +433,7 @@ export const initAiChatUi = (context, deps) => {
         }
         scrollToBottom();
     };
-    const restoreDraftFromPending = (chatId, request) => restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage });
+    const restoreDraftFromPending = (chatId, request) => restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage, setPendingAttachments });
     const { requestAgentRun } = createAiChatRunner({
         isAiBlocked,
         needsLogin,
@@ -453,6 +478,9 @@ export const initAiChatUi = (context, deps) => {
         buildContextPayload,
         getAgentSettings: () => agentSettings,
         clearPendingAttachments,
+        clearMentionPaths: mentionController
+            ? () => mentionController.clearExplicitPaths()
+            : undefined,
         addImageFiles,
         isAiBlocked,
         needsLogin,
@@ -481,7 +509,7 @@ export const initAiChatUi = (context, deps) => {
     };
     const handleSettings = (s) => {
         agentSettings = s;
-        syncModelSelect(s?.model);
+        syncModelSelect(s === null || s === void 0 ? void 0 : s.model);
         updateSendState();
     };
     if (aiModelSelect instanceof HTMLSelectElement) {
@@ -490,7 +518,7 @@ export const initAiChatUi = (context, deps) => {
             deps.postToNative({ type: "agent:settings:set", settings: { model } }, true);
         });
     }
-    const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleError, } = createAiChatIncomingHandlers({
+    const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError, } = createAiChatIncomingHandlers({
         postToNative: deps.postToNative,
         dismissProposal,
         chats,
@@ -529,6 +557,7 @@ export const initAiChatUi = (context, deps) => {
         updateContextBar,
         buildContextPayload,
         getAgentSettings: () => agentSettings,
+        switchActiveChat,
     });
     resetToNewChatState();
     updateContextBar();
@@ -536,7 +565,7 @@ export const initAiChatUi = (context, deps) => {
     requestPlatformState();
     return {
         handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
-        handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleError,
+        handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
         refreshContextBar: updateContextBar,
         handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
         handlePlatformUpdate,

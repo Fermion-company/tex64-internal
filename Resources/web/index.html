@@ -196,8 +196,8 @@
               role="tab"
               data-tab="ai"
               aria-selected="false"
-              aria-label="AI"
-              title="AI"
+              aria-label="Axiom"
+              title="Axiom"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -407,7 +407,7 @@
           </div>
           <div class="panel no-header" data-panel="ai">
             <div class="panel-header">
-              <span class="panel-title">AI</span>
+              <span class="panel-title">Axiom</span>
             </div>
             <div class="panel-body ai-panel" id="ai-panel">
               <div class="ai-login-overlay" id="ai-login-overlay">
@@ -418,8 +418,8 @@
                       <path d="M12 2l2.4 7.2H22l-6 4.8 2.4 7.2L12 16.4 5.6 21.2 8 14 2 9.2h7.6z"/>
                     </svg>
                   </div>
-                  <div class="ai-login-overlay-title">AIでTeX執筆を加速しよう</div>
-                  <div class="ai-login-overlay-subtitle">ログインしてAIアシスタントを利用</div>
+                  <div class="ai-login-overlay-title">Axiom でTeX執筆を加速しよう</div>
+                  <div class="ai-login-overlay-subtitle">ログインして Axiom を利用</div>
                   <button class="ai-login-overlay-btn" id="ai-login-overlay-btn" type="button">
                     <span>Googleでログイン</span>
                     <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 10h14M12 5l5 5-5 5"/></svg>
@@ -430,12 +430,12 @@
                 <button class="ai-icon-btn" id="ai-history-toggle" type="button" aria-label="履歴">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
                 </button>
-                <span class="ai-topbar-title" id="ai-topbar-title">AI</span>
+                <span class="ai-topbar-title" id="ai-topbar-title">Axiom</span>
                 <select class="ai-model-select" id="ai-model-select" aria-label="モデル選択">
-                  <option value="gemini-3-flash-preview">Flash</option>
-                  <option value="gemini-2.5-pro-preview-06-05">Pro</option>
+                  <option value="gemini-3-flash-preview">Axiom</option>
+                  <option value="gemini-2.5-pro-preview-06-05">Axiom Pro</option>
                 </select>
-                <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="AI使用量">
+                <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="Axiom 使用量">
                   <span class="ai-usage-meter-text" id="ai-usage-meter-text">-</span>
                 </div>
                 <button class="panel-button ghost ai-topbar-auth is-hidden" id="ai-auth-topbar" type="button">
@@ -1713,9 +1713,11 @@
             <div class="capture-crop-footer">
               <div class="capture-crop-meta">
                 <span class="capture-crop-size" id="math-capture-crop-size">1120 × 640</span>
-                <span class="capture-crop-hint" id="math-capture-crop-hint">
-                  ドラッグして範囲を調整
-                </span>
+                <span class="capture-crop-hint" id="math-capture-crop-hint"></span>
+              </div>
+              <div class="capture-crop-shortcuts">
+                <kbd class="capture-crop-kbd"><span class="capture-crop-kbd-key">Enter</span> 確定</kbd>
+                <kbd class="capture-crop-kbd"><span class="capture-crop-kbd-key">Esc</span> 戻る</kbd>
               </div>
             </div>
           </div>

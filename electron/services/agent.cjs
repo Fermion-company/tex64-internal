@@ -124,7 +124,7 @@ class AgentService {
       autoBuild: true,
       allowRunCommand: true,
     };
-    this.autoBuildInProgress = false;
+    this.autoBuildQueue = Promise.resolve();
     this.pendingSettingsRequests = new Map();
     this.applyUndoStack = [];
   }

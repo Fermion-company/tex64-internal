@@ -140,6 +140,12 @@ export const createMessageElement = (message) => {
         wrapper.classList.add("is-system");
         const content = document.createElement("div");
         content.className = "ai-message-content";
+        if (message.text.startsWith("\u{1F4AD} ")) {
+            content.classList.add("ai-thought-content");
+        }
+        else if (message.text.startsWith("\u{1F527} ")) {
+            content.classList.add("ai-tool-log-content");
+        }
         content.textContent = message.text;
         wrapper.appendChild(content);
     }

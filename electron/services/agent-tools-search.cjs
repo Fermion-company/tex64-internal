@@ -10,7 +10,7 @@ const {
 
 const MAX_SEARCH_RESULTS = 200;
 
-const buildSearchResults = (content, lowerQuery, relPath, results, limit) => {
+const buildSearchResults = (content, lowerQuery, relPath, results, limit, regex) => {
   if (!content) {
     return;
   }
@@ -20,18 +20,30 @@ const buildSearchResults = (content, lowerQuery, relPath, results, limit) => {
       return;
     }
     const line = lines[index];
-    if (line.toLowerCase().includes(lowerQuery)) {
+    const match = regex ? regex.test(line) : line.toLowerCase().includes(lowerQuery);
+    if (match) {
       results.push({
         path: relPath,
         line: index + 1,
         preview: line.trim(),
       });
     }
+    if (regex) regex.lastIndex = 0;
   }
 };
 
+const minimatch = (() => {
+  try {
+    return require("minimatch");
+  } catch {
+    return null;
+  }
+})();
+
 const handleSearchFiles = async (service, args, policy, conversationId) => {
   const query = typeof args.query === "string" ? args.query : "";
+  const useRegex = args.regex === true;
+  const includePattern = typeof args.include === "string" ? args.include.trim() : "";
   const rootPath = service.workspace.getRootPath();
   if (!rootPath) {
     return { error: "ワークスペースが選択されていません。" };
@@ -40,7 +52,25 @@ const handleSearchFiles = async (service, args, policy, conversationId) => {
   if (!trimmed) {
     return { results: [] };
   }
+  let regex = null;
+  if (useRegex) {
+    try {
+      regex = new RegExp(trimmed, "i");
+    } catch (e) {
+      return { error: `正規表現が不正です: ${e.message}` };
+    }
+  }
   const lowerQuery = trimmed.toLowerCase();
+  const matchesGlob = (relPath) => {
+    if (!includePattern) return true;
+    if (minimatch) return minimatch(relPath, includePattern, { dot: true, matchBase: true });
+    // Fallback: simple extension matching for patterns like "*.tex"
+    if (includePattern.startsWith("*.")) {
+      const ext = includePattern.slice(1);
+      return relPath.endsWith(ext);
+    }
+    return relPath.includes(includePattern);
+  };
   const results = [];
   const seenPaths = new Set();
   const context = service.contextByConversation.get(conversationId);
@@ -51,7 +81,8 @@ const handleSearchFiles = async (service, args, policy, conversationId) => {
     typeof context?.activeFileContent === "string" &&
     results.length < MAX_SEARCH_RESULTS &&
     isPathAllowed(activePath, policy) &&
-    isTextExtension(activePath, policy)
+    isTextExtension(activePath, policy) &&
+    matchesGlob(activePath)
   ) {
     seenPaths.add(activePath);
     buildSearchResults(
@@ -59,7 +90,8 @@ const handleSearchFiles = async (service, args, policy, conversationId) => {
       lowerQuery,
       activePath,
       results,
-      MAX_SEARCH_RESULTS
+      MAX_SEARCH_RESULTS,
+      regex
     );
   }
   if (context?.openFileSnapshots && Array.isArray(context.openFileSnapshots)) {
@@ -76,13 +108,17 @@ const handleSearchFiles = async (service, args, policy, conversationId) => {
         if (!isPathAllowed(snapshotPath, policy) || !isTextExtension(snapshotPath, policy)) {
           return;
         }
+        if (!matchesGlob(snapshotPath)) {
+          return;
+        }
         seenPaths.add(snapshotPath);
         buildSearchResults(
           snapshot.content,
           lowerQuery,
           snapshotPath,
           results,
-          MAX_SEARCH_RESULTS
+          MAX_SEARCH_RESULTS,
+          regex
         );
       }
     });
@@ -111,6 +147,9 @@ const handleSearchFiles = async (service, args, policy, conversationId) => {
       if (!isTextExtension(relPath, policy)) {
         continue;
       }
+      if (!matchesGlob(relPath)) {
+        continue;
+      }
       if (seenPaths.has(relPath)) {
         continue;
       }
@@ -122,7 +161,7 @@ const handleSearchFiles = async (service, args, policy, conversationId) => {
       if (content === null) {
         continue;
       }
-      buildSearchResults(content, lowerQuery, relPath, results, MAX_SEARCH_RESULTS);
+      buildSearchResults(content, lowerQuery, relPath, results, MAX_SEARCH_RESULTS, regex);
     }
   };
   await walk(rootPath);

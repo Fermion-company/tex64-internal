@@ -151,6 +151,14 @@ type BridgeHandlersDeps = {
       available?: boolean;
       count?: number;
     }) => void;
+    handleScratchpad?: (payload: {
+      content: string;
+      conversationId?: string;
+    }) => void;
+    handleThought?: (payload: {
+      text: string;
+      conversationId?: string;
+    }) => void;
     handleError: (message: string, conversationId?: string) => void;
   };
   api?: {
@@ -551,10 +559,20 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           }
         );
         break;
+      case "agent:scratchpad":
+        deps.agent?.handleScratchpad?.(
+          message.payload as { content: string; conversationId?: string }
+        );
+        break;
+      case "agent:thought":
+        deps.agent?.handleThought?.(
+          message.payload as { text: string; conversationId?: string }
+        );
+        break;
       case "agent:error":
         deps.agent?.handleError(
           (message.payload as { message?: string; conversationId?: string }).message ??
-            "AIエラー",
+            "Axiom エラー",
           (message.payload as { message?: string; conversationId?: string }).conversationId
         );
         break;

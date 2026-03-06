@@ -178,7 +178,7 @@ export const createProposalCard = (proposal, deps) => {
             (_a = deps.setDiffContext) === null || _a === void 0 ? void 0 : _a.call(deps, { type: "aiApply", proposalId: proposal.id });
             deps.setPendingProposalId(proposal.id);
             (_b = deps.showDiffModal) === null || _b === void 0 ? void 0 : _b.call(deps, originalContent, modifiedContent, 0, {
-                title: "AI提案の差分",
+                title: "Axiom 提案の差分",
                 fileName: proposal.path,
                 submitLabel: (_c = applyButton.textContent) !== null && _c !== void 0 ? _c : "適用",
             });

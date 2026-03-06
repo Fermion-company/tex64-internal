@@ -31,6 +31,7 @@ import { createAiChatAttachmentsController, type AiImageAttachment } from "./ai-
 import { createAiChatIncomingHandlers } from "./ai-chat-incoming-handlers.js";
 import { createAiChatRunner, type PendingAiRequest } from "./ai-chat-runner.js";
 import { restorePendingAiDraft } from "./ai-chat-draft-restore.js";
+import { createMentionController } from "./ai-chat-mention.js";
 
 type AiChatDeps = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
@@ -53,6 +54,7 @@ type AiChatDeps = {
   getRecentIssuesSnapshot?: () => {
     count: number; summary: string; status: IssuesStatus; issues: IssueItem[]; updatedAt: number;
   } | null;
+  getWorkspaceFiles?: () => string[];
   showDiffModal?: (original: string, modified: string, lineOffset?: number, options?: { title?: string; fileName?: string; submitLabel?: string }) => void;
   setDiffContext?: (context: DiffContext) => void;
 };
@@ -68,6 +70,8 @@ export type AiChatApi = {
   handleApplyResult: (payload: { proposalId: string; ok: boolean; error?: string; conflict?: boolean }) => void;
   handleUndoResult: (payload: { ok: boolean; message?: string; path?: string; conversationId?: string }) => void;
   handleUndoAvailability: (payload: { conversationId?: string; available?: boolean; count?: number }) => void;
+  handleScratchpad: (payload: { content: string; conversationId?: string }) => void;
+  handleThought: (payload: { text: string; conversationId?: string }) => void;
   handleError: (message: string, conversationId?: string) => void;
   refreshContextBar: () => void;
   handlePlatformAuth: (payload: {
@@ -287,19 +291,30 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   };
   if (aiInput instanceof HTMLTextAreaElement) aiInput.addEventListener("input", autoGrow);
 
+  // ── @-mention file picker ──
+  const mentionController =
+    aiInput instanceof HTMLTextAreaElement && deps.getWorkspaceFiles
+      ? createMentionController({
+          aiInput,
+          getWorkspaceFiles: deps.getWorkspaceFiles,
+        })
+      : null;
+
   const updateSendState = () => {
     const active = getChat(activeChatId);
     const isRunning = Boolean(active && runningConversations.has(active.id));
     const canResume = Boolean(active && !isRunning && resumableConversations.has(active.id));
     const canUndo = Boolean(active && active.hasUndo && !isRunning);
+    // activeChatId === null は「新規チャット」画面 → 常に入力を有効にする（並列実行対応）
+    const blockInput = activeChatId !== null && isRunning;
     if (aiSend instanceof HTMLButtonElement) {
-      aiSend.disabled = isRunning;
+      aiSend.disabled = blockInput;
       aiSend.classList.remove("is-loading");
-      aiSend.style.display = isRunning ? "none" : "flex";
+      aiSend.style.display = blockInput ? "none" : "flex";
     }
-    if (aiInput instanceof HTMLTextAreaElement) aiInput.disabled = isRunning;
-    if (aiAttach instanceof HTMLButtonElement) aiAttach.disabled = isRunning;
-    if (aiAttachInput instanceof HTMLInputElement) aiAttachInput.disabled = isRunning;
+    if (aiInput instanceof HTMLTextAreaElement) aiInput.disabled = blockInput;
+    if (aiAttach instanceof HTMLButtonElement) aiAttach.disabled = blockInput;
+    if (aiAttachInput instanceof HTMLInputElement) aiAttachInput.disabled = blockInput;
     if (aiStop instanceof HTMLButtonElement) {
       aiStop.disabled = false;
       aiStop.innerHTML = isRunning
@@ -313,7 +328,20 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     }
   };
 
-  const buildContextPayload = createContextPayloadBuilder(deps);
+  const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+  const buildContextPayload = (agentSettings: AgentSettings | null) => {
+    const payload = _rawBuildContextPayload(agentSettings);
+    if (mentionController) {
+      const paths = mentionController.getExplicitPaths();
+      if (paths.length > 0) {
+        const existing = Array.isArray(payload.explicitContextPaths)
+          ? (payload.explicitContextPaths as string[])
+          : [];
+        payload.explicitContextPaths = [...existing, ...paths.filter((p) => !existing.includes(p))];
+      }
+    }
+    return payload;
+  };
 
   const getChatLog = () => (aiChatLog instanceof HTMLElement ? aiChatLog : null);
   const getProposalsContainer = () => (aiProposals instanceof HTMLElement ? aiProposals : null);
@@ -374,11 +402,13 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     scrollToBottom();
   };
 
+  let setPendingAttachments = (_attachments: AiImageAttachment[]) => {};
   ({
     getPendingAttachments,
     renderAttachmentBar,
     clearPendingAttachments,
     addImageFiles,
+    setPendingAttachments,
   } = createAiChatAttachmentsController({
     aiAttachments,
     aiAttachInput,
@@ -492,7 +522,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   };
 
   const restoreDraftFromPending = (chatId: string, request: PendingAiRequest | null) =>
-    restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage });
+    restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage, setPendingAttachments });
 
   const { requestAgentRun } = createAiChatRunner({
     isAiBlocked,
@@ -539,6 +569,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     buildContextPayload,
     getAgentSettings: () => agentSettings,
     clearPendingAttachments,
+    clearMentionPaths: mentionController
+      ? () => mentionController.clearExplicitPaths()
+      : undefined,
     addImageFiles,
     isAiBlocked,
     needsLogin,
@@ -588,6 +621,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     handleApplyResult,
     handleUndoResult,
     handleUndoAvailability,
+    handleScratchpad,
+    handleThought,
     handleError,
   } = createAiChatIncomingHandlers({
     postToNative: deps.postToNative,
@@ -628,6 +663,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     updateContextBar,
     buildContextPayload,
     getAgentSettings: () => agentSettings,
+    switchActiveChat,
   });
 
   resetToNewChatState();
@@ -637,7 +673,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
 
   return {
     handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
-    handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleError,
+    handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
     refreshContextBar: updateContextBar,
     handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
     handlePlatformUpdate,

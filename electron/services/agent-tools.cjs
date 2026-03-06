@@ -61,13 +61,21 @@ const AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "search_files",
-    description: "Search for a text query in the workspace.",
+    description: "Search for a text query in the workspace. Supports plain text and regex.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Search query",
+          description: "Search query (plain text or regex pattern when regex=true)",
+        },
+        regex: {
+          type: "boolean",
+          description: "Treat query as a regular expression (default: false)",
+        },
+        include: {
+          type: "string",
+          description: "Glob pattern to filter files (e.g. '*.tex', 'chapters/*.tex')",
         },
       },
       required: ["query"],

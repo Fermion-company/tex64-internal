@@ -335,6 +335,10 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       }
       service.scratchpadByConversation.set(cid, next);
       service.markSessionDirty(cid);
+      service.sendToRenderer("agent:scratchpad", {
+        content: next,
+        conversationId: cid,
+      });
       return { status: "ok", mode, content: next, length: next.length };
     }
 
@@ -363,8 +367,8 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       } else if (requestedFile && !rootInfo?.path) {
         targetFile = requestedFile;
       }
-      service.sendBuildState?.("building", "AIがビルド中...");
-      service.sendIssues?.(0, "AIがビルド中...", "info", []);
+      service.sendBuildState?.("building", "Axiom がビルド中...");
+      service.sendIssues?.(0, "Axiom がビルド中...", "info", []);
       const settings = await service.workspace.loadSettings().catch(() => null);
       const activeId =
         typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";

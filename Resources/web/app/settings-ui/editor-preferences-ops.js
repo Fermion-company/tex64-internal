@@ -128,13 +128,8 @@ export const createSettingsEditorPreferenceOps = (runtime) => {
         updateEditorReverseSynctexUI();
     };
     const loadEditorGhostCompletionState = () => {
-        const stored = localStorage.getItem(runtime.keys.editorGhostCompletionKey);
-        if (stored !== null) {
-            runtime.state.ghostCompletionEnabled = stored !== "false";
-        }
-        else {
-            runtime.state.ghostCompletionEnabled = true;
-        }
+        // Ghost completion is currently disabled — always force off
+        runtime.state.ghostCompletionEnabled = false;
         updateEditorGhostCompletionUI();
     };
     const loadEditorGhostCompletionConfig = () => {

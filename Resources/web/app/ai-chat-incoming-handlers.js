@@ -1,7 +1,40 @@
 import { updateMessageElement } from "./ai-chat-message.js";
 export const createAiChatIncomingHandlers = (options) => {
-    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, enableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, buildContextPayload, getAgentSettings, postToNative, dismissProposal, } = options;
+    const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, enableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, buildContextPayload, getAgentSettings, postToNative, dismissProposal, switchActiveChat, } = options;
     const AUTONOMOUS_RESUME_DELAY_MS = 600;
+    // バックグラウンドで完了したエージェントのトースト通知
+    const showCompletionToast = (chatId, isError) => {
+        const chat = getChat(chatId);
+        if (!chat || chat.id === getActiveChatId())
+            return;
+        const existing = document.querySelector(".ai-bg-toast");
+        if (existing)
+            existing.remove();
+        const toast = document.createElement("div");
+        toast.className = `ai-bg-toast${isError ? " is-error" : ""}`;
+        const label = document.createElement("span");
+        label.textContent = isError
+            ? `${chat.title || "チャット"}: エラー`
+            : `${chat.title || "チャット"}: 完了`;
+        toast.appendChild(label);
+        if (switchActiveChat) {
+            const viewBtn = document.createElement("button");
+            viewBtn.type = "button";
+            viewBtn.className = "ai-bg-toast-action";
+            viewBtn.textContent = "表示";
+            viewBtn.addEventListener("click", () => {
+                switchActiveChat(chat.id);
+                toast.remove();
+            });
+            toast.appendChild(viewBtn);
+        }
+        const chatContainer = document.getElementById("ai-chat");
+        if (chatContainer) {
+            chatContainer.prepend(toast);
+            setTimeout(() => { if (toast.parentNode)
+                toast.remove(); }, 6000);
+        }
+    };
     const handleState = (state) => {
         const sessions = Array.isArray(state === null || state === void 0 ? void 0 : state.sessions) ? state.sessions : [];
         if (sessions.length === 0) {
@@ -146,6 +179,20 @@ export const createAiChatIncomingHandlers = (options) => {
     };
     const handleMessage = (text, conversationId) => {
         clearThinkingMessage(conversationId);
+        // Mark any open tool log as completed
+        const msgChat = ensureChat(conversationId);
+        if (msgChat) {
+            const toolLogPrefix = "\u{1F527} ";
+            const openLogIdx = msgChat.messages.findIndex((msg) => msg.role === "system" && msg.text.startsWith(toolLogPrefix) && !msg.text.includes("[完了]"));
+            if (openLogIdx >= 0) {
+                msgChat.messages[openLogIdx].text += "\n[完了]";
+            }
+            // Clear thought message for next turn
+            const thoughtIdx = msgChat.messages.findIndex((msg) => msg.role === "system" && msg.text.startsWith("\u{1F4AD} "));
+            if (thoughtIdx >= 0) {
+                msgChat.messages.splice(thoughtIdx, 1);
+            }
+        }
         if (conversationId) {
             pendingAgentRequests.delete(conversationId);
         }
@@ -157,6 +204,10 @@ export const createAiChatIncomingHandlers = (options) => {
             runningConversations.delete(conversationId);
             updateSendState();
             renderHistoryList();
+            // バックグラウンド会話の完了トースト
+            if (conversationId !== getActiveChatId()) {
+                showCompletionToast(conversationId, false);
+            }
         }
         const chat = ensureChat(conversationId);
         if (chat)
@@ -188,6 +239,20 @@ export const createAiChatIncomingHandlers = (options) => {
             : "";
         chat.statusMessage = summary ? `${label} (${summary})` : label;
         upsertThinkingMessage(chat.id, chat.statusMessage);
+        // Append tool execution to a running tool log message
+        const toolLogPrefix = "\u{1F527} ";
+        const toolEntry = summary ? `${label}: ${summary}` : label;
+        const existingLogIdx = chat.messages.findIndex((msg) => msg.role === "system" && msg.text.startsWith(toolLogPrefix) && !msg.text.includes("[完了]"));
+        if (existingLogIdx >= 0) {
+            chat.messages[existingLogIdx].text += `\n${toolEntry}`;
+        }
+        else {
+            chat.messages.push({ role: "system", text: `${toolLogPrefix}ツール実行ログ\n${toolEntry}` });
+        }
+        if (chat.id === getActiveChatId()) {
+            renderChatContent();
+            scrollToBottom();
+        }
         if (chat.id === getActiveChatId())
             updateStatusDisplay();
     };
@@ -208,16 +273,20 @@ export const createAiChatIncomingHandlers = (options) => {
         }
     };
     const handleApplyResult = (payload) => {
-        var _a;
-        const chatId = proposalIndex.get(payload.proposalId);
+        var _a, _b;
+        const chatId = (_a = proposalIndex.get(payload.proposalId)) !== null && _a !== void 0 ? _a : payload.conversationId;
         const chat = getChat(chatId);
         if (!chat)
             return;
         const proposal = chat.proposals.get(payload.proposalId);
-        if (!proposal)
-            return;
         if (payload.ok) {
             chat.hasUndo = true;
+            if (!proposal) {
+                // Auto-apply: no proposal card, just update undo state
+                renderHistoryList();
+                updateSendState();
+                return;
+            }
             if (chat.id === getActiveChatId()) {
                 const pc = getProposalsContainer();
                 const cardEl = pc === null || pc === void 0 ? void 0 : pc.querySelector(`[data-proposal-id="${payload.proposalId}"]`);
@@ -250,7 +319,7 @@ export const createAiChatIncomingHandlers = (options) => {
         }
         else {
             const label = payload.conflict ? "適用競合" : "適用失敗";
-            appendMessage({ role: "system", text: `${label}: ${(_a = payload.error) !== null && _a !== void 0 ? _a : "不明なエラー"}` }, chat.id);
+            appendMessage({ role: "system", text: `${label}: ${(_b = payload.error) !== null && _b !== void 0 ? _b : "不明なエラー"}` }, chat.id);
         }
     };
     const handleUndoResult = (payload) => {
@@ -306,7 +375,7 @@ export const createAiChatIncomingHandlers = (options) => {
                                 e.stopPropagation();
                                 postToNative({ type: "agent:apply", proposalId: pid });
                             });
-                            actionsEl.append(previewBtn, applyBtn);
+                            actionsEl.append(previewBtn, cancelBtn, applyBtn);
                         }
                         break;
                     }
@@ -330,6 +399,47 @@ export const createAiChatIncomingHandlers = (options) => {
             updateStatusDisplay();
         }
     };
+    const handleScratchpad = (payload) => {
+        const chat = ensureChat(payload.conversationId);
+        if (!chat)
+            return;
+        const content = typeof payload.content === "string" ? payload.content.trim() : "";
+        if (!content)
+            return;
+        // Show the scratchpad plan as a system message so users can see the agent's thinking
+        const existingPlanIdx = chat.messages.findIndex((msg) => msg.role === "system" && msg.text.startsWith("📋 "));
+        const planText = `📋 エージェント計画メモ\n\n${content}`;
+        if (existingPlanIdx >= 0) {
+            chat.messages[existingPlanIdx].text = planText;
+        }
+        else {
+            chat.messages.push({ role: "system", text: planText });
+        }
+        if (chat.id === getActiveChatId()) {
+            renderChatContent();
+            scrollToBottom();
+        }
+    };
+    const handleThought = (payload) => {
+        const chat = ensureChat(payload.conversationId);
+        if (!chat)
+            return;
+        const text = typeof payload.text === "string" ? payload.text.trim() : "";
+        if (!text)
+            return;
+        const existingIdx = chat.messages.findIndex((msg) => msg.role === "system" && msg.text.startsWith("\u{1F4AD} "));
+        const thoughtText = `\u{1F4AD} 思考過程\n\n${text}`;
+        if (existingIdx >= 0) {
+            chat.messages[existingIdx].text = thoughtText;
+        }
+        else {
+            chat.messages.push({ role: "system", text: thoughtText });
+        }
+        if (chat.id === getActiveChatId()) {
+            renderChatContent();
+            scrollToBottom();
+        }
+    };
     const handleError = (message, conversationId) => {
         var _a;
         appendMessage({ role: "system", text: message }, conversationId);
@@ -351,6 +461,10 @@ export const createAiChatIncomingHandlers = (options) => {
             runningConversations.delete(conversationId);
             renderHistoryList();
             updateSendState();
+            // バックグラウンド会話のエラートースト
+            if (conversationId !== getActiveChatId()) {
+                showCompletionToast(conversationId, true);
+            }
         }
         updateStatusDisplay();
         scheduleUsageRefresh(true);
@@ -365,6 +479,8 @@ export const createAiChatIncomingHandlers = (options) => {
         handleApplyResult,
         handleUndoResult,
         handleUndoAvailability,
+        handleScratchpad,
+        handleThought,
         handleError,
     };
 };

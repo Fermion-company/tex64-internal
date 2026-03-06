@@ -168,10 +168,16 @@ export const createAiChatAttachmentsController = (
     }
   };
 
+  const setPendingAttachments = (attachments: AiImageAttachment[]) => {
+    pendingAttachments = attachments.slice(0, MAX_IMAGE_ATTACHMENTS);
+    renderAttachmentBar();
+  };
+
   return {
     getPendingAttachments: () => pendingAttachments,
     renderAttachmentBar,
     clearPendingAttachments,
     addImageFiles,
+    setPendingAttachments,
   };
 };

@@ -53,9 +53,33 @@
   --status: #27C948;
   
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0,0,0,0.3);
-  
+
+  /* Success colors */
+  --success: #27C948;
+  --success-soft: rgba(39, 201, 72, 0.15);
+  --success-text: #6fdca5;
+
+  /* Border Radius — 3-level scale + pill */
   --radius: 12px;
-  
+  --radius-sm: 6px;   /* buttons, badges, small inputs */
+  --radius-md: 10px;  /* panels, cards, proposals, code blocks */
+  --radius-lg: 14px;  /* modals, dialogs, large containers */
+
+  /* Spacing — 4px-based scale */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 32px;
+
+  /* Transition — 3 speeds */
+  --duration-fast: 0.12s;
+  --duration-normal: 0.18s;
+  --duration-slow: 0.25s;
+
   --sidebar-width: 52px;
   --sidebar-panel-width: calc((100vw - var(--sidebar-width) - 4px) * 0.25);
   --topbar-height: 38px;
@@ -63,6 +87,57 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* ── Universal focus-visible ring ── */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Suppress for elements that handle their own focus */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[contenteditable]:focus-visible {
+  outline: none;
+}
+
+/* ── Universal scrollbar styling ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── Reduced motion preference ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 html,
@@ -193,7 +268,7 @@ body.has-launcher .app {
 .launcher-icon {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   object-fit: cover;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
@@ -223,7 +298,7 @@ body.has-launcher .app {
   font-size: 12px;
   line-height: 1.5;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--danger-faint);
   border: 1px solid var(--danger-border);
   color: var(--danger-text);
@@ -242,12 +317,15 @@ body.has-launcher .app {
   background: var(--panel);
   color: var(--text);
   text-align: left;
-  padding: 12px 16px;
-  border-radius: 8px;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: 
-    background 0.15s ease,
-    border-color 0.15s ease;
+  transition: background var(--duration-normal) ease, border-color var(--duration-normal) ease;
+}
+
+.launcher-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .launcher-action::before {
@@ -326,8 +404,8 @@ body.has-launcher .app {
   color: var(--text-soft);
   font-size: 11px;
   cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.15s ease, color 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-normal) ease, color var(--duration-normal) ease;
 }
 
 .launcher-recent-toggle:hover {
@@ -336,7 +414,7 @@ body.has-launcher .app {
 }
 
 .launcher-recent-toggle-icon {
-  transition: transform 0.2s ease;
+  transition: transform var(--duration-normal) ease;
 }
 
 .launcher-recent-toggle[aria-expanded="true"] .launcher-recent-toggle-icon {
@@ -372,10 +450,10 @@ body.has-launcher .app {
   padding: 0;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  transition: background var(--duration-normal) ease, color var(--duration-normal) ease, opacity var(--duration-normal) ease;
   opacity: 0.55;
   flex-shrink: 0;
   font-size: 18px;
@@ -403,10 +481,10 @@ body.has-launcher .app {
   padding: 10px 12px;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--duration-normal) ease;
   flex-shrink: 0;
 }
 
@@ -464,7 +542,7 @@ body.has-launcher .app {
 .top-actions {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-1);
   padding: 0 8px;
   -webkit-app-region: no-drag;
 }
@@ -473,15 +551,15 @@ body.has-launcher .app {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
   -webkit-app-region: no-drag;
 }
 
@@ -507,7 +585,7 @@ body.has-launcher .app {
   background: var(--control-bg);
   color: var(--text);
   padding: 4px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   cursor: default;
 }
@@ -523,8 +601,8 @@ body.has-launcher .app {
 }
 
 .pill.is-busy {
-  border-color: rgba(92, 156, 255, 0.6);
-  background: rgba(92, 156, 255, 0.18);
+  border-color: var(--focus-ring);
+  background: var(--accent-soft);
 }
 
 .main {
@@ -570,7 +648,7 @@ body.has-launcher .app {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 8px 6px; /* slightly more padding */
+  padding: var(--space-3); /* Symmetrical padding */
   background: rgba(255, 255, 255, 0.02); /* Slight white tint to brighten */
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -634,15 +712,16 @@ body.has-launcher .app {
   border: none;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
-  padding: 4px 8px; /* Compact padding */
-  border-radius: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   cursor: pointer;
-  height: 24px; /* Fixed compact height */
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.1s ease;
+  gap: var(--space-1);
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease, transform var(--duration-fast) ease, border-color var(--duration-fast) ease;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -664,6 +743,11 @@ body.has-launcher .app {
   transform: translateY(0);
 }
 
+.panel-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .panel-button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -678,12 +762,12 @@ body.has-launcher .app {
   align-items: center;
   gap: 0;
   border: 1px solid var(--control-border);
-  border-radius: 6px; /* slightly less rounded than 999px for more modern feel, or keep it? User said "revert". Let's stick to 6px or 8px to match inputs */
+  border-radius: var(--radius-sm);
   background: var(--input-bg);
   padding: 0; /* Flush with border */
   font-size: 11px; /* Increased from 10px */
   cursor: pointer;
-  color: #94a3b8; /* Brighter than muted for better visibility */
+  color: var(--text-soft);
   overflow: hidden;
   min-width: 140px; /* Ensure sufficient width */
 }
@@ -739,7 +823,7 @@ body.has-launcher .app {
 
 .panel-button.danger {
   background: rgba(248, 81, 73, 0.18);
-  color: #ff6b6b;
+  color: var(--danger-text);
   border-color: rgba(248, 81, 73, 0.3);
 }
 
@@ -840,7 +924,7 @@ body.has-launcher .app {
   display: grid;
   gap: 6px;
   border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 8px 10px 10px;
   background: var(--input-bg);
 }
@@ -886,7 +970,7 @@ body.has-launcher .app {
   background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--input-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   font-size: 12px;
   font-family: "SF Mono", Menlo, monospace;
@@ -894,7 +978,7 @@ body.has-launcher .app {
 
 .block-math-input {
   background: var(--input-bg-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   font-size: 16px;
   font-family: "Hiragino Sans", "Avenir Next", "Yu Gothic", sans-serif;
@@ -902,7 +986,7 @@ body.has-launcher .app {
 }
 
 .block-input:focus {
-  outline: 2px solid rgba(92, 156, 255, 0.4);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
@@ -912,14 +996,14 @@ math-field.block-input {
 }
 
 math-field.block-input:focus-within {
-  outline: 2px solid rgba(92, 156, 255, 0.4);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
 math-field.block-math-input {
   min-height: 72px;
   --caret-color: var(--accent);
-  --selection-color: rgba(92, 156, 255, 0.4);
+  --selection-color: var(--focus-ring);
   --selection-background-color: transparent;
 }
 
@@ -942,7 +1026,7 @@ math-field.block-math-field {
   border-radius: 0;
   --caret-color: var(--accent-strong);
   --selection-color: var(--text);
-  --selection-background-color: rgba(92, 156, 255, 0.35);
+  --selection-background-color: var(--focus-ring);
   transition: none; /* Container handles transition */
   outline: none;
   box-shadow: none !important; /* Remove any default shadows */
@@ -954,7 +1038,7 @@ math-field.block-math-field {
   height: auto;
   border: 1px solid var(--input-border);
   background: var(--input-bg);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: block;
   padding: 0;
   color: var(--text);
@@ -981,7 +1065,7 @@ math-field.block-math-field {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--panel-border-strong);
   background: rgba(18, 22, 28, 0.92);
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
@@ -1006,7 +1090,7 @@ math-field.block-math-field {
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 4px 8px;
   display: inline-flex;
   align-items: center;
@@ -1052,7 +1136,7 @@ math-field.block-math-field {
   justify-content: center;
   gap: 3px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--panel-border-strong);
   background: rgba(18, 22, 28, 0.85);
   color: var(--text);
@@ -1085,7 +1169,7 @@ math-field.block-math-field {
 }
 
 math-field.block-math-field::placeholder {
-  color: #7F9BB2;
+  color: var(--text-soft);
 }
 
 .block-math-hint {
@@ -1166,7 +1250,7 @@ math-field.block-math-field::placeholder {
   top: calc(100% + 6px);
   min-width: 160px;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--panel-border);
   background: var(--panel);
   box-shadow: var(--shadow);
@@ -1187,7 +1271,7 @@ math-field.block-math-field::placeholder {
   color: var(--text);
   font-size: 11px;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -1234,7 +1318,7 @@ math-field.block-math-field::placeholder {
   border: 1px solid var(--panel-border);
   background: var(--panel);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   text-align: left;
   display: grid;
@@ -1286,7 +1370,7 @@ math-field.block-math-field::placeholder {
   border: 1px solid var(--panel-border);
   background: var(--panel);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -1313,7 +1397,7 @@ math-field.block-math-field::placeholder {
   align-items: center;
   justify-content: center;
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--panel-border);
   background: var(--panel-strong);
   font-size: 10px;
@@ -1343,17 +1427,17 @@ math-field.block-math-field::placeholder {
   background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 12px;
-  transition: all 0.2s ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .search-input:focus {
   outline: none;
   background: var(--input-bg-strong);
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px rgba(92, 156, 255, 0.3);
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 .search-rename {
@@ -1361,7 +1445,7 @@ math-field.block-math-field::placeholder {
   flex-direction: column;
   gap: 8px;
   padding: 10px 10px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--panel-border);
   background: rgba(20, 24, 31, 0.55);
 }
@@ -1404,11 +1488,11 @@ math-field.block-math-field::placeholder {
   background: var(--input-bg);
   color: var(--text);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 7px 9px;
   font-size: 11.5px;
   min-width: 0;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--duration-normal), box-shadow var(--duration-normal);
 }
 
 .search-rename-input::placeholder {
@@ -1420,7 +1504,7 @@ math-field.block-math-field::placeholder {
 .search-rename-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(92, 156, 255, 0.15);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .search-rename-footer {
@@ -1460,11 +1544,11 @@ math-field.block-math-field::placeholder {
   font-size: 10px;
   font-weight: 500;
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid transparent;
-  transition: all 0.15s;
+  transition: all var(--duration-normal);
   line-height: 1.4;
 }
 
@@ -1474,8 +1558,8 @@ math-field.block-math-field::placeholder {
 
 .search-rename-scope input:checked + span {
   color: var(--accent);
-  background: rgba(92, 156, 255, 0.1);
-  border-color: rgba(92, 156, 255, 0.25);
+  background: var(--accent-soft);
+  border-color: var(--focus-ring);
 }
 
 .search-rename-btn {
@@ -1488,9 +1572,9 @@ math-field.block-math-field::placeholder {
   color: #fff;
   background: var(--accent);
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background var(--duration-normal), opacity var(--duration-normal);
   line-height: 1.4;
   white-space: nowrap;
   flex-shrink: 0;
@@ -1517,7 +1601,7 @@ math-field.block-math-field::placeholder {
   font-size: 10px;
   color: var(--muted);
   padding: 5px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   line-height: 1.5;
 }
 
@@ -1528,16 +1612,16 @@ math-field.block-math-field::placeholder {
 
 .search-rename-status.is-busy {
   color: var(--text);
-  background: rgba(92, 156, 255, 0.08);
+  background: var(--accent-soft);
 }
 
 .search-rename-status.is-ok {
-  color: #6fdca5;
+  color: var(--success-text);
   background: rgba(111, 220, 165, 0.08);
 }
 
 .search-rename-status.is-error {
-  color: #ff9aa2;
+  color: var(--danger-text);
   background: rgba(255, 154, 162, 0.08);
 }
 
@@ -1562,7 +1646,7 @@ math-field.block-math-field::placeholder {
   flex-direction: column;
   flex: 0 0 auto;
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--input-bg);
 }
@@ -1605,7 +1689,7 @@ math-field.block-math-field::placeholder {
   border-top: none;
   background: transparent;
   color: var(--muted);
-  transition: background 0.1s ease;
+  transition: background var(--duration-fast) ease;
 }
 
 .search-match-item:last-child {
@@ -1613,7 +1697,7 @@ math-field.block-math-field::placeholder {
 }
 
 .search-match-item:hover {
-  background: rgba(92, 156, 255, 0.05);
+  background: var(--accent-soft);
   color: var(--text);
 }
 
@@ -1638,7 +1722,7 @@ math-field.block-math-field::placeholder {
 }
 
 .search-match-highlight {
-  background: rgba(92, 156, 255, 0.22);
+  background: var(--accent-soft);
   color: var(--text);
   border-radius: 3px;
   padding: 0 1px;
@@ -1692,13 +1776,13 @@ math-field.block-math-field::placeholder {
   flex-direction: column;
   gap: 1px;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   text-align: left;
   color: var(--text);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--duration-normal) ease;
   position: relative;
   overflow: hidden;
 }
@@ -1719,7 +1803,7 @@ math-field.block-math-field::placeholder {
   width: 3px;
   background: var(--accent);
   transform: scaleY(0);
-  transition: transform 0.15s ease;
+  transition: transform var(--duration-normal) ease;
   border-radius: 0 2px 2px 0;
 }
 
@@ -1739,7 +1823,7 @@ math-field.block-math-field::placeholder {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  transition: color 0.15s ease;
+  transition: color var(--duration-normal) ease;
 }
 
 .settings-nav-badge {
@@ -1857,12 +1941,12 @@ math-field.block-math-field::placeholder {
   width: 28px;
   height: 28px;
   padding: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   border: none;
   color: var(--text-soft);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .settings-back::before {
@@ -1872,7 +1956,7 @@ math-field.block-math-field::placeholder {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238B949E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 18l-6-6 6-6'/%3E%3C/svg%3E");
   background-size: contain;
   background-repeat: no-repeat;
-  transition: transform 0.15s ease;
+  transition: transform var(--duration-normal) ease;
 }
 
 .settings-back:hover {
@@ -1889,13 +1973,13 @@ math-field.block-math-field::placeholder {
 
 /* Settings Page Panel Button Overrides */
 .settings-page .panel-button {
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
-  height: auto;
+  height: 32px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: background var(--duration-normal) ease, border-color var(--duration-normal) ease, transform var(--duration-fast) ease;
 }
 
 .settings-page .panel-button:hover {
@@ -1918,7 +2002,7 @@ math-field.block-math-field::placeholder {
   margin-top: 12px;
   background: rgba(255, 255, 255, 0.015);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   container-type: inline-size;
 }
 
@@ -2018,7 +2102,7 @@ math-field.block-math-field::placeholder {
   color: var(--muted);
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-top: 14px;
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -2029,19 +2113,19 @@ math-field.block-math-field::placeholder {
 }
 
 .settings-help-text.is-success {
-  color: #7dd38b;
+  color: var(--success-text);
   border-color: rgba(125, 211, 139, 0.35);
   background: rgba(125, 211, 139, 0.08);
 }
 
 .settings-help-text.is-warning {
-  color: #ffd38a;
+  color: var(--warning-text);
   border-color: rgba(255, 211, 138, 0.35);
   background: rgba(255, 211, 138, 0.08);
 }
 
 .settings-help-text.is-error {
-  color: #ff9b9b;
+  color: var(--danger-text);
   border-color: rgba(255, 155, 155, 0.35);
   background: rgba(255, 155, 155, 0.08);
 }
@@ -2126,7 +2210,7 @@ math-field.block-math-field::placeholder {
   background: rgba(0, 0, 0, 0.2);
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   font-size: 12px;
   font-family: inherit;
@@ -2201,7 +2285,7 @@ math-field.block-math-field::placeholder {
   color: var(--text-soft);
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 14px;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -2221,7 +2305,7 @@ math-field.block-math-field::placeholder {
   background: rgba(0, 0, 0, 0.2);
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   font-size: 12px;
   font-family: inherit;
@@ -2274,7 +2358,7 @@ math-field.block-math-field::placeholder {
   font-family: "SF Mono", Menlo, monospace;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 14px;
   max-width: 100%;
   white-space: nowrap;
@@ -2304,7 +2388,7 @@ math-field.block-math-field::placeholder {
   font-weight: 500;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .settings-toggle.is-on {
@@ -2331,7 +2415,7 @@ math-field.block-math-field::placeholder {
   background: rgba(0, 0, 0, 0.25);
   position: relative;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .settings-switch-input::after {
@@ -2344,7 +2428,7 @@ math-field.block-math-field::placeholder {
   border-radius: 999px;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: all 0.2s ease;
+  transition: all var(--duration-normal) ease;
 }
 
 .settings-switch-input:hover {
@@ -2379,7 +2463,7 @@ math-field.block-math-field::placeholder {
   justify-content: center;
   gap: 6px;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
   font-size: 11px;
@@ -2392,7 +2476,7 @@ math-field.block-math-field::placeholder {
 }
 
 .env-badge.ok {
-  color: #7dd3a8;
+  color: var(--success-text);
   background: rgba(125, 211, 168, 0.1);
   border-color: rgba(125, 211, 168, 0.25);
 }
@@ -2460,7 +2544,7 @@ math-field.block-math-field::placeholder {
   display: grid;
   gap: 12px;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(0, 0, 0, 0.15);
 }
@@ -2490,7 +2574,7 @@ math-field.block-math-field::placeholder {
   background: rgba(0, 0, 0, 0.25);
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 12px;
   transition: all 0.2s ease;
@@ -2500,7 +2584,7 @@ math-field.block-math-field::placeholder {
 .env-registry-select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .env-registry-hint {
@@ -2508,7 +2592,7 @@ math-field.block-math-field::placeholder {
   color: var(--muted);
   padding: 8px 12px;
   background: rgba(255, 255, 255, 0.02);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
@@ -2544,7 +2628,7 @@ math-field.block-math-field::placeholder {
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.04);
   background: rgba(255, 255, 255, 0.02);
   transition: all 0.2s ease;
@@ -2653,7 +2737,7 @@ math-field.block-math-field::placeholder {
   color: var(--text-soft);
   font-size: 12px;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   text-align: left;
   cursor: pointer;
   display: flex;
@@ -2758,7 +2842,7 @@ math-field.block-math-field::placeholder {
 
 .file-folder-children.is-drop-target {
   background: rgba(92, 156, 255, 0.08);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .panel-actions {
@@ -2775,7 +2859,7 @@ math-field.block-math-field::placeholder {
   list-style: none;
   cursor: pointer;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   -webkit-user-select: none;
   user-select: none;
@@ -2801,7 +2885,7 @@ math-field.block-math-field::placeholder {
   display: inline-block;
   margin-right: 6px;
   transform: rotate(0deg);
-  transition: transform 0.15s ease;
+  transition: transform var(--duration-normal) ease;
 }
 
 .file-folder summary.is-open::before {
@@ -2833,7 +2917,7 @@ math-field.block-math-field::placeholder {
   background: transparent;
   color: var(--text);
   padding: 3px 6px 3px 18px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   cursor: pointer;
   -webkit-user-select: none;
@@ -2900,7 +2984,7 @@ math-field.block-math-field::placeholder {
   justify-content: center;
   gap: 6px;
   font-size: 11px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   cursor: pointer;
 }
@@ -3105,7 +3189,7 @@ math-field.block-math-field::placeholder {
   justify-content: center;
   height: 24px;
   margin: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   padding: 0 8px;
   font-size: 10px;
@@ -3162,8 +3246,8 @@ math-field.block-math-field::placeholder {
 #synctex-button:focus-visible,
 #update-button:focus-visible,
 #build-button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--focus-ring);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .editor-tabs-list {
@@ -3299,7 +3383,7 @@ math-field.block-math-field::placeholder {
     rgba(121, 126, 249, 0.26),
     rgba(255, 79, 216, 0.18)
   );
-  color: #f0f1ff;
+  color: var(--accent-strong);
   box-shadow:
     0 0 0 1px rgba(121, 126, 249, 0.24),
     0 0 18px rgba(121, 126, 249, 0.18);
@@ -3342,7 +3426,7 @@ math-field.block-math-field::placeholder {
   border: 1px solid var(--panel-border);
   background: transparent;
   color: var(--text-soft);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   height: 32px;
   margin: 2px 0;
@@ -3371,7 +3455,7 @@ math-field.block-math-field::placeholder {
 #build-button:hover {
   background: rgba(121, 126, 249, 0.28);
   border-color: rgba(162, 167, 252, 0.65);
-  color: #f0f1ff;
+  color: var(--accent-strong);
 }
 
 #build-button:active {
@@ -3446,7 +3530,7 @@ math-field.block-math-field::placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   margin-right: -4px;
 }
 
@@ -3474,7 +3558,7 @@ math-field.block-math-field::placeholder {
   gap: 4px;
   padding: 4px 6px;
   border: 1px solid var(--panel-border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: linear-gradient(180deg, rgba(22, 28, 36, 0.95) 0%, var(--bg) 100%);
   box-shadow:
     0 -10px 22px rgba(0, 0, 0, 0.4),
@@ -3622,7 +3706,7 @@ math-field.block-math-field::placeholder {
 
 .math-keyboard-key {
   border: 1px solid var(--control-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   min-width: 44px;
@@ -3740,13 +3824,13 @@ math-field.block-math-field::placeholder {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .editor-viewer-pdf {
   width: 100%;
   height: 100%;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .editor-viewer-message {
@@ -3754,7 +3838,7 @@ math-field.block-math-field::placeholder {
   max-width: 420px;
   text-align: center;
   padding: 20px 24px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--panel-border);
   background: var(--panel-strong);
   color: var(--text);
@@ -3819,8 +3903,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .pill.is-active {
-  border-color: rgba(92, 156, 255, 0.6);
-  background: rgba(92, 156, 255, 0.18);
+  border-color: var(--focus-ring);
+  background: var(--accent-soft);
   color: var(--text);
 }
 
@@ -3848,7 +3932,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   width: min(400px, 90vw);
   background: var(--panel-strong, #1c242e);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 22px 24px;
   box-shadow:
     0 24px 48px rgba(0, 0, 0, 0.4),
@@ -3867,7 +3951,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 0;
   gap: 0;
   overflow: hidden;
-  border-radius: 16px; /* Increased radius */
+  border-radius: var(--radius-lg); /* Increased radius */
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45); /* Stronger shadow */
   background: var(--panel-strong); /* Ensure panel background */
 }
@@ -3935,7 +4019,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .diff-header-actions .panel-button {
   padding: 8px 16px; /* Larger touch target */
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   min-width: 80px; /* Consistent width */
   justify-content: center;
 }
@@ -3986,7 +4070,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .diff-summary-item.is-add {
   background: rgba(73, 194, 120, 0.2);
-  color: #8fe0b3;
+  color: var(--success-text);
 }
 
 .diff-summary-item.is-del {
@@ -4015,8 +4099,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .block-diff-container {
   height: min(75vh, 720px);
-  background: #1A1D23; /* Darker editor bg */
-  border-radius: 12px;
+  background: var(--bg); /* Darker editor bg */
+  border-radius: var(--radius-md);
   border: 1px solid var(--panel-border-strong);
   overflow: hidden; /* Ensure radius clips content */
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -4030,7 +4114,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .modal-label {
@@ -4064,7 +4148,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: rgba(0, 0, 0, 0.2);
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px 14px;
   font-size: 13px;
   font-family: inherit;
@@ -4084,7 +4168,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--muted);
   padding: 8px 12px;
   background: rgba(255, 255, 255, 0.02);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -4109,7 +4193,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 8px 18px;
   font-size: 12px;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   min-width: 72px;
   justify-content: center;
   transition: all 0.15s ease;
@@ -4133,7 +4217,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   position: absolute;
   min-width: 220px;
   padding: 6px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-accent);
   border: 1px solid var(--panel-border);
   box-shadow: 0 18px 34px rgba(0, 0, 0, 0.35);
@@ -4152,13 +4236,13 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--text);
   font-size: 12px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
 }
 
 .context-menu-item:hover {
-  background: rgba(92, 156, 255, 0.12);
+  background: var(--accent-soft);
 }
 
 .context-menu-item.is-danger {
@@ -4191,7 +4275,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .issues-log {
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel-strong);
   padding: 8px 10px;
   color: var(--text-soft);
@@ -4235,7 +4319,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   text-align: left;
   border: 1px solid var(--panel-border);
   border-left-width: 4px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--bg-accent);
   padding: 11px 12px;
   display: grid;
@@ -4356,7 +4440,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .monaco-editor .jump-line-highlight {
-  background: rgba(92, 156, 255, 0.16);
+  background: var(--accent-soft);
 }
 
 .monaco-editor .detected-block-highlight {
@@ -4426,8 +4510,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   -webkit-appearance: none;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: var(--text-secondary, #aaa);
+  border-radius: var(--radius-sm);
+  color: var(--text-soft);
   font-size: 11px;
   padding: 3px 20px 3px 8px;
   cursor: pointer;
@@ -4442,16 +4526,17 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--text);
 }
 .ai-model-select:focus {
-  border-color: var(--accent, #818cf8);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .ai-model-select option {
-  background: #1e1e2e;
-  color: #cdd6f4;
+  background: var(--bg-accent);
+  color: var(--text);
 }
 .ai-topbar-auth.panel-button {
   min-height: 26px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   line-height: 1;
 }
@@ -4503,7 +4588,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   right: -8px;
   min-width: 180px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(15, 18, 25, 0.92);
   backdrop-filter: blur(16px) saturate(1.2);
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
@@ -4568,24 +4653,24 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--duration-normal) ease;
   flex-shrink: 0;
 }
 .ai-icon-btn:hover {
   background: rgba(99, 102, 241, 0.12);
-  color: #c7d2fe;
+  color: var(--accent-strong);
 }
 
 /* ── History Panel ──────────────────────────────────────── */
 .ai-history {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  transition: max-height var(--duration-normal) ease;
   border-bottom: 1px solid transparent;
 }
 .ai-history.is-open {
@@ -4598,7 +4683,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: block;
   width: 100%;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   cursor: pointer;
@@ -4608,7 +4693,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background 0.12s;
+  transition: background var(--duration-fast);
 }
 .ai-history-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
 .ai-history-item.is-active { background: rgba(99, 102, 241, 0.1); color: #a78bfa; }
@@ -4630,7 +4715,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   color: var(--muted);
@@ -4661,9 +4746,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
 }
 .ai-chat-delete-modal-card {
-  background: var(--surface, #1e1e2e);
+  background: var(--surface, var(--bg-accent));
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 20px;
   width: min(300px, 85%);
   display: flex;
@@ -4691,7 +4776,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .ai-chat-delete-modal-actions .panel-button.danger {
   background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
+  color: var(--danger-text);
   border-color: rgba(239, 68, 68, 0.2);
 }
 .ai-chat-delete-modal-actions .panel-button.danger:hover {
@@ -4771,7 +4856,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
   font-size: 11.5px;
@@ -4808,7 +4893,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: linear-gradient(135deg, #6366f1, #7c3aed);
   color: #fff;
   padding: 8px 14px;
-  border-radius: 16px 16px 4px 16px;
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
   max-width: 92%;
   font-size: 13px;
 }
@@ -4826,9 +4911,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(99, 102, 241, 0.1);
-  color: #a78bfa;
+  color: var(--accent-strong);
   margin-top: 1px;
 }
 .ai-message-body {
@@ -4839,12 +4924,12 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .ai-message.is-assistant .ai-message-content p { margin: 0 0 12px; }
 .ai-message.is-assistant .ai-message-content p:last-child { margin-bottom: 0; }
-.ai-message.is-assistant .ai-message-content strong { font-weight: 600; color: #e2e8f0; }
+.ai-message.is-assistant .ai-message-content strong { font-weight: 600; color: var(--text); }
 .ai-message.is-assistant .ai-message-content .ai-md-heading {
   margin: 14px 0 8px;
   line-height: 1.35;
   font-weight: 700;
-  color: #f1f5f9;
+  color: var(--text);
 }
 .ai-message.is-assistant .ai-message-content .ai-md-heading-1 { font-size: 1.1em; }
 .ai-message.is-assistant .ai-message-content .ai-md-heading-2 { font-size: 1.04em; }
@@ -4870,12 +4955,93 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border-radius: 99px;
 }
 
+/* Thought process */
+.ai-message.is-system .ai-message-content.ai-thought-content {
+  font-size: 11px;
+  color: rgba(168, 162, 158, 0.8);
+  padding: 6px 10px;
+  border: 1px dashed rgba(168, 130, 255, 0.15);
+  border-radius: var(--radius-sm);
+  background: rgba(168, 130, 255, 0.04);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+  text-align: left;
+}
+/* Tool log */
+.ai-message.is-system .ai-message-content.ai-tool-log-content {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.7);
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+  white-space: pre-wrap;
+  max-height: 100px;
+  overflow-y: auto;
+  text-align: left;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ── Background Agent Toast ────────────────────────────── */
+.ai-bg-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: var(--accent-strong);
+  font-size: 12px;
+  animation: aiBgToastIn 0.2s ease;
+}
+.ai-bg-toast.is-error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--danger-text);
+}
+.ai-bg-toast-action {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.ai-bg-toast-action:hover { opacity: 1; }
+@keyframes aiBgToastIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── History Running Pulse Dot ────────────────────────── */
+.ai-history-item-wrap.is-running .ai-history-item::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #60a5fa;
+  margin-right: 6px;
+  animation: aiRunPulse 1.5s ease-in-out infinite;
+  vertical-align: middle;
+}
+@keyframes aiRunPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 /* ── Markdown — Code Blocks ────────────────────────────── */
 .ai-code-block {
   margin: 8px 0;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .ai-code-header {
@@ -4900,7 +5066,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: none;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: all 0.15s;
 }
 .ai-code-copy:hover {
@@ -4927,7 +5093,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 0.88em;
   background: rgba(255, 255, 255, 0.07);
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: #d8b4fe;
 }
 
@@ -4950,7 +5116,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   margin-bottom: 8px;
   font-weight: 700;
   font-size: 1.03em;
-  color: #f1f5f9;
+  color: var(--text);
 }
 .ai-md-list li.ai-md-list-item-heading::marker {
   content: "";
@@ -4983,14 +5149,14 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .ai-proposal {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   position: relative;
   overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--duration-normal) ease, background var(--duration-normal) ease;
 }
 .ai-proposal:hover {
   background: rgba(255, 255, 255, 0.035);
@@ -5010,7 +5176,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   width: 2px;
   background: linear-gradient(180deg, #818cf8 0%, #6366f1 100%);
   opacity: 0.4;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--duration-normal) ease;
 }
 .ai-proposal:hover::before {
   opacity: 0.7;
@@ -5036,7 +5202,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 9px;
   font-weight: 600;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: rgba(73, 194, 120, 0.1);
   color: #49c278;
   border: 1px solid rgba(73, 194, 120, 0.15);
@@ -5059,16 +5225,16 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .ai-proposal-actions .panel-button {
   font-size: 10.5px;
   padding: 3px 9px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text);
-  transition: all 0.12s ease;
+  transition: all var(--duration-fast) ease;
   white-space: nowrap;
 }
 .ai-proposal-actions .panel-button:hover {
   background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
+  color: var(--accent-strong);
   border-color: rgba(99, 102, 241, 0.25);
 }
 .ai-proposal-actions .panel-button.ghost {
@@ -5078,7 +5244,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .ai-proposal-actions .panel-button.ghost:hover {
   background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
+  color: var(--accent-strong);
   border-color: rgba(99, 102, 241, 0.25);
 }
 .ai-proposal-diff {
@@ -5103,7 +5269,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 11px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   display: flex;
   flex-direction: column;
@@ -5129,6 +5295,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  position: relative;
 }
 .ai-context-bar {
   display: none;
@@ -5144,9 +5311,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 3px 9px;
   background: rgba(99, 102, 241, 0.08);
   border: 1px solid rgba(99, 102, 241, 0.15);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  color: #a78bfa;
+  color: var(--accent-strong);
   line-height: 1;
   min-width: 0;
   max-width: 100%;
@@ -5195,7 +5362,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: none;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
-  color: #e2e8f0;
+  color: var(--text);
   cursor: pointer;
   font-size: 11px;
   line-height: 1;
@@ -5207,7 +5374,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .ai-chat-input {
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 10px 10px 10px 14px;
   display: flex;
   align-items: flex-end;
@@ -5240,7 +5407,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: none;
   cursor: pointer;
   transition: all 0.18s ease;
@@ -5253,7 +5420,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .ai-btn-attach {
   background: rgba(99, 102, 241, 0.1);
-  color: #a5b4fc;
+  color: var(--accent-strong);
 }
 .ai-btn-attach:hover:not(:disabled) {
   background: rgba(99, 102, 241, 0.18);
@@ -5293,7 +5460,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .ai-btn-stop {
   background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
+  color: var(--danger-text);
 }
 .ai-btn-stop:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.18);
@@ -5306,13 +5473,61 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .ai-status {
   margin-top: 8px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: rgba(99, 102, 241, 0.08);
   border: 1px solid rgba(99, 102, 241, 0.18);
   color: rgba(226, 232, 240, 0.92);
 }
 .ai-status:empty {
   display: none;
+}
+
+/* ── @-mention Popover ──── */
+.ai-mention-popover {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  right: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: rgba(30, 30, 44, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-md);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(99, 102, 241, 0.08);
+  z-index: 100;
+  padding: 4px;
+  backdrop-filter: blur(12px);
+}
+.ai-mention-item {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: "SF Mono", Menlo, monospace;
+  color: rgba(226, 232, 240, 0.85);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--duration-fast) ease;
+}
+.ai-mention-item.is-selected {
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+}
+.ai-mention-item:hover {
+  background: rgba(99, 102, 241, 0.12);
+}
+.ai-mention-empty {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.4);
+  text-align: center;
+}
+.ai-mention-more {
+  padding: 4px 10px;
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.35);
+  text-align: center;
 }
 
 /* ── Login Overlay ──── */
@@ -5375,19 +5590,19 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.08));
   border: 1px solid rgba(139, 92, 246, 0.15);
   margin-bottom: 8px;
 }
 .ai-login-overlay-icon {
-  color: #a78bfa;
+  color: var(--accent-strong);
   animation: ai-login-icon-pulse 3s ease-in-out infinite;
 }
 .ai-login-overlay-title {
   font-size: 16px;
   font-weight: 700;
-  background: linear-gradient(135deg, #e2e8f0 0%, #a78bfa 50%, #818cf8 100%);
+  background: linear-gradient(135deg, var(--text) 0%, var(--accent-strong) 50%, #818cf8 100%);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -5406,7 +5621,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 10px 28px;
   font-size: 13px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: none;
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   color: #fff;
@@ -5459,11 +5674,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: 1px solid rgba(148, 163, 184, 0.38);
   background: rgba(15, 23, 42, 0.48);
   color: rgba(226, 232, 240, 0.95);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   padding: 4px 8px;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: all var(--duration-normal) ease;
 }
 .ai-status-action:hover {
   border-color: rgba(165, 180, 252, 0.7);
@@ -5528,7 +5743,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .capture-window-item {
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 12px;
   background: rgba(255, 255, 255, 0.02);
   display: grid;
@@ -5563,7 +5778,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   width: 100%;
   aspect-ratio: 16 / 9;
   height: auto;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: #050505;
   background-size: contain;
@@ -5620,7 +5835,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   flex-direction: column;
   height: calc(100vh - 16px) !important;
   max-height: calc(100vh - 16px) !important;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 0 !important;
   gap: 0 !important;
 }
@@ -5643,7 +5858,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   flex: 1;
   width: 100%;
   min-height: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: #050608;
   overflow: hidden;
@@ -5737,7 +5952,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   gap: 12px;
   background: rgba(255, 255, 255, 0.05);
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -5751,6 +5966,65 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .capture-crop-hint {
   font-size: 11px;
   color: var(--muted);
+  transition: color var(--duration-normal) ease;
+}
+
+.capture-crop-hint.is-error {
+  color: var(--danger-text);
+  font-weight: 500;
+}
+
+.capture-crop-shortcuts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.capture-crop-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.capture-crop-kbd-key {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* OCR processing busy state on Apply button */
+#math-capture-crop-apply.is-busy {
+  pointer-events: none;
+  position: relative;
+  min-width: 72px;
+}
+
+#math-capture-crop-apply.is-busy::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent-strong);
+  border-radius: 50%;
+  animation: capture-spin 0.6s linear infinite;
+}
+
+@keyframes capture-spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 720px) {
@@ -5911,7 +6185,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 /* ── Monaco Editor Widgets (Hover, Find, etc.) ── */
 .monaco-editor .editor-widget:not(.suggest-widget) {
-  border-radius: 8px !important;
+  border-radius: var(--radius-sm) !important;
 }
 
 /* Keep Monaco problems/peek widgets inside editor bounds on narrow panes. */
@@ -5979,7 +6253,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .monaco-editor .monaco-hover {
   border: none !important;
   outline: none !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius-sm) !important;
   background: rgba(39, 54, 84, 0.98) !important;
   color: #f2f6ff !important;
   box-shadow: none !important;
@@ -6050,7 +6324,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .monaco-editor .monaco-hover .rendered-markdown pre {
   margin: 4px 0 0 !important;
   padding: 5px 6px !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-sm) !important;
   background: rgba(14, 24, 44, 0.94) !important;
 }
 
@@ -6065,7 +6339,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .monaco-editor .monaco-hover .rendered-markdown code {
   display: inline-block !important;
   padding: 1px 6px !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-sm) !important;
   border: 1px solid rgba(197, 214, 255, 0.24) !important;
   background: rgba(95, 123, 176, 0.32) !important;
   color: rgba(242, 246, 255, 0.98) !important;
@@ -6112,7 +6386,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  border-radius: 5px !important;
+  border-radius: var(--radius-sm) !important;
   background: rgba(39, 54, 84, 0.98) !important;
   line-height: 0 !important;
   max-width: 320px !important;
@@ -6138,7 +6412,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-sm) !important;
   background: transparent !important;
 }
 
@@ -6243,7 +6517,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   background: var(--input-bg);
   padding: 2px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--panel-border);
   gap: 2px;
 }
@@ -6256,7 +6530,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 11px;
   font-weight: 500;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.1s ease;
   text-align: center;
@@ -6277,7 +6551,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   background: var(--input-bg);
   padding: 2px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--panel-border);
   gap: 2px;
 }
@@ -6290,7 +6564,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 11px;
   font-weight: 500;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.1s ease;
   text-align: center;
@@ -6314,7 +6588,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   align-items: center;
   gap: 0;
   border: 1px solid var(--control-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--input-bg);
   padding: 0;
   overflow: hidden;
@@ -6446,7 +6720,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 0 12px;
   height: 100%;
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--duration-normal) ease;
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
@@ -6479,9 +6753,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: none;
   background: transparent;
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition: background var(--duration-fast), color var(--duration-fast);
   flex-shrink: 0;
 }
 

@@ -9,22 +9,25 @@ const { decodeBase64Strict } = require("./agent-message-parts.cjs");
 const { ensureSessionsRestored } = require("./agent-session-state.cjs");
 
 const maybeAutoBuild = async (service, proposal) => {
-  if (!service.agentOptions.autoBuild || service.autoBuildInProgress) {
+  if (!service.agentOptions.autoBuild) {
     return null;
   }
   const pathValue = proposal?.path ?? "";
   if (!/\.(tex|bib|sty|cls|ltx|dtx)$/i.test(pathValue)) {
     return null;
   }
-  service.autoBuildInProgress = true;
-  try {
-    return await service.executeToolCall(
-      { name: "run_build", args: {} },
-      proposal?.conversationId ?? "default"
-    );
-  } finally {
-    service.autoBuildInProgress = false;
-  }
+  // Promise チェーンでビルドを直列化（複数会話の同時ビルドを防ぎつつドロップしない）
+  let result = null;
+  service.autoBuildQueue = (service.autoBuildQueue || Promise.resolve()).then(async () => {
+    try {
+      result = await service.executeToolCall(
+        { name: "run_build", args: {} },
+        proposal?.conversationId ?? "default"
+      );
+    } catch { /* auto-build errors swallowed */ }
+  });
+  await service.autoBuildQueue;
+  return result;
 };
 
 const getContextSnapshot = (service, conversationId, targetPath) => {
@@ -686,7 +689,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
       proposal.conversationId || "default"
     );
     service.markSessionDirty(proposal.conversationId || "default");
-    service.sendToRenderer("agent:applyResult", { proposalId, ok: true });
+    service.sendToRenderer("agent:applyResult", { proposalId, ok: true, conversationId: proposal.conversationId || undefined });
     const autoBuild = skipAutoBuild ? null : await maybeAutoBuild(service, proposal);
     return {
       ok: true,

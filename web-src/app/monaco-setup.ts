@@ -40,6 +40,7 @@ type MonacoSetupDeps = {
   ) => Promise<FileExcerptResult>;
   onCursorPositionChange: (position: { lineNumber: number; column: number }) => void;
   onCursorSelectionChange?: (position: { lineNumber: number; column: number }) => void;
+  openAiWithSelection?: () => void;
   getEditorWordWrapEnabled: () => boolean;
   getGhostCompletionEnabled: () => boolean;
   getGhostCompletionConfig: () => { debounceMs: number; maxChars: number };
@@ -593,6 +594,24 @@ export const initMonacoSetup = (
             }
           }
         );
+
+        // C-1: Inline AI editing — Cmd+K to open AI panel with selection context
+        if (deps.openAiWithSelection) {
+          const KeyMod = (monacoWindow.monaco as any)?.KeyMod;
+          const KeyCode = (monacoWindow.monaco as any)?.KeyCode;
+          const openAi = deps.openAiWithSelection;
+          if (KeyMod && KeyCode) {
+            (editor as any).addAction?.({
+              id: "tex64.ai-edit-selection",
+              label: "Axiomで編集",
+              keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],
+              contextMenuGroupId: "9_ai",
+              contextMenuOrder: 1,
+              precondition: "editorHasSelection",
+              run: () => { openAi(); },
+            });
+          }
+        }
       };
 
       if (editorHost instanceof HTMLElement) {

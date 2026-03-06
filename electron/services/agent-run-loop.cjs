@@ -1,3 +1,5 @@
+const fsp = require("fs/promises");
+const path = require("path");
 const { AGENT_TOOL_DECLARATIONS } = require("./agent-tools.cjs");
 const { requestGemini } = require("./agent-llm.cjs");
 const { handleReadFiles } = require("./agent-tools-file.cjs");
@@ -68,6 +70,18 @@ const runAgentConversation = async (service, { message, parts, context, conversa
   const routing = deriveTurnRouting(userText, conversation);
   const rootFileInfo = routing.useWorkspaceContext
     ? await service.workspace.rootInfo().catch(() => null)
+    : null;
+
+  const projectInstructions = routing.useWorkspaceContext
+    ? await fsp
+        .readFile(path.join(rootPath, ".tex64", "agent-instructions.md"), "utf8")
+        .catch(() => null)
+    : null;
+
+  const agentMemory = routing.useWorkspaceContext
+    ? await fsp
+        .readFile(path.join(rootPath, ".tex64", "agent-memory.md"), "utf8")
+        .catch(() => null)
     : null;
 
   let prefetchPaths = [];
@@ -183,6 +197,8 @@ const runAgentConversation = async (service, { message, parts, context, conversa
         scratchpad: service.scratchpadByConversation.get(targetConversationId) ?? "",
         referencedFileSnapshots,
         referencedFileErrors,
+        projectInstructions,
+        agentMemory,
       })
     : routing.mode === "smalltalk"
     ? buildSmalltalkSystemPrompt()
@@ -334,7 +350,7 @@ const runAgentConversation = async (service, { message, parts, context, conversa
   let recoveryPromptCount = 0;
   let forceBuildCount = 0;
   const canRunBuild = declaredToolNames.has("run_build");
-  const maxRecoveryPromptCount = Math.max(2, Math.min(10, Math.round(maxIterations / 2)));
+  const maxRecoveryPromptCount = Math.min(3, Math.max(1, Math.round(maxIterations / 50)));
   const wasAppliedEdit = (toolName, result) => {
     if (!appliedEditToolNames.has(toolName)) {
       return false;
@@ -635,8 +651,20 @@ const runAgentConversation = async (service, { message, parts, context, conversa
         const parts = candidate?.parts ?? [];
         const functionCalls = parts.filter((part) => part.functionCall);
         const textParts = parts
+          .filter((part) => !part.thought)
           .map((part) => part.text)
           .filter((text) => typeof text === "string" && text.trim().length > 0);
+
+        // Extract and forward thought parts for visualization
+        const thoughtParts = parts
+          .filter((part) => part.thought === true && typeof part.text === "string" && part.text.trim())
+          .map((part) => part.text.trim());
+        if (thoughtParts.length > 0) {
+          service.sendToRenderer("agent:thought", {
+            text: thoughtParts.join("\n"),
+            conversationId: targetConversationId,
+          });
+        }
 
         const usage = service.extractUsageMetadata(response);
         service.emitAuditEvent(
@@ -783,7 +811,7 @@ const runAgentConversation = async (service, { message, parts, context, conversa
           return;
         }
         exitReason = "error";
-        exitError = error?.message ?? "AIの呼び出しに失敗しました。";
+        exitError = error?.message ?? "Axiom の呼び出しに失敗しました。";
         service.emitAuditEvent(
           "run_error",
           { iteration: i, message: clipText(exitError, 400) },
@@ -791,10 +819,10 @@ const runAgentConversation = async (service, { message, parts, context, conversa
           run.token
         );
         service.sendToRenderer("agent:error", {
-          message: error?.message ?? "AIの呼び出しに失敗しました。",
+          message: error?.message ?? "Axiom の呼び出しに失敗しました。",
           conversationId: targetConversationId,
         });
-        service.sendStatus("error", "AIエラー", targetConversationId);
+        service.sendStatus("error", "Axiom エラー", targetConversationId);
         service.markSessionDirty(targetConversationId);
         return;
       }

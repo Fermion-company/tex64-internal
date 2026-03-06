@@ -129,7 +129,7 @@ export const initMonacoSetup = (context, deps) => {
             inlineSuggest: { enabled: isGhostCompletionEnabled() },
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -378,6 +378,23 @@ export const initMonacoSetup = (context, deps) => {
                     });
                 }
             });
+            // C-1: Inline AI editing — Cmd+K to open AI panel with selection context
+            if (deps.openAiWithSelection) {
+                const KeyMod = (_p = monacoWindow.monaco) === null || _p === void 0 ? void 0 : _p.KeyMod;
+                const KeyCode = (_q = monacoWindow.monaco) === null || _q === void 0 ? void 0 : _q.KeyCode;
+                const openAi = deps.openAiWithSelection;
+                if (KeyMod && KeyCode) {
+                    (_s = (_r = editor).addAction) === null || _s === void 0 ? void 0 : _s.call(_r, {
+                        id: "tex64.ai-edit-selection",
+                        label: "Axiomで編集",
+                        keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],
+                        contextMenuGroupId: "9_ai",
+                        contextMenuOrder: 1,
+                        precondition: "editorHasSelection",
+                        run: () => { openAi(); },
+                    });
+                }
+            }
         };
         if (editorHost instanceof HTMLElement) {
             createEditorForGroup(deps.editorSession.getEditorGroup("primary"), editorHost);

@@ -42,6 +42,7 @@ type InitAiChatEventBindingsParams = {
   buildContextPayload: (settings: AgentSettings | null) => Record<string, unknown>;
   getAgentSettings: () => AgentSettings | null;
   clearPendingAttachments: (resetInput?: boolean) => void;
+  clearMentionPaths?: () => void;
   addImageFiles: (files: FileList | null) => Promise<void>;
   isAiBlocked: () => boolean;
   needsLogin: () => boolean;
@@ -86,6 +87,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     buildContextPayload,
     getAgentSettings,
     clearPendingAttachments,
+    clearMentionPaths,
     addImageFiles,
     isAiBlocked,
     needsLogin,
@@ -122,6 +124,12 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       return;
     }
 
+    // アクティブチャットが実行中なら、新規チャットを作成して送信先にする（並列実行対応）
+    const currentActive = getChat(getActiveChatId());
+    if (currentActive && runningConversations.has(currentActive.id)) {
+      const c = createChat();
+      setActiveChatId(c.id);
+    }
     if (!getActiveChatId()) {
       const c = createChat();
       setActiveChatId(c.id);
@@ -158,6 +166,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
     if (sent) {
       clearPendingAttachments();
+      clearMentionPaths?.();
     }
   };
 

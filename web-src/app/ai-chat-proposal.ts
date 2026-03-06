@@ -207,7 +207,7 @@ export const createProposalCard = (proposal: AgentProposal, deps: ProposalCardDe
       deps.setDiffContext?.({ type: "aiApply", proposalId: proposal.id } as DiffContext);
       deps.setPendingProposalId(proposal.id);
       deps.showDiffModal?.(originalContent, modifiedContent, 0, {
-        title: "AI提案の差分",
+        title: "Axiom 提案の差分",
         fileName: proposal.path,
         submitLabel: applyButton.textContent ?? "適用",
       });

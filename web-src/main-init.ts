@@ -419,6 +419,7 @@ export const initMain = () => {
     getActiveSelectionSnapshot: () => editorSession.getActiveSelectionSnapshot(),
     getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
     getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
+    getWorkspaceFiles,
     showDiffModal: diffModalApi.showDiffModal,
     setDiffContext: diffModalApi.setDiffContext,
   });
@@ -913,6 +914,8 @@ export const initMain = () => {
       handleProposal: (proposal) => aiChatUi?.handleProposal(proposal),
       handleApplyResult: (payload) => aiChatUi?.handleApplyResult(payload),
       handleUndoResult: (payload) => aiChatUi?.handleUndoResult(payload),
+      handleScratchpad: (payload) => aiChatUi?.handleScratchpad(payload),
+      handleThought: (payload) => aiChatUi?.handleThought(payload),
       handleError: (message, conversationId) =>
         aiChatUi?.handleError(message, conversationId),
     },
@@ -971,6 +974,13 @@ export const initMain = () => {
     getWorkspaceFiles,
     onCursorPositionChange: handleCursorPositionChange,
     onCursorSelectionChange: handleCursorPositionChange,
+    openAiWithSelection: () => {
+      setActiveTab("ai");
+      const input = document.getElementById("ai-input");
+      if (input instanceof HTMLTextAreaElement) {
+        input.focus();
+      }
+    },
     getEditorWordWrapEnabled: () => settingsUi.getEditorWordWrapEnabled(),
     getGhostCompletionEnabled: () => settingsUi.getGhostCompletionEnabled(),
     getGhostCompletionConfig: () => settingsUi.getGhostCompletionConfig(),

@@ -1,5 +1,5 @@
 export const initAiChatEventBindings = (params) => {
-    const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
+    const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
     const handleSend = () => {
         if (!(aiInput instanceof HTMLTextAreaElement))
             return;
@@ -18,6 +18,12 @@ export const initAiChatEventBindings = (params) => {
                 updateStatusDisplay();
             }
             return;
+        }
+        // アクティブチャットが実行中なら、新規チャットを作成して送信先にする（並列実行対応）
+        const currentActive = getChat(getActiveChatId());
+        if (currentActive && runningConversations.has(currentActive.id)) {
+            const c = createChat();
+            setActiveChatId(c.id);
         }
         if (!getActiveChatId()) {
             const c = createChat();
@@ -54,6 +60,7 @@ export const initAiChatEventBindings = (params) => {
         const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
         if (sent) {
             clearPendingAttachments();
+            clearMentionPaths === null || clearMentionPaths === void 0 ? void 0 : clearMentionPaths();
         }
     };
     if (aiSend instanceof HTMLButtonElement)

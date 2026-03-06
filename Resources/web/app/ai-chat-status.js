@@ -159,7 +159,7 @@ export const createAiChatStatusController = (params) => {
             aiUsageMeter.classList.remove("is-critical");
             aiUsageMeter.style.removeProperty("--ai-usage-pct");
             aiUsageMeter.removeAttribute("title");
-            aiUsageMeter.setAttribute("aria-label", "AI使用量");
+            aiUsageMeter.setAttribute("aria-label", "Axiom 使用量");
             if (aiUsageMeterText instanceof HTMLElement) {
                 aiUsageMeterText.textContent = "-";
             }
@@ -250,7 +250,7 @@ export const createAiChatStatusController = (params) => {
                 ? state.platformAiAccess.message.trim()
                 : typeof ((_l = state.platformUsage) === null || _l === void 0 ? void 0 : _l.message) === "string" && state.platformUsage.message.trim()
                     ? state.platformUsage.message.trim()
-                    : "AI機能を利用できません。";
+                    : "Axiom を利用できません。";
             renderStatus(fallbackMessage, "", withUtilityActions([{ action: "pricing", label: "プランを見る" }]));
             return;
         }

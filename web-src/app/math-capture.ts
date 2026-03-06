@@ -2,9 +2,11 @@ import type { AppContext } from "./context.js";
 import type { IssuesStatus, IssueItem, BridgeWindow } from "./types.js";
 import type { MathCaptureUiApi, MathCaptureWindowSource } from "./math-capture-ui.js";
 
+type MathCaptureResult = { ok: boolean; error?: string };
+
 type MathCaptureDeps = {
   captureUi: MathCaptureUiApi;
-  onCaptureImage: (imageDataUrl: string) => void;
+  onCaptureImage: (imageDataUrl: string) => Promise<MathCaptureResult>;
   updateIssues: (
     count: number,
     summary: string,
@@ -256,14 +258,29 @@ export const initMathCapture = (
         resetSelection();
       }
     },
-    onCropApply: () => {
+    onCropApply: async () => {
       const dataUrl = cropToDataUrl();
       if (!dataUrl) {
         setStatus("切り取りに失敗しました。");
         return;
       }
-      deps.onCaptureImage(dataUrl);
-      deps.captureUi.closeCropper();
+      // Show loading state while OCR processes
+      deps.captureUi.setCropBusy(true, "認識中…");
+      try {
+        const result = await deps.onCaptureImage(dataUrl);
+        if (result.ok) {
+          deps.captureUi.closeCropper();
+        } else {
+          // Show error, let user retry with adjusted selection
+          deps.captureUi.setCropError(
+            result.error ?? "認識に失敗しました"
+          );
+        }
+      } catch {
+        deps.captureUi.setCropError("認識に失敗しました");
+      } finally {
+        deps.captureUi.setCropBusy(false);
+      }
     },
   });
 

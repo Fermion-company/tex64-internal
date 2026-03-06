@@ -40,9 +40,9 @@ export const tabConfig: Record<
     hint: "プレビュー後に確定します。",
   },
   ai: {
-    label: "AI",
-    outline: "AIチャット",
-    title: "AIアシスタント",
+    label: "Axiom",
+    outline: "Axiom",
+    title: "Axiom",
     desc: "チャットでファイル提案やテンプレート作成を行います。",
     hint: "差分を確認して適用します。",
   },

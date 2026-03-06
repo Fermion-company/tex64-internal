@@ -143,7 +143,32 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
   return { files: results };
 };
 
-const shouldAutoApply = (service) => service?.agentOptions?.autoApply === true;
+const AUTO_APPLY_MAX_CHANGED_LINES = 80;
+
+const shouldAutoApply = (service, proposal) => {
+  if (service?.agentOptions?.autoApply !== true) return false;
+  if (!proposal) return true;
+  // For large changes, fall back to proposal mode so the user can review
+  const original = typeof proposal.originalContent === "string" ? proposal.originalContent : "";
+  const content = typeof proposal.content === "string" ? proposal.content : "";
+  const originalLines = original.split("\n").length;
+  const contentLines = content.split("\n").length;
+  const changedLines = Math.abs(contentLines - originalLines) + Math.min(originalLines, contentLines);
+  // Estimate: if the diff is very large, require review
+  if (original.length === 0 && content.length === 0) return true;
+  if (original === content) return true;
+  // Simple heuristic: if total line count change is large, require approval
+  const diffSize = Math.abs(contentLines - originalLines);
+  const totalLines = Math.max(originalLines, contentLines);
+  if (totalLines > AUTO_APPLY_MAX_CHANGED_LINES && diffSize > AUTO_APPLY_MAX_CHANGED_LINES / 2) {
+    return false;
+  }
+  // If the content change is very large (>80% of file rewritten), require approval
+  if (original.length > 0 && Math.abs(content.length - original.length) > original.length * 0.8) {
+    if (totalLines > AUTO_APPLY_MAX_CHANGED_LINES) return false;
+  }
+  return true;
+};
 
 const autoApplyProposal = async (service, proposal, options = {}) => {
   service.proposals.set(proposal.id, proposal);
@@ -239,7 +264,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     baseSource: baseSource || undefined,
     createdAt: Date.now(),
   };
-  if (shouldAutoApply(service)) {
+  if (shouldAutoApply(service, proposal)) {
     const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
     return {
       status: apply.ok ? "applied" : "apply_failed",
@@ -388,7 +413,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   }
 
   const proposals = [];
-  const autoApply = shouldAutoApply(service);
+  const baseAutoApply = shouldAutoApply(service);
   for (const prepared of preparedProposals) {
     const id =
       typeof crypto.randomUUID === "function"
@@ -410,6 +435,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       baseSource: prepared.baseSource || undefined,
       createdAt: Date.now(),
     };
+    const autoApply = baseAutoApply && shouldAutoApply(service, proposal);
     if (autoApply) {
       const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
       proposals.push({
@@ -430,7 +456,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     }
   }
 
-  if (autoApply) {
+  if (baseAutoApply) {
     const successCount = proposals.filter((entry) => entry.ok).length;
     const hasFailure = proposals.length > successCount;
     return {
@@ -550,7 +576,7 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
     createdAt: Date.now(),
   };
 
-  if (shouldAutoApply(service)) {
+  if (shouldAutoApply(service, proposal)) {
     const apply = await autoApplyProposal(service, proposal);
     return {
       status: apply.ok ? "applied" : "apply_failed",

@@ -115,6 +115,10 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
     : [];
   const rootFileInfo =
     extras?.rootFileInfo && typeof extras.rootFileInfo === "object" ? extras.rootFileInfo : null;
+  const projectInstructions =
+    typeof extras?.projectInstructions === "string" ? extras.projectInstructions.trim() : "";
+  const agentMemory =
+    typeof extras?.agentMemory === "string" ? extras.agentMemory.trim() : "";
   const referencedFileSnapshots = Array.isArray(extras?.referencedFileSnapshots)
     ? extras.referencedFileSnapshots
     : [];
@@ -203,6 +207,39 @@ const buildSystemPrompt = (context, rootPath, policy, options, extras = {}) => {
 
   if (explicitContextPaths.length > 0) {
     lines.push(`- User referenced files: ${explicitContextPaths.join(", ")}`);
+  }
+
+  if (projectInstructions) {
+    const MAX_INSTRUCTIONS_CHARS = 8000;
+    const trimmed =
+      projectInstructions.length > MAX_INSTRUCTIONS_CHARS
+        ? projectInstructions.slice(0, MAX_INSTRUCTIONS_CHARS) + "\n\n(以降省略)"
+        : projectInstructions;
+    lines.push("", "## Project Instructions (user-defined)", "```", trimmed, "```");
+  }
+
+  if (agentMemory) {
+    const MAX_MEMORY_CHARS = 6000;
+    const trimmedMemory =
+      agentMemory.length > MAX_MEMORY_CHARS
+        ? agentMemory.slice(0, MAX_MEMORY_CHARS) + "\n\n(以降省略)"
+        : agentMemory;
+    lines.push(
+      "",
+      "## Agent Memory (persistent across sessions)",
+      "このメモリは `.tex64/agent-memory.md` に保存されており、セッション間で共有されます。",
+      "ユーザーの好みや文体規約など、次回以降も覚えておくべき情報は write_file で `.tex64/agent-memory.md` に追記してください。",
+      "```",
+      trimmedMemory,
+      "```"
+    );
+  } else {
+    lines.push(
+      "",
+      "## Agent Memory",
+      "- (empty) セッション間で記憶を残すには、`.tex64/agent-memory.md` に write_file で書き込んでください。",
+      "- 例: ユーザーの文体の好み、略語規約、引用スタイルなど。"
+    );
   }
 
   lines.push("", "## Scratchpad");
