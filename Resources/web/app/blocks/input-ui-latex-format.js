@@ -71,8 +71,20 @@ export const unwrapAligned = (text) => {
 const splitAlignedRows = (text) => {
     const rows = [];
     let current = "";
+    let envDepth = 0;
     for (let i = 0; i < text.length; i += 1) {
-        if (text[i] === "\\" && text[i + 1] === "\\" && !isEscapedAt(text, i)) {
+        // Track \begin{...} / \end{...} nesting so we don't split on \\ inside
+        // sub-environments (e.g. matrices nested in aligned rows).
+        if (text.startsWith("\\begin{", i) && !isEscapedAt(text, i)) {
+            envDepth += 1;
+        }
+        else if (text.startsWith("\\end{", i) && !isEscapedAt(text, i)) {
+            envDepth = Math.max(0, envDepth - 1);
+        }
+        if (envDepth === 0 &&
+            text[i] === "\\" &&
+            text[i + 1] === "\\" &&
+            !isEscapedAt(text, i)) {
             rows.push(current);
             current = "";
             i += 1;

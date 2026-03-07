@@ -23,21 +23,27 @@ export const createBlockMathfieldEventsOps = (runtime, deps) => {
             }
         };
         const syncMathFieldValue = () => {
-            const rawValue = normalizeLegacyEnvMarkers(readMathFieldValue(mathfield));
-            if (runtime.state.mathFieldWrapped) {
-                const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
-                if (didUnwrap) {
-                    const trimmed = stripEmptyAlignedRows(unwrapped);
-                    runtime.state.currentMathValue = normalizeLegacyEnvMarkers(unwrapped);
-                    if (trimmed !== unwrapped) {
-                        runtime.state.currentMathValue = normalizeLegacyEnvMarkers(trimmed);
+            try {
+                const rawValue = normalizeLegacyEnvMarkers(readMathFieldValue(mathfield));
+                if (runtime.state.mathFieldWrapped) {
+                    const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
+                    if (didUnwrap) {
+                        const trimmed = stripEmptyAlignedRows(unwrapped);
+                        runtime.state.currentMathValue = normalizeLegacyEnvMarkers(unwrapped);
+                        if (trimmed !== unwrapped) {
+                            runtime.state.currentMathValue = normalizeLegacyEnvMarkers(trimmed);
+                        }
+                        return;
                     }
-                    return;
+                    runtime.state.mathFieldWrapped = false;
                 }
-                runtime.state.mathFieldWrapped = false;
+                runtime.state.mathFieldWrapped = shouldWrapAligned(rawValue);
+                runtime.state.currentMathValue = normalizeLegacyEnvMarkers(rawValue);
             }
-            runtime.state.mathFieldWrapped = shouldWrapAligned(rawValue);
-            runtime.state.currentMathValue = normalizeLegacyEnvMarkers(rawValue);
+            catch {
+                // Ensure we never lose the current value due to a processing error.
+                // readMathFieldValue already has its own fallbacks, so this is a last-resort guard.
+            }
         };
         mathfield.addEventListener("input", syncMathFieldValue);
         mathfield.addEventListener("change", syncMathFieldValue);

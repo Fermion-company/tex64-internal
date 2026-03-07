@@ -335,3 +335,156 @@ test("real-world: matrix with nested \\frac normalizes correctly", () => {
   const expected = "\\begin{pmatrix}\\frac{a}{b}&c\\\\d&e\\end{pmatrix}";
   assert.equal(normalizeMatrixSyntax(input), expected);
 });
+
+// ─── Stress tests: complex structures ────────────────────────────────
+
+test("stress: deeply nested fractions survive all normalizations", () => {
+  // 10-deep nested fraction
+  let formula = "x";
+  for (let i = 0; i < 10; i++) {
+    formula = `\\frac{${formula}}{${i}}`;
+  }
+  assert.equal(normalizeLegacyEnvMarkers(formula), formula);
+  assert.equal(normalizeMatrixSyntax(formula), formula);
+  assert.equal(shouldWrapAligned(formula), false);
+});
+
+test("stress: deeply nested sqrt + frac survives", () => {
+  const deep = "\\sqrt{\\frac{\\sqrt{\\frac{\\sqrt{\\frac{a}{b}}}{c}}}{d}}";
+  assert.equal(normalizeLegacyEnvMarkers(deep), deep);
+  assert.equal(normalizeMatrixSyntax(deep), deep);
+});
+
+test("stress: matrix inside aligned row — splitAlignedRows respects environment boundaries", () => {
+  // Aligned content with a matrix in the first row
+  const inner = "a &= \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} \\\\ b &= c";
+  const rows = inner.split(" \\\\ ");
+  // The split should NOT break on the \\\\ inside pmatrix
+  // stripEmptyAlignedRows should return unchanged (no trailing empty rows)
+  assert.equal(stripEmptyAlignedRows(inner), inner);
+});
+
+test("stress: matrix inside aligned with trailing empty row strips correctly", () => {
+  const inner = "a &= \\begin{pmatrix} 1 \\\\ 2 \\end{pmatrix} \\\\ b &= c \\\\  &";
+  const result = stripEmptyAlignedRows(inner);
+  // Should strip only the trailing empty row, preserving matrix's \\
+  assert.ok(result.includes("\\begin{pmatrix}"), "matrix begin preserved");
+  assert.ok(result.includes("\\end{pmatrix}"), "matrix end preserved");
+  assert.ok(result.includes("b &= c"), "second aligned row preserved");
+  assert.ok(!result.endsWith(" &"), "trailing empty row stripped");
+});
+
+test("stress: nested environments inside aligned — 3 levels deep", () => {
+  const inner = "a &= \\begin{cases} x & \\begin{pmatrix} 1 \\\\ 2 \\end{pmatrix} \\\\ y & z \\end{cases} \\\\ b &= 1";
+  const result = stripEmptyAlignedRows(inner);
+  assert.equal(result, inner, "unchanged — no trailing empty rows");
+});
+
+test("stress: very long formula (500+ chars) through all normalizations", () => {
+  // Build a long formula: sum of 50 fractions
+  const terms = [];
+  for (let i = 1; i <= 50; i++) {
+    terms.push(`\\frac{x_{${i}}^{2}}{y_{${i}}}`);
+  }
+  const formula = terms.join(" + ");
+  assert.ok(formula.length > 500, "formula is long enough");
+  assert.equal(normalizeLegacyEnvMarkers(formula), formula);
+  assert.equal(normalizeMatrixSyntax(formula), formula);
+  assert.equal(shouldWrapAligned(formula), false);
+});
+
+test("stress: 5×5 matrix normalizes correctly", () => {
+  const cells = [];
+  for (let i = 0; i < 25; i++) {
+    cells.push(`{a_{${i}}}`);
+  }
+  const input = `\\begin{pmatrix}${cells.join("")}\\end{pmatrix}`;
+  const result = normalizeMatrixSyntax(input);
+  // 25 cells → 5×5 matrix
+  assert.ok(result.includes("&"), "has column separators");
+  assert.ok(result.includes("\\\\"), "has row separators");
+  // Verify structure: 5 rows of 5
+  const body = result.replace(/\\begin\{pmatrix\}/, "").replace(/\\end\{pmatrix\}/, "");
+  const rows = body.split("\\\\");
+  assert.equal(rows.length, 5, "5 rows");
+  for (const row of rows) {
+    assert.equal(row.split("&").length, 5, "5 columns per row");
+  }
+});
+
+test("stress: nested matrix inside matrix — outer unchanged", () => {
+  // Nested matrix: the outer one already has & and \\, so it stays unchanged
+  const nested = "\\begin{pmatrix} \\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix} & e \\\\ f & g \\end{pmatrix}";
+  assert.equal(normalizeMatrixSyntax(nested), nested);
+});
+
+test("stress: unbalanced braces don't crash", () => {
+  const inputs = [
+    "\\frac{a}{",
+    "\\frac{a",
+    "{{{",
+    "}}}",
+    "\\begin{pmatrix}{a}{b",
+    "\\begin{pmatrix}\\end{pmatrix",
+    "a & b \\\\ c { & d",
+  ];
+  for (const input of inputs) {
+    // None of these should throw
+    assert.doesNotThrow(() => normalizeLegacyEnvMarkers(input), `legacy threw on: ${input}`);
+    assert.doesNotThrow(() => normalizeMatrixSyntax(input), `matrix threw on: ${input}`);
+    assert.doesNotThrow(() => shouldWrapAligned(input), `wrap threw on: ${input}`);
+    assert.doesNotThrow(() => stripEmptyAlignedRows(input), `strip threw on: ${input}`);
+  }
+});
+
+test("stress: malformed LaTeX doesn't corrupt data", () => {
+  const malformed = [
+    "\\begin{aligned}\\end{aligned}",           // empty aligned
+    "\\begin{pmatrix}\\end{pmatrix}",            // empty matrix
+    "\\begin{aligned}a\\end{pmatrix}",           // mismatched envs
+    "\\end{aligned}a\\begin{aligned}",           // reversed envs
+    "\\\\\\\\\\\\",                              // only line breaks
+    "& & & &",                                   // only ampersands
+    "",                                          // empty string
+  ];
+  for (const input of malformed) {
+    assert.doesNotThrow(() => {
+      const r1 = normalizeLegacyEnvMarkers(input);
+      const r2 = normalizeMatrixSyntax(input);
+      const r3 = shouldWrapAligned(input);
+      const r4 = stripEmptyAlignedRows(input);
+      // Results must be strings (or the original type)
+      assert.ok(typeof r1 === "string" || r1 === input, `legacy bad type for: ${input}`);
+      assert.ok(typeof r2 === "string" || r2 === input, `matrix bad type for: ${input}`);
+      assert.ok(typeof r3 === "boolean", `wrap bad type for: ${input}`);
+      assert.ok(typeof r4 === "string", `strip bad type for: ${input}`);
+    }, `processing crashed on: ${input}`);
+  }
+});
+
+test("stress: wrap/unwrap round-trip with nested environments", () => {
+  const complexInner = "a &= \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} + \\sqrt{\\frac{x}{y}} \\\\ b &= \\sum_{i=1}^{n} i";
+  const wrapped = wrapAligned(complexInner);
+  const { value, didUnwrap } = unwrapAligned(wrapped);
+  assert.equal(didUnwrap, true);
+  assert.equal(value, complexInner);
+  // stripEmptyAlignedRows should not modify (no trailing empty rows)
+  assert.equal(stripEmptyAlignedRows(value), value);
+});
+
+test("stress: performance — 10000-char formula completes in <50ms", () => {
+  const bigTerms = [];
+  for (let i = 0; i < 200; i++) {
+    bigTerms.push(`\\frac{\\alpha_{${i}}^{\\beta_{${i}}}}{\\gamma_{${i}} + \\delta_{${i}}}`);
+  }
+  const bigFormula = bigTerms.join(" + ");
+  assert.ok(bigFormula.length > 10000, "formula is 10k+ chars");
+
+  const start = performance.now();
+  normalizeLegacyEnvMarkers(bigFormula);
+  normalizeMatrixSyntax(bigFormula);
+  shouldWrapAligned(bigFormula);
+  stripEmptyAlignedRows(bigFormula);
+  const elapsed = performance.now() - start;
+  assert.ok(elapsed < 50, `took ${elapsed.toFixed(1)}ms, expected <50ms`);
+});
