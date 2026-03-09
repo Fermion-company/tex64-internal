@@ -617,6 +617,7 @@ export const initMain = () => {
                 syncIssueMarkers: editorSession.syncIssueMarkers,
                 syncWorkspaceFiles: editorSession.syncWorkspaceFiles,
                 requestInitialOpen: editorSession.requestInitialOpen,
+                saveDirtyFiles: editorSession.saveDirtyFiles,
             },
             outlineUi,
             buildOps,
@@ -707,12 +708,14 @@ export const initMain = () => {
             },
         });
         uiEvents.setup();
-        window.addEventListener("beforeunload", (event) => {
-            if (editorSession.getDirtyPaths().size === 0) {
-                return;
+        window.addEventListener("beforeunload", () => {
+            // For an auto-save editor, flush any pending saves immediately rather
+            // than blocking the close with a confusing "Leave site?" dialog.
+            // The IPC messages are enqueued synchronously and will be processed by
+            // the main process even after the renderer is torn down.
+            if (editorSession.getDirtyPaths().size > 0) {
+                editorSession.saveDirtyFiles().catch(() => { });
             }
-            event.preventDefault();
-            event.returnValue = "";
         });
         document.addEventListener("click", (event) => {
             var _a, _b, _c, _d, _e;

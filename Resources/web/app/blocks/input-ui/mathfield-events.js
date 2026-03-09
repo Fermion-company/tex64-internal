@@ -29,16 +29,13 @@ export const createBlockMathfieldEventsOps = (runtime, deps) => {
                     const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
                     if (didUnwrap) {
                         const trimmed = stripEmptyAlignedRows(unwrapped);
-                        runtime.state.currentMathValue = normalizeLegacyEnvMarkers(unwrapped);
-                        if (trimmed !== unwrapped) {
-                            runtime.state.currentMathValue = normalizeLegacyEnvMarkers(trimmed);
-                        }
+                        runtime.state.currentMathValue = trimmed !== unwrapped ? trimmed : unwrapped;
                         return;
                     }
                     runtime.state.mathFieldWrapped = false;
                 }
                 runtime.state.mathFieldWrapped = shouldWrapAligned(rawValue);
-                runtime.state.currentMathValue = normalizeLegacyEnvMarkers(rawValue);
+                runtime.state.currentMathValue = rawValue;
             }
             catch {
                 // Ensure we never lose the current value due to a processing error.
@@ -102,10 +99,10 @@ export const createBlockMathfieldEventsOps = (runtime, deps) => {
             readMathFieldLatex,
         });
         const stripPlaceholderAndWhitespace = (value) => value
-            .replace(/\\placeholder(?:\\[[^\\]]*\\])?\\{(?:[^{}]|\\.)*\\}/g, "")
-            .replace(/\\s+/g, "");
+            .replace(/\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\\.)*\}/g, "")
+            .replace(/\s+/g, "");
         const extractSingleEnvironmentInner = (value) => {
-            const match = value.match(/^\\begin\\{([A-Za-z*]+)\\}([\\s\\S]*)\\end\\{\\1\\}$/);
+            const match = value.match(/^\\begin\{([A-Za-z*]+)\}([\s\S]*)\\end\{\1\}$/);
             return match ? match[2] : value;
         };
         const isSubsequence = (needle, haystack) => {
@@ -133,7 +130,7 @@ export const createBlockMathfieldEventsOps = (runtime, deps) => {
             return isSubsequence(beforeCore, afterCore);
         };
         const handleMathFieldKeydown = (event) => {
-            var _a, _b, _c, _d;
+            var _a, _b;
             if (event.isComposing) {
                 return;
             }
@@ -254,11 +251,8 @@ export const createBlockMathfieldEventsOps = (runtime, deps) => {
                         mathfield.dispatchEvent(new Event("input", { bubbles: true }));
                         return;
                     }
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    closeWysiwygSuggestions();
-                    (_c = (_b = runtime.deps).onMathFieldSubmit) === null || _c === void 0 ? void 0 : _c.call(_b);
-                    return;
+                    // Column insertion failed — do nothing rather than falling back to submit,
+                    // which would be surprising when the user intended to add a column.
                 }
             }
             if (event.defaultPrevented) {
@@ -268,7 +262,7 @@ export const createBlockMathfieldEventsOps = (runtime, deps) => {
                 !event.altKey &&
                 event.ctrlKey &&
                 event.key === ".") {
-                const opened = Boolean((_d = runtime.state.mathWysiwygApi) === null || _d === void 0 ? void 0 : _d.openExplicitSuggestions());
+                const opened = Boolean((_b = runtime.state.mathWysiwygApi) === null || _b === void 0 ? void 0 : _b.openExplicitSuggestions());
                 const fallbackOpened = opened ? false : matrixOps.openMatrixOpsPalette();
                 if (opened || fallbackOpened) {
                     event.preventDefault();

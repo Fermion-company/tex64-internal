@@ -78,18 +78,28 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
         });
     };
     const updateDirtyState = (path, content, savedContent) => {
-        var _a, _b, _c;
+        var _a, _b;
         const entry = runtime.monacoModels.get(path);
         const groupSavedContent = (_a = Array.from(Object.values(runtime.editorGroups)).find((group) => group.currentFilePath === path && group.currentFileSavedContent)) === null || _a === void 0 ? void 0 : _a.currentFileSavedContent;
-        const baseSaved = (_c = (_b = savedContent !== null && savedContent !== void 0 ? savedContent : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _b !== void 0 ? _b : groupSavedContent) !== null && _c !== void 0 ? _c : content;
-        if (entry) {
-            entry.savedContent = baseSaved;
-        }
-        if (content !== baseSaved) {
-            runtime.dirtyFiles.add(path);
+        const baseSaved = (_b = savedContent !== null && savedContent !== void 0 ? savedContent : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _b !== void 0 ? _b : groupSavedContent;
+        if (baseSaved === undefined) {
+            // No saved reference exists — treat content itself as saved baseline
+            // but do NOT overwrite an existing entry.savedContent.
+            if (entry && entry.savedContent === undefined) {
+                entry.savedContent = content;
+            }
+            runtime.dirtyFiles.delete(path);
         }
         else {
-            runtime.dirtyFiles.delete(path);
+            if (entry) {
+                entry.savedContent = baseSaved;
+            }
+            if (content !== baseSaved) {
+                runtime.dirtyFiles.add(path);
+            }
+            else {
+                runtime.dirtyFiles.delete(path);
+            }
         }
         coreOps.forEachEditorGroup((group) => {
             if (group.currentFilePath === path) {

@@ -41,10 +41,14 @@ export const initBlockInputUi = (context, deps) => {
             return;
         }
         if (runtime.state.blockSettingsOpen) {
+            event.preventDefault();
+            event.stopPropagation();
             settingsModalOps.setBlockSettingsOpen(false);
             return;
         }
         if (runtime.state.formatMenuOpen) {
+            event.preventDefault();
+            event.stopPropagation();
             insertSettingsOps.setFormatMenuOpen(false);
         }
     });

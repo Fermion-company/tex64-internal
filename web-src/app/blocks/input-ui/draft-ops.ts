@@ -23,6 +23,9 @@ export const createBlockDraftOps = (runtime: BlockInputRuntime, deps: {
       return "";
     }
 
+    if (trimmed.startsWith("$$") && trimmed.endsWith("$$")) {
+      return trimmed;
+    }
     if (trimmed.startsWith("$") && trimmed.endsWith("$")) {
       return trimmed;
     }
@@ -30,9 +33,6 @@ export const createBlockDraftOps = (runtime: BlockInputRuntime, deps: {
       return trimmed;
     }
     if (trimmed.startsWith("\\[") && trimmed.endsWith("\\]")) {
-      return trimmed;
-    }
-    if (trimmed.startsWith("$$") && trimmed.endsWith("$$")) {
       return trimmed;
     }
     if (trimmed.startsWith("\\begin{")) {

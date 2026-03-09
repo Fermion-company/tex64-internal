@@ -95,7 +95,7 @@ const renderMarkdownHtml = (text: string): string => {
         const lang = escapeHtml(match[1] || "text");
         const code = escapeHtml(match[2].trimEnd());
         blocks.push(
-          `<div class="ai-code-block"><div class="ai-code-header"><span class="ai-code-lang">${lang}</span><button class="ai-code-copy" type="button" data-copy>copy</button></div><pre><code>${code}</code></pre></div>`
+          `<div class="ai-code-block"><div class="ai-code-header"><span class="ai-code-lang">${lang}</span><button class="ai-code-copy" type="button" data-copy>コピー</button></div><pre><code>${code}</code></pre></div>`
         );
       } else {
         blocks.push(`<pre><code>${escapeHtml(part)}</code></pre>`);
@@ -114,8 +114,8 @@ const attachCopyHandlers = (container: Element) => {
       e.stopPropagation();
       const code = btn.closest(".ai-code-block")?.querySelector("code")?.textContent ?? "";
       navigator.clipboard.writeText(code).then(() => {
-        btn.textContent = "copied";
-        setTimeout(() => { btn.textContent = "copy"; }, 1500);
+        btn.textContent = "コピー済み";
+        setTimeout(() => { btn.textContent = "コピー"; }, 1500);
       });
     });
   });

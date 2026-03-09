@@ -52,10 +52,14 @@ export const initBlockInputUi = (context: AppContext, deps: BlockInputDeps): Blo
       return;
     }
     if (runtime.state.blockSettingsOpen) {
+      event.preventDefault();
+      event.stopPropagation();
       settingsModalOps.setBlockSettingsOpen(false);
       return;
     }
     if (runtime.state.formatMenuOpen) {
+      event.preventDefault();
+      event.stopPropagation();
       insertSettingsOps.setFormatMenuOpen(false);
     }
   });

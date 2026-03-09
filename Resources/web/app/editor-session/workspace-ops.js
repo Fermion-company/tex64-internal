@@ -26,6 +26,15 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
             runtime.monacoModels.clear();
             updatedModels.forEach((entry, path) => runtime.monacoModels.set(path, entry));
         }
+        // Update lastCursorPositions so cursor restore works after rename.
+        if (runtime.lastCursorPositions.size > 0) {
+            const updatedPositions = new Map();
+            runtime.lastCursorPositions.forEach((pos, path) => {
+                updatedPositions.set(remapPath(path), pos);
+            });
+            runtime.lastCursorPositions.clear();
+            updatedPositions.forEach((pos, path) => runtime.lastCursorPositions.set(path, pos));
+        }
         coreOps.forEachEditorGroup((group) => {
             if (group.viewStates.size > 0) {
                 const updatedViewStates = new Map();
@@ -80,12 +89,22 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
                 group.viewer.hideViewer();
                 bufferOps.clearEditorView(group);
             });
+            runtime.monacoModels.forEach((entry) => {
+                if (typeof entry.model.dispose === "function") {
+                    entry.model.dispose();
+                }
+            });
             runtime.monacoModels.clear();
             runtime.dirtyFiles.clear();
         }
+        const workspaceFileSet = new Set(workspaceFiles);
         if (runtime.monacoModels.size > 0) {
             Array.from(runtime.monacoModels.keys()).forEach((path) => {
-                if (!workspaceFiles.includes(path)) {
+                if (!workspaceFileSet.has(path)) {
+                    const entry = runtime.monacoModels.get(path);
+                    if (entry && typeof entry.model.dispose === "function") {
+                        entry.model.dispose();
+                    }
                     runtime.monacoModels.delete(path);
                     runtime.dirtyFiles.delete(path);
                 }
@@ -94,12 +113,12 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
         coreOps.forEachEditorGroup((group) => {
             if (group.viewStates.size > 0) {
                 Array.from(group.viewStates.keys()).forEach((path) => {
-                    if (!workspaceFiles.includes(path)) {
+                    if (!workspaceFileSet.has(path)) {
                         group.viewStates.delete(path);
                     }
                 });
             }
-            if (group.currentFilePath && !workspaceFiles.includes(group.currentFilePath)) {
+            if (group.currentFilePath && !workspaceFileSet.has(group.currentFilePath)) {
                 group.currentFilePath = null;
                 group.currentFileSavedContent = null;
                 group.isDirty = false;
@@ -108,7 +127,7 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
                 }
             }
             if (group.openTabs.length > 0) {
-                group.openTabs = group.openTabs.filter((path) => workspaceFiles.includes(path));
+                group.openTabs = group.openTabs.filter((path) => workspaceFileSet.has(path));
                 if (group.currentFilePath && !group.openTabs.includes(group.currentFilePath)) {
                     group.currentFilePath = null;
                     group.currentFileSavedContent = null;

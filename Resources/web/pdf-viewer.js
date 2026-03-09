@@ -315,7 +315,7 @@ const initPdfViewer = () => {
     }
     const outline = await state.doc.getOutline().catch(() => null);
     if (!Array.isArray(outline) || outline.length === 0) {
-      outlineEl.textContent = "Outline がありません。";
+      outlineEl.textContent = "目次がありません。";
       return;
     }
 

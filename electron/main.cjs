@@ -3,6 +3,7 @@ const {
   BrowserWindow,
   desktopCapturer,
   dialog,
+  globalShortcut,
   ipcMain,
   safeStorage,
   shell,
@@ -63,6 +64,72 @@ const state = {
   userSettings: null,
   lastBuildPdfPath: null,
   formatWarningShown: false,
+};
+
+// ---------------------------------------------------------------------------
+// Window state persistence
+// ---------------------------------------------------------------------------
+const WINDOW_STATE_FILE = "tex64-window-state.json";
+const WINDOW_STATE_SAVE_DEBOUNCE_MS = 500;
+let windowStateSaveTimer = null;
+
+const loadWindowState = () => {
+  try {
+    const filePath = path.join(app.getPath("userData"), WINDOW_STATE_FILE);
+    const content = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(content);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.width === "number" &&
+      typeof parsed.height === "number"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // No saved state or corrupt file — use defaults.
+  }
+  return null;
+};
+
+const saveWindowState = (bounds) => {
+  if (windowStateSaveTimer) {
+    clearTimeout(windowStateSaveTimer);
+  }
+  windowStateSaveTimer = setTimeout(() => {
+    windowStateSaveTimer = null;
+    try {
+      const filePath = path.join(app.getPath("userData"), WINDOW_STATE_FILE);
+      fs.writeFileSync(filePath, JSON.stringify(bounds, null, 2), "utf8");
+    } catch {
+      // Non-critical — silently ignore write failures.
+    }
+  }, WINDOW_STATE_SAVE_DEBOUNCE_MS);
+};
+
+const validateWindowBounds = (saved) => {
+  if (!saved) return null;
+  const { screen } = require("electron");
+  const displays = screen.getAllDisplays();
+  if (displays.length === 0) return null;
+
+  // Check if saved position is visible on any display.
+  const isOnScreen = displays.some((display) => {
+    const { x, y, width, height } = display.workArea;
+    // At least 100px of the window should be visible on this display.
+    return (
+      saved.x < x + width - 100 &&
+      saved.x + saved.width > x + 100 &&
+      saved.y < y + height - 50 &&
+      saved.y + saved.height > y + 50
+    );
+  });
+
+  if (!isOnScreen) {
+    // Position is off-screen (monitor disconnected), only restore size.
+    return { width: saved.width, height: saved.height };
+  }
+  return saved;
 };
 
 const shouldRunStartupWebBuild = () => {
@@ -131,9 +198,10 @@ const createMainWindow = () => {
   const preloadPath = path.join(__dirname, "preload.cjs");
   const indexPath = path.join(app.getAppPath(), "Resources", "web", "index.html");
 
-  state.mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
+  const savedBounds = isE2EContext ? null : validateWindowBounds(loadWindowState());
+  const windowOptions = {
+    width: savedBounds?.width ?? 1280,
+    height: savedBounds?.height ?? 820,
     minWidth: 960,
     minHeight: 600,
     show: !e2eHeadless,
@@ -146,7 +214,22 @@ const createMainWindow = () => {
       nodeIntegration: false,
       preload: preloadPath,
     },
-  });
+  };
+  if (typeof savedBounds?.x === "number" && typeof savedBounds?.y === "number") {
+    windowOptions.x = savedBounds.x;
+    windowOptions.y = savedBounds.y;
+  }
+
+  state.mainWindow = new BrowserWindow(windowOptions);
+
+  // Persist window position and size on move/resize.
+  const trackWindowBounds = () => {
+    if (!state.mainWindow || state.mainWindow.isDestroyed()) return;
+    if (state.mainWindow.isMinimized() || state.mainWindow.isFullScreen()) return;
+    saveWindowState(state.mainWindow.getBounds());
+  };
+  state.mainWindow.on("resize", trackWindowBounds);
+  state.mainWindow.on("move", trackWindowBounds);
 
   const loadRenderer = () => {
     state.mainWindow.loadFile(indexPath);
@@ -196,8 +279,8 @@ const sendToRenderer = (type, payload) => {
   }
 };
 
-const sendBuildState = (state, message) => {
-  const payload = { state };
+const sendBuildState = (buildState, message) => {
+  const payload = { state: buildState };
   if (message) {
     payload.message = message;
   }
@@ -924,6 +1007,7 @@ ipcMain.on("tex64", (_event, message) => {
       // eslint-disable-next-line no-console
       console.log(`[WebView] ${message.message}`);
     }
+    return;
   }
 
   if (type === "agent:settings:get") {

@@ -42,6 +42,7 @@ type WorkspaceControllerDeps = {
     syncIssueMarkers: (issues: IssueItem[]) => void;
     syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
     requestInitialOpen: () => void;
+    saveDirtyFiles: () => Promise<boolean>;
   };
   outlineUi: {
     render: () => void;
@@ -324,6 +325,8 @@ export const initWorkspaceController = (
     deps.buildOps.updateSynctexButtonState();
     const rootChanged = Boolean(previousRoot && previousRoot !== payload.rootPath);
     if (rootChanged) {
+      // Fire-and-forget save of dirty files before the workspace is replaced.
+      deps.editorSession.saveDirtyFiles().catch(() => {});
       deps.setLastBuildMainFile(null);
     }
     deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });

@@ -192,6 +192,10 @@ export const initBlockAutoDetection = (deps) => {
         if (!currentDetectedBlock && !(options === null || options === void 0 ? void 0 : options.force)) {
             return;
         }
+        if (blockDetectionDebounceTimer) {
+            clearTimeout(blockDetectionDebounceTimer);
+            blockDetectionDebounceTimer = null;
+        }
         currentDetectedBlock = null;
         currentSelectionRange = null;
         currentCandidate = null;

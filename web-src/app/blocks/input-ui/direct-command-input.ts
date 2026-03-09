@@ -9,6 +9,15 @@ const isPlainBackslashInput = (event: KeyboardEvent) => {
   if (event.key === "\\" || event.key === "¥") {
     return true;
   }
+  // Fall back to key code only when event.key is not a recognized printable character.
+  // This prevents blocking characters produced via Shift+Backslash (e.g. "|" on JP keyboards).
+  if (event.shiftKey) {
+    return false;
+  }
+  if (event.key.length === 1) {
+    // event.key is a single printable character that is neither "\\" nor "¥" — not a backslash.
+    return false;
+  }
   return event.code === "Backslash" || event.code === "IntlYen" || event.code === "IntlRo";
 };
 

@@ -107,14 +107,23 @@ export const createEditorSessionBufferOps = (
     const groupSavedContent = Array.from(Object.values(runtime.editorGroups)).find(
       (group) => group.currentFilePath === path && group.currentFileSavedContent
     )?.currentFileSavedContent;
-    const baseSaved = savedContent ?? entry?.savedContent ?? groupSavedContent ?? content;
-    if (entry) {
-      entry.savedContent = baseSaved;
-    }
-    if (content !== baseSaved) {
-      runtime.dirtyFiles.add(path);
-    } else {
+    const baseSaved = savedContent ?? entry?.savedContent ?? groupSavedContent;
+    if (baseSaved === undefined) {
+      // No saved reference exists — treat content itself as saved baseline
+      // but do NOT overwrite an existing entry.savedContent.
+      if (entry && entry.savedContent === undefined) {
+        entry.savedContent = content;
+      }
       runtime.dirtyFiles.delete(path);
+    } else {
+      if (entry) {
+        entry.savedContent = baseSaved;
+      }
+      if (content !== baseSaved) {
+        runtime.dirtyFiles.add(path);
+      } else {
+        runtime.dirtyFiles.delete(path);
+      }
     }
     coreOps.forEachEditorGroup((group) => {
       if (group.currentFilePath === path) {

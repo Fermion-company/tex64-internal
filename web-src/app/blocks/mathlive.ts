@@ -74,8 +74,8 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
           if (typeof value === "string") {
             return value;
           }
-        } catch {
-          // ignore read failure
+        } catch (error) {
+          console.debug("[MathLive] getValue('latex') threw; trying .value fallback", error);
         }
       }
       if (typeof mathfieldInput.value === "string") {
@@ -589,9 +589,26 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       mathfield.shadowRoot.appendChild(style);
     };
 
-      setTimeout(() => {
-        injectStyles();
-      }, 0);
+      // Try immediate injection first, then retry after a frame in case the
+      // shadowRoot isn't available yet (custom element upgrade timing).
+      injectStyles();
+      if (!mathfield.shadowRoot?.querySelector("style[data-tex64-style]")) {
+        requestAnimationFrame(() => {
+          injectStyles();
+          if (!mathfield.shadowRoot?.querySelector("style[data-tex64-style]")) {
+            // Final fallback: observe shadow root creation.
+            const observer = new MutationObserver(() => {
+              if (mathfield.shadowRoot) {
+                injectStyles();
+                observer.disconnect();
+              }
+            });
+            observer.observe(mathfield, { childList: true, subtree: true });
+            // Safety disconnect after 5 seconds to prevent leaks.
+            setTimeout(() => observer.disconnect(), 5000);
+          }
+        });
+      }
 
       deps.onAttachMathFieldEvents(mathfield);
     } catch (error) {

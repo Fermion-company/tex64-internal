@@ -6,10 +6,13 @@ let postMessageHandler = (payload) => {
 
 const messageHandlers = new Set();
 const pendingMessages = [];
+const MAX_PENDING_MESSAGES = 500;
 
 const dispatchMessage = (message) => {
   if (messageHandlers.size === 0) {
-    pendingMessages.push(message);
+    if (pendingMessages.length < MAX_PENDING_MESSAGES) {
+      pendingMessages.push(message);
+    }
     return;
   }
   messageHandlers.forEach((handler) => {
@@ -31,9 +34,18 @@ const bridgeApi = {
       return () => {};
     }
     messageHandlers.add(handler);
+    // Flush the pending queue to ALL currently registered handlers.
     if (pendingMessages.length > 0) {
       const backlog = pendingMessages.splice(0, pendingMessages.length);
-      backlog.forEach((message) => handler(message));
+      backlog.forEach((message) => {
+        messageHandlers.forEach((h) => {
+          try {
+            h(message);
+          } catch (error) {
+            console.error("tex64Bridge handler error (backlog):", error);
+          }
+        });
+      });
     }
     return () => {
       messageHandlers.delete(handler);

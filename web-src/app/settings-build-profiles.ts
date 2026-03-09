@@ -104,7 +104,7 @@ export const initBuildProfilesUi = (
     settingsBuildProfileSelect.innerHTML = "";
     const defaultOption = document.createElement("option");
     defaultOption.value = "";
-    defaultOption.textContent = "Default";
+    defaultOption.textContent = "デフォルト";
     settingsBuildProfileSelect.appendChild(defaultOption);
 
     buildProfiles.forEach((profile) => {

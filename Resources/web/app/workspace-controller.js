@@ -197,6 +197,8 @@ export const initWorkspaceController = (context, deps) => {
         deps.buildOps.updateSynctexButtonState();
         const rootChanged = Boolean(previousRoot && previousRoot !== payload.rootPath);
         if (rootChanged) {
+            // Fire-and-forget save of dirty files before the workspace is replaced.
+            deps.editorSession.saveDirtyFiles().catch(() => { });
             deps.setLastBuildMainFile(null);
         }
         deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });

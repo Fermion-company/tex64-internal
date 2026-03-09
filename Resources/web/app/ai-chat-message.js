@@ -84,7 +84,7 @@ const renderMarkdownHtml = (text) => {
             if (match) {
                 const lang = escapeHtml(match[1] || "text");
                 const code = escapeHtml(match[2].trimEnd());
-                blocks.push(`<div class="ai-code-block"><div class="ai-code-header"><span class="ai-code-lang">${lang}</span><button class="ai-code-copy" type="button" data-copy>copy</button></div><pre><code>${code}</code></pre></div>`);
+                blocks.push(`<div class="ai-code-block"><div class="ai-code-header"><span class="ai-code-lang">${lang}</span><button class="ai-code-copy" type="button" data-copy>コピー</button></div><pre><code>${code}</code></pre></div>`);
             }
             else {
                 blocks.push(`<pre><code>${escapeHtml(part)}</code></pre>`);
@@ -105,8 +105,8 @@ const attachCopyHandlers = (container) => {
             e.stopPropagation();
             const code = (_c = (_b = (_a = btn.closest(".ai-code-block")) === null || _a === void 0 ? void 0 : _a.querySelector("code")) === null || _b === void 0 ? void 0 : _b.textContent) !== null && _c !== void 0 ? _c : "";
             navigator.clipboard.writeText(code).then(() => {
-                btn.textContent = "copied";
-                setTimeout(() => { btn.textContent = "copy"; }, 1500);
+                btn.textContent = "コピー済み";
+                setTimeout(() => { btn.textContent = "コピー"; }, 1500);
             });
         });
     });

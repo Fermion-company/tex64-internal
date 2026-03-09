@@ -5,7 +5,7 @@ export const initMathLive = (context, deps) => {
     let setupRetryScheduled = false;
     let containerPointerDownHandler = null;
     const setupMathField = async () => {
-        var _a, _b, _c;
+        var _a, _b, _c, _d;
         if (setupInFlight) {
             return;
         }
@@ -36,8 +36,8 @@ export const initMathLive = (context, deps) => {
                         return value;
                     }
                 }
-                catch {
-                    // ignore read failure
+                catch (error) {
+                    console.debug("[MathLive] getValue('latex') threw; trying .value fallback", error);
                 }
             }
             if (typeof mathfieldInput.value === "string") {
@@ -531,9 +531,27 @@ export const initMathLive = (context, deps) => {
       `;
                 mathfield.shadowRoot.appendChild(style);
             };
-            setTimeout(() => {
-                injectStyles();
-            }, 0);
+            // Try immediate injection first, then retry after a frame in case the
+            // shadowRoot isn't available yet (custom element upgrade timing).
+            injectStyles();
+            if (!((_d = mathfield.shadowRoot) === null || _d === void 0 ? void 0 : _d.querySelector("style[data-tex64-style]"))) {
+                requestAnimationFrame(() => {
+                    var _a;
+                    injectStyles();
+                    if (!((_a = mathfield.shadowRoot) === null || _a === void 0 ? void 0 : _a.querySelector("style[data-tex64-style]"))) {
+                        // Final fallback: observe shadow root creation.
+                        const observer = new MutationObserver(() => {
+                            if (mathfield.shadowRoot) {
+                                injectStyles();
+                                observer.disconnect();
+                            }
+                        });
+                        observer.observe(mathfield, { childList: true, subtree: true });
+                        // Safety disconnect after 5 seconds to prevent leaks.
+                        setTimeout(() => observer.disconnect(), 5000);
+                    }
+                });
+            }
             deps.onAttachMathFieldEvents(mathfield);
         }
         catch (error) {

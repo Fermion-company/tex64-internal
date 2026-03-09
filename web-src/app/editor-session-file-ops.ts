@@ -389,6 +389,21 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             return;
           }
           state.pendingSave = { path, content: value, resolve, reject };
+          // Safety timeout: if the native side never responds, release the lock so
+          // subsequent saves are not blocked indefinitely.
+          const safetyTimer = window.setTimeout(() => {
+            if (state.pendingSave && state.pendingSave.path === path) {
+              console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
+              state.pendingSave.reject("保存の応答がタイムアウトしました。");
+              state.pendingSave = null;
+            }
+          }, 30_000);
+          const origResolve = resolve;
+          const origReject = reject;
+          const wrappedResolve = (v: boolean) => { clearTimeout(safetyTimer); origResolve(v); };
+          const wrappedReject = (e: unknown) => { clearTimeout(safetyTimer); origReject(e); };
+          state.pendingSave.resolve = wrappedResolve;
+          state.pendingSave.reject = wrappedReject;
           const ok = deps.postToNative({
             type: "saveFile",
             path,
@@ -398,6 +413,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             formatSettings: deps.settings.buildFormatSettingsPayload(),
           });
           if (!ok) {
+            clearTimeout(safetyTimer);
             state.pendingSave = null;
             reject("ネイティブ連携が利用できません。");
           }
@@ -480,6 +496,17 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
               return;
             }
             state.pendingSave = { path, content, resolve, reject };
+            const safetyTimer = window.setTimeout(() => {
+              if (state.pendingSave && state.pendingSave.path === path) {
+                console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
+                state.pendingSave.reject("保存の応答がタイムアウトしました。");
+                state.pendingSave = null;
+              }
+            }, 30_000);
+            const origResolve2 = resolve;
+            const origReject2 = reject;
+            state.pendingSave.resolve = (v: boolean) => { clearTimeout(safetyTimer); origResolve2(v); };
+            state.pendingSave.reject = (e: unknown) => { clearTimeout(safetyTimer); origReject2(e); };
             const ok = deps.postToNative({
               type: "saveFile",
               path,
@@ -489,6 +516,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
               formatSettings: deps.settings.buildFormatSettingsPayload(),
             });
             if (!ok) {
+              clearTimeout(safetyTimer);
               state.pendingSave = null;
               reject("ネイティブ連携が利用できません。");
             }
@@ -514,13 +542,9 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   };
 
   const scheduleAutoSave = () => {
-    const activeGroup = getActiveGroup();
-    const activePath = activeGroup.currentFilePath;
-    if (!activePath || !isTextFilePath(activePath)) {
-      clearAutoSaveTimer();
-      return;
-    }
-    if (!activeGroup.isDirty) {
+    // Check if any group (not just the active one) has dirty files.
+    const hasDirty = dirtyFiles.size > 0;
+    if (!hasDirty) {
       clearAutoSaveTimer();
       return;
     }
@@ -532,7 +556,9 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     state.autoSavePending = false;
     state.autoSaveTimer = window.setTimeout(() => {
       state.autoSaveTimer = null;
-      saveCurrentFile().catch((message: string) => {
+      // Use saveDirtyFiles to save all dirty files across all groups.
+      saveDirtyFiles().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
       });
     }, 400);
@@ -546,13 +572,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     data?: string;
     mimeType?: string;
   }) => {
-    const pendingIndex = state.pendingOpenRequests.findIndex(
-      (entry) => entry.path === payload.path
-    );
-    let targetGroupKey: EditorGroupKey =
-      pendingIndex >= 0
-        ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
-        : getActiveEditorGroupKey();
+    // Handle non-file-open message types before consuming pending requests.
     const type = (payload as any).type;
     if (type === "searchResult") {
       deps.search.handleSearchUpdate(payload as any);
@@ -566,10 +586,17 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       const { target, success, message } = payload as any;
       console.log(`Install result for ${target}: ${success} - ${message}`);
       if (!success) {
-        alert(message);
+        console.warn(`Environment install failed for ${target}: ${message}`);
       }
       return;
     }
+    const pendingIndex = state.pendingOpenRequests.findIndex(
+      (entry) => entry.path === payload.path
+    );
+    let targetGroupKey: EditorGroupKey =
+      pendingIndex >= 0
+        ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
+        : getActiveEditorGroupKey();
     if (!payload.path) {
       return;
     }
@@ -630,17 +657,25 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     formatError?: string;
   }) => {
     let savedContent: string | null = null;
-    if (state.pendingSave && state.pendingSave.path === payload.path) {
-      if (payload.ok) {
-        if (payload.content) {
-          state.pendingSave.content = payload.content;
+    if (state.pendingSave) {
+      if (state.pendingSave.path === payload.path) {
+        if (payload.ok) {
+          if (payload.content) {
+            state.pendingSave.content = payload.content;
+          }
+          savedContent = state.pendingSave.content;
+          state.pendingSave.resolve(true);
+        } else {
+          state.pendingSave.reject(payload.error ?? "保存に失敗しました。");
         }
-        savedContent = state.pendingSave.content;
-        state.pendingSave.resolve(true);
+        state.pendingSave = null;
       } else {
-        state.pendingSave.reject(payload.error ?? "保存に失敗しました。");
+        // Path mismatch: the native side returned a result for a different path.
+        // Log and leave pendingSave intact so the correct result can still arrive.
+        console.warn(
+          `[file-ops] handleSaveResult path mismatch: expected "${state.pendingSave.path}", got "${payload.path}"`
+        );
       }
-      state.pendingSave = null;
     }
     if (!payload.ok) {
       deps.updateIssues(1, payload.error ?? "保存に失敗しました。", "error", [

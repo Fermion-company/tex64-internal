@@ -319,6 +319,10 @@ export const initBlockAutoDetection = (
     if (!currentDetectedBlock && !options?.force) {
       return;
     }
+    if (blockDetectionDebounceTimer) {
+      clearTimeout(blockDetectionDebounceTimer);
+      blockDetectionDebounceTimer = null;
+    }
     currentDetectedBlock = null;
     currentSelectionRange = null;
     currentCandidate = null;

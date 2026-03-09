@@ -42,16 +42,13 @@ export const createBlockMathfieldEventsOps = (runtime: BlockInputRuntime, deps: 
           const { value: unwrapped, didUnwrap } = unwrapAligned(rawValue);
           if (didUnwrap) {
             const trimmed = stripEmptyAlignedRows(unwrapped);
-            runtime.state.currentMathValue = normalizeLegacyEnvMarkers(unwrapped);
-            if (trimmed !== unwrapped) {
-              runtime.state.currentMathValue = normalizeLegacyEnvMarkers(trimmed);
-            }
+            runtime.state.currentMathValue = trimmed !== unwrapped ? trimmed : unwrapped;
             return;
           }
           runtime.state.mathFieldWrapped = false;
         }
         runtime.state.mathFieldWrapped = shouldWrapAligned(rawValue);
-        runtime.state.currentMathValue = normalizeLegacyEnvMarkers(rawValue);
+        runtime.state.currentMathValue = rawValue;
       } catch {
         // Ensure we never lose the current value due to a processing error.
         // readMathFieldValue already has its own fallbacks, so this is a last-resort guard.
@@ -122,11 +119,11 @@ export const createBlockMathfieldEventsOps = (runtime: BlockInputRuntime, deps: 
 
     const stripPlaceholderAndWhitespace = (value: string) =>
       value
-        .replace(/\\placeholder(?:\\[[^\\]]*\\])?\\{(?:[^{}]|\\.)*\\}/g, "")
-        .replace(/\\s+/g, "");
+        .replace(/\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\\.)*\}/g, "")
+        .replace(/\s+/g, "");
 
     const extractSingleEnvironmentInner = (value: string) => {
-      const match = value.match(/^\\begin\\{([A-Za-z*]+)\\}([\\s\\S]*)\\end\\{\\1\\}$/);
+      const match = value.match(/^\\begin\{([A-Za-z*]+)\}([\s\S]*)\\end\{\1\}$/);
       return match ? match[2] : value;
     };
 
@@ -276,12 +273,8 @@ export const createBlockMathfieldEventsOps = (runtime: BlockInputRuntime, deps: 
             mathfield.dispatchEvent(new Event("input", { bubbles: true }));
             return;
           }
-
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          closeWysiwygSuggestions();
-          runtime.deps.onMathFieldSubmit?.();
-          return;
+          // Column insertion failed — do nothing rather than falling back to submit,
+          // which would be surprising when the user intended to add a column.
         }
       }
       if (event.defaultPrevented) {

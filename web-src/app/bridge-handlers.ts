@@ -551,7 +551,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         );
         break;
       case "agent:undoAvailability":
-        deps.agent?.handleUndoAvailability(
+        deps.agent?.handleUndoAvailability?.(
           message.payload as {
             conversationId?: string;
             available?: boolean;

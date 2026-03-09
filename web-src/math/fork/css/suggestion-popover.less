@@ -8,8 +8,8 @@
 /* The element that display info while in latex mode */
 #mathlive-suggestion-popover {
   --_suggestion-zindex: var(--suggestion-zindex, 100);
-  background-color: rgba(97, 97, 97);
-  color: #fff;
+  background-color: hsl(215, 18%, 16%);
+  color: hsl(210, 20%, 90%);
   text-align: center;
   border-radius: 8px;
   position: fixed;
@@ -31,7 +31,7 @@
   height: 0;
   border-left: 15px solid transparent;
   border-right: 15px solid transparent;
-  border-bottom: 15px solid rgba(97, 97, 97);
+  border-bottom: 15px solid hsl(215, 18%, 16%);
 
   font-size: 1rem;
 }
@@ -45,7 +45,7 @@
   height: 0;
   border-left: 15px solid transparent;
   border-right: 15px solid transparent;
-  border-top: 15px solid rgba(97, 97, 97);
+  border-top: 15px solid hsl(215, 18%, 16%);
 
   font-size: 1rem;
 }
@@ -53,8 +53,16 @@
 
 
 #mathlive-suggestion-popover.is-animated {
-  transition: all 0.2s cubic-bezier(0.64, 0.09, 0.08, 1);
+  transition: opacity 0.2s cubic-bezier(0.64, 0.09, 0.08, 1),
+              transform 0.2s cubic-bezier(0.64, 0.09, 0.08, 1);
   animation: ML__fade-in cubic-bezier(0, 0, 0.2, 1) 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #mathlive-suggestion-popover.is-animated {
+    transition: none;
+    animation: none;
+  }
 }
 
 #mathlive-suggestion-popover.is-visible {
@@ -95,12 +103,12 @@
   cursor: pointer;
 
   a {
-    color: #5ea6fd;
+    color: hsl(210, 60%, 65%);
     padding-top: 0.3em;
     margin-top: 0.4em;
     display: block;
     &:hover {
-      color: #5ea6fd;
+      color: hsl(210, 65%, 70%);
       text-decoration: underline;
     }
   }
@@ -119,8 +127,8 @@
 }
 
 .ML__popover__current {
-  background : #5ea6fd;
-  color: #fff;
+  background: hsl(210, 60%, 45%);
+  color: hsl(210, 20%, 95%);
 }
 
 .ML__popover__latex {

@@ -243,18 +243,13 @@ export const createMathfieldMatrixOps = (params: {
 
   const rebuildMatrixBody = (rows: Array<Array<string>>, selectionTarget: { row: number; col: number } | null) => {
     let body = "";
-    let selectionIndex = 0;
     rows.forEach((cells, rowIndex) => {
       if (rowIndex > 0) {
         body += "\\\\";
       }
-      let rowOffset = body.length;
       cells.forEach((cell, colIndex) => {
         if (colIndex > 0) {
           body += "&";
-        }
-        if (selectionTarget && rowIndex === selectionTarget.row && colIndex === selectionTarget.col) {
-          selectionIndex = rowOffset + body.length - rowOffset;
         }
         body += cell;
       });
@@ -265,16 +260,15 @@ export const createMathfieldMatrixOps = (params: {
         let cursor = 0;
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
           if (rowIndex > 0) {
-            cursor += 2;
+            cursor += 2; // "\\\\" length
           }
           const cells = rows[rowIndex];
           for (let colIndex = 0; colIndex < cells.length; colIndex += 1) {
             if (colIndex > 0) {
-              cursor += 1;
+              cursor += 1; // "&" length
             }
             if (rowIndex === selectionTarget.row && colIndex === selectionTarget.col) {
-              selectionIndex = cursor;
-              return { body, selectionIndex };
+              return { body, selectionIndex: cursor };
             }
             cursor += cells[colIndex].length;
           }

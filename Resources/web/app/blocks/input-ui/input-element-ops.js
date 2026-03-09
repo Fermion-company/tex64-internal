@@ -129,14 +129,14 @@ export const createBlockMathInputElementOps = (runtime, mathValueOps) => {
             const textArea = inputElement;
             textArea.addEventListener("keydown", (event) => {
                 var _a, _b, _c;
+                if (event.isComposing) {
+                    return;
+                }
                 if ((_a = runtime.state.mathWysiwygApi) === null || _a === void 0 ? void 0 : _a.handleKeydown(event)) {
                     event.stopImmediatePropagation();
                     return;
                 }
                 if (blockDirectLatexCommandInput(runtime, event)) {
-                    return;
-                }
-                if (event.isComposing) {
                     return;
                 }
                 const isSuggestShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key === ".";
