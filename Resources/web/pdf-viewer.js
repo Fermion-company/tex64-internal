@@ -88,8 +88,8 @@ const initPdfViewer = () => {
   const MAX_SCALE = 3;
   const WHEEL_ZOOM_SENSITIVITY = 0.008;
   const ZOOM_DRAW_DELAY = 160;
-  const CLICK_BIAS_X = 0;
-  const CLICK_BIAS_Y = 2;
+  const CLICK_BIAS_X_PT = 0;
+  const CLICK_BIAS_Y_PT = 2;
   const state = {
     doc: null,
     url: null,
@@ -612,6 +612,24 @@ const initPdfViewer = () => {
         return height;
       }
     }
+    const vp = pageView?.viewport;
+    if (vp) {
+      const rotation = Number(vp.rotation) || 0;
+      const isRotated = rotation === 90 || rotation === 270;
+      const scaledDim = Number(isRotated ? vp.width : vp.height);
+      const scale = Number(vp.scale);
+      if (
+        Number.isFinite(scaledDim) &&
+        scaledDim > 0 &&
+        Number.isFinite(scale) &&
+        scale > 0
+      ) {
+        const derivedHeight = scaledDim / scale;
+        if (Number.isFinite(derivedHeight) && derivedHeight > 0) {
+          return derivedHeight;
+        }
+      }
+    }
     return null;
   };
 
@@ -665,10 +683,8 @@ const initPdfViewer = () => {
     const isTextLayerClick =
       target instanceof Element && target.closest(".textLayer") instanceof Element;
     const applyTextBias = isTextLayerClick && !isNearActiveMarker();
-    const biasX = applyTextBias ? CLICK_BIAS_X : 0;
-    const biasY = applyTextBias ? CLICK_BIAS_Y : 0;
-    const rawContentX = event.clientX - rect.left - contentOffset.left + biasX;
-    const rawContentY = event.clientY - rect.top - contentOffset.top + biasY;
+    const rawContentX = event.clientX - rect.left - contentOffset.left;
+    const rawContentY = event.clientY - rect.top - contentOffset.top;
     if (!Number.isFinite(rawContentX) || !Number.isFinite(rawContentY)) {
       return null;
     }
@@ -692,13 +708,16 @@ const initPdfViewer = () => {
       return null;
     }
     const pagePdfHeight = resolvePagePdfHeight(pageView);
+    const biasX = applyTextBias ? CLICK_BIAS_X_PT : 0;
+    const biasY = applyTextBias ? CLICK_BIAS_Y_PT : 0;
     const synctexY =
       Number.isFinite(pagePdfHeight) && pagePdfHeight > 0
-        ? pagePdfHeight - pdfYBottom
-        : pdfYBottom;
+        ? pagePdfHeight - pdfYBottom + biasY
+        : pdfYBottom + biasY;
+    const synctexX = pdfX + biasX;
     state.lastReverseDebug = {
       page,
-      x: pdfX,
+      x: synctexX,
       y: synctexY,
       rawContentX,
       rawContentY,
@@ -709,9 +728,116 @@ const initPdfViewer = () => {
       textLayerClick: isTextLayerClick,
       nearMarker: isNearActiveMarker(),
     };
-    return { page, x: pdfX, y: synctexY };
+    return { page, x: synctexX, y: synctexY };
   };
 
+
+  const applySyncHighlight = (pageView, payload, viewX, viewY) => {
+    if (!pageView || !(pageView.div instanceof HTMLElement)) {
+      return;
+    }
+    const viewportScale = resolveViewportScale(pageView);
+    const pagePdfHeight = resolvePagePdfHeight(pageView);
+    const hasBlock =
+      Number.isFinite(payload.blockWidth) &&
+      payload.blockWidth > 0 &&
+      Number.isFinite(payload.blockHeight) &&
+      Math.abs(payload.blockHeight) > 0;
+    if (hasBlock) {
+      const bx = Number.isFinite(payload.blockX) ? payload.blockX : payload.x;
+      const by = Number.isFinite(payload.blockY) ? payload.blockY : payload.y;
+      const bw = payload.blockWidth;
+      const bh = payload.blockHeight;
+      const left = Math.min(bx, bx + bw);
+      const right = Math.max(bx, bx + bw);
+      const topSynctex = Math.min(by, by + bh);
+      const bottomSynctex = Math.max(by, by + bh);
+      const normTop =
+        Number.isFinite(pagePdfHeight) && pagePdfHeight > 0
+          ? pagePdfHeight - topSynctex
+          : topSynctex;
+      const normBottom =
+        Number.isFinite(pagePdfHeight) && pagePdfHeight > 0
+          ? pagePdfHeight - bottomSynctex
+          : bottomSynctex;
+      const [rvx1, rvy1] = pageView.viewport.convertToViewportPoint(left, normTop);
+      const [rvx2, rvy2] = pageView.viewport.convertToViewportPoint(right, normBottom);
+      const vx1 = rvx1 * viewportScale.x;
+      const vy1 = rvy1 * viewportScale.y;
+      const vx2 = rvx2 * viewportScale.x;
+      const vy2 = rvy2 * viewportScale.y;
+      const rectLeft = Math.min(vx1, vx2);
+      const rectTop = Math.min(vy1, vy2);
+      const rectWidth = Math.abs(vx2 - vx1);
+      const rectHeight = Math.abs(vy2 - vy1);
+      if (rectWidth > 1 && rectHeight > 1) {
+        const pad = 2;
+        const marker = document.createElement("div");
+        marker.className = "pdf-sync-highlight";
+        marker.style.left = `${rectLeft - pad}px`;
+        marker.style.top = `${rectTop - pad}px`;
+        marker.style.width = `${rectWidth + pad * 2}px`;
+        marker.style.height = `${rectHeight + pad * 2}px`;
+        pageView.div.appendChild(marker);
+        state.activeMarker = marker;
+        state.markerTimer = setTimeout(() => {
+          clearSyncMarker();
+        }, 2400);
+        return;
+      }
+    }
+    const textLayer = pageView.div.querySelector(".textLayer");
+    if (textLayer) {
+      const spans = textLayer.querySelectorAll("span");
+      let bestSpan = null;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (const span of spans) {
+        const rect = span.getBoundingClientRect();
+        const pageRect = pageView.div.getBoundingClientRect();
+        const contentOffset = resolvePageContentOffset(pageView.div);
+        const spanCx = rect.left + rect.width / 2 - pageRect.left - contentOffset.left;
+        const spanCy = rect.top + rect.height / 2 - pageRect.top - contentOffset.top;
+        const dx = spanCx - viewX;
+        const dy = spanCy - viewY;
+        const dist = dx * dx + dy * dy;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSpan = span;
+        }
+      }
+      if (bestSpan && bestDist < 2500) {
+        const pageRect = pageView.div.getBoundingClientRect();
+        const contentOffset = resolvePageContentOffset(pageView.div);
+        const spanRect = bestSpan.getBoundingClientRect();
+        const pad = 2;
+        const marker = document.createElement("div");
+        marker.className = "pdf-sync-highlight";
+        marker.style.left = `${spanRect.left - pageRect.left - contentOffset.left - pad}px`;
+        marker.style.top = `${spanRect.top - pageRect.top - contentOffset.top - pad}px`;
+        marker.style.width = `${spanRect.width + pad * 2}px`;
+        marker.style.height = `${spanRect.height + pad * 2}px`;
+        pageView.div.appendChild(marker);
+        state.activeMarker = marker;
+        state.markerTimer = setTimeout(() => {
+          clearSyncMarker();
+        }, 2400);
+        return;
+      }
+    }
+    const fallbackMarker = document.createElement("div");
+    fallbackMarker.className = "pdf-sync-highlight pdf-sync-highlight-dot";
+    fallbackMarker.style.left = `${viewX}px`;
+    fallbackMarker.style.top = `${viewY}px`;
+    fallbackMarker.style.width = "20px";
+    fallbackMarker.style.height = "20px";
+    fallbackMarker.style.borderRadius = "999px";
+    fallbackMarker.style.transform = "translate(-50%, -50%)";
+    pageView.div.appendChild(fallbackMarker);
+    state.activeMarker = fallbackMarker;
+    state.markerTimer = setTimeout(() => {
+      clearSyncMarker();
+    }, 2400);
+  };
 
   const applySync = (payload) => {
     const pageIndex = payload.page - 1;
@@ -760,17 +886,7 @@ const initPdfViewer = () => {
         scrollEl.clientHeight / 2,
       behavior: "auto",
     });
-    if (pageView.div) {
-      const marker = document.createElement("div");
-      marker.className = "pdf-sync-marker";
-      marker.style.left = `${viewX}px`;
-      marker.style.top = `${viewY}px`;
-      pageView.div.appendChild(marker);
-      state.activeMarker = marker;
-      state.markerTimer = setTimeout(() => {
-        clearSyncMarker();
-      }, 1400);
-    }
+    applySyncHighlight(pageView, payload, viewX, viewY);
   };
 
   const loadDocument = async (url, path) => {

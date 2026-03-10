@@ -105,7 +105,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       synctexForwardResultCache.delete(key);
       return null;
     }
-    return {
+    const cached = {
       ok: true,
       page: entry.page,
       x: entry.x,
@@ -113,6 +113,11 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       fallback: entry.fallback === true,
       cached: true,
     };
+    if (Number.isFinite(entry.blockX)) cached.blockX = entry.blockX;
+    if (Number.isFinite(entry.blockY)) cached.blockY = entry.blockY;
+    if (Number.isFinite(entry.blockWidth) && entry.blockWidth > 0) cached.blockWidth = entry.blockWidth;
+    if (Number.isFinite(entry.blockHeight) && entry.blockHeight > 0) cached.blockHeight = entry.blockHeight;
+    return cached;
   };
 
   const setCachedSynctexForwardResult = ({
@@ -133,7 +138,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       return;
     }
     const key = buildSynctexForwardCacheKey({ sourcePath, pdfPath, line, column });
-	    synctexForwardResultCache.set(key, {
+	    const cacheEntry = {
 	      timestamp: Date.now(),
 	      page: result.page,
 	      x: result.x,
@@ -141,7 +146,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
 	      fallback: result.fallback === true,
 	      pdfMtimeMs: readMtimeMs(pdfPath),
 	      sourceMtimeMs: readMtimeMs(sourcePath),
-	    });
+	    };
+	    if (Number.isFinite(result.blockX)) cacheEntry.blockX = result.blockX;
+	    if (Number.isFinite(result.blockY)) cacheEntry.blockY = result.blockY;
+	    if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) cacheEntry.blockWidth = result.blockWidth;
+	    if (Number.isFinite(result.blockHeight) && result.blockHeight > 0) cacheEntry.blockHeight = result.blockHeight;
+	    synctexForwardResultCache.set(key, cacheEntry);
 	    pruneSynctexForwardCache();
 	  };
 
@@ -208,7 +218,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     if (cached) {
       if (viewerMode === "window") {
         pdfWindowManager.show(pdfPath, { reload: false });
-        pdfWindowManager.queueSync({ page: cached.page, x: cached.x, y: cached.y });
+        const windowCachedSync = { page: cached.page, x: cached.x, y: cached.y };
+        if (Number.isFinite(cached.blockX)) windowCachedSync.blockX = cached.blockX;
+        if (Number.isFinite(cached.blockY)) windowCachedSync.blockY = cached.blockY;
+        if (Number.isFinite(cached.blockWidth) && cached.blockWidth > 0) windowCachedSync.blockWidth = cached.blockWidth;
+        if (Number.isFinite(cached.blockHeight) && cached.blockHeight > 0) windowCachedSync.blockHeight = cached.blockHeight;
+        pdfWindowManager.queueSync(windowCachedSync);
       }
       synctexService.registerForwardHint({
         pdfPath,
@@ -220,7 +235,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         column: targetColumn,
       });
       const relativePdfPath = resolveWorkspaceRelativePath(rootPath, pdfPath);
-      sendToRenderer("synctex:forwardResult", withRequestId({
+      const cachedPayload = {
         ok: true,
         page: cached.page,
         x: cached.x,
@@ -228,64 +243,20 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         fallback: cached.fallback === true,
         cached: true,
         pdfPath: relativePdfPath,
-      }));
+      };
+      if (Number.isFinite(cached.blockX)) cachedPayload.blockX = cached.blockX;
+      if (Number.isFinite(cached.blockY)) cachedPayload.blockY = cached.blockY;
+      if (Number.isFinite(cached.blockWidth) && cached.blockWidth > 0) cachedPayload.blockWidth = cached.blockWidth;
+      if (Number.isFinite(cached.blockHeight) && cached.blockHeight > 0) cachedPayload.blockHeight = cached.blockHeight;
+      sendToRenderer("synctex:forwardResult", withRequestId(cachedPayload));
       return;
     }
     const isRetryableSynctexError = (error) =>
       typeof error === "string" &&
       (error.includes("位置情報") || error.includes("解析に失敗"));
-    const attachRoundtripProbe = async (forwardResult, forwardLine) => {
-      if (!forwardResult || forwardResult.ok !== true) {
-        return forwardResult;
-      }
-      let reverseProbe = null;
-      try {
-        reverseProbe = await synctexService.reverse({
-          page: forwardResult.page,
-          x: forwardResult.x,
-          y: forwardResult.y,
-          pdfPath,
-          refineLines: 0,
-          bypassHint: true,
-          allowExpandedOffsets: false,
-        });
-      } catch {
-        reverseProbe = null;
-      }
-      if (!reverseProbe?.ok) {
-        return {
-          ...forwardResult,
-          roundtripSameSourcePath: false,
-          roundtripDiff: Number.POSITIVE_INFINITY,
-        };
-      }
-      const sameSourcePath = isWorkspaceSynctexPathSame(rootPath, reverseProbe.path, sourcePath);
-      const roundtripDiff =
-        sameSourcePath &&
-        Number.isFinite(reverseProbe.line) &&
-        Number.isFinite(forwardLine)
-          ? Math.abs(reverseProbe.line - forwardLine)
-          : Number.POSITIVE_INFINITY;
-      return {
-        ...forwardResult,
-        roundtripPath: reverseProbe.path,
-        roundtripLine: reverseProbe.line,
-        roundtripSameSourcePath: sameSourcePath,
-        roundtripDiff,
-      };
-    };
     const getForwardTargetDiff = (forwardResult, expectedLine) => {
       if (!forwardResult || forwardResult.ok !== true || !Number.isFinite(expectedLine)) {
         return Number.POSITIVE_INFINITY;
-      }
-      if (forwardResult.roundtripSameSourcePath === false) {
-        return Number.POSITIVE_INFINITY;
-      }
-      if (
-        forwardResult.roundtripSameSourcePath === true &&
-        Number.isFinite(forwardResult.roundtripLine)
-      ) {
-        return Math.abs(forwardResult.roundtripLine - expectedLine);
       }
       if (forwardResult.sameSourcePath === true && Number.isFinite(forwardResult.matchedLine)) {
         return Math.abs(forwardResult.matchedLine - expectedLine);
@@ -299,12 +270,6 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       const targetDiff = getForwardTargetDiff(forwardResult, expectedLine);
       if (Number.isFinite(targetDiff)) {
         return targetDiff > 1;
-      }
-      if (forwardResult.roundtripSameSourcePath === false) {
-        return true;
-      }
-      if (Number.isFinite(forwardResult.roundtripDiff)) {
-        return forwardResult.roundtripDiff > 1;
       }
       if (forwardResult.sameSourcePath === false) {
         return true;
@@ -331,12 +296,6 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       if (isStaleRequest()) {
         return { ok: false, cancelled: true, error: "stale" };
       }
-      if (result.ok) {
-        result = await attachRoundtripProbe(result, forwardLine);
-      }
-      if (isStaleRequest()) {
-        return { ok: false, cancelled: true, error: "stale" };
-      }
       if (result.ok || !isRetryableSynctexError(result.error)) {
         return result;
       }
@@ -360,12 +319,6 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         if (isStaleRequest()) {
           return { ok: false, cancelled: true, error: "stale" };
         }
-        if (result.ok) {
-          result = await attachRoundtripProbe(result, forwardLine);
-        }
-        if (isStaleRequest()) {
-          return { ok: false, cancelled: true, error: "stale" };
-        }
         if (result.ok || !isRetryableSynctexError(result.error)) {
           break;
         }
@@ -386,7 +339,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
           }
         : null;
     if (preferBacktrack || (!result.ok && isRetryableSynctexError(result.error))) {
-      const maxBacktrack = forwardSource === "manual" ? 120 : 160;
+      const maxBacktrack = forwardSource === "manual" ? 60 : 80;
       for (let offset = 1; offset <= maxBacktrack; offset += 1) {
         if (isStaleRequest()) {
           return;
@@ -394,6 +347,9 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         const candidateLine = targetLine - offset;
         if (candidateLine < 1) {
           break;
+        }
+        if (isSkippableSynctexLine(sourcePath, candidateLine)) {
+          continue;
         }
         const candidate = await runForward(candidateLine, column);
         if (candidate.ok) {
@@ -522,17 +478,43 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     });
     if (viewerMode === "window") {
       pdfWindowManager.show(pdfPath, { reload: false });
-      pdfWindowManager.queueSync({ page: result.page, x: result.x, y: result.y });
+      const windowSyncPayload = { page: result.page, x: result.x, y: result.y };
+      if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) {
+        windowSyncPayload.blockWidth = result.blockWidth;
+      }
+      if (Number.isFinite(result.blockHeight) && result.blockHeight > 0) {
+        windowSyncPayload.blockHeight = result.blockHeight;
+      }
+      if (Number.isFinite(result.blockX)) {
+        windowSyncPayload.blockX = result.blockX;
+      }
+      if (Number.isFinite(result.blockY)) {
+        windowSyncPayload.blockY = result.blockY;
+      }
+      pdfWindowManager.queueSync(windowSyncPayload);
     }
     const relativePdfPath = resolveWorkspaceRelativePath(rootPath, pdfPath);
-    sendToRenderer("synctex:forwardResult", withRequestId({
+    const forwardPayload = {
       ok: true,
       page: result.page,
       x: result.x,
       y: result.y,
       fallback: result.fallback === true,
       pdfPath: relativePdfPath,
-    }));
+    };
+    if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) {
+      forwardPayload.blockWidth = result.blockWidth;
+    }
+    if (Number.isFinite(result.blockHeight) && result.blockHeight > 0) {
+      forwardPayload.blockHeight = result.blockHeight;
+    }
+    if (Number.isFinite(result.blockX)) {
+      forwardPayload.blockX = result.blockX;
+    }
+    if (Number.isFinite(result.blockY)) {
+      forwardPayload.blockY = result.blockY;
+    }
+    sendToRenderer("synctex:forwardResult", withRequestId(forwardPayload));
   };
 
 

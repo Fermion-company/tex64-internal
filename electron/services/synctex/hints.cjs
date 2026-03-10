@@ -64,8 +64,8 @@ module.exports = (SynctexService) => {
     const now = Date.now();
     this.cleanupForwardHints(now);
     const maxHintAgeMs = 8000;
-    const maxDx = 240;
-    const maxDy = 26;
+    const maxDx = 180;
+    const maxDy = 14;
     const targetPage = Math.floor(page);
     const recentSamePage = this.forwardHints.filter((hint) => {
       if (hint.page !== targetPage) {
@@ -105,7 +105,7 @@ module.exports = (SynctexService) => {
       best = pickBest(recentSamePage, {
         allowAnyPdf: true,
         dxLimit: 40,
-        dyLimit: 40,
+        dyLimit: 14,
       });
     }
     if (this.debugHints) {

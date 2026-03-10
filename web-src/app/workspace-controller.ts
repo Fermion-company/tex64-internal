@@ -33,6 +33,7 @@ type IndexUpdatePayload = {
 
 type WorkspaceControllerDeps = {
   setWorkspaceRootKey: (value: string | null) => void;
+  getActiveTab: () => TabKey;
   setActiveTab: (tabKey: TabKey) => void;
   issuesUi: {
     render: (issues: IssueItem[]) => void;
@@ -283,7 +284,6 @@ export const initWorkspaceController = (
     }
     if (pendingBuildIssuesFocus && sorted.length > 0 && status === "error") {
       pendingBuildIssuesFocus = false;
-      deps.setActiveTab("issues");
     }
   };
 

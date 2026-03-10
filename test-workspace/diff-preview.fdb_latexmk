@@ -1,0 +1,18 @@
+# Fdb version 4
+["pdflatex"] 1773105124.62909 "/Users/wedd/tex64/test-workspace/diff-preview.tex" "diff-preview.pdf" "diff-preview" 1773105124.97493 0
+  "/Users/wedd/tex64/test-workspace/diff-preview.tex" 1768575475.40462 87 de41ddf9f575a24ffd2f7413c8dc83f6 ""
+  "/usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/base/article.cls" 1705352648 20144 147463a6a579f4597269ef9565205cfe ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/base/size10.clo" 1705352648 8448 dbc0dbf4156c0bb9ba01a1c685d3bad0 ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def" 1708463273 30006 3d512c0edd558928ddea1690180ef77e ""
+  "/usr/local/texlive/2024/texmf-dist/web2c/texmf.cnf" 1708706663 41649 5d6ae549fbbcb850a863f69aa41f3d10 ""
+  "/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1714800338.55124 5467645 128b85b7cde5f5edc5cb7f1dd7ff8736 ""
+  "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1714800319 8221444 f9e1e762b2b3ae8cc1a7570a155f10af ""
+  "/usr/local/texlive/2024/texmf.cnf" 1710266656 577 e590dabc9e28c5b61546e15f63eebcdf ""
+  "diff-preview.aux" 1773105124.93744 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "diff-preview.tex" 1768575475.40462 87 de41ddf9f575a24ffd2f7413c8dc83f6 ""
+  (generated)
+  "diff-preview.aux"
+  "diff-preview.log"
+  "diff-preview.pdf"
+  (rewritten before read)

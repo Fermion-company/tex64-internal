@@ -142,6 +142,8 @@ export const createAiChatIncomingHandlers = (options) => {
         return true;
     };
     const handleStatus = (state, message, conversationId) => {
+        if (!conversationId)
+            return;
         const chat = ensureChat(conversationId);
         if (!chat)
             return;
@@ -178,6 +180,8 @@ export const createAiChatIncomingHandlers = (options) => {
             updateStatusDisplay();
     };
     const handleMessage = (text, conversationId) => {
+        if (!conversationId)
+            return;
         clearThinkingMessage(conversationId);
         // Mark any open tool log as completed
         const msgChat = ensureChat(conversationId);
@@ -216,9 +220,9 @@ export const createAiChatIncomingHandlers = (options) => {
         scheduleUsageRefresh(true);
     };
     const handleMessageDelta = (text, conversationId) => {
-        const chatId = conversationId !== null && conversationId !== void 0 ? conversationId : getActiveChatId();
-        if (!chatId || !text)
+        if (!conversationId || !text)
             return;
+        const chatId = conversationId;
         clearThinkingMessage(chatId);
         const entry = ensureStreamingMessage(chatId);
         if (!entry)
@@ -228,6 +232,8 @@ export const createAiChatIncomingHandlers = (options) => {
         scrollToBottom();
     };
     const handleTool = (payload) => {
+        if (!payload.conversationId)
+            return;
         const chat = ensureChat(payload.conversationId);
         if (!chat || !runningConversations.has(chat.id))
             return;
@@ -257,6 +263,8 @@ export const createAiChatIncomingHandlers = (options) => {
             updateStatusDisplay();
     };
     const handleProposal = (proposal) => {
+        if (!proposal.conversationId)
+            return;
         const chat = ensureChat(proposal.conversationId);
         if (!chat)
             return;
@@ -323,8 +331,8 @@ export const createAiChatIncomingHandlers = (options) => {
         }
     };
     const handleUndoResult = (payload) => {
-        var _a, _b, _c, _d;
-        const targetChatId = (_b = (_a = payload.conversationId) !== null && _a !== void 0 ? _a : getActiveChatId()) !== null && _b !== void 0 ? _b : undefined;
+        var _a, _b, _c;
+        const targetChatId = (_a = payload.conversationId) !== null && _a !== void 0 ? _a : getActiveChatId();
         if (payload.ok) {
             const chat = getChat(targetChatId);
             if (chat && chat.id === getActiveChatId()) {
@@ -335,7 +343,7 @@ export const createAiChatIncomingHandlers = (options) => {
                         const cardEl = cards[ci];
                         if (!(cardEl instanceof HTMLElement))
                             continue;
-                        const pid = (_c = cardEl.dataset.proposalId) !== null && _c !== void 0 ? _c : "";
+                        const pid = (_b = cardEl.dataset.proposalId) !== null && _b !== void 0 ? _b : "";
                         const proposal = chat.proposals.get(pid);
                         if (!proposal)
                             continue;
@@ -383,7 +391,7 @@ export const createAiChatIncomingHandlers = (options) => {
             }
         }
         else {
-            appendMessage({ role: "system", text: `取り消し失敗: ${(_d = payload.message) !== null && _d !== void 0 ? _d : "取り消せる操作がありません。"}` }, targetChatId);
+            appendMessage({ role: "system", text: `取り消し失敗: ${(_c = payload.message) !== null && _c !== void 0 ? _c : "取り消せる操作がありません。"}` }, targetChatId);
         }
         updateContextBar();
     };
@@ -400,6 +408,8 @@ export const createAiChatIncomingHandlers = (options) => {
         }
     };
     const handleScratchpad = (payload) => {
+        if (!payload.conversationId)
+            return;
         const chat = ensureChat(payload.conversationId);
         if (!chat)
             return;
@@ -421,6 +431,8 @@ export const createAiChatIncomingHandlers = (options) => {
         }
     };
     const handleThought = (payload) => {
+        if (!payload.conversationId)
+            return;
         const chat = ensureChat(payload.conversationId);
         if (!chat)
             return;
@@ -442,6 +454,8 @@ export const createAiChatIncomingHandlers = (options) => {
     };
     const handleError = (message, conversationId) => {
         var _a;
+        if (!conversationId)
+            return;
         appendMessage({ role: "system", text: message }, conversationId);
         const chat = ensureChat(conversationId);
         if (chat) {

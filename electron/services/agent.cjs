@@ -6,11 +6,7 @@ const {
 } = require("./agent-policy.cjs");
 const {
   clipText,
-  deriveTurnRouting,
-  deriveTurnTemperature,
-  extractMentionedPaths,
   extractTextFromParts,
-  resolvePrefetchMaxChars,
 } = require("./agent-core-utils.cjs");
 const { buildSystemPrompt } = require("./agent-prompt-utils.cjs");
 const {
@@ -475,9 +471,5 @@ class AgentService {
 module.exports = {
   AgentService,
   buildSystemPrompt,
-  deriveTurnRouting,
-  deriveTurnTemperature,
-  extractMentionedPaths,
   extractTextFromParts,
-  resolvePrefetchMaxChars,
 };

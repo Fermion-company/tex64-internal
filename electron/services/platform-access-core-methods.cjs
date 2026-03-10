@@ -144,23 +144,33 @@ const coreMethods = {
     return clone(this.state);
   },
 
+  _saveQueue: null,
+
   async save() {
     if (!this.state) {
       return;
     }
-    const serializedState = this.serializeState(this.state);
-    const dirPath = path.dirname(this.filePath);
-    const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
-    const payload = JSON.stringify(serializedState, null, 2);
-    await fsp.mkdir(dirPath, { recursive: true });
-    try {
-      await fsp.writeFile(tempPath, payload, { encoding: "utf8", mode: 0o600 });
-      await fsp.rename(tempPath, this.filePath);
-      await fsp.chmod(this.filePath, 0o600).catch(() => {});
-    } catch (error) {
-      await fsp.unlink(tempPath).catch(() => {});
-      throw error;
-    }
+    const run = async () => {
+      const serializedState = this.serializeState(this.state);
+      const dirPath = path.dirname(this.filePath);
+      const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
+      const payload = JSON.stringify(serializedState, null, 2);
+      await fsp.mkdir(dirPath, { recursive: true });
+      try {
+        await fsp.writeFile(tempPath, payload, { encoding: "utf8", mode: 0o600 });
+        await fsp.rename(tempPath, this.filePath);
+        await fsp.chmod(this.filePath, 0o600).catch(() => {});
+      } catch (error) {
+        await fsp.unlink(tempPath).catch(() => {});
+        throw error;
+      }
+    };
+    this._saveQueue = (this._saveQueue || Promise.resolve())
+      .then(run)
+      .catch((err) => {
+        console.warn("[platform-access] save failed:", err.message);
+      });
+    return this._saveQueue;
   },
 
   async ensureLoadedState() {

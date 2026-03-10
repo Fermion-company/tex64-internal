@@ -199,7 +199,7 @@ export const createViewer = (deps: ViewerDeps) => {
     }
   };
 
-  const syncPdf = (payload: { page: number; x: number; y: number }) => {
+  const syncPdf = (payload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number }) => {
     if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
       return;
     }

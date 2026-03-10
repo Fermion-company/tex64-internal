@@ -22,7 +22,7 @@ type EditorGroupState = {
   openTabs: string[];
   viewer: {
     getViewerMode: () => string;
-    syncPdf: (payload: { page: number; x: number; y: number }) => void;
+    syncPdf: (payload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number }) => void;
   };
   isDirty: boolean;
   viewStates: Map<string, unknown>;
@@ -102,6 +102,10 @@ export type BuildOpsApi = {
     page?: number;
     x?: number;
     y?: number;
+    blockX?: number;
+    blockY?: number;
+    blockWidth?: number;
+    blockHeight?: number;
     pdfPath?: string | null;
     requestId?: string;
     cancelled?: boolean;
@@ -194,7 +198,7 @@ export const initBuildOpsUi = (
     const enabled = Boolean(targetPath && targetPath.endsWith(".tex"));
     synctexButton.disabled = !enabled;
     synctexButton.style.display = "inline-flex";
-    synctexButton.textContent = "SyncTeX";
+    synctexButton.textContent = "ジャンプ";
   };
 
   const handleBuildLog = (log: string | null) => {
@@ -528,6 +532,10 @@ export const initBuildOpsUi = (
     page?: number;
     x?: number;
     y?: number;
+    blockX?: number;
+    blockY?: number;
+    blockWidth?: number;
+    blockHeight?: number;
     pdfPath?: string | null;
     requestId?: string;
     cancelled?: boolean;
@@ -593,11 +601,24 @@ export const initBuildOpsUi = (
             deps.requestOpenFile(pdfPath, openedGroup.key, true);
           }
         }
-        openedGroup.viewer.syncPdf({
+        const syncPayload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number } = {
           page: payload.page,
           x: payload.x ?? 0,
           y: payload.y ?? 0,
-        });
+        };
+        if (typeof payload.blockWidth === "number" && payload.blockWidth > 0) {
+          syncPayload.blockWidth = payload.blockWidth;
+        }
+        if (typeof payload.blockHeight === "number" && payload.blockHeight > 0) {
+          syncPayload.blockHeight = payload.blockHeight;
+        }
+        if (typeof payload.blockX === "number") {
+          syncPayload.blockX = payload.blockX;
+        }
+        if (typeof payload.blockY === "number") {
+          syncPayload.blockY = payload.blockY;
+        }
+        openedGroup.viewer.syncPdf(syncPayload);
       }
       if (matchedInFlight) {
         flushQueuedSynctexForward();

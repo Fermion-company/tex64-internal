@@ -1,0 +1,11 @@
+[
+  {
+    "file": "main.tex",
+    "snippet": "\\begin{align*}\\sum & =\\sum_{\\placeholder{}}^{\\placeholder{}}\\\\ \\sum_{\\placeholder{}}^{\\placeholder{}} & =y\\end{align*}",
+    "content": {
+      "formula": "\\begin{align*}\\sum & =\\sum_{\\placeholder{}}^{\\placeholder{}}\\\\ \\sum_{\\placeholder{}}^{\\placeholder{}} & =y\\end{align*}"
+    },
+    "mode": "new",
+    "createdAt": "2026-03-09T10:31:19.843Z"
+  }
+]

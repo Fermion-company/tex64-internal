@@ -255,6 +255,7 @@ export type AgentUiState = {
 export type EditorFormatIndentStyle = "spaces-2" | "spaces-4" | "tab";
 export type EditorFormatBlankLines = "preserve" | "condense" | "remove";
 export type EditorFormatSettings = {
+  enabled: boolean;
   indentStyle: EditorFormatIndentStyle;
   beginEndOnOwnLine: boolean;
   documentNoIndent: boolean;

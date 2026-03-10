@@ -1,0 +1,270 @@
+\documentclass[a4paper,9pt]{article}
+\usepackage{fontspec}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{mathtools}
+\usepackage{esint}
+\usepackage[margin=1.5cm]{geometry}
+\setmainfont{Hiragino Mincho ProN}
+
+\allowdisplaybreaks
+
+\title{MathLive 数式入力 安定性テスト (50式)}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\noindent 各数式をMathLive入力欄に1つずつ手入力してテストする。\\
+入力順序が重要: 関数名の連続入力で既存構造が壊れないか確認。
+
+% 1
+\[
+\sum_{k=0}^{\infty}\frac{(-1)^k}{(2k+1)!}\left(\sum_{n=1}^{N}\sin(n\theta)\cos(n\phi)\right)^{2k+1} = \sin\!\left(\sum_{n=1}^{N}\sin(n\theta)\cos(n\phi)\right)
+\]
+
+% 2
+\[
+\prod_{p\,\text{prime}}\left(1-p^{-s}\right)^{-1} = \sum_{n=1}^{\infty}\frac{\mu(n)^2}{\phi(n)}\cdot\frac{\prod_{j=1}^{\omega(n)}\sin(\pi p_j^{-s})}{\sum_{d|n}\Lambda(d)\log^2 d}
+\]
+
+% 3
+\[
+\iiint_{\mathbb{R}^3}\frac{\partial^3}{\partial x\,\partial y\,\partial z}\left[\frac{e^{-\alpha\sqrt{x^2+y^2+z^2}}\sin(\beta\sqrt{x^2+y^2+z^2})}{\left(x^2+y^2+z^2\right)^{3/2}}\right]dx\,dy\,dz
+\]
+
+% 4
+\[
+\det\begin{pmatrix}\dfrac{\partial f_1}{\partial x_1} & \dfrac{\partial f_1}{\partial x_2} & \cdots & \dfrac{\partial f_1}{\partial x_n}\\ \dfrac{\partial f_2}{\partial x_1} & \dfrac{\partial f_2}{\partial x_2} & \cdots & \dfrac{\partial f_2}{\partial x_n}\\ \vdots & \vdots & \ddots & \vdots\\ \dfrac{\partial f_n}{\partial x_1} & \dfrac{\partial f_n}{\partial x_2} & \cdots & \dfrac{\partial f_n}{\partial x_n}\end{pmatrix} = \prod_{i=1}^{n}\lambda_i
+\]
+
+% 5
+\[
+\lim_{N\to\infty}\frac{1}{N}\sum_{n=0}^{N-1}\exp\!\left(2\pi i\sum_{j=1}^{k}\alpha_j\lfloor n\beta_j\rfloor\right) = \prod_{j=1}^{k}\lim_{M\to\infty}\frac{1}{M}\sum_{m=0}^{M-1}e^{2\pi i\alpha_j\lfloor m\beta_j\rfloor}
+\]
+
+% 6
+\[
+\cfrac{1}{1+\cfrac{e^{-2\pi}}{1+\cfrac{e^{-4\pi}}{1+\cfrac{e^{-6\pi}}{1+\cfrac{e^{-8\pi}}{\ddots}}}}} = \left(\sqrt{\frac{5+\sqrt{5}}{2}}-\frac{\sqrt{5}+1}{2}\right)e^{2\pi/5}
+\]
+
+% 7
+\[
+R_{\mu\nu\rho\sigma}R^{\mu\nu\rho\sigma} - 4R_{\mu\nu}R^{\mu\nu} + R^2 = \frac{1}{(4\pi)^{n/2}}\frac{\Gamma(n/2-1)}{\Gamma(n)}\int_{\mathcal{M}}\sqrt{|g|}\,\epsilon^{\mu_1\cdots\mu_n}\epsilon^{\nu_1\cdots\nu_n}\prod_{k=1}^{n/2}R_{\mu_{2k-1}\mu_{2k}\nu_{2k-1}\nu_{2k}}\,d^n x
+\]
+
+% 8
+\[
+\hat{H}\Psi = \left[-\sum_{i=1}^{N}\frac{\hbar^2}{2m_i}\nabla_i^2 + \sum_{i<j}\frac{e^2}{4\pi\varepsilon_0|\mathbf{r}_i-\mathbf{r}_j|} - \sum_{i=1}^{N}\sum_{A=1}^{M}\frac{Z_A e^2}{4\pi\varepsilon_0|\mathbf{r}_i-\mathbf{R}_A|}\right]\Psi = E\Psi
+\]
+
+% 9
+\[
+\mathcal{Z}[\beta] = \int\mathcal{D}[\phi]\,\exp\!\left(-\frac{1}{\hbar}\int_0^{\beta\hbar}\!\!\!d\tau\int d^3\mathbf{x}\left[\frac{1}{2}(\partial_\mu\phi)^2+\frac{m^2}{2}\phi^2+\frac{\lambda}{4!}\phi^4+\sum_{n=1}^{\infty}\frac{g_n}{n!}\phi^n\right]\right)
+\]
+
+% 10
+\[
+s_{\lambda/\mu}(x_1,\ldots,x_n) = \sum_{T\in\mathrm{SSYT}(\lambda/\mu,n)}\prod_{i=1}^{n}x_i^{|T^{-1}(i)|} = \frac{\det\!\left(h_{\lambda_i-\mu_j-i+j}(x_1,\ldots,x_n)\right)_{1\le i,j\le\ell}}{\prod_{1\le i<j\le n}(x_i-x_j)}
+\]
+
+% 11
+\[
+\left(\prod_{k=1}^{K}\sum_{n_k=0}^{\infty}\frac{z_k^{n_k}}{n_k!}\right)\exp\!\left(-\sum_{k=1}^{K}z_k\right) = \sum_{\mathbf{n}\in\mathbb{Z}_{\ge0}^K}\left(\prod_{k=1}^{K}\frac{z_k^{n_k}\,e^{-z_k}}{n_k!}\right)
+\]
+
+% 12
+\[
+\operatorname{tr}\!\left[\gamma^5\gamma^{\mu_1}\gamma^{\mu_2}\cdots\gamma^{\mu_{2n}}\right] = (-2i)^n\sum_{\sigma\in S_{2n}}\operatorname{sgn}(\sigma)\prod_{k=1}^{n}\eta^{\mu_{\sigma(2k-1)}\mu_{\sigma(2k)}} \cdot\varepsilon^{\mu_1\mu_2\cdots\mu_{2n}}
+\]
+
+% 13
+\[
+\frac{\partial}{\partial t}\begin{pmatrix}\rho\\\rho u\\\rho v\\\rho E\end{pmatrix}+\frac{\partial}{\partial x}\begin{pmatrix}\rho u\\\rho u^2+p\\\rho uv\\(\rho E+p)u\end{pmatrix}+\frac{\partial}{\partial y}\begin{pmatrix}\rho v\\\rho uv\\\rho v^2+p\\(\rho E+p)v\end{pmatrix} = \begin{pmatrix}0\\\rho f_x\\\rho f_y\\\rho(uf_x+vf_y)+\nabla\cdot(k\nabla T)\end{pmatrix}
+\]
+
+% 14
+\[
+\Gamma_{\mu\nu}^{\lambda} = \frac{1}{2}g^{\lambda\sigma}\!\left(\frac{\partial g_{\sigma\mu}}{\partial x^\nu}+\frac{\partial g_{\sigma\nu}}{\partial x^\mu}-\frac{\partial g_{\mu\nu}}{\partial x^\sigma}\right),\quad R^{\rho}{}_{\sigma\mu\nu} = \partial_\mu\Gamma^{\rho}{}_{\nu\sigma}-\partial_\nu\Gamma^{\rho}{}_{\mu\sigma}+\Gamma^{\rho}{}_{\mu\lambda}\Gamma^{\lambda}{}_{\nu\sigma}-\Gamma^{\rho}{}_{\nu\lambda}\Gamma^{\lambda}{}_{\mu\sigma}
+\]
+
+% 15
+\[
+\int_0^\infty\frac{\sin^{2n+1}(x)}{x^{2n+1}}\,dx = \frac{(-1)^n\pi}{2^{2n+1}(2n)!}\sum_{k=0}^{n}(-1)^k\binom{2n+1}{n-k}(2k+1)^{2n}\operatorname{sgn}(2k+1)
+\]
+
+% 16
+\[
+\underbrace{\nabla\times(\nabla\times\mathbf{E})}_{\text{curl of curl}} = \underbrace{\nabla(\nabla\cdot\mathbf{E})}_{\text{grad of div}} - \underbrace{\nabla^2\mathbf{E}}_{\text{Laplacian}} = -\mu_0\varepsilon_0\frac{\partial^2\mathbf{E}}{\partial t^2}
+\]
+
+% 17
+\[
+\zeta(s) = \frac{1}{\Gamma(s)}\int_0^\infty\frac{t^{s-1}}{e^t-1}\,dt = 2^s\pi^{s-1}\sin\!\left(\frac{\pi s}{2}\right)\Gamma(1-s)\zeta(1-s),\quad\Re(s)>1
+\]
+
+% 18
+\[
+\left\langle\Omega\left|T\left\{\prod_{i=1}^{n}\phi(x_i)\right\}\right|\Omega\right\rangle = \sum_{\text{contractions}}\prod_{\text{pairs}(i,j)}D_F(x_i-x_j)\cdot\sum_{\text{loops}}\frac{(-i\lambda)^V}{S}\prod_{l=1}^{L}\int\frac{d^4k_l}{(2\pi)^4}\prod_{I}\frac{i}{k_I^2-m^2+i\varepsilon}
+\]
+
+% 19
+\[
+\widehat{\mathcal{F}}[f](\xi) = \int_{\mathbb{R}^n}f(\mathbf{x})\,e^{-2\pi i\langle\mathbf{x},\xi\rangle}\,d\mathbf{x},\quad f(\mathbf{x}) = \int_{\mathbb{R}^n}\widehat{\mathcal{F}}[f](\xi)\,e^{2\pi i\langle\mathbf{x},\xi\rangle}\,d\xi
+\]
+
+% 20
+\[
+\sum_{n=0}^{\infty}\frac{H_n^{(r)}}{n^s}\,z^n = \frac{1}{\Gamma(s)}\int_0^\infty\frac{t^{s-1}}{e^t-z}\operatorname{Li}_r(ze^{-t})\,dt,\quad H_n^{(r)}=\sum_{k=1}^{n}\frac{1}{k^r}
+\]
+
+% 21
+\[
+\begin{vmatrix}a_{11}-\lambda & a_{12} & \cdots & a_{1n}\\a_{21} & a_{22}-\lambda & \cdots & a_{2n}\\\vdots & \vdots & \ddots & \vdots\\a_{n1} & a_{n2} & \cdots & a_{nn}-\lambda\end{vmatrix} = \sum_{k=0}^{n}(-1)^k e_{n-k}(\lambda_1,\ldots,\lambda_n)\lambda^k
+\]
+
+% 22
+\[
+D_{\mu}F^{\mu\nu}_a + g f_{abc}A^{\mu}_b F_{\mu\,c}^{\;\;\nu} = J^{\nu}_a,\quad F_{\mu\nu}^a = \partial_\mu A_\nu^a - \partial_\nu A_\mu^a + g f^{abc}A_\mu^b A_\nu^c
+\]
+
+% 23
+\[
+\operatorname{Pf}(A) = \frac{1}{2^n n!}\sum_{\sigma\in S_{2n}}\operatorname{sgn}(\sigma)\prod_{i=1}^{n}a_{\sigma(2i-1),\sigma(2i)},\quad\operatorname{Pf}(A)^2 = \det(A)
+\]
+
+% 24
+\[
+\left[\hat{a}_{\mathbf{k}\lambda},\hat{a}_{\mathbf{k}'\lambda'}^{\dagger}\right] = (2\pi)^3 2\omega_{\mathbf{k}}\,\delta^{(3)}(\mathbf{k}-\mathbf{k}')\delta_{\lambda\lambda'},\quad \hat{A}^{\mu}(x)=\sum_{\lambda=1,2}\int\frac{d^3k}{(2\pi)^3 2\omega_{\mathbf{k}}}\left[\epsilon^{\mu}_\lambda(\mathbf{k})\hat{a}_{\mathbf{k}\lambda}e^{-ik\cdot x}+\bar{\epsilon}^{\mu}_\lambda(\mathbf{k})\hat{a}_{\mathbf{k}\lambda}^{\dagger}e^{ik\cdot x}\right]
+\]
+
+% 25
+\[
+K(\mathbf{x},\mathbf{x}') = \sigma_f^2\exp\!\left(-\frac{1}{2}\sum_{d=1}^{D}\frac{(x_d-x'_d)^2}{\ell_d^2}\right)+\sigma_n^2\delta(\mathbf{x}-\mathbf{x}'),\quad\mathbf{f}_*|\mathbf{X}_*,\mathbf{X},\mathbf{y}\sim\mathcal{N}\!\left(K_*^T(K+\sigma_n^2 I)^{-1}\mathbf{y},\;K_{**}-K_*^T(K+\sigma_n^2 I)^{-1}K_*\right)
+\]
+
+% 26
+\[
+\int_{-\infty}^{\infty}\left|\sum_{n=-N}^{N}c_n\,e^{2\pi i n\alpha x}\cdot\operatorname{sinc}(\beta x-n)\right|^2\frac{dx}{\cosh(\pi x/\gamma)+\cos(\pi\delta/\gamma)} = \frac{2\gamma}{\sin(\pi\delta/\gamma)}\sum_{n=-N}^{N}|c_n|^2\,e^{-2\pi|n|\alpha\delta}
+\]
+
+% 27
+\[
+\mathcal{L}_{\text{QCD}} = \sum_{q}\bar{\psi}_{q,i}\!\left(i\gamma^\mu(D_\mu)_{ij}-m_q\delta_{ij}\right)\psi_{q,j}-\frac{1}{4}G^a_{\mu\nu}G^{a\mu\nu}+\frac{\theta g^2}{32\pi^2}G^a_{\mu\nu}\tilde{G}^{a\mu\nu}
+\]
+
+% 28
+\[
+\left(\sqrt[3]{\frac{\sqrt{a^2+b^2+\sqrt{(a^2+b^2)^2-4a^2b^2\sin^2\theta}}}{2}}+\sqrt[3]{\frac{\sqrt{a^2+b^2-\sqrt{(a^2+b^2)^2-4a^2b^2\sin^2\theta}}}{2}}\right)^3
+\]
+
+% 29
+\[
+\sum_{\substack{p_1+p_2+\cdots+p_k=n\\p_i\ge1}}\prod_{j=1}^{k}\left(\frac{1}{p_j!}\sum_{m=0}^{p_j}\binom{p_j}{m}(-1)^{p_j-m}\left(\frac{m}{n}\right)^{p_j}\right)\cdot\frac{n!}{\prod_{j=1}^{k}p_j!}
+\]
+
+% 30
+\[
+\mathbf{x}_{k+1} = \mathbf{x}_k - \left[\sum_{i=1}^{m}\nabla^2 f_i(\mathbf{x}_k)+\lambda\mathbf{I}\right]^{-1}\!\left[\sum_{i=1}^{m}\nabla f_i(\mathbf{x}_k)+\lambda(\mathbf{x}_k-\mathbf{x}_0)\right]
+\]
+
+% 31
+\[
+\Phi(x,t) = \frac{1}{\sqrt{2\pi\sigma^2 t}}\int_{-\infty}^{\infty}\Phi_0(\xi)\exp\!\left(-\frac{(x-\xi-\mu t)^2}{2\sigma^2 t}\right)d\xi + \sum_{n=1}^{\infty}A_n\sin\!\left(\frac{n\pi x}{L}\right)e^{-\kappa n^2\pi^2 t/L^2}
+\]
+
+% 32
+\[
+\mathcal{W}[f](a,b) = \frac{1}{\sqrt{|a|}}\int_{-\infty}^{\infty}f(t)\,\overline{\psi\!\left(\frac{t-b}{a}\right)}dt,\quad f(t) = \frac{1}{C_\psi}\int_0^\infty\int_{-\infty}^{\infty}\mathcal{W}[f](a,b)\,\frac{1}{\sqrt{|a|}}\psi\!\left(\frac{t-b}{a}\right)\frac{db\,da}{a^2}
+\]
+
+% 33
+\[
+\chi^2 = \sum_{i=1}^{N}\left(\frac{y_i-\sum_{j=0}^{M}\beta_j\phi_j(x_i)}{\sigma_i}\right)^{\!2}\!+\lambda\int_{a}^{b}\left(\sum_{j=0}^{M}\beta_j\phi_j''(x)\right)^{\!2}dx
+\]
+
+% 34
+\[
+\left\langle\prod_{i=1}^{n}V_{\alpha_i}(z_i,\bar{z}_i)\right\rangle = \left|\prod_{i<j}(z_i-z_j)^{2\alpha_i\alpha_j/\alpha_0^2}\right|^2\cdot\delta\!\left(\sum_{i=1}^{n}\alpha_i - 2\alpha_0\right)
+\]
+
+% 35
+\[
+\mathrm{Tr}\!\left[\mathcal{P}\exp\!\left(ig\oint_C A_\mu^a T^a\,dx^\mu\right)\right] = \sum_{n=0}^{\infty}(ig)^n\oint_{0\le s_1\le\cdots\le s_n\le 1}\!\!\!\!\!\!\!\!\!\!\!\!\!\!\!\!\!\!\prod_{k=1}^{n}A_\mu^{a_k}(x(s_k))\dot{x}^{\mu_k}(s_k)\,\mathrm{Tr}[T^{a_1}\cdots T^{a_n}]\,ds_1\cdots ds_n
+\]
+
+% 36
+\[
+\hat{\rho}(t) = \hat{\rho}(0)-\frac{i}{\hbar}\int_0^t[\hat{H}(t'),\hat{\rho}(t')]\,dt'-\frac{1}{\hbar^2}\int_0^t\int_0^{t'}[\hat{H}(t'),[\hat{H}(t''),\hat{\rho}(t'')]]\,dt''\,dt'+\sum_{k}\gamma_k\!\left(\hat{L}_k\hat{\rho}\hat{L}_k^\dagger-\frac{1}{2}\{\hat{L}_k^\dagger\hat{L}_k,\hat{\rho}\}\right)
+\]
+
+% 37
+\[
+Z(\beta,\mu) = \prod_{\mathbf{k},\sigma}\sum_{n=0}^{1}\exp\!\left[-\beta\left(\frac{\hbar^2 k^2}{2m}-\mu\right)n\right] = \prod_{\mathbf{k},\sigma}\left(1+e^{-\beta(\epsilon_{\mathbf{k}}-\mu)}\right),\quad\langle n_{\mathbf{k}\sigma}\rangle = \frac{1}{e^{\beta(\epsilon_{\mathbf{k}}-\mu)}+1}
+\]
+
+% 38
+\[
+\nabla_\mu T^{\mu\nu} = \partial_\mu T^{\mu\nu}+\Gamma^{\mu}{}_{\mu\lambda}T^{\lambda\nu}+\Gamma^{\nu}{}_{\mu\lambda}T^{\mu\lambda},\quad\nabla_\mu\nabla_\nu V^\rho - \nabla_\nu\nabla_\mu V^\rho = R^{\rho}{}_{\sigma\mu\nu}V^\sigma
+\]
+
+% 39
+\[
+P(\theta|\mathcal{D}) = \frac{P(\mathcal{D}|\theta)P(\theta)}{\int P(\mathcal{D}|\theta')P(\theta')\,d\theta'} \propto \prod_{i=1}^{N}\frac{1}{\sqrt{2\pi\sigma^2}}\exp\!\left(-\frac{(y_i-f_\theta(x_i))^2}{2\sigma^2}\right)\cdot\frac{1}{\sqrt{2\pi\tau^2}}\exp\!\left(-\frac{\|\theta\|^2}{2\tau^2}\right)
+\]
+
+% 40
+\[
+\frac{d}{dt}\begin{pmatrix}S\\I\\R\end{pmatrix} = \begin{pmatrix}-\beta SI/N\\\beta SI/N - \gamma I\\\gamma I\end{pmatrix}+\sqrt{\begin{pmatrix}\beta SI/N & -\beta SI/N & 0\\-\beta SI/N & \beta SI/N+\gamma I & -\gamma I\\0 & -\gamma I & \gamma I\end{pmatrix}}\begin{pmatrix}dW_1\\dW_2\\dW_3\end{pmatrix}
+\]
+
+% 41
+\[
+\operatorname{KL}\!\left(p\|q\right) = \int_{\mathbb{R}^d}p(\mathbf{x})\log\frac{p(\mathbf{x})}{q(\mathbf{x})}\,d\mathbf{x} = \frac{1}{2}\left[\operatorname{tr}(\Sigma_q^{-1}\Sigma_p)+(\mu_q-\mu_p)^T\Sigma_q^{-1}(\mu_q-\mu_p)-d+\log\frac{|\Sigma_q|}{|\Sigma_p|}\right]
+\]
+
+% 42
+\[
+e^{i\pi\tau n^2+2\pi i nz} : \quad\vartheta_3(z|\tau) = \sum_{n=-\infty}^{\infty}e^{i\pi\tau n^2+2\pi inz} = \prod_{m=1}^{\infty}(1-q^{2m})(1+q^{2m-1}e^{2\pi iz})(1+q^{2m-1}e^{-2\pi iz}),\quad q=e^{i\pi\tau}
+\]
+
+% 43
+\[
+\iint_S\left(\frac{\partial Q}{\partial x}-\frac{\partial P}{\partial y}\right)dA = \oint_{\partial S}P\,dx+Q\,dy,\quad\iiint_V\left(\frac{\partial P}{\partial x}+\frac{\partial Q}{\partial y}+\frac{\partial R}{\partial z}\right)dV = \oiint_{\partial V}P\,dy\,dz+Q\,dz\,dx+R\,dx\,dy
+\]
+
+% 44
+\[
+\mathcal{L}_{\text{Higgs}} = (D_\mu\Phi)^\dagger(D^\mu\Phi)+\mu^2\Phi^\dagger\Phi-\lambda(\Phi^\dagger\Phi)^2,\quad\Phi = \frac{1}{\sqrt{2}}\begin{pmatrix}0\\v+h\end{pmatrix},\quad m_W = \frac{gv}{2},\quad m_Z = \frac{v\sqrt{g^2+g'^2}}{2}
+\]
+
+% 45
+\[
+f(z) = \sum_{n=-\infty}^{\infty}a_n(z-z_0)^n,\quad a_n = \frac{1}{2\pi i}\oint_C\frac{f(\zeta)}{(\zeta-z_0)^{n+1}}\,d\zeta,\quad\operatorname{Res}_{z=z_0}f = a_{-1} = \lim_{z\to z_0}\frac{1}{(m-1)!}\frac{d^{m-1}}{dz^{m-1}}\left[(z-z_0)^m f(z)\right]
+\]
+
+% 46
+\[
+\Gamma(z)\Gamma(1-z) = \frac{\pi}{\sin(\pi z)},\quad\psi^{(n)}(z)=(-1)^{n+1}n!\sum_{k=0}^{\infty}\frac{1}{(z+k)^{n+1}},\quad B(x,y) = \frac{\Gamma(x)\Gamma(y)}{\Gamma(x+y)} = \int_0^{\pi/2}2\sin^{2x-1}\theta\cos^{2y-1}\theta\,d\theta
+\]
+
+% 47
+\[
+\hat{U}(t,t_0) = \mathcal{T}\exp\!\left(-\frac{i}{\hbar}\int_{t_0}^{t}\hat{H}_I(t')\,dt'\right) = \sum_{n=0}^{\infty}\frac{(-i/\hbar)^n}{n!}\int_{t_0}^{t}\!\cdots\!\int_{t_0}^{t}\mathcal{T}\!\left[\hat{H}_I(t_1)\cdots\hat{H}_I(t_n)\right]dt_1\cdots dt_n
+\]
+
+% 48
+\[
+\frac{\partial p}{\partial t}+\nabla\cdot(p\,\mathbf{v})-\nabla\cdot\left(D\nabla p+\frac{p}{k_BT}\nabla U\right) = \sum_{i}\delta(t-t_i)\left[\prod_{j}\int K(\mathbf{x},\mathbf{x}'_j|\theta_j)\,p(\mathbf{x}'_j,t_i^{-})\,d\mathbf{x}'_j-p(\mathbf{x},t_i^{-})\right]
+\]
+
+% 49
+\[
+\int_0^1\!\cdots\!\int_0^1\left|\det\!\begin{pmatrix}K(x_1,y_1)&\cdots&K(x_1,y_n)\\\vdots&\ddots&\vdots\\K(x_n,y_1)&\cdots&K(x_n,y_n)\end{pmatrix}\right|^2 dx_1\cdots dx_n\,dy_1\cdots dy_n = n!\sum_{\sigma\in S_n}\prod_{k=1}^{n}\left(\int_0^1|K(x,x)|^2\,dx\right)^{c_k(\sigma)}
+\]
+
+% 50
+\[
+\mathcal{A}_{n}^{\text{tree}} = g^{n-2}\sum_{\sigma\in S_n/Z_n}\frac{\mathrm{Tr}(T^{a_{\sigma(1)}}\cdots T^{a_{\sigma(n)}})}{\langle\sigma(1)\,\sigma(2)\rangle\langle\sigma(2)\,\sigma(3)\rangle\cdots\langle\sigma(n)\,\sigma(1)\rangle}\cdot\prod_{i<j}\left[\delta^{(8)}\!\left(\sum_{k=1}^{n}\lambda_k^{\alpha}\tilde{\lambda}_k^{\dot{\alpha}}\eta_k^A\right)\right]^{1/(n-2)}
+\]
+
+\end{document}

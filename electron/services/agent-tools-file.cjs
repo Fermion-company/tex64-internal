@@ -143,33 +143,6 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
   return { files: results };
 };
 
-const AUTO_APPLY_MAX_CHANGED_LINES = 80;
-
-const shouldAutoApply = (service, proposal) => {
-  if (service?.agentOptions?.autoApply !== true) return false;
-  if (!proposal) return true;
-  // For large changes, fall back to proposal mode so the user can review
-  const original = typeof proposal.originalContent === "string" ? proposal.originalContent : "";
-  const content = typeof proposal.content === "string" ? proposal.content : "";
-  const originalLines = original.split("\n").length;
-  const contentLines = content.split("\n").length;
-  const changedLines = Math.abs(contentLines - originalLines) + Math.min(originalLines, contentLines);
-  // Estimate: if the diff is very large, require review
-  if (original.length === 0 && content.length === 0) return true;
-  if (original === content) return true;
-  // Simple heuristic: if total line count change is large, require approval
-  const diffSize = Math.abs(contentLines - originalLines);
-  const totalLines = Math.max(originalLines, contentLines);
-  if (totalLines > AUTO_APPLY_MAX_CHANGED_LINES && diffSize > AUTO_APPLY_MAX_CHANGED_LINES / 2) {
-    return false;
-  }
-  // If the content change is very large (>80% of file rewritten), require approval
-  if (original.length > 0 && Math.abs(content.length - original.length) > original.length * 0.8) {
-    if (totalLines > AUTO_APPLY_MAX_CHANGED_LINES) return false;
-  }
-  return true;
-};
-
 const autoApplyProposal = async (service, proposal, options = {}) => {
   service.proposals.set(proposal.id, proposal);
   const applyResult = await service.applyProposal(proposal.id, {
@@ -264,19 +237,14 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     baseSource: baseSource || undefined,
     createdAt: Date.now(),
   };
-  if (shouldAutoApply(service, proposal)) {
-    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
-    return {
-      status: apply.ok ? "applied" : "apply_failed",
-      proposalId: id,
-      path: targetPath,
-      apply,
-      ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
-    };
-  }
-  service.proposals.set(id, proposal);
-  service.sendToRenderer("agent:proposal", { proposal });
-  return { status: "proposed", proposalId: id };
+  const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
+  return {
+    status: apply.ok ? "applied" : "apply_failed",
+    proposalId: id,
+    path: targetPath,
+    apply,
+    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
+  };
 };
 
 const handleProposePatch = async (service, args, policy, conversationId) => {
@@ -413,7 +381,6 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   }
 
   const proposals = [];
-  const baseAutoApply = shouldAutoApply(service);
   for (const prepared of preparedProposals) {
     const id =
       typeof crypto.randomUUID === "function"
@@ -435,39 +402,20 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       baseSource: prepared.baseSource || undefined,
       createdAt: Date.now(),
     };
-    const autoApply = baseAutoApply && shouldAutoApply(service, proposal);
-    if (autoApply) {
-      const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
-      proposals.push({
-        proposalId: id,
-        path: prepared.path,
-        appliedCount: prepared.appliedCount,
-        ok: Boolean(apply?.ok),
-        error: apply?.ok ? undefined : apply?.error ?? "適用に失敗しました。",
-      });
-    } else {
-      service.proposals.set(id, proposal);
-      service.sendToRenderer("agent:proposal", { proposal });
-      proposals.push({
-        proposalId: id,
-        path: prepared.path,
-        appliedCount: prepared.appliedCount,
-      });
-    }
+    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
+    proposals.push({
+      proposalId: id,
+      path: prepared.path,
+      appliedCount: prepared.appliedCount,
+      ok: Boolean(apply?.ok),
+      error: apply?.ok ? undefined : apply?.error ?? "適用に失敗しました。",
+    });
   }
 
-  if (baseAutoApply) {
-    const successCount = proposals.filter((entry) => entry.ok).length;
-    const hasFailure = proposals.length > successCount;
-    return {
-      status: hasFailure ? (successCount > 0 ? "partially_applied" : "apply_failed") : "applied",
-      proposalIds: proposals.map((proposal) => proposal.proposalId),
-      files: proposals,
-    };
-  }
-
+  const successCount = proposals.filter((entry) => entry.ok).length;
+  const hasFailure = proposals.length > successCount;
   return {
-    status: "proposed",
+    status: hasFailure ? (successCount > 0 ? "partially_applied" : "apply_failed") : "applied",
     proposalIds: proposals.map((proposal) => proposal.proposalId),
     files: proposals,
   };
@@ -576,20 +524,15 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
     createdAt: Date.now(),
   };
 
-  if (shouldAutoApply(service, proposal)) {
-    const apply = await autoApplyProposal(service, proposal);
-    return {
-      status: apply.ok ? "applied" : "apply_failed",
-      proposalId: id,
-      path: targetPath,
-      apply,
-      autoBuild: apply.autoBuild ?? null,
-      ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
-    };
-  }
-  service.proposals.set(id, proposal);
-  service.sendToRenderer("agent:proposal", { proposal });
-  return { status: "proposed", proposalId: id };
+  const apply = await autoApplyProposal(service, proposal);
+  return {
+    status: apply.ok ? "applied" : "apply_failed",
+    proposalId: id,
+    path: targetPath,
+    apply,
+    autoBuild: apply.autoBuild ?? null,
+    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
+  };
 };
 
 const handleProposeDelete = async (service, args, policy, conversationId) => {
@@ -651,19 +594,14 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
     baseSource: baseSource || undefined,
     createdAt: Date.now(),
   };
-  if (shouldAutoApply(service)) {
-    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
-    return {
-      status: apply.ok ? "applied" : "apply_failed",
-      proposalId: id,
-      path: targetPath,
-      apply,
-      ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
-    };
-  }
-  service.proposals.set(id, proposal);
-  service.sendToRenderer("agent:proposal", { proposal });
-  return { status: "proposed", proposalId: id };
+  const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
+  return {
+    status: apply.ok ? "applied" : "apply_failed",
+    proposalId: id,
+    path: targetPath,
+    apply,
+    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
+  };
 };
 
 const handleProposeRename = async (service, args, policy, conversationId) => {
@@ -727,19 +665,14 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
     baseSource: baseSource || undefined,
     createdAt: Date.now(),
   };
-  if (shouldAutoApply(service)) {
-    const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
-    return {
-      status: apply.ok ? "applied" : "apply_failed",
-      proposalId: id,
-      path: newPath,
-      apply,
-      ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
-    };
-  }
-  service.proposals.set(id, proposal);
-  service.sendToRenderer("agent:proposal", { proposal });
-  return { status: "proposed", proposalId: id };
+  const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
+  return {
+    status: apply.ok ? "applied" : "apply_failed",
+    proposalId: id,
+    path: newPath,
+    apply,
+    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
+  };
 };
 
 const handleProposeCreateDirectory = async (service, args, policy, conversationId) => {
@@ -768,20 +701,15 @@ const handleProposeCreateDirectory = async (service, args, policy, conversationI
     baseExists: false,
     createdAt: Date.now(),
   };
-  if (shouldAutoApply(service)) {
-    const apply = await autoApplyProposal(service, proposal);
-    return {
-      status: apply.ok ? "applied" : "apply_failed",
-      proposalId: id,
-      path: targetPath,
-      apply,
-      autoBuild: apply.autoBuild ?? null,
-      ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
-    };
-  }
-  service.proposals.set(id, proposal);
-  service.sendToRenderer("agent:proposal", { proposal });
-  return { status: "proposed", proposalId: id };
+  const apply = await autoApplyProposal(service, proposal);
+  return {
+    status: apply.ok ? "applied" : "apply_failed",
+    proposalId: id,
+    path: targetPath,
+    apply,
+    autoBuild: apply.autoBuild ?? null,
+    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
+  };
 };
 
 module.exports = {

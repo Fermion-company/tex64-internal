@@ -248,6 +248,7 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleStatus = (state: AgentStatusState, message?: string, conversationId?: string) => {
+    if (!conversationId) return;
     const chat = ensureChat(conversationId);
     if (!chat) return;
     if (state === "running") {
@@ -280,6 +281,7 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleMessage = (text: string, conversationId?: string) => {
+    if (!conversationId) return;
     clearThinkingMessage(conversationId);
     // Mark any open tool log as completed
     const msgChat = ensureChat(conversationId);
@@ -320,8 +322,8 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleMessageDelta = (text: string, conversationId?: string) => {
-    const chatId = conversationId ?? getActiveChatId();
-    if (!chatId || !text) return;
+    if (!conversationId || !text) return;
+    const chatId = conversationId;
     clearThinkingMessage(chatId);
     const entry = ensureStreamingMessage(chatId);
     if (!entry) return;
@@ -336,6 +338,7 @@ export const createAiChatIncomingHandlers = (
     summary?: string;
     conversationId?: string;
   }) => {
+    if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
     if (!chat || !runningConversations.has(chat.id)) return;
     const label =
@@ -367,6 +370,7 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleProposal = (proposal: AgentProposal) => {
+    if (!proposal.conversationId) return;
     const chat = ensureChat(proposal.conversationId);
     if (!chat) return;
     chat.proposals.set(proposal.id, proposal);
@@ -442,7 +446,7 @@ export const createAiChatIncomingHandlers = (
     path?: string;
     conversationId?: string;
   }) => {
-    const targetChatId = payload.conversationId ?? getActiveChatId() ?? undefined;
+    const targetChatId = payload.conversationId ?? getActiveChatId();
     if (payload.ok) {
       const chat = getChat(targetChatId);
       if (chat && chat.id === getActiveChatId()) {
@@ -520,6 +524,7 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleScratchpad = (payload: { content: string; conversationId?: string }) => {
+    if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
     if (!chat) return;
     const content = typeof payload.content === "string" ? payload.content.trim() : "";
@@ -541,6 +546,7 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleThought = (payload: { text: string; conversationId?: string }) => {
+    if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
     if (!chat) return;
     const text = typeof payload.text === "string" ? payload.text.trim() : "";
@@ -561,6 +567,7 @@ export const createAiChatIncomingHandlers = (
   };
 
   const handleError = (message: string, conversationId?: string) => {
+    if (!conversationId) return;
     appendMessage({ role: "system", text: message }, conversationId);
     const chat = ensureChat(conversationId);
     if (chat) {

@@ -16,6 +16,7 @@ export type SettingsFormatOps = {
 
 export const createSettingsFormatOps = (runtime: SettingsUiRuntime): SettingsFormatOps => {
   const {
+    editorFormatEnabledToggle,
     editorFormatIndentSelect,
     editorFormatBeginEndToggle,
     editorFormatDocumentNoIndentToggle,
@@ -82,6 +83,10 @@ export const createSettingsFormatOps = (runtime: SettingsUiRuntime): SettingsFor
   };
 
   const updateEditorFormatSettingsUI = () => {
+    updateSettingsToggle(
+      editorFormatEnabledToggle,
+      runtime.state.editorFormatSettings.enabled
+    );
     if (editorFormatIndentSelect instanceof HTMLSelectElement) {
       editorFormatIndentSelect.value = runtime.state.editorFormatSettings.indentStyle;
     }
@@ -183,6 +188,12 @@ export const createSettingsFormatOps = (runtime: SettingsUiRuntime): SettingsFor
     }
     removeEditorFormatVerbatim(name);
   };
+
+  if (editorFormatEnabledToggle instanceof HTMLInputElement) {
+    editorFormatEnabledToggle.addEventListener("change", () => {
+      setEditorFormatSettings({ enabled: editorFormatEnabledToggle.checked });
+    });
+  }
 
   if (editorFormatIndentSelect instanceof HTMLSelectElement) {
     editorFormatIndentSelect.addEventListener("change", () => {

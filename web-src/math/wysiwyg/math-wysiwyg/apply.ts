@@ -222,6 +222,9 @@ export const createMathWysiwygApplyOps = (
     if (!runtime.mathfield || index < 0 || index >= runtime.panelState.currentCandidates.length) {
       return;
     }
+    // Preserve the edit session anchor before clearing so that
+    // clearTriggerRange can use it as an upper bound on deletion.
+    const savedEditAnchor = runtime.editAnchorOffset;
     clearEditAnchor(runtime);
     const candidate: Candidate = runtime.panelState.currentCandidates[index];
     const wasExplicitSession = runtime.panelState.explicitSession;
@@ -252,15 +255,29 @@ export const createMathWysiwygApplyOps = (
       });
     };
 
+    const insertedLatex = typeof candidate.key.latex === "string" ? normalizeLatexKey(candidate.key.latex) : "";
+
     const clearTriggerRange = () => {
       if (typeof mathfieldApi.executeCommand !== "function") {
         return;
       }
+      // Maximum number of characters that can safely be deleted without
+      // crossing into content that predates the current edit session.
+      const maxSafeDelete =
+        savedEditAnchor !== null &&
+        Number.isFinite(savedEditAnchor) &&
+        cursorOffset > savedEditAnchor
+          ? cursorOffset - savedEditAnchor
+          : Infinity;
       const deleteBackwardChars = (count: number) => {
         if (!Number.isFinite(count) || count <= 0) {
           return false;
         }
-        for (let i = 0; i < count; i += 1) {
+        const safeCount = Math.min(count, maxSafeDelete);
+        if (safeCount <= 0) {
+          return false;
+        }
+        for (let i = 0; i < safeCount; i += 1) {
           try {
             mathfieldApi.executeCommand("deleteBackward");
           } catch {
@@ -288,7 +305,53 @@ export const createMathWysiwygApplyOps = (
         return deleteBackwardChars(suffix.length);
       };
 
+      // Extract the base command name from the candidate LaTeX (e.g. "sin"
+      // from "\\sin", "sum" from "\\sum_{#?}^{#?}").  Used to limit the
+      // deletion to only the matching suffix of the current word token so
+      // that preceding content is never accidentally removed.
+      const extractCandidateBaseName = (): string | null => {
+        if (!insertedLatex) return null;
+        const m = /^\\([A-Za-z*]+)/.exec(insertedLatex);
+        return m ? m[1] : null;
+      };
+
       const beforeCursor = readMathfieldLatex(mathfieldApi, 0, cursorOffset, "latex") ?? "";
+
+      // Safety check: when the current token is a plain word (no leading
+      // backslash) and the candidate is a LaTeX command, only delete the
+      // portion of the word that matches the command's base name instead of
+      // the entire word.  This prevents "sumsin" → select \sin from wiping
+      // out the preceding "sum" characters, and "sumsin" → select \sum from
+      // wiping out the trailing "sin" characters.
+      if (runtime.currentTokenMatch?.kind === "word") {
+        const baseName = extractCandidateBaseName();
+        if (baseName) {
+          const token = runtime.currentTokenMatch.token;
+          if (token.length > baseName.length) {
+            // Suffix match: e.g. "sumsin" → select \sin → delete only "sin"
+            if (token.endsWith(baseName)) {
+              if (clearSuffixFromBuffer(beforeCursor, baseName)) {
+                return;
+              }
+            }
+            // Prefix match: e.g. "sumsin" → select \sum → select "sum" portion
+            // and delete it so that "sin" remains after the inserted command.
+            if (token.startsWith(baseName) && runtime.currentRange) {
+              const prefixEndOffset = runtime.currentRange.start + baseName.length;
+              if (prefixEndOffset > runtime.currentRange.start && prefixEndOffset <= cursorOffset) {
+                setSelectionRange(mathfieldApi, runtime.currentRange.start, prefixEndOffset);
+                try {
+                  mathfieldApi.executeCommand("deleteBackward");
+                } catch {
+                  // ignore
+                }
+                return;
+              }
+            }
+          }
+        }
+      }
+
       const expectedSuffix = tokenSuffixFromMatch(runtime.currentTokenMatch);
       if (clearSuffixFromBuffer(beforeCursor, expectedSuffix)) {
         return;
@@ -334,7 +397,6 @@ export const createMathWysiwygApplyOps = (
       }
     };
 
-    const insertedLatex = typeof candidate.key.latex === "string" ? normalizeLatexKey(candidate.key.latex) : "";
     const isAuxCommandCandidate =
       AUX_COMMAND_TEMPLATE_RE.test(insertedLatex) || AUX_COMMAND_BARE_RE.test(insertedLatex) || INTERTEXT_TEMPLATE_RE.test(insertedLatex);
     const shouldHoistAuxCommand = isAuxCommandCandidate && isCursorInBlockedAuxEnvironment(mathfieldApi, cursorOffset);

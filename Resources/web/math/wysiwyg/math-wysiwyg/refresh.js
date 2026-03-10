@@ -257,6 +257,9 @@ export const createMathWysiwygRefreshOps = (runtime, deps) => {
                     panelOps.setPanelVisible(false);
                     setSelectionRange(mathfieldApi, operatorCorrectionMatch.range.start, operatorCorrectionMatch.range.end);
                     runtime.deps.insertKey(candidate.key);
+                    // Reset edit anchor so that subsequent typing starts a fresh
+                    // token instead of accumulating onto the replaced content.
+                    clearEditAnchor(runtime);
                     finalizeMutationSession(mutationId);
                     return;
                 }
@@ -277,6 +280,9 @@ export const createMathWysiwygRefreshOps = (runtime, deps) => {
                         panelOps.setPanelVisible(false);
                         setSelectionRange(mathfieldApi, operatorMatch.range.start, operatorMatch.range.end);
                         runtime.deps.insertKey(candidate.key);
+                        // Reset edit anchor so that subsequent typing starts a fresh
+                        // token instead of accumulating onto the replaced content.
+                        clearEditAnchor(runtime);
                         finalizeMutationSession(mutationId);
                         return;
                     }

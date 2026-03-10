@@ -1,41 +1,16 @@
-% !TEX TS-program = lualatex
 \documentclass{article}
-\usepackage{amsmath}
-\usepackage{amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
-\usepackage{hyperref}
-\usepackage{geometry}
-
-\newcommand{\todo}[1]{\textbf{TODO: #1}}
-\newenvironment{eqbox}{\begin{equation}}{\end{equation}}
+\usepackage{amsmath}
+\usepackage{todonotes}
 
 \graphicspath{{figures/}}
-
-\title{tex64 Test Workspace} 
-\author{tex64}
-\date{\today}
-
 \begin{document}
-\maketitle
-\tableofcontents
-\listoffigures
-\listoftables
 
-\section{Overview}\label{sec:overview}
-This document exercises editor features, indexing, build, and SyncTeX.
-TODO: revisit the summary section and validate \detokenize{TEX64_SEARCH_TOKEN} coverage.
-We cite \cite{knuth1984,lamport1994} and refer to Section~\ref{sec:methods}.
-Inline math: $E=mc^2$.
+\include{sections/intro}
+\include{sections/methods}
+\include{sections/results}
+\include{sections/discussion}
+\include{sections/appendix}
 
-\input{sections/intro}
-\input{sections/methods}
-\input{sections/results}
-\input{sections/blocks}
-\input{sections/discussion}
-\appendix
-\input{sections/appendix}
-
-\bibliographystyle{plain}
-\bibliography{refs}
 \end{document}

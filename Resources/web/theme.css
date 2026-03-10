@@ -4443,9 +4443,13 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: var(--accent-soft);
 }
 
+.monaco-editor .synctex-reverse-highlight {
+  background: rgba(100, 180, 255, 0.18);
+  box-shadow: inset 3px 0 0 rgba(100, 180, 255, 0.7);
+}
+
 .monaco-editor .detected-block-highlight {
-  background: rgba(210, 153, 34, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(210, 153, 34, 0.35);
+  background: transparent;
   border-radius: 3px;
 }
 
@@ -5599,6 +5603,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--accent-strong);
   animation: ai-login-icon-pulse 3s ease-in-out infinite;
 }
+
 .ai-login-overlay-title {
   font-size: 16px;
   font-weight: 700;

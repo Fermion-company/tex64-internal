@@ -1,5 +1,6 @@
 import { DEFAULT_ENV_REGISTRY, getEnvBaseName, normalizeEnvName, } from "./env-registry.js";
 export const defaultEditorFormatSettings = {
+    enabled: true,
     indentStyle: "spaces-2",
     beginEndOnOwnLine: true,
     documentNoIndent: true,
@@ -46,6 +47,9 @@ export const normalizeEditorFormatSettings = (value) => {
         return settings;
     }
     const data = value;
+    if (typeof data.enabled === "boolean") {
+        settings.enabled = data.enabled;
+    }
     if (data.indentStyle === "spaces-2" ||
         data.indentStyle === "spaces-4" ||
         data.indentStyle === "tab") {

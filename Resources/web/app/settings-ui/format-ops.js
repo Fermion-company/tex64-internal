@@ -1,7 +1,7 @@
 import { buildFormatSettingsPayload as buildFormatSettingsPayloadFromSettings, defaultEditorFormatSettings, normalizeEditorFormatSettings, normalizeVerbatimInput, } from "../settings-format.js";
 import { updateSettingsToggle } from "./utils.js";
 export const createSettingsFormatOps = (runtime) => {
-    const { editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, } = runtime.context.dom;
+    const { editorFormatEnabledToggle, editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, } = runtime.context.dom;
     const buildFormatSettingsPayload = () => buildFormatSettingsPayloadFromSettings(runtime.state.editorFormatSettings, runtime.deps.envRegistry);
     const setEditorFormatVerbatimHint = (message) => {
         if (editorFormatVerbatimHint instanceof HTMLElement) {
@@ -43,6 +43,7 @@ export const createSettingsFormatOps = (runtime) => {
         });
     };
     const updateEditorFormatSettingsUI = () => {
+        updateSettingsToggle(editorFormatEnabledToggle, runtime.state.editorFormatSettings.enabled);
         if (editorFormatIndentSelect instanceof HTMLSelectElement) {
             editorFormatIndentSelect.value = runtime.state.editorFormatSettings.indentStyle;
         }
@@ -127,6 +128,11 @@ export const createSettingsFormatOps = (runtime) => {
         }
         removeEditorFormatVerbatim(name);
     };
+    if (editorFormatEnabledToggle instanceof HTMLInputElement) {
+        editorFormatEnabledToggle.addEventListener("change", () => {
+            setEditorFormatSettings({ enabled: editorFormatEnabledToggle.checked });
+        });
+    }
     if (editorFormatIndentSelect instanceof HTMLSelectElement) {
         editorFormatIndentSelect.addEventListener("change", () => {
             const value = editorFormatIndentSelect.value;

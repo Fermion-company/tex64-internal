@@ -133,6 +133,17 @@ export function onKeystroke(
         // It was a non-alpha character (PageUp, End, etc...)
         mathfield.flushInlineShortcutBuffer();
       } else {
+        // When no inline shortcuts are configured, skip the entire buffer
+        // accumulation and shortcut detection loop.  This prevents the buffer
+        // from growing indefinitely and eliminates any risk of stale-state
+        // interference with subsequent input.
+        const hasInlineShortcuts =
+          mathfield.options.inlineShortcuts &&
+          Object.keys(mathfield.options.inlineShortcuts).length > 0;
+
+        if (!hasInlineShortcuts) {
+          mathfield.flushInlineShortcutBuffer();
+        } else {
         const c = keyboardEventToChar(evt);
 
         // Find the longest substring that matches a shortcut
@@ -185,6 +196,7 @@ export function onKeystroke(
         // avoid the detecting of the "sin" shortcut from preventing the "sinh"
         // shortcut from ever being triggered.
         mathfield.flushInlineShortcutBuffer({ defer: true });
+        }
       }
     }
 

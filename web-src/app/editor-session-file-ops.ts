@@ -404,13 +404,14 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           const wrappedReject = (e: unknown) => { clearTimeout(safetyTimer); origReject(e); };
           state.pendingSave.resolve = wrappedResolve;
           state.pendingSave.reject = wrappedReject;
+          const fmtPayload = deps.settings.buildFormatSettingsPayload();
           const ok = deps.postToNative({
             type: "saveFile",
             path,
             content: value,
-            format: true,
+            format: fmtPayload.enabled !== false,
             formatSource: "save",
-            formatSettings: deps.settings.buildFormatSettingsPayload(),
+            formatSettings: fmtPayload,
           });
           if (!ok) {
             clearTimeout(safetyTimer);
@@ -507,13 +508,14 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             const origReject2 = reject;
             state.pendingSave.resolve = (v: boolean) => { clearTimeout(safetyTimer); origResolve2(v); };
             state.pendingSave.reject = (e: unknown) => { clearTimeout(safetyTimer); origReject2(e); };
+            const fmtPayload2 = deps.settings.buildFormatSettingsPayload();
             const ok = deps.postToNative({
               type: "saveFile",
               path,
               content,
-              format: true,
+              format: fmtPayload2.enabled !== false,
               formatSource: "save",
-              formatSettings: deps.settings.buildFormatSettingsPayload(),
+              formatSettings: fmtPayload2,
             });
             if (!ok) {
               clearTimeout(safetyTimer);

@@ -91,6 +91,10 @@ type BridgeHandlersDeps = {
       page?: number;
       x?: number;
       y?: number;
+      blockX?: number;
+      blockY?: number;
+      blockWidth?: number;
+      blockHeight?: number;
       pdfPath?: string | null;
       requestId?: string;
       cancelled?: boolean;

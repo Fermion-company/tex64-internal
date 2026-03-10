@@ -163,7 +163,6 @@ export const initWorkspaceController = (context, deps) => {
         }
         if (pendingBuildIssuesFocus && sorted.length > 0 && status === "error") {
             pendingBuildIssuesFocus = false;
-            deps.setActiveTab("issues");
         }
     };
     const updateIssues = (count, summary, status, issues) => {

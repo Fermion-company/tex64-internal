@@ -332,8 +332,12 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
           smartMode: false,
           smartFence: false,
           defaultMode: "math",
+          // Disable ALL inline shortcuts so that typed text is never
+          // auto-replaced by MathLive's shortcut engine.  The WYSIWYG
+          // suggestion system handles command insertion explicitly.
           inlineShortcuts: {},
           onInlineShortcut: () => "",
+          inlineShortcutTimeout: 0,
           virtualKeyboardMode: "off",
           fontsDirectory: "mathlive/fonts",
           soundsDirectory: null,
@@ -341,6 +345,16 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
           plonkSound: null,
           locale: "ja",
         });
+      }
+
+      // Also set properties directly (the recommended path for newer MathLive
+      // versions) to ensure the options take effect even if the deprecated
+      // setOptions code-path skips them.
+      try {
+        const mf = mathfield as any;
+        if ("inlineShortcuts" in mf) mf.inlineShortcuts = {};
+      } catch {
+        // ignore property setter failures
       }
 
       // MathLive doesn't support some LaTeX font commands natively (e.g. \mathds),

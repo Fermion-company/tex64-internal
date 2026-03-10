@@ -610,6 +610,7 @@ export const initMain = () => {
         });
         workspaceController = initWorkspaceController(appContext, {
             setWorkspaceRootKey: appActions.setWorkspaceRootKey,
+            getActiveTab: tabController.getActiveTab,
             setActiveTab,
             issuesUi,
             editorSession: {
@@ -801,7 +802,10 @@ export const initMain = () => {
                 handleSynctexReverseResult: (payload) => {
                     var _a;
                     if ((payload === null || payload === void 0 ? void 0 : payload.ok) && payload.path && typeof payload.line === "number") {
-                        editorSession.jumpToFileLine(payload.path, payload.line, "primary", { focus: true });
+                        editorSession.jumpToFileLine(payload.path, payload.line, "primary", {
+                            focus: true,
+                            className: "synctex-reverse-highlight",
+                        });
                         return;
                     }
                     const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : "SyncTeX に失敗しました。";

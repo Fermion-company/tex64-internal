@@ -110,6 +110,15 @@ module.exports = (SynctexService) => {
   SynctexService.prototype.buildForwardCandidates = function (block) {
     const candidates = [];
     const seen = new Set();
+    const blockWidth = Number.isFinite(block.width) ? block.width : null;
+    const rawH = Number.isFinite(block.height) ? block.height : null;
+    const DEPTH_ESTIMATE = 3;
+    const blockHeight = rawH !== null ? rawH + DEPTH_ESTIMATE : null;
+    const blockX = Number.isFinite(block.h) ? block.h : block.x;
+    const blockY =
+      Number.isFinite(block.v) && rawH !== null
+        ? block.v - rawH
+        : block.y;
     const addCandidate = (x, y, geometryBias = 0) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
@@ -119,7 +128,7 @@ module.exports = (SynctexService) => {
         return;
       }
       seen.add(key);
-      candidates.push({ page: block.page, x, y, geometryBias });
+      candidates.push({ page: block.page, x, y, geometryBias, blockX, blockY, blockWidth, blockHeight });
     };
     addCandidate(block.x, block.y, 0);
     if (Number.isFinite(block.h) && Number.isFinite(block.v)) {
@@ -158,152 +167,63 @@ module.exports = (SynctexService) => {
     if (!Number.isFinite(targetLine)) {
       return fallbackPoint;
     }
+    // Fast path: single block — skip reverse verification (most common case)
+    if (blocks.length === 1) {
+      const candidates = this.buildForwardCandidates(fallback);
+      return candidates[0] || fallbackPoint;
+    }
+    // Multi-block: verify first candidate per block only, skip stability measurement
     let bestScore = null;
-    const bestCandidates = [];
+    let bestResult = null;
     const pathPenalty = 1000000;
     const lineWeight = 100;
     const columnWeight = 1;
     const geometryWeight = 2;
     for (const block of blocks) {
       const candidates = this.buildForwardCandidates(block);
-      for (const candidate of candidates) {
-        const reverse = await this.resolveReverseLine({
-          synctexPath,
-          pdfPath,
-          cwd,
-          env,
-          point: candidate,
-          preferredPath: sourcePath,
-          targetLine,
-          targetColumn,
-        });
-        if (!reverse || !Number.isFinite(reverse.line)) {
-          continue;
-        }
-        const samePath = !sourcePath || this.isSamePath(reverse.path, sourcePath);
-        const lineDiff = Math.abs(reverse.line - targetLine);
-        const reverseColumn = Number.isFinite(reverse.column) ? reverse.column : 1;
-        const columnDiff = Number.isFinite(targetColumn)
-          ? Math.abs(reverseColumn - targetColumn)
-          : 0;
-        const geometryBias = Number.isFinite(candidate.geometryBias) ? candidate.geometryBias : 0;
-        const score =
-          lineDiff * lineWeight +
-          columnDiff * columnWeight +
-          geometryBias * geometryWeight +
-          (samePath ? 0 : pathPenalty);
-        if (bestScore === null || score < bestScore) {
-          bestScore = score;
-          bestCandidates.length = 0;
-          bestCandidates.push({
-            candidate,
-            reverse,
-            samePath,
-            lineDiff,
-            columnDiff,
-            geometryBias,
-          });
-        } else if (score === bestScore) {
-          bestCandidates.push({
-            candidate,
-            reverse,
-            samePath,
-            lineDiff,
-            columnDiff,
-            geometryBias,
-          });
-        }
+      const candidate = candidates[0];
+      if (!candidate) {
+        continue;
       }
-    }
-    if (!bestCandidates.length) {
-      return fallbackPoint;
-    }
-    if (bestCandidates.length === 1) {
-      const selected = bestCandidates[0];
-      return {
-        ...selected.candidate,
-        matchedPath: selected.reverse.path,
-        matchedLine: selected.reverse.line,
-        matchedColumn: Number.isFinite(selected.reverse.column) ? selected.reverse.column : 1,
-        matchDiff: selected.lineDiff,
-        matchColumnDiff: Number.isFinite(targetColumn) ? selected.columnDiff : null,
-        sameSourcePath: selected.samePath === true,
-      };
-    }
-    let selectedItem = bestCandidates[0];
-    let bestStability = -1;
-    for (const item of bestCandidates) {
-      const stability = await this.measureForwardStability({
-        candidate: item.candidate,
-        sourcePath,
-        targetLine,
-        targetColumn,
+      const reverse = await this.resolveReverseLine({
         synctexPath,
         pdfPath,
         cwd,
         env,
+        point: candidate,
+        preferredPath: sourcePath,
+        targetLine,
+        targetColumn,
       });
-      if (
-        stability > bestStability ||
-        (stability === bestStability &&
-          (item.columnDiff < selectedItem.columnDiff ||
-            (item.columnDiff === selectedItem.columnDiff &&
-              item.geometryBias < selectedItem.geometryBias)))
-      ) {
-        bestStability = stability;
-        selectedItem = item;
+      if (!reverse || !Number.isFinite(reverse.line)) {
+        continue;
+      }
+      const samePath = !sourcePath || this.isSamePath(reverse.path, sourcePath);
+      const lineDiff = Math.abs(reverse.line - targetLine);
+      const reverseColumn = Number.isFinite(reverse.column) ? reverse.column : 1;
+      const columnDiff = Number.isFinite(targetColumn)
+        ? Math.abs(reverseColumn - targetColumn)
+        : 0;
+      const geometryBias = Number.isFinite(candidate.geometryBias) ? candidate.geometryBias : 0;
+      const score =
+        lineDiff * lineWeight +
+        columnDiff * columnWeight +
+        geometryBias * geometryWeight +
+        (samePath ? 0 : pathPenalty);
+      if (bestScore === null || score < bestScore) {
+        bestScore = score;
+        bestResult = {
+          ...candidate,
+          matchedPath: reverse.path,
+          matchedLine: reverse.line,
+          matchedColumn: Number.isFinite(reverse.column) ? reverse.column : 1,
+          matchDiff: lineDiff,
+          matchColumnDiff: Number.isFinite(targetColumn) ? columnDiff : null,
+          sameSourcePath: samePath === true,
+        };
       }
     }
-    return {
-      ...selectedItem.candidate,
-      matchedPath: selectedItem.reverse.path,
-      matchedLine: selectedItem.reverse.line,
-      matchedColumn: Number.isFinite(selectedItem.reverse.column) ? selectedItem.reverse.column : 1,
-      matchDiff: selectedItem.lineDiff,
-      matchColumnDiff: Number.isFinite(targetColumn) ? selectedItem.columnDiff : null,
-      sameSourcePath: selectedItem.samePath === true,
-    };
-  };
-
-  SynctexService.prototype.measureForwardStability = async function ({
-    candidate,
-    sourcePath,
-    targetLine,
-    targetColumn = null,
-    synctexPath,
-    pdfPath,
-    cwd,
-    env,
-  }) {
-    const offsets = [-4, 0, 4];
-    let hits = 0;
-    for (const dx of offsets) {
-      for (const dy of offsets) {
-        const reverse = await this.resolveReverseLine({
-          synctexPath,
-          pdfPath,
-          cwd,
-          env,
-          point: { page: candidate.page, x: candidate.x + dx, y: candidate.y + dy },
-          preferredPath: sourcePath,
-          targetLine,
-          targetColumn,
-        });
-        const columnAligned =
-          !Number.isFinite(targetColumn) ||
-          (Number.isFinite(reverse?.column) && Math.abs(reverse.column - targetColumn) <= 4);
-        if (
-          reverse &&
-          Number.isFinite(reverse.line) &&
-          columnAligned &&
-          (!sourcePath || this.isSamePath(reverse.path, sourcePath)) &&
-          Math.abs(reverse.line - targetLine) <= 1
-        ) {
-          hits += 1;
-        }
-      }
-    }
-    return hits;
+    return bestResult || fallbackPoint;
   };
 
   SynctexService.prototype.measureForwardDistance = async function ({

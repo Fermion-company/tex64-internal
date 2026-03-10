@@ -1,0 +1,73 @@
+% !TEX TS-program = lualatex
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{luatexja}
+
+\theoremstyle{definition}
+\newtheorem{theorem}{定理}
+\newtheorem{definition}[theorem]{定義}
+
+\title{フーリエ解析とその応用}
+\author{田中 太郎}
+\date{2026年3月}
+
+\begin{document}
+\maketitle
+
+\section{フーリエ級数}
+
+周期 $2\pi$ の関数 $f(x)$ は、次のフーリエ級数で展開できる：
+
+\begin{equation}
+  f(x) = \frac{a_0}{2} + \sum_{n=1}^{\infty}
+  \left( a_n \cos nx + b_n \sin nx \right)
+\end{equation}
+
+ここでフーリエ係数は次式で与えられる：
+\begin{align}
+  a_n & = \frac{1}{\pi} \int_{-\pi}^{\pi} f(x) \cos nx \, dx
+  \quad (n = 0, 1, 2, \ldots)                                \\
+  b_n & = \frac{1}{\pi} \int_{-\pi}^{\pi} f(x) \sin nx \, dx
+  \quad (n = 1, 2, 3, \ldots)
+\end{align}
+
+\section{フーリエ変換}
+
+\begin{definition}[フーリエ変換]
+  $f \in L^1(\mathbb{R})$ に対し、フーリエ変換 $\hat{f}$ を
+  \begin{equation}
+    \hat{f}(\xi) = \int_{-\infty}^{\infty}
+    f(x)\, e^{-2\pi i x \xi} \, dx
+  \end{equation}
+  で定義する。
+\end{definition}
+
+\begin{theorem}[パーセバルの等式]
+  $f \in L^2(\mathbb{R})$ ならば
+  \begin{equation}
+    \int_{-\infty}^{\infty} |f(x)|^2 \, dx
+    = \int_{-\infty}^{\infty} |\hat{f}(\xi)|^2 \, d\xi
+  \end{equation}
+  が成り立つ。すなわちフーリエ変換はエネルギーを保存する。
+\end{theorem}
+
+\section{応用：熱方程式}
+
+一次元熱方程式
+\begin{equation}
+  \frac{\partial u}{\partial t}
+  = \alpha \frac{\partial^2 u}{\partial x^2},
+  \qquad x \in \mathbb{R},\; t > 0
+\end{equation}
+の初期条件 $u(x,0) = f(x)$ に対する解は、
+フーリエ変換を用いて次のように表される：
+\begin{equation}
+  u(x,t) = \frac{1}{\sqrt{4\pi\alpha t}}
+  \int_{-\infty}^{\infty}
+  f(y)\, \exp\!\left( -\frac{(x-y)^2}{4\alpha t} \right) dy
+\end{equation}
+
+\end{document}
+

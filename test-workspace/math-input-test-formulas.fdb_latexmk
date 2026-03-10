@@ -1,0 +1,19 @@
+# Fdb version 4
+["pdflatex"] 1773105684.87547 "/Users/wedd/tex64/test-workspace/math-input-test-formulas.tex" "math-input-test-formulas.pdf" "math-input-test-formulas" 1773105685.0414 2
+  "/Users/wedd/tex64/test-workspace/math-input-test-formulas.tex" 1773105684.43115 13650 f06a11f80d149846607e3fc05856ea15 ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/base/article.cls" 1705352648 20144 147463a6a579f4597269ef9565205cfe ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/base/size10.clo" 1705352648 8448 dbc0dbf4156c0bb9ba01a1c685d3bad0 ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/fontspec/fontspec.sty" 1707868014 3484 ff877041166391bc5ca8a1e45614784e ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def" 1708463273 30006 3d512c0edd558928ddea1690180ef77e ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/l3kernel/expl3.sty" 1708463273 6565 10e89ed128ccd59431746bbdd82129fc ""
+  "/usr/local/texlive/2024/texmf-dist/tex/latex/l3packages/xparse/xparse.sty" 1708376303 9327 11bedad2ac38f92e405a38ed18489a03 ""
+  "/usr/local/texlive/2024/texmf-dist/web2c/texmf.cnf" 1708706663 41649 5d6ae549fbbcb850a863f69aa41f3d10 ""
+  "/usr/local/texlive/2024/texmf-var/web2c/pdftex/pdflatex.fmt" 1714800319 8221444 f9e1e762b2b3ae8cc1a7570a155f10af ""
+  "/usr/local/texlive/2024/texmf.cnf" 1710266656 577 e590dabc9e28c5b61546e15f63eebcdf ""
+  "math-input-test-formulas.aux" 0 -1 0 "pdflatex"
+  "math-input-test-formulas.tex" 1773105684.43115 13650 f06a11f80d149846607e3fc05856ea15 ""
+  (generated)
+  "math-input-test-formulas.aux"
+  "math-input-test-formulas.log"
+  "math-input-test-formulas.pdf"
+  (rewritten before read)

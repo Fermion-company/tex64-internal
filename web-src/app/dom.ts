@@ -128,6 +128,7 @@ export const getDomRefs = () => ({
     document.querySelectorAll<HTMLButtonElement>(".settings-back")
   ),
   editorAlignEnvToggle: document.getElementById("editor-align-env"),
+  editorFormatEnabledToggle: document.getElementById("editor-format-enabled"),
   editorFormatIndentSelect: document.getElementById("editor-format-indent"),
   editorFormatBeginEndToggle: document.getElementById("editor-format-begin-end"),
   editorFormatDocumentNoIndentToggle: document.getElementById("editor-format-document-noindent"),

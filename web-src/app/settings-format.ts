@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 
 export const defaultEditorFormatSettings: EditorFormatSettings = {
+  enabled: true,
   indentStyle: "spaces-2",
   beginEndOnOwnLine: true,
   documentNoIndent: true,
@@ -60,6 +61,9 @@ export const normalizeEditorFormatSettings = (value: unknown): EditorFormatSetti
     return settings;
   }
   const data = value as Partial<EditorFormatSettings>;
+  if (typeof data.enabled === "boolean") {
+    settings.enabled = data.enabled;
+  }
   if (
     data.indentStyle === "spaces-2" ||
     data.indentStyle === "spaces-4" ||

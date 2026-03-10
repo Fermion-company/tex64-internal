@@ -55,7 +55,7 @@ export const initBuildOpsUi = (context, deps) => {
         const enabled = Boolean(targetPath && targetPath.endsWith(".tex"));
         synctexButton.disabled = !enabled;
         synctexButton.style.display = "inline-flex";
-        synctexButton.textContent = "SyncTeX";
+        synctexButton.textContent = "ジャンプ";
     };
     const handleBuildLog = (log) => {
         currentBuildLog = log;
@@ -399,11 +399,24 @@ export const initBuildOpsUi = (context, deps) => {
                         deps.requestOpenFile(pdfPath, openedGroup.key, true);
                     }
                 }
-                openedGroup.viewer.syncPdf({
+                const syncPayload = {
                     page: payload.page,
                     x: (_f = payload.x) !== null && _f !== void 0 ? _f : 0,
                     y: (_g = payload.y) !== null && _g !== void 0 ? _g : 0,
-                });
+                };
+                if (typeof payload.blockWidth === "number" && payload.blockWidth > 0) {
+                    syncPayload.blockWidth = payload.blockWidth;
+                }
+                if (typeof payload.blockHeight === "number" && payload.blockHeight > 0) {
+                    syncPayload.blockHeight = payload.blockHeight;
+                }
+                if (typeof payload.blockX === "number") {
+                    syncPayload.blockX = payload.blockX;
+                }
+                if (typeof payload.blockY === "number") {
+                    syncPayload.blockY = payload.blockY;
+                }
+                openedGroup.viewer.syncPdf(syncPayload);
             }
             if (matchedInFlight) {
                 flushQueuedSynctexForward();

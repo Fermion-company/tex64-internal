@@ -1782,6 +1782,13 @@ test("9a: マルチターン会話 — 2回目の run() で履歴が保持され
       buildService: {
         build: async () => ({ kind: "success", summary: "ok", issues: [], pdfPath: null, log: "" }),
       },
+      // auto-build が有効のため text reply 後に追加のモデルコールが発生する:
+      //   Call 1: patch_file → edits → editedSinceLastBuild=true
+      //   Call 2: text reply → auto-build triggers → continue
+      //   Call 3: text reply → loop exits (run 1 done)
+      //   Call 4: patch_file (2nd run)
+      //   Call 5: text reply → auto-build triggers → continue
+      //   Call 6: text reply → loop exits (run 2 done)
       requestAiChat: async () => {
         totalCalls += 1;
         if (totalCalls === 1) {
@@ -1795,8 +1802,11 @@ test("9a: マルチターン会話 — 2回目の run() で履歴が保持され
         if (totalCalls === 2) {
           return textReply("セクション名を変更しました。");
         }
-        // 2回目の run
         if (totalCalls === 3) {
+          return textReply("完了です。");
+        }
+        // 2回目の run
+        if (totalCalls === 4) {
           return fnCall("patch_file", {
             path: "main.tex",
             search: "\\section{Introduction}",
@@ -1804,7 +1814,10 @@ test("9a: マルチターン会話 — 2回目の run() で履歴が保持され
             summary: "日本語化",
           });
         }
-        return textReply("日本語に変更しました。");
+        if (totalCalls === 5) {
+          return textReply("日本語に変更しました。");
+        }
+        return textReply("完了です。");
       },
     });
 
@@ -1834,7 +1847,7 @@ test("9a: マルチターン会話 — 2回目の run() で履歴が保持され
     // 会話履歴が保持されている
     const conversation = service.conversations.get(conversationId);
     assert.ok(conversation.length >= 4, "会話履歴に4つ以上のエントリがあるべき（user, model, user, model...）");
-    assert.ok(totalCalls >= 4, "requestAiChat が4回以上呼ばれるべき");
+    assert.ok(totalCalls >= 6, "requestAiChat が6回以上呼ばれるべき（auto-build による追加コール含む）");
   } finally {
     await fsp.rm(rootPath, { recursive: true, force: true });
   }
