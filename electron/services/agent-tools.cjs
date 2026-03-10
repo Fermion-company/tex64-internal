@@ -1,5 +1,24 @@
 const AGENT_TOOL_DECLARATIONS = [
   {
+    name: "finish_task",
+    description:
+      "タスクが完了したとき、またはユーザーへ最終回答を返すときに呼ぶ唯一のツール。" +
+      "このツール以外でチャットにメッセージを出力することはできない。" +
+      "LaTeXコードや文書本文はファイルへ書き込み済みであること。message にはサマリのみ記載する。",
+    parameters: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description:
+            "ユーザーへ送信する最終メッセージ。何をしたかの簡潔なサマリ（1〜3文）。" +
+            "LaTeXコードや文書本文をここに含めてはいけない。",
+        },
+      },
+      required: ["message"],
+    },
+  },
+  {
     name: "list_files",
     description: "List files in the workspace (optionally under a directory).",
     parameters: {

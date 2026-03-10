@@ -179,7 +179,10 @@ const runAgentConversation = async (service, { message, parts, context, conversa
           .filter(Boolean)
       : []
   );
-  const toolConfigAuto = { functionCallingConfig: { mode: "AUTO" } };
+  // mode:"ANY" forces Gemini to always call a tool — never output plain text.
+  // The agent communicates with the user exclusively via finish_task().
+  const FINISH_TASK_TOOL = "finish_task";
+  const toolConfigAny = { functionCallingConfig: { mode: "ANY" } };
   const appliedEditToolNames = new Set([
     "rename_latex_symbol",
     "write_file",
@@ -443,7 +446,7 @@ const runAgentConversation = async (service, { message, parts, context, conversa
             contents: requestContents,
             systemInstruction: { parts: [{ text: systemPrompt }] },
             tools,
-            toolConfig: toolConfigAuto,
+            toolConfig: toolConfigAny,
             generationConfig,
           },
           run.controller.signal,
@@ -518,77 +521,107 @@ const runAgentConversation = async (service, { message, parts, context, conversa
         }
 
         if (functionCalls.length > 0) {
-          const execution = await executeToolCallsFromParts(i, functionCalls);
+          // finish_task is the sentinel tool the model calls to deliver its final response.
+          const finishPart = functionCalls.find(
+            (p) => p?.functionCall?.name === FINISH_TASK_TOOL
+          );
+
+          if (finishPart) {
+            if (!isCurrentRun()) {
+              exitReason = "superseded";
+              return;
+            }
+            // Auto-build before finishing if there are unsaved edits.
+            if (
+              options.autoBuild === true &&
+              canRunBuild &&
+              editedSinceLastBuild &&
+              forceBuildCount < 3
+            ) {
+              const execution = await executeToolWithAudit(i, "run_build", {});
+              if (execution.superseded) {
+                return;
+              }
+              // Let model respond again after seeing build result.
+              continue;
+            }
+            // Build-failure recovery before finishing.
+            if (
+              canRunBuild &&
+              lastBuildStatus === "failure" &&
+              recoveryPromptCount < maxRecoveryPromptCount
+            ) {
+              recoveryPromptCount += 1;
+              const issues = Array.isArray(lastBuildFailureIssues) ? lastBuildFailureIssues : [];
+              const topIssues = issues
+                .filter((issue) => issue && typeof issue === "object" && issue.severity === "error")
+                .slice(0, 6);
+              const fallbackIssues = topIssues.length > 0 ? [] : issues.slice(0, 6);
+              const toLine = (issue) => {
+                const p = typeof issue?.path === "string" ? issue.path : "";
+                const line = typeof issue?.line === "number" ? issue.line : null;
+                const column = typeof issue?.column === "number" ? issue.column : null;
+                const msg = typeof issue?.message === "string" ? issue.message : "";
+                const loc = p ? `${p}${line ? `:${line}${column ? `:${column}` : ""}` : ""}` : "";
+                return `- ${loc ? `${loc}: ` : ""}${clipText(msg, 240)}`;
+              };
+              const issueLines = [...topIssues, ...fallbackIssues]
+                .map(toLine)
+                .filter((line) => line && line !== "- ")
+                .slice(0, 6);
+              const details = [];
+              if (lastBuildFailureSummary) details.push(`ビルド概要: ${lastBuildFailureSummary}`);
+              if (issueLines.length > 0) details.push("主なエラー:", ...issueLines);
+              const detailText = details.length > 0 ? `\n\n${details.join("\n")}` : "";
+              conversation.push({
+                role: "user",
+                parts: [{
+                  text:
+                    "最新ビルドが失敗しています。エラー箇所を解析して修正し、ビルドが成功するまで継続してください。" +
+                    detailText,
+                }],
+              });
+              service.markSessionDirty(targetConversationId);
+              continue;
+            }
+
+            const finishArgs = finishPart.functionCall?.args ?? {};
+            const finishText =
+              typeof finishArgs?.message === "string" && finishArgs.message.trim()
+                ? finishArgs.message.trim()
+                : "完了しました。";
+
+            exitReason = "assistant_message";
+            service.emitAuditEvent(
+              "assistant_message",
+              { iteration: i, textChars: finishText.length, preview: clipText(finishText, 400) },
+              targetConversationId,
+              run.token
+            );
+            service.sendStatus("running", service.buildProgressMessage("回答整形中"), targetConversationId);
+            service.sendToRenderer("agent:message", { text: finishText, conversationId: targetConversationId });
+            service.sendStatus("idle", "待機中", targetConversationId);
+            service.markSessionDirty(targetConversationId);
+            return;
+          }
+
+          // All other tool calls — execute normally.
+          const otherCalls = functionCalls.filter(
+            (p) => p?.functionCall?.name !== FINISH_TASK_TOOL
+          );
+          const execution = await executeToolCallsFromParts(i, otherCalls);
           if (execution.superseded) {
             return;
           }
           continue;
         }
 
+        // Fallback: model returned plain text (shouldn't happen with mode:ANY, but handle gracefully).
         if (textParts.length > 0) {
           const text = textParts.join("\n");
           if (!isCurrentRun()) {
             exitReason = "superseded";
             return;
-          }
-          if (
-            options.autoBuild === true &&
-            canRunBuild &&
-            editedSinceLastBuild &&
-            forceBuildCount < 3
-          ) {
-            const execution = await executeToolWithAudit(i, "run_build", {});
-            if (execution.superseded) {
-              return;
-            }
-            continue;
-          }
-          if (
-            canRunBuild &&
-            lastBuildStatus === "failure" &&
-            recoveryPromptCount < maxRecoveryPromptCount
-          ) {
-            recoveryPromptCount += 1;
-            const issues = Array.isArray(lastBuildFailureIssues) ? lastBuildFailureIssues : [];
-            const topIssues = issues
-              .filter((issue) => issue && typeof issue === "object" && issue.severity === "error")
-              .slice(0, 6);
-            const fallbackIssues = topIssues.length > 0 ? [] : issues.slice(0, 6);
-            const toLine = (issue) => {
-              const path = typeof issue?.path === "string" ? issue.path : "";
-              const line = typeof issue?.line === "number" ? issue.line : null;
-              const column = typeof issue?.column === "number" ? issue.column : null;
-              const message = typeof issue?.message === "string" ? issue.message : "";
-              const loc = path
-                ? `${path}${line ? `:${line}${column ? `:${column}` : ""}` : ""}`
-                : "";
-              const head = loc ? `${loc}: ` : "";
-              return `- ${head}${clipText(message, 240)}`;
-            };
-            const issueLines = [...topIssues, ...fallbackIssues]
-              .map(toLine)
-              .filter((line) => line && line !== "- ")
-              .slice(0, 6);
-            const details = [];
-            if (lastBuildFailureSummary) {
-              details.push(`ビルド概要: ${lastBuildFailureSummary}`);
-            }
-            if (issueLines.length > 0) {
-              details.push("主なエラー:", ...issueLines);
-            }
-            const detailText = details.length > 0 ? `\n\n${details.join("\n")}` : "";
-            conversation.push({
-              role: "user",
-              parts: [
-                {
-                  text:
-                    "最新ビルドが失敗しています。エラー箇所を解析して修正し、ビルドが成功するまで継続してください。" +
-                    detailText,
-                },
-              ],
-            });
-            service.markSessionDirty(targetConversationId);
-            continue;
           }
           exitReason = "assistant_message";
           service.emitAuditEvent(
