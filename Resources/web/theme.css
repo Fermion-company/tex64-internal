@@ -4537,6 +4537,20 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: var(--bg-accent);
   color: var(--text);
 }
+.ai-topbar-status {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+  flex-shrink: 1;
+  min-width: 0;
+  opacity: 0.75;
+}
+.ai-topbar-status:empty {
+  display: none;
+}
 .ai-topbar-auth.panel-button {
   min-height: 26px;
   padding: 4px 10px;
@@ -4940,10 +4954,20 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .ai-message.is-assistant .ai-message-content .ai-md-heading-3 { font-size: 1em; }
 .ai-message.is-assistant .ai-message-content .ai-md-heading:first-child { margin-top: 0; }
 .ai-message.ai-thinking-message .ai-message-indicator {
-  opacity: 0.75;
+  animation: ai-thinking-pulse 1.8s ease-in-out infinite;
+}
+@keyframes ai-thinking-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 .ai-message.ai-thinking-message .ai-message-content {
-  color: rgba(226, 232, 240, 0.82);
+  color: var(--muted);
+  font-size: 12px;
+}
+.ai-message.ai-thinking-message .ai-message-body {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
 }
 
 /* System */

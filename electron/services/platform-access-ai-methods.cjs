@@ -1,4 +1,3 @@
-const { requestGemini } = require("./agent-llm.cjs");
 const {
   parseNumber,
   parseInteger,
@@ -352,24 +351,10 @@ const aiMethods = {
   async requestAiChat(payload, options = {}) {
     const state = await this.ensureLoadedState();
     if (this.bypassEntitlement && !state.session?.accessToken) {
-      if (!this.legacyProxyUrl) {
-        throw new PlatformApiError(
-          "AI_PROXY_DISABLED",
-          "Legacy AI proxy is disabled in strict production mode."
-        );
-      }
-      const response = await requestGemini({
-        proxyUrl: this.legacyProxyUrl,
-        model: payload?.model,
-        contents: payload?.contents,
-        systemInstruction: payload?.systemInstruction,
-        tools: payload?.tools,
-        toolConfig: payload?.toolConfig,
-        generationConfig: payload?.generationConfig,
-        signal: options.signal,
-        onDelta: options.onDelta,
-      });
-      return this.normalizeModelResponse(response);
+      throw new PlatformApiError(
+        "AI_PROXY_DISABLED",
+        "Legacy AI proxy is no longer available. Sign in to use AI features."
+      );
     }
     const body = this.buildChatRequestBody(payload);
     const response = await this.authorizedRequest("/ai/chat", {
@@ -383,58 +368,10 @@ const aiMethods = {
   async requestAiCompletion(payload, options = {}) {
     const state = await this.ensureLoadedState();
     if (this.bypassEntitlement && !state.session?.accessToken) {
-      if (!this.legacyProxyUrl) {
-        throw new PlatformApiError(
-          "AI_PROXY_DISABLED",
-          "Legacy AI proxy is disabled in strict production mode."
-        );
-      }
-      const response = await requestGemini({
-        proxyUrl: this.legacyProxyUrl,
-        model: payload?.model,
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: typeof payload?.prompt === "string" ? payload.prompt : "" }],
-          },
-        ],
-        systemInstruction: {
-          parts: [
-            {
-              text: [
-                "You are a high-precision LaTeX inline copilot.",
-                "Return ONLY the continuation text to insert at <CURSOR>.",
-                "Do not repeat the prefix already typed by the user.",
-                "Prefer useful, immediately actionable continuation over generic phrases.",
-                "Keep LaTeX syntax coherent and compile-safe.",
-                "Stay concise (typically one line). If confidence is low, return empty.",
-              ].join(" "),
-            },
-          ],
-        },
-        generationConfig: {
-          maxOutputTokens: parseInteger(payload?.maxOutputTokens, 40),
-          temperature: parseNumber(payload?.temperature, 0.2),
-          topP: parseNumber(payload?.topP, 0.9),
-          topK: parseInteger(payload?.topK, 40),
-          stopSequences: ["\n"],
-        },
-        signal: options.signal,
-      });
-      const normalized = this.normalizeModelResponse(response);
-      const text = normalized.candidates
-        .flatMap((candidate) => candidate?.content?.parts ?? [])
-        .map((part) => part?.text)
-        .filter((entry) => typeof entry === "string")
-        .join("");
-      return {
-        raw: response,
-        text: text || null,
-        resolvedModel: normalized.resolvedModel || resolveModelLabel(response) || null,
-        usageMetadata: normalized.usageMetadata ?? null,
-        quota: normalized.quota ?? null,
-        plan: typeof state.session?.plan === "string" ? state.session.plan : null,
-      };
+      throw new PlatformApiError(
+        "AI_PROXY_DISABLED",
+        "Legacy AI proxy is no longer available. Sign in to use AI features."
+      );
     }
     const body = payload && typeof payload === "object" ? { ...payload } : {};
     const prompt = typeof body.prompt === "string" ? body.prompt : "";

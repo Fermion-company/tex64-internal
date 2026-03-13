@@ -3,42 +3,18 @@ const crypto = require("crypto");
 const { normalizePath } = require("./agent-policy.cjs");
 
 const TOOL_STATUS_LABELS = {
-  list_files: "構成把握中",
-  get_project_structure: "構成把握中",
-  get_index: "構造解析中",
   read_file: "ファイル確認中",
-  read_files: "ファイル確認中",
-  search_files: "検索中",
-  run_build: "ビルド検証中",
-  run_command: "コマンド実行中",
-  open_terminal_session: "端末準備中",
-  execute_bash_command: "端末実行中",
-  send_terminal_input: "端末入力中",
-  read_terminal_output: "端末出力取得中",
-  kill_terminal: "端末停止中",
-  search_web: "Web検索中",
-  read_url: "Web取得中",
-  rename_latex_symbol: "シンボルリネーム中",
-  get_app_settings: "設定取得中",
-  set_app_settings: "設定更新中",
-  read_scratchpad: "メモ確認中",
-  write_scratchpad: "メモ更新中",
-  write_file: "ファイル更新中",
-  patch_file: "ファイル更新中",
-  replace_lines: "ファイル更新中",
-  delete_file: "ファイル更新中",
-  rename_file: "ファイル更新中",
-  create_directory: "ファイル更新中",
-  propose_write: "変更案作成中",
+  list_files: "構成把握中",
   propose_patch: "変更案作成中",
-  propose_delete: "変更案作成中",
-  propose_rename: "変更案作成中",
-  propose_create_directory: "変更案作成中",
+  apply_patch: "変更案作成中",
+  get_compile_log: "ログ確認中",
+  arxiv_search: "arXiv検索中",
+  arxiv_bibtex: "BibTeX取得中",
 };
 const MAX_USER_INLINE_DATA_BYTES = 5 * 1024 * 1024;
 const MAX_USER_INLINE_DATA_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_APPLY_UNDO_ENTRIES = 200;
-const DEFAULT_CHAT_MODEL = "gemini-3.1-pro-preview";
+const DEFAULT_CHAT_MODEL = "gpt-4o-mini";
 const DEFAULT_MAX_OUTPUT_TOKENS = 16384;
 const REQUEST_HISTORY_MAX_MESSAGES = 48;
 const REQUEST_HISTORY_MAX_CHARS = 128_000;
@@ -185,6 +161,10 @@ const sanitizeForPersistence = (
   return result;
 };
 
+/**
+ * Sanitize a conversation for persistence.
+ * Handles OpenAI format ({ role, content }) entries.
+ */
 const sanitizeConversationForPersistence = (conversation) => {
   const source = Array.isArray(conversation) ? conversation : [];
   const windowed =
@@ -198,55 +178,14 @@ const sanitizeConversationForPersistence = (conversation) => {
     }
     const role =
       typeof message.role === "string" && message.role.trim() ? message.role.trim() : "user";
-    const parts = Array.isArray(message.parts) ? message.parts : [];
-    const outputParts = [];
-    let hadInlineData = false;
-    parts.forEach((part) => {
-      if (!part || typeof part !== "object") {
-        return;
-      }
-      if (typeof part.text === "string" && part.text.length > 0) {
-        outputParts.push({ text: clipLongString(part.text, PERSIST_MAX_TEXT_CHARS) });
-        return;
-      }
-      if (part.inlineData && typeof part.inlineData === "object") {
-        hadInlineData = true;
-        return;
-      }
-      if (part.functionCall && typeof part.functionCall === "object") {
-        const call = part.functionCall;
-        const next = {
-          functionCall: {
-            name: typeof call.name === "string" ? call.name : "",
-            args: sanitizeForPersistence(call.args ?? {}, { maxStringChars: PERSIST_MAX_ARG_CHARS }),
-          },
-        };
-        if (typeof part.thoughtSignature === "string" && part.thoughtSignature) {
-          next.thoughtSignature = clipLongString(part.thoughtSignature, 10_000);
-        }
-        if (part.thought === true) {
-          next.thought = true;
-        }
-        outputParts.push(next);
-        return;
-      }
-      if (part.functionResponse && typeof part.functionResponse === "object") {
-        const fr = part.functionResponse;
-        outputParts.push({
-          functionResponse: {
-            name: typeof fr.name === "string" ? fr.name : "",
-            response: sanitizeForPersistence(fr.response ?? {}, { maxStringChars: PERSIST_MAX_TOOL_CHARS }),
-          },
-        });
-      }
-    });
-    if (outputParts.length === 0 && hadInlineData) {
-      outputParts.push({ text: "(inline data omitted)" });
-    }
-    if (outputParts.length === 0) {
+    const content = typeof message.content === "string" ? message.content : "";
+    if (!content.trim()) {
       return;
     }
-    sanitized.push({ role, parts: outputParts });
+    sanitized.push({
+      role,
+      content: clipLongString(content, PERSIST_MAX_TEXT_CHARS),
+    });
   });
   return sanitized;
 };
@@ -610,7 +549,7 @@ const findLastTopicResetIndex = (conversation) => {
     if (!entry || typeof entry !== "object" || entry.role !== "user") {
       continue;
     }
-    const text = extractTextFromParts(entry.parts).trim();
+    const text = (typeof entry.content === "string" ? entry.content : "").trim();
     if (text && TOPIC_RESET_PATTERN.test(text)) {
       return index;
     }
@@ -632,10 +571,10 @@ const conversationLooksLikeWorkspace = (conversation) => {
     if (entry.role === "tool") {
       return true;
     }
-    if (entry.role !== "user" && entry.role !== "model" && entry.role !== "assistant") {
+    if (entry.role !== "user" && entry.role !== "assistant") {
       continue;
     }
-    const text = extractTextFromParts(entry.parts).trim();
+    const text = (typeof entry.content === "string" ? entry.content : "").trim();
     if (!text) {
       continue;
     }

@@ -3,9 +3,50 @@ const {
   PERSIST_MAX_MESSAGES,
   PERSIST_SESSION_VERSION,
   clipLongString,
-  extractTextFromParts,
   sanitizeConversationForPersistence,
 } = require("./agent-core-utils.cjs");
+
+/**
+ * Migrate a conversation array from old Gemini format ({ role, parts })
+ * to OpenAI format ({ role, content }) if needed.
+ */
+const migrateConversation = (conversation) => {
+  if (!Array.isArray(conversation) || conversation.length === 0) {
+    return [];
+  }
+  // Check if already in OpenAI format (has `content` key)
+  const first = conversation[0];
+  if (first && typeof first.content === "string") {
+    return conversation; // Already OpenAI format
+  }
+  // Convert Gemini { role, parts } → OpenAI { role, content }
+  const migrated = [];
+  conversation.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const role = entry.role;
+    const parts = Array.isArray(entry.parts) ? entry.parts : [];
+    if (role === "user") {
+      const text = parts
+        .map((p) => (typeof p?.text === "string" ? p.text : ""))
+        .filter(Boolean)
+        .join("\n");
+      if (text.trim()) {
+        migrated.push({ role: "user", content: text });
+      }
+    } else if (role === "model") {
+      const text = parts
+        .filter((p) => !p?.functionCall)
+        .map((p) => (typeof p?.text === "string" ? p.text : ""))
+        .filter(Boolean)
+        .join("\n");
+      if (text.trim()) {
+        migrated.push({ role: "assistant", content: text });
+      }
+    }
+    // Skip "tool" entries — intermediate results not shown in UI
+  });
+  return migrated;
+};
 
 const ensureSessionsRestored = async (service) => {
   if (service.sessionsRestored || !service.sessionsService) {
@@ -33,7 +74,9 @@ const ensureSessionsRestored = async (service) => {
         (!service.conversations.has(conversationId) ||
           (service.conversations.get(conversationId)?.length ?? 0) === 0)
       ) {
-        service.conversations.set(conversationId, storedConversation);
+        // Auto-migrate old Gemini format sessions to OpenAI format
+        const migrated = migrateConversation(storedConversation);
+        service.conversations.set(conversationId, migrated);
       }
 
       const storedProposals = Array.isArray(session.proposals) ? session.proposals : [];
@@ -155,7 +198,7 @@ const persistSession = async (service, conversationId) => {
   const lastStatus = service.lastStatusByConversation.get(normalized) ?? null;
   const scratchpad = clipLongString(
     service.scratchpadByConversation.get(normalized) ?? "",
-    120_000
+    120_000,
   );
 
   const snapshotBase = {
@@ -249,25 +292,20 @@ const getUiState = async (service) => {
         : "default";
     const conversation = service.conversations.get(normalizedConversationId) ?? [];
     const messages = [];
+
+    // Read OpenAI format: { role, content }
     conversation.forEach((entry) => {
-      const role = typeof entry?.role === "string" ? entry.role : "";
-      const parts = Array.isArray(entry?.parts) ? entry.parts : [];
+      if (!entry || typeof entry !== "object") return;
+      const role = typeof entry.role === "string" ? entry.role : "";
+      const content = typeof entry.content === "string" ? entry.content : "";
+
       if (role === "user") {
-        const text = extractTextFromParts(parts);
-        if (text.trim()) {
-          messages.push({ role: "user", text: clipLongString(text, 20_000) });
-          return;
+        if (content.trim()) {
+          messages.push({ role: "user", text: clipLongString(content, 20_000) });
         }
-        const hadInlineData = parts.some((part) => part && typeof part === "object" && part.inlineData);
-        if (hadInlineData) {
-          messages.push({ role: "user", text: "画像を送信しました。" });
-        }
-        return;
-      }
-      if (role === "model") {
-        const text = extractTextFromParts(parts);
-        if (text.trim()) {
-          messages.push({ role: "assistant", text: clipLongString(text, 30_000) });
+      } else if (role === "assistant") {
+        if (content.trim()) {
+          messages.push({ role: "assistant", text: clipLongString(content, 30_000) });
         }
       }
     });

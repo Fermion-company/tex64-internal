@@ -1,4 +1,3 @@
-const { requestGemini } = require("../services/agent-llm.cjs");
 const {
   buildUsageFromQuota,
   extractUsageMetadata,
@@ -13,7 +12,6 @@ const createApiGhostCompletionHandler = ({
   ensureUserSettings,
   apiUsageService,
   sendToRenderer,
-  strictProduction,
   ghostCompletionDisabled = true,
 }) => {
   return async (payload) => {
@@ -54,7 +52,7 @@ const createApiGhostCompletionHandler = ({
     const chatModel =
       typeof agentSettings?.model === "string" && agentSettings.model.trim()
         ? agentSettings.model.trim()
-        : "gemini-3.1-pro-preview";
+        : "gpt-4o-mini";
     const inlineModel =
       typeof agentSettings?.inlineModel === "string" && agentSettings.inlineModel.trim()
         ? agentSettings.inlineModel.trim()
@@ -81,90 +79,46 @@ const createApiGhostCompletionHandler = ({
       return;
     }
 
+    if (!platformService || typeof platformService.requestAiCompletion !== "function") {
+      sendToRenderer("api:completionResult", {
+        requestId,
+        ok: false,
+        error: "AI補完バックエンドが利用できません。",
+      });
+      return;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), Math.max(800, timeoutMs));
     try {
-      let response = null;
-      let rawText = "";
-      if (platformService && typeof platformService.requestAiCompletion === "function") {
-        const completion = await platformService.requestAiCompletion(
-          {
-            model: inlineModel,
-            prompt,
-            prefix,
-            maxOutputTokens,
-            temperature,
-            topP,
-            topK,
-            timeoutMs,
-          },
-          { signal: controller.signal }
-        );
-        response =
-          completion?.raw && typeof completion.raw === "object"
-            ? {
-                ...completion.raw,
-                ...(completion?.resolvedModel ? { resolvedModel: completion.resolvedModel } : {}),
-              }
-            : completion?.raw ?? null;
-        rawText = typeof completion?.text === "string" ? completion.text : "";
-        const platformUsage = buildUsageFromQuota(
-          completion?.quota ?? null,
-          completion?.plan ?? null,
-          "completion"
-        );
-        if (platformUsage) {
-          sendToRenderer("platform:usage", platformUsage);
-        }
-      } else {
-        if (strictProduction) {
-          throw {
-            code: "INLINE_COMPLETION_BACKEND_UNAVAILABLE",
-            message: "AI補完バックエンドを初期化できませんでした。",
-          };
-        }
-        const proxyUrl =
-          typeof process.env.TEX64_AI_PROXY_URL === "string"
-            ? process.env.TEX64_AI_PROXY_URL.trim()
-            : "";
-        const resolvedProxy = proxyUrl || "https://tex64.vercel.app/api/ai-chat";
-        response = await requestGemini({
-          proxyUrl: resolvedProxy,
+      const completion = await platformService.requestAiCompletion(
+        {
           model: inlineModel,
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }],
-            },
-          ],
-          systemInstruction: {
-            parts: [
-              {
-                text: [
-                  "You are a high-precision LaTeX inline copilot.",
-                  "Return ONLY the continuation text to insert at <CURSOR>.",
-                  "Do not repeat the prefix already typed by the user.",
-                  "Prefer useful, immediately actionable continuation over generic phrases.",
-                  "Keep LaTeX syntax coherent and compile-safe.",
-                  "Stay concise (typically one line). If confidence is low, return empty.",
-                ].join(" "),
-              },
-            ],
-          },
-          generationConfig: {
-            maxOutputTokens,
-            temperature,
-            topP,
-            topK,
-            stopSequences: ["\n"],
-          },
-          signal: controller.signal,
-        });
-        const parts = response?.candidates?.[0]?.content?.parts ?? [];
-        rawText = parts
-          .map((part) => part?.text)
-          .filter((text) => typeof text === "string")
-          .join("");
+          prompt,
+          prefix,
+          maxOutputTokens,
+          temperature,
+          topP,
+          topK,
+          timeoutMs,
+        },
+        { signal: controller.signal }
+      );
+      const response =
+        completion?.raw && typeof completion.raw === "object"
+          ? {
+              ...completion.raw,
+              ...(completion?.resolvedModel ? { resolvedModel: completion.resolvedModel } : {}),
+            }
+          : completion?.raw ?? null;
+      const rawText = typeof completion?.text === "string" ? completion.text : "";
+      const platformUsage = buildUsageFromQuota(
+        completion?.quota ?? null,
+        completion?.plan ?? null,
+        "completion"
+      );
+      if (platformUsage) {
+        sendToRenderer("platform:usage", platformUsage);
       }
       const text = extractInlineText(rawText, prefix);
 

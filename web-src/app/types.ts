@@ -68,6 +68,7 @@ export type BuildProfile = {
 export type AgentStatusState = "idle" | "running" | "error" | "resumable";
 export type AgentSettings = {
   apiKey?: string;
+  endpoint?: string;
   model?: string;
   inlineModel?: string;
   temperature: number;

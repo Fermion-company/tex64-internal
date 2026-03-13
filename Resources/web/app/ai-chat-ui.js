@@ -15,7 +15,7 @@ import { createMentionController } from "./ai-chat-mention.js";
 const AUTONOMOUS_LOOP_LIMIT = 100;
 const USAGE_REFRESH_DELAY_MS = 300;
 export const initAiChatUi = (context, deps) => {
-    const { aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew, aiModelSelect, aiTopbarTitle, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar, aiContextBar, aiStop, aiUndo, } = context.dom;
+    const { aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew, aiModelSelect, aiTopbarTitle, aiTopbarStatus, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar, aiContextBar, aiStop, aiUndo, } = context.dom;
     const chats = [];
     const chatIndex = new Map();
     const proposalIndex = new Map();
@@ -332,6 +332,23 @@ export const initAiChatUi = (context, deps) => {
             return raw;
         return `思考中: ${raw}`;
     };
+    const INDICATOR_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L20 12L12 20L4 12Z"/><ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" stroke-width="1" opacity="0.4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>';
+    const createThinkingElement = (text) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "ai-message is-assistant ai-thinking-message";
+        const indicator = document.createElement("div");
+        indicator.className = "ai-message-indicator";
+        indicator.innerHTML = INDICATOR_SVG;
+        const body = document.createElement("div");
+        body.className = "ai-message-body";
+        const content = document.createElement("div");
+        content.className = "ai-message-content";
+        content.textContent = text;
+        body.appendChild(content);
+        wrapper.appendChild(indicator);
+        wrapper.appendChild(body);
+        return wrapper;
+    };
     const upsertThinkingMessage = (chatId, text) => {
         const chat = ensureChat(chatId);
         if (!chat)
@@ -345,26 +362,30 @@ export const initAiChatUi = (context, deps) => {
         else {
             entry.text = normalized;
         }
-        if (chat.id !== activeChatId || !(aiChatLog instanceof HTMLElement))
-            return;
-        if (!entry.element) {
-            entry.element = createMessageElement({ role: "assistant", text: normalized });
-            entry.element.classList.add("ai-thinking-message");
-            appendToChatLog(entry.element);
-            scrollToBottom();
-            return;
+        if (chat.id === activeChatId && aiChatLog instanceof HTMLElement) {
+            if (entry.element && entry.element.parentElement) {
+                const content = entry.element.querySelector(".ai-message-content");
+                if (content)
+                    content.textContent = normalized;
+            }
+            else {
+                entry.element = createThinkingElement(normalized);
+                appendToChatLog(entry.element);
+                scrollToBottom();
+            }
         }
-        updateMessageElement(entry.element, normalized);
     };
     const clearThinkingMessage = (chatId) => {
-        var _a;
         const chat = getChat(chatId);
         if (!chat)
             return;
         const entry = thinkingMessages.get(chat.id);
         if (!entry)
             return;
-        (_a = entry.element) === null || _a === void 0 ? void 0 : _a.remove();
+        if (entry.element && entry.element.parentElement) {
+            entry.element.remove();
+        }
+        entry.element = null;
         thinkingMessages.delete(chat.id);
     };
     const disableAutonomous = (chatId) => {
@@ -424,12 +445,11 @@ export const initAiChatUi = (context, deps) => {
         const last = chatLog === null || chatLog === void 0 ? void 0 : chatLog.querySelectorAll(".ai-message");
         if (se && last && last.length > 0)
             se.element = last[last.length - 1];
+        // Re-create thinking element in chat log if this chat is running.
         const thinking = thinkingMessages.get(chat.id);
         if (thinking) {
-            const element = createMessageElement({ role: "assistant", text: thinking.text });
-            element.classList.add("ai-thinking-message");
-            thinking.element = element;
-            appendToChatLog(element);
+            thinking.element = createThinkingElement(thinking.text);
+            appendToChatLog(thinking.element);
         }
         scrollToBottom();
     };
@@ -502,7 +522,7 @@ export const initAiChatUi = (context, deps) => {
     const syncModelSelect = (model) => {
         if (!(aiModelSelect instanceof HTMLSelectElement))
             return;
-        const value = typeof model === "string" && model ? model : "gemini-3.1-pro-preview";
+        const value = typeof model === "string" && model ? model : "gpt-4o-mini";
         if (aiModelSelect.value !== value) {
             aiModelSelect.value = value;
         }

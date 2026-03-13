@@ -380,8 +380,7 @@ const agentService = new AgentService({
   apiUsageService: getApiUsageService(),
   auditService: getAgentAuditService(),
   sessionsService: getAgentSessionsService(),
-  requestAiChat: (payload, options) =>
-    getPlatformAccessService().requestAiChat(payload, options),
+  platformAccess: getPlatformAccessService(),
 });
 
 const buildHandlers = createBuildHandlers({

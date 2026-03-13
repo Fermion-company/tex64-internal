@@ -1,8 +1,20 @@
+/**
+ * Tool executor — stripped down to only the tools used outside the
+ * OpenPrism AgentExecutor run-loop:
+ *
+ *   1. run_build   — called by maybeAutoBuild (agent-proposal-runtime.cjs)
+ *   2. rename_latex_symbol — called by handleSearchRename (handlers/agent.cjs)
+ *
+ * All other tools (30+) have been removed.  The 7-tool OpenPrism agent
+ * (read_file, list_files, propose_patch, apply_patch, get_compile_log,
+ * arxiv_search, arxiv_bibtex) is handled by openprism/tools.cjs.
+ */
+
+"use strict";
+
 const path = require("path");
 const fsp = require("fs/promises");
-const { normalizeRelativePath } = require("./workspace.cjs");
 const {
-  DEFAULT_MAX_FILE_BYTES,
   buildAgentPolicy,
   isBlockedPath,
   isTextExtension,
@@ -15,31 +27,8 @@ const {
   renameBibEntryKey,
   renameLatexInText,
 } = require("./agent-latex.cjs");
-const {
-  handleListFiles,
-  handleProposeCreateDirectory,
-  handleProposeDelete,
-  handleProposePatch,
-  handleReplaceLines,
-  handleProposeRename,
-  handleProposeWrite,
-  handleReadFile,
-  handleReadFiles,
-  handleRunCommand,
-  readFileFromDisk,
-} = require("./agent-tools-file.cjs");
-const { handleSearchFiles } = require("./agent-tools-search.cjs");
-const { handleSearchWeb, handleReadUrl } = require("./agent-tools-web.cjs");
-const {
-  openTerminalSession,
-  executeBashCommand,
-  sendTerminalInput,
-  readTerminalOutput,
-  killTerminalSession,
-} = require("./agent-terminal-runtime.cjs");
+const { readFileFromDisk } = require("./agent-tools-file.cjs");
 const { TOOL_STATUS_LABELS, clipText } = require("./agent-core-utils.cjs");
-
-const MAX_SCRATCHPAD_CHARS = 200_000;
 
 const executeToolCall = async (service, toolCall, conversationId) => {
   try {
@@ -62,34 +51,12 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       if (!text) return "";
       return text.length > max ? `${text.slice(0, max)}…` : text;
     };
+
+    // ---- Status label for IPC ----
     const statusLabel = TOOL_STATUS_LABELS[name];
     if (statusLabel) {
       let detail = statusLabel;
-      if (name === "read_file") {
-        const targetPath = normalizePath(args.path);
-        if (targetPath) detail = `${statusLabel}: ${targetPath}`;
-      } else if (name === "read_files") {
-        const paths = normalizeStringList(args.paths).slice(0, 3);
-        if (paths.length > 0) {
-          const suffix = normalizeStringList(args.paths).length > 3 ? "…" : "";
-          detail = `${statusLabel}: ${paths.join(", ")}${suffix}`;
-        }
-      } else if (name === "search_files") {
-        const query = clip(args.query, 48);
-        if (query) detail = `${statusLabel}: ${query}`;
-      } else if (name === "list_files") {
-        const directory = normalizePath(args.directory);
-        if (directory) detail = `${statusLabel}: ${directory}`;
-      } else if (name === "get_index") {
-        const kinds = normalizeStringList(args.kinds).slice(0, 4);
-        const query = clip(args.query, 32);
-        if (kinds.length > 0 || query) {
-          const parts = [];
-          if (kinds.length > 0) parts.push(kinds.join(", "));
-          if (query) parts.push(`q=${query}`);
-          detail = `${statusLabel}: ${parts.join(" ")}`;
-        }
-      } else if (name === "rename_latex_symbol") {
+      if (name === "rename_latex_symbol") {
         const from = clip(args.from, 24);
         const to = clip(args.to, 24);
         if (from && to) detail = `${statusLabel}: ${from} → ${to}`;
@@ -99,249 +66,11 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         if (mainFile || engine) {
           detail = `${statusLabel}: ${[mainFile, engine].filter(Boolean).join(" ")}`;
         }
-      } else if (name === "run_command") {
-        const command = clip(args.command, 64);
-        if (command) detail = `${statusLabel}: ${command}`;
-      } else if (name === "execute_bash_command") {
-        const command = clip(args.command, 64);
-        if (command) detail = `${statusLabel}: ${command}`;
-      } else if (
-        name === "open_terminal_session" ||
-        name === "send_terminal_input" ||
-        name === "read_terminal_output" ||
-        name === "kill_terminal"
-      ) {
-        const sessionId = clip(args.sessionId, 32);
-        if (sessionId) detail = `${statusLabel}: ${sessionId}`;
-      } else if (name === "search_web") {
-        const query = clip(args.query, 48);
-        if (query) detail = `${statusLabel}: ${query}`;
-      } else if (name === "read_url") {
-        const url = clip(args.url, 64);
-        if (url) detail = `${statusLabel}: ${url}`;
-      } else if (
-        name === "write_file" ||
-        name === "patch_file" ||
-        name === "replace_lines" ||
-        name === "delete_file" ||
-        name === "rename_file" ||
-        name === "create_directory" ||
-        name === "propose_write" ||
-        name === "propose_patch" ||
-        name === "propose_delete" ||
-        name === "propose_rename" ||
-        name === "propose_create_directory"
-      ) {
-        const targetPath = clip(args.path || args.oldPath || args.newPath, 80);
-        if (targetPath) detail = `${statusLabel}: ${targetPath}`;
       }
-      service.sendStatus("running", service.buildProgressMessage(detail), conversationId);
+      service.sendStatus("running", detail, conversationId);
     }
 
-    if (name === "list_files") {
-      return handleListFiles(service, args, policy);
-    }
-
-    if (name === "read_file") {
-      return handleReadFile(service, args, policy, conversationId);
-    }
-
-    if (name === "read_files") {
-      return handleReadFiles(service, args, policy, conversationId);
-    }
-
-    if (name === "search_files") {
-      return handleSearchFiles(service, args, policy, conversationId);
-    }
-
-    if (name === "search_web") {
-      return handleSearchWeb(service, args);
-    }
-
-    if (name === "read_url") {
-      return handleReadUrl(service, args);
-    }
-
-    if (name === "replace_lines") {
-      return handleReplaceLines(service, args, policy, conversationId);
-    }
-
-    if (name === "get_project_structure") {
-      const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : 3;
-      const rootPath = service.workspace.getRootPath();
-      if (!rootPath) {
-        return { error: "ワークスペースが選択されていません。" };
-      }
-      const buildTree = async (dir, depth) => {
-        if (depth > maxDepth) return null;
-        const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
-        entries.sort((a, b) => {
-          if (a.isDirectory() && !b.isDirectory()) return -1;
-          if (!a.isDirectory() && b.isDirectory()) return 1;
-          return a.name.localeCompare(b.name, "ja");
-        });
-        const result = [];
-        for (const entry of entries) {
-          const absPath = path.join(dir, entry.name);
-          const relPath = normalizeRelativePath(path.relative(rootPath, absPath));
-          const top = relPath.split("/")[0];
-          if (policy.blockedTopLevel.has(top) && !policy.allowedTopLevel.has(top)) {
-            continue;
-          }
-          if (entry.isDirectory()) {
-            const children = await buildTree(absPath, depth + 1);
-            result.push({
-              name: entry.name,
-              path: relPath,
-              type: "dir",
-              children: children || [],
-            });
-          } else {
-            result.push({ name: entry.name, path: relPath, type: "file" });
-          }
-        }
-        return result;
-      };
-      const tree = await buildTree(rootPath, 1);
-      return { structure: tree };
-    }
-
-    if (name === "get_index") {
-      const rootPath = service.workspace.getRootPath();
-      if (!rootPath) {
-        return { error: "ワークスペースが選択されていません。" };
-      }
-      if (!service.indexerService) {
-        return { error: "インデクサが利用できません。" };
-      }
-      const limit =
-        typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 200;
-      const query =
-        typeof args.query === "string" && args.query.trim() ? args.query.trim().toLowerCase() : "";
-      const kinds = Array.isArray(args.kinds)
-        ? args.kinds.filter((kind) => typeof kind === "string")
-        : [];
-      const snapshot = await service.indexerService.buildIndex(rootPath);
-      const filterSymbols = (items, keyField) => {
-        let result = items;
-        if (query) {
-          result = result.filter((entry) =>
-            String(entry[keyField] ?? "").toLowerCase().includes(query)
-          );
-        }
-        if (Number.isFinite(limit)) {
-          result = result.slice(0, Math.max(0, limit));
-        }
-        return result;
-      };
-      const includeAll = kinds.length === 0;
-      const data = {};
-      if (includeAll || kinds.includes("labels")) {
-        data.labels = filterSymbols(snapshot.labels, "key");
-      }
-      if (includeAll || kinds.includes("references")) {
-        data.references = filterSymbols(snapshot.references, "key");
-      }
-      if (includeAll || kinds.includes("citations")) {
-        data.citations = filterSymbols(snapshot.citations, "key");
-      }
-      if (includeAll || kinds.includes("sections")) {
-        data.sections = filterSymbols(snapshot.sections, "title");
-      }
-      if (includeAll || kinds.includes("figures")) {
-        data.figures = filterSymbols(snapshot.figures, "key");
-      }
-      if (includeAll || kinds.includes("tables")) {
-        data.tables = filterSymbols(snapshot.tables, "key");
-      }
-      if (includeAll || kinds.includes("todos")) {
-        data.todos = filterSymbols(snapshot.todos, "key");
-      }
-      return { index: data };
-    }
-
-    if (name === "get_app_settings") {
-      const keys = Array.isArray(args.keys)
-        ? args.keys.filter((entry) => typeof entry === "string")
-        : [];
-      const response = await service.requestAppSettings("get", { keys });
-      if (response?.error) {
-        return { error: response.error };
-      }
-      const settings = response?.settings ?? response?.payload?.settings ?? null;
-      if (!settings) {
-        return { error: "設定が取得できませんでした。" };
-      }
-      if (keys.length === 0) {
-        return { settings };
-      }
-      const filtered = {};
-      keys.forEach((key) => {
-        if (Object.prototype.hasOwnProperty.call(settings, key)) {
-          filtered[key] = settings[key];
-        }
-      });
-      return { settings: filtered };
-    }
-
-    if (name === "set_app_settings") {
-      const patch =
-        args?.settings && typeof args.settings === "object" ? args.settings : null;
-      if (!patch) {
-        return { error: "settings が空です。" };
-      }
-      const response = await service.requestAppSettings("set", { settings: patch });
-      if (response?.error) {
-        return { error: response.error };
-      }
-      const settings = response?.settings ?? response?.payload?.settings ?? null;
-      if (!settings) {
-        return { error: "設定が更新できませんでした。" };
-      }
-      return { settings };
-    }
-
-    if (name === "read_scratchpad") {
-      const cid =
-        typeof conversationId === "string" && conversationId.trim()
-          ? conversationId.trim()
-          : "default";
-      const content = service.scratchpadByConversation.get(cid) ?? "";
-      return { content, length: content.length };
-    }
-
-    if (name === "write_scratchpad") {
-      const cid =
-        typeof conversationId === "string" && conversationId.trim()
-          ? conversationId.trim()
-          : "default";
-      const modeRaw = typeof args.mode === "string" ? args.mode.trim().toLowerCase() : "";
-      const mode = modeRaw === "append" || modeRaw === "clear" ? modeRaw : "replace";
-      const input = typeof args.content === "string" ? args.content : "";
-      const current = service.scratchpadByConversation.get(cid) ?? "";
-      let next = current;
-      if (mode === "clear") {
-        next = "";
-      } else if (mode === "append") {
-        const suffix = input.trim();
-        if (suffix) {
-          next = current ? `${current}\n${suffix}` : suffix;
-        }
-      } else {
-        next = input;
-      }
-      if (next.length > MAX_SCRATCHPAD_CHARS) {
-        next = next.slice(next.length - MAX_SCRATCHPAD_CHARS);
-      }
-      service.scratchpadByConversation.set(cid, next);
-      service.markSessionDirty(cid);
-      service.sendToRenderer("agent:scratchpad", {
-        content: next,
-        conversationId: cid,
-      });
-      return { status: "ok", mode, content: next, length: next.length };
-    }
-
+    // ---- run_build ----
     if (name === "run_build") {
       if (!service.buildService) {
         return { error: "ビルド機能が利用できません。" };
@@ -437,30 +166,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       return { status: "unknown", summary: "ビルド結果が不明です。" };
     }
 
-    if (name === "run_command") {
-      return handleRunCommand(service, args);
-    }
-
-    if (name === "open_terminal_session") {
-      return openTerminalSession(service, args, conversationId || "default");
-    }
-
-    if (name === "execute_bash_command") {
-      return executeBashCommand(service, args, conversationId || "default");
-    }
-
-    if (name === "send_terminal_input") {
-      return sendTerminalInput(service, args);
-    }
-
-    if (name === "read_terminal_output") {
-      return readTerminalOutput(service, args);
-    }
-
-    if (name === "kill_terminal") {
-      return killTerminalSession(service, args);
-    }
-
+    // ---- rename_latex_symbol ----
     if (name === "rename_latex_symbol") {
       const from = typeof args.from === "string" ? args.from.trim() : "";
       const to = typeof args.to === "string" ? args.to.trim() : "";
@@ -668,26 +374,6 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         files: proposals,
         skipped,
       };
-    }
-
-    if (name === "propose_write" || name === "write_file") {
-      return handleProposeWrite(service, args, policy, conversationId);
-    }
-
-    if (name === "propose_patch" || name === "patch_file") {
-      return handleProposePatch(service, args, policy, conversationId);
-    }
-
-    if (name === "propose_delete" || name === "delete_file") {
-      return handleProposeDelete(service, args, policy, conversationId);
-    }
-
-    if (name === "propose_rename" || name === "rename_file") {
-      return handleProposeRename(service, args, policy, conversationId);
-    }
-
-    if (name === "propose_create_directory" || name === "create_directory") {
-      return handleProposeCreateDirectory(service, args, policy, conversationId);
     }
 
     return { error: `unknown tool: ${name}` };

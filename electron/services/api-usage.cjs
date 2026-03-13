@@ -67,8 +67,8 @@ class ApiUsageService {
 
   async resolvePricing() {
     const settings = (await this.getPricing()) || {};
-    const envInput = parseNumber(process.env.TEX64_GEMINI_INPUT_USD_PER_MILLION);
-    const envOutput = parseNumber(process.env.TEX64_GEMINI_OUTPUT_USD_PER_MILLION);
+    const envInput = parseNumber(process.env.TEX64_LLM_INPUT_USD_PER_MILLION);
+    const envOutput = parseNumber(process.env.TEX64_LLM_OUTPUT_USD_PER_MILLION);
     const inputPerMillion =
       envInput ??
       parseNumber(settings.costInputPerMillion) ??

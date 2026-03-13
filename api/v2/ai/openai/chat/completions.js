@@ -2,7 +2,7 @@ import {
   loadAuthorizedAiContext,
   assertAiFeatureEnabled,
   commitQuotaConsumption,
-} from "../_lib/ai-access.js";
+} from "../../../_lib/ai-access.js";
 import {
   ApiError,
   createRequestId,
@@ -11,17 +11,8 @@ import {
   sendApiError,
   sendJson,
   setCorsHeaders,
-} from "../_lib/http.js";
-import { getRuntimeConfig } from "../_lib/runtime-config.js";
-
-const INLINE_SYSTEM_PROMPT = [
-  "You are a high-precision LaTeX inline copilot.",
-  "Return ONLY the continuation text to insert at <CURSOR>.",
-  "Do not repeat the prefix already typed by the user.",
-  "Prefer useful, immediately actionable continuation over generic phrases.",
-  "Keep LaTeX syntax coherent and compile-safe.",
-  "Stay concise (typically one line). If confidence is low, return empty.",
-].join(" ");
+} from "../../../_lib/http.js";
+import { getRuntimeConfig } from "../../../_lib/runtime-config.js";
 
 const handler = async (req, res) => {
   if (handleOptionsRequest(req, res)) {
@@ -51,27 +42,6 @@ const handler = async (req, res) => {
       );
     }
 
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const hasSystemMessage = messages.some((m) => m?.role === "system");
-    const openaiMessages = hasSystemMessage
-      ? messages
-      : [{ role: "system", content: INLINE_SYSTEM_PROMPT }, ...messages];
-
-    const openaiBody = {
-      model: typeof body.model === "string" && body.model.trim() ? body.model : "gpt-4o-mini",
-      messages: openaiMessages,
-      stream: false,
-    };
-    if (typeof body.max_tokens === "number" && Number.isFinite(body.max_tokens)) {
-      openaiBody.max_tokens = body.max_tokens;
-    }
-    if (typeof body.temperature === "number" && Number.isFinite(body.temperature)) {
-      openaiBody.temperature = body.temperature;
-    }
-    if (typeof body.top_p === "number" && Number.isFinite(body.top_p)) {
-      openaiBody.top_p = body.top_p;
-    }
-
     const openaiBaseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
     const upstream = await fetch(`${openaiBaseUrl}/chat/completions`, {
       method: "POST",
@@ -79,7 +49,7 @@ const handler = async (req, res) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${openaiApiKey}`,
       },
-      body: JSON.stringify(openaiBody),
+      body: JSON.stringify(body),
     });
 
     if (!upstream.ok) {
@@ -103,7 +73,7 @@ const handler = async (req, res) => {
         await commitQuotaConsumption({
           save: aiContext.save,
           usage: aiContext.usage,
-          featureName: "ai_completion",
+          featureName: "ai_chat",
           consumedTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
           consumedRequests: 1,
         });

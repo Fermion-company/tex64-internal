@@ -24,7 +24,6 @@
     "test:unit": "node --test tests/unit/*.test.mjs",
     "test:unit:with-build": "npm run -s web:build && npm run -s test:unit",
     "test:e2e:math-wysiwyg-ui": "node tests/e2e/math-wysiwyg-ui.e2e.mjs",
-    "test:e2e:ai-chat-apply-undo": "node tests/e2e/ai-chat-apply-undo.e2e.mjs",
     "bench:synctex:forward": "node scripts/synctex-forward-bench.cjs",
     "bench:synctex:forward:gate": "node scripts/synctex-forward-bench.cjs --strict",
     "release:artifact-hash": "node scripts/release-artifact-hash.cjs",
@@ -35,7 +34,9 @@
     "release:upload-downloads": "node scripts/release-upload-downloads.cjs",
     "release:go-no-go": "node scripts/release-go-no-go.cjs",
     "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --out NOTICE.md --project tex64",
-    "test:unit:math-ocr-service": "node --test tests/unit/math-ocr-service.test.mjs"
+    "test:unit:math-ocr-service": "node --test tests/unit/math-ocr-service.test.mjs",
+    "test:e2e:ai-real-api": "node tests/e2e/ai-real-api.e2e.mjs",
+    "test:e2e:ai-openprism-gaps": "node tests/e2e/ai-openprism-gaps.e2e.mjs"
   },
   "build": {
     "appId": "com.wedd.tex64",
@@ -117,6 +118,12 @@
     "typescript": "^5.5.4"
   },
   "dependencies": {
+    "@langchain/core": "~0.3.58",
+    "@langchain/langgraph": "~0.2.74",
+    "@langchain/openai": "~0.3.16",
+    "diff": "^5.2.0",
+    "fast-xml-parser": "^5.5.2",
+    "langchain": "~0.3.37",
     "node-fetch": "^2.6.7",
     "onnxruntime-node": "^1.23.2",
     "pdfjs-dist": "^4.7.76",
@@ -124,6 +131,7 @@
     "tesseract.js": "^5.1.1",
     "tr46": "^0.0.3",
     "webidl-conversions": "^3.0.0",
-    "whatwg-url": "^5.0.0"
+    "whatwg-url": "^5.0.0",
+    "zod": "^3.23.8"
   }
 }

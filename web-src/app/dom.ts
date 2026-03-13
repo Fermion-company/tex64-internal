@@ -244,6 +244,7 @@ export const getDomRefs = () => ({
   aiChatNew: document.getElementById("ai-chat-new"),
   aiModelSelect: document.getElementById("ai-model-select"),
   aiTopbarTitle: document.getElementById("ai-topbar-title"),
+  aiTopbarStatus: document.getElementById("ai-topbar-status"),
   aiUsageMeter: document.getElementById("ai-usage-meter"),
   aiUsageMeterText: document.getElementById("ai-usage-meter-text"),
   aiHistoryToggle: document.getElementById("ai-history-toggle"),

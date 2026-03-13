@@ -6,9 +6,7 @@ const {
 } = require("./agent-policy.cjs");
 const {
   clipText,
-  extractTextFromParts,
 } = require("./agent-core-utils.cjs");
-const { buildSystemPrompt } = require("./agent-prompt-utils.cjs");
 const {
   ensureSessionsRestored,
   markSessionDirty,
@@ -28,27 +26,8 @@ const {
   undoLastRunApply,
   applyProposal,
 } = require("./agent-proposal-runtime.cjs");
-const {
-  buildProgressMessage,
-  buildPlatformUsageFromQuota,
-  extractUsageMetadata,
-  normalizeModelCandidate,
-} = require("./agent-model-response-utils.cjs");
 const { executeToolCall } = require("./agent-tool-executor.cjs");
-const {
-  terminateConversationTerminals,
-  terminateAllTerminals,
-  gcIdleTerminals,
-} = require("./agent-terminal-runtime.cjs");
-const {
-  resolveChatModel,
-  resolveMaxOutputTokens,
-  estimateRequestPartSize,
-  estimateRequestMessageSize,
-  sanitizeMessageForRequest,
-  buildRequestContents,
-} = require("./agent-request-utils.cjs");
-const { runAgentConversation } = require("./agent-run-loop.cjs");
+const { runAgentConversation } = require("./openprism/run-loop.cjs");
 
 class AgentService {
   constructor({
@@ -66,7 +45,7 @@ class AgentService {
     apiUsageService,
     auditService,
     sessionsService,
-    requestAiChat,
+    platformAccess,
   }) {
     this.workspace = workspace;
     this.searchService = searchService;
@@ -80,6 +59,7 @@ class AgentService {
     this.sendIssues = sendIssues;
     this.indexerService = indexerService;
     this.apiUsageService = apiUsageService;
+    this.platformAccess = platformAccess ?? null;
     this.auditService =
       auditService && typeof auditService.append === "function" ? auditService : null;
     this.sessionsService =
@@ -88,8 +68,6 @@ class AgentService {
       typeof sessionsService.loadSessions === "function"
         ? sessionsService
         : null;
-    this.requestAiChat = typeof requestAiChat === "function" ? requestAiChat : null;
-
     this.conversations = new Map();
     this.proposals = new Map();
     this.contextByConversation = new Map();
@@ -98,19 +76,9 @@ class AgentService {
     this.workspaceRootByConversation = new Map();
     this.sessionMetaByConversation = new Map();
     this.scratchpadByConversation = new Map();
-    this.terminalsById = new Map();
-    this.terminalIdsByConversation = new Map();
     this.sessionsRestored = false;
     this.restorePromise = null;
     this.persistTimers = new Map();
-    this.terminalGcTimer = setInterval(() => {
-      try {
-        gcIdleTerminals(this);
-      } catch {
-        // ignore gc failures
-      }
-    }, 60_000);
-    this.terminalGcTimer?.unref?.();
 
     this.agentPolicy = buildAgentPolicy();
     this.agentOptions = {
@@ -243,7 +211,6 @@ class AgentService {
     this.scratchpadByConversation.delete(normalized);
     this.applyUndoStack = this.applyUndoStack.filter((entry) => entry?.conversationId !== normalized);
     this.emitUndoAvailability(normalized);
-    terminateConversationTerminals(this, normalized);
     if (this.sessionsService) {
       this.sessionsService.deleteSession(normalized).catch(() => {});
     }
@@ -283,7 +250,6 @@ class AgentService {
       entry?.controller?.abort?.();
     });
     this.runningControllers.clear();
-    terminateAllTerminals(this);
   }
 
   startConversationRun(conversationId) {
@@ -419,48 +385,8 @@ class AgentService {
     return applyProposal(this, proposalId, options);
   }
 
-  buildProgressMessage(label) {
-    return buildProgressMessage(label);
-  }
-
-  buildPlatformUsageFromQuota(quota, plan, source = "chat") {
-    return buildPlatformUsageFromQuota(quota, plan, source);
-  }
-
-  extractUsageMetadata(response) {
-    return extractUsageMetadata(response);
-  }
-
-  normalizeModelCandidate(response) {
-    return normalizeModelCandidate(response);
-  }
-
   async executeToolCall(toolCall, conversationId) {
     return executeToolCall(this, toolCall, conversationId);
-  }
-
-  resolveChatModel(settings) {
-    return resolveChatModel(settings);
-  }
-
-  resolveMaxOutputTokens(settings) {
-    return resolveMaxOutputTokens(settings);
-  }
-
-  estimateRequestPartSize(part) {
-    return estimateRequestPartSize(part);
-  }
-
-  estimateRequestMessageSize(message) {
-    return estimateRequestMessageSize(message);
-  }
-
-  sanitizeMessageForRequest(message, options) {
-    return sanitizeMessageForRequest(message, options);
-  }
-
-  buildRequestContents(conversation, iteration, settings) {
-    return buildRequestContents(conversation, iteration, settings);
   }
 
   async run(payload) {
@@ -470,6 +396,4 @@ class AgentService {
 
 module.exports = {
   AgentService,
-  buildSystemPrompt,
-  extractTextFromParts,
 };

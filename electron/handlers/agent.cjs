@@ -95,6 +95,20 @@ const createAgentHandlers = (deps) => {
   };
 
   const guardAiAccess = async (conversationId, source) => {
+    // When the user provides their own API key, skip platform entitlement checks.
+    try {
+      const settings = await ensureUserSettings().getAgentSettings();
+      const hasOwnKey =
+        typeof settings?.apiKey === "string" && settings.apiKey.trim().length > 0;
+      const hasOwnEndpoint =
+        typeof settings?.endpoint === "string" && settings.endpoint.trim().length > 0;
+      if (hasOwnKey || hasOwnEndpoint) {
+        return true;
+      }
+    } catch {
+      // fall through to platform check
+    }
+
     if (!platformService) {
       return true;
     }

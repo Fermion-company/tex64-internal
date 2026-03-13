@@ -186,21 +186,17 @@ export const getRuntimeConfig = () => {
       process.env.GOOGLE_OAUTH_CLIENT_SECRET.trim()
         ? process.env.GOOGLE_OAUTH_CLIENT_SECRET.trim()
         : "",
-    geminiApiKey:
-      typeof process.env.GEMINI_API_KEY === "string" && process.env.GEMINI_API_KEY.trim()
-        ? process.env.GEMINI_API_KEY.trim()
-        : "",
-    geminiDefaultModel:
-      typeof process.env.GEMINI_MODEL === "string" && process.env.GEMINI_MODEL.trim()
-        ? process.env.GEMINI_MODEL.trim()
-        : "gemini-3.1-pro-preview",
-    geminiEndpoint: sanitizeHttpUrl(
-      process.env.TEX64_GEMINI_ENDPOINT,
-      "https://generativelanguage.googleapis.com/v1beta/models"
-    ),
     pricingUrl: sanitizeHttpUrl(
       process.env.TEX64_PLATFORM_PRICING_URL,
       "https://tex64.com/pricing"
+    ),
+    openaiApiKey:
+      typeof process.env.OPENAI_API_KEY === "string" && process.env.OPENAI_API_KEY.trim()
+        ? process.env.OPENAI_API_KEY.trim()
+        : "",
+    openaiBaseUrl: sanitizeHttpUrl(
+      process.env.TEX64_OPENAI_BASE_URL,
+      "https://api.openai.com/v1"
     ),
   };
   return runtimeConfigCache;
