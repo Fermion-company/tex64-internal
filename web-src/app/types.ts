@@ -70,7 +70,7 @@ export type AgentSettings = {
   apiKey?: string;
   endpoint?: string;
   model?: string;
-  inlineModel?: string;
+
   temperature: number;
   maxOutputTokens: number;
   maxIterations?: number;
@@ -113,14 +113,6 @@ export type ApiUsageSnapshot = {
       lastSource?: string | null;
     }
   >;
-};
-
-export type ApiCompletionResultPayload = {
-  requestId: string;
-  ok: boolean;
-  text?: string | null;
-  error?: string;
-  usageSnapshot?: ApiUsageSnapshot;
 };
 
 export type PlatformQuotaSummary = {
@@ -213,9 +205,6 @@ export type AppSettingsSnapshot = {
   autoSynctexOnBuild: boolean;
   reverseSynctexEnabled: boolean;
   pdfViewerMode: "window" | "tab";
-  ghostCompletionEnabled: boolean;
-  ghostCompletionDebounceMs: number;
-  ghostCompletionMaxChars: number;
   alignEnv: boolean;
   formatSettings: EditorFormatSettings;
 };

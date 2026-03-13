@@ -5,9 +5,6 @@ export const createSettingsUiRuntime = (context, deps) => {
         editorWordWrapKey: "tex64.editor.wordWrap",
         editorAutoSynctexOnBuildKey: "tex64.editor.autoSynctexOnBuild",
         editorReverseSynctexKey: "tex64.editor.reverseSynctex",
-        editorGhostCompletionKey: "tex64.editor.ghostCompletion",
-        editorGhostCompletionDebounceKey: "tex64.editor.ghostCompletion.debounceMs",
-        editorGhostCompletionMaxCharsKey: "tex64.editor.ghostCompletion.maxChars",
         editorAutoSynctexOnPdfOpenKey: "tex64.editor.autoSynctexOnPdfOpen",
         editorPdfViewerModeKey: "tex64.editor.pdfViewerMode",
         editorAlignEnvKey: "tex64.editor.alignEnv",
@@ -19,10 +16,7 @@ export const createSettingsUiRuntime = (context, deps) => {
         feedbackIncludeDiagnosticsKey: "tex64.feedback.includeDiagnostics.v1",
         errorReportingEnabledKey: "tex64.errorReporting.enabled.v1",
     };
-    const ranges = {
-        ghostCompletionDebounceRange: { min: 0, max: 2000 },
-        ghostCompletionMaxCharsRange: { min: 20, max: 400 },
-    };
+    const ranges = {};
     const texEngineCommands = new Set(["lualatex", "pdflatex", "xelatex", "uplatex"]);
     const config = {
         updateAutoCheckIntervalMs: 1000 * 60 * 60 * 6,
@@ -47,9 +41,6 @@ export const createSettingsUiRuntime = (context, deps) => {
         },
         autoSynctexOnBuildEnabled: true,
         reverseSynctexEnabled: true,
-        ghostCompletionEnabled: true,
-        ghostCompletionDebounceMs: 120,
-        ghostCompletionMaxChars: 140,
         pdfViewerMode: "window",
         platformAuth: null,
         platformUpdate: null,

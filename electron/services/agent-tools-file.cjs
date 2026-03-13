@@ -149,10 +149,17 @@ const autoApplyProposal = async (service, proposal, options = {}) => {
     discardOnFailure: true,
     ...options,
   });
-  if (applyResult && typeof applyResult === "object") {
-    return applyResult;
+  const result =
+    applyResult && typeof applyResult === "object"
+      ? applyResult
+      : { ok: false, proposalId: proposal.id, error: "操作に失敗しました。" };
+  // Send proposal to renderer so the chat shows a summary card (already in applied state)
+  if (result.ok) {
+    service.sendToRenderer("agent:proposal", {
+      proposal: { ...proposal, autoApplied: true },
+    });
   }
-  return { ok: false, proposalId: proposal.id, error: "操作に失敗しました。" };
+  return result;
 };
 
 const handleProposeWrite = async (service, args, policy, conversationId) => {

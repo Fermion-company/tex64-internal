@@ -40,25 +40,6 @@ class PlatformAccessService {
         PRODUCTION_PLATFORM_OAUTH_REDIRECT_URI;
     this.allowDirectOAuthCallbackAuthUrl =
       options.allowDirectOAuthCallbackAuthUrl === true && !this.strictProduction;
-    const legacyProxyFallback = this.strictProduction
-      ? ""
-      : "https://tex64.vercel.app/api/ai-chat";
-    this.legacyProxyUrl = this.strictProduction
-      ? ""
-      : sanitizeBaseUrl(
-          options.legacyProxyUrl ||
-            process.env.TEX64_AI_PROXY_URL ||
-            legacyProxyFallback,
-          legacyProxyFallback
-        );
-    this.encryptString =
-      typeof options.encryptString === "function" ? options.encryptString : null;
-    this.decryptString =
-      typeof options.decryptString === "function" ? options.decryptString : null;
-    this.isEncryptionAvailable =
-      typeof options.isEncryptionAvailable === "function"
-        ? options.isEncryptionAvailable
-        : null;
     const requestedBypass =
       options.bypassEntitlement === true ||
       process.env.TEX64_AI_BYPASS_ENTITLEMENT === "1" ||

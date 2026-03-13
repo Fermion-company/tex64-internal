@@ -5,7 +5,6 @@ const {
   dialog,
   globalShortcut,
   ipcMain,
-  safeStorage,
   shell,
   Notification,
 } = require("electron");
@@ -206,7 +205,7 @@ const createMainWindow = () => {
     minHeight: 600,
     show: !e2eHeadless,
     backgroundColor: "#1c2129",
-    title: app.isPackaged ? "TeX64" : "TeX64 (Dev)",
+    title: "TeX64",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 12, y: 10 },
     webPreferences: {
@@ -234,14 +233,10 @@ const createMainWindow = () => {
   const loadRenderer = () => {
     state.mainWindow.loadFile(indexPath);
   };
-  if (!app.isPackaged) {
-    state.mainWindow.webContents.session
-      .clearCache()
-      .catch(() => {})
-      .finally(loadRenderer);
-  } else {
-    loadRenderer();
-  }
+  state.mainWindow.webContents.session
+    .clearCache()
+    .catch(() => {})
+    .finally(loadRenderer);
   state.mainWindow.on("closed", () => {
     // Ensure any teardown work doesn't try to message a destroyed window.
     state.mainWindow = null;
@@ -336,9 +331,6 @@ const getPlatformAccessService = () => {
       userDataPath: app.getPath("userData"),
       strictProduction: app.isPackaged === true,
       allowDirectOAuthCallbackAuthUrl: app.isPackaged !== true && isE2EContext,
-      isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
-      encryptString: (value) => safeStorage.encryptString(value),
-      decryptString: (value) => safeStorage.decryptString(value),
     });
   }
   return platformAccessService;
@@ -995,10 +987,6 @@ ipcMain.on("tex64", (_event, message) => {
   }
   if (type === "api:usage:reset") {
     miscHandlers.handleApiUsageReset();
-    return;
-  }
-  if (type === "api:ghostCompletion") {
-    miscHandlers.handleApiGhostCompletion(message);
     return;
   }
   if (type === "consoleLog") {

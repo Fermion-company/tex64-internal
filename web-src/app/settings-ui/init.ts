@@ -47,8 +47,6 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     editorPrefOps.loadEditorWordWrapState();
     editorPrefOps.loadEditorAutoSynctexBuildState();
     editorPrefOps.loadEditorReverseSynctexState();
-    editorPrefOps.loadEditorGhostCompletionState();
-    editorPrefOps.loadEditorGhostCompletionConfig();
     editorPrefOps.loadEditorPdfViewerModeState();
     feedbackOps.loadStartupFeedbackState();
     envOps.checkEnvironmentStatus();
@@ -71,9 +69,6 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     autoSynctexOnBuild: runtime.state.autoSynctexOnBuildEnabled,
     reverseSynctexEnabled: runtime.state.reverseSynctexEnabled,
     pdfViewerMode: runtime.state.pdfViewerMode,
-    ghostCompletionEnabled: runtime.state.ghostCompletionEnabled,
-    ghostCompletionDebounceMs: runtime.state.ghostCompletionDebounceMs,
-    ghostCompletionMaxChars: runtime.state.ghostCompletionMaxChars,
     alignEnv: runtime.state.editorAlignEnvEnabled,
     formatSettings: {
       ...runtime.state.editorFormatSettings,
@@ -96,15 +91,6 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     }
     if (typeof patch.reverseSynctexEnabled === "boolean") {
       editorPrefOps.setEditorReverseSynctexEnabled(patch.reverseSynctexEnabled);
-    }
-    if (typeof patch.ghostCompletionEnabled === "boolean") {
-      editorPrefOps.setGhostCompletionEnabled(patch.ghostCompletionEnabled);
-    }
-    if (typeof patch.ghostCompletionDebounceMs === "number") {
-      editorPrefOps.setGhostCompletionConfig({ debounceMs: patch.ghostCompletionDebounceMs });
-    }
-    if (typeof patch.ghostCompletionMaxChars === "number") {
-      editorPrefOps.setGhostCompletionConfig({ maxChars: patch.ghostCompletionMaxChars });
     }
     if (patch.pdfViewerMode === "window" || patch.pdfViewerMode === "tab") {
       editorPrefOps.setPdfViewerMode(patch.pdfViewerMode);
@@ -150,8 +136,6 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     getAutoSynctexOnBuildEnabled: () => runtime.state.autoSynctexOnBuildEnabled,
     getReverseSynctexEnabled: () => runtime.state.reverseSynctexEnabled,
     getPdfViewerMode: () => runtime.state.pdfViewerMode,
-    getGhostCompletionEnabled: () => runtime.state.ghostCompletionEnabled,
-    getGhostCompletionConfig: editorPrefOps.getGhostCompletionConfig,
     buildFormatSettingsPayload: formatOps.buildFormatSettingsPayload,
     getSettingsSnapshot,
     applySettingsPatch,

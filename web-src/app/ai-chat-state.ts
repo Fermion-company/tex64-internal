@@ -1,5 +1,7 @@
 import type { AgentProposal } from "./types.js";
 
+export const AUTONOMOUS_LOOP_LIMIT = 100;
+
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
   text: string;

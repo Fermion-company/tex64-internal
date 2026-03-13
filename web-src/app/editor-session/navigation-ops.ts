@@ -8,7 +8,7 @@ export type EditorSessionNavigationOps = {
   applyContentToOpenFile: (
     path: string,
     content: string,
-    options?: { updateSaved?: boolean }
+    options?: { updateSaved?: boolean; showAiDiff?: boolean }
   ) => boolean;
   jumpToFileLine: (
     path: string,
@@ -28,7 +28,7 @@ export const createEditorSessionNavigationOps = (
       group: EditorGroupState,
       path: string,
       content: string,
-      options?: { updateSaved?: boolean }
+      options?: { updateSaved?: boolean; showAiDiff?: boolean }
     ) => void;
     requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
   }
@@ -36,7 +36,7 @@ export const createEditorSessionNavigationOps = (
   const applyContentToOpenFile = (
     path: string,
     content: string,
-    options?: { updateSaved?: boolean }
+    options?: { updateSaved?: boolean; showAiDiff?: boolean }
   ) => {
     const targetGroupKey = coreOps.findGroupKeyByPath(path);
     if (!targetGroupKey) {

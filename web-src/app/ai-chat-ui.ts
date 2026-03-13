@@ -13,6 +13,7 @@ import type {
 } from "./types.js";
 import type { DiffContext } from "./diff-modal.js";
 import {
+  AUTONOMOUS_LOOP_LIMIT,
   createChat as createChatState,
   ensureChat as ensureChatState,
   getChat as getChatState,
@@ -89,13 +90,12 @@ export type AiChatApi = {
   clearPending: () => void;
 };
 
-const AUTONOMOUS_LOOP_LIMIT = 100;
 const USAGE_REFRESH_DELAY_MS = 300;
 
 export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi => {
   const {
     aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew,
-    aiModelSelect, aiTopbarTitle, aiTopbarStatus, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar,
+    aiTopbarTitle, aiTopbarStatus, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar,
     aiContextBar, aiStop, aiUndo,
   } = context.dom;
 
@@ -425,21 +425,15 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     return `思考中: ${raw}`;
   };
 
-  const INDICATOR_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L20 12L12 20L4 12Z"/><ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" stroke-width="1" opacity="0.4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>';
-
   const createThinkingElement = (text: string): HTMLElement => {
     const wrapper = document.createElement("div");
     wrapper.className = "ai-message is-assistant ai-thinking-message";
-    const indicator = document.createElement("div");
-    indicator.className = "ai-message-indicator";
-    indicator.innerHTML = INDICATOR_SVG;
     const body = document.createElement("div");
     body.className = "ai-message-body";
     const content = document.createElement("div");
     content.className = "ai-message-content";
     content.textContent = text;
     body.appendChild(content);
-    wrapper.appendChild(indicator);
     wrapper.appendChild(body);
     return wrapper;
   };
@@ -613,26 +607,10 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     resetToNewChatState,
   });
 
-  const syncModelSelect = (model?: string) => {
-    if (!(aiModelSelect instanceof HTMLSelectElement)) return;
-    const value = typeof model === "string" && model ? model : "gpt-4o-mini";
-    if (aiModelSelect.value !== value) {
-      aiModelSelect.value = value;
-    }
-  };
-
   const handleSettings = (s: AgentSettings) => {
     agentSettings = s;
-    syncModelSelect(s?.model);
     updateSendState();
   };
-
-  if (aiModelSelect instanceof HTMLSelectElement) {
-    aiModelSelect.addEventListener("change", () => {
-      const model = aiModelSelect.value;
-      deps.postToNative({ type: "agent:settings:set", settings: { model } }, true);
-    });
-  }
   const {
     handleState,
     handleStatus,

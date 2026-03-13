@@ -5,10 +5,8 @@ const MAX_RECENT_PROJECTS = 10;
 
 const DEFAULT_SETTINGS = {
   agent: {
-    model: "gpt-4o-mini",
+    model: "gpt-5-nano",
     endpoint: "",
-    inlineModel: "",
-    temperature: 1.0,
     maxOutputTokens: 16384,
     maxIterations: 500,
     stream: true,

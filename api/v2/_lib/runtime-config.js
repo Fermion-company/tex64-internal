@@ -128,8 +128,8 @@ export const getRuntimeConfig = () => {
       0,
       parseInteger(process.env.TEX64_PLATFORM_FREE_MONTHLY_TOKENS, 0)
     ),
-    basicBudgetUsd: Math.max(0, parseNumber(process.env.TEX64_PLATFORM_BASIC_USD, 1)),
-    proBudgetUsd: Math.max(0, parseNumber(process.env.TEX64_PLATFORM_PRO_USD, 10)),
+    basicBudgetUsd: 10,
+    proBudgetUsd: 20,
     requestLimitFree: Math.max(
       0,
       parseInteger(process.env.TEX64_PLATFORM_REQUEST_LIMIT_FREE, 100)

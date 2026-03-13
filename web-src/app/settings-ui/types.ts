@@ -9,8 +9,6 @@ export type SettingsUiDeps = {
   getBuildProfileId: () => string | null;
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   onEditorWordWrapChange?: (enabled: boolean) => void;
-  onGhostCompletionChange?: (enabled: boolean) => void;
-  onGhostCompletionConfigChange?: (config: { debounceMs: number; maxChars: number }) => void;
   onUpdateAttentionChange?: (hasAttention: boolean) => void;
   onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
   onRequestFirstBuild?: () => void;
@@ -35,8 +33,6 @@ export type SettingsUiApi = {
   getAutoSynctexOnBuildEnabled: () => boolean;
   getReverseSynctexEnabled: () => boolean;
   getPdfViewerMode: () => "window" | "tab";
-  getGhostCompletionEnabled: () => boolean;
-  getGhostCompletionConfig: () => { debounceMs: number; maxChars: number };
   buildFormatSettingsPayload: () => FormatSettingsPayload;
   getSettingsSnapshot: () => AppSettingsSnapshot;
   applySettingsPatch: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
@@ -63,19 +59,13 @@ export type SettingsUiApi = {
   loadWorkspaceSettings: () => void;
 };
 
-export type SettingsUiStorageRanges = {
-  ghostCompletionDebounceRange: { min: number; max: number };
-  ghostCompletionMaxCharsRange: { min: number; max: number };
-};
+export type SettingsUiStorageRanges = Record<string, never>;
 
 export type SettingsUiStorageKeys = {
   compileEngineKey: string;
   editorWordWrapKey: string;
   editorAutoSynctexOnBuildKey: string;
   editorReverseSynctexKey: string;
-  editorGhostCompletionKey: string;
-  editorGhostCompletionDebounceKey: string;
-  editorGhostCompletionMaxCharsKey: string;
   editorAutoSynctexOnPdfOpenKey: string;
   editorPdfViewerModeKey: string;
   editorAlignEnvKey: string;
@@ -102,9 +92,6 @@ export type SettingsUiState = {
   editorFormatSettings: EditorFormatSettings;
   autoSynctexOnBuildEnabled: boolean;
   reverseSynctexEnabled: boolean;
-  ghostCompletionEnabled: boolean;
-  ghostCompletionDebounceMs: number;
-  ghostCompletionMaxChars: number;
   pdfViewerMode: "window" | "tab";
   platformAuth: PlatformAuthSnapshot | null;
   platformUpdate: PlatformUpdateSnapshot | null;

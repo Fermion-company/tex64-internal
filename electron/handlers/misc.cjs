@@ -2,10 +2,6 @@ const path = require("path");
 const os = require("os");
 const { createUpdateHandlers } = require("./misc-update-handlers.cjs");
 const { createPlatformHandlers } = require("./misc-platform-handlers.cjs");
-const { createApiGhostCompletionHandler } = require("./misc-completion-handler.cjs");
-
-const GHOST_COMPLETION_TEMP_DISABLED = true;
-
 const createMiscHandlers = (deps) => {
   const {
     envService,
@@ -32,7 +28,6 @@ const createMiscHandlers = (deps) => {
     typeof runtimeInfo?.arch === "string" && runtimeInfo.arch.trim()
       ? runtimeInfo.arch.trim()
       : process.arch;
-  const strictProduction = runtimeInfo?.packaged === true;
   const defaultUpdateChannel =
     typeof process.env.TEX64_UPDATE_CHANNEL === "string" &&
     process.env.TEX64_UPDATE_CHANNEL.trim()
@@ -120,16 +115,6 @@ const createMiscHandlers = (deps) => {
     sendToRenderer("api:usage", { snapshot });
   };
 
-  const handleApiGhostCompletion = createApiGhostCompletionHandler({
-    platformService,
-    emitPlatformAiAccess: platformHandlers.emitPlatformAiAccess,
-    ensureUserSettings,
-    apiUsageService,
-    sendToRenderer,
-    strictProduction,
-    ghostCompletionDisabled: GHOST_COMPLETION_TEMP_DISABLED,
-  });
-
   return {
     handleEnvCheck,
     handleEnvInstall,
@@ -150,7 +135,6 @@ const createMiscHandlers = (deps) => {
     handleOpenExternal: platformHandlers.handleOpenExternal,
     handleFeedbackSend: platformHandlers.handleFeedbackSend,
     handleErrorReportSend: platformHandlers.handleErrorReportSend,
-    handleApiGhostCompletion,
   };
 };
 

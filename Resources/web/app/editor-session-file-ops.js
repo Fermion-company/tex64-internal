@@ -152,8 +152,24 @@ export const createEditorSessionFileOps = (ctx) => {
             deps.buildOps.updateSynctexButtonState();
         }
     };
+    // Track active AI diff decorations per editor group
+    const aiDiffDecorations = new Map();
+    let aiDiffClearTimer = null;
+    const clearAiDiffDecorations = (group) => {
+        const editorAny = group.editor;
+        const key = group.key;
+        const ids = aiDiffDecorations.get(key);
+        if (ids && ids.length > 0 && (editorAny === null || editorAny === void 0 ? void 0 : editorAny.deltaDecorations)) {
+            editorAny.deltaDecorations(ids, []);
+            aiDiffDecorations.delete(key);
+        }
+        // Remove Undo/Keep bar
+        const bar = document.getElementById("ai-undo-keep-bar");
+        if (bar)
+            bar.remove();
+    };
     const applyFormattedContent = (group, path, content, options) => {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g;
         if (!group.editor) {
             return;
         }
@@ -162,6 +178,17 @@ export const createEditorSessionFileOps = (ctx) => {
         const currentValue = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
         const viewState = (_d = editor.saveViewState) === null || _d === void 0 ? void 0 : _d.call(editor);
         if (currentValue !== content) {
+            // Compute changed line numbers BEFORE replacing (for diff decorations)
+            let changedLineNumbers = [];
+            if (options === null || options === void 0 ? void 0 : options.showAiDiff) {
+                const oldLines = currentValue.split("\n");
+                const newLines = content.split("\n");
+                for (let i = 0; i < newLines.length; i++) {
+                    if (i >= oldLines.length || oldLines[i] !== newLines[i]) {
+                        changedLineNumbers.push(i + 1); // Monaco lines are 1-indexed
+                    }
+                }
+            }
             group.isApplyingFile = true;
             if (entry === null || entry === void 0 ? void 0 : entry.model.setValue) {
                 entry.model.setValue(content);
@@ -173,6 +200,63 @@ export const createEditorSessionFileOps = (ctx) => {
             if (viewState && editor.restoreViewState) {
                 editor.restoreViewState(viewState);
             }
+            // Add AI diff decorations
+            if ((options === null || options === void 0 ? void 0 : options.showAiDiff) && changedLineNumbers.length > 0 && editor.deltaDecorations) {
+                // Clear any existing AI diff decorations
+                clearAiDiffDecorations(group);
+                const decorations = changedLineNumbers.map((lineNumber) => ({
+                    range: { startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: 1 },
+                    options: {
+                        isWholeLine: true,
+                        className: "ai-diff-added-line",
+                        glyphMarginClassName: "ai-diff-added-glyph",
+                    },
+                }));
+                const ids = editor.deltaDecorations([], decorations);
+                aiDiffDecorations.set(group.key, ids);
+                // Show Undo/Keep bar
+                const editorDom = (_e = editor.getDomNode) === null || _e === void 0 ? void 0 : _e.call(editor);
+                const editorContainer = editorDom === null || editorDom === void 0 ? void 0 : editorDom.parentElement;
+                if (editorContainer) {
+                    const existing = document.getElementById("ai-undo-keep-bar");
+                    if (existing)
+                        existing.remove();
+                    const bar = document.createElement("div");
+                    bar.id = "ai-undo-keep-bar";
+                    bar.className = "ai-undo-keep-bar";
+                    const undoBtn = document.createElement("button");
+                    undoBtn.className = "ai-undo-keep-btn is-undo";
+                    undoBtn.textContent = "Undo";
+                    undoBtn.addEventListener("click", () => {
+                        var _a;
+                        const bridge = window.bridge;
+                        (_a = bridge === null || bridge === void 0 ? void 0 : bridge.postToNative) === null || _a === void 0 ? void 0 : _a.call(bridge, { type: "agent:undoLastApply" });
+                        clearAiDiffDecorations(group);
+                    });
+                    const keepBtn = document.createElement("button");
+                    keepBtn.className = "ai-undo-keep-btn is-keep";
+                    keepBtn.textContent = "Keep";
+                    keepBtn.addEventListener("click", () => {
+                        clearAiDiffDecorations(group);
+                    });
+                    bar.append(undoBtn, keepBtn);
+                    editorContainer.appendChild(bar);
+                }
+                // Auto-clear decorations on next user edit
+                if (editor.onDidChangeModelContent) {
+                    const disposable = editor.onDidChangeModelContent(() => {
+                        clearAiDiffDecorations(group);
+                        disposable.dispose();
+                    });
+                }
+                // Auto-clear after 30 seconds
+                if (aiDiffClearTimer)
+                    clearTimeout(aiDiffClearTimer);
+                aiDiffClearTimer = setTimeout(() => {
+                    clearAiDiffDecorations(group);
+                    aiDiffClearTimer = null;
+                }, 30000);
+            }
         }
         if (options === null || options === void 0 ? void 0 : options.updateSaved) {
             if (entry) {
@@ -182,9 +266,9 @@ export const createEditorSessionFileOps = (ctx) => {
                 group.currentFileSavedContent = content;
             }
         }
-        const savedContent = (_f = (_e = (group.currentFilePath === path
+        const savedContent = (_g = (_f = (group.currentFilePath === path
             ? group.currentFileSavedContent
-            : entry === null || entry === void 0 ? void 0 : entry.savedContent)) !== null && _e !== void 0 ? _e : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _f !== void 0 ? _f : content;
+            : entry === null || entry === void 0 ? void 0 : entry.savedContent)) !== null && _f !== void 0 ? _f : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _g !== void 0 ? _g : content;
         updateDirtyState(path, content, savedContent);
         if (isActiveGroup(group)) {
             updateBreadcrumbs();

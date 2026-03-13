@@ -12,7 +12,6 @@ import type {
   RootSource,
   SearchResult,
   SectionEntry,
-  ApiCompletionResultPayload,
   ApiUsageSnapshot,
   PlatformAuthSnapshot,
   PlatformAiAccessSnapshot,
@@ -166,7 +165,6 @@ type BridgeHandlersDeps = {
     handleError: (message: string, conversationId?: string) => void;
   };
   api?: {
-    handleCompletionResult: (payload: ApiCompletionResultPayload) => void;
     handleUsage: (payload: { snapshot?: ApiUsageSnapshot }) => void;
   };
   platform?: {
@@ -221,7 +219,7 @@ type BridgeHandlersDeps = {
     applyContentToOpenFile: (
       path: string,
       content: string,
-      options?: { updateSaved?: boolean }
+      options?: { updateSaved?: boolean; showAiDiff?: boolean }
     ) => void;
   };
   filePreview?: {
@@ -580,11 +578,6 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           (message.payload as { message?: string; conversationId?: string }).conversationId
         );
         break;
-      case "api:completionResult":
-        deps.api?.handleCompletionResult(
-          message.payload as ApiCompletionResultPayload
-        );
-        break;
       case "api:usage":
         deps.api?.handleUsage(
           message.payload as { snapshot?: ApiUsageSnapshot }
@@ -644,9 +637,10 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         deps.editorSession.applyContentToOpenFile(
           (message.payload as { path?: string; content?: string }).path ?? "",
           (message.payload as { path?: string; content?: string }).content ?? "",
-          (message.payload as { updateSaved?: boolean }).updateSaved !== false
-            ? { updateSaved: true }
-            : undefined
+          {
+            updateSaved: (message.payload as { updateSaved?: boolean }).updateSaved !== false,
+            showAiDiff: true,
+          }
         );
         break;
       default:

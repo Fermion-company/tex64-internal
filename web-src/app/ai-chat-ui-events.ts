@@ -1,17 +1,7 @@
 import type { AgentSettings } from "./types.js";
 import type { ChatState } from "./ai-chat-state.js";
-
-type AiRequestPart = {
-  text?: string;
-  inlineData?: { mimeType: string; data: string };
-};
-
-type AiImageAttachment = {
-  mimeType: string;
-  data: string;
-  name: string;
-  size: number;
-};
+import type { AiRequestPart } from "./ai-chat-runner.js";
+import type { AiImageAttachment } from "./ai-chat-attachments.js";
 
 type InitAiChatEventBindingsParams = {
   aiInput: Element | null | undefined;

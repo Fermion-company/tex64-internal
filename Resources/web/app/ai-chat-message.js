@@ -1,103 +1,127 @@
+/* ------------------------------------------------------------------ */
+/*  KaTeX math rendering                                              */
+/* ------------------------------------------------------------------ */
+const renderMathInText = (html) => {
+    // Display math: $$...$$ (must come before inline)
+    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr) => {
+        try {
+            return katex.renderToString(expr.trim(), {
+                displayMode: true,
+                throwOnError: false,
+            });
+        }
+        catch {
+            return `<code>${expr}</code>`;
+        }
+    });
+    // Inline math: $...$  (not preceded/followed by $)
+    html = html.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_match, expr) => {
+        try {
+            return katex.renderToString(expr.trim(), {
+                displayMode: false,
+                throwOnError: false,
+            });
+        }
+        catch {
+            return `<code>${expr}</code>`;
+        }
+    });
+    return html;
+};
+/* ------------------------------------------------------------------ */
+/*  Marked configuration                                              */
+/* ------------------------------------------------------------------ */
 const escapeHtml = (text) => text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-const renderInlineMarkdown = (text) => {
-    let html = escapeHtml(text);
-    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    html = html.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<em>$1</em>");
-    html = html.replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>');
+const configureMarked = () => {
+    const renderer = {
+        code(token) {
+            const lang = escapeHtml(token.lang || "text");
+            const code = escapeHtml(token.text);
+            return (`<div class="ai-code-block">` +
+                `<div class="ai-code-header">` +
+                `<span class="ai-code-lang">${lang}</span>` +
+                `<button class="ai-code-copy" type="button" data-copy>コピー</button>` +
+                `</div>` +
+                `<pre><code>${code}</code></pre>` +
+                `</div>`);
+        },
+        codespan(token) {
+            return `<code class="ai-inline-code">${escapeHtml(token.text)}</code>`;
+        },
+        heading(token) {
+            const level = Math.min(3, token.depth);
+            return `<h${level} class="ai-md-heading ai-md-heading-${level}">${token.text}</h${level}>`;
+        },
+        list(token) {
+            const tag = token.ordered ? "ol" : "ul";
+            const items = token.items.map((item) => `<li>${this.parser.parse(item.tokens)}</li>`).join("");
+            return `<${tag} class="ai-md-list">${items}</${tag}>`;
+        },
+        table(token) {
+            const ths = token.header
+                .map((h) => {
+                const align = h.align ? ` style="text-align:${h.align}"` : "";
+                return `<th${align}>${h.text}</th>`;
+            })
+                .join("");
+            const bodyRows = token.rows
+                .map((row) => {
+                const tds = row
+                    .map((cell) => {
+                    const align = cell.align ? ` style="text-align:${cell.align}"` : "";
+                    return `<td${align}>${cell.text}</td>`;
+                })
+                    .join("");
+                return `<tr>${tds}</tr>`;
+            })
+                .join("");
+            return (`<div class="ai-table-wrapper">` +
+                `<table class="ai-md-table"><thead><tr>${ths}</tr></thead>` +
+                `<tbody>${bodyRows}</tbody></table>` +
+                `</div>`);
+        },
+    };
+    marked.use({ renderer, gfm: true, breaks: false });
+};
+let markedConfigured = false;
+/* ------------------------------------------------------------------ */
+/*  Render markdown → HTML                                            */
+/* ------------------------------------------------------------------ */
+const renderMarkdownHtml = (text) => {
+    if (!markedConfigured) {
+        configureMarked();
+        markedConfigured = true;
+    }
+    // Protect math blocks from marked's processing
+    const mathBlocks = [];
+    let protected_ = text;
+    // Protect display math $$...$$
+    protected_ = protected_.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr) => {
+        mathBlocks.push(`$$${expr}$$`);
+        return `\x00MATH${mathBlocks.length - 1}\x00`;
+    });
+    // Protect inline math $...$
+    protected_ = protected_.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_match, expr) => {
+        mathBlocks.push(`$${expr}$`);
+        return `\x00MATH${mathBlocks.length - 1}\x00`;
+    });
+    // Parse markdown
+    let html = marked.parse(protected_);
+    // Restore and render math
+    html = html.replace(/\x00MATH(\d+)\x00/g, (_match, idx) => {
+        var _a;
+        const original = (_a = mathBlocks[Number(idx)]) !== null && _a !== void 0 ? _a : "";
+        return renderMathInText(original);
+    });
     return html;
 };
-const renderTextBlockHtml = (text) => {
-    var _a, _b, _c;
-    const lines = text.split(/\r?\n/);
-    const blocks = [];
-    let paragraphLines = [];
-    const flushParagraph = () => {
-        if (paragraphLines.length === 0)
-            return;
-        blocks.push(`<p>${paragraphLines.join("<br>")}</p>`);
-        paragraphLines = [];
-    };
-    for (let i = 0; i < lines.length; i += 1) {
-        const rawLine = (_a = lines[i]) !== null && _a !== void 0 ? _a : "";
-        const line = rawLine.trim();
-        if (!line) {
-            flushParagraph();
-            continue;
-        }
-        const heading = line.match(/^(#{1,3})\s+(.+)$/);
-        if (heading) {
-            flushParagraph();
-            const level = Math.min(3, heading[1].length);
-            const content = renderInlineMarkdown(heading[2].trim());
-            blocks.push(`<h${level} class="ai-md-heading ai-md-heading-${level}">${content}</h${level}>`);
-            continue;
-        }
-        const unordered = line.match(/^[-*]\s+(.+)$/);
-        if (unordered) {
-            flushParagraph();
-            const items = [];
-            let cursor = i;
-            while (cursor < lines.length) {
-                const listLine = ((_b = lines[cursor]) !== null && _b !== void 0 ? _b : "").trim();
-                const listItem = listLine.match(/^[-*]\s+(.+)$/);
-                if (!listItem)
-                    break;
-                items.push(`<li>${renderInlineMarkdown(listItem[1].trim())}</li>`);
-                cursor += 1;
-            }
-            blocks.push(`<ul class="ai-md-list">${items.join("")}</ul>`);
-            i = cursor - 1;
-            continue;
-        }
-        const ordered = line.match(/^\d+\.\s+(.+)$/);
-        if (ordered) {
-            flushParagraph();
-            const items = [];
-            let cursor = i;
-            while (cursor < lines.length) {
-                const listLine = ((_c = lines[cursor]) !== null && _c !== void 0 ? _c : "").trim();
-                const listItem = listLine.match(/^\d+\.\s+(.+)$/);
-                if (!listItem)
-                    break;
-                items.push(`<li>${renderInlineMarkdown(listItem[1].trim())}</li>`);
-                cursor += 1;
-            }
-            blocks.push(`<ol class="ai-md-list">${items.join("")}</ol>`);
-            i = cursor - 1;
-            continue;
-        }
-        paragraphLines.push(renderInlineMarkdown(line));
-    }
-    flushParagraph();
-    return blocks.join("");
-};
-const renderMarkdownHtml = (text) => {
-    const blocks = [];
-    const parts = text.split(/(```[\s\S]*?```)/g);
-    for (const part of parts) {
-        if (part.startsWith("```")) {
-            const match = part.match(/^```(\w*)\n?([\s\S]*?)```$/);
-            if (match) {
-                const lang = escapeHtml(match[1] || "text");
-                const code = escapeHtml(match[2].trimEnd());
-                blocks.push(`<div class="ai-code-block"><div class="ai-code-header"><span class="ai-code-lang">${lang}</span><button class="ai-code-copy" type="button" data-copy>コピー</button></div><pre><code>${code}</code></pre></div>`);
-            }
-            else {
-                blocks.push(`<pre><code>${escapeHtml(part)}</code></pre>`);
-            }
-        }
-        else {
-            const html = renderTextBlockHtml(part);
-            if (html.trim())
-                blocks.push(html);
-        }
-    }
-    return blocks.join("");
-};
+/* ------------------------------------------------------------------ */
+/*  Copy button handler                                               */
+/* ------------------------------------------------------------------ */
 const attachCopyHandlers = (container) => {
     container.querySelectorAll("[data-copy]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
@@ -111,6 +135,9 @@ const attachCopyHandlers = (container) => {
         });
     });
 };
+/* ------------------------------------------------------------------ */
+/*  DOM helpers                                                       */
+/* ------------------------------------------------------------------ */
 export const createMessageElement = (message) => {
     const wrapper = document.createElement("div");
     wrapper.className = "ai-message";
@@ -123,9 +150,6 @@ export const createMessageElement = (message) => {
     }
     else if (message.role === "assistant") {
         wrapper.classList.add("is-assistant");
-        const indicator = document.createElement("div");
-        indicator.className = "ai-message-indicator";
-        indicator.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4L20 12L12 20L4 12Z"/><ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" stroke-width="1" opacity="0.4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>';
         const body = document.createElement("div");
         body.className = "ai-message-body";
         const content = document.createElement("div");
@@ -133,7 +157,6 @@ export const createMessageElement = (message) => {
         content.innerHTML = renderMarkdownHtml(message.text);
         attachCopyHandlers(content);
         body.appendChild(content);
-        wrapper.appendChild(indicator);
         wrapper.appendChild(body);
     }
     else if (message.role === "system") {

@@ -6,11 +6,8 @@ import {
   registerHoverProvider,
   type HoverState,
 } from "./monaco-hover.js";
-import { createInlineCompletionController } from "./monaco-inline.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
-
-const GHOST_COMPLETION_TEMP_DISABLED = true;
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -42,23 +39,10 @@ type MonacoSetupDeps = {
   onCursorSelectionChange?: (position: { lineNumber: number; column: number }) => void;
   openAiWithSelection?: () => void;
   getEditorWordWrapEnabled: () => boolean;
-  getGhostCompletionEnabled: () => boolean;
-  getGhostCompletionConfig: () => { debounceMs: number; maxChars: number };
-  requestApiCompletion?: (payload: {
-    prompt: string;
-    prefix: string;
-    maxOutputTokens: number;
-    temperature: number;
-    topP: number;
-    topK: number;
-    timeoutMs: number;
-  }) => Promise<{ text: string | null }>;
 };
 
 export type MonacoSetupApi = {
-  setInlineSuggestEnabled: (enabled: boolean) => void;
   setWordWrapEnabled: (enabled: boolean) => void;
-  setGhostCompletionConfig: (config: { debounceMs: number; maxChars: number }) => void;
 };
 
 export const initMonacoSetup = (
@@ -69,31 +53,6 @@ export const initMonacoSetup = (
 
   const completionState = { registered: false };
   const hoverState: HoverState = { registered: false };
-  const isGhostCompletionEnabled = () =>
-    !GHOST_COMPLETION_TEMP_DISABLED && deps.getGhostCompletionEnabled();
-  const inlineController = createInlineCompletionController({
-    editorSession: deps.editorSession,
-    getGhostCompletionEnabled: isGhostCompletionEnabled,
-    getGhostCompletionConfig: deps.getGhostCompletionConfig,
-    requestApiCompletion: deps.requestApiCompletion,
-  });
-  const ghostCaretControllers: Array<{ key: EditorGroupKey; hide: () => void }> = [];
-
-  const hideGhostCarets = (activeKey?: EditorGroupKey) => {
-    ghostCaretControllers.forEach((controller) => {
-      if (!activeKey || controller.key !== activeKey) {
-        controller.hide();
-      }
-    });
-  };
-
-  const setInlineSuggestEnabled = (enabled: boolean) => {
-    const resolvedEnabled = !GHOST_COMPLETION_TEMP_DISABLED && enabled;
-    deps.editorSession.forEachEditorGroup((group) => {
-      const editorAny = group.editor as { updateOptions?: (options: unknown) => void } | null;
-      editorAny?.updateOptions?.({ inlineSuggest: { enabled: resolvedEnabled } });
-    });
-  };
 
   const setWordWrapEnabled = (enabled: boolean) => {
     const wordWrap = enabled ? "on" : "off";
@@ -103,14 +62,8 @@ export const initMonacoSetup = (
     });
   };
 
-  const setGhostCompletionConfig = (config: { debounceMs: number; maxChars: number }) => {
-    inlineController.applyGhostCompletionConfig(config);
-  };
-
   const api: MonacoSetupApi = {
-    setInlineSuggestEnabled,
     setWordWrapEnabled,
-    setGhostCompletionConfig,
   };
 
   if (!(editorHost instanceof HTMLElement)) {
@@ -157,22 +110,7 @@ export const initMonacoSetup = (
               ) => { suggestions: unknown[] };
             }
           ) => void;
-          registerInlineCompletionsProvider?: (
-            languageId: string,
-            provider: {
-              provideInlineCompletions: (
-                model: { getLineContent: (lineNumber: number) => string },
-                position: { lineNumber: number; column: number },
-                context?: { triggerKind?: number },
-                token?: unknown
-              ) =>
-                | { items: Array<{ insertText: string; range?: unknown }> }
-                | Promise<{ items: Array<{ insertText: string; range?: unknown }> }>;
-              freeInlineCompletions?: (completions: unknown) => void;
-            }
-          ) => void;
           CompletionItemKind?: { Reference?: number; Value?: number };
-          InlineCompletionTriggerKind?: { Automatic?: number };
         };
         Range?: new (line: number, column: number, endLine: number, endColumn: number) => unknown;
       };
@@ -229,9 +167,6 @@ export const initMonacoSetup = (
         },
         hoverState
       );
-      if (!GHOST_COMPLETION_TEMP_DISABLED) {
-        inlineController.registerInlineCompletionProvider(monacoWindow.monaco);
-      }
       const themeName = applyMonacoTheme(monacoWindow.monaco);
       const editorOptions = {
         value: "",
@@ -265,7 +200,6 @@ export const initMonacoSetup = (
         },
         occurrencesHighlight: false,
         selectionHighlight: false,
-        inlineSuggest: { enabled: isGhostCompletionEnabled() },
       };
 
       const createEditorForGroup = (group: EditorGroupState, host: HTMLElement) => {
@@ -349,61 +283,7 @@ export const initMonacoSetup = (
           true
         );
 
-        const ghostCaretNode = document.createElement("div");
-        ghostCaretNode.className = "monaco-ghost-caret";
-        ghostCaretNode.style.height = `${editorOptions.lineHeight}px`;
-        ghostCaretNode.setAttribute("aria-hidden", "true");
-
-        let ghostCaretPosition: { lineNumber: number; column: number } | null = null;
-        let ghostCaretVisible = false;
-        let inlineAutoTriggerTimers: number[] = [];
         let hoverAnchorRafId: number | null = null;
-        const ghostCaretPreference =
-          (monacoWindow.monaco as any)?.editor?.ContentWidgetPositionPreference?.EXACT ?? 0;
-        const ghostCaretWidget = {
-          getId: () => `tex64-ghost-caret-${group.key}`,
-          getDomNode: () => ghostCaretNode,
-          getPosition: () => {
-            if (!ghostCaretVisible || !ghostCaretPosition) {
-              return null;
-            }
-            return {
-              position: ghostCaretPosition,
-              preference: [ghostCaretPreference],
-            };
-          },
-        };
-        editorAny.addContentWidget?.(ghostCaretWidget);
-
-        const updateGhostCaretPosition = (
-          position?: { lineNumber: number; column: number } | null
-        ) => {
-          if (!position) {
-            return;
-          }
-          ghostCaretPosition = {
-            lineNumber: position.lineNumber,
-            column: position.column,
-          };
-          if (ghostCaretVisible) {
-            editorAny.layoutContentWidget?.(ghostCaretWidget);
-          }
-        };
-
-        const hideGhostCaret = () => {
-          if (!ghostCaretVisible) {
-            return;
-          }
-          ghostCaretVisible = false;
-          editorAny.layoutContentWidget?.(ghostCaretWidget);
-        };
-
-        const clearInlineAutoTrigger = () => {
-          inlineAutoTriggerTimers.forEach((timerId) => {
-            window.clearTimeout(timerId);
-          });
-          inlineAutoTriggerTimers = [];
-        };
 
         const updateHoverFixedAnchor = () => {
           const editorForHover = editor as any;
@@ -429,63 +309,6 @@ export const initMonacoSetup = (
         window.addEventListener("resize", scheduleHoverFixedAnchor);
         updateHoverFixedAnchor();
 
-        const scheduleInlineAutoTrigger = () => {
-          clearInlineAutoTrigger();
-          const config = deps.getGhostCompletionConfig();
-          const baseDelay =
-            Number.isFinite(config.debounceMs) && config.debounceMs >= 0
-              ? Math.round(config.debounceMs)
-              : 120;
-          const delays = [baseDelay, Math.max(baseDelay + 120, 620)];
-          delays.forEach((delay) => {
-            const timerId = window.setTimeout(() => {
-              inlineAutoTriggerTimers = inlineAutoTriggerTimers.filter((id) => id !== timerId);
-              if (!isGhostCompletionEnabled()) {
-                return;
-              }
-              if (!deps.editorSession.isActiveGroup(group)) {
-                return;
-              }
-              if (!group.currentFilePath || !group.currentFilePath.endsWith(".tex")) {
-                return;
-              }
-              if (group.isComposing || deps.editorSession.isAnyGroupComposing()) {
-                return;
-              }
-              if (document.querySelector(".suggest-widget.visible")) {
-                return;
-              }
-              const hasTextFocus = (
-                editorAny as { hasTextFocus?: () => boolean }
-              ).hasTextFocus?.();
-              if (!hasTextFocus) {
-                return;
-              }
-              editorAny.trigger?.("tex64", "editor.action.inlineSuggest.trigger", {});
-            }, delay);
-            inlineAutoTriggerTimers.push(timerId);
-          });
-        };
-
-        const showGhostCaret = () => {
-          if (!deps.editorSession.isActiveGroup(group)) {
-            hideGhostCaret();
-            return;
-          }
-          if (!ghostCaretPosition) {
-            updateGhostCaretPosition(editorAny.getPosition?.() ?? null);
-          }
-          if (!ghostCaretPosition) {
-            return;
-          }
-          if (ghostCaretVisible) {
-            return;
-          }
-          ghostCaretVisible = true;
-          editorAny.layoutContentWidget?.(ghostCaretWidget);
-        };
-
-        ghostCaretControllers.push({ key: group.key, hide: hideGhostCaret });
         host.addEventListener("compositionstart", () => {
           group.isComposing = true;
           group.compositionText = "";
@@ -516,43 +339,27 @@ export const initMonacoSetup = (
           deps.editorSession.handleCompositionEnd(group);
         });
         editor.onDidFocusEditorWidget?.(() => {
-          hideGhostCarets(group.key);
-          hideGhostCaret();
           deps.editorSession.setActiveGroup(group.key, { focusEditor: false });
           deps.fileTree.setTreeFocus(false);
         });
         editorAny.onDidBlurEditorWidget?.(() => {
-          clearInlineAutoTrigger();
           if (hoverAnchorRafId !== null) {
             window.cancelAnimationFrame(hoverAnchorRafId);
             hoverAnchorRafId = null;
           }
-          updateGhostCaretPosition(editorAny.getPosition?.() ?? null);
-          showGhostCaret();
         });
         editor.onDidFocusEditorWidget?.(() => {
           scheduleHoverFixedAnchor();
         });
         editorAny.onDidScrollChange?.(() => {
-          if (ghostCaretVisible) {
-            editorAny.layoutContentWidget?.(ghostCaretWidget);
-          }
           scheduleHoverFixedAnchor();
         });
         editor.onDidChangeModelContent(() => {
-          inlineController.recordInlineEdit();
           if (group.isApplyingFile) {
-            clearInlineAutoTrigger();
             return;
           }
           if (!group.currentFilePath) {
-            clearInlineAutoTrigger();
             return;
-          }
-          if (deps.editorSession.isActiveGroup(group) && group.currentFilePath.endsWith(".tex")) {
-            scheduleInlineAutoTrigger();
-          } else {
-            clearInlineAutoTrigger();
           }
           const currentValue = editor.getValue();
           deps.editorSession.updateDirtyState(group.currentFilePath, currentValue);
@@ -566,7 +373,6 @@ export const initMonacoSetup = (
         });
         editor.onDidChangeCursorPosition?.(
           (e: { position: { lineNumber: number; column: number } }) => {
-            updateGhostCaretPosition(e.position);
             if (
               group.currentFilePath &&
               group.currentFilePath.endsWith(".tex") &&
@@ -578,10 +384,6 @@ export const initMonacoSetup = (
         );
         editor.onDidChangeCursorSelection?.(
           (e: { selection: { positionLineNumber: number; positionColumn: number } }) => {
-            updateGhostCaretPosition({
-              lineNumber: e.selection.positionLineNumber,
-              column: e.selection.positionColumn,
-            });
             if (
               group.currentFilePath &&
               group.currentFilePath.endsWith(".tex") &&

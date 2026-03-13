@@ -300,8 +300,15 @@ const getUiState = async (service) => {
       const content = typeof entry.content === "string" ? entry.content : "";
 
       if (role === "user") {
-        if (content.trim()) {
-          messages.push({ role: "user", text: clipLongString(content, 20_000) });
+        // New sessions store clean user text in content.
+        // Legacy sessions may have context metadata baked in — strip it.
+        let display = content;
+        if (display.includes("User prompt: ")) {
+          const match = display.match(/User prompt:\s*([\s\S]*?)(?:\n\nSelection:\n[\s\S]*)?$/);
+          if (match) display = match[1].trim();
+        }
+        if (display.trim()) {
+          messages.push({ role: "user", text: clipLongString(display, 20_000) });
         }
       } else if (role === "assistant") {
         if (content.trim()) {

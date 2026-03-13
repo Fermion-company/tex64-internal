@@ -1,3 +1,4 @@
+import { AUTONOMOUS_LOOP_LIMIT } from "./ai-chat-state.js";
 import { updateMessageElement } from "./ai-chat-message.js";
 export const createAiChatIncomingHandlers = (options) => {
     const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, enableAutonomous, scheduleUsageRefresh, ensureProposalsEmbedded, buildProposalCard, getProposalsContainer, restoreDraftFromPending, updateContextBar, buildContextPayload, getAgentSettings, postToNative, dismissProposal, switchActiveChat, } = options;
@@ -113,7 +114,6 @@ export const createAiChatIncomingHandlers = (options) => {
         updateSendState();
         updateStatusDisplay();
     };
-    const AUTONOMOUS_LOOP_LIMIT = 100;
     const tryAutonomousContinuation = (chat) => {
         if (!chat.autonomous || chat.autoLoopBudget <= 0)
             return false;

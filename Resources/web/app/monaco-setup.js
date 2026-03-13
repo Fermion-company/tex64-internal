@@ -1,36 +1,11 @@
 import { registerCompletionProvider } from "./monaco-completion.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
-import { createInlineCompletionController } from "./monaco-inline.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
-const GHOST_COMPLETION_TEMP_DISABLED = true;
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const completionState = { registered: false };
     const hoverState = { registered: false };
-    const isGhostCompletionEnabled = () => !GHOST_COMPLETION_TEMP_DISABLED && deps.getGhostCompletionEnabled();
-    const inlineController = createInlineCompletionController({
-        editorSession: deps.editorSession,
-        getGhostCompletionEnabled: isGhostCompletionEnabled,
-        getGhostCompletionConfig: deps.getGhostCompletionConfig,
-        requestApiCompletion: deps.requestApiCompletion,
-    });
-    const ghostCaretControllers = [];
-    const hideGhostCarets = (activeKey) => {
-        ghostCaretControllers.forEach((controller) => {
-            if (!activeKey || controller.key !== activeKey) {
-                controller.hide();
-            }
-        });
-    };
-    const setInlineSuggestEnabled = (enabled) => {
-        const resolvedEnabled = !GHOST_COMPLETION_TEMP_DISABLED && enabled;
-        deps.editorSession.forEachEditorGroup((group) => {
-            var _a;
-            const editorAny = group.editor;
-            (_a = editorAny === null || editorAny === void 0 ? void 0 : editorAny.updateOptions) === null || _a === void 0 ? void 0 : _a.call(editorAny, { inlineSuggest: { enabled: resolvedEnabled } });
-        });
-    };
     const setWordWrapEnabled = (enabled) => {
         const wordWrap = enabled ? "on" : "off";
         deps.editorSession.forEachEditorGroup((group) => {
@@ -39,13 +14,8 @@ export const initMonacoSetup = (context, deps) => {
             (_a = editorAny === null || editorAny === void 0 ? void 0 : editorAny.updateOptions) === null || _a === void 0 ? void 0 : _a.call(editorAny, { wordWrap });
         });
     };
-    const setGhostCompletionConfig = (config) => {
-        inlineController.applyGhostCompletionConfig(config);
-    };
     const api = {
-        setInlineSuggestEnabled,
         setWordWrapEnabled,
-        setGhostCompletionConfig,
     };
     if (!(editorHost instanceof HTMLElement)) {
         deps.updateFallback("エディタ領域が見つかりません。");
@@ -90,9 +60,6 @@ export const initMonacoSetup = (context, deps) => {
             requestFilePreview: deps.requestFilePreview,
             requestFileExcerpt: deps.requestFileExcerpt,
         }, hoverState);
-        if (!GHOST_COMPLETION_TEMP_DISABLED) {
-            inlineController.registerInlineCompletionProvider(monacoWindow.monaco);
-        }
         const themeName = applyMonacoTheme(monacoWindow.monaco);
         const editorOptions = {
             value: "",
@@ -126,10 +93,9 @@ export const initMonacoSetup = (context, deps) => {
             },
             occurrencesHighlight: false,
             selectionHighlight: false,
-            inlineSuggest: { enabled: isGhostCompletionEnabled() },
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -146,56 +112,7 @@ export const initMonacoSetup = (context, deps) => {
                 const command = event.shiftKey ? "selectPrevSuggestion" : "selectNextSuggestion";
                 (_a = editorAny.trigger) === null || _a === void 0 ? void 0 : _a.call(editorAny, "tex64", command, {});
             }, true);
-            const ghostCaretNode = document.createElement("div");
-            ghostCaretNode.className = "monaco-ghost-caret";
-            ghostCaretNode.style.height = `${editorOptions.lineHeight}px`;
-            ghostCaretNode.setAttribute("aria-hidden", "true");
-            let ghostCaretPosition = null;
-            let ghostCaretVisible = false;
-            let inlineAutoTriggerTimers = [];
             let hoverAnchorRafId = null;
-            const ghostCaretPreference = (_f = (_e = (_d = (_c = monacoWindow.monaco) === null || _c === void 0 ? void 0 : _c.editor) === null || _d === void 0 ? void 0 : _d.ContentWidgetPositionPreference) === null || _e === void 0 ? void 0 : _e.EXACT) !== null && _f !== void 0 ? _f : 0;
-            const ghostCaretWidget = {
-                getId: () => `tex64-ghost-caret-${group.key}`,
-                getDomNode: () => ghostCaretNode,
-                getPosition: () => {
-                    if (!ghostCaretVisible || !ghostCaretPosition) {
-                        return null;
-                    }
-                    return {
-                        position: ghostCaretPosition,
-                        preference: [ghostCaretPreference],
-                    };
-                },
-            };
-            (_g = editorAny.addContentWidget) === null || _g === void 0 ? void 0 : _g.call(editorAny, ghostCaretWidget);
-            const updateGhostCaretPosition = (position) => {
-                var _a;
-                if (!position) {
-                    return;
-                }
-                ghostCaretPosition = {
-                    lineNumber: position.lineNumber,
-                    column: position.column,
-                };
-                if (ghostCaretVisible) {
-                    (_a = editorAny.layoutContentWidget) === null || _a === void 0 ? void 0 : _a.call(editorAny, ghostCaretWidget);
-                }
-            };
-            const hideGhostCaret = () => {
-                var _a;
-                if (!ghostCaretVisible) {
-                    return;
-                }
-                ghostCaretVisible = false;
-                (_a = editorAny.layoutContentWidget) === null || _a === void 0 ? void 0 : _a.call(editorAny, ghostCaretWidget);
-            };
-            const clearInlineAutoTrigger = () => {
-                inlineAutoTriggerTimers.forEach((timerId) => {
-                    window.clearTimeout(timerId);
-                });
-                inlineAutoTriggerTimers = [];
-            };
             const updateHoverFixedAnchor = () => {
                 var _a;
                 const editorForHover = editor;
@@ -220,60 +137,6 @@ export const initMonacoSetup = (context, deps) => {
             };
             window.addEventListener("resize", scheduleHoverFixedAnchor);
             updateHoverFixedAnchor();
-            const scheduleInlineAutoTrigger = () => {
-                clearInlineAutoTrigger();
-                const config = deps.getGhostCompletionConfig();
-                const baseDelay = Number.isFinite(config.debounceMs) && config.debounceMs >= 0
-                    ? Math.round(config.debounceMs)
-                    : 120;
-                const delays = [baseDelay, Math.max(baseDelay + 120, 620)];
-                delays.forEach((delay) => {
-                    const timerId = window.setTimeout(() => {
-                        var _a, _b, _c;
-                        inlineAutoTriggerTimers = inlineAutoTriggerTimers.filter((id) => id !== timerId);
-                        if (!isGhostCompletionEnabled()) {
-                            return;
-                        }
-                        if (!deps.editorSession.isActiveGroup(group)) {
-                            return;
-                        }
-                        if (!group.currentFilePath || !group.currentFilePath.endsWith(".tex")) {
-                            return;
-                        }
-                        if (group.isComposing || deps.editorSession.isAnyGroupComposing()) {
-                            return;
-                        }
-                        if (document.querySelector(".suggest-widget.visible")) {
-                            return;
-                        }
-                        const hasTextFocus = (_b = (_a = editorAny).hasTextFocus) === null || _b === void 0 ? void 0 : _b.call(_a);
-                        if (!hasTextFocus) {
-                            return;
-                        }
-                        (_c = editorAny.trigger) === null || _c === void 0 ? void 0 : _c.call(editorAny, "tex64", "editor.action.inlineSuggest.trigger", {});
-                    }, delay);
-                    inlineAutoTriggerTimers.push(timerId);
-                });
-            };
-            const showGhostCaret = () => {
-                var _a, _b, _c;
-                if (!deps.editorSession.isActiveGroup(group)) {
-                    hideGhostCaret();
-                    return;
-                }
-                if (!ghostCaretPosition) {
-                    updateGhostCaretPosition((_b = (_a = editorAny.getPosition) === null || _a === void 0 ? void 0 : _a.call(editorAny)) !== null && _b !== void 0 ? _b : null);
-                }
-                if (!ghostCaretPosition) {
-                    return;
-                }
-                if (ghostCaretVisible) {
-                    return;
-                }
-                ghostCaretVisible = true;
-                (_c = editorAny.layoutContentWidget) === null || _c === void 0 ? void 0 : _c.call(editorAny, ghostCaretWidget);
-            };
-            ghostCaretControllers.push({ key: group.key, hide: hideGhostCaret });
             host.addEventListener("compositionstart", () => {
                 group.isComposing = true;
                 group.compositionText = "";
@@ -303,47 +166,28 @@ export const initMonacoSetup = (context, deps) => {
                 group.composingFilePath = null;
                 deps.editorSession.handleCompositionEnd(group);
             });
-            (_h = editor.onDidFocusEditorWidget) === null || _h === void 0 ? void 0 : _h.call(editor, () => {
-                hideGhostCarets(group.key);
-                hideGhostCaret();
+            (_c = editor.onDidFocusEditorWidget) === null || _c === void 0 ? void 0 : _c.call(editor, () => {
                 deps.editorSession.setActiveGroup(group.key, { focusEditor: false });
                 deps.fileTree.setTreeFocus(false);
             });
-            (_j = editorAny.onDidBlurEditorWidget) === null || _j === void 0 ? void 0 : _j.call(editorAny, () => {
-                var _a, _b;
-                clearInlineAutoTrigger();
+            (_d = editorAny.onDidBlurEditorWidget) === null || _d === void 0 ? void 0 : _d.call(editorAny, () => {
                 if (hoverAnchorRafId !== null) {
                     window.cancelAnimationFrame(hoverAnchorRafId);
                     hoverAnchorRafId = null;
                 }
-                updateGhostCaretPosition((_b = (_a = editorAny.getPosition) === null || _a === void 0 ? void 0 : _a.call(editorAny)) !== null && _b !== void 0 ? _b : null);
-                showGhostCaret();
             });
-            (_k = editor.onDidFocusEditorWidget) === null || _k === void 0 ? void 0 : _k.call(editor, () => {
+            (_e = editor.onDidFocusEditorWidget) === null || _e === void 0 ? void 0 : _e.call(editor, () => {
                 scheduleHoverFixedAnchor();
             });
-            (_l = editorAny.onDidScrollChange) === null || _l === void 0 ? void 0 : _l.call(editorAny, () => {
-                var _a;
-                if (ghostCaretVisible) {
-                    (_a = editorAny.layoutContentWidget) === null || _a === void 0 ? void 0 : _a.call(editorAny, ghostCaretWidget);
-                }
+            (_f = editorAny.onDidScrollChange) === null || _f === void 0 ? void 0 : _f.call(editorAny, () => {
                 scheduleHoverFixedAnchor();
             });
             editor.onDidChangeModelContent(() => {
-                inlineController.recordInlineEdit();
                 if (group.isApplyingFile) {
-                    clearInlineAutoTrigger();
                     return;
                 }
                 if (!group.currentFilePath) {
-                    clearInlineAutoTrigger();
                     return;
-                }
-                if (deps.editorSession.isActiveGroup(group) && group.currentFilePath.endsWith(".tex")) {
-                    scheduleInlineAutoTrigger();
-                }
-                else {
-                    clearInlineAutoTrigger();
                 }
                 const currentValue = editor.getValue();
                 deps.editorSession.updateDirtyState(group.currentFilePath, currentValue);
@@ -355,20 +199,15 @@ export const initMonacoSetup = (context, deps) => {
                     deps.editorSession.scheduleAutoSave();
                 }
             });
-            (_m = editor.onDidChangeCursorPosition) === null || _m === void 0 ? void 0 : _m.call(editor, (e) => {
-                updateGhostCaretPosition(e.position);
+            (_g = editor.onDidChangeCursorPosition) === null || _g === void 0 ? void 0 : _g.call(editor, (e) => {
                 if (group.currentFilePath &&
                     group.currentFilePath.endsWith(".tex") &&
                     deps.editorSession.isActiveGroup(group)) {
                     deps.onCursorPositionChange(e.position);
                 }
             });
-            (_o = editor.onDidChangeCursorSelection) === null || _o === void 0 ? void 0 : _o.call(editor, (e) => {
+            (_h = editor.onDidChangeCursorSelection) === null || _h === void 0 ? void 0 : _h.call(editor, (e) => {
                 var _a;
-                updateGhostCaretPosition({
-                    lineNumber: e.selection.positionLineNumber,
-                    column: e.selection.positionColumn,
-                });
                 if (group.currentFilePath &&
                     group.currentFilePath.endsWith(".tex") &&
                     deps.editorSession.isActiveGroup(group)) {
@@ -380,11 +219,11 @@ export const initMonacoSetup = (context, deps) => {
             });
             // C-1: Inline AI editing — Cmd+K to open AI panel with selection context
             if (deps.openAiWithSelection) {
-                const KeyMod = (_p = monacoWindow.monaco) === null || _p === void 0 ? void 0 : _p.KeyMod;
-                const KeyCode = (_q = monacoWindow.monaco) === null || _q === void 0 ? void 0 : _q.KeyCode;
+                const KeyMod = (_j = monacoWindow.monaco) === null || _j === void 0 ? void 0 : _j.KeyMod;
+                const KeyCode = (_k = monacoWindow.monaco) === null || _k === void 0 ? void 0 : _k.KeyCode;
                 const openAi = deps.openAiWithSelection;
                 if (KeyMod && KeyCode) {
-                    (_s = (_r = editor).addAction) === null || _s === void 0 ? void 0 : _s.call(_r, {
+                    (_m = (_l = editor).addAction) === null || _m === void 0 ? void 0 : _m.call(_l, {
                         id: "tex64.ai-edit-selection",
                         label: "Axiomで編集",
                         keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],

@@ -269,11 +269,28 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
   };
 
+  // Track active AI diff decorations per editor group
+  const aiDiffDecorations = new Map<string, string[]>();
+  let aiDiffClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearAiDiffDecorations = (group: EditorGroupState) => {
+    const editorAny = group.editor as { deltaDecorations?: (old: string[], n: unknown[]) => string[] };
+    const key = group.key;
+    const ids = aiDiffDecorations.get(key);
+    if (ids && ids.length > 0 && editorAny?.deltaDecorations) {
+      editorAny.deltaDecorations(ids, []);
+      aiDiffDecorations.delete(key);
+    }
+    // Remove Undo/Keep bar
+    const bar = document.getElementById("ai-undo-keep-bar");
+    if (bar) bar.remove();
+  };
+
   const applyFormattedContent = (
     group: EditorGroupState,
     path: string,
     content: string,
-    options?: { updateSaved?: boolean }
+    options?: { updateSaved?: boolean; showAiDiff?: boolean }
   ) => {
     if (!group.editor) {
       return;
@@ -283,11 +300,27 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       setValue?: (value: string) => void;
       saveViewState?: () => unknown;
       restoreViewState?: (state: unknown) => void;
+      deltaDecorations?: (oldDecorations: string[], newDecorations: unknown[]) => string[];
+      getDomNode?: () => HTMLElement | null;
+      onDidChangeModelContent?: (listener: () => void) => { dispose: () => void };
     };
     const entry = monacoModels.get(path);
     const currentValue = entry?.model.getValue() ?? editor.getValue?.() ?? "";
     const viewState = editor.saveViewState?.();
+
     if (currentValue !== content) {
+      // Compute changed line numbers BEFORE replacing (for diff decorations)
+      let changedLineNumbers: number[] = [];
+      if (options?.showAiDiff) {
+        const oldLines = currentValue.split("\n");
+        const newLines = content.split("\n");
+        for (let i = 0; i < newLines.length; i++) {
+          if (i >= oldLines.length || oldLines[i] !== newLines[i]) {
+            changedLineNumbers.push(i + 1); // Monaco lines are 1-indexed
+          }
+        }
+      }
+
       group.isApplyingFile = true;
       if (entry?.model.setValue) {
         entry.model.setValue(content);
@@ -297,6 +330,69 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       group.isApplyingFile = false;
       if (viewState && editor.restoreViewState) {
         editor.restoreViewState(viewState);
+      }
+
+      // Add AI diff decorations
+      if (options?.showAiDiff && changedLineNumbers.length > 0 && editor.deltaDecorations) {
+        // Clear any existing AI diff decorations
+        clearAiDiffDecorations(group);
+
+        const decorations = changedLineNumbers.map((lineNumber) => ({
+          range: { startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: 1 },
+          options: {
+            isWholeLine: true,
+            className: "ai-diff-added-line",
+            glyphMarginClassName: "ai-diff-added-glyph",
+          },
+        }));
+        const ids = editor.deltaDecorations([], decorations);
+        aiDiffDecorations.set(group.key, ids);
+
+        // Show Undo/Keep bar
+        const editorDom = editor.getDomNode?.();
+        const editorContainer = editorDom?.parentElement;
+        if (editorContainer) {
+          const existing = document.getElementById("ai-undo-keep-bar");
+          if (existing) existing.remove();
+
+          const bar = document.createElement("div");
+          bar.id = "ai-undo-keep-bar";
+          bar.className = "ai-undo-keep-bar";
+
+          const undoBtn = document.createElement("button");
+          undoBtn.className = "ai-undo-keep-btn is-undo";
+          undoBtn.textContent = "Undo";
+          undoBtn.addEventListener("click", () => {
+            const bridge = (window as { bridge?: { postToNative?: (p: unknown) => boolean } }).bridge;
+            bridge?.postToNative?.({ type: "agent:undoLastApply" });
+            clearAiDiffDecorations(group);
+          });
+
+          const keepBtn = document.createElement("button");
+          keepBtn.className = "ai-undo-keep-btn is-keep";
+          keepBtn.textContent = "Keep";
+          keepBtn.addEventListener("click", () => {
+            clearAiDiffDecorations(group);
+          });
+
+          bar.append(undoBtn, keepBtn);
+          editorContainer.appendChild(bar);
+        }
+
+        // Auto-clear decorations on next user edit
+        if (editor.onDidChangeModelContent) {
+          const disposable = editor.onDidChangeModelContent(() => {
+            clearAiDiffDecorations(group);
+            disposable.dispose();
+          });
+        }
+
+        // Auto-clear after 30 seconds
+        if (aiDiffClearTimer) clearTimeout(aiDiffClearTimer);
+        aiDiffClearTimer = setTimeout(() => {
+          clearAiDiffDecorations(group);
+          aiDiffClearTimer = null;
+        }, 30_000);
       }
     }
     if (options?.updateSaved) {

@@ -17,7 +17,7 @@ const { PRODUCTION_PLATFORM_API_BASE_URL } = require("../platform-access-shared.
 
 /**
  * Default base URL for the OpenAI-compat proxy on tex64.com.
- * ChatOpenAI's `configuration.baseURL` should point here.
+ * The run-loop uses this as the base for fetch calls.
  */
 const DEFAULT_BASE_URL = `${PRODUCTION_PLATFORM_API_BASE_URL}/ai/openai`;
 
@@ -35,18 +35,6 @@ const normalizeChatEndpoint = (endpoint) => {
   if (/\/v1$/i.test(url)) return `${url}/chat/completions`;
   if (/\/v1\//i.test(url)) return url;
   return `${url}/v1/chat/completions`;
-};
-
-/**
- * Strip `/chat/completions` (and similar suffixes) so that the result
- * is a bare base-URL suitable for ChatOpenAI's `configuration.baseURL`.
- *
- * Mirrors OpenPrism's `normalizeBaseURL()`.
- */
-const normalizeBaseURL = (endpoint) => {
-  if (!endpoint) return undefined;
-  const trimmed = endpoint.replace(/\/+$/, "");
-  return trimmed.replace(/\/chat\/completions$/i, "");
 };
 
 /**
@@ -69,7 +57,7 @@ const resolveLLMConfig = (settings) => {
   const model = (
     (typeof agentSettings.model === "string" && agentSettings.model.trim()) ||
     (typeof process.env.TEX64_LLM_MODEL === "string" && process.env.TEX64_LLM_MODEL.trim()) ||
-    "gpt-4o-mini"
+    "gpt-5-nano"
   ).trim();
 
   return { endpoint, model };
@@ -78,6 +66,5 @@ const resolveLLMConfig = (settings) => {
 module.exports = {
   DEFAULT_BASE_URL,
   normalizeChatEndpoint,
-  normalizeBaseURL,
   resolveLLMConfig,
 };

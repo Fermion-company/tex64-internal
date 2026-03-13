@@ -162,28 +162,6 @@ const extractUsageMetadata = (response) => {
   };
 };
 
-const resolveResponseModel = (response) => {
-  if (!response || typeof response !== "object") {
-    return "";
-  }
-  const candidates = [
-    response.resolvedModel,
-    response.modelVersion,
-    response.model,
-    response.output?.model,
-    response.usage?.model,
-    response.usageMetadata?.model,
-    response.usage_metadata?.model,
-    response.token_usage?.model,
-  ];
-  for (const value of candidates) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-  return "";
-};
-
 const buildAiBlockedMessage = (access) => {
   const reason = typeof access?.reason === "string" ? access.reason : "";
   const pricingUrl =
@@ -214,31 +192,6 @@ const toErrorPayload = (error, fallbackCode = "PLATFORM_ERROR") => ({
       : "リクエスト処理に失敗しました。",
 });
 
-const extractInlineText = (raw, prefix) => {
-  if (typeof raw !== "string") {
-    return null;
-  }
-  let text = raw.trim();
-  if (!text) {
-    return null;
-  }
-  if (text.startsWith("```")) {
-    const fence = text.match(/^```[a-zA-Z]*\n([\s\S]*?)```/);
-    if (fence && fence[1]) {
-      text = fence[1].trim();
-    }
-  }
-  text = text.replace(/<CURSOR>/g, "");
-  const newlineIndex = text.indexOf("\n");
-  if (newlineIndex >= 0) {
-    text = text.slice(0, newlineIndex).trimEnd();
-  }
-  if (typeof prefix === "string" && text.startsWith(prefix)) {
-    text = text.slice(prefix.length);
-  }
-  return text.trimEnd() || null;
-};
-
 module.exports = {
   parseNumber,
   normalizeOAuthPathname,
@@ -247,8 +200,6 @@ module.exports = {
   buildUsageFromAccess,
   buildUsageFromQuota,
   extractUsageMetadata,
-  resolveResponseModel,
   buildAiBlockedMessage,
   toErrorPayload,
-  extractInlineText,
 };

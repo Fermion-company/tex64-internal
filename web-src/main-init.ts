@@ -14,7 +14,7 @@ import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initMathKeyboard } from "./app/math-keyboard-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
-import { createApiCompletionBroker } from "./app/api-completion.js";
+
 import { createFilePreviewBroker } from "./app/file-preview.js";
 import { createFileExcerptBroker } from "./app/file-excerpt.js";
 import { recognizeMath } from "./app/math-ocr.js";
@@ -172,9 +172,6 @@ export const initMain = () => {
     true
   );
   initGlobalErrorReporting(postToNative, readErrorReportingEnabledFromStorage);
-  const apiCompletionBroker = createApiCompletionBroker((payload, silent) =>
-    postToNative(payload, silent)
-  );
   const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
     postToNative(payload, silent)
   );
@@ -202,12 +199,8 @@ export const initMain = () => {
   let onSettingsTabActive = () => {};
   let updateMathKeyboardVisibility = () => {};
   let setSettingsTabAlert = (_hasAlert: boolean) => {};
-  let updateInlineSuggestEnabled = (_enabled: boolean) => {};
   let updateEditorWordWrap = (_enabled: boolean) => {};
-  let updateGhostCompletionConfig = (_config: { debounceMs: number; maxChars: number }) => {};
   let pendingEditorWordWrapEnabled: boolean | null = null;
-  let pendingGhostCompletionEnabled: boolean | null = null;
-  let pendingGhostCompletionConfig: { debounceMs: number; maxChars: number } | null = null;
   const tabController = initTabController(appContext, {
     onFilesTabActive: () => onFilesTabActive(),
     onSettingsTabActive: () => onSettingsTabActive(),
@@ -237,14 +230,6 @@ export const initMain = () => {
     onEditorWordWrapChange: (enabled) => {
       pendingEditorWordWrapEnabled = enabled;
       updateEditorWordWrap(enabled);
-    },
-    onGhostCompletionChange: (enabled) => {
-      pendingGhostCompletionEnabled = enabled;
-      updateInlineSuggestEnabled(enabled);
-    },
-    onGhostCompletionConfigChange: (config) => {
-      pendingGhostCompletionConfig = config;
-      updateGhostCompletionConfig(config);
     },
     onUpdateAttentionChange: (hasAttention) => {
       setSettingsTabAlert(hasAttention);
@@ -926,9 +911,7 @@ export const initMain = () => {
         aiChatUi?.handleError(message, conversationId),
     },
     api: {
-      handleCompletionResult: (payload) =>
-        apiCompletionBroker.handleCompletionResult(payload),
-      handleUsage: (payload) => apiCompletionBroker.handleUsage(payload),
+      handleUsage: () => {},
     },
     platform: {
       handleAuth: (payload) => {
@@ -962,7 +945,6 @@ export const initMain = () => {
 
   postToNative({ type: "agent:settings:get" }, true);
   postToNative({ type: "agent:state:get" }, true);
-  postToNative({ type: "api:usage:get" }, true);
 
   const monacoSetup = initMonacoSetup(appContext, {
     editorSession,
@@ -988,28 +970,14 @@ export const initMain = () => {
       }
     },
     getEditorWordWrapEnabled: () => settingsUi.getEditorWordWrapEnabled(),
-    getGhostCompletionEnabled: () => settingsUi.getGhostCompletionEnabled(),
-    getGhostCompletionConfig: () => settingsUi.getGhostCompletionConfig(),
     requestFilePreview: (path) => filePreviewBroker.requestPreview(path),
     requestFileExcerpt: (path, line, options) =>
       fileExcerptBroker.requestExcerpt(path, line, options),
-    requestApiCompletion: (payload) =>
-      apiCompletionBroker.requestCompletion(payload),
   });
-  updateInlineSuggestEnabled = monacoSetup.setInlineSuggestEnabled;
   updateEditorWordWrap = monacoSetup.setWordWrapEnabled;
-  updateGhostCompletionConfig = monacoSetup.setGhostCompletionConfig;
-  updateInlineSuggestEnabled(settingsUi.getGhostCompletionEnabled());
   updateEditorWordWrap(settingsUi.getEditorWordWrapEnabled());
-  updateGhostCompletionConfig(settingsUi.getGhostCompletionConfig());
   if (pendingEditorWordWrapEnabled !== null) {
     updateEditorWordWrap(pendingEditorWordWrapEnabled);
-  }
-  if (pendingGhostCompletionEnabled !== null) {
-    updateInlineSuggestEnabled(pendingGhostCompletionEnabled);
-  }
-  if (pendingGhostCompletionConfig) {
-    updateGhostCompletionConfig(pendingGhostCompletionConfig);
   }
   });
 };

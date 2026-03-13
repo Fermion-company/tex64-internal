@@ -195,6 +195,23 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     aiAuthTopbar.disabled = false;
   };
 
+  const ensureTooltipDom = (parent: HTMLElement) => {
+    let tooltip = parent.querySelector(".ai-usage-tooltip") as HTMLElement | null;
+    if (tooltip) return tooltip;
+    tooltip = document.createElement("div");
+    tooltip.className = "ai-usage-tooltip";
+    tooltip.innerHTML = [
+      '<div class="ai-usage-tooltip-header">AI 使用量</div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">使用</span><span class="ai-usage-tooltip-value" data-field="used">-</span></div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">上限</span><span class="ai-usage-tooltip-value" data-field="limit">-</span></div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">残り</span><span class="ai-usage-tooltip-value" data-field="remaining">-</span></div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">リセット</span><span class="ai-usage-tooltip-value" data-field="reset">-</span></div>',
+      '<div class="ai-usage-tooltip-bar-track"><div class="ai-usage-tooltip-bar-fill"></div></div>',
+    ].join("");
+    parent.appendChild(tooltip);
+    return tooltip;
+  };
+
   const updateUsageMeter = () => {
     if (!(aiUsageMeter instanceof HTMLElement)) {
       return;
@@ -213,6 +230,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       aiUsageMeter.classList.remove("is-warn");
       aiUsageMeter.classList.remove("is-critical");
       aiUsageMeter.style.removeProperty("--ai-usage-pct");
+      aiUsageMeter.style.removeProperty("--ai-remaining-pct");
       aiUsageMeter.removeAttribute("title");
       aiUsageMeter.setAttribute("aria-label", "Axiom 使用量");
       if (aiUsageMeterText instanceof HTMLElement) {
@@ -220,16 +238,34 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       }
       return;
     }
-    const pct = Math.max(0, Math.min(100, (usedTokens / limitTokens) * 100));
+    const usedPct = Math.max(0, Math.min(100, (usedTokens / limitTokens) * 100));
+    const remainingPct = Math.max(0, 100 - usedPct);
+    const remainingTokens = Math.max(0, limitTokens - usedTokens);
     aiUsageMeter.classList.remove("is-hidden");
-    aiUsageMeter.classList.toggle("is-warn", pct >= 80 && pct < 95);
-    aiUsageMeter.classList.toggle("is-critical", pct >= 95);
-    aiUsageMeter.style.setProperty("--ai-usage-pct", pct.toFixed(2));
-    const label = `${formatTokenCount(usedTokens)} / ${formatTokenCount(limitTokens)} トークン`;
+    aiUsageMeter.classList.toggle("is-warn", usedPct >= 80 && usedPct < 95);
+    aiUsageMeter.classList.toggle("is-critical", usedPct >= 95);
+    aiUsageMeter.style.setProperty("--ai-usage-pct", usedPct.toFixed(2));
+    aiUsageMeter.style.setProperty("--ai-remaining-pct", remainingPct.toFixed(2));
+    const label = `残り ${remainingPct.toFixed(0)}% (${formatTokenCompact(remainingTokens)})`;
     aiUsageMeter.setAttribute("aria-label", `AI使用量: ${label}`);
-    aiUsageMeter.title = label;
+    aiUsageMeter.removeAttribute("title");
     if (aiUsageMeterText instanceof HTMLElement) {
-      aiUsageMeterText.textContent = formatTokenCompact(usedTokens);
+      aiUsageMeterText.textContent = `${remainingPct.toFixed(0)}%`;
+    }
+    const tooltip = ensureTooltipDom(aiUsageMeter);
+    const setField = (field: string, text: string) => {
+      const el = tooltip.querySelector(`[data-field="${field}"]`);
+      if (el) el.textContent = text;
+    };
+    setField("used", `${formatTokenCount(usedTokens)} トークン`);
+    setField("limit", `${formatTokenCount(limitTokens)} トークン`);
+    setField("remaining", `${remainingPct.toFixed(1)}% (${formatTokenCompact(remainingTokens)})`);
+    const periodEnd =
+      typeof state.platformAiAccess?.periodEnd === "string" ? state.platformAiAccess.periodEnd : null;
+    if (periodEnd && Number.isFinite(Date.parse(periodEnd))) {
+      setField("reset", new Date(periodEnd).toLocaleDateString("ja-JP"));
+    } else {
+      setField("reset", "-");
     }
   };
 

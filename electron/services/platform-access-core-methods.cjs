@@ -4,7 +4,6 @@ const fsp = require("fs/promises");
 const {
   TOKEN_REFRESH_LEEWAY_MS,
   OAUTH_PENDING_TTL_MS,
-  SESSION_TOKEN_ENCRYPTION_KIND,
   DEFAULT_STATE,
   clone,
   isObject,
@@ -17,85 +16,29 @@ const {
 } = require("./platform-access-shared.cjs");
 
 const coreMethods = {
-  canEncryptSession() {
-    if (!this.encryptString || !this.decryptString || !this.isEncryptionAvailable) {
-      return false;
-    }
-    try {
-      return this.isEncryptionAvailable() === true;
-    } catch {
-      return false;
-    }
-  },
-
-  encryptSessionToken(value) {
-    if (typeof value !== "string" || !value.trim()) {
-      return null;
-    }
-    if (!this.canEncryptSession()) {
-      return value;
-    }
-    try {
-      const encrypted = this.encryptString(value);
-      if (!encrypted || (typeof encrypted !== "string" && !Buffer.isBuffer(encrypted))) {
-        return value;
-      }
-      const encoded = Buffer.isBuffer(encrypted)
-        ? encrypted.toString("base64")
-        : Buffer.from(encrypted, "utf8").toString("base64");
-      return {
-        kind: SESSION_TOKEN_ENCRYPTION_KIND,
-        data: encoded,
-      };
-    } catch {
-      return value;
-    }
-  },
-
-  decryptSessionToken(value) {
-    if (typeof value === "string") {
-      return value.trim() ? value.trim() : null;
-    }
-    if (!isObject(value)) {
-      return null;
-    }
-    if (value.kind !== SESSION_TOKEN_ENCRYPTION_KIND || typeof value.data !== "string") {
-      return null;
-    }
-    if (!this.canEncryptSession()) {
-      return null;
-    }
-    try {
-      const decrypted = this.decryptString(Buffer.from(value.data, "base64"));
-      return typeof decrypted === "string" && decrypted.trim() ? decrypted.trim() : null;
-    } catch {
-      return null;
-    }
-  },
-
   serializeSession(session) {
     if (!isObject(session)) {
       return null;
     }
-    const next = { ...session };
-    next.accessToken = this.encryptSessionToken(session.accessToken);
-    next.refreshToken = this.encryptSessionToken(session.refreshToken);
-    return next;
+    return { ...session };
   },
 
   deserializeSession(session) {
     if (!isObject(session)) {
       return null;
     }
-    const accessToken = this.decryptSessionToken(session.accessToken);
+    const accessToken =
+      typeof session.accessToken === "string" && session.accessToken.trim()
+        ? session.accessToken.trim()
+        : null;
     if (!accessToken) {
       return null;
     }
-    return {
-      ...session,
-      accessToken,
-      refreshToken: this.decryptSessionToken(session.refreshToken),
-    };
+    const refreshToken =
+      typeof session.refreshToken === "string" && session.refreshToken.trim()
+        ? session.refreshToken.trim()
+        : null;
+    return { ...session, accessToken, refreshToken };
   },
 
   serializeState(state) {

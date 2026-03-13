@@ -1,4 +1,3 @@
-import { clampNumber, loadGhostCompletionConfig, saveGhostCompletionConfig } from "../settings-completion.js";
 import type { SettingsUiRuntime } from "./runtime.js";
 
 export type SettingsEditorPreferenceOps = {
@@ -6,17 +5,12 @@ export type SettingsEditorPreferenceOps = {
   loadEditorWordWrapState: () => void;
   loadEditorAutoSynctexBuildState: () => void;
   loadEditorReverseSynctexState: () => void;
-  loadEditorGhostCompletionState: () => void;
-  loadEditorGhostCompletionConfig: () => void;
   loadEditorPdfViewerModeState: () => void;
   setEditorAlignEnvEnabled: (enabled: boolean) => void;
   setEditorWordWrapEnabled: (enabled: boolean) => void;
   setEditorAutoSynctexBuildEnabled: (enabled: boolean) => void;
   setEditorReverseSynctexEnabled: (enabled: boolean) => void;
-  setGhostCompletionEnabled: (enabled: boolean) => void;
-  setGhostCompletionConfig: (next: { debounceMs?: number; maxChars?: number }) => void;
   setPdfViewerMode: (mode: "window" | "tab") => void;
-  getGhostCompletionConfig: () => { debounceMs: number; maxChars: number };
 };
 
 export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): SettingsEditorPreferenceOps => {
@@ -25,9 +19,6 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     editorWordWrapToggle,
     editorAutoSynctexBuildToggle,
     editorReverseSynctexToggle,
-    editorGhostCompletionToggle,
-    editorGhostCompletionDebounce,
-    editorGhostCompletionMaxChars,
     editorPdfWindowToggle,
   } = runtime.context.dom;
 
@@ -53,33 +44,6 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     if (editorReverseSynctexToggle instanceof HTMLInputElement) {
       editorReverseSynctexToggle.checked = runtime.state.reverseSynctexEnabled;
     }
-  };
-
-  const updateEditorGhostCompletionUI = () => {
-    if (editorGhostCompletionToggle instanceof HTMLInputElement) {
-      editorGhostCompletionToggle.checked = runtime.state.ghostCompletionEnabled;
-    }
-    const configItems = Array.from(document.querySelectorAll<HTMLElement>("[data-ghost-config]"));
-    configItems.forEach((item) => {
-      item.classList.toggle("is-disabled", !runtime.state.ghostCompletionEnabled);
-      item.setAttribute("aria-disabled", runtime.state.ghostCompletionEnabled ? "false" : "true");
-    });
-    if (editorGhostCompletionDebounce instanceof HTMLInputElement) {
-      editorGhostCompletionDebounce.disabled = !runtime.state.ghostCompletionEnabled;
-    }
-    if (editorGhostCompletionMaxChars instanceof HTMLInputElement) {
-      editorGhostCompletionMaxChars.disabled = !runtime.state.ghostCompletionEnabled;
-    }
-  };
-
-  const updateEditorGhostCompletionConfigUI = () => {
-    if (editorGhostCompletionDebounce instanceof HTMLInputElement) {
-      editorGhostCompletionDebounce.value = String(runtime.state.ghostCompletionDebounceMs);
-    }
-    if (editorGhostCompletionMaxChars instanceof HTMLInputElement) {
-      editorGhostCompletionMaxChars.value = String(runtime.state.ghostCompletionMaxChars);
-    }
-    updateEditorGhostCompletionUI();
   };
 
   const updateEditorPdfViewerModeUI = () => {
@@ -108,22 +72,6 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
       runtime.keys.editorReverseSynctexKey,
       runtime.state.reverseSynctexEnabled ? "true" : "false"
     );
-  };
-
-  const saveEditorGhostCompletionState = () => {
-    localStorage.setItem(
-      runtime.keys.editorGhostCompletionKey,
-      runtime.state.ghostCompletionEnabled ? "true" : "false"
-    );
-  };
-
-  const saveEditorGhostCompletionConfig = () => {
-    saveGhostCompletionConfig({
-      debounceKey: runtime.keys.editorGhostCompletionDebounceKey,
-      maxCharsKey: runtime.keys.editorGhostCompletionMaxCharsKey,
-      debounceMs: runtime.state.ghostCompletionDebounceMs,
-      maxChars: runtime.state.ghostCompletionMaxChars,
-    });
   };
 
   const saveEditorPdfViewerModeState = () => {
@@ -188,25 +136,6 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     updateEditorReverseSynctexUI();
   };
 
-  const loadEditorGhostCompletionState = () => {
-    // Ghost completion is currently disabled — always force off
-    runtime.state.ghostCompletionEnabled = false;
-    updateEditorGhostCompletionUI();
-  };
-
-  const loadEditorGhostCompletionConfig = () => {
-    const config = loadGhostCompletionConfig({
-      debounceKey: runtime.keys.editorGhostCompletionDebounceKey,
-      maxCharsKey: runtime.keys.editorGhostCompletionMaxCharsKey,
-      debounceRange: runtime.ranges.ghostCompletionDebounceRange,
-      maxCharsRange: runtime.ranges.ghostCompletionMaxCharsRange,
-      defaults: { debounceMs: 120, maxChars: 140 },
-    });
-    runtime.state.ghostCompletionDebounceMs = config.debounceMs;
-    runtime.state.ghostCompletionMaxChars = config.maxChars;
-    updateEditorGhostCompletionConfigUI();
-  };
-
   const loadEditorPdfViewerModeState = () => {
     const stored = localStorage.getItem(runtime.keys.editorPdfViewerModeKey);
     if (stored === "tab" || stored === "window") {
@@ -267,53 +196,11 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     updateEditorReverseSynctexUI();
   };
 
-  const toggleEditorGhostCompletion = () => {
-    runtime.state.ghostCompletionEnabled = !runtime.state.ghostCompletionEnabled;
-    saveEditorGhostCompletionState();
-    updateEditorGhostCompletionUI();
-    runtime.deps.onGhostCompletionChange?.(runtime.state.ghostCompletionEnabled);
-  };
-
-  const setGhostCompletionEnabled = (enabled: boolean) => {
-    runtime.state.ghostCompletionEnabled = Boolean(enabled);
-    saveEditorGhostCompletionState();
-    updateEditorGhostCompletionUI();
-    runtime.deps.onGhostCompletionChange?.(runtime.state.ghostCompletionEnabled);
-  };
-
-  const setGhostCompletionConfig = (next: { debounceMs?: number; maxChars?: number }) => {
-    const debounce = clampNumber(
-      typeof next.debounceMs === "number" ? next.debounceMs : runtime.state.ghostCompletionDebounceMs,
-      runtime.ranges.ghostCompletionDebounceRange.min,
-      runtime.ranges.ghostCompletionDebounceRange.max,
-      runtime.state.ghostCompletionDebounceMs
-    );
-    const maxChars = clampNumber(
-      typeof next.maxChars === "number" ? next.maxChars : runtime.state.ghostCompletionMaxChars,
-      runtime.ranges.ghostCompletionMaxCharsRange.min,
-      runtime.ranges.ghostCompletionMaxCharsRange.max,
-      runtime.state.ghostCompletionMaxChars
-    );
-    runtime.state.ghostCompletionDebounceMs = debounce;
-    runtime.state.ghostCompletionMaxChars = maxChars;
-    saveEditorGhostCompletionConfig();
-    updateEditorGhostCompletionConfigUI();
-    runtime.deps.onGhostCompletionConfigChange?.({
-      debounceMs: runtime.state.ghostCompletionDebounceMs,
-      maxChars: runtime.state.ghostCompletionMaxChars,
-    });
-  };
-
   const setPdfViewerMode = (mode: "window" | "tab") => {
     runtime.state.pdfViewerMode = mode;
     saveEditorPdfViewerModeState();
     updateEditorPdfViewerModeUI();
   };
-
-  const getGhostCompletionConfig = () => ({
-    debounceMs: runtime.state.ghostCompletionDebounceMs,
-    maxChars: runtime.state.ghostCompletionMaxChars,
-  });
 
   if (editorAlignEnvToggle instanceof HTMLInputElement) {
     editorAlignEnvToggle.addEventListener("change", () => {
@@ -339,28 +226,6 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     });
   }
 
-  if (editorGhostCompletionToggle instanceof HTMLInputElement) {
-    editorGhostCompletionToggle.addEventListener("change", () => {
-      toggleEditorGhostCompletion();
-    });
-  }
-
-  if (editorGhostCompletionDebounce instanceof HTMLInputElement) {
-    editorGhostCompletionDebounce.addEventListener("change", () => {
-      setGhostCompletionConfig({
-        debounceMs: editorGhostCompletionDebounce.valueAsNumber,
-      });
-    });
-  }
-
-  if (editorGhostCompletionMaxChars instanceof HTMLInputElement) {
-    editorGhostCompletionMaxChars.addEventListener("change", () => {
-      setGhostCompletionConfig({
-        maxChars: editorGhostCompletionMaxChars.valueAsNumber,
-      });
-    });
-  }
-
   if (editorPdfWindowToggle instanceof HTMLInputElement) {
     editorPdfWindowToggle.addEventListener("change", () => {
       setPdfViewerMode(editorPdfWindowToggle.checked ? "window" : "tab");
@@ -372,16 +237,11 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     loadEditorWordWrapState,
     loadEditorAutoSynctexBuildState,
     loadEditorReverseSynctexState,
-    loadEditorGhostCompletionState,
-    loadEditorGhostCompletionConfig,
     loadEditorPdfViewerModeState,
     setEditorAlignEnvEnabled,
     setEditorWordWrapEnabled,
     setEditorAutoSynctexBuildEnabled,
     setEditorReverseSynctexEnabled,
-    setGhostCompletionEnabled,
-    setGhostCompletionConfig,
     setPdfViewerMode,
-    getGhostCompletionConfig,
   };
 };

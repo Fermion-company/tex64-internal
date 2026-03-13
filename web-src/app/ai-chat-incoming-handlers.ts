@@ -3,17 +3,12 @@ import type {
   AgentStatusState,
   AgentUiState,
 } from "./types.js";
-import type { ChatMessage, ChatState } from "./ai-chat-state.js";
+import { AUTONOMOUS_LOOP_LIMIT, type ChatMessage, type ChatState } from "./ai-chat-state.js";
+import type { PendingAiRequest } from "./ai-chat-runner.js";
 import { updateMessageElement } from "./ai-chat-message.js";
 
 type StreamingEntry = { message: ChatMessage; element: HTMLElement | null };
 type ThinkingEntry = { text: string; element: HTMLElement | null };
-
-type PendingAiRequest = {
-  message: string;
-  parts?: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
-  contextPayload?: Record<string, unknown>;
-};
 
 type CreateAiChatIncomingHandlersOptions = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
@@ -214,8 +209,6 @@ export const createAiChatIncomingHandlers = (
     updateSendState();
     updateStatusDisplay();
   };
-
-  const AUTONOMOUS_LOOP_LIMIT = 100;
 
   const tryAutonomousContinuation = (chat: ChatState) => {
     if (!chat.autonomous || chat.autoLoopBudget <= 0) return false;

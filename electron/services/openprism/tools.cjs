@@ -1,14 +1,16 @@
 /**
- * Tool definitions — OpenPrism style.
+ * Tool definitions — Plain objects with JSON Schema.
  *
  * Exactly 7 tools matching the OpenPrism reference implementation:
  *   read_file, list_files, propose_patch, apply_patch,
  *   get_compile_log, arxiv_search, arxiv_bibtex
  *
- * Each tool wraps existing tex64 handlers where available, and implements
- * new logic (apply_patch, get_compile_log, arxiv_*) directly.
+ * Each tool is a plain object with:
+ *   - type: "function"
+ *   - function: { name, description, parameters (JSON Schema) }
+ *   - execute: async (args) => string
  *
- * arXiv tools use fast-xml-parser and return JSON (same as OpenPrism).
+ * No LangChain dependency.
  */
 
 "use strict";
@@ -16,16 +18,7 @@
 const { existsSync, readFileSync } = require("fs");
 const nodePath = require("path");
 const { extractArxivId, fetchArxivEntry, buildArxivBibtex } = require("./arxiv-service.cjs");
-
-const TOOL_STATUS_LABELS = {
-  read_file: "ファイル確認中",
-  list_files: "構成把握中",
-  propose_patch: "変更案作成中",
-  apply_patch: "変更案作成中",
-  get_compile_log: "ログ確認中",
-  arxiv_search: "arXiv検索中",
-  arxiv_bibtex: "BibTeX取得中",
-};
+const { TOOL_STATUS_LABELS } = require("../agent-core-utils.cjs");
 
 /**
  * Wrap a tool function so it emits IPC status events before/after execution.
@@ -78,17 +71,18 @@ const getXMLParser = async () => {
 };
 
 /**
- * Build the 7 LangChain tools for a given agent run.
+ * Build the 7 tools for a given agent run.
  *
- * @param {object} modules  — ESM bridge output (z, DynamicStructuredTool, etc.)
+ * Returns an array of plain tool objects. Each object has:
+ *   - type, function (for OpenAI API `tools` param)
+ *   - execute (for local invocation)
+ *
  * @param {object} service  — AgentService instance
  * @param {string} conversationId
  * @param {object} policy   — resolved agent policy
- * @returns {import("@langchain/core/tools").DynamicStructuredTool[]}
+ * @returns {Array<{ type: string, function: object, execute: (args: object) => Promise<string> }>}
  */
-const buildTools = (modules, service, conversationId, policy) => {
-  const { DynamicStructuredTool, z } = modules;
-
+const buildTools = (service, conversationId, policy) => {
   const {
     handleListFiles,
     handleProposeWrite,
@@ -97,19 +91,21 @@ const buildTools = (modules, service, conversationId, policy) => {
 
   const rootPath = service.workspace.getRootPath() || "";
 
-  const make = (name, description, schema, fn) =>
-    new DynamicStructuredTool({
-      name,
-      description,
-      schema,
-      func: wrapWithIpc(name, fn, service, conversationId),
-    });
+  const make = (name, description, parameters, fn) => ({
+    type: "function",
+    function: { name, description, parameters },
+    execute: wrapWithIpc(name, fn, service, conversationId),
+  });
 
   // ---- 1. read_file ----
   const readFileTool = make(
     "read_file",
     "Read a UTF-8 file from the project. Input: { path } (relative to project root).",
-    z.object({ path: z.string() }),
+    {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+    },
     async (args) => {
       const result = await handleReadFile(service, args, policy, conversationId);
       if (result?.error) return JSON.stringify(result);
@@ -122,7 +118,10 @@ const buildTools = (modules, service, conversationId, policy) => {
   const listFilesTool = make(
     "list_files",
     "List files under a directory. Input: { dir } (relative path, optional).",
-    z.object({ dir: z.string().optional() }),
+    {
+      type: "object",
+      properties: { dir: { type: "string" } },
+    },
     (args) => handleListFiles(service, { directory: args.dir }, policy, conversationId),
   );
 
@@ -130,7 +129,14 @@ const buildTools = (modules, service, conversationId, policy) => {
   const proposePatchTool = make(
     "propose_patch",
     "Propose a full file rewrite. Input: { path, content }. This does NOT write. It returns a patch for user confirmation.",
-    z.object({ path: z.string(), content: z.string() }),
+    {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+      },
+      required: ["path", "content"],
+    },
     async (args) => {
       const result = await handleProposeWrite(
         service,
@@ -147,7 +153,14 @@ const buildTools = (modules, service, conversationId, policy) => {
   const applyPatchTool = make(
     "apply_patch",
     "Apply a unified diff to a file and propose changes. Input: { patch, path? }. This does NOT write.",
-    z.object({ patch: z.string(), path: z.string().optional() }),
+    {
+      type: "object",
+      properties: {
+        patch: { type: "string" },
+        path: { type: "string" },
+      },
+      required: ["patch"],
+    },
     async (args) => {
       let targetPath = args.path;
       if (!targetPath) {
@@ -155,7 +168,12 @@ const buildTools = (modules, service, conversationId, policy) => {
         if (match) targetPath = match[1];
       }
       if (!targetPath) {
-        throw new Error("Patch missing file path");
+        throw new Error(
+          "Patch missing file path. You must provide either: " +
+          "(1) a 'path' parameter with the relative file path, or " +
+          "(2) include a '--- a/filepath' header line in your patch string. " +
+          "If you cannot construct a valid unified diff, use the propose_patch tool instead with the full file content."
+        );
       }
 
       // Read current file
@@ -166,7 +184,11 @@ const buildTools = (modules, service, conversationId, policy) => {
       const Diff = require("diff");
       const newContent = Diff.applyPatch(oldContent, args.patch);
       if (newContent === false) {
-        throw new Error("Failed to apply patch");
+        throw new Error(
+          "Failed to apply patch to " + targetPath + ". The unified diff could not be applied — " +
+          "line numbers or context lines may not match the current file contents. " +
+          "Use propose_patch with the full desired file content instead."
+        );
       }
 
       // Write via proposal system
@@ -185,7 +207,7 @@ const buildTools = (modules, service, conversationId, policy) => {
   const getCompileLogTool = make(
     "get_compile_log",
     "Return the latest compile log from the client (read-only). Input: { }.",
-    z.object({}),
+    { type: "object", properties: {} },
     async () => {
       const context = service.contextByConversation.get(conversationId) ?? {};
       const issues = Array.isArray(context.recentIssues) ? context.recentIssues : [];
@@ -214,7 +236,14 @@ const buildTools = (modules, service, conversationId, policy) => {
   const arxivSearchTool = make(
     "arxiv_search",
     "Search arXiv papers. Input: { query, maxResults? }.",
-    z.object({ query: z.string(), maxResults: z.number().optional() }),
+    {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        maxResults: { type: "number" },
+      },
+      required: ["query"],
+    },
     async (args) => {
       const max = Math.min(10, Math.max(1, args.maxResults ?? 5));
       const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(args.query)}&start=0&max_results=${max}`;
@@ -260,7 +289,11 @@ const buildTools = (modules, service, conversationId, policy) => {
   const arxivBibtexTool = make(
     "arxiv_bibtex",
     "Generate BibTeX for an arXiv paper. Input: { arxivId }.",
-    z.object({ arxivId: z.string() }),
+    {
+      type: "object",
+      properties: { arxivId: { type: "string" } },
+      required: ["arxivId"],
+    },
     async (args) => {
       const id = extractArxivId(args.arxivId);
       if (!id) throw new Error("Invalid arXiv ID");

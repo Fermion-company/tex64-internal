@@ -1,3 +1,4 @@
+export const AUTONOMOUS_LOOP_LIMIT = 100;
 export const createChatState = (id, title, autonomous, autoLoopBudget) => ({
     id,
     title,

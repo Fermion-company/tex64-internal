@@ -141,9 +141,9 @@ export type EditorSessionApi = {
     group: EditorGroupState,
     path: string,
     content: string,
-    options?: { updateSaved?: boolean }
+    options?: { updateSaved?: boolean; showAiDiff?: boolean }
   ) => void;
-  applyContentToOpenFile: (path: string, content: string, options?: { updateSaved?: boolean }) => boolean;
+  applyContentToOpenFile: (path: string, content: string, options?: { updateSaved?: boolean; showAiDiff?: boolean }) => boolean;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;

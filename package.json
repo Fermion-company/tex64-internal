@@ -21,9 +21,6 @@
     "mathlive:rebuild": "npm run -s mathlive:clean && npm run -s mathlive:build",
     "web:build": "npm run -s math:check && npm run -s mathlive:build && tsc -p web-src/tsconfig.json",
     "web:watch": "tsc -p web-src/tsconfig.json -w",
-    "test:unit": "node --test tests/unit/*.test.mjs",
-    "test:unit:with-build": "npm run -s web:build && npm run -s test:unit",
-    "test:e2e:math-wysiwyg-ui": "node tests/e2e/math-wysiwyg-ui.e2e.mjs",
     "bench:synctex:forward": "node scripts/synctex-forward-bench.cjs",
     "bench:synctex:forward:gate": "node scripts/synctex-forward-bench.cjs --strict",
     "release:artifact-hash": "node scripts/release-artifact-hash.cjs",
@@ -33,10 +30,7 @@
     "release:mac": "node scripts/release-macos.cjs",
     "release:upload-downloads": "node scripts/release-upload-downloads.cjs",
     "release:go-no-go": "node scripts/release-go-no-go.cjs",
-    "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --out NOTICE.md --project tex64",
-    "test:unit:math-ocr-service": "node --test tests/unit/math-ocr-service.test.mjs",
-    "test:e2e:ai-real-api": "node tests/e2e/ai-real-api.e2e.mjs",
-    "test:e2e:ai-openprism-gaps": "node tests/e2e/ai-openprism-gaps.e2e.mjs"
+    "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --out NOTICE.md --project tex64"
   },
   "build": {
     "appId": "com.wedd.tex64",
@@ -123,7 +117,9 @@
     "@langchain/openai": "~0.3.16",
     "diff": "^5.2.0",
     "fast-xml-parser": "^5.5.2",
+    "katex": "^0.16.38",
     "langchain": "~0.3.37",
+    "marked": "^17.0.4",
     "node-fetch": "^2.6.7",
     "onnxruntime-node": "^1.23.2",
     "pdfjs-dist": "^4.7.76",

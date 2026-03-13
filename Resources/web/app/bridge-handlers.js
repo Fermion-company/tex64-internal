@@ -69,7 +69,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -204,40 +204,38 @@ export const initBridgeHandlers = (deps) => {
             case "agent:error":
                 (_22 = deps.agent) === null || _22 === void 0 ? void 0 : _22.handleError((_23 = message.payload.message) !== null && _23 !== void 0 ? _23 : "Axiom エラー", message.payload.conversationId);
                 break;
-            case "api:completionResult":
-                (_24 = deps.api) === null || _24 === void 0 ? void 0 : _24.handleCompletionResult(message.payload);
-                break;
             case "api:usage":
-                (_25 = deps.api) === null || _25 === void 0 ? void 0 : _25.handleUsage(message.payload);
+                (_24 = deps.api) === null || _24 === void 0 ? void 0 : _24.handleUsage(message.payload);
                 break;
             case "platform:auth":
-                (_26 = deps.platform) === null || _26 === void 0 ? void 0 : _26.handleAuth(message.payload);
+                (_25 = deps.platform) === null || _25 === void 0 ? void 0 : _25.handleAuth(message.payload);
                 break;
             case "platform:aiAccess":
-                (_27 = deps.platform) === null || _27 === void 0 ? void 0 : _27.handleAiAccess(message.payload);
+                (_26 = deps.platform) === null || _26 === void 0 ? void 0 : _26.handleAiAccess(message.payload);
                 break;
             case "platform:usage":
-                (_28 = deps.platform) === null || _28 === void 0 ? void 0 : _28.handleUsage(message.payload);
+                (_27 = deps.platform) === null || _27 === void 0 ? void 0 : _27.handleUsage(message.payload);
                 break;
             case "platform:update":
-                (_29 = deps.platform) === null || _29 === void 0 ? void 0 : _29.handleUpdate(message.payload);
+                (_28 = deps.platform) === null || _28 === void 0 ? void 0 : _28.handleUpdate(message.payload);
                 break;
             case "platform:updateStatus":
-                (_30 = deps.platform) === null || _30 === void 0 ? void 0 : _30.handleUpdateStatus(message.payload);
+                (_29 = deps.platform) === null || _29 === void 0 ? void 0 : _29.handleUpdateStatus(message.payload);
                 break;
             case "platform:feedback":
-                (_31 = deps.platform) === null || _31 === void 0 ? void 0 : _31.handleFeedback(message.payload);
+                (_30 = deps.platform) === null || _30 === void 0 ? void 0 : _30.handleFeedback(message.payload);
                 break;
             case "file:previewResult":
-                (_32 = deps.filePreview) === null || _32 === void 0 ? void 0 : _32.handlePreviewResult(message.payload);
+                (_31 = deps.filePreview) === null || _31 === void 0 ? void 0 : _31.handlePreviewResult(message.payload);
                 break;
             case "file:excerptResult":
-                (_33 = deps.fileExcerpt) === null || _33 === void 0 ? void 0 : _33.handleExcerptResult(message.payload);
+                (_32 = deps.fileExcerpt) === null || _32 === void 0 ? void 0 : _32.handleExcerptResult(message.payload);
                 break;
             case "agent:applyContent":
-                deps.editorSession.applyContentToOpenFile((_34 = message.payload.path) !== null && _34 !== void 0 ? _34 : "", (_35 = message.payload.content) !== null && _35 !== void 0 ? _35 : "", message.payload.updateSaved !== false
-                    ? { updateSaved: true }
-                    : undefined);
+                deps.editorSession.applyContentToOpenFile((_33 = message.payload.path) !== null && _33 !== void 0 ? _33 : "", (_34 = message.payload.content) !== null && _34 !== void 0 ? _34 : "", {
+                    updateSaved: message.payload.updateSaved !== false,
+                    showAiDiff: true,
+                });
                 break;
             default:
                 break;
