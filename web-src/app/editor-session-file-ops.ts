@@ -6,6 +6,7 @@ import type {
   MonacoModelEntry,
 } from "./editor-session.js";
 import { isImageFilePath, isPdfFilePath, isTextFilePath } from "./files.js";
+import { buildLineDiff } from "./diff.js";
 
 type PendingSave = {
   path: string;
@@ -309,14 +310,21 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const viewState = editor.saveViewState?.();
 
     if (currentValue !== content) {
-      // Compute changed line numbers BEFORE replacing (for diff decorations)
+      // Compute changed line numbers BEFORE replacing (for diff decorations).
+      // Use LCS-based diff so that only truly added/modified lines are marked,
+      // not lines that merely shifted position due to an insertion above.
       let changedLineNumbers: number[] = [];
       if (options?.showAiDiff) {
         const oldLines = currentValue.split("\n");
         const newLines = content.split("\n");
-        for (let i = 0; i < newLines.length; i++) {
-          if (i >= oldLines.length || oldLines[i] !== newLines[i]) {
-            changedLineNumbers.push(i + 1); // Monaco lines are 1-indexed
+        const diffResult = buildLineDiff(oldLines, newLines);
+        let newLineNum = 0;
+        for (const entry of diffResult) {
+          if (entry.type === "add" || entry.type === "same") {
+            newLineNum++;
+          }
+          if (entry.type === "add") {
+            changedLineNumbers.push(newLineNum); // Monaco lines are 1-indexed
           }
         }
       }
@@ -361,7 +369,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
 
           const undoBtn = document.createElement("button");
           undoBtn.className = "ai-undo-keep-btn is-undo";
-          undoBtn.textContent = "Undo";
+          undoBtn.textContent = "元に戻す";
           undoBtn.addEventListener("click", () => {
             const bridge = (window as { bridge?: { postToNative?: (p: unknown) => boolean } }).bridge;
             bridge?.postToNative?.({ type: "agent:undoLastApply" });
@@ -370,7 +378,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
 
           const keepBtn = document.createElement("button");
           keepBtn.className = "ai-undo-keep-btn is-keep";
-          keepBtn.textContent = "Keep";
+          keepBtn.textContent = "確定";
           keepBtn.addEventListener("click", () => {
             clearAiDiffDecorations(group);
           });

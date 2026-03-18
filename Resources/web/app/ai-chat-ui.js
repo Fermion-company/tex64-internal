@@ -1,6 +1,6 @@
 import { AUTONOMOUS_LOOP_LIMIT, createChat as createChatState, ensureChat as ensureChatState, getChat as getChatState, } from "./ai-chat-state.js";
 import { createMessageElement, updateMessageElement } from "./ai-chat-message.js";
-import { createProposalCard } from "./ai-chat-proposal.js";
+import { createUnifiedProposalCard } from "./ai-chat-proposal.js";
 import { TEX64_LINKS } from "./platform-links.js";
 import { createAiChatStatusController } from "./ai-chat-status.js";
 import { createContextPayloadBuilder } from "./ai-chat-context-payload.js";
@@ -24,6 +24,7 @@ export const initAiChatUi = (context, deps) => {
     let agentSettings = null;
     const streamingMessages = new Map();
     const thinkingMessages = new Map();
+    const thinkingTransitionTimers = new Map();
     const pendingAgentRequests = new Map();
     let getPendingAttachments = () => [];
     let renderAttachmentBar = () => { };
@@ -326,10 +327,8 @@ export const initAiChatUi = (context, deps) => {
     const normalizeThinkingText = (text) => {
         const raw = typeof text === "string" ? text.trim() : "";
         if (!raw)
-            return "思考中...";
-        if (raw.startsWith("思考中"))
-            return raw;
-        return `思考中: ${raw}`;
+            return "考えています...";
+        return raw;
     };
     const createThinkingElement = (text) => {
         const wrapper = document.createElement("div");
@@ -344,6 +343,7 @@ export const initAiChatUi = (context, deps) => {
         return wrapper;
     };
     const upsertThinkingMessage = (chatId, text) => {
+        var _a;
         const chat = ensureChat(chatId);
         if (!chat)
             return;
@@ -359,8 +359,23 @@ export const initAiChatUi = (context, deps) => {
         if (chat.id === activeChatId && aiChatLog instanceof HTMLElement) {
             if (entry.element && entry.element.parentElement) {
                 const content = entry.element.querySelector(".ai-message-content");
-                if (content)
-                    content.textContent = normalized;
+                if (content) {
+                    const prev = (_a = content.textContent) !== null && _a !== void 0 ? _a : "";
+                    if (prev !== normalized) {
+                        // Cancel any in-flight transition before starting a new one
+                        const prevTimer = thinkingTransitionTimers.get(chat.id);
+                        if (prevTimer !== undefined)
+                            window.clearTimeout(prevTimer);
+                        // Fade out → swap text → fade in
+                        content.classList.add("is-transitioning");
+                        const timerId = window.setTimeout(() => {
+                            thinkingTransitionTimers.delete(chat.id);
+                            content.textContent = normalized;
+                            content.classList.remove("is-transitioning");
+                        }, 200);
+                        thinkingTransitionTimers.set(chat.id, timerId);
+                    }
+                }
             }
             else {
                 entry.element = createThinkingElement(normalized);
@@ -373,6 +388,11 @@ export const initAiChatUi = (context, deps) => {
         const chat = getChat(chatId);
         if (!chat)
             return;
+        const prevTimer = thinkingTransitionTimers.get(chat.id);
+        if (prevTimer !== undefined) {
+            window.clearTimeout(prevTimer);
+            thinkingTransitionTimers.delete(chat.id);
+        }
         const entry = thinkingMessages.get(chat.id);
         if (!entry)
             return;
@@ -393,31 +413,28 @@ export const initAiChatUi = (context, deps) => {
         chat.autonomous = true;
         chat.autoLoopBudget = AUTONOMOUS_LOOP_LIMIT;
     };
-    let pendingAiProposalId = null;
-    const dismissProposal = (proposalId) => {
-        var _a;
-        const chatId = proposalIndex.get(proposalId);
-        const chat = getChat(chatId);
-        if (!chat)
-            return;
-        chat.proposals.delete(proposalId);
-        proposalIndex.delete(proposalId);
-        if (chat.id === activeChatId) {
-            const proposals = getProposalsContainer();
-            (_a = proposals === null || proposals === void 0 ? void 0 : proposals.querySelector(`[data-proposal-id="${proposalId}"]`)) === null || _a === void 0 ? void 0 : _a.remove();
-            if (proposals && chat.proposals.size === 0) {
-                proposals.classList.add("is-hidden");
-            }
-        }
-        renderHistoryList();
-    };
-    const buildProposalCard = (proposal) => createProposalCard(proposal, {
+    let pendingAiProposalIds = [];
+    const buildUnifiedProposalCard = (proposals, chat) => createUnifiedProposalCard(proposals, chat.appliedProposalIds, {
         postToNative: deps.postToNative,
-        dismissProposal,
-        setPendingProposalId: (v) => { pendingAiProposalId = v; },
+        setPendingProposalIds: (ids) => { pendingAiProposalIds = ids; },
         showDiffModal: deps.showDiffModal,
+        showMultiFileDiff: deps.showMultiFileDiff,
         setDiffContext: deps.setDiffContext,
     });
+    const rebuildProposalCards = (chatId) => {
+        const chat = getChat(chatId);
+        if (!chat || chat.id !== activeChatId)
+            return;
+        const container = ensureProposalsEmbedded();
+        if (!container)
+            return;
+        container.replaceChildren();
+        container.classList.toggle("is-hidden", chat.proposals.size === 0);
+        if (chat.proposals.size > 0) {
+            const allProposals = Array.from(chat.proposals.values());
+            container.appendChild(buildUnifiedProposalCard(allProposals, chat));
+        }
+    };
     const renderChatContent = () => {
         const chat = getChat(activeChatId);
         if (!chat)
@@ -433,7 +450,10 @@ export const initAiChatUi = (context, deps) => {
         if (proposals) {
             proposals.replaceChildren();
             proposals.classList.toggle("is-hidden", chat.proposals.size === 0);
-            chat.proposals.forEach((p) => proposals.appendChild(buildProposalCard(p)));
+            if (chat.proposals.size > 0) {
+                const allProposals = Array.from(chat.proposals.values());
+                proposals.appendChild(buildUnifiedProposalCard(allProposals, chat));
+            }
         }
         const se = streamingMessages.get(chat.id);
         const last = chatLog === null || chatLog === void 0 ? void 0 : chatLog.querySelectorAll(".ai-message");
@@ -519,7 +539,6 @@ export const initAiChatUi = (context, deps) => {
     };
     const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError, } = createAiChatIncomingHandlers({
         postToNative: deps.postToNative,
-        dismissProposal,
         chats,
         chatIndex,
         proposalIndex,
@@ -549,9 +568,7 @@ export const initAiChatUi = (context, deps) => {
         disableAutonomous,
         enableAutonomous,
         scheduleUsageRefresh,
-        ensureProposalsEmbedded,
-        buildProposalCard,
-        getProposalsContainer,
+        rebuildProposalCards,
         restoreDraftFromPending,
         updateContextBar,
         buildContextPayload,
@@ -568,10 +585,9 @@ export const initAiChatUi = (context, deps) => {
         refreshContextBar: updateContextBar,
         handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
         handlePlatformUpdate,
-        applyPendingFromDiffModal: () => { if (pendingAiProposalId) {
-            deps.postToNative({ type: "agent:apply", proposalId: pendingAiProposalId });
-            pendingAiProposalId = null;
-        } },
-        clearPending: () => { pendingAiProposalId = null; },
+        applyPendingFromDiffModal: () => { for (const id of pendingAiProposalIds) {
+            deps.postToNative({ type: "agent:apply", proposalId: id });
+        } pendingAiProposalIds = []; },
+        clearPending: () => { pendingAiProposalIds = []; },
     };
 };

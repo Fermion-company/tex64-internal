@@ -33,6 +33,9 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     if (target === "latexmk") {
       return "latexmk";
     }
+    if (target === "latexindent") {
+      return "latexindent";
+    }
     return target || "実行環境";
   };
 
@@ -123,8 +126,8 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
         settingsRuntimeOnboardingStatus.classList.add("is-warning");
         settingsRuntimeOnboardingStatus.textContent =
           missing.length > 0
-            ? `初回セットアップ: 1/3 実行環境が不足 (${missing.join(", ")})。`
-            : "初回セットアップ: 1/3 実行環境が不足しています。";
+            ? `初回セットアップ: 1/3 実行環境が不足 (${missing.join(", ")})。上の「インストール」ボタンをクリックしてください。`
+            : "初回セットアップ: 1/3 実行環境が不足しています。上の「インストール」ボタンをクリックしてください。";
       } else if (!hasWorkspace) {
         settingsRuntimeOnboardingStatus.classList.add("is-warning");
         settingsRuntimeOnboardingStatus.textContent = "初回セットアップ: 2/3 ワークスペースを開いてください。";

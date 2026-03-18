@@ -5,7 +5,9 @@ const {
   dialog,
   globalShortcut,
   ipcMain,
+  screen,
   shell,
+  systemPreferences,
   Notification,
 } = require("electron");
 const fs = require("fs");
@@ -373,6 +375,7 @@ const agentService = new AgentService({
   auditService: getAgentAuditService(),
   sessionsService: getAgentSessionsService(),
   platformAccess: getPlatformAccessService(),
+  envService,
 });
 
 const buildHandlers = createBuildHandlers({
@@ -739,6 +742,75 @@ ipcMain.handle("tex64:capture:getSources", async (_event, options) => {
   }
 
   return deduped.map(mapSource);
+});
+
+// Screen capture permission helpers (macOS)
+ipcMain.handle("tex64:capture:checkPermission", async () => {
+  if (process.platform !== "darwin") {
+    return "granted";
+  }
+  try {
+    return systemPreferences.getMediaAccessStatus("screen");
+  } catch {
+    // Older Electron versions may not support this
+    return "unknown";
+  }
+});
+
+ipcMain.handle("tex64:capture:openPermissionSettings", async () => {
+  if (process.platform !== "darwin") {
+    return false;
+  }
+  try {
+    await shell.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    );
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+// High-resolution capture of a single source (for cropper quality)
+ipcMain.handle("tex64:capture:captureHighRes", async (_event, options) => {
+  const { sourceId } = options ?? {};
+  if (!sourceId) return null;
+
+  // Determine native resolution from all displays
+  const displays = screen.getAllDisplays();
+  let maxWidth = 1920;
+  let maxHeight = 1080;
+  for (const display of displays) {
+    const w = Math.round(display.size.width * display.scaleFactor);
+    const h = Math.round(display.size.height * display.scaleFactor);
+    if (w > maxWidth) maxWidth = w;
+    if (h > maxHeight) maxHeight = h;
+  }
+
+  const type = sourceId.startsWith("screen:") ? "screen" : "window";
+  let sources;
+  try {
+    sources = await desktopCapturer.getSources({
+      types: [type],
+      thumbnailSize: { width: maxWidth, height: maxHeight },
+    });
+  } catch {
+    return null;
+  }
+
+  const source = sources.find((s) => s.id === sourceId);
+  if (!source) return null;
+
+  const thumbnail = source.thumbnail;
+  if (typeof thumbnail.isEmpty === "function" && thumbnail.isEmpty()) {
+    return null;
+  }
+  const thumbSize = thumbnail.getSize();
+  return {
+    thumbnailUrl: thumbnail.toDataURL(),
+    width: thumbSize.width,
+    height: thumbSize.height,
+  };
 });
 
 ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {

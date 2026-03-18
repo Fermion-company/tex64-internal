@@ -1,15 +1,5 @@
-import type { IssueItem, IssuesStatus } from "./app/types.js";
-
-type UpdateIssues = (
-  count: number,
-  summary: string,
-  status: IssuesStatus,
-  issues: IssueItem[]
-) => void;
-
 type MathCaptureHandlerParams = {
-  recognizeMath: (imageDataUrl: string) => Promise<string>;
-  updateIssues: UpdateIssues;
+  recognizeMath: (imageDataUrl: string, onProgress?: (current: number, total: number) => void) => Promise<string>;
   onInsertMath: (latex: string) => void;
 };
 
@@ -77,26 +67,79 @@ const stripLatexCommandBlocks = (value: string, commands: Set<string>) => {
   return result;
 };
 
+const TEXT_PLACEHOLDER_PREFIX = "\x00TXTBLK";
+
+const protectTextBlocks = (value: string): { result: string; blocks: string[] } => {
+  const blocks: string[] = [];
+  const textCmdPattern = /\\(?:text|mbox|textnormal|textrm|textsf|texttt|textbf|textit)\s*\{/g;
+  let result = "";
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = textCmdPattern.exec(value)) !== null) {
+    result += value.slice(lastIndex, match.index);
+    const braceStart = match.index + match[0].length - 1;
+    let depth = 0;
+    let braceEnd = -1;
+    for (let i = braceStart; i < value.length; i += 1) {
+      if (value[i] === "{") depth += 1;
+      if (value[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          braceEnd = i;
+          break;
+        }
+      }
+    }
+    if (braceEnd >= 0) {
+      const fullBlock = value.slice(match.index, braceEnd + 1);
+      blocks.push(fullBlock);
+      result += `${TEXT_PLACEHOLDER_PREFIX}${blocks.length - 1}\x00`;
+      lastIndex = braceEnd + 1;
+      textCmdPattern.lastIndex = lastIndex;
+    } else {
+      result += value[match.index];
+      lastIndex = match.index + 1;
+      textCmdPattern.lastIndex = lastIndex;
+    }
+  }
+  result += value.slice(lastIndex);
+  return { result, blocks };
+};
+
+const restoreTextBlocks = (value: string, blocks: string[]): string => {
+  return value.replace(
+    new RegExp(`${TEXT_PLACEHOLDER_PREFIX.replace(/\x00/g, "\\x00")}(\\d+)\\x00`, "g"),
+    (_match, idx) => blocks[parseInt(idx, 10)] ?? ""
+  );
+};
+
 const normalizeMathCaptureText = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) {
     return "";
   }
   const unwrapped = stripMathCaptureWrapper(trimmed);
-  const noWhitespace = unwrapped.replace(/\s+/g, "");
-  const textCommands = new Set([
-    "text",
-    "mbox",
-    "textnormal",
-    "textrm",
-    "textsf",
-    "texttt",
-    "textbf",
-    "textit",
-  ]);
-  let cleaned = stripLatexCommandBlocks(noWhitespace, textCommands);
+
+  // Preserve LaTeX command boundaries when stripping whitespace.
+  // A space between `\command` and a following letter is semantically
+  // meaningful (e.g. `\pi G` → keep the boundary as `{}`).  Blindly
+  // stripping it would produce `\piG`, an invalid command.
+  const noWhitespace = unwrapped
+    .replace(/(\\[A-Za-z]+)\s+(?=[A-Za-z])/g, "$1{}")
+    .replace(/\s+/g, "");
+
+  // Protect interior \text{...} blocks from the character filter
+  const { result: withPlaceholders, blocks } = protectTextBlocks(noWhitespace);
+
+  // Apply character filter to non-text parts
+  let cleaned = withPlaceholders;
   cleaned = cleaned.replace(/\\newline/g, "").replace(/\\\\/g, "");
-  cleaned = cleaned.replace(/[^A-Za-z0-9\\{}_^=+\-*/().,\[\]|<>!:]/g, "");
+  cleaned = cleaned.replace(/[^A-Za-z0-9\\{}_^=+\-*/().,\[\]|<>!:\x00TXTBLK]/g, "");
+
+  // Restore \text{...} blocks
+  cleaned = restoreTextBlocks(cleaned, blocks);
+
   return cleaned;
 };
 
@@ -108,29 +151,22 @@ export type MathCaptureResult = {
 export const createMathCaptureHandler = (params: MathCaptureHandlerParams) => {
   let mathCaptureBusy = false;
 
-  const reportError = (message: string) => {
-    params.updateIssues(1, message, "error", [{ severity: "error", message }]);
-  };
-
   const handleMathCaptureImage = async (
-    imageDataUrl: string
+    imageDataUrl: string,
+    onProgress?: (current: number, total: number) => void
   ): Promise<MathCaptureResult> => {
     if (mathCaptureBusy) {
       return { ok: false, error: "処理中です。" };
     }
     if (!imageDataUrl) {
-      const msg = "キャプチャ画像がありません。";
-      reportError(msg);
-      return { ok: false, error: msg };
+      return { ok: false, error: "キャプチャ画像がありません。" };
     }
     mathCaptureBusy = true;
     try {
-      const latex = await params.recognizeMath(imageDataUrl);
+      const latex = await params.recognizeMath(imageDataUrl, onProgress);
       const normalized = normalizeMathCaptureText(latex);
       if (!normalized) {
-        const msg = "数式を認識できませんでした";
-        reportError(msg);
-        return { ok: false, error: msg };
+        return { ok: false, error: "数式を認識できませんでした" };
       }
       params.onInsertMath(normalized);
       return { ok: true };
@@ -139,7 +175,6 @@ export const createMathCaptureHandler = (params: MathCaptureHandlerParams) => {
         error instanceof Error
           ? `認識に失敗しました — ${error.message}`
           : "認識に失敗しました";
-      reportError(msg);
       return { ok: false, error: msg };
     } finally {
       mathCaptureBusy = false;

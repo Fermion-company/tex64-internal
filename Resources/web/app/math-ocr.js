@@ -5,7 +5,10 @@ const SHARPNESS_FACTOR = 1.5;
 const NORMALIZE_MEAN = 0.5;
 const NORMALIZE_STD = 0.5;
 const CANDIDATE_EARLY_ACCEPT_SCORE = 90;
-const MAX_PREPROCESS_PAYLOADS = 12;
+const MAX_PREPROCESS_PAYLOADS = 4;
+const PIPELINE_TIMEOUT_MS = 10000;
+const PHASE1_MAX_SEQ_LEN = 80;
+const PHASE2_MAX_SEQ_LEN = 200;
 const loadImage = (dataUrl) => new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
@@ -501,10 +504,8 @@ const preprocessImageVariants = async (dataUrl) => {
         "base",
         "contrast",
         "binary",
-        "binary-soft",
-        "binary-invert",
     ];
-    const secondaryVariants = ["base", "binary", "binary-soft"];
+    const secondaryVariants = ["base"];
     const payloads = [];
     for (let i = 0; i < cropBoxes.length; i += 1) {
         const cropCanvas = extractCropCanvas(image, cropBoxes[i]);
@@ -548,7 +549,7 @@ const countUnbalanced = (text, openChar, closeChar) => {
     return penalty + balance;
 };
 const scoreLatexCandidate = (value) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g;
     const trimmed = value.trim();
     if (!trimmed) {
         return -1000;
@@ -556,16 +557,16 @@ const scoreLatexCandidate = (value) => {
     let score = 100;
     if (trimmed.length < 2)
         score -= 40;
-    if (trimmed.length > 220)
-        score -= 60;
+    if (trimmed.length > 260)
+        score -= 80;
     if (((_a = trimmed.match(/[A-Za-z0-9]/g)) !== null && _a !== void 0 ? _a : []).length === 0)
-        score -= 50;
+        score -= 60;
     if (((_b = trimmed.match(/\\pi/g)) !== null && _b !== void 0 ? _b : []).length > 8)
         score -= 30;
     if (trimmed.includes("\\begin{array}"))
-        score -= 30;
+        score -= 10;
     if (trimmed.includes("<unk>") || trimmed.includes("�"))
-        score -= 50;
+        score -= 60;
     score -= countUnbalanced(trimmed, "{", "}") * 14;
     score -= countUnbalanced(trimmed, "(", ")") * 8;
     const leftCount = ((_c = trimmed.match(/\\left/g)) !== null && _c !== void 0 ? _c : []).length;
@@ -574,25 +575,56 @@ const scoreLatexCandidate = (value) => {
     if (/[\\](?:frac|sqrt|sum|int|lim|alpha|beta|gamma|theta|sin|cos|tan)\b/.test(trimmed)) {
         score += 8;
     }
+    // Bonus for equation-like structure
+    if (trimmed.includes("="))
+        score += 3;
+    if (trimmed.includes("^"))
+        score += 2;
+    if (trimmed.includes("_"))
+        score += 2;
+    // Penalty for degenerate output patterns
+    if (/[+\-=]{3,}/.test(trimmed))
+        score -= 15;
+    // Repeated spacing commands
+    const qquadCount = ((_e = trimmed.match(/\\qquad/g)) !== null && _e !== void 0 ? _e : []).length;
+    if (qquadCount > 2)
+        score -= qquadCount * 8;
+    // Both-empty fraction
+    if (/\\frac\{\s*\}\{\s*\}/.test(trimmed))
+        score -= 30;
+    // Penalty for very high ratio of backslashes to content (garbled commands)
+    const backslashCount = ((_f = trimmed.match(/\\/g)) !== null && _f !== void 0 ? _f : []).length;
+    const alphaCount = ((_g = trimmed.match(/[A-Za-z0-9]/g)) !== null && _g !== void 0 ? _g : []).length;
+    if (alphaCount > 0 && backslashCount / alphaCount > 0.8)
+        score -= 12;
     return score;
 };
-export const recognizeMath = async (imageDataUrl) => {
+const recognizeMathInternal = async (imageDataUrl, onProgress) => {
     var _a;
     const bridgeWindow = window;
     const bridge = (_a = bridgeWindow.__tex64TestMathOcr) !== null && _a !== void 0 ? _a : bridgeWindow.tex64MathOcr;
     if (!(bridge === null || bridge === void 0 ? void 0 : bridge.run)) {
         throw new Error("数式OCRが利用できません。");
     }
+    const pipelineStart = Date.now();
     const payloadVariants = await preprocessImageVariants(imageDataUrl);
+    const totalSteps = payloadVariants.length;
     let bestLatex = "";
     let bestScore = -Infinity;
     let lastError = null;
-    for (const payload of payloadVariants) {
+    // Unified deadline from pipeline start (leave 2s buffer for post-processing)
+    const deadline = pipelineStart + PIPELINE_TIMEOUT_MS - 2000;
+    const tryPayload = async (payload, maxSeqLen, maxDecodeCandidates) => {
         try {
-            const result = await bridge.run({ ...payload, imageDataUrl });
+            const result = await bridge.run({
+                ...payload,
+                imageDataUrl,
+                maxSeqLen,
+                maxDecodeCandidates,
+            });
             const latex = typeof (result === null || result === void 0 ? void 0 : result.latex) === "string" ? result.latex.trim() : "";
             if (!latex) {
-                continue;
+                return false;
             }
             const score = scoreLatexCandidate(latex);
             if (score > bestScore) {
@@ -600,12 +632,36 @@ export const recognizeMath = async (imageDataUrl) => {
                 bestScore = score;
             }
             if (score >= CANDIDATE_EARLY_ACCEPT_SCORE) {
-                break;
+                return true;
             }
         }
         catch (error) {
             lastError = error instanceof Error ? error : new Error("OCRに失敗しました。");
         }
+        return false;
+    };
+    // Phase 1: fast path — first variant only, 1 decode candidate, short maxSeqLen
+    if (payloadVariants.length > 0) {
+        onProgress === null || onProgress === void 0 ? void 0 : onProgress(1, totalSteps);
+        const accepted = await tryPayload(payloadVariants[0], PHASE1_MAX_SEQ_LEN, 1);
+        if (accepted) {
+            return bestLatex;
+        }
+    }
+    // Phase 2: remaining variants with more decode candidates and longer maxSeqLen
+    for (let i = 1; i < payloadVariants.length; i += 1) {
+        if (Date.now() >= deadline) {
+            break;
+        }
+        onProgress === null || onProgress === void 0 ? void 0 : onProgress(i + 1, totalSteps);
+        const accepted = await tryPayload(payloadVariants[i], PHASE2_MAX_SEQ_LEN, 3);
+        if (accepted) {
+            return bestLatex;
+        }
+    }
+    // If Phase 1 result was mediocre, also retry first variant with longer seq
+    if (bestScore < CANDIDATE_EARLY_ACCEPT_SCORE && Date.now() < deadline) {
+        await tryPayload(payloadVariants[0], PHASE2_MAX_SEQ_LEN, 3);
     }
     if (bestLatex) {
         return bestLatex;
@@ -613,8 +669,11 @@ export const recognizeMath = async (imageDataUrl) => {
     if (lastError) {
         throw lastError;
     }
-    if (payloadVariants.length === 0) {
-        throw new Error("OCR結果が空でした。");
-    }
     throw new Error("OCR結果が空でした。");
+};
+export const recognizeMath = async (imageDataUrl, onProgress) => {
+    return Promise.race([
+        recognizeMathInternal(imageDataUrl, onProgress),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("OCRがタイムアウトしました。")), PIPELINE_TIMEOUT_MS)),
+    ]);
 };

@@ -59,10 +59,8 @@ export const createAiChatStatusController = (params) => {
                     message: "ログイン結果の検証に失敗しました。",
                 };
             case "OAUTH_DENIED":
-                return {
-                    code,
-                    message: "Googleログインがキャンセルされました。",
-                };
+                // User simply cancelled the login — not an error
+                return null;
             default:
                 return { code, message: fallbackMessage };
         }

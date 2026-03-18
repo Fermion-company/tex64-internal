@@ -363,7 +363,6 @@ export const initMain = () => {
 
   const mathCaptureHandler = createMathCaptureHandler({
     recognizeMath,
-    updateIssues: updateIssuesProxy,
     onInsertMath: (normalized) => {
       blockEditSession?.setMode("insert");
       blockInputApi.setActiveBlockType("math");
@@ -386,7 +385,7 @@ export const initMain = () => {
     updateIssues: updateIssuesProxy,
     getCurrentIssues,
     setStatus: (message) => {
-      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+      updateIssuesProxy(1, message, "info", [{ severity: "warning", message }]);
     },
   });
 
@@ -406,6 +405,7 @@ export const initMain = () => {
     getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
     getWorkspaceFiles,
     showDiffModal: diffModalApi.showDiffModal,
+    showMultiFileDiff: diffModalApi.showMultiFileDiff,
     setDiffContext: diffModalApi.setDiffContext,
   });
 

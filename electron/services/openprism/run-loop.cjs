@@ -42,7 +42,7 @@ const runAgentConversation = async (
   }
 
   // ---- Resolve settings & policy ----
-  service.sendStatus("running", "⏳ 準備中", targetConversationId);
+  service.sendStatus("running", "準備しています...", targetConversationId);
   const settings = await service.ensureUserSettings().getAgentSettings();
   const policy = service.resolveAgentPolicy(settings);
   const options = service.resolveAgentOptions(settings);
@@ -109,7 +109,7 @@ const runAgentConversation = async (
       message: "ログインが必要です。サインインしてから再度お試しください。",
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "認証エラー", targetConversationId);
+    service.sendStatus("error", "ログインが必要です", targetConversationId);
     return;
   }
 
@@ -151,7 +151,7 @@ const runAgentConversation = async (
   const isCurrentRun = () =>
     service.isRunCurrent(targetConversationId, run.token);
 
-  service.sendStatus("running", "⏳ 処理中", targetConversationId);
+  service.sendStatus("running", "考えています...", targetConversationId);
 
   // ---- Build the user message for LLM (with context metadata) ----
   const userContent = userImages.length > 0
@@ -398,7 +398,7 @@ const runAgentConversation = async (
     }
 
     // ---- Max iterations reached ----
-    const reply = "最大イテレーション数に達しました。";
+    const reply = "処理の上限に達しました。";
     conversation.push({ role: "assistant", content: reply });
     service.markSessionDirty(targetConversationId);
     service.sendToRenderer("agent:message", {
@@ -407,18 +407,18 @@ const runAgentConversation = async (
     });
     service.sendStatus("idle", "待機中", targetConversationId);
   } catch (error) {
-    if (error?.name === "AbortError") {
+    if (error?.name === "AbortError" || run.controller.signal.aborted) {
       if (isCurrentRun()) {
         service.sendStatus("idle", "中断しました。", targetConversationId);
       }
       return;
     }
-    const errMsg = error?.message ?? "LLM の呼び出しに失敗しました。";
+    const errMsg = error?.message ?? "応答の取得に失敗しました。";
     service.sendToRenderer("agent:error", {
       message: errMsg,
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "LLM エラー", targetConversationId);
+    service.sendStatus("error", "エラーが発生しました", targetConversationId);
   } finally {
     service.finishConversationRun(targetConversationId, run.token);
     service.markSessionDirty(targetConversationId);

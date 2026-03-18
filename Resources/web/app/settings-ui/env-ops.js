@@ -10,6 +10,9 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         if (target === "latexmk") {
             return "latexmk";
         }
+        if (target === "latexindent") {
+            return "latexindent";
+        }
         return target || "実行環境";
     };
     const setRuntimeInstallStatus = (message, tone = "neutral") => {
@@ -96,8 +99,8 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
                 settingsRuntimeOnboardingStatus.classList.add("is-warning");
                 settingsRuntimeOnboardingStatus.textContent =
                     missing.length > 0
-                        ? `初回セットアップ: 1/3 実行環境が不足 (${missing.join(", ")})。`
-                        : "初回セットアップ: 1/3 実行環境が不足しています。";
+                        ? `初回セットアップ: 1/3 実行環境が不足 (${missing.join(", ")})。上の「インストール」ボタンをクリックしてください。`
+                        : "初回セットアップ: 1/3 実行環境が不足しています。上の「インストール」ボタンをクリックしてください。";
             }
             else if (!hasWorkspace) {
                 settingsRuntimeOnboardingStatus.classList.add("is-warning");

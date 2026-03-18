@@ -1,4 +1,5 @@
 import { isImageFilePath, isPdfFilePath, isTextFilePath } from "./files.js";
+import { buildLineDiff } from "./diff.js";
 export const createEditorSessionFileOps = (ctx) => {
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const applyViewerFile = (group, path, kind, data, mimeType) => {
@@ -178,14 +179,21 @@ export const createEditorSessionFileOps = (ctx) => {
         const currentValue = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
         const viewState = (_d = editor.saveViewState) === null || _d === void 0 ? void 0 : _d.call(editor);
         if (currentValue !== content) {
-            // Compute changed line numbers BEFORE replacing (for diff decorations)
+            // Compute changed line numbers BEFORE replacing (for diff decorations).
+            // Use LCS-based diff so that only truly added/modified lines are marked,
+            // not lines that merely shifted position due to an insertion above.
             let changedLineNumbers = [];
             if (options === null || options === void 0 ? void 0 : options.showAiDiff) {
                 const oldLines = currentValue.split("\n");
                 const newLines = content.split("\n");
-                for (let i = 0; i < newLines.length; i++) {
-                    if (i >= oldLines.length || oldLines[i] !== newLines[i]) {
-                        changedLineNumbers.push(i + 1); // Monaco lines are 1-indexed
+                const diffResult = buildLineDiff(oldLines, newLines);
+                let newLineNum = 0;
+                for (const entry of diffResult) {
+                    if (entry.type === "add" || entry.type === "same") {
+                        newLineNum++;
+                    }
+                    if (entry.type === "add") {
+                        changedLineNumbers.push(newLineNum); // Monaco lines are 1-indexed
                     }
                 }
             }
@@ -226,7 +234,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     bar.className = "ai-undo-keep-bar";
                     const undoBtn = document.createElement("button");
                     undoBtn.className = "ai-undo-keep-btn is-undo";
-                    undoBtn.textContent = "Undo";
+                    undoBtn.textContent = "元に戻す";
                     undoBtn.addEventListener("click", () => {
                         var _a;
                         const bridge = window.bridge;
@@ -235,7 +243,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     });
                     const keepBtn = document.createElement("button");
                     keepBtn.className = "ai-undo-keep-btn is-keep";
-                    keepBtn.textContent = "Keep";
+                    keepBtn.textContent = "確定";
                     keepBtn.addEventListener("click", () => {
                         clearAiDiffDecorations(group);
                     });

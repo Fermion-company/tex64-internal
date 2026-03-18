@@ -1,6 +1,9 @@
 export const initAiChatEventBindings = (params) => {
     const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
+    let sendGuard = false;
     const handleSend = () => {
+        if (sendGuard)
+            return;
         if (!(aiInput instanceof HTMLTextAreaElement))
             return;
         const text = aiInput.value.trim();
@@ -57,11 +60,13 @@ export const initAiChatEventBindings = (params) => {
         });
         const requestMessage = text || "添付画像を解析してください。";
         const contextPayload = buildContextPayload(getAgentSettings());
+        sendGuard = true;
         const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
         if (sent) {
             clearPendingAttachments();
             clearMentionPaths === null || clearMentionPaths === void 0 ? void 0 : clearMentionPaths();
         }
+        sendGuard = false;
     };
     if (aiSend instanceof HTMLButtonElement)
         aiSend.addEventListener("click", handleSend);
@@ -114,11 +119,7 @@ export const initAiChatEventBindings = (params) => {
     if (attachDropHost instanceof HTMLElement) {
         attachDropHost.addEventListener("dragover", (event) => {
             var _a;
-            const files = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.files;
-            if (!files || files.length === 0)
-                return;
-            const hasImage = Array.from(files).some((file) => file.type.startsWith("image/"));
-            if (!hasImage)
+            if (!((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.types.includes("Files")))
                 return;
             event.preventDefault();
         });
@@ -170,7 +171,7 @@ export const initAiChatEventBindings = (params) => {
                 return;
             }
             const contextToSend = buildContextPayload(getAgentSettings());
-            chat.statusMessage = "思考中...";
+            chat.statusMessage = "考えています...";
             runningConversations.add(chat.id);
             resumableConversations.delete(chat.id);
             upsertThinkingMessage(chat.id, chat.statusMessage);

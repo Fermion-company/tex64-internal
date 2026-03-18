@@ -96,8 +96,8 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       } else if (requestedFile && !rootInfo?.path) {
         targetFile = requestedFile;
       }
-      service.sendBuildState?.("building", "Axiom がビルド中...");
-      service.sendIssues?.(0, "Axiom がビルド中...", "info", []);
+      service.sendBuildState?.("building", "ビルドしています...");
+      service.sendIssues?.(0, "ビルドしています...", "info", []);
       const settings = await service.workspace.loadSettings().catch(() => null);
       const activeId =
         typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";

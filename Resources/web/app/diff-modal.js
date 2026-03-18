@@ -61,6 +61,24 @@ export const initDiffModal = (context, deps) => {
             diffFileName.textContent = options.fileName;
         }
     };
+    const detectLanguage = (fileName) => {
+        var _a, _b, _c;
+        if (!fileName)
+            return "plaintext";
+        const ext = (_b = (_a = fileName.split(".").pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase()) !== null && _b !== void 0 ? _b : "";
+        const map = {
+            tex: "latex", sty: "latex", cls: "latex", bib: "bibtex",
+            js: "javascript", ts: "typescript", jsx: "javascript", tsx: "typescript",
+            py: "python", rb: "ruby", rs: "rust", go: "go",
+            java: "java", kt: "kotlin", swift: "swift",
+            css: "css", scss: "scss", less: "less",
+            html: "html", xml: "xml", json: "json", yaml: "yaml", yml: "yaml",
+            md: "markdown", sh: "shell", bash: "shell",
+            c: "c", cpp: "cpp", h: "c", hpp: "cpp",
+            sql: "sql", lua: "lua", r: "r",
+        };
+        return (_c = map[ext]) !== null && _c !== void 0 ? _c : "plaintext";
+    };
     const countLines = (text) => {
         if (!text)
             return 1;
@@ -126,7 +144,7 @@ export const initDiffModal = (context, deps) => {
         }
     };
     const showDiffModal = (original, modified, lineOffset = 0, options) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi)
             return;
@@ -152,11 +170,7 @@ export const initDiffModal = (context, deps) => {
                 renderMarginRevertIcon: false,
                 diffWordWrap: "off",
                 wordWrap: "off",
-                hideUnchangedRegions: {
-                    enabled: true,
-                    contextLineCount: 3,
-                    minimumLineCount: 1,
-                },
+                hideUnchangedRegions: { enabled: false },
                 scrollBeyondLastLine: false,
                 minimap: { enabled: false },
                 renderOverviewRuler: false,
@@ -193,15 +207,186 @@ export const initDiffModal = (context, deps) => {
         const diffEditorAny = diffEditor;
         (_f = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _f === void 0 ? void 0 : _f.call(diffOriginalModel);
         (_g = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _g === void 0 ? void 0 : _g.call(diffModifiedModel);
-        diffOriginalModel = monacoApiAny.editor.createModel(original, "latex");
-        diffModifiedModel = monacoApiAny.editor.createModel(modified, "latex");
-        (_h = diffEditorAny.setModel) === null || _h === void 0 ? void 0 : _h.call(diffEditorAny, {
+        const lang = detectLanguage((_h = options === null || options === void 0 ? void 0 : options.fileName) !== null && _h !== void 0 ? _h : deps.getActiveFilePath());
+        diffOriginalModel = monacoApiAny.editor.createModel(original, lang);
+        diffModifiedModel = monacoApiAny.editor.createModel(modified, lang);
+        (_j = diffEditorAny.setModel) === null || _j === void 0 ? void 0 : _j.call(diffEditorAny, {
             original: diffOriginalModel,
             modified: diffModifiedModel,
         });
         applyDiffLineNumberOffset(lineOffset, original, modified);
         if (typeof diffEditor.layout === "function") {
             diffEditor.layout();
+        }
+        // Scroll to first change
+        requestAnimationFrame(() => {
+            var _a;
+            const editorAny = diffEditor;
+            const modEditor = (_a = editorAny.getModifiedEditor) === null || _a === void 0 ? void 0 : _a.call(editorAny);
+            if (!(modEditor === null || modEditor === void 0 ? void 0 : modEditor.revealLine))
+                return;
+            const beforeLines = original.split(/\r?\n/);
+            const afterLines = modified.split(/\r?\n/);
+            for (let k = 0; k < afterLines.length; k++) {
+                if (beforeLines[k] !== afterLines[k]) {
+                    modEditor.revealLine(Math.max(1, k + 1 - 2)); // 2 lines above for context
+                    break;
+                }
+            }
+        });
+    };
+    /* ── Multi-file HTML diff (Pattern B: vertical concatenation) ── */
+    const computeDiffCounts = (original, modified) => {
+        const bLines = original.trimEnd().length ? original.trimEnd().split(/\r?\n/) : [""];
+        const aLines = modified.trimEnd().length ? modified.trimEnd().split(/\r?\n/) : [""];
+        const lines = buildLineDiff(bLines, aLines);
+        let adds = 0;
+        let dels = 0;
+        lines.forEach((e) => { if (e.type === "add")
+            adds++;
+        else if (e.type === "del")
+            dels++; });
+        return { adds, dels, diffLines: lines };
+    };
+    const renderSideBySideDiff = (diffLines) => {
+        // Build left (original) and right (modified) line arrays
+        const leftLines = [];
+        const rightLines = [];
+        let li = 0;
+        let ri = 0;
+        for (const entry of diffLines) {
+            if (entry.type === "same") {
+                li++;
+                ri++;
+                leftLines.push({ text: entry.line, type: "same" });
+                rightLines.push({ text: entry.line, type: "same" });
+            }
+            else if (entry.type === "del") {
+                li++;
+                leftLines.push({ text: entry.line, type: "del" });
+                rightLines.push({ text: "", type: "empty" });
+            }
+            else {
+                ri++;
+                leftLines.push({ text: "", type: "empty" });
+                rightLines.push({ text: entry.line, type: "add" });
+            }
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "multi-diff-editor";
+        const leftCol = document.createElement("div");
+        leftCol.className = "multi-diff-col multi-diff-original";
+        const rightCol = document.createElement("div");
+        rightCol.className = "multi-diff-col multi-diff-modified";
+        let firstChangeLine = null;
+        for (let i = 0; i < leftLines.length; i++) {
+            const ll = leftLines[i];
+            const rl = rightLines[i];
+            const leftDiv = document.createElement("div");
+            leftDiv.className = `multi-diff-line is-${ll.type}`;
+            leftDiv.textContent = ll.type !== "empty" ? ll.text : "";
+            const rightDiv = document.createElement("div");
+            rightDiv.className = `multi-diff-line is-${rl.type}`;
+            rightDiv.textContent = rl.type !== "empty" ? rl.text : "";
+            leftCol.appendChild(leftDiv);
+            rightCol.appendChild(rightDiv);
+            if (!firstChangeLine && (ll.type !== "same" || rl.type !== "same")) {
+                firstChangeLine = leftDiv;
+            }
+        }
+        wrapper.append(leftCol, rightCol);
+        return { element: wrapper, firstChangeLine };
+    };
+    const showMultiFileDiff = (files, options) => {
+        var _a, _b;
+        const container = blockDiffContainer;
+        if (!container)
+            return;
+        if (!diffContext)
+            diffContext = { type: "aiApply", proposalIds: [] };
+        // Open modal
+        if (diffModal) {
+            diffModal.classList.add("is-open");
+            diffModal.setAttribute("aria-hidden", "false");
+        }
+        // Dispose any Monaco editor
+        resetDiffEditor();
+        // Header
+        if (diffTitle instanceof HTMLElement) {
+            diffTitle.textContent = (_a = options === null || options === void 0 ? void 0 : options.title) !== null && _a !== void 0 ? _a : "変更内容の確認";
+        }
+        if (diffFileName instanceof HTMLElement) {
+            diffFileName.textContent = `${files.length}ファイル`;
+        }
+        if (diffModalSubmit instanceof HTMLButtonElement) {
+            diffModalSubmit.textContent = (_b = options === null || options === void 0 ? void 0 : options.submitLabel) !== null && _b !== void 0 ? _b : defaultDiffSubmitLabel;
+        }
+        // Compute totals
+        let totalAdds = 0;
+        let totalDels = 0;
+        const fileDiffs = files.map((f) => {
+            const { adds, dels, diffLines } = computeDiffCounts(f.original, f.modified);
+            totalAdds += adds;
+            totalDels += dels;
+            return { ...f, adds, dels, diffLines };
+        });
+        // Render summary
+        if (diffSummary instanceof HTMLElement) {
+            diffSummary.textContent = "";
+            if (totalAdds > 0 || totalDels > 0) {
+                const addEl = document.createElement("span");
+                addEl.className = "diff-summary-item is-add";
+                addEl.textContent = `+${totalAdds}`;
+                const delEl = document.createElement("span");
+                delEl.className = "diff-summary-item is-del";
+                delEl.textContent = `-${totalDels}`;
+                diffSummary.append(addEl, delEl);
+            }
+        }
+        // Render file sections
+        container.innerHTML = "";
+        const scrollArea = document.createElement("div");
+        scrollArea.className = "multi-diff-scroll";
+        let globalFirstChange = null;
+        for (const fd of fileDiffs) {
+            const section = document.createElement("div");
+            section.className = "multi-diff-section";
+            // File header
+            const fileHeader = document.createElement("div");
+            fileHeader.className = "multi-diff-file-header";
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "multi-diff-file-name";
+            nameSpan.textContent = fd.fileName;
+            const countsSpan = document.createElement("span");
+            countsSpan.className = "diff-summary";
+            if (fd.adds > 0) {
+                const a = document.createElement("span");
+                a.className = "diff-summary-item is-add";
+                a.textContent = `+${fd.adds}`;
+                countsSpan.appendChild(a);
+            }
+            if (fd.dels > 0) {
+                const d = document.createElement("span");
+                d.className = "diff-summary-item is-del";
+                d.textContent = `-${fd.dels}`;
+                countsSpan.appendChild(d);
+            }
+            fileHeader.append(nameSpan, countsSpan);
+            section.appendChild(fileHeader);
+            // Side-by-side diff
+            const { element, firstChangeLine } = renderSideBySideDiff(fd.diffLines);
+            section.appendChild(element);
+            scrollArea.appendChild(section);
+            if (!globalFirstChange && firstChangeLine) {
+                globalFirstChange = firstChangeLine;
+            }
+        }
+        container.appendChild(scrollArea);
+        // Scroll to first change
+        if (globalFirstChange) {
+            requestAnimationFrame(() => {
+                globalFirstChange.scrollIntoView({ block: "center" });
+            });
         }
     };
     const closeDiffModal = () => {
@@ -226,11 +411,12 @@ export const initDiffModal = (context, deps) => {
     };
     return {
         showDiffModal,
+        showMultiFileDiff,
         closeDiffModal,
         resetDiffEditor,
         getDiffContext: () => diffContext,
-        setDiffContext: (contextValue) => {
-            diffContext = contextValue;
+        setDiffContext: (context) => {
+            diffContext = context;
         },
     };
 };

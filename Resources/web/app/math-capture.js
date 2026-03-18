@@ -155,31 +155,74 @@ export const initMathCapture = (context, deps) => {
         ctx.drawImage(mathCaptureCropImage, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
         return canvas.toDataURL("image/png");
     };
-    const openCapture = async () => {
-        var _a;
-        clearCaptureIssues();
+    const isPermissionDenied = (status) => status === "denied" || status === "restricted";
+    const showPermissionGuideIfNeeded = async () => {
+        const captureApi = getCaptureApi();
+        if (!(captureApi === null || captureApi === void 0 ? void 0 : captureApi.checkPermission)) {
+            // No permission API available (non-macOS or older Electron) — skip
+            return false;
+        }
+        const status = await captureApi.checkPermission().catch(() => "unknown");
+        if (isPermissionDenied(status)) {
+            deps.captureUi.showPermissionGuide();
+            return true;
+        }
+        return false;
+    };
+    const fetchSources = async () => {
         const captureApi = getCaptureApi();
         if (!(captureApi === null || captureApi === void 0 ? void 0 : captureApi.listSources)) {
             setStatus("画面キャプチャが利用できません。画面収録の許可を確認してください。");
-            return;
+            return false;
         }
         try {
             sources = await captureApi.listSources({
-                thumbnailSize: { width: 3840, height: 2160 },
+                thumbnailSize: { width: 480, height: 270 },
             });
         }
-        catch (error) {
-            setStatus("ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。");
-            return;
+        catch {
+            // List failed — check if it's a permission issue
+            const guided = await showPermissionGuideIfNeeded();
+            if (!guided) {
+                setStatus("ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。");
+            }
+            return false;
         }
         if (sources.length === 0) {
-            setStatus("取り込み可能なウィンドウがありません。画面収録の許可を確認してください。");
+            // Empty sources — likely permission denied (macOS returns [] when denied)
+            const guided = await showPermissionGuideIfNeeded();
+            if (!guided) {
+                setStatus("取り込み可能なウィンドウがありません。画面収録の許可を確認してください。");
+            }
+            return false;
+        }
+        return true;
+    };
+    const openCapture = async () => {
+        var _a;
+        clearCaptureIssues();
+        // Pre-check permission before attempting to list sources
+        const permissionBlocked = await showPermissionGuideIfNeeded();
+        if (permissionBlocked) {
+            return;
+        }
+        const ok = await fetchSources();
+        if (!ok) {
             return;
         }
         deps.captureUi.openWindowPicker(sources, (_a = selectedSource === null || selectedSource === void 0 ? void 0 : selectedSource.id) !== null && _a !== void 0 ? _a : null);
     };
     deps.captureUi.setHandlers({
-        onWindowSelect: (id) => {
+        onPermissionOpenSettings: () => {
+            var _a;
+            const captureApi = getCaptureApi();
+            (_a = captureApi === null || captureApi === void 0 ? void 0 : captureApi.openPermissionSettings) === null || _a === void 0 ? void 0 : _a.call(captureApi);
+        },
+        onPermissionRetry: () => {
+            // Re-attempt the capture flow after user grants permission
+            openCapture();
+        },
+        onWindowSelect: async (id) => {
             var _a;
             selectedSource = (_a = sources.find((source) => source.id === id)) !== null && _a !== void 0 ? _a : null;
             if (!selectedSource)
@@ -189,18 +232,48 @@ export const initMathCapture = (context, deps) => {
                 return;
             }
             deps.captureUi.closeWindowPicker();
+            // Show cropper immediately with picker thumbnail, then upgrade to high-res
+            let imageUrl = selectedSource.thumbnailUrl;
+            let sizeWidth = selectedSource.width;
+            let sizeHeight = selectedSource.height;
             deps.captureUi.openCropper({
-                imageUrl: selectedSource.thumbnailUrl,
-                sizeLabel: selectedSource.width && selectedSource.height
-                    ? `${selectedSource.width} × ${selectedSource.height}`
+                imageUrl,
+                sizeLabel: sizeWidth && sizeHeight
+                    ? `${sizeWidth} × ${sizeHeight}`
                     : "選択中",
             });
             if (mathCaptureCropImage instanceof HTMLImageElement) {
                 mathCaptureCropImage.onload = () => {
+                    cacheGeometry();
                     resetSelection();
                 };
             }
             resetSelection();
+            // Upgrade to high-res capture in background
+            const captureApi = getCaptureApi();
+            if (captureApi === null || captureApi === void 0 ? void 0 : captureApi.captureHighRes) {
+                try {
+                    const hiRes = await captureApi.captureHighRes(id);
+                    if ((hiRes === null || hiRes === void 0 ? void 0 : hiRes.thumbnailUrl) && mathCaptureCropImage instanceof HTMLImageElement) {
+                        mathCaptureCropImage.onload = () => {
+                            cacheGeometry();
+                            // Preserve existing selection after image swap
+                            updateSelectionUi();
+                            if (hiRes.width && hiRes.height) {
+                                deps.captureUi.setCropSizeLabel(`${hiRes.width} × ${hiRes.height}`);
+                            }
+                        };
+                        mathCaptureCropImage.src = hiRes.thumbnailUrl;
+                        if (selectedSource) {
+                            selectedSource.width = hiRes.width;
+                            selectedSource.height = hiRes.height;
+                        }
+                    }
+                }
+                catch {
+                    // High-res failed — keep using picker thumbnail, which is fine
+                }
+            }
         },
         onWindowCancel: () => {
             selectedSource = null;
@@ -225,7 +298,9 @@ export const initMathCapture = (context, deps) => {
             // Show loading state while OCR processes
             deps.captureUi.setCropBusy(true, "認識中…");
             try {
-                const result = await deps.onCaptureImage(dataUrl);
+                const result = await deps.onCaptureImage(dataUrl, (current, total) => {
+                    deps.captureUi.setCropBusy(true, `認識中… (${current}/${total})`);
+                });
                 if (result.ok) {
                     deps.captureUi.closeCropper();
                 }
@@ -245,6 +320,11 @@ export const initMathCapture = (context, deps) => {
     let interactionMode = "idle";
     let resizeHandle = "";
     let startSelection = { x: 0, y: 0, width: 0, height: 0 };
+    let cachedGeometry = null;
+    let rafPending = false;
+    const cacheGeometry = () => {
+        cachedGeometry = resolveImageGeometry();
+    };
     const stopInteraction = (pointerId) => {
         if (!(mathCaptureCropCanvas instanceof HTMLElement)) {
             return;
@@ -268,11 +348,11 @@ export const initMathCapture = (context, deps) => {
             if (event.button !== 0) {
                 return;
             }
-            const geometry = resolveImageGeometry();
-            if (!geometry)
+            cacheGeometry();
+            if (!cachedGeometry)
                 return;
             const target = event.target;
-            const rect = mathCaptureCropCanvas.getBoundingClientRect();
+            const rect = cachedGeometry.rect;
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
             dragStart = { x, y };
@@ -309,10 +389,12 @@ export const initMathCapture = (context, deps) => {
             updateSelectionUi();
         });
         mathCaptureCropCanvas.addEventListener("pointermove", (event) => {
-            const rect = mathCaptureCropCanvas.getBoundingClientRect();
+            if (!cachedGeometry)
+                return;
+            const rect = cachedGeometry.rect;
             const x = event.clientX - rect.left;
             const y = event.clientY - rect.top;
-            // Update cursor when idle
+            // Update cursor when idle (no RAF needed)
             if (interactionMode === "idle") {
                 const target = event.target;
                 if (target.classList.contains("capture-crop-handle")) {
@@ -330,22 +412,16 @@ export const initMathCapture = (context, deps) => {
             }
             const dx = x - dragStart.x;
             const dy = y - dragStart.y;
-            const geometry = resolveImageGeometry();
-            if (!geometry)
-                return;
-            const { offsetX, offsetY, displayWidth, displayHeight } = geometry;
+            const { offsetX, offsetY, displayWidth, displayHeight } = cachedGeometry;
             if (interactionMode === "move") {
                 let nextX = startSelection.x + dx;
                 let nextY = startSelection.y + dy;
-                // Constrain to image bounds
                 nextX = Math.max(offsetX, Math.min(nextX, offsetX + displayWidth - startSelection.width));
                 nextY = Math.max(offsetY, Math.min(nextY, offsetY + displayHeight - startSelection.height));
                 selection = { ...startSelection, x: nextX, y: nextY };
-                updateSelectionUi();
-                return;
             }
-            if (interactionMode === "resize") {
-                let next = { ...startSelection };
+            else if (interactionMode === "resize") {
+                const next = { ...startSelection };
                 if (resizeHandle.includes("l")) {
                     next.x = Math.min(startSelection.x + startSelection.width, Math.max(offsetX, startSelection.x + dx));
                     next.width = startSelection.width + (startSelection.x - next.x);
@@ -360,25 +436,23 @@ export const initMathCapture = (context, deps) => {
                 if (resizeHandle.includes("b")) {
                     next.height = Math.min(offsetY + displayHeight - startSelection.y, Math.max(0, startSelection.height + dy));
                 }
-                // Handle negative flip (optional, for now simple clamping)
-                selection = {
-                    x: next.x,
-                    y: next.y,
-                    width: next.width,
-                    height: next.height
-                };
-                updateSelectionUi();
-                return;
+                selection = { x: next.x, y: next.y, width: next.width, height: next.height };
             }
-            if (interactionMode === "create") {
-                const next = {
+            else if (interactionMode === "create") {
+                selection = clampSelection({
                     x: Math.min(dragStart.x, x),
                     y: Math.min(dragStart.y, y),
                     width: Math.abs(x - dragStart.x),
                     height: Math.abs(y - dragStart.y),
-                };
-                selection = clampSelection(next);
-                updateSelectionUi();
+                });
+            }
+            // Batch DOM writes with requestAnimationFrame
+            if (!rafPending) {
+                rafPending = true;
+                requestAnimationFrame(() => {
+                    rafPending = false;
+                    updateSelectionUi();
+                });
             }
         });
         mathCaptureCropCanvas.addEventListener("pointerup", (event) => {

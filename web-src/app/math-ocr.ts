@@ -7,7 +7,10 @@ const SHARPNESS_FACTOR = 1.5;
 const NORMALIZE_MEAN = 0.5;
 const NORMALIZE_STD = 0.5;
 const CANDIDATE_EARLY_ACCEPT_SCORE = 90;
-const MAX_PREPROCESS_PAYLOADS = 12;
+const MAX_PREPROCESS_PAYLOADS = 4;
+const PIPELINE_TIMEOUT_MS = 10000;
+const PHASE1_MAX_SEQ_LEN = 80;
+const PHASE2_MAX_SEQ_LEN = 200;
 
 type PreprocessVariant =
   | "base"
@@ -29,6 +32,8 @@ type MathOcrPayload = {
   height: number;
   imageDataUrl?: string;
   fallbackImageDataUrls?: string[];
+  maxSeqLen?: number;
+  maxDecodeCandidates?: number;
 };
 
 const loadImage = (dataUrl: string) =>
@@ -573,10 +578,8 @@ const preprocessImageVariants = async (dataUrl: string): Promise<MathOcrPayload[
     "base",
     "contrast",
     "binary",
-    "binary-soft",
-    "binary-invert",
   ];
-  const secondaryVariants: PreprocessVariant[] = ["base", "binary", "binary-soft"];
+  const secondaryVariants: PreprocessVariant[] = ["base"];
   const payloads: MathOcrPayload[] = [];
 
   for (let i = 0; i < cropBoxes.length; i += 1) {
@@ -634,11 +637,11 @@ const scoreLatexCandidate = (value: string) => {
   }
   let score = 100;
   if (trimmed.length < 2) score -= 40;
-  if (trimmed.length > 220) score -= 60;
-  if ((trimmed.match(/[A-Za-z0-9]/g) ?? []).length === 0) score -= 50;
+  if (trimmed.length > 260) score -= 80;
+  if ((trimmed.match(/[A-Za-z0-9]/g) ?? []).length === 0) score -= 60;
   if ((trimmed.match(/\\pi/g) ?? []).length > 8) score -= 30;
-  if (trimmed.includes("\\begin{array}")) score -= 30;
-  if (trimmed.includes("<unk>") || trimmed.includes("�")) score -= 50;
+  if (trimmed.includes("\\begin{array}")) score -= 10;
+  if (trimmed.includes("<unk>") || trimmed.includes("�")) score -= 60;
   score -= countUnbalanced(trimmed, "{", "}") * 14;
   score -= countUnbalanced(trimmed, "(", ")") * 8;
   const leftCount = (trimmed.match(/\\left/g) ?? []).length;
@@ -647,27 +650,59 @@ const scoreLatexCandidate = (value: string) => {
   if (/[\\](?:frac|sqrt|sum|int|lim|alpha|beta|gamma|theta|sin|cos|tan)\b/.test(trimmed)) {
     score += 8;
   }
+  // Bonus for equation-like structure
+  if (trimmed.includes("=")) score += 3;
+  if (trimmed.includes("^")) score += 2;
+  if (trimmed.includes("_")) score += 2;
+  // Penalty for degenerate output patterns
+  if (/[+\-=]{3,}/.test(trimmed)) score -= 15;
+  // Repeated spacing commands
+  const qquadCount = (trimmed.match(/\\qquad/g) ?? []).length;
+  if (qquadCount > 2) score -= qquadCount * 8;
+  // Both-empty fraction
+  if (/\\frac\{\s*\}\{\s*\}/.test(trimmed)) score -= 30;
+  // Penalty for very high ratio of backslashes to content (garbled commands)
+  const backslashCount = (trimmed.match(/\\/g) ?? []).length;
+  const alphaCount = (trimmed.match(/[A-Za-z0-9]/g) ?? []).length;
+  if (alphaCount > 0 && backslashCount / alphaCount > 0.8) score -= 12;
   return score;
 };
 
-export const recognizeMath = async (imageDataUrl: string) => {
+const recognizeMathInternal = async (
+  imageDataUrl: string,
+  onProgress?: (current: number, total: number) => void
+) => {
   const bridgeWindow = window as BridgeWindow;
   const bridge = bridgeWindow.__tex64TestMathOcr ?? bridgeWindow.tex64MathOcr;
   if (!bridge?.run) {
     throw new Error("数式OCRが利用できません。");
   }
 
+  const pipelineStart = Date.now();
   const payloadVariants = await preprocessImageVariants(imageDataUrl);
+  const totalSteps = payloadVariants.length;
   let bestLatex = "";
   let bestScore = -Infinity;
   let lastError: Error | null = null;
 
-  for (const payload of payloadVariants) {
+  // Unified deadline from pipeline start (leave 2s buffer for post-processing)
+  const deadline = pipelineStart + PIPELINE_TIMEOUT_MS - 2000;
+
+  const tryPayload = async (
+    payload: MathOcrPayload,
+    maxSeqLen: number,
+    maxDecodeCandidates: number
+  ) => {
     try {
-      const result = await bridge.run({ ...payload, imageDataUrl });
+      const result = await bridge.run({
+        ...payload,
+        imageDataUrl,
+        maxSeqLen,
+        maxDecodeCandidates,
+      });
       const latex = typeof result?.latex === "string" ? result.latex.trim() : "";
       if (!latex) {
-        continue;
+        return false;
       }
       const score = scoreLatexCandidate(latex);
       if (score > bestScore) {
@@ -675,11 +710,38 @@ export const recognizeMath = async (imageDataUrl: string) => {
         bestScore = score;
       }
       if (score >= CANDIDATE_EARLY_ACCEPT_SCORE) {
-        break;
+        return true;
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("OCRに失敗しました。");
     }
+    return false;
+  };
+
+  // Phase 1: fast path — first variant only, 1 decode candidate, short maxSeqLen
+  if (payloadVariants.length > 0) {
+    onProgress?.(1, totalSteps);
+    const accepted = await tryPayload(payloadVariants[0], PHASE1_MAX_SEQ_LEN, 1);
+    if (accepted) {
+      return bestLatex;
+    }
+  }
+
+  // Phase 2: remaining variants with more decode candidates and longer maxSeqLen
+  for (let i = 1; i < payloadVariants.length; i += 1) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    onProgress?.(i + 1, totalSteps);
+    const accepted = await tryPayload(payloadVariants[i], PHASE2_MAX_SEQ_LEN, 3);
+    if (accepted) {
+      return bestLatex;
+    }
+  }
+
+  // If Phase 1 result was mediocre, also retry first variant with longer seq
+  if (bestScore < CANDIDATE_EARLY_ACCEPT_SCORE && Date.now() < deadline) {
+    await tryPayload(payloadVariants[0], PHASE2_MAX_SEQ_LEN, 3);
   }
 
   if (bestLatex) {
@@ -688,8 +750,20 @@ export const recognizeMath = async (imageDataUrl: string) => {
   if (lastError) {
     throw lastError;
   }
-  if (payloadVariants.length === 0) {
-    throw new Error("OCR結果が空でした。");
-  }
   throw new Error("OCR結果が空でした。");
+};
+
+export const recognizeMath = async (
+  imageDataUrl: string,
+  onProgress?: (current: number, total: number) => void
+) => {
+  return Promise.race([
+    recognizeMathInternal(imageDataUrl, onProgress),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("OCRがタイムアウトしました。")),
+        PIPELINE_TIMEOUT_MS
+      )
+    ),
+  ]);
 };

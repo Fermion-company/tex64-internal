@@ -11,7 +11,7 @@ import type {
   PlatformUsageSnapshot,
   PlatformUpdateSnapshot,
 } from "./types.js";
-import type { DiffContext } from "./diff-modal.js";
+import type { DiffContext, FileDiff } from "./diff-modal.js";
 import {
   AUTONOMOUS_LOOP_LIMIT,
   createChat as createChatState,
@@ -21,7 +21,7 @@ import {
   type ChatState,
 } from "./ai-chat-state.js";
 import { createMessageElement, updateMessageElement } from "./ai-chat-message.js";
-import { createProposalCard } from "./ai-chat-proposal.js";
+import { createUnifiedProposalCard } from "./ai-chat-proposal.js";
 import { TEX64_LINKS } from "./platform-links.js";
 import { createAiChatStatusController } from "./ai-chat-status.js";
 import { createContextPayloadBuilder } from "./ai-chat-context-payload.js";
@@ -56,8 +56,9 @@ type AiChatDeps = {
     count: number; summary: string; status: IssuesStatus; issues: IssueItem[]; updatedAt: number;
   } | null;
   getWorkspaceFiles?: () => string[];
-  showDiffModal?: (original: string, modified: string, lineOffset?: number, options?: { title?: string; fileName?: string; submitLabel?: string }) => void;
-  setDiffContext?: (context: DiffContext) => void;
+  showDiffModal: (original: string, modified: string, lineOffset?: number, options?: { title?: string; fileName?: string; submitLabel?: string }) => void;
+  showMultiFileDiff: (files: FileDiff[], options?: { title?: string; submitLabel?: string }) => void;
+  setDiffContext: (context: DiffContext) => void;
 };
 
 export type AiChatApi = {
@@ -108,6 +109,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   let agentSettings: AgentSettings | null = null;
   const streamingMessages = new Map<string, { message: ChatMessage; element: HTMLElement | null }>();
   const thinkingMessages = new Map<string, { text: string; element: HTMLElement | null }>();
+  const thinkingTransitionTimers = new Map<string, number>();
   const pendingAgentRequests = new Map<string, PendingAiRequest>();
   let getPendingAttachments = (): AiImageAttachment[] => [];
   let renderAttachmentBar = () => {};
@@ -420,9 +422,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
 
   const normalizeThinkingText = (text?: string) => {
     const raw = typeof text === "string" ? text.trim() : "";
-    if (!raw) return "思考中...";
-    if (raw.startsWith("思考中")) return raw;
-    return `思考中: ${raw}`;
+    if (!raw) return "考えています...";
+    return raw;
   };
 
   const createThinkingElement = (text: string): HTMLElement => {
@@ -452,7 +453,22 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     if (chat.id === activeChatId && aiChatLog instanceof HTMLElement) {
       if (entry.element && entry.element.parentElement) {
         const content = entry.element.querySelector(".ai-message-content");
-        if (content) content.textContent = normalized;
+        if (content) {
+          const prev = content.textContent ?? "";
+          if (prev !== normalized) {
+            // Cancel any in-flight transition before starting a new one
+            const prevTimer = thinkingTransitionTimers.get(chat.id);
+            if (prevTimer !== undefined) window.clearTimeout(prevTimer);
+            // Fade out → swap text → fade in
+            content.classList.add("is-transitioning");
+            const timerId = window.setTimeout(() => {
+              thinkingTransitionTimers.delete(chat.id);
+              content.textContent = normalized;
+              content.classList.remove("is-transitioning");
+            }, 200);
+            thinkingTransitionTimers.set(chat.id, timerId);
+          }
+        }
       } else {
         entry.element = createThinkingElement(normalized);
         appendToChatLog(entry.element);
@@ -464,6 +480,11 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   const clearThinkingMessage = (chatId?: string | null) => {
     const chat = getChat(chatId);
     if (!chat) return;
+    const prevTimer = thinkingTransitionTimers.get(chat.id);
+    if (prevTimer !== undefined) {
+      window.clearTimeout(prevTimer);
+      thinkingTransitionTimers.delete(chat.id);
+    }
     const entry = thinkingMessages.get(chat.id);
     if (!entry) return;
     if (entry.element && entry.element.parentElement) {
@@ -485,30 +506,28 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     chat.autoLoopBudget = AUTONOMOUS_LOOP_LIMIT;
   };
 
-  let pendingAiProposalId: string | null = null;
-  const dismissProposal = (proposalId: string) => {
-    const chatId = proposalIndex.get(proposalId);
-    const chat = getChat(chatId);
-    if (!chat) return;
-    chat.proposals.delete(proposalId);
-    proposalIndex.delete(proposalId);
-    if (chat.id === activeChatId) {
-      const proposals = getProposalsContainer();
-      proposals?.querySelector(`[data-proposal-id="${proposalId}"]`)?.remove();
-      if (proposals && chat.proposals.size === 0) {
-        proposals.classList.add("is-hidden");
-      }
-    }
-    renderHistoryList();
-  };
-  const buildProposalCard = (proposal: AgentProposal) =>
-    createProposalCard(proposal, {
+  let pendingAiProposalIds: string[] = [];
+  const buildUnifiedProposalCard = (proposals: AgentProposal[], chat: ChatState) =>
+    createUnifiedProposalCard(proposals, chat.appliedProposalIds, {
       postToNative: deps.postToNative,
-      dismissProposal,
-      setPendingProposalId: (v) => { pendingAiProposalId = v; },
+      setPendingProposalIds: (ids) => { pendingAiProposalIds = ids; },
       showDiffModal: deps.showDiffModal,
+      showMultiFileDiff: deps.showMultiFileDiff,
       setDiffContext: deps.setDiffContext,
     });
+
+  const rebuildProposalCards = (chatId: string) => {
+    const chat = getChat(chatId);
+    if (!chat || chat.id !== activeChatId) return;
+    const container = ensureProposalsEmbedded();
+    if (!container) return;
+    container.replaceChildren();
+    container.classList.toggle("is-hidden", chat.proposals.size === 0);
+    if (chat.proposals.size > 0) {
+      const allProposals = Array.from(chat.proposals.values());
+      container.appendChild(buildUnifiedProposalCard(allProposals, chat));
+    }
+  };
 
   const renderChatContent = () => {
     const chat = getChat(activeChatId);
@@ -523,7 +542,10 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     if (proposals) {
       proposals.replaceChildren();
       proposals.classList.toggle("is-hidden", chat.proposals.size === 0);
-      chat.proposals.forEach((p) => proposals.appendChild(buildProposalCard(p)));
+      if (chat.proposals.size > 0) {
+        const allProposals = Array.from(chat.proposals.values());
+        proposals.appendChild(buildUnifiedProposalCard(allProposals, chat));
+      }
     }
     const se = streamingMessages.get(chat.id);
     const last = chatLog?.querySelectorAll(".ai-message");
@@ -626,7 +648,6 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     handleError,
   } = createAiChatIncomingHandlers({
     postToNative: deps.postToNative,
-    dismissProposal,
     chats,
     chatIndex,
     proposalIndex,
@@ -656,9 +677,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     disableAutonomous,
     enableAutonomous,
     scheduleUsageRefresh,
-    ensureProposalsEmbedded,
-    buildProposalCard,
-    getProposalsContainer,
+    rebuildProposalCards,
     restoreDraftFromPending,
     updateContextBar,
     buildContextPayload,
@@ -677,7 +696,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     refreshContextBar: updateContextBar,
     handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
     handlePlatformUpdate,
-    applyPendingFromDiffModal: () => { if (pendingAiProposalId) { deps.postToNative({ type: "agent:apply", proposalId: pendingAiProposalId }); pendingAiProposalId = null; } },
-    clearPending: () => { pendingAiProposalId = null; },
+    applyPendingFromDiffModal: () => { for (const id of pendingAiProposalIds) { deps.postToNative({ type: "agent:apply", proposalId: id }); } pendingAiProposalIds = []; },
+    clearPending: () => { pendingAiProposalIds = []; },
   };
 };

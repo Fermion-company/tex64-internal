@@ -1,5 +1,5 @@
 export const initMathCaptureUi = (context, deps = {}) => {
-    const { mathCaptureWindowModal, mathCaptureWindowCancel, mathCaptureWindowSearch, mathCaptureWindowGrid, mathCaptureWindowItemTemplate, mathCaptureCropModal, mathCaptureCropRetry, mathCaptureCropCancel, mathCaptureCropApply, mathCaptureCropImage, mathCaptureCropSize, } = context.dom;
+    const { mathCaptureWindowModal, mathCaptureWindowCancel, mathCaptureWindowSearch, mathCaptureWindowGrid, mathCaptureWindowItemTemplate, mathCaptureCropModal, mathCaptureCropRetry, mathCaptureCropCancel, mathCaptureCropApply, mathCaptureCropImage, mathCaptureCropSize, capturePermissionModal, capturePermissionOpen, capturePermissionRetry, capturePermissionClose, } = context.dom;
     let sources = [];
     let selectedId = null;
     let searchText = "";
@@ -121,6 +121,9 @@ export const initMathCaptureUi = (context, deps = {}) => {
         if (mathCaptureCropRetry instanceof HTMLElement) {
             mathCaptureCropRetry.disabled = busy;
         }
+        if (mathCaptureCropCancel instanceof HTMLElement) {
+            mathCaptureCropCancel.disabled = busy;
+        }
         // Disable Esc/Enter during processing
         if (busy) {
             window.removeEventListener("keydown", handleKeyDown);
@@ -141,6 +144,39 @@ export const initMathCaptureUi = (context, deps = {}) => {
             }, 6000);
         }
     };
+    // Permission guide modal
+    const handlePermissionKeyDown = (event) => {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            hidePermissionGuide();
+        }
+    };
+    const showPermissionGuide = () => {
+        setModalOpen(capturePermissionModal, true);
+        window.addEventListener("keydown", handlePermissionKeyDown);
+    };
+    const hidePermissionGuide = () => {
+        setModalOpen(capturePermissionModal, false);
+        window.removeEventListener("keydown", handlePermissionKeyDown);
+    };
+    if (capturePermissionOpen instanceof HTMLElement) {
+        capturePermissionOpen.addEventListener("click", () => {
+            var _a;
+            (_a = handlers.onPermissionOpenSettings) === null || _a === void 0 ? void 0 : _a.call(handlers);
+        });
+    }
+    if (capturePermissionRetry instanceof HTMLElement) {
+        capturePermissionRetry.addEventListener("click", () => {
+            var _a;
+            hidePermissionGuide();
+            (_a = handlers.onPermissionRetry) === null || _a === void 0 ? void 0 : _a.call(handlers);
+        });
+    }
+    if (capturePermissionClose instanceof HTMLElement) {
+        capturePermissionClose.addEventListener("click", () => {
+            hidePermissionGuide();
+        });
+    }
     if (mathCaptureWindowSearch instanceof HTMLInputElement) {
         mathCaptureWindowSearch.addEventListener("input", () => {
             searchText = mathCaptureWindowSearch.value.trim();
@@ -199,6 +235,8 @@ export const initMathCaptureUi = (context, deps = {}) => {
         setCropSizeLabel,
         setCropBusy,
         setCropError,
+        showPermissionGuide,
+        hidePermissionGuide,
         setHandlers: (next) => {
             handlers = { ...handlers, ...next };
         },

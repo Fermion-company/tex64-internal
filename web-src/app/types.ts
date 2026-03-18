@@ -276,10 +276,23 @@ export type CaptureSource = {
   width?: number;
   height?: number;
 };
+export type CapturePermissionStatus =
+  | "granted"
+  | "denied"
+  | "restricted"
+  | "not-determined"
+  | "unknown";
 export type CaptureBridge = {
   listSources?: (options?: {
     thumbnailSize?: { width: number; height: number };
   }) => Promise<CaptureSource[]>;
+  captureHighRes?: (sourceId: string) => Promise<{
+    thumbnailUrl: string;
+    width: number;
+    height: number;
+  } | null>;
+  checkPermission?: () => Promise<CapturePermissionStatus>;
+  openPermissionSettings?: () => Promise<boolean>;
 };
 export type MathOcrBridge = {
   run?: (payload: {
@@ -288,6 +301,8 @@ export type MathOcrBridge = {
     height: number;
     imageDataUrl?: string;
     fallbackImageDataUrls?: string[];
+    maxSeqLen?: number;
+    maxDecodeCandidates?: number;
   }) => Promise<{
     latex?: string;
     error?: string;

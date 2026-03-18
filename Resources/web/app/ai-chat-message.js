@@ -36,11 +36,127 @@ const escapeHtml = (text) => text
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+/* ------------------------------------------------------------------ */
+/*  LaTeX syntax highlighter (Monaco-aligned colors)                  */
+/* ------------------------------------------------------------------ */
+const LATEX_ENV_KEYWORDS = new Set([
+    "begin", "end", "documentclass", "usepackage",
+]);
+const LATEX_KEYWORDS = new Set([
+    ...LATEX_ENV_KEYWORDS,
+    "newcommand", "renewcommand", "newenvironment", "renewenvironment",
+    "def", "let", "providecommand",
+    "section", "subsection", "subsubsection", "chapter", "part",
+    "paragraph", "subparagraph",
+    "title", "author", "date", "maketitle", "tableofcontents", "appendix",
+    "label", "ref", "eqref", "pageref", "cite", "nocite",
+    "bibliography", "bibliographystyle",
+    "input", "include", "includegraphics",
+    "caption", "footnote", "footnotetext", "footnotemark",
+    "textbf", "textit", "texttt", "textrm", "textsf", "textsc",
+    "emph", "underline", "textcolor",
+    "centering", "raggedright", "raggedleft",
+    "hspace", "vspace", "hfill", "vfill", "newline", "newpage",
+    "item", "frac", "sqrt", "sum", "prod", "int", "lim",
+    "alpha", "beta", "gamma", "delta", "epsilon", "theta", "lambda",
+    "mu", "pi", "sigma", "omega", "phi", "psi",
+    "left", "right", "big", "Big", "bigg", "Bigg",
+]);
+const highlightLatex = (code) => {
+    let result = "";
+    let i = 0;
+    while (i < code.length) {
+        // ── Comment: % to end of line ──
+        if (code[i] === "%") {
+            const end = code.indexOf("\n", i);
+            const slice = end === -1 ? code.slice(i) : code.slice(i, end);
+            result += `<span class="hl-comment">${escapeHtml(slice)}</span>`;
+            i += slice.length;
+            continue;
+        }
+        // ── Command: \name ──
+        if (code[i] === "\\") {
+            const m = code.slice(i).match(/^\\([a-zA-Z@]+)/);
+            if (m) {
+                const name = m[1];
+                const cls = LATEX_KEYWORDS.has(name) ? "hl-keyword" : "hl-command";
+                result += `<span class="${cls}">${escapeHtml(m[0])}</span>`;
+                i += m[0].length;
+                // After env-keywords, color {arg} as type
+                if (LATEX_ENV_KEYWORDS.has(name)) {
+                    // optional whitespace
+                    const ws = code.slice(i).match(/^(\s*)/);
+                    if (ws && ws[1]) {
+                        result += escapeHtml(ws[1]);
+                        i += ws[1].length;
+                    }
+                    // optional [...]
+                    if (code[i] === "[") {
+                        const close = code.indexOf("]", i);
+                        if (close !== -1) {
+                            result += `<span class="hl-delimiter">[</span>`;
+                            result += escapeHtml(code.slice(i + 1, close));
+                            result += `<span class="hl-delimiter">]</span>`;
+                            i = close + 1;
+                        }
+                    }
+                    // optional whitespace
+                    const ws2 = code.slice(i).match(/^(\s*)/);
+                    if (ws2 && ws2[1]) {
+                        result += escapeHtml(ws2[1]);
+                        i += ws2[1].length;
+                    }
+                    // {envname}
+                    if (code[i] === "{") {
+                        const close = code.indexOf("}", i);
+                        if (close !== -1) {
+                            result += `<span class="hl-delimiter">{</span>`;
+                            result += `<span class="hl-type">${escapeHtml(code.slice(i + 1, close))}</span>`;
+                            result += `<span class="hl-delimiter">}</span>`;
+                            i = close + 1;
+                        }
+                    }
+                }
+                continue;
+            }
+            // Escaped char: \\, \{, \}, \$, \%, etc.
+            if (i + 1 < code.length) {
+                result += `<span class="hl-command">${escapeHtml(code.slice(i, i + 2))}</span>`;
+                i += 2;
+                continue;
+            }
+        }
+        // ── Delimiters: {, }, [, ], $ ──
+        if ("{}[]$".includes(code[i])) {
+            result += `<span class="hl-delimiter">${escapeHtml(code[i])}</span>`;
+            i++;
+            continue;
+        }
+        // ── Numbers ──
+        if (/[0-9]/.test(code[i])) {
+            const m = code.slice(i).match(/^[0-9]+(\.[0-9]+)?/);
+            if (m) {
+                result += `<span class="hl-number">${escapeHtml(m[0])}</span>`;
+                i += m[0].length;
+                continue;
+            }
+        }
+        // ── Plain text: accumulate non-special chars ──
+        let end = i + 1;
+        while (end < code.length && !"\\%{}[]$0123456789".includes(code[end])) {
+            end++;
+        }
+        result += escapeHtml(code.slice(i, end));
+        i = end;
+    }
+    return result;
+};
 const configureMarked = () => {
     const renderer = {
         code(token) {
             const lang = escapeHtml(token.lang || "text");
-            const code = escapeHtml(token.text);
+            const isLatex = /^(la)?tex$/i.test(token.lang || "");
+            const code = isLatex ? highlightLatex(token.text) : escapeHtml(token.text);
             return (`<div class="ai-code-block">` +
                 `<div class="ai-code-header">` +
                 `<span class="ai-code-lang">${lang}</span>` +
@@ -110,7 +226,13 @@ const renderMarkdownHtml = (text) => {
         return `\x00MATH${mathBlocks.length - 1}\x00`;
     });
     // Parse markdown
-    let html = marked.parse(protected_);
+    let html;
+    try {
+        html = marked.parse(protected_);
+    }
+    catch {
+        html = escapeHtml(text);
+    }
     // Restore and render math
     html = html.replace(/\x00MATH(\d+)\x00/g, (_match, idx) => {
         var _a;
@@ -131,7 +253,7 @@ const attachCopyHandlers = (container) => {
             navigator.clipboard.writeText(code).then(() => {
                 btn.textContent = "コピー済み";
                 setTimeout(() => { btn.textContent = "コピー"; }, 1500);
-            });
+            }, () => { });
         });
     });
 };

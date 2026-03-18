@@ -23,7 +23,7 @@ export const createAiChatRunner = (options) => {
             parts: Array.isArray(parts) ? parts : undefined,
             contextPayload: contextToSend,
         });
-        chat.statusMessage = "思考中...";
+        chat.statusMessage = "考えています...";
         runningConversations.add(chat.id);
         upsertThinkingMessage(chat.id, chat.statusMessage);
         renderHistoryList();

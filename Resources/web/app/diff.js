@@ -1,6 +1,16 @@
+const MAX_DIFF_CELLS = 4000000;
 export const buildLineDiff = (beforeLines, afterLines) => {
     const rows = beforeLines.length;
     const cols = afterLines.length;
+    // Guard: fall back to naive diff for very large files to avoid memory exhaustion
+    if (rows * cols > MAX_DIFF_CELLS) {
+        const diff = [];
+        for (const line of beforeLines)
+            diff.push({ type: "del", line });
+        for (const line of afterLines)
+            diff.push({ type: "add", line });
+        return diff;
+    }
     const table = Array.from({ length: rows + 1 }, () => Array(cols + 1).fill(0));
     for (let i = 1; i <= rows; i += 1) {
         for (let j = 1; j <= cols; j += 1) {

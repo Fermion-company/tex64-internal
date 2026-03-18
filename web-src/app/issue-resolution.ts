@@ -17,15 +17,15 @@ const rules: ResolutionRule[] = [
   {
     test: (issue, message) =>
       issue.action === "open-runtime" || message.includes("TeX環境"),
-    resolution: "設定 > Runtime を開いて、TeX環境のインストール状態を確認してください。",
+    resolution: "設定 > 環境 を開き、不足しているツールの「インストール」をクリックしてください。",
   },
   {
     test: (_issue, message) => message.includes("latexmk"),
-    resolution: "TeX Live などの環境をインストールしてから再実行してください。",
+    resolution: "設定 > 環境 で latexmk の状態を確認し、「インストール」をクリックしてください。",
   },
   {
     test: (_issue, message) => message.includes("latexindent"),
-    resolution: "latexindent をインストール、または整形設定を見直してください。",
+    resolution: "設定 > 環境 で latexindent の状態を確認してください。整形が不要なら設定でオフにできます。",
   },
   {
     test: (_issue, message) => message.includes("整形"),
@@ -33,7 +33,7 @@ const rules: ResolutionRule[] = [
   },
   {
     test: (_issue, message) => message.includes("ビルドの起動に失敗"),
-    resolution: "TeX環境のインストールと PATH を確認し、もう一度ビルドしてください。",
+    resolution: "設定 > 環境 で TeX Distribution と latexmk が検出されているか確認してください。未検出の場合は「インストール」をクリックしてください。",
   },
   {
     test: (_issue, message) => message.includes("ビルドに失敗しました"),
@@ -48,7 +48,7 @@ const rules: ResolutionRule[] = [
   {
     test: (_issue, message) => /(?:package\s+)?xypdf\s+error:/i.test(message),
     resolution:
-      "qcircuit/xypic は lualatex で失敗することがあります。Settings > Build の Engine を pdflatex に変更して再ビルドしてください。",
+      "qcircuit/xypic は lualatex で失敗することがあります。設定 > ビルド の Engine を pdflatex に変更して再ビルドしてください。",
   },
   {
     test: (_issue, message) =>
@@ -79,14 +79,14 @@ const rules: ResolutionRule[] = [
   },
   {
     test: (_issue, message) => message.includes("画面キャプチャ"),
-    resolution: "画面収録の許可を有効にして再試行してください。",
+    resolution: "システム設定 > プライバシーとセキュリティ > 画面収録 で TeX64 を許可し、アプリを再起動してください。",
   },
   {
     test: (_issue, message) =>
       message.includes("画面収録") ||
       message.includes("ウィンドウ一覧") ||
       message.includes("取り込み可能なウィンドウ"),
-    resolution: "画面収録の許可を有効にして再試行してください。",
+    resolution: "システム設定 > プライバシーとセキュリティ > 画面収録 で TeX64 を許可し、アプリを再起動してください。もう一度「数式取り込み」をクリックすると、設定を開くガイドが表示されます。",
   },
   {
     test: (_issue, message) => message.includes("切り取りに失敗"),

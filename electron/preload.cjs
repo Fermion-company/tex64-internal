@@ -66,6 +66,28 @@ const captureApi = {
       throw error;
     }
   },
+  checkPermission: async () => {
+    try {
+      return await ipcRenderer.invoke("tex64:capture:checkPermission");
+    } catch {
+      return "unknown";
+    }
+  },
+  openPermissionSettings: async () => {
+    try {
+      return await ipcRenderer.invoke("tex64:capture:openPermissionSettings");
+    } catch {
+      return false;
+    }
+  },
+  captureHighRes: async (sourceId) => {
+    try {
+      return await ipcRenderer.invoke("tex64:capture:captureHighRes", { sourceId });
+    } catch (error) {
+      console.error("[tex64Capture] Error capturing high-res:", error);
+      return null;
+    }
+  },
 };
 
 const mathOcrApi = {

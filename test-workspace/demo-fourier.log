@@ -1,4 +1,4 @@
-This is LuaHBTeX, Version 1.18.0 (TeX Live 2024)  (format=lualatex 2024.5.4)  10 MAR 2026 12:07
+This is LuaHBTeX, Version 1.18.0 (TeX Live 2024)  (format=lualatex 2024.5.4)  17 MAR 2026 21:12
  restricted system commands enabled.
  file:line:error style messages enabled.
 **demo-fourier.tex
@@ -740,57 +740,22 @@ LaTeX Font Info:    Font shape `JY3/mc/b/n' in size <14.4> not available
 (Font)              Font shape `JY3/gt/m/n' tried instead on input line 19.
 LaTeX Font Info:    Font shape `JY3/gt/m/n' will be
 (Font)              scaled to size 13.85594pt on input line 19.
-(load cache: extra_haranoajigothic-medium.luc)(load cache: extra_lmroman10-bold.
-luc)
-LaTeX Font Info:    Font shape `JT3/mc/b/n' in size <10.95> not available
-(Font)              Font shape `JT3/gt/m/n' tried instead on input line 38.
-LaTeX Font Info:    Font shape `JT3/gt/m/n' will be
-(Font)              scaled to size 10.53629pt on input line 38.
-LaTeX Font Info:    Font shape `JY3/mc/b/n' in size <10.95> not available
-(Font)              Font shape `JY3/gt/m/n' tried instead on input line 38.
-LaTeX Font Info:    Font shape `JY3/gt/m/n' will be
-(Font)              scaled to size 10.53629pt on input line 38.
- [1
-
-{/usr/local/texlive/2024/texmf-var/fonts/map/pdftex/updmap/pdftex.map}] (./demo
--fourier.aux)
- ***********
-LaTeX2e <2023-11-01> patch level 1
-L3 programming layer <2024-02-20>
- ***********
-Package rerunfilecheck Info: File `demo-fourier.out' has not changed.
-(rerunfilecheck)             Checksum: A265DF407C8B486FAB5C01A4E9349818;281.
-)
+(load cache: extra_haranoajigothic-medium.luc)
+./demo-fourier.tex:22: You can't use `\halign' in math mode.
+\displaylines ...displ@y \tabskip \z@skip \halign 
+                                                  {\hb@xt@ \displaywidth {$\...
+l.22 $\displaylines{\sin x\\ x\\ x\\ }
+                                    $
 
 Here is how much of LuaTeX's memory you used:
- 11269 strings out of 476447
+ 11226 strings out of 476447
  125244,1977958 words of node,token memory allocated
- 1250 words of node memory still in use:
-   11 hlist, 2 vlist, 5 rule, 2 glue, 4 kern, 1 glyph, 290 attribute, 54 glue_sp
-ec, 38 attribute_list, 1 write, 13 user_defined nodes
-   avail lists: 1:18,2:12603,3:348,4:266,5:279,6:45,7:2875,8:51,9:1353,10:10
- 33121 multiletter control sequences out of 65536+600000
- 55 fonts using 37178055 bytes
- 110i,9n,115p,1835b,342s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-bold.otf>
-</usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/lmroman10-regular.o
-tf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/haranoaji/HaranoAji
-Gothic-Medium.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/l
-mroman12-bold.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/l
-mroman12-regular.otf></usr/local/texlive/2024/texmf-dist/fonts/opentype/public/h
-aranoaji/HaranoAjiMincho-Regular.otf></usr/local/texlive/2024/texmf-dist/fonts/t
-ype1/public/amsfonts/cm/cmex10.pfb></usr/local/texlive/2024/texmf-dist/fonts/typ
-e1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1
-/public/amsfonts/cm/cmmi8.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/pu
-blic/amsfonts/cm/cmr10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/publi
-c/amsfonts/cm/cmr8.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/am
-sfonts/cm/cmsy10.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsf
-onts/cm/cmsy8.pfb></usr/local/texlive/2024/texmf-dist/fonts/type1/public/amsfont
-s/symbols/msbm10.pfb>
-Output written on demo-fourier.pdf (1 page, 101385 bytes).
-
-PDF statistics: 109 PDF objects out of 1000 (max. 8388607)
- 79 compressed objects within 1 object stream
- 14 named destinations out of 1000 (max. 131072)
- 25 words of extra memory for PDF output out of 10000 (max. 100000000)
-
+ 5993 words of node memory still in use:
+   24 hlist, 2 vlist, 29 rule, 5 local_par, 2 dir, 6 math, 80 glue, 6 kern, 16 p
+enalty, 58 glyph, 1765 attribute, 57 glue_spec, 182 attribute_list, 2 temp, 3 wr
+ite, 24 user_defined, 2 pdf_dest nodes
+   avail lists: 1:15,2:72,3:4,4:5,5:16,7:3,8:4,9:8,10:10
+ 33094 multiletter control sequences out of 65536+600000
+ 53 fonts using 33262519 bytes
+ 110i,6n,115p,1835b,291s stack positions out of 10000i,1000n,20000p,200000b,200000s
+./demo-fourier.tex:22:  ==> Fatal error occurred, no output PDF file produced!

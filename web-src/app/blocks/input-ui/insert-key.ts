@@ -4,14 +4,9 @@ import {
   applyScriptToText,
   applyTemplateToText,
   getMathFieldSelectionRange,
-  indexToOffset,
-  offsetToIndex,
 } from "../math-input-utils.js";
 import {
   readMathFieldValue,
-  setSelectionRange,
-  type MathFieldPlaceholderApi,
-  writeMathFieldValue,
 } from "../input-ui-math-field.js";
 import type { BlockInputRuntime } from "./runtime.js";
 
@@ -108,79 +103,91 @@ export const createBlockInsertKeyOps = (
 
     mathField.focus?.();
 
-    const applyMathFieldTextEdit = (next: { text: string; selectionStart: number; selectionEnd: number }) => {
-      writeMathFieldValue(mathField, next.text);
-
-      const startOffset = indexToOffset(mathField, next.selectionStart);
-      const endOffset = indexToOffset(mathField, next.selectionEnd);
-      setSelectionRange(mathField as MathFieldPlaceholderApi, startOffset, endOffset);
-      mathInput.dispatchEvent(new Event("input", { bubbles: true }));
-    };
-
-    if ((scriptKind || templateKind) && typeof mathField.getValue === "function") {
-      const rawValue = readMathFieldValue(mathField);
-      if (typeof rawValue === "string") {
-        const selectionOffset = getMathFieldSelectionRange(mathField);
-        const selectionIndex = {
-          start: offsetToIndex(mathField, selectionOffset.start),
-          end: offsetToIndex(mathField, selectionOffset.end),
-        };
-
-        if (scriptKind) {
-          const result = applyScriptToText(rawValue, selectionIndex, scriptKind, {
-            placeholder,
-            base: key.scriptBase ?? null,
-            subValue: scriptKind === "sub" ? key.scriptValue ?? null : key.scriptSubValue ?? null,
-            supValue: scriptKind === "sup" ? key.scriptValue ?? null : key.scriptSupValue ?? null,
-          });
-          applyMathFieldTextEdit(result);
-          return;
-        }
-
-        if (templateKind) {
-          const result = applyTemplateToText(rawValue, selectionIndex, key.latex, {
-            placeholder,
-            baseMode: templateKind,
-            baseIndex: key.templateTarget,
-            baseSeparator: key.templateSeparator,
-            baseScope: key.templateScope,
-          });
-          applyMathFieldTextEdit(result);
-          return;
+    // Template keys with a selection: read selected LaTeX and build the
+    // template before inserting, so we never have to rewrite the full value.
+    if (templateKind && typeof mathField.getValue === "function") {
+      const selectionOffset = getMathFieldSelectionRange(mathField);
+      const hasSelection = selectionOffset.start !== selectionOffset.end;
+      if (hasSelection) {
+        const readFn = mathField.getValue as (...args: unknown[]) => unknown;
+        let selectedLatex: string | null = null;
+        try {
+          const val = readFn(selectionOffset.start, selectionOffset.end, "latex");
+          if (typeof val === "string") selectedLatex = val;
+        } catch { /* ignore */ }
+        if (selectedLatex) {
+          let builtLatex: string;
+          if (templateKind === "wrap") {
+            const parts = key.latex.split("#?");
+            const placeholderCount = Math.max(0, parts.length - 1);
+            const targetIndex = placeholderCount === 0
+              ? null
+              : Math.max(0, Math.min(key.templateTarget ?? 0, placeholderCount - 1));
+            builtLatex = parts[0] ?? "";
+            for (let i = 0; i < placeholderCount; i += 1) {
+              builtLatex += (targetIndex !== null && i === targetIndex) ? selectedLatex : "#?";
+              builtLatex += parts[i + 1] ?? "";
+            }
+          } else {
+            // "after" mode: template placeholders + separator + selected content
+            builtLatex = key.latex + (key.templateSeparator ?? "") + selectedLatex;
+          }
+          const insertOpts = { selectionMode: "placeholder", focus: true, feedback: false, format: "latex" as const };
+          if (typeof mathField.executeCommand === "function") {
+            mathField.executeCommand("insert", builtLatex, insertOpts);
+            mathInput.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
+          if (typeof mathField.insert === "function") {
+            mathField.insert(builtLatex, insertOpts);
+            mathInput.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
         }
       }
+      // No selection or reading failed: fall through to normal insert path
     }
+    // Script keys: fall through to normal insert path (MathLive handles scripts natively)
 
+    // Style wrapper templates (e.g. \mathbb{#?}, \mathcal{#?}):
+    // use MathLive's insert API instead of rewriting the full value.
     if (
       !scriptKind &&
       !templateKind &&
       typeof mathField.getValue === "function" &&
       runtime.STYLE_WRAPPER_TEMPLATE_RE.test(key.latex)
     ) {
-      const rawValue = readMathFieldValue(mathField);
-      if (typeof rawValue === "string") {
-        const selectionOffset = getMathFieldSelectionRange(mathField);
-        const selectionIndex = {
-          start: offsetToIndex(mathField, selectionOffset.start),
-          end: offsetToIndex(mathField, selectionOffset.end),
-        };
-        const selectedText = rawValue.slice(selectionIndex.start, selectionIndex.end);
-        const seed = selectedText.length > 0 ? selectedText : "\\\\,";
-        const replacement = key.latex.replace(/#\\?/g, seed);
-        const nextText =
-          rawValue.slice(0, selectionIndex.start) + replacement + rawValue.slice(selectionIndex.end);
-        writeMathFieldValue(mathField, nextText);
-
-        const slotPrefix = key.latex.split("#?")[0] ?? "";
-        const slotStartIndex = selectionIndex.start + slotPrefix.length;
-        const slotEndIndex = slotStartIndex + seed.length;
-        const slotStartOffset = indexToOffset(mathField, slotStartIndex);
-        const slotEndOffset = indexToOffset(mathField, slotEndIndex);
-        if (selectedText.length === 0) {
-          setSelectionRange(mathField as MathFieldPlaceholderApi, slotStartOffset, slotEndOffset);
-        } else {
-          setSelectionRange(mathField as MathFieldPlaceholderApi, slotEndOffset, slotEndOffset);
-        }
+      const selectionOffset = getMathFieldSelectionRange(mathField);
+      let selectedLatex: string | null = null;
+      if (selectionOffset.start !== selectionOffset.end) {
+        try {
+          const readFn = mathField.getValue as (...args: unknown[]) => unknown;
+          const val = readFn(selectionOffset.start, selectionOffset.end, "latex");
+          if (typeof val === "string") selectedLatex = val;
+        } catch { /* ignore */ }
+      }
+      const seed = selectedLatex && selectedLatex.length > 0 ? selectedLatex : "#?";
+      const builtLatex = key.latex.replace(/#\?/g, seed);
+      const insertOpts = {
+        selectionMode: selectedLatex ? "after" : "placeholder",
+        focus: true,
+        feedback: false,
+        format: "latex" as const,
+      };
+      let inserted = false;
+      if (typeof mathField.executeCommand === "function") {
+        try {
+          const ok = mathField.executeCommand("insert", builtLatex, insertOpts);
+          inserted = ok !== false;
+        } catch { /* ignore */ }
+      }
+      if (!inserted && typeof mathField.insert === "function") {
+        try {
+          mathField.insert(builtLatex, insertOpts);
+          inserted = true;
+        } catch { /* ignore */ }
+      }
+      if (inserted) {
         mathInput.dispatchEvent(new Event("input", { bubbles: true }));
         return;
       }

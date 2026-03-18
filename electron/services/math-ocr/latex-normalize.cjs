@@ -7,7 +7,7 @@ const postProcessLatex = (value) => {
   let result = value.replace(textReg, () => matches.shift() ?? "");
   const letter = "[a-zA-Z]";
   const noletter = "[\\W_\\^\\d]";
-  while (true) {
+  for (let pass = 0; pass < 10; pass += 1) {
     const prev = result;
     result = result.replace(
       new RegExp(`(?!\\\\ )(${noletter})\\s+?(${noletter})`, "g"),
@@ -79,17 +79,30 @@ const fixMatrixSeparators = (value) => {
       if (filtered.length === 0) {
         return match;
       }
+      // Try square matrix first
       const size = Math.sqrt(filtered.length);
       const n = Math.round(size);
-      if (!Number.isFinite(size) || n * n !== filtered.length) {
-        return match;
+      if (Number.isFinite(size) && n * n === filtered.length && n >= 2) {
+        const rows = [];
+        for (let r = 0; r < n; r += 1) {
+          const row = filtered.slice(r * n, (r + 1) * n);
+          rows.push(row.join("&"));
+        }
+        return `\\begin{matrix}${rows.join("\\\\")}\\end{matrix}`;
       }
-      const rows = [];
-      for (let r = 0; r < n; r += 1) {
-        const row = filtered.slice(r * n, (r + 1) * n);
-        rows.push(row.join("&"));
+      // Try common non-square layouts (2×N, 3×N, N×2, N×3)
+      for (const cols of [2, 3, 4]) {
+        if (filtered.length % cols === 0 && filtered.length / cols >= 2) {
+          const numRows = filtered.length / cols;
+          const rows = [];
+          for (let r = 0; r < numRows; r += 1) {
+            const row = filtered.slice(r * cols, (r + 1) * cols);
+            rows.push(row.join("&"));
+          }
+          return `\\begin{matrix}${rows.join("\\\\")}\\end{matrix}`;
+        }
       }
-      return `\\begin{matrix}${rows.join("\\\\")}\\end{matrix}`;
+      return match;
     }
   );
 };
@@ -480,7 +493,8 @@ const stripRedundantOuterRoundDelimiters = (value) => {
     [/^\\Bigg\(\s*([\s\S]+?)\s*\\Bigg\)$/, "$1"],
     [/^\\bigl\(\s*([\s\S]+?)\s*\\bigr\)$/, "$1"],
     [/^\\Bigl\(\s*([\s\S]+?)\s*\\Bigr\)$/, "$1"],
-    [/^\(\s*([\s\S]+?)\s*\)$/, "$1"],
+    // Bare outer parens: only strip if preceded by \left or \big-style command
+    // (standalone "(a+b)" is intentional — don't strip it)
   ];
   for (let i = 0; i < 2; i += 1) {
     let changed = false;

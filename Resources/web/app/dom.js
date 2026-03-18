@@ -233,4 +233,8 @@ export const getDomRefs = () => ({
     mathCaptureCropGuide: document.getElementById("math-capture-crop-guide"),
     mathCaptureCropSize: document.getElementById("math-capture-crop-size"),
     mathCaptureCropHint: document.getElementById("math-capture-crop-hint"),
+    capturePermissionModal: document.getElementById("capture-permission-modal"),
+    capturePermissionOpen: document.getElementById("capture-permission-open"),
+    capturePermissionRetry: document.getElementById("capture-permission-retry"),
+    capturePermissionClose: document.getElementById("capture-permission-close"),
 });

@@ -8,8 +8,12 @@ const looksLikeGarbage = (value) => {
   const trimmed = value.trim();
   if (trimmed.length > 300) return true;
   if ((trimmed.match(/\\pi/g) ?? []).length > 8) return true;
-  if (trimmed.includes("\\begin{array}")) return true;
   if ((trimmed.match(/[A-Za-z0-9]/g) ?? []).length === 0) return true;
+  // Repeated spacing commands (\qquad, \quad) — degenerate output
+  if ((trimmed.match(/\\qquad/g) ?? []).length > 4) return true;
+  if ((trimmed.match(/\\quad/g) ?? []).length > 6) return true;
+  // Single digit/char repeated many times (e.g., "000000...")
+  if (/(.)\1{15,}/.test(trimmed)) return true;
   return false;
 };
 
@@ -64,6 +68,7 @@ const isLikelyInvalidLatex = (value) => {
   if (looksLikeGarbage(trimmed)) return true;
   if (/\\frac\{[^{}]+\}\{\s*\}/.test(trimmed)) return true;
   if (/\\frac\{\s*\}\{[^{}]+\}/.test(trimmed)) return true;
+  if (/\\frac\{\s*\}\{\s*\}/.test(trimmed)) return true;
   if (countUnbalanced(trimmed, "{", "}") > 0) return true;
   if (countUnbalanced(trimmed, "(", ")") > 2) return true;
   const leftCount = (trimmed.match(/\\left/g) ?? []).length;
@@ -81,7 +86,7 @@ const scoreLatexCandidate = (value) => {
   if (trimmed.length < 2) score -= 40;
   if (trimmed.length > 260) score -= 80;
   if ((trimmed.match(/\\pi/g) ?? []).length > 8) score -= 30;
-  if (trimmed.includes("\\begin{array}")) score -= 30;
+  if (trimmed.includes("\\begin{array}")) score -= 10;
   if (/\\frac\{[^{}]+\}\{\s*\}/.test(trimmed)) score -= 34;
   if (/\\frac\{\s*\}\{[^{}]+\}/.test(trimmed)) score -= 34;
   if (trimmed.includes("<unk>") || trimmed.includes("�")) score -= 60;
@@ -94,6 +99,21 @@ const scoreLatexCandidate = (value) => {
   if (/[\\](?:frac|sqrt|sum|int|lim|alpha|beta|gamma|theta|sin|cos|tan)\b/.test(trimmed)) {
     score += 8;
   }
+  // Bonus for equation-like structure (=, superscripts, subscripts)
+  if (trimmed.includes("=")) score += 3;
+  if (trimmed.includes("^")) score += 2;
+  if (trimmed.includes("_")) score += 2;
+  // Penalty for degenerate output patterns
+  if (/[+\-=]{3,}/.test(trimmed)) score -= 15;
+  // Repeated spacing commands
+  const qquadCount = (trimmed.match(/\\qquad/g) ?? []).length;
+  if (qquadCount > 2) score -= qquadCount * 8;
+  // Both-empty fraction
+  if (/\\frac\{\s*\}\{\s*\}/.test(trimmed)) score -= 30;
+  // Penalty for very high ratio of backslashes to content (garbled commands)
+  const backslashCount = (trimmed.match(/\\/g) ?? []).length;
+  const alphaCount = (trimmed.match(/[A-Za-z0-9]/g) ?? []).length;
+  if (alphaCount > 0 && backslashCount / alphaCount > 0.8) score -= 12;
   return score;
 };
 

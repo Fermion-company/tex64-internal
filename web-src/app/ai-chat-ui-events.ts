@@ -97,7 +97,9 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     resetToNewChatState,
   } = params;
 
+  let sendGuard = false;
   const handleSend = () => {
+    if (sendGuard) return;
     if (!(aiInput instanceof HTMLTextAreaElement)) return;
     const text = aiInput.value.trim();
     const pendingAttachments = getPendingAttachments();
@@ -153,11 +155,13 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     });
     const requestMessage = text || "添付画像を解析してください。";
     const contextPayload = buildContextPayload(getAgentSettings());
+    sendGuard = true;
     const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
     if (sent) {
       clearPendingAttachments();
       clearMentionPaths?.();
     }
+    sendGuard = false;
   };
 
   if (aiSend instanceof HTMLButtonElement) aiSend.addEventListener("click", handleSend);
@@ -205,10 +209,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
   const attachDropHost = aiAttach instanceof HTMLElement ? aiAttach.closest(".ai-chat-input") : null;
   if (attachDropHost instanceof HTMLElement) {
     attachDropHost.addEventListener("dragover", (event) => {
-      const files = event.dataTransfer?.files;
-      if (!files || files.length === 0) return;
-      const hasImage = Array.from(files).some((file) => file.type.startsWith("image/"));
-      if (!hasImage) return;
+      if (!event.dataTransfer?.types.includes("Files")) return;
       event.preventDefault();
     });
     attachDropHost.addEventListener("drop", (event) => {
@@ -254,7 +255,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         return;
       }
       const contextToSend = buildContextPayload(getAgentSettings());
-      chat.statusMessage = "思考中...";
+      chat.statusMessage = "考えています...";
       runningConversations.add(chat.id);
       resumableConversations.delete(chat.id);
       upsertThinkingMessage(chat.id, chat.statusMessage);

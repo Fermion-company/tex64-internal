@@ -46,6 +46,7 @@ class AgentService {
     auditService,
     sessionsService,
     platformAccess,
+    envService,
   }) {
     this.workspace = workspace;
     this.searchService = searchService;
@@ -60,6 +61,7 @@ class AgentService {
     this.indexerService = indexerService;
     this.apiUsageService = apiUsageService;
     this.platformAccess = platformAccess ?? null;
+    this.envService = envService ?? null;
     this.auditService =
       auditService && typeof auditService.append === "function" ? auditService : null;
     this.sessionsService =

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI UI Parts Demo</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  html, body { overflow: auto !important; height: auto !important; }
+  body { background: var(--bg-base, #0c0f16); color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; opacity: 1 !important; }
+  .demo-section { margin-bottom: 40px; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; background: rgba(255,255,255,0.02); }
+  .demo-section h2 { font-size: 14px; font-weight: 700; color: rgba(99,102,241,0.9); margin: 0 0 16px 0; letter-spacing: 0.05em; text-transform: uppercase; }
+  .demo-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 12px; }
+  .demo-label { font-size: 11px; color: rgba(226,232,240,0.5); margin-bottom: 4px; }
+  .demo-item { min-width: 120px; }
+
+  /* Force visible for demo */
+  .ai-usage-meter { position: relative !important; }
+  .ai-usage-tooltip { opacity: 1 !important; visibility: visible !important; transform: none !important; position: relative !important; top: auto !important; right: auto !important; margin-top: 8px; pointer-events: auto !important; }
+  .ai-proposals { display: block !important; }
+  .ai-proposals.is-hidden { display: block !important; }
+  .ai-status { display: block !important; }
+  .ai-history { position: relative !important; display: block !important; width: 100% !important; max-height: none !important; }
+  .ai-mention-popover { position: relative !important; display: block !important; opacity: 1 !important; visibility: visible !important; }
+  .ai-login-overlay { position: relative !important; display: flex !important; min-height: 300px; border-radius: 12px; overflow: hidden; }
+  .ai-bg-toast { position: relative !important; display: flex !important; opacity: 1 !important; }
+  .ai-chat-delete-modal { position: relative !important; display: flex !important; }
+  .ai-chat-delete-modal.is-visible .ai-chat-delete-modal-card { transform: none !important; opacity: 1 !important; }
+  .ai-empty-state { position: relative !important; display: block !important; }
+</style>
+</head>
+<body>
+
+<!-- ====== 1. TOP BAR ====== -->
+<div class="demo-section">
+  <h2>1. Top Bar</h2>
+  <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:rgba(255,255,255,0.03); border-radius:8px;">
+    <button class="ai-icon-btn" type="button" aria-label="履歴">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+    </button>
+    <span class="ai-topbar-title">Axiom</span>
+    <span class="ai-topbar-status" style="display:inline">ファイルを読んでいます</span>
+
+    <!-- Usage Meter: Normal -->
+    <div class="demo-item">
+      <div class="demo-label">メーター (通常 35%使用)</div>
+      <div class="ai-usage-meter" role="img" style="--ai-usage-pct:35; --ai-remaining-pct:65;">
+        <span class="ai-usage-meter-text">65%</span>
+      </div>
+    </div>
+
+    <!-- Usage Meter: Warn -->
+    <div class="demo-item">
+      <div class="demo-label">メーター (警告 85%使用)</div>
+      <div class="ai-usage-meter is-warn" role="img" style="--ai-usage-pct:85; --ai-remaining-pct:15;">
+        <span class="ai-usage-meter-text">15%</span>
+      </div>
+    </div>
+
+    <!-- Usage Meter: Critical -->
+    <div class="demo-item">
+      <div class="demo-label">メーター (危険 98%使用)</div>
+      <div class="ai-usage-meter is-critical" role="img" style="--ai-usage-pct:98; --ai-remaining-pct:2;">
+        <span class="ai-usage-meter-text">2%</span>
+      </div>
+    </div>
+
+    <button class="panel-button ghost ai-topbar-auth" type="button">ログイン</button>
+    <button class="ai-icon-btn" type="button" aria-label="新しいチャット">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </div>
+
+  <!-- Tooltip Demo -->
+  <div class="demo-label" style="margin-top:12px">使用量ツールチップ (ホバー時表示)</div>
+  <div style="display:flex; gap:16px;">
+    <div class="ai-usage-tooltip" style="--ai-usage-fg:rgba(99,102,241,0.95); --ai-remaining-pct:65;">
+      <div class="ai-usage-tooltip-header">AI 使用量</div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">使用</span><span class="ai-usage-tooltip-value">1,750,000 トークン</span></div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">上限</span><span class="ai-usage-tooltip-value">5,000,000 トークン</span></div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">残り</span><span class="ai-usage-tooltip-value">65.0% (3.3M)</span></div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">リセット</span><span class="ai-usage-tooltip-value">2026/04/01</span></div>
+      <div class="ai-usage-tooltip-bar-track"><div class="ai-usage-tooltip-bar-fill" style="--ai-remaining-pct:65;"></div></div>
+    </div>
+    <div class="ai-usage-tooltip" style="--ai-usage-fg:rgba(239,68,68,0.95); --ai-remaining-pct:2;">
+      <div class="ai-usage-tooltip-header">AI 使用量 (危険)</div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">使用</span><span class="ai-usage-tooltip-value">4,900,000 トークン</span></div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">上限</span><span class="ai-usage-tooltip-value">5,000,000 トークン</span></div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">残り</span><span class="ai-usage-tooltip-value">2.0% (100k)</span></div>
+      <div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">リセット</span><span class="ai-usage-tooltip-value">2026/04/01</span></div>
+      <div class="ai-usage-tooltip-bar-track"><div class="ai-usage-tooltip-bar-fill" style="--ai-remaining-pct:2;"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 2. LOGIN OVERLAY ====== -->
+<div class="demo-section">
+  <h2>2. Login Overlay</h2>
+  <div class="ai-login-overlay">
+    <div class="ai-login-overlay-glow"></div>
+    <div class="ai-login-overlay-card">
+      <div class="ai-login-overlay-icon-wrap">
+        <svg class="ai-login-overlay-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-5"/></svg>
+      </div>
+      <div class="ai-login-overlay-title">Axiom でTeX執筆を加速しよう</div>
+      <div class="ai-login-overlay-subtitle">ログインして Axiom を利用</div>
+      <button class="ai-login-overlay-btn" type="button">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Google でログイン
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 3. STATUS DISPLAY ====== -->
+<div class="demo-section">
+  <h2>3. Status Display</h2>
+  <div class="demo-row">
+    <div style="flex:1">
+      <div class="demo-label">QUOTA_EXCEEDED</div>
+      <div class="ai-status" style="display:block">
+        <div class="ai-status-line">今月のトークン上限に達しました。</div>
+        <div class="ai-status-detail">4,900,000 / 5,000,000 トークン / 次回リセット: 2026/04/01</div>
+        <div class="ai-status-actions"><button type="button" class="ai-status-action">プランを見る</button></div>
+      </div>
+    </div>
+    <div style="flex:1">
+      <div class="demo-label">PLAN_REQUIRED</div>
+      <div class="ai-status" style="display:block">
+        <div class="ai-status-line">現在の契約状態ではAI機能を利用できません。</div>
+        <div class="ai-status-detail">プラン・契約状態を確認してください。</div>
+        <div class="ai-status-actions"><button type="button" class="ai-status-action">プランを見る</button></div>
+      </div>
+    </div>
+    <div style="flex:1">
+      <div class="demo-label">Auth Error</div>
+      <div class="ai-status" style="display:block">
+        <div class="ai-status-line">ログインに失敗しました。</div>
+        <div class="ai-status-detail">ログインがタイムアウトしました。</div>
+        <div class="ai-status-actions"><button type="button" class="ai-status-action">Googleでログイン</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 4. CHAT MESSAGES ====== -->
+<div class="demo-section">
+  <h2>4. Chat Messages</h2>
+  <div class="ai-chat-log" style="display:flex; flex-direction:column; gap:8px; max-width:600px;">
+    <!-- User -->
+    <div class="ai-message is-user">
+      <div class="ai-message-content">introduction.tex のタイトルを「量子コンピューティングの基礎」に変更して</div>
+    </div>
+    <!-- Assistant -->
+    <div class="ai-message is-assistant">
+      <div class="ai-message-body">
+        <div class="ai-message-content">
+          <p>タイトルを変更しました。<code class="ai-inline-code">\title{}</code> コマンドを更新しています。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== THINKING ANIMATION ====== -->
+<div class="demo-section">
+  <h2>Thinking Animation (A+B)</h2>
+  <div class="demo-label" style="margin-bottom:8px">グラデーションフロー + シマーライン</div>
+  <div style="display:flex; flex-direction:column; gap:12px; max-width:400px;">
+    <div class="ai-message is-assistant ai-thinking-message">
+      <div class="ai-message-body">
+        <div class="ai-message-content">考えています...</div>
+      </div>
+    </div>
+    <div class="ai-message is-assistant ai-thinking-message">
+      <div class="ai-message-body">
+        <div class="ai-message-content">ファイルを読んでいます</div>
+      </div>
+    </div>
+    <div class="ai-message is-assistant ai-thinking-message">
+      <div class="ai-message-body">
+        <div class="ai-message-content">変更を準備しています</div>
+      </div>
+    </div>
+    <div class="ai-message is-assistant ai-thinking-message">
+      <div class="ai-message-body">
+        <div class="ai-message-content">作業中...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 5. MARKDOWN RENDERING ====== -->
+<div class="demo-section">
+  <h2>5. Markdown Rendering</h2>
+  <div style="max-width:600px;">
+    <!-- Code Block (Monaco-aligned syntax highlight) -->
+    <div class="demo-label">Code Block</div>
+    <div class="ai-code-block">
+      <div class="ai-code-header">
+        <span class="ai-code-lang">latex</span>
+        <button class="ai-code-copy" type="button">コピー</button>
+      </div>
+      <pre><code><span class="hl-keyword">\documentclass</span><span class="hl-delimiter">{</span><span class="hl-type">article</span><span class="hl-delimiter">}</span>
+<span class="hl-keyword">\usepackage</span><span class="hl-delimiter">[</span>utf<span class="hl-number">8</span><span class="hl-delimiter">]</span><span class="hl-delimiter">{</span><span class="hl-type">inputenc</span><span class="hl-delimiter">}</span>
+<span class="hl-keyword">\title</span><span class="hl-delimiter">{</span>量子コンピューティングの基礎<span class="hl-delimiter">}</span>
+<span class="hl-keyword">\author</span><span class="hl-delimiter">{</span>田中太郎<span class="hl-delimiter">}</span>
+
+<span class="hl-keyword">\begin</span><span class="hl-delimiter">{</span><span class="hl-type">document</span><span class="hl-delimiter">}</span>
+<span class="hl-keyword">\maketitle</span>
+
+<span class="hl-comment">% 本文をここに記述</span>
+<span class="hl-keyword">\section</span><span class="hl-delimiter">{</span>はじめに<span class="hl-delimiter">}</span>
+量子ビットは <span class="hl-delimiter">$</span><span class="hl-number">0</span><span class="hl-delimiter">$</span> と <span class="hl-delimiter">$</span><span class="hl-number">1</span><span class="hl-delimiter">$</span> の重ね合わせ状態を取る。
+
+<span class="hl-keyword">\end</span><span class="hl-delimiter">{</span><span class="hl-type">document</span><span class="hl-delimiter">}</span></code></pre>
+    </div>
+
+    <!-- Headings -->
+    <div class="demo-label" style="margin-top:16px">Headings</div>
+    <h1 class="ai-md-heading ai-md-heading-1">H1 見出し</h1>
+    <h2 class="ai-md-heading ai-md-heading-2">H2 見出し</h2>
+    <h3 class="ai-md-heading ai-md-heading-3">H3 見出し</h3>
+
+    <!-- List -->
+    <div class="demo-label" style="margin-top:16px">List</div>
+    <ul class="ai-md-list">
+      <li>量子ビットの基本概念</li>
+      <li>量子ゲートの種類
+        <ul class="ai-md-list">
+          <li>Hadamardゲート</li>
+          <li>CNOTゲート</li>
+        </ul>
+      </li>
+      <li>量子もつれと応用</li>
+    </ul>
+
+    <!-- Table -->
+    <div class="demo-label" style="margin-top:16px">Table</div>
+    <div class="ai-table-wrapper">
+      <table class="ai-md-table">
+        <thead><tr><th>ゲート</th><th>ビット数</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td>H</td><td>1</td><td>Hadamard変換</td></tr>
+          <tr><td>CNOT</td><td>2</td><td>制御NOT</td></tr>
+          <tr><td>T</td><td>1</td><td>π/8ゲート</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 6. PROPOSAL CARDS ====== -->
+<div class="demo-section">
+  <h2>6. Proposal Cards（統合カード）</h2>
+
+  <div class="demo-label">6a. 単一ファイル（未適用）</div>
+  <div class="ai-proposals" style="display:flex; flex-direction:column; gap:8px; max-width:500px; margin-bottom:16px;">
+    <div class="ai-proposal">
+      <div class="ai-proposal-header">
+        <div class="ai-proposal-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg></div>
+        <div class="ai-proposal-path">introduction.tex</div>
+      </div>
+      <div class="ai-proposal-summary">
+        <div class="diff-summary"><span class="diff-summary-item is-add">+3</span><span class="diff-summary-item is-del">-1</span></div>
+      </div>
+      <div class="ai-proposal-actions">
+        <button class="panel-button ghost" type="button">差分を見る</button>
+        <button class="panel-button" type="button">適用</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-label">6b. 単一ファイル（適用済み）</div>
+  <div class="ai-proposals" style="display:flex; flex-direction:column; gap:8px; max-width:500px; margin-bottom:16px;">
+    <div class="ai-proposal is-applied">
+      <div class="ai-proposal-header">
+        <div class="ai-proposal-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg></div>
+        <div class="ai-proposal-path">introduction.tex</div>
+        <span class="ai-proposal-badge" style="background:rgba(99,102,241,0.1); color:#818cf8; border-color:rgba(99,102,241,0.2);">適用済み</span>
+      </div>
+      <div class="ai-proposal-summary">
+        <div class="diff-summary"><span class="diff-summary-item is-add">+3</span><span class="diff-summary-item is-del">-1</span></div>
+      </div>
+      <div class="ai-proposal-actions">
+        <button class="panel-button ghost" type="button">差分を見る</button>
+        <button class="panel-button ghost" type="button">元に戻す</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-label">6c. 複数ファイル（未適用）</div>
+  <div class="ai-proposals" style="display:flex; flex-direction:column; gap:8px; max-width:500px; margin-bottom:16px;">
+    <div class="ai-proposal">
+      <div class="ai-proposal-header">
+        <div class="ai-proposal-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg></div>
+        <div class="ai-proposal-path">3件のファイル変更</div>
+      </div>
+      <div class="ai-proposal-file-list">
+        <div class="ai-proposal-file-item">
+          <span class="ai-proposal-file-name" title="introduction.tex">introduction.tex</span>
+          <span class="diff-summary-item is-add">+3</span><span class="diff-summary-item is-del">-1</span>
+        </div>
+        <div class="ai-proposal-file-item">
+          <span class="ai-proposal-file-name" title="methods.tex">methods.tex</span>
+          <span class="diff-summary-item is-add">+12</span><span class="diff-summary-item is-del">-5</span>
+        </div>
+        <div class="ai-proposal-file-item">
+          <span class="ai-proposal-file-name" title="appendix.tex">appendix.tex</span>
+          <span class="ai-proposal-file-badge">新規</span>
+          <span class="diff-summary-item is-add">+45</span>
+        </div>
+      </div>
+      <div class="ai-proposal-actions">
+        <button class="panel-button ghost" type="button">差分を見る</button>
+        <button class="panel-button" type="button">すべて適用</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-label">6d. 複数ファイル（適用済み）</div>
+  <div class="ai-proposals" style="display:flex; flex-direction:column; gap:8px; max-width:500px;">
+    <div class="ai-proposal is-applied">
+      <div class="ai-proposal-header">
+        <div class="ai-proposal-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg></div>
+        <div class="ai-proposal-path">3件のファイル変更</div>
+        <span class="ai-proposal-badge" style="background:rgba(99,102,241,0.1); color:#818cf8; border-color:rgba(99,102,241,0.2);">適用済み</span>
+      </div>
+      <div class="ai-proposal-file-list">
+        <div class="ai-proposal-file-item is-applied">
+          <span class="ai-proposal-file-name" title="introduction.tex">introduction.tex</span>
+          <span class="diff-summary-item is-add">+3</span><span class="diff-summary-item is-del">-1</span>
+        </div>
+        <div class="ai-proposal-file-item is-applied">
+          <span class="ai-proposal-file-name" title="methods.tex">methods.tex</span>
+          <span class="diff-summary-item is-add">+12</span><span class="diff-summary-item is-del">-5</span>
+        </div>
+        <div class="ai-proposal-file-item is-applied">
+          <span class="ai-proposal-file-name" title="appendix.tex">appendix.tex</span>
+          <span class="ai-proposal-file-badge">新規</span>
+          <span class="diff-summary-item is-add">+45</span>
+        </div>
+      </div>
+      <div class="ai-proposal-actions">
+        <button class="panel-button ghost" type="button">差分を見る</button>
+        <button class="panel-button ghost" type="button">元に戻す</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 7. INPUT AREA ====== -->
+<div class="demo-section">
+  <h2>7. Input Area</h2>
+  <div style="max-width:500px;">
+    <!-- Context Bar -->
+    <div class="ai-context-bar" style="display:flex; gap:4px; margin-bottom:8px; flex-wrap:wrap;">
+      <span class="ai-context-chip">introduction.tex</span>
+      <span class="ai-context-chip">L.15-23 選択中</span>
+    </div>
+    <!-- Attachments -->
+    <div class="ai-attachments" style="display:flex; gap:4px; margin-bottom:8px;">
+      <span class="ai-attachment-chip">
+        <span class="ai-attachment-name">screenshot.png</span>
+        <button class="ai-attachment-remove" type="button">&times;</button>
+      </span>
+    </div>
+    <!-- Input -->
+    <div class="ai-chat-input" style="display:flex; gap:4px; align-items:flex-end;">
+      <button class="ai-btn-icon ai-btn-attach" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <textarea class="ai-chat-textarea" rows="1" placeholder="メッセージを入力...">タイトルを変更して</textarea>
+      <button class="ai-btn-icon ai-btn-stop" type="button" style="display:none;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+      <button class="ai-btn-icon ai-btn-send" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+    <!-- Stop button visible -->
+    <div class="demo-label" style="margin-top:12px">実行中の入力エリア</div>
+    <div class="ai-chat-input" style="display:flex; gap:4px; align-items:flex-end;">
+      <button class="ai-btn-icon ai-btn-attach" type="button" disabled>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <textarea class="ai-chat-textarea" rows="1" placeholder="メッセージを入力..." disabled></textarea>
+      <button class="ai-btn-icon ai-btn-stop" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 8. MENTION POPOVER ====== -->
+<div class="demo-section">
+  <h2>8. Mention Popover (@ファイル補完)</h2>
+  <div style="max-width:300px;">
+    <div class="ai-mention-popover" style="display:block;">
+      <div class="ai-mention-item is-selected">introduction.tex</div>
+      <div class="ai-mention-item">introduction-v2.tex</div>
+      <div class="ai-mention-item">intro-draft.tex</div>
+      <div class="ai-mention-more">他 12 件</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 9. EMPTY STATE ====== -->
+<div class="demo-section">
+  <h2>9. Empty State (新規チャット)</h2>
+  <div style="max-width:400px;">
+    <div class="ai-empty-state">
+      <div class="ai-empty-title">Axiom</div>
+      <div class="ai-empty-desc">AIアシスタントに何でも聞いてみましょう</div>
+      <div class="ai-empty-hints">
+        <button class="ai-empty-hint" type="button">タイトルを変更して</button>
+        <button class="ai-empty-hint" type="button">この論文の構成を分析して</button>
+        <button class="ai-empty-hint" type="button">参考文献を追加して</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 10. HISTORY PANEL ====== -->
+<div class="demo-section">
+  <h2>10. History Panel</h2>
+  <div style="max-width:280px;">
+    <div class="ai-history" style="display:block; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px;">
+      <div class="ai-history-list" style="display:flex; flex-direction:column; gap:4px;">
+        <div class="ai-history-item-wrap">
+          <button class="ai-history-item is-active" type="button">タイトル変更の依頼</button>
+          <button class="ai-history-delete" type="button">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+          </button>
+        </div>
+        <div class="ai-history-item-wrap">
+          <button class="ai-history-item is-running" type="button">参考文献の整理</button>
+        </div>
+        <div class="ai-history-item-wrap">
+          <button class="ai-history-item" type="button">LaTeX構文の修正</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 11. DELETE MODAL ====== -->
+<div class="demo-section">
+  <h2>11. Delete Confirmation Modal</h2>
+  <div style="max-width:400px; position:relative; min-height:200px;">
+    <div class="ai-chat-delete-modal is-visible" style="position:relative; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.5); border-radius:8px; padding:20px;">
+      <div class="ai-chat-delete-modal-card" style="transform:none; opacity:1;">
+        <div class="ai-chat-delete-modal-title">チャットを削除</div>
+        <div class="ai-chat-delete-modal-text">「タイトル変更の依頼」を削除しますか？</div>
+        <div class="ai-chat-delete-modal-actions">
+          <button class="panel-button ghost" type="button">キャンセル</button>
+          <button class="panel-button" type="button" style="background:rgba(239,68,68,0.8);">削除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 12. BACKGROUND TOAST ====== -->
+<div class="demo-section">
+  <h2>12. Background Toast</h2>
+  <div class="demo-row">
+    <div class="ai-bg-toast" style="position:relative; display:flex;">
+      <span>「参考文献の整理」が完了しました</span>
+      <button class="ai-bg-toast-action" type="button">表示</button>
+    </div>
+    <div class="ai-bg-toast is-error" style="position:relative; display:flex;">
+      <span>「ビルドエラー分析」でエラーが発生</span>
+      <button class="ai-bg-toast-action" type="button">表示</button>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>

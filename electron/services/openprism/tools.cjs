@@ -303,6 +303,50 @@ const buildTools = (service, conversationId, policy) => {
     },
   );
 
+  // ---- 8. check_environment ----
+  const checkEnvironmentTool = make(
+    "check_environment",
+    "Check if a TeX-related command is available on the system. Input: { command }. Example commands: lualatex, pdflatex, xelatex, uplatex, latexmk, synctex, latexindent.",
+    {
+      type: "object",
+      properties: { command: { type: "string" } },
+      required: ["command"],
+    },
+    async (args) => {
+      if (!service.envService) {
+        return JSON.stringify({ error: "Environment service is not available." });
+      }
+      const command = typeof args.command === "string" ? args.command.trim() : "";
+      if (!command) {
+        return JSON.stringify({ error: "command is required." });
+      }
+      const available = await service.envService.checkCommand(command);
+      return JSON.stringify({ command, available });
+    },
+  );
+
+  // ---- 9. install_environment ----
+  const installEnvironmentTool = make(
+    "install_environment",
+    "Install a TeX-related package. Input: { target }. Supported targets: 'basictex' (TeX distribution), 'latexmk', 'latexindent'. Uses Homebrew on macOS or winget on Windows.",
+    {
+      type: "object",
+      properties: { target: { type: "string" } },
+      required: ["target"],
+    },
+    async (args) => {
+      if (!service.envService) {
+        return JSON.stringify({ error: "Environment service is not available." });
+      }
+      const target = typeof args.target === "string" ? args.target.trim() : "";
+      if (!target) {
+        return JSON.stringify({ error: "target is required." });
+      }
+      const result = await service.envService.installEnvironment(target);
+      return JSON.stringify(result);
+    },
+  );
+
   return [
     readFileTool,
     listFilesTool,
@@ -311,6 +355,8 @@ const buildTools = (service, conversationId, policy) => {
     getCompileLogTool,
     arxivSearchTool,
     arxivBibtexTool,
+    checkEnvironmentTool,
+    installEnvironmentTool,
   ];
 };
 

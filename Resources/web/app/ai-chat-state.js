@@ -4,6 +4,7 @@ export const createChatState = (id, title, autonomous, autoLoopBudget) => ({
     title,
     messages: [],
     proposals: new Map(),
+    appliedProposalIds: new Set(),
     statusMessage: "待機中",
     hasUndo: false,
     autonomous,

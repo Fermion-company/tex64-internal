@@ -1,5 +1,5 @@
 import { PLACEHOLDER_LATEX, indexToOffset, offsetToIndex, getMathFieldSelectionRange } from "../math-input-utils.js";
-import { readMathFieldValue, setSelectionRange, writeMathFieldValue } from "../input-ui-math-field.js";
+import { setSelectionRange } from "../input-ui-math-field.js";
 import type { MathWysiwygApi } from "../../../math/wysiwyg/math-wysiwyg.js";
 
 export type ReadMathFieldLatex = (
@@ -390,13 +390,6 @@ export const createMathfieldMatrixOps = (params: {
       const afterValue = readMathFieldLatex(mathfieldApi, "latex");
       replaced =
         typeof beforeValue === "string" && typeof afterValue === "string" ? afterValue !== beforeValue : true;
-    }
-    if (!replaced) {
-      // Last resort: overwrite the full latex string (stable + deterministic for e2e and fast typing).
-      const beforeValue = readMathFieldValue(mathfieldApi);
-      writeMathFieldValue(mathfieldApi, nextFullLatex);
-      const afterValue = readMathFieldValue(mathfieldApi);
-      replaced = afterValue !== beforeValue;
     }
     if (!replaced) {
       return false;

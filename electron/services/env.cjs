@@ -34,6 +34,8 @@ class EnvService {
       extra.push("/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin");
     } else if (this.platform === "win32") {
       extra.push(
+        "C:\\texlive\\2026\\bin\\windows",
+        "C:\\texlive\\2025\\bin\\windows",
         "C:\\texlive\\2024\\bin\\windows",
         "C:\\texlive\\2023\\bin\\windows",
         "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",
@@ -90,50 +92,68 @@ class EnvService {
     }
   }
 
+  async hasBrew() {
+    try {
+      await execAsync("which brew");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async installMac(target) {
     let cmd = "";
+    let fallbackHint = "";
     if (target === "basictex") {
-      // BasicTeX is usually enough and smaller than MacTeX
-      cmd = "brew install --cask basictex"; 
+      cmd = "brew install --cask basictex";
+      fallbackHint = "https://tug.org/mactex/ から MacTeX をダウンロードしてインストールしてください。";
     } else if (target === "latexmk") {
-      // latexmk is included in BasicTeX/MacTeX usually, but can be installed separately via brew
-      // strictly speaking, it depends on perl.
-      // If user has MacTeX but somehow no latexmk, assume brew install
       cmd = "brew install latexmk";
+      fallbackHint = "ターミナルで brew install latexmk を実行してください。";
+    } else if (target === "latexindent") {
+      // Try tlmgr first (TeX Live package manager), then brew
+      try {
+        await execAsync("tlmgr install latexindent");
+        return { success: true, message: "latexindent のインストールを実行しました。再チェックしてください。" };
+      } catch {
+        cmd = "brew install latexindent";
+        fallbackHint = "ターミナルで tlmgr install latexindent または brew install latexindent を実行してください。";
+      }
     }
 
-    if (!cmd) return { success: false, message: "Unknown target" };
+    if (!cmd) return { success: false, message: "不明なインストール対象です。" };
+
+    // Check if Homebrew is available
+    const brewAvailable = await this.hasBrew();
+    if (!brewAvailable) {
+      const message = target === "basictex"
+        ? `Homebrew が見つかりません。${fallbackHint}`
+        : `Homebrew が見つかりません。${fallbackHint}`;
+      return { success: false, message };
+    }
 
     try {
-       // Using graphical sudo prompt might be needed for Cask, but let's try direct first.
-       // Initial implementation: try running. If it fails, we might need to tell user to run in terminal.
-       await execAsync(cmd);
-       return { success: true, message: "Installation command executed." };
+       await execAsync(cmd, { timeout: 600000 }); // 10 min timeout for large downloads
+       return { success: true, message: "インストールを実行しました。再チェックしてください。" };
     } catch (error) {
        console.error("Install failed:", error);
-       return { success: false, message: `Install failed: ${error.message}. Please run '${cmd}' in Terminal.` };
+       return { success: false, message: `インストールに失敗しました。ターミナルで ${cmd} を実行してください。` };
     }
   }
 
   async installWin(target) {
     let cmd = "";
-    if (target === "basictex") {
-       // TeX Live is standard
-       cmd = "winget install -e --id TeXLive.TeXLive";
-    } else if (target === "latexmk") {
-       // Usually included in TeX Live. 
-       // Windows users might use MiKTeX too.
-       // Let's stick to TeXLive for now as it's closer to Mac environment
+    if (target === "basictex" || target === "latexmk" || target === "latexindent") {
        cmd = "winget install -e --id TeXLive.TeXLive";
     }
 
-    if (!cmd) return { success: false, message: "Unknown target" };
+    if (!cmd) return { success: false, message: "不明なインストール対象です。" };
 
     try {
-      await execAsync(cmd);
-      return { success: true, message: "Installation command executed." };
+      await execAsync(cmd, { timeout: 600000 });
+      return { success: true, message: "インストールを実行しました。再チェックしてください。" };
     } catch (error) {
-      return { success: false, message: `Install failed: ${error.message}. Please run '${cmd}' in PowerShell.` };
+      return { success: false, message: `インストールに失敗しました。PowerShell で ${cmd} を実行してください。` };
     }
   }
 }

@@ -3,13 +3,15 @@ const crypto = require("crypto");
 const { normalizePath } = require("./agent-policy.cjs");
 
 const TOOL_STATUS_LABELS = {
-  read_file: "ファイル確認中",
-  list_files: "構成把握中",
-  propose_patch: "変更案作成中",
-  apply_patch: "変更案作成中",
-  get_compile_log: "ログ確認中",
-  arxiv_search: "arXiv検索中",
-  arxiv_bibtex: "BibTeX取得中",
+  read_file: "ファイルを読んでいます",
+  list_files: "フォルダ構成を確認しています",
+  propose_patch: "変更を準備しています",
+  apply_patch: "変更を準備しています",
+  get_compile_log: "ビルドログを確認しています",
+  arxiv_search: "arXivを検索しています",
+  arxiv_bibtex: "BibTeXを取得しています",
+  check_environment: "環境を確認しています",
+  install_environment: "環境をインストールしています",
 };
 const MAX_USER_INLINE_DATA_BYTES = 5 * 1024 * 1024;
 const MAX_USER_INLINE_DATA_TOTAL_BYTES = 8 * 1024 * 1024;

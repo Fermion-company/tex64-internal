@@ -42,6 +42,8 @@ module.exports = (BuildService) => {
       extra.push("/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin");
     } else if (process.platform === "win32") {
       extra.push(
+        "C:\\texlive\\2026\\bin\\windows",
+        "C:\\texlive\\2025\\bin\\windows",
         "C:\\texlive\\2024\\bin\\windows",
         "C:\\texlive\\2023\\bin\\windows",
         "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",

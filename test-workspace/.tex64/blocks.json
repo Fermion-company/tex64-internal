@@ -7,5 +7,14 @@
     },
     "mode": "new",
     "createdAt": "2026-03-09T10:31:19.843Z"
+  },
+  {
+    "file": "demo-fourier.tex",
+    "snippet": "$\\displaylines{\\sin x\\\\ x\\\\ x\\\\ }$",
+    "content": {
+      "formula": "\\displaylines{\\sin x\\\\ x\\\\ x\\\\ }"
+    },
+    "mode": "new",
+    "createdAt": "2026-03-17T12:12:22.274Z"
   }
 ]

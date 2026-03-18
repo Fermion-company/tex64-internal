@@ -6,9 +6,12 @@ const {
   FALLBACK_MIN_CONFIDENCE,
   PIX2TEX_EARLY_ACCEPT_SCORE,
   FALLBACK_EARLY_ACCEPT_CONFIDENCE,
+  MAX_DECODE_CANDIDATES,
+  DECODER_EARLY_ABORT_STEP,
 } = require("./constants.cjs");
 const { buildIdToToken, decodeTokens } = require("./tokenizer.cjs");
 const { normalizeDecodedLatex, normalizeFallbackText } = require("./latex-normalize.cjs");
+const { stripNonMathText } = require("./strip-text.cjs");
 const {
   isSimpleFormula,
   looksLikeGarbage,
@@ -27,6 +30,29 @@ const {
   sampleFromProbs,
   buildDecodeCandidates,
 } = require("./sampling.cjs");
+
+const isRepeatingPattern = (tokens, windowSize) => {
+  if (tokens.length < windowSize) return false;
+  const window = tokens.slice(-windowSize);
+  for (let period = 2; period <= 4; period += 1) {
+    if (windowSize % period !== 0) continue;
+    let repeats = true;
+    for (let i = period; i < windowSize; i += 1) {
+      if (window[i] !== window[i % period]) {
+        repeats = false;
+        break;
+      }
+    }
+    if (repeats) return true;
+  }
+  return false;
+};
+
+const hasMathContent = (text) => {
+  if (!text) return false;
+  if (/[0-9=+\-*/^_{}()\\]/.test(text)) return true;
+  return false;
+};
 
 class MathOcrService {
   constructor({ appPath, userDataPath, isPackaged, resourcesPath }) {
@@ -101,6 +127,8 @@ class MathOcrService {
       }
     })();
     await this.loading;
+    // Preload Tesseract worker in background (non-blocking)
+    this.ensureTesseractWorker().catch(() => {});
   }
 
   async ensureTesseractWorker() {
@@ -173,13 +201,15 @@ class MathOcrService {
     return context;
   }
 
-  async decodeWithContext(context, config, width, height, decodeCandidate) {
+  async decodeWithContext(context, config, width, height, decodeCandidate, effectiveMaxSeqLen, decodeDeadlineMs) {
     const bosToken = config.bosToken;
     const decoderStartToken = Number.isFinite(config.decoderStartToken)
       ? config.decoderStartToken
       : bosToken;
     const eosToken = config.eosToken;
-    const maxSeqLen = config.maxSeqLen;
+    const maxSeqLen = Number.isFinite(effectiveMaxSeqLen)
+      ? effectiveMaxSeqLen
+      : config.maxSeqLen;
     const minTokens = Math.max(5, Math.round(width / 90));
     const seedOffset = Number.isFinite(decodeCandidate?.seedOffset)
       ? decodeCandidate.seedOffset
@@ -202,6 +232,9 @@ class MathOcrService {
           ? config.temperature
           : 1;
 
+    const decodeDeadline = Number.isFinite(decodeDeadlineMs) && decodeDeadlineMs > 0
+      ? Date.now() + decodeDeadlineMs
+      : 0;
     const tokens = [decoderStartToken];
     for (let step = 0; step < maxSeqLen; step += 1) {
       const trimmed = tokens.slice(-maxSeqLen);
@@ -260,10 +293,39 @@ class MathOcrService {
       if (nextToken === eosToken) {
         break;
       }
+
+      // Time-based abort: check every 10 steps to reduce overhead
+      if (decodeDeadline > 0 && step > 0 && step % 10 === 0 && Date.now() >= decodeDeadline) {
+        break;
+      }
+
+      // Early abort: check for degenerate output
+      if (step >= DECODER_EARLY_ABORT_STEP) {
+        // Abort if last 10 tokens form a repeating pattern
+        if (isRepeatingPattern(tokens, 10)) {
+          break;
+        }
+        // At the abort step, check if any math content has been generated
+        if (step === DECODER_EARLY_ABORT_STEP) {
+          const partial = decodeTokens(tokens, this.idToToken);
+          const stripped = stripNonMathText(partial);
+          if (!stripped.trim() || !hasMathContent(stripped)) {
+            break;
+          }
+        }
+        // Periodic check: if last 20 tokens contain no math operators, likely generating text
+        if (step > DECODER_EARLY_ABORT_STEP && step % 20 === 0) {
+          const recentTokens = tokens.slice(-20);
+          const recentText = decodeTokens(recentTokens, this.idToToken);
+          if (!hasMathContent(recentText)) {
+            break;
+          }
+        }
+      }
     }
 
     const decoded = decodeTokens(tokens, this.idToToken);
-    return normalizeDecodedLatex(decoded);
+    return stripNonMathText(decoded);
   }
 
   async recognize(payload) {
@@ -285,6 +347,13 @@ class MathOcrService {
       throw new Error("Math OCR input buffer is invalid.");
     }
 
+    const effectiveMaxSeqLen = Number.isFinite(payload.maxSeqLen)
+      ? Math.min(payload.maxSeqLen, 512)
+      : undefined;
+    const effectiveMaxCandidates = Number.isFinite(payload.maxDecodeCandidates)
+      ? Math.min(payload.maxDecodeCandidates, MAX_DECODE_CANDIDATES)
+      : MAX_DECODE_CANDIDATES;
+
     let config = DEFAULT_CONFIG;
     let latex = "";
     let pix2texError = null;
@@ -300,10 +369,12 @@ class MathOcrService {
     if (!pix2texError) {
       try {
         const context = await this.runEncoder(floatData, width, height, config);
-        const decodeCandidates = buildDecodeCandidates(config);
+        const decodeCandidates = buildDecodeCandidates(config).slice(0, effectiveMaxCandidates);
         let bestCandidate = { latex: "", score: -Infinity, invalid: true };
         let firstDecodeError = null;
         const seenDecoded = new Set();
+        // Per-candidate decode time budget: 4 seconds
+        const perCandidateDeadlineMs = 4000;
 
         for (const candidate of decodeCandidates) {
           try {
@@ -312,7 +383,9 @@ class MathOcrService {
               config,
               width,
               height,
-              candidate
+              candidate,
+              effectiveMaxSeqLen,
+              perCandidateDeadlineMs
             );
             const normalizedLatex = normalizeDecodedLatex(
               typeof decodedLatex === "string" ? decodedLatex : ""
@@ -359,8 +432,13 @@ class MathOcrService {
       (pix2texError || !latex || looksLikeGarbage(latex) || isLikelyInvalidLatex(latex));
 
     if (shouldTryFallback) {
+      // Time budget: allow at most 3 seconds for all fallback candidates
+      const fallbackDeadline = Date.now() + 3000;
       let bestFallback = { text: "", confidence: null, score: -Infinity };
       for (const candidateImage of fallbackImageCandidates) {
+        if (Date.now() >= fallbackDeadline) {
+          break;
+        }
         const fallback = await this.recognizeFallback(candidateImage).catch(() => ({
           text: "",
           confidence: null,
@@ -403,7 +481,6 @@ class MathOcrService {
       if (
         fallbackText &&
         confidentEnough &&
-        isSimpleFormula(fallbackText) &&
         shouldPreferFallback
       ) {
         return { latex: fallbackText };

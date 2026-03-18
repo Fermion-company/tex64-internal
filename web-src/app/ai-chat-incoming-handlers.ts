@@ -12,7 +12,6 @@ type ThinkingEntry = { text: string; element: HTMLElement | null };
 
 type CreateAiChatIncomingHandlersOptions = {
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
-  dismissProposal: (proposalId: string) => void;
   chats: ChatState[];
   chatIndex: Map<string, ChatState>;
   proposalIndex: Map<string, string>;
@@ -40,9 +39,7 @@ type CreateAiChatIncomingHandlersOptions = {
   disableAutonomous: (chatId?: string | null) => void;
   enableAutonomous: (chat: ChatState) => void;
   scheduleUsageRefresh: (force?: boolean) => void;
-  ensureProposalsEmbedded: () => HTMLElement | null;
-  buildProposalCard: (proposal: AgentProposal) => HTMLElement;
-  getProposalsContainer: () => HTMLElement | null;
+  rebuildProposalCards: (chatId: string) => void;
   restoreDraftFromPending: (chatId: string, request: PendingAiRequest | null) => void;
   updateContextBar: () => void;
   buildContextPayload: (settings: unknown) => Record<string, unknown>;
@@ -81,15 +78,12 @@ export const createAiChatIncomingHandlers = (
     disableAutonomous,
     enableAutonomous,
     scheduleUsageRefresh,
-    ensureProposalsEmbedded,
-    buildProposalCard,
-    getProposalsContainer,
+    rebuildProposalCards,
     restoreDraftFromPending,
     updateContextBar,
     buildContextPayload,
     getAgentSettings,
     postToNative,
-    dismissProposal,
     switchActiveChat,
   } = options;
 
@@ -176,6 +170,7 @@ export const createAiChatIncomingHandlers = (
         .filter((msg) => msg.text.trim().length > 0);
 
       chat.proposals.clear();
+      chat.appliedProposalIds.clear();
       const restoredProposals = Array.isArray(session.proposals) ? session.proposals : [];
       restoredProposals.forEach((proposal) => {
         if (!proposal || typeof proposal !== "object") {
@@ -186,6 +181,9 @@ export const createAiChatIncomingHandlers = (
         }
         chat.proposals.set(proposal.id, proposal as AgentProposal);
         proposalIndex.set(proposal.id, chat.id);
+        if ((proposal as AgentProposal & { autoApplied?: boolean }).autoApplied === true) {
+          chat.appliedProposalIds.add(proposal.id);
+        }
       });
 
       const statusState = session.status?.state;
@@ -194,7 +192,7 @@ export const createAiChatIncomingHandlers = (
       chat.hasUndo = session.status?.undoAvailable === true;
       if (statusState === "running") {
         runningConversations.add(chat.id);
-        chat.statusMessage = statusMessage || "思考中...";
+        chat.statusMessage = statusMessage || "考えています...";
         upsertThinkingMessage(chat.id, chat.statusMessage);
       } else if (statusState === "error") {
         resumableConversations.add(chat.id);
@@ -213,8 +211,7 @@ export const createAiChatIncomingHandlers = (
   const tryAutonomousContinuation = (chat: ChatState) => {
     if (!chat.autonomous || chat.autoLoopBudget <= 0) return false;
     chat.autoLoopBudget -= 1;
-    const round = AUTONOMOUS_LOOP_LIMIT - chat.autoLoopBudget;
-    chat.statusMessage = `自動継続中 (ラウンド ${round}/${AUTONOMOUS_LOOP_LIMIT})`;
+    chat.statusMessage = "作業中...";
     runningConversations.add(chat.id);
     resumableConversations.delete(chat.id);
     upsertThinkingMessage(chat.id, chat.statusMessage);
@@ -247,7 +244,7 @@ export const createAiChatIncomingHandlers = (
     if (state === "running") {
       runningConversations.add(chat.id);
       resumableConversations.delete(chat.id);
-      chat.statusMessage = message || "思考中...";
+      chat.statusMessage = message || "考えています...";
       upsertThinkingMessage(chat.id, chat.statusMessage);
     } else {
       runningConversations.delete(chat.id);
@@ -276,37 +273,16 @@ export const createAiChatIncomingHandlers = (
   const handleMessage = (text: string, conversationId?: string) => {
     if (!conversationId) return;
     clearThinkingMessage(conversationId);
-    // Mark any open tool log as completed
-    const msgChat = ensureChat(conversationId);
-    if (msgChat) {
-      const toolLogPrefix = "\u{1F527} ";
-      const openLogIdx = msgChat.messages.findIndex(
-        (msg) => msg.role === "system" && msg.text.startsWith(toolLogPrefix) && !msg.text.includes("[完了]")
-      );
-      if (openLogIdx >= 0) {
-        msgChat.messages[openLogIdx].text += "\n[完了]";
-      }
-      // Clear thought message for next turn
-      const thoughtIdx = msgChat.messages.findIndex(
-        (msg) => msg.role === "system" && msg.text.startsWith("\u{1F4AD} ")
-      );
-      if (thoughtIdx >= 0) {
-        msgChat.messages.splice(thoughtIdx, 1);
-      }
-    }
-    if (conversationId) {
-      pendingAgentRequests.delete(conversationId);
-    }
-    if (conversationId && finalizeStreamingMessage(conversationId, text)) scrollToBottom();
+    pendingAgentRequests.delete(conversationId);
+    if (finalizeStreamingMessage(conversationId, text)) scrollToBottom();
     else appendMessage({ role: "assistant", text }, conversationId);
-    if (conversationId) {
-      runningConversations.delete(conversationId);
-      updateSendState();
-      renderHistoryList();
-      // バックグラウンド会話の完了トースト
-      if (conversationId !== getActiveChatId()) {
-        showCompletionToast(conversationId, false);
-      }
+    runningConversations.delete(conversationId);
+    resumableConversations.delete(conversationId);
+    updateSendState();
+    renderHistoryList();
+    // バックグラウンド会話の完了トースト
+    if (conversationId !== getActiveChatId()) {
+      showCompletionToast(conversationId, false);
     }
     const chat = ensureChat(conversationId);
     if (chat) chat.statusMessage = "";
@@ -337,28 +313,10 @@ export const createAiChatIncomingHandlers = (
     const label =
       typeof payload.label === "string" && payload.label.trim().length > 0
         ? payload.label.trim()
-        : payload.name;
-    const summary =
-      typeof payload.summary === "string" && payload.summary.trim().length > 0 && payload.summary !== "ok"
-        ? payload.summary.trim()
-        : "";
-    chat.statusMessage = summary ? `${label} (${summary})` : label;
+        : "考えています...";
+    // Filter out internal status values — only show the label
+    chat.statusMessage = label;
     upsertThinkingMessage(chat.id, chat.statusMessage);
-    // Append tool execution to a running tool log message
-    const toolLogPrefix = "\u{1F527} ";
-    const toolEntry = summary ? `${label}: ${summary}` : label;
-    const existingLogIdx = chat.messages.findIndex(
-      (msg) => msg.role === "system" && msg.text.startsWith(toolLogPrefix) && !msg.text.includes("[完了]")
-    );
-    if (existingLogIdx >= 0) {
-      chat.messages[existingLogIdx].text += `\n${toolEntry}`;
-    } else {
-      chat.messages.push({ role: "system", text: `${toolLogPrefix}ツール実行ログ\n${toolEntry}` });
-    }
-    if (chat.id === getActiveChatId()) {
-      renderChatContent();
-      scrollToBottom();
-    }
     if (chat.id === getActiveChatId()) updateStatusDisplay();
   };
 
@@ -368,13 +326,12 @@ export const createAiChatIncomingHandlers = (
     if (!chat) return;
     chat.proposals.set(proposal.id, proposal);
     proposalIndex.set(proposal.id, chat.id);
+    if ((proposal as AgentProposal & { autoApplied?: boolean }).autoApplied === true) {
+      chat.appliedProposalIds.add(proposal.id);
+    }
     renderHistoryList();
     if (chat.id === getActiveChatId()) {
-      const proposals = ensureProposalsEmbedded();
-      if (proposals) {
-        proposals.classList.remove("is-hidden");
-        proposals.appendChild(buildProposalCard(proposal));
-      }
+      rebuildProposalCards(chat.id);
       scrollToBottom();
     }
   };
@@ -389,41 +346,18 @@ export const createAiChatIncomingHandlers = (
     const chatId = proposalIndex.get(payload.proposalId) ?? payload.conversationId;
     const chat = getChat(chatId);
     if (!chat) return;
-    const proposal = chat.proposals.get(payload.proposalId);
     if (payload.ok) {
       chat.hasUndo = true;
+      const proposal = chat.proposals.get(payload.proposalId);
       if (!proposal) {
-        // Auto-apply: no proposal card, just update undo state
+        // Auto-apply with no proposal card — just update undo state
         renderHistoryList();
         updateSendState();
         return;
       }
+      chat.appliedProposalIds.add(payload.proposalId);
       if (chat.id === getActiveChatId()) {
-        const pc = getProposalsContainer();
-        const cardEl = pc?.querySelector(`[data-proposal-id="${payload.proposalId}"]`);
-        if (cardEl instanceof HTMLElement) {
-          cardEl.classList.add("is-applied");
-          const actionsEl = cardEl.querySelector(".ai-proposal-actions");
-          if (actionsEl) {
-            actionsEl.replaceChildren();
-            const undoBtn = document.createElement("button");
-            undoBtn.type = "button";
-            undoBtn.className = "panel-button ghost";
-            undoBtn.textContent = "取り消し";
-            undoBtn.addEventListener("click", (e) => {
-              e.stopPropagation();
-              postToNative({ type: "agent:undoLastApply", conversationId: chat.id });
-            });
-            actionsEl.appendChild(undoBtn);
-          }
-          const badgeEl = cardEl.querySelector(".ai-proposal-badge");
-          if (badgeEl instanceof HTMLElement) {
-            badgeEl.textContent = "適用済み";
-            badgeEl.style.background = "rgba(99, 102, 241, 0.1)";
-            badgeEl.style.color = "#818cf8";
-            badgeEl.style.borderColor = "rgba(99, 102, 241, 0.2)";
-          }
-        }
+        rebuildProposalCards(chat.id);
       }
       renderHistoryList();
       updateSendState();
@@ -442,56 +376,21 @@ export const createAiChatIncomingHandlers = (
     const targetChatId = payload.conversationId ?? getActiveChatId();
     if (payload.ok) {
       const chat = getChat(targetChatId);
-      if (chat && chat.id === getActiveChatId()) {
-        const pc = getProposalsContainer();
-        if (pc) {
-          const cards = Array.from(pc.querySelectorAll(".ai-proposal.is-applied"));
-          for (let ci = 0; ci < cards.length; ci++) {
-            const cardEl = cards[ci];
-            if (!(cardEl instanceof HTMLElement)) continue;
-            const pid = cardEl.dataset.proposalId ?? "";
-            const proposal = chat.proposals.get(pid);
-            if (!proposal) continue;
-            if (payload.path && proposal.path !== payload.path) continue;
-            cardEl.classList.remove("is-applied");
-            const badgeEl = cardEl.querySelector(".ai-proposal-badge");
-            if (badgeEl instanceof HTMLElement) {
-              const rawType = proposal.type || "write";
-              const pType = rawType === "write" && proposal.isNewFile ? "new" : rawType;
-              badgeEl.textContent = pType === "delete" ? "削除" : pType === "rename" ? "移動" : pType === "mkdir" ? "フォルダ" : pType === "new" ? "新規" : "編集";
-              badgeEl.style.background = "";
-              badgeEl.style.color = "";
-              badgeEl.style.borderColor = "";
+      if (chat) {
+        if (payload.path) {
+          for (const [pid, proposal] of chat.proposals) {
+            if (proposal.path === payload.path) {
+              chat.appliedProposalIds.delete(pid);
             }
-            const actionsEl = cardEl.querySelector(".ai-proposal-actions");
-            if (actionsEl) {
-              actionsEl.replaceChildren();
-              const previewBtn = document.createElement("button");
-              previewBtn.type = "button";
-              previewBtn.className = "panel-button ghost";
-              previewBtn.textContent = "差分を見る";
-              const cancelBtn = document.createElement("button");
-              cancelBtn.type = "button";
-              cancelBtn.className = "panel-button ghost";
-              cancelBtn.textContent = "取り消し";
-              cancelBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                postToNative({ type: "agent:proposal:dismiss", proposalId: pid }, true);
-                dismissProposal(pid);
-              });
-              const applyBtn = document.createElement("button");
-              applyBtn.type = "button";
-              applyBtn.className = "panel-button";
-              applyBtn.textContent = "適用";
-              applyBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                postToNative({ type: "agent:apply", proposalId: pid });
-              });
-              actionsEl.append(previewBtn, cancelBtn, applyBtn);
-            }
-            break;
           }
+        } else {
+          chat.appliedProposalIds.clear();
         }
+        if (chat.id === getActiveChatId()) {
+          rebuildProposalCards(chat.id);
+        }
+        renderHistoryList();
+        updateSendState();
       }
     } else {
       appendMessage({ role: "system", text: `取り消し失敗: ${payload.message ?? "取り消せる操作がありません。"}` }, targetChatId);
@@ -519,44 +418,17 @@ export const createAiChatIncomingHandlers = (
   const handleScratchpad = (payload: { content: string; conversationId?: string }) => {
     if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
-    if (!chat) return;
-    const content = typeof payload.content === "string" ? payload.content.trim() : "";
-    if (!content) return;
-    // Show the scratchpad plan as a system message so users can see the agent's thinking
-    const existingPlanIdx = chat.messages.findIndex(
-      (msg) => msg.role === "system" && msg.text.startsWith("📋 ")
-    );
-    const planText = `📋 エージェント計画メモ\n\n${content}`;
-    if (existingPlanIdx >= 0) {
-      chat.messages[existingPlanIdx].text = planText;
-    } else {
-      chat.messages.push({ role: "system", text: planText });
-    }
-    if (chat.id === getActiveChatId()) {
-      renderChatContent();
-      scrollToBottom();
-    }
+    if (!chat || !runningConversations.has(chat.id)) return;
+    chat.statusMessage = "考えています...";
+    upsertThinkingMessage(chat.id, chat.statusMessage);
   };
 
   const handleThought = (payload: { text: string; conversationId?: string }) => {
     if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
-    if (!chat) return;
-    const text = typeof payload.text === "string" ? payload.text.trim() : "";
-    if (!text) return;
-    const existingIdx = chat.messages.findIndex(
-      (msg) => msg.role === "system" && msg.text.startsWith("\u{1F4AD} ")
-    );
-    const thoughtText = `\u{1F4AD} 思考過程\n\n${text}`;
-    if (existingIdx >= 0) {
-      chat.messages[existingIdx].text = thoughtText;
-    } else {
-      chat.messages.push({ role: "system", text: thoughtText });
-    }
-    if (chat.id === getActiveChatId()) {
-      renderChatContent();
-      scrollToBottom();
-    }
+    if (!chat || !runningConversations.has(chat.id)) return;
+    chat.statusMessage = "考えています...";
+    upsertThinkingMessage(chat.id, chat.statusMessage);
   };
 
   const handleError = (message: string, conversationId?: string) => {
@@ -569,20 +441,16 @@ export const createAiChatIncomingHandlers = (
       resumableConversations.add(chat.id);
       clearThinkingMessage(chat.id);
     }
-    if (conversationId) streamingMessages.delete(conversationId);
-    if (conversationId) {
-      const pending = pendingAgentRequests.get(conversationId) ?? null;
-      pendingAgentRequests.delete(conversationId);
-      restoreDraftFromPending(conversationId, pending);
-    }
-    if (conversationId) {
-      runningConversations.delete(conversationId);
-      renderHistoryList();
-      updateSendState();
-      // バックグラウンド会話のエラートースト
-      if (conversationId !== getActiveChatId()) {
-        showCompletionToast(conversationId, true);
-      }
+    streamingMessages.delete(conversationId);
+    const pending = pendingAgentRequests.get(conversationId) ?? null;
+    pendingAgentRequests.delete(conversationId);
+    restoreDraftFromPending(conversationId, pending);
+    runningConversations.delete(conversationId);
+    renderHistoryList();
+    updateSendState();
+    // バックグラウンド会話のエラートースト
+    if (conversationId !== getActiveChatId()) {
+      showCompletionToast(conversationId, true);
     }
     updateStatusDisplay();
     scheduleUsageRefresh(true);

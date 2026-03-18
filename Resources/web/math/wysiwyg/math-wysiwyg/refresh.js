@@ -1,8 +1,7 @@
 import { getMathFieldSelectionRange } from "../../../app/blocks/math-input-utils.js";
-import { buildOperatorCandidates } from "../math-wysiwyg-candidates.js";
-import { getInternalSelectionRanges, indexToOffsetInRange, offsetToIndexInRange, setSelectionRange, } from "../math-wysiwyg-selection.js";
+import { getInternalSelectionRanges, indexToOffsetInRange, offsetToIndexInRange, } from "../math-wysiwyg-selection.js";
 import { getMathfieldModeAtOffset } from "../../mathfield-private-adapter.js";
-import { AUTO_REPLACE_OPERATORS, findAutoReplaceCorrection, findOperatorToken, findSlashCommandToken, findWordToken, } from "../math-wysiwyg-token-matching.js";
+import { findAutoReplaceCorrection, findOperatorToken, findSlashCommandToken, findWordToken, } from "../math-wysiwyg-token-matching.js";
 import { AUTO_COMMAND_MIN_LENGTH, AUTO_WORD_ALLOWLIST, AUTO_WORD_MIN_LENGTH, } from "./constants.js";
 import { clearEditAnchor, readMathfieldLatex, resolveAnalysisRange, resolveCursorOffset } from "./mathfield.js";
 const isInSuppressedTextLiteralContext = (rawValue, cursorIndex) => {
@@ -245,24 +244,9 @@ export const createMathWysiwygRefreshOps = (runtime, deps) => {
                 return { token: match.token, range: { start: startOffset, end: endOffset }, kind: match.kind };
             };
             const operatorCorrectionMatch = toOffsetMatch(findAutoReplaceCorrection(rawValue, cursorIndex));
-            if (operatorCorrectionMatch &&
-                !options.explicit &&
-                runtime.autoSuggest &&
-                AUTO_REPLACE_OPERATORS.has(operatorCorrectionMatch.token)) {
-                const candidates = buildOperatorCandidates(operatorCorrectionMatch.token);
-                const candidate = candidates[0];
-                if (candidate) {
-                    const mutationId = runtime.beginMutationSession();
-                    runtime.suppressNextUpdate = true;
-                    panelOps.setPanelVisible(false);
-                    setSelectionRange(mathfieldApi, operatorCorrectionMatch.range.start, operatorCorrectionMatch.range.end);
-                    runtime.deps.insertKey(candidate.key);
-                    // Reset edit anchor so that subsequent typing starts a fresh
-                    // token instead of accumulating onto the replaced content.
-                    clearEditAnchor(runtime);
-                    finalizeMutationSession(mutationId);
-                    return;
-                }
+            if (operatorCorrectionMatch) {
+                candidateOps.updateCandidates(operatorCorrectionMatch, options);
+                return;
             }
             const slashCommandMatch = (_a = findScopedSlashCommandMatch(mathfieldApi, cursorOffset)) !== null && _a !== void 0 ? _a : toOffsetMatch(findSlashCommandToken(rawValue, cursorIndex));
             if (slashCommandMatch) {
@@ -271,29 +255,7 @@ export const createMathWysiwygRefreshOps = (runtime, deps) => {
             }
             const operatorMatch = toOffsetMatch(findOperatorToken(rawValue, cursorIndex));
             if (operatorMatch) {
-                if (!options.explicit && runtime.autoSuggest && AUTO_REPLACE_OPERATORS.has(operatorMatch.token)) {
-                    const candidates = buildOperatorCandidates(operatorMatch.token);
-                    const candidate = candidates[0];
-                    if (candidate) {
-                        const mutationId = runtime.beginMutationSession();
-                        runtime.suppressNextUpdate = true;
-                        panelOps.setPanelVisible(false);
-                        setSelectionRange(mathfieldApi, operatorMatch.range.start, operatorMatch.range.end);
-                        runtime.deps.insertKey(candidate.key);
-                        // Reset edit anchor so that subsequent typing starts a fresh
-                        // token instead of accumulating onto the replaced content.
-                        clearEditAnchor(runtime);
-                        finalizeMutationSession(mutationId);
-                        return;
-                    }
-                }
-                // Only show operator suggestions on explicit/manual trigger.
-                if (options.explicit) {
-                    candidateOps.updateCandidates(operatorMatch, options);
-                }
-                else {
-                    candidateOps.updateCandidates(null, options);
-                }
+                candidateOps.updateCandidates(operatorMatch, options);
                 return;
             }
             const wordMatch = toOffsetMatch(findWordToken(rawValue, cursorIndex));

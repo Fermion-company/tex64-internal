@@ -485,12 +485,7 @@
                   <button class="ai-btn-icon ai-btn-stop" id="ai-stop" type="button" disabled aria-label="停止">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                   </button>
-                  <button class="ai-btn-icon ai-btn-undo" id="ai-undo" type="button" aria-label="取り消し">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M9 14l-4-4 4-4" stroke-linecap="round" stroke-linejoin="round"/>
-                      <path d="M5 10h9a6 6 0 1 1 0 12h-4" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                  </button>
+
                   <button class="ai-btn-icon ai-btn-send" id="ai-send" type="button" aria-label="送信">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
                   </button>
@@ -1002,7 +997,7 @@
                       </div>
                       <div class="settings-control">
                         <span class="env-badge checking">確認中...</span>
-                        <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
+                        <button class="panel-button env-btn is-hidden" data-target="latexindent" type="button">
                           インストール
                         </button>
                       </div>
@@ -1655,17 +1650,7 @@
           class="modal-card wide capture-crop-card"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="math-capture-crop-title"
         >
-          <div class="modal-header">
-            <div class="modal-title" id="math-capture-crop-title">範囲を切り取る</div>
-            <button class="panel-button" id="math-capture-crop-retry" type="button">
-              戻る
-            </button>
-            <button class="panel-button" id="math-capture-crop-apply" type="button">
-              確定
-            </button>
-          </div>
           <div class="capture-crop-body">
             <div class="capture-crop-canvas" id="math-capture-crop-canvas">
               <img
@@ -1682,15 +1667,55 @@
               <div class="capture-crop-guide" id="math-capture-crop-guide"></div>
             </div>
             <div class="capture-crop-footer">
-              <div class="capture-crop-meta">
-                <span class="capture-crop-size" id="math-capture-crop-size">1120 × 640</span>
-                <span class="capture-crop-hint" id="math-capture-crop-hint"></span>
-              </div>
-              <div class="capture-crop-shortcuts">
-                <kbd class="capture-crop-kbd"><span class="capture-crop-kbd-key">Enter</span> 確定</kbd>
-                <kbd class="capture-crop-kbd"><span class="capture-crop-kbd-key">Esc</span> 戻る</kbd>
+              <span class="capture-crop-size" id="math-capture-crop-size"></span>
+              <span class="capture-crop-hint" id="math-capture-crop-hint"></span>
+              <div class="capture-crop-actions">
+                <button class="panel-button ghost" id="math-capture-crop-retry" type="button">
+                  戻る
+                </button>
+                <button class="panel-button primary" id="math-capture-crop-apply" type="button">
+                  確定
+                </button>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal" id="capture-permission-modal" aria-hidden="true">
+        <div
+          class="modal-card capture-permission-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="capture-permission-title"
+        >
+          <div class="modal-header">
+            <div class="modal-title" id="capture-permission-title">画面収録の許可が必要です</div>
+          </div>
+          <div class="capture-permission-body">
+            <p class="capture-permission-description">
+              数式取り込み機能は、画面上のウィンドウをキャプチャするために
+              macOS の「画面収録」の許可が必要です。
+            </p>
+            <ol class="capture-permission-steps">
+              <li>下の「設定を開く」をクリックしてシステム設定を開きます</li>
+              <li>アプリ一覧から <strong>TeX64</strong> を探し、スイッチをオンにします</li>
+              <li>TeX64 を<strong>再起動</strong>して、もう一度お試しください</li>
+            </ol>
+            <p class="capture-permission-note">
+              許可後はアプリの再起動が必要な場合があります。
+            </p>
+          </div>
+          <div class="capture-permission-footer">
+            <button class="panel-button primary" id="capture-permission-open" type="button">
+              設定を開く
+            </button>
+            <button class="panel-button" id="capture-permission-retry" type="button">
+              再試行
+            </button>
+            <button class="panel-button ghost" id="capture-permission-close" type="button">
+              閉じる
+            </button>
           </div>
         </div>
       </div>
