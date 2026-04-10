@@ -3,21 +3,28 @@ const crypto = require("crypto");
 const { normalizePath } = require("./agent-policy.cjs");
 
 const TOOL_STATUS_LABELS = {
-  read_file: "ファイルを読んでいます",
-  list_files: "フォルダ構成を確認しています",
-  propose_patch: "変更を準備しています",
-  apply_patch: "変更を準備しています",
-  get_compile_log: "ビルドログを確認しています",
-  arxiv_search: "arXivを検索しています",
-  arxiv_bibtex: "BibTeXを取得しています",
-  check_environment: "環境を確認しています",
-  install_environment: "環境をインストールしています",
+  read_file: "Reading file",
+  list_files: "Checking folder structure",
+  list_sections: "Reading document outline",
+  read_section: "Reading section",
+  replace_section: "Rewriting section",
+  append_to_section: "Extending section",
+  replace_lines: "Replacing lines",
+  insert_lines: "Inserting lines",
+  delete_lines: "Deleting lines",
+  create_file: "Creating file",
+  write_file: "Writing file",
+  apply_patch: "Applying changes",
+  get_compile_log: "Checking build log",
+  arxiv_search: "Searching arXiv",
+  arxiv_bibtex: "Fetching BibTeX",
+  run_command: "Running command",
+  check_environment: "Checking environment",
+  install_environment: "Installing environment",
 };
 const MAX_USER_INLINE_DATA_BYTES = 5 * 1024 * 1024;
 const MAX_USER_INLINE_DATA_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_APPLY_UNDO_ENTRIES = 200;
-const DEFAULT_CHAT_MODEL = "gpt-5-nano";
-const DEFAULT_MAX_OUTPUT_TOKENS = 16384;
 const REQUEST_HISTORY_MAX_MESSAGES = 48;
 const REQUEST_HISTORY_MAX_CHARS = 128_000;
 const BASE64_DATA_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
@@ -42,13 +49,6 @@ const EDIT_REQUEST_PATTERN =
 const VERIFICATION_REQUEST_PATTERN =
   /(ビルド|compile|コンパイル|check|検証|テスト|latexmk|lualatex|pdflatex|xelatex|uplatex)/i;
 const QUESTION_LIKE_PATTERN = /[?？]|(?:どう(?:やって|すれば)|how\s+to|how\s+do\s+i|what\s+is)/i;
-// Temperature profiles (midpoints of user-requested ranges):
-// - research themes / outlines / novel ideas: 0.65-0.8 -> 0.75
-// - drafting: 0.4-0.55 -> 0.5
-// - proofreading / consistency checks: 0.1-0.25 -> 0.2
-const TEMPERATURE_IDEATION = 0.75;
-const TEMPERATURE_DRAFT = 0.5;
-const TEMPERATURE_VERIFY = 0.2;
 const IDEATION_REQUEST_PATTERN =
   /(研究テーマ|テーマ|章構成|構成案|アウトライン|新規提案|アイデア|ブレスト|brainstorm|novel|独創|別案|複数案|(?:3|３)案|提案して|提案を出して)/i;
 const DRAFT_REQUEST_PATTERN =
@@ -317,7 +317,7 @@ const summarizeToolArgs = (toolName, argsLike) => {
   if (name === "write_file") {
     return { path: clipText(args.path, 260), contentChars: typeof args.content === "string" ? args.content.length : 0 };
   }
-  if (name === "propose_patch") {
+  if (name === "write_file") {
     const edits = Array.isArray(args.edits) ? args.edits : [];
     return {
       path: clipText(args.path, 260),
@@ -465,7 +465,7 @@ const summarizeToolResult = (toolName, resultLike) => {
   if (
     name === "propose_write" ||
     name === "write_file" ||
-    name === "propose_patch" ||
+    name === "write_file" ||
     name === "patch_file" ||
     name === "replace_lines" ||
     name === "propose_delete" ||
@@ -632,50 +632,11 @@ const deriveTurnRouting = (userText, conversation) => {
   };
 };
 
-const clampTemperature = (value, fallback = 0.2) => {
-  const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(1, Math.max(0, parsed));
-};
-
-const deriveTurnTemperature = (userText, routing, settings) => {
-  const text = typeof userText === "string" ? userText.trim() : "";
-  const base = clampTemperature(settings?.temperature, 1.0);
-  if (!text) {
-    return { temperature: base, profile: "default" };
-  }
-  // Keep smalltalk stable and simple.
-  if (routing?.mode === "smalltalk") {
-    return { temperature: base, profile: "smalltalk" };
-  }
-  // Verification / consistency checks should be low-variance.
-  if (
-    routing?.forceToolCall === "build" ||
-    VERIFICATION_REQUEST_PATTERN.test(text) ||
-    PROOFREAD_REQUEST_PATTERN.test(text)
-  ) {
-    return { temperature: TEMPERATURE_VERIFY, profile: "verify" };
-  }
-  // Research ideation benefits from higher diversity.
-  if (IDEATION_REQUEST_PATTERN.test(text)) {
-    return { temperature: TEMPERATURE_IDEATION, profile: "ideation" };
-  }
-  // Drafting prefers moderate exploration without going off the rails.
-  if (DRAFT_REQUEST_PATTERN.test(text)) {
-    return { temperature: TEMPERATURE_DRAFT, profile: "draft" };
-  }
-  return { temperature: base, profile: "default" };
-};
-
 module.exports = {
   TOOL_STATUS_LABELS,
   MAX_USER_INLINE_DATA_BYTES,
   MAX_USER_INLINE_DATA_TOTAL_BYTES,
   MAX_APPLY_UNDO_ENTRIES,
-  DEFAULT_CHAT_MODEL,
-  DEFAULT_MAX_OUTPUT_TOKENS,
   REQUEST_HISTORY_MAX_MESSAGES,
   REQUEST_HISTORY_MAX_CHARS,
   BASE64_DATA_PATTERN,
@@ -706,5 +667,4 @@ module.exports = {
   normalizeWorkspaceRelativePath,
   findLastTopicResetIndex,
   deriveTurnRouting,
-  deriveTurnTemperature,
 };

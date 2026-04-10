@@ -22,7 +22,7 @@ export const initAiChatEventBindings = (params) => {
             }
             return;
         }
-        // アクティブチャットが実行中なら、新規チャットを作成して送信先にする（並列実行対応）
+        // アクティブChatがRunningなら、New chatをCreateしてSend先にする（並列execution対応）
         const currentActive = getChat(getActiveChatId());
         if (currentActive && runningConversations.has(currentActive.id)) {
             const c = createChat();
@@ -39,9 +39,17 @@ export const initAiChatEventBindings = (params) => {
             chat.title = text.slice(0, 24).replace(/\s+/g, " ") || chat.title;
         }
         setChatTitle(chat);
+        // Clear previous turn's proposals — they're already applied to the editor
+        chat.proposals.clear();
+        chat.appliedProposalIds.clear();
+        const proposalsEl = document.getElementById("ai-proposals");
+        if (proposalsEl) {
+            proposalsEl.replaceChildren();
+            proposalsEl.classList.add("is-hidden");
+        }
         renderHistoryList();
-        const userLabel = text || "画像を送信しました。";
-        const attachmentNote = hasAttachments ? `\n[添付画像 ${pendingAttachments.length}件]` : "";
+        const userLabel = text || "The image has been sent.";
+        const attachmentNote = hasAttachments ? `\n[attached images ${pendingAttachments.length}]` : "";
         appendMessage({ role: "user", text: `${userLabel}${attachmentNote}` }, chat.id);
         aiInput.value = "";
         autoGrow();
@@ -58,7 +66,7 @@ export const initAiChatEventBindings = (params) => {
                 },
             });
         });
-        const requestMessage = text || "添付画像を解析してください。";
+        const requestMessage = text || "Please analyze the attached image.";
         const contextPayload = buildContextPayload(getAgentSettings());
         sendGuard = true;
         const sent = requestAgentRun(chat.id, requestMessage, requestParts, contextPayload);
@@ -171,7 +179,7 @@ export const initAiChatEventBindings = (params) => {
                 return;
             }
             const contextToSend = buildContextPayload(getAgentSettings());
-            chat.statusMessage = "考えています...";
+            chat.statusMessage = "Thinking...";
             runningConversations.add(chat.id);
             resumableConversations.delete(chat.id);
             upsertThinkingMessage(chat.id, chat.statusMessage);
@@ -198,6 +206,6 @@ export const initAiChatEventBindings = (params) => {
         });
     }
     if (aiInput instanceof HTMLTextAreaElement && !aiInput.placeholder.trim()) {
-        aiInput.placeholder = "執筆内容を指示してください...";
+        aiInput.placeholder = "Please tell me what to write...";
     }
 };

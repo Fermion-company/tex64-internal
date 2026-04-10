@@ -20,6 +20,7 @@ import type {
   PlatformUpdateStatusSnapshot,
   BuildProfile,
 } from "./types.js";
+import { uiText } from "./i18n.js";
 import type { FilePreviewResultPayload } from "./file-preview.js";
 import type { FileExcerptResultPayload } from "./file-excerpt.js";
 
@@ -485,7 +486,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             requestId,
             ok,
             settings,
-            error: ok ? undefined : "設定が取得できませんでした。",
+            error: ok ? undefined : uiText("Settings could not be retrieved.", "設定が取得できませんでした。"),
           },
           true
         );
@@ -574,7 +575,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
       case "agent:error":
         deps.agent?.handleError(
           (message.payload as { message?: string; conversationId?: string }).message ??
-            "Axiom エラー",
+            uiText("Axiom error", "Axiom エラー"),
           (message.payload as { message?: string; conversationId?: string }).conversationId
         );
         break;
@@ -638,7 +639,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           (message.payload as { path?: string; content?: string }).path ?? "",
           (message.payload as { path?: string; content?: string }).content ?? "",
           {
-            updateSaved: (message.payload as { updateSaved?: boolean }).updateSaved !== false,
+            updateSaved: (message.payload as { updateSaved?: boolean }).updateSaved === true,
             showAiDiff: true,
           }
         );

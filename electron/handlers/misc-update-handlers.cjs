@@ -21,7 +21,7 @@ const createUpdateHandlers = ({
   let updateStatus = {
     phase: "idle",
     mode: "artifact",
-    message: "更新確認待ちです。",
+    message: "Waiting for update check.",
     progressPercent: null,
     transferredBytes: null,
     totalBytes: null,
@@ -38,7 +38,7 @@ const createUpdateHandlers = ({
     message:
       typeof error?.message === "string" && error.message
         ? error.message
-        : "アップデート処理に失敗しました。",
+        : "Update processing failed.",
   });
 
   const emitUpdateStatus = (source = "update") => {
@@ -113,8 +113,8 @@ const createUpdateHandlers = ({
     }
     try {
       const notification = new Notification({
-        title: "TeX64 のアップデート",
-        body: `バージョン ${latestVersion} を利用できます。`,
+        title: "TeX64 Update",
+        body: `Version ${latestVersion} is available.`,
         silent: true,
       });
       if (typeof notification.on === "function" && shell?.openExternal) {
@@ -249,7 +249,7 @@ const createUpdateHandlers = ({
     setUpdateStatus(
       {
         phase: "checking",
-        message: "更新を確認しています。",
+        message: "Checking for updates.",
         progressPercent: null,
         transferredBytes: null,
         totalBytes: null,
@@ -269,7 +269,7 @@ const createUpdateHandlers = ({
             latestVersion: update?.latestVersion ?? null,
             currentVersion: update?.currentVersion ?? appVersion,
             checkedAt: update?.checkedAt ?? Date.now(),
-            message: "最新バージョンを使用中です。",
+            message: "Already using latest version.",
             error: null,
           },
           source
@@ -285,8 +285,8 @@ const createUpdateHandlers = ({
           checkedAt: update.checkedAt ?? Date.now(),
           message:
             typeof update.latestVersion === "string" && update.latestVersion
-              ? `新しいバージョン ${update.latestVersion} を利用できます。`
-              : "新しいバージョンを利用できます。",
+              ? `A new version ${update.latestVersion} is available.`
+              : "A new version is available.",
           error: null,
         },
         source
@@ -302,7 +302,7 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "更新確認に失敗しました。",
+          message: "Update check failed.",
           error: toUpdateErrorPayload(error, "UPDATE_CHECK_FAILED"),
         },
         source
@@ -318,7 +318,7 @@ const createUpdateHandlers = ({
     if (!expectedDigest || expectedDigest.algorithm !== "sha256") {
       throw {
         code: "UPDATE_VERIFY_METADATA_MISSING",
-        message: "更新ファイルの検証情報が不足しています。",
+        message: "Update file verification info is missing.",
       };
     }
     let completed = false;
@@ -327,7 +327,7 @@ const createUpdateHandlers = ({
       if (!response.ok || !response.body) {
         throw {
           code: "UPDATE_DOWNLOAD_FAILED",
-          message: `HTTP ${response.status} で更新ファイル取得に失敗しました。`,
+          message: `Failed to fetch update file: HTTP ${response.status}.`,
         };
       }
       const totalBytesRaw = Number.parseInt(response.headers.get("content-length") || "", 10);
@@ -346,7 +346,7 @@ const createUpdateHandlers = ({
         setUpdateStatus(
           {
             phase: "downloading",
-            message: "更新ファイルをダウンロード中です。",
+            message: "Downloading update files.",
             progressPercent,
             transferredBytes,
             totalBytes,
@@ -360,7 +360,7 @@ const createUpdateHandlers = ({
       if (downloadedDigest !== expectedDigest.hex) {
         throw {
           code: "UPDATE_VERIFY_MISMATCH",
-          message: "更新ファイルの検証に失敗しました。再度お試しください。",
+          message: "Update file verification failed. Please try again.",
         };
       }
       await fsp.rm(finalPath, { force: true }).catch(() => {});
@@ -390,7 +390,7 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "up-to-date",
-          message: "適用可能な更新はありません。",
+          message: "No applicable update available.",
           error: null,
         },
         "download"
@@ -401,7 +401,7 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "up-to-date",
-          message: "適用可能な更新はありません。",
+          message: "No applicable update available.",
           error: null,
         },
         "download"
@@ -414,10 +414,10 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "ダウンロードURLが見つかりません。手動ダウンロードを利用してください。",
+          message: "Download URL not found. Please use manual download.",
           error: {
             code: "UPDATE_ARTIFACT_URL_MISSING",
-            message: "artifactUrl が未設定です。",
+            message: "artifactUrl is not set.",
           },
         },
         "download"
@@ -430,10 +430,10 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "更新ファイルの検証情報が不足しています。手動ダウンロードをご利用ください。",
+          message: "Update file verification info missing. Please use manual download.",
           error: {
             code: "UPDATE_VERIFY_METADATA_MISSING",
-            message: "manifest に sha256/checksum/signature が不足しています。",
+            message: "manifest is missing sha256/checksum/signature.",
           },
         },
         "download"
@@ -447,7 +447,7 @@ const createUpdateHandlers = ({
         latestVersion: update.latestVersion ?? null,
         currentVersion: update.currentVersion ?? appVersion,
         checkedAt: update.checkedAt ?? Date.now(),
-        message: "更新ファイルをダウンロード中です。",
+        message: "Downloading update files.",
         progressPercent: 0,
         transferredBytes: 0,
         totalBytes: null,
@@ -467,7 +467,7 @@ const createUpdateHandlers = ({
           latestVersion: update.latestVersion ?? null,
           currentVersion: update.currentVersion ?? appVersion,
           checkedAt: update.checkedAt ?? Date.now(),
-          message: "更新ファイルのダウンロードと検証が完了しました。",
+          message: "Update file download and verification complete.",
           progressPercent: 100,
           transferredBytes: downloaded.totalBytes ?? null,
           totalBytes: downloaded.totalBytes ?? null,
@@ -482,7 +482,7 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "ダウンロードに失敗しました。",
+          message: "Download failed.",
           error: toUpdateErrorPayload(error, "UPDATE_DOWNLOAD_FAILED"),
         },
         "download"
@@ -500,10 +500,10 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "先に更新ファイルをダウンロードしてください。",
+          message: "Please download the update file first.",
           error: {
             code: "UPDATE_INSTALL_MISSING_FILE",
-            message: "インストール対象ファイルがありません。",
+            message: "No installation target file.",
           },
         },
         "install"
@@ -516,10 +516,10 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "更新ファイルが見つかりません。再ダウンロードしてください。",
+          message: "Update file not found. Please re-download.",
           error: {
             code: "UPDATE_INSTALL_FILE_NOT_FOUND",
-            message: "更新ファイルが存在しません。",
+            message: "Update file does not exist.",
           },
         },
         "install"
@@ -529,7 +529,7 @@ const createUpdateHandlers = ({
     setUpdateStatus(
       {
         phase: "installing",
-        message: "インストーラを起動しています。",
+        message: "Starting installer.",
         error: null,
       },
       "install"
@@ -547,7 +547,7 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "installing",
-          message: "インストーラを起動しました。画面の手順に従って更新してください。",
+          message: "Installer started. Follow the on-screen instructions to update.",
           error: null,
         },
         "install"
@@ -556,7 +556,7 @@ const createUpdateHandlers = ({
       setUpdateStatus(
         {
           phase: "error",
-          message: "インストーラの起動に失敗しました。",
+          message: "Failed to start installer.",
           error: toUpdateErrorPayload(error, "UPDATE_INSTALL_FAILED"),
         },
         "install"

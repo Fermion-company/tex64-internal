@@ -6,14 +6,14 @@ const isEnvMissingMessage = (message) => {
     return false;
   }
   const lower = message.toLowerCase();
-  const hasMissing = message.includes("見つかりません") || lower.includes("not found");
+  const hasMissing = message.includes("not found") || lower.includes("not found");
   const mentionsTool =
     lower.includes("latexmk") ||
     lower.includes("lualatex") ||
     lower.includes("pdflatex") ||
     lower.includes("xelatex") ||
     lower.includes("uplatex") ||
-    message.includes("TeX環境");
+    message.includes("TeX environment");
   return hasMissing && mentionsTool;
 };
 

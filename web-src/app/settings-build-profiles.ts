@@ -84,10 +84,10 @@ export const initBuildProfilesUi = (
     settingsBuildProfileHint.textContent = enabled
       ? isCustom
         ? hasPendingSave
-          ? "保存中..."
-          : "変更は自動で保存されます。"
+          ? "Saving..."
+          : "Changes are saved automatically."
         : ""
-      : "ワークスペースを開くとビルドプロファイルを編集できます。";
+      : "You can edit the build profile by opening the workspace.";
   };
 
   const getSelectedBuildProfileId = () => {
@@ -104,7 +104,7 @@ export const initBuildProfilesUi = (
     settingsBuildProfileSelect.innerHTML = "";
     const defaultOption = document.createElement("option");
     defaultOption.value = "";
-    defaultOption.textContent = "デフォルト";
+    defaultOption.textContent = "Default";
     settingsBuildProfileSelect.appendChild(defaultOption);
 
     buildProfiles.forEach((profile) => {
@@ -319,8 +319,8 @@ export const initBuildProfilesUi = (
       return;
     }
     const message = deep
-      ? "clean -C を実行します。PDF なども削除されます。よろしいですか？"
-      : "clean を実行します。補助ファイルを削除します。よろしいですか？";
+      ? "Run clean -C. PDFs etc. will also be deleted. Are you sure?"
+      : "Run clean. Delete auxiliary files. Are you sure?";
     if (!window.confirm(message)) {
       return;
     }
@@ -396,7 +396,7 @@ export const initBuildProfilesUi = (
         return;
       }
       const ok = window.confirm(
-        `プロファイル「${selected.name || selected.id}」を削除しますか？`
+        `Do you want to delete profile "${selected.name || selected.id}"?`
       );
       if (!ok) {
         return;

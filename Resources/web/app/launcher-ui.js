@@ -1,6 +1,7 @@
+import { getUiLocale, setUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
 const INITIAL_VISIBLE_COUNT = 3;
 export const initLauncherUi = (context, deps) => {
-    const { launcher, launcherCreateButton, launcherOpenButton, launcherStatusMessage, launcherRecent, launcherRecentList, launcherRecentEmpty, launcherRecentToggle, } = context.dom;
+    const { launcher, launcherCreateButton, launcherOpenButton, launcherStatusMessage, launcherRecent, launcherRecentList, launcherRecentEmpty, launcherRecentToggle, launcherLangToggle, launcherLangToggleLabel, } = context.dom;
     let selectedActionIndex = 0;
     let launcherBusy = false;
     const launcherActions = [launcherOpenButton, launcherCreateButton];
@@ -82,8 +83,8 @@ export const initLauncherUi = (context, deps) => {
             removeButton.className = "launcher-recent-remove";
             removeButton.type = "button";
             removeButton.textContent = "×";
-            removeButton.title = "最近から削除";
-            removeButton.setAttribute("aria-label", "最近から削除");
+            removeButton.title = uiText("Remove from recent", "Delete from recent");
+            removeButton.setAttribute("aria-label", uiText("Remove from recent", "Delete from recent"));
             removeButton.addEventListener("click", (event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -108,7 +109,9 @@ export const initLauncherUi = (context, deps) => {
             launcherRecentToggle.setAttribute("aria-expanded", recentExpanded ? "true" : "false");
             const toggleText = launcherRecentToggle.querySelector(".launcher-recent-toggle-text");
             if (toggleText) {
-                toggleText.textContent = recentExpanded ? "折りたたむ" : "すべて表示";
+                toggleText.textContent = recentExpanded
+                    ? uiText("Collapse", "fold")
+                    : uiText("Show all", "Show All");
             }
         }
         // Update recent section visibility
@@ -169,6 +172,22 @@ export const initLauncherUi = (context, deps) => {
             }
             setStatus({ isBusy: true, message: null });
             deps.onOpen();
+        });
+    }
+    // Language toggle
+    const syncLangLabel = () => {
+        if (launcherLangToggleLabel instanceof HTMLElement) {
+            launcherLangToggleLabel.textContent = getUiLocale() === "en" ? "日本語" : "English";
+        }
+    };
+    syncLangLabel();
+    onUiLocaleChange(() => {
+        syncLangLabel();
+        renderRecentProjects();
+    });
+    if (launcherLangToggle instanceof HTMLElement) {
+        launcherLangToggle.addEventListener("click", () => {
+            setUiLocale(getUiLocale() === "en" ? "ja" : "en");
         });
     }
     return {

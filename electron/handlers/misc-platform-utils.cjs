@@ -169,19 +169,19 @@ const buildAiBlockedMessage = (access) => {
       ? access.pricingUrl.trim()
       : "https://tex64.com/pricing";
   if (!access?.authenticated || reason === "AUTH_REQUIRED" || reason === "TOKEN_EXPIRED") {
-    return "AI補完を使うには Google ログインが必要です。";
+    return "Google login is required to use AI completion.";
   }
   if (reason === "QUOTA_EXCEEDED") {
-    return `今月のAIトークン上限に達しました。プラン変更: ${pricingUrl}`;
+    return `You have reached your AI token limit for this month. Change plan: ${pricingUrl}`;
   }
   if (
     reason === "PLAN_REQUIRED" ||
     reason === "FEATURE_NOT_ENABLED" ||
     reason === "PAYMENT_PAST_DUE"
   ) {
-    return `現在の契約状態ではAI機能を利用できません。プラン確認: ${pricingUrl}`;
+    return `AI functions are not available under the current contract status. Check plan: ${pricingUrl}`;
   }
-  return "AI補完を利用できません。";
+  return "AI completion is not available.";
 };
 
 const toErrorPayload = (error, fallbackCode = "PLATFORM_ERROR") => ({
@@ -189,7 +189,7 @@ const toErrorPayload = (error, fallbackCode = "PLATFORM_ERROR") => ({
   message:
     typeof error?.message === "string" && error.message
       ? error.message
-      : "リクエスト処理に失敗しました。",
+      : "Request processing failed.",
 });
 
 module.exports = {

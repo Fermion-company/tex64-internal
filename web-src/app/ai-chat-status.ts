@@ -4,6 +4,7 @@ import type {
   PlatformUsageSnapshot,
   PlatformUpdateSnapshot,
 } from "./types.js";
+import { getUiLocale, onUiLocaleChange } from "./i18n.js";
 
 export type StatusAction = "login" | "pricing";
 
@@ -47,6 +48,8 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     return usage;
   };
 
+  const resolveIntlLocale = () => (getUiLocale() === "en" ? "en-US" : "ja-JP");
+
   const isAiBlocked = () =>
     Boolean(state.platformAiAccess && state.platformAiAccess.allowed === false);
   const needsLogin = () =>
@@ -70,39 +73,39 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     const fallbackMessage =
       typeof error.message === "string" && error.message.trim()
         ? error.message.trim()
-        : "ログインに失敗しました。";
+        : "login failed.";
     switch (code) {
       case "AUTH_START_INVALID_URL":
         return {
           code,
-          message: "ログインページを開けませんでした。",
+          message: "The login page could not be opened.",
         };
       case "AUTH_BROWSER_UNAVAILABLE":
         return {
           code,
-          message: "ブラウザを起動できませんでした。",
+          message: "Failed to start browser.",
         };
       case "AUTH_BROWSER_OPEN_FAILED":
         return {
           code,
-          message: "ログインページを開けませんでした。",
+          message: "The login page could not be opened.",
         };
       case "OAUTH_PENDING_EXPIRED":
         return {
           code,
-          message: "ログインがタイムアウトしました。",
+          message: "Login timed out.",
         };
       case "OAUTH_NO_PENDING":
         return {
           code,
-          message: "ログイン状態を確認できませんでした。",
+          message: "Login status could not be confirmed.",
         };
       case "OAUTH_STATE_MISMATCH":
       case "OAUTH_CALLBACK_MISMATCH":
       case "OAUTH_INVALID_CALLBACK":
         return {
           code,
-          message: "ログイン結果の検証に失敗しました。",
+          message: "Login result validation failed.",
         };
       case "OAUTH_DENIED":
         // User simply cancelled the login — not an error
@@ -112,9 +115,8 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     }
   };
 
-  const tokenNumberFormat = new Intl.NumberFormat("ja-JP");
   const formatTokenCount = (value: number) =>
-    tokenNumberFormat.format(Math.max(0, Math.round(value)));
+    new Intl.NumberFormat(resolveIntlLocale()).format(Math.max(0, Math.round(value)));
   const formatTokenCompact = (value: number) => {
     const v = Math.max(0, Math.round(value));
     if (v < 10_000) {
@@ -189,7 +191,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     }
     const authenticated = Boolean(state.platformAuth?.authenticated);
     aiAuthTopbar.classList.toggle("is-hidden", authenticated);
-    aiAuthTopbar.textContent = "ログイン";
+    aiAuthTopbar.textContent = "Login";
     aiAuthTopbar.disabled = false;
   };
 
@@ -199,11 +201,11 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     tooltip = document.createElement("div");
     tooltip.className = "ai-usage-tooltip";
     tooltip.innerHTML = [
-      '<div class="ai-usage-tooltip-header">AI 使用量</div>',
-      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">使用</span><span class="ai-usage-tooltip-value" data-field="used">-</span></div>',
-      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">上限</span><span class="ai-usage-tooltip-value" data-field="limit">-</span></div>',
-      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">残り</span><span class="ai-usage-tooltip-value" data-field="remaining">-</span></div>',
-      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">リセット</span><span class="ai-usage-tooltip-value" data-field="reset">-</span></div>',
+      '<div class="ai-usage-tooltip-header">AI Used量</div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Used</span><span class="ai-usage-tooltip-value" data-field="used">-</span></div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Limit</span><span class="ai-usage-tooltip-value" data-field="limit">-</span></div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Remaining</span><span class="ai-usage-tooltip-value" data-field="remaining">-</span></div>',
+      '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Reset</span><span class="ai-usage-tooltip-value" data-field="reset">-</span></div>',
       '<div class="ai-usage-tooltip-bar-track"><div class="ai-usage-tooltip-bar-fill"></div></div>',
     ].join("");
     parent.appendChild(tooltip);
@@ -230,7 +232,7 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       aiUsageMeter.style.removeProperty("--ai-usage-pct");
       aiUsageMeter.style.removeProperty("--ai-remaining-pct");
       aiUsageMeter.removeAttribute("title");
-      aiUsageMeter.setAttribute("aria-label", "Axiom 使用量");
+      aiUsageMeter.setAttribute("aria-label", "Axiom usage");
       if (aiUsageMeterText instanceof HTMLElement) {
         aiUsageMeterText.textContent = "-";
       }
@@ -244,8 +246,8 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     aiUsageMeter.classList.toggle("is-critical", usedPct >= 95);
     aiUsageMeter.style.setProperty("--ai-usage-pct", usedPct.toFixed(2));
     aiUsageMeter.style.setProperty("--ai-remaining-pct", remainingPct.toFixed(2));
-    const label = `残り ${remainingPct.toFixed(0)}% (${formatTokenCompact(remainingTokens)})`;
-    aiUsageMeter.setAttribute("aria-label", `AI使用量: ${label}`);
+    const label = `Remaining ${remainingPct.toFixed(0)}% (${formatTokenCompact(remainingTokens)})`;
+    aiUsageMeter.setAttribute("aria-label", `Axiom usage: ${label}`);
     aiUsageMeter.removeAttribute("title");
     if (aiUsageMeterText instanceof HTMLElement) {
       aiUsageMeterText.textContent = `${remainingPct.toFixed(0)}%`;
@@ -255,13 +257,13 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       const el = tooltip.querySelector(`[data-field="${field}"]`);
       if (el) el.textContent = text;
     };
-    setField("used", `${formatTokenCount(usedTokens)} トークン`);
-    setField("limit", `${formatTokenCount(limitTokens)} トークン`);
+    setField("used", `${formatTokenCount(usedTokens)} tokens`);
+    setField("limit", `${formatTokenCount(limitTokens)} tokens`);
     setField("remaining", `${remainingPct.toFixed(1)}% (${formatTokenCompact(remainingTokens)})`);
     const periodEnd =
       typeof state.platformAiAccess?.periodEnd === "string" ? state.platformAiAccess.periodEnd : null;
     if (periodEnd && Number.isFinite(Date.parse(periodEnd))) {
-      setField("reset", new Date(periodEnd).toLocaleDateString("ja-JP"));
+      setField("reset", new Date(periodEnd).toLocaleDateString(resolveIntlLocale()));
     } else {
       setField("reset", "-");
     }
@@ -301,18 +303,18 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
       typeof state.platformAiAccess?.periodEnd === "string" ? state.platformAiAccess.periodEnd : null;
     const periodEndLabel =
       periodEnd && Number.isFinite(Date.parse(periodEnd))
-        ? new Date(periodEnd).toLocaleDateString("ja-JP")
+        ? new Date(periodEnd).toLocaleDateString(resolveIntlLocale())
         : "";
     if (state.platformError?.message) {
       renderStatus(
-        "ログインに失敗しました。",
+        "login failed.",
         state.platformError.message,
-        withUtilityActions([{ action: "login", label: "Googleでログイン" }])
+        withUtilityActions([{ action: "login", label: "Log in with Google" }])
       );
       return;
     }
     if (state.platformAuth?.pending) {
-      renderStatus("Googleログインを処理中です。");
+      renderStatus("Processing Google login.");
       return;
     }
     if (needsLogin()) {
@@ -334,16 +336,16 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
           typeof quota.limitTokens === "number"
         ) {
           detailPieces.push(
-            `${formatTokenCount(quota.usedTokens)} / ${formatTokenCount(quota.limitTokens)} トークン`
+            `${formatTokenCount(quota.usedTokens)} / ${formatTokenCount(quota.limitTokens)} tokens`
           );
         }
         if (periodEndLabel) {
-          detailPieces.push(`次回リセット: ${periodEndLabel}`);
+          detailPieces.push(`Next reset: ${periodEndLabel}`);
         }
         renderStatus(
-          "今月のトークン上限に達しました。",
+          "You have reached your token limit for this month.",
           detailPieces.join(" / "),
-          withUtilityActions([{ action: "pricing", label: "プランを見る" }])
+          withUtilityActions([{ action: "pricing", label: "See plan" }])
         );
         return;
       }
@@ -353,9 +355,9 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
         reason === "PAYMENT_PAST_DUE"
       ) {
         renderStatus(
-          "現在の契約状態ではAI機能を利用できません。",
-          "プラン・契約状態を確認してください。",
-          withUtilityActions([{ action: "pricing", label: "プランを見る" }])
+          "AI functions are not available under the current contract status.",
+          "Please check your plan/contract status.",
+          withUtilityActions([{ action: "pricing", label: "See plan" }])
         );
         return;
       }
@@ -364,11 +366,11 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
           ? state.platformAiAccess.message.trim()
           : typeof state.platformUsage?.message === "string" && state.platformUsage.message.trim()
           ? state.platformUsage.message.trim()
-          : "Axiom を利用できません。";
+          : "Axiom is not available.";
       renderStatus(
         fallbackMessage,
         "",
-        withUtilityActions([{ action: "pricing", label: "プランを見る" }])
+        withUtilityActions([{ action: "pricing", label: "See plan" }])
       );
       return;
     }
@@ -463,6 +465,10 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     update: PlatformUpdateSnapshot | null;
     error?: { code?: string; message?: string };
   }) => {};
+
+  onUiLocaleChange(() => {
+    updateStatusDisplay();
+  });
 
   return {
     isAiBlocked,

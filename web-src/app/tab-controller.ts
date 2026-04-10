@@ -1,4 +1,4 @@
-import { tabConfig, type TabKey } from "./config.js";
+import { TAB_KEY_SET, type TabKey } from "./config.js";
 import type { AppContext } from "./context.js";
 
 type TabControllerDeps = {
@@ -25,7 +25,7 @@ export const initTabController = (
   const activeTabStorageKey = "tex64.activeTab";
 
   const normalizeTabKey = (key: string | undefined): TabKey => {
-    if (key && key in tabConfig) {
+    if (key && TAB_KEY_SET.has(key as TabKey)) {
       return key as TabKey;
     }
     return "files";

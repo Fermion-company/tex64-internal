@@ -1,3 +1,4 @@
+import { getUiLocale, onUiLocaleChange } from "./i18n.js";
 import { dedupeByKey, dedupeByKeyAndLocation, dedupeSections, pickCitationEntries, } from "./index-utils.js";
 export const initOutlineUi = (context, deps) => {
     const { outlineEmpty, outlineModeCurrent, outlineModeProject, outlineSections, outlineTodos, outlineLabels, outlineCitations, } = context.dom;
@@ -25,6 +26,9 @@ export const initOutlineUi = (context, deps) => {
         }
         return filterEntriesForCurrent(entries);
     };
+    const resolveSectionLabels = () => getUiLocale() === "en"
+        ? ["Chapter", "Section", "Subsection", "Item", "Subitem", "Paragraph", "Subparagraph"]
+        : ["chapter", "section", "measure", "term", "subsection", "paragraph", "small paragraph"];
     const renderModeButtons = () => {
         if (outlineModeCurrent instanceof HTMLButtonElement) {
             const isActive = outlineMode === "current";
@@ -70,7 +74,8 @@ export const initOutlineUi = (context, deps) => {
             return;
         }
         const showNumbering = options.showNumbering !== false;
-        const sectionLabels = ["章", "節", "小節", "項", "小項", "段落", "小段落"];
+        const sectionLabels = resolveSectionLabels();
+        const isEnglish = getUiLocale() === "en";
         const baseLevelsByPath = new Map();
         if (showNumbering) {
             entries.forEach((entry) => {
@@ -137,8 +142,10 @@ export const initOutlineUi = (context, deps) => {
                     .slice(0, depth + 1)
                     .filter((value) => value > 0);
                 if (numberParts.length > 0) {
-                    const label = (_c = sectionLabels[Math.max(depth + state.labelOffset, 0)]) !== null && _c !== void 0 ? _c : "節";
-                    prefix = `${numberParts.join(".")}${label} `;
+                    const label = (_c = sectionLabels[Math.max(depth + state.labelOffset, 0)]) !== null && _c !== void 0 ? _c : "section";
+                    prefix = isEnglish
+                        ? `${label} ${numberParts.join(".")} `
+                        : `${numberParts.join(".")}${label} `;
                 }
             }
             const item = document.createElement("button");
@@ -189,13 +196,17 @@ export const initOutlineUi = (context, deps) => {
             if (!hasItems) {
                 outlineEmpty.textContent =
                     deps.getWorkspaceRootKey() === null
-                        ? "ワークスペースが未選択です。"
+                        ? (getUiLocale() === "en" ? "No workspace selected." : "No workspace is selected.")
                         : outlineMode === "current" && deps.getActiveFilePath() === null
-                            ? "ファイルが未選択です。"
-                            : "インデックス項目が見つかりません。";
+                            ? (getUiLocale() === "en" ? "No file selected." : "No file selected.")
+                            : (getUiLocale() === "en" ? "No index entries found." : "No index entries found.");
             }
         }
     };
+    onUiLocaleChange(() => {
+        renderModeButtons();
+        render();
+    });
     if (outlineModeCurrent instanceof HTMLButtonElement) {
         outlineModeCurrent.addEventListener("click", () => {
             outlineMode = "current";

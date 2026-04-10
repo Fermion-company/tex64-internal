@@ -39,7 +39,7 @@ import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
-import { initI18n } from "./app/i18n.js";
+import { initI18n, uiText } from "./app/i18n.js";
 import { initGlobalErrorReporting, readErrorReportingEnabledFromStorage, } from "./app/error-reporting.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
 export const initMain = () => {
@@ -133,7 +133,7 @@ export const initMain = () => {
         const getWorkspaceRootKey = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getWorkspaceRootKey()) !== null && _a !== void 0 ? _a : null; };
         const getWorkspaceFiles = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getWorkspaceFiles()) !== null && _a !== void 0 ? _a : []; };
         const getWorkspaceFolders = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getWorkspaceFolders()) !== null && _a !== void 0 ? _a : []; };
-        const getWorkspaceName = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getWorkspaceName()) !== null && _a !== void 0 ? _a : "ワークスペース未選択"; };
+        const getWorkspaceName = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getWorkspaceName()) !== null && _a !== void 0 ? _a : uiText("No workspace selected", "ワークスペース未選択"); };
         const getRootFilePath = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getRootFilePath()) !== null && _a !== void 0 ? _a : null; };
         const getRootSource = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getRootSource()) !== null && _a !== void 0 ? _a : "auto"; };
         const getBuildProfiles = () => { var _a; return (_a = workspaceController === null || workspaceController === void 0 ? void 0 : workspaceController.getBuildProfiles()) !== null && _a !== void 0 ? _a : []; };
@@ -647,27 +647,27 @@ export const initMain = () => {
         }
         catch (e) {
             console.error("setupMathField error:", e);
-            updateIssues(1, "数式エディタの初期化に失敗しました: " + e.message, "error", []);
+            updateIssues(1, uiText(`Failed to initialize formula editor: ${e.message}`, "Failed to initialize formula editor: " + e.message), "error", []);
         }
         try {
             resizerUi.setup();
         }
         catch (e) {
             console.error("setupResizer error:", e);
-            // リサイズ機能のエラーは致命的ではないので通知しないか、infoレベルで
+            // リサイズ機能のIssuesは致命的ではないので通知しないか、infoレベルで
         }
         try {
             blockInputApi.attachMathInputListener();
         }
         catch (e) {
             console.error("attachMathInputListener error:", e);
-            // updateIssues(1, "数式入力リスナーのエラー: " + e.message, "error", []);
+            // updateIssues(1, "Formula input listener error: " + e.message, "error", []);
         }
         searchUi.render();
         rootSelectorUi.render();
         buildOps.updateSynctexButtonState();
         settingsUi.loadStartupSettings();
-        updateIssues(0, "ビルド結果はここに要約します。", "info", []);
+        updateIssues(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
         if (!workspaceController.getWorkspaceRootKey()) {
             launcherUi.setVisible(true);
             launcherUi.setStatus({ isBusy: false, message: null });
@@ -693,6 +693,7 @@ export const initMain = () => {
             rootSelectorUi: {
                 setupActions: () => rootSelectorUi.setupActions(),
             },
+            saveCurrentFile: () => editorSession.saveCurrentFile(),
         });
         uiEvents.setup();
         window.addEventListener("beforeunload", () => {
@@ -794,9 +795,9 @@ export const initMain = () => {
                         });
                         return;
                     }
-                    const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : "SyncTeX に失敗しました。";
+                    const errorMessage = (_a = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _a !== void 0 ? _a : uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
                     const lower = errorMessage.toLowerCase();
-                    const hasMissing = errorMessage.includes("見つかりません") || lower.includes("not found");
+                    const hasMissing = errorMessage.includes("not found") || lower.includes("not found");
                     const issue = { severity: "error", message: errorMessage };
                     if (hasMissing && lower.includes("synctex")) {
                         issue.action = "open-runtime";

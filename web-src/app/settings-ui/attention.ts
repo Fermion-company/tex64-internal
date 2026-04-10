@@ -45,12 +45,12 @@ export const createSettingsAttentionOps = (runtime: SettingsUiRuntime): Settings
       accountSettingsNavItem.classList.toggle("has-alert", updateAttention);
     }
     if (settingsRuntimeAttention instanceof HTMLElement) {
-      settingsRuntimeAttention.textContent = "要設定";
+      settingsRuntimeAttention.textContent = "Setup needed";
       settingsRuntimeAttention.classList.toggle("is-hidden", !runtimeAttention);
       settingsRuntimeAttention.setAttribute("aria-hidden", runtimeAttention ? "false" : "true");
     }
     if (settingsAccountAttention instanceof HTMLElement) {
-      settingsAccountAttention.textContent = "更新あり";
+      settingsAccountAttention.textContent = "Update";
       settingsAccountAttention.classList.toggle("is-hidden", !updateAttention);
       settingsAccountAttention.setAttribute("aria-hidden", updateAttention ? "false" : "true");
     }

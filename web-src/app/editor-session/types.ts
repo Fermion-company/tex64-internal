@@ -29,7 +29,12 @@ export type EditorGroupState = {
   pendingCompositionAction: (() => void) | null;
 };
 
-export type MonacoModel = { getValue: () => string; setValue: (value: string) => void };
+export type MonacoModel = {
+  getValue: () => string;
+  setValue: (value: string) => void;
+  getFullModelRange?: () => unknown;
+  pushStackElement?: () => void;
+};
 export type MonacoModelEntry = { model: MonacoModel; savedContent: string };
 
 export type EditorSessionDeps = {

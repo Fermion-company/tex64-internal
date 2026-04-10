@@ -59,12 +59,12 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     }
     const labels = missing.map((entry) => entry.label);
     const summary =
-      labels.length > 0 ? `実行環境が不足しています: ${labels.join(", ")}` : "実行環境が不足しています。";
+      labels.length > 0 ? `Missing execution environment: ${labels.join(", ")}` : "Execution environment is insufficient.";
     sendBuildState("idle", summary);
     sendIssues(missing.length, summary, "error", [
       ...missing.map((entry) => ({
         severity: "error",
-        message: `${entry.label} が未検出です。Settings > 実行環境で確認してください。`,
+        message: `${entry.label} is not detected. Please check Settings > Execution environment.`,
         action: "open-runtime",
       })),
     ]);
@@ -102,15 +102,16 @@ const createBuildCoreHandlers = (deps, resolvers) => {
   const handleBuild = async (mainFile, options = {}) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendBuildState("idle", "キャンセル");
-      sendIssues(0, "ビルドをキャンセルしました。", "info", []);
+      sendBuildState("idle", "cancel");
+      sendIssues(0, "Build cancelled.", "info", []);
       return;
     }
+    try {
     const blockedByRuntime = await ensureRuntimeReadyForBuild(options?.engine);
     if (blockedByRuntime) {
       return;
     }
-    const buildMessage = "ビルド中...";
+    const buildMessage = "Building...";
     sendBuildState("building", buildMessage);
     sendIssues(0, buildMessage, "info", []);
     await updateWorkspaceIfNeeded(rootPath);
@@ -127,28 +128,18 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     } else if (requestedFile && !rootInfo?.path) {
       targetFile = requestedFile;
     }
-    if (options.format && typeof targetFile === "string" && targetFile.endsWith(".tex")) {
-      const formatResult = await formatterService
-        .formatFile(rootPath, targetFile, options.formatSettings)
-        .catch((error) => ({ ok: false, error: error?.message ?? String(error) }));
-      if (!formatResult.ok && !state.formatWarningShown) {
-        state.formatWarningShown = true;
-        sendIssues(1, formatResult.error ?? "整形に失敗しました。", "info", [
-          { severity: "warning", message: formatResult.error ?? "整形に失敗しました。", line: null },
-        ]);
-      }
-    }
+    // Formatting removed from build — only runs via the Format button.
     const buildProfile = await resolveBuildProfile().catch(() => null);
     const result = await buildService.build(rootPath, targetFile, options.engine, buildProfile);
     if (result.kind === "busy") {
       sendBuildState("building", buildMessage);
-      sendIssues(0, "すでにビルド中です。", "info", []);
+      sendIssues(0, "Build is already running.", "info", []);
       return;
     }
     if (result.kind === "cancelled") {
       sendBuildLog(result.log ?? null);
-      sendBuildState("idle", result.summary ?? "ビルドをキャンセルしました。");
-      sendIssues(0, result.summary ?? "ビルドをキャンセルしました。", "info", []);
+      sendBuildState("idle", result.summary ?? "Build cancelled.");
+      sendIssues(0, result.summary ?? "Build cancelled.", "info", []);
       return;
     }
     sendBuildLog(result.log ?? null);
@@ -172,9 +163,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         sendBuildLog(null);
         return;
       }
-      sendBuildState("failed", "PDFが見つかりません。");
-      sendIssues(1, "PDFが見つかりません。", "error", [
-        { severity: "error", message: "PDFが見つかりません。", line: null },
+      sendBuildState("failed", "PDF not found.");
+      sendIssues(1, "PDF not found.", "error", [
+        { severity: "error", message: "PDF not found.", line: null },
       ]);
       return;
     }
@@ -184,7 +175,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       const shouldIncludeWarnings =
         errorIssues.length === 1 &&
         warningIssues.length > 0 &&
-        /警告だけでは原因を特定できません/.test(errorIssues[0]?.message ?? "");
+        /Warnings alone cannot identify the cause/.test(errorIssues[0]?.message ?? "");
       const displayIssues =
         errorIssues.length > 0
           ? shouldIncludeWarnings
@@ -196,16 +187,25 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       sendBuildState("failed", result.summary);
       sendIssues(count, summaryText, "error", displayIssues);
     }
+    } catch (error) {
+      const errMsg = error?.message ?? String(error);
+      console.error("[build] handleBuild error:", errMsg);
+      sendBuildState("failed", errMsg);
+      sendIssues(1, errMsg, "error", [
+        { severity: "error", message: errMsg },
+      ]);
+    }
   };
 
   const handleClean = async (mainFile, options = {}) => {
-    const message = "clean 中...";
+    const message = "Cleaning...";
     sendIssues(0, message, "info", []);
     sendBuildLog(null);
+    try {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -227,16 +227,16 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     const deep = options.deep === true;
     const result = await buildService.clean(rootPath, targetFile, { deep }, buildProfile);
     if (result.kind === "busy") {
-      sendIssues(0, "すでに処理中です。", "info", []);
+      sendIssues(0, "Already processing.", "info", []);
       return;
     }
     if (result.kind === "cancelled") {
-      sendIssues(0, result.summary ?? "clean をキャンセルしました。", "info", []);
+      sendIssues(0, result.summary ?? "Clean cancelled.", "info", []);
       return;
     }
     sendBuildLog(result.log ?? null);
     if (result.kind === "success") {
-      sendIssues(0, result.summary ?? "clean 完了", "success", []);
+      sendIssues(0, result.summary ?? "Clean done", "success", []);
       return;
     }
     if (result.kind === "failure") {
@@ -244,16 +244,23 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       const summaryText = result.issues[0]?.message ?? result.summary;
       sendIssues(count, summaryText, "error", result.issues);
     }
+    } catch (error) {
+      const errMsg = error?.message ?? String(error);
+      console.error("[build] handleClean error:", errMsg);
+      sendIssues(1, errMsg, "error", [
+        { severity: "error", message: errMsg },
+      ]);
+    }
   };
 
   const handleBuildCancel = () => {
     const requested = buildService.cancelCurrentRun();
     if (!requested) {
-      sendIssues(0, "実行中のビルドはありません。", "info", []);
+      sendIssues(0, "No build is running.", "info", []);
       return;
     }
-    sendBuildState("building", "キャンセルしています...");
-    sendIssues(0, "ビルドをキャンセルしています...", "info", []);
+    sendBuildState("building", "Cancelling...");
+    sendIssues(0, "Canceling build...", "info", []);
   };
 
   return { handleBuild, handleBuildCancel, handleClean };

@@ -51,11 +51,11 @@ export const createEnvStatusManager = (params) => {
         if (statusBadge) {
             if (available === null) {
                 statusBadge.className = "env-badge checking";
-                statusBadge.textContent = "確認中...";
+                statusBadge.textContent = "Checking...";
             }
             else {
                 statusBadge.className = available ? "env-badge ok" : "env-badge error";
-                statusBadge.textContent = available ? "利用可能" : "未検出";
+                statusBadge.textContent = available ? "Available" : "Not found";
             }
         }
         if (actionBtn instanceof HTMLElement) {
@@ -65,7 +65,7 @@ export const createEnvStatusManager = (params) => {
                 return;
             }
             actionBtn.removeAttribute("disabled");
-            actionBtn.textContent = available ? "更新/再インストール" : "インストール";
+            actionBtn.textContent = available ? "Update/Reinstall" : "install";
         }
     };
     const checkEnvironmentStatus = (isRetry = false) => {

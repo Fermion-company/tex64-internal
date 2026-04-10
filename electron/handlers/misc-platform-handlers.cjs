@@ -245,7 +245,7 @@ const createPlatformHandlers = ({
         ok: false,
         error: {
           code: "VALIDATION_ERROR",
-          message: "フィードバック内容が空です。",
+          message: "Feedback content is empty.",
         },
       });
       return;

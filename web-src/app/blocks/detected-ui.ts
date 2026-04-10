@@ -19,7 +19,7 @@ export const initDetectedBlockUi = (dom: DomRefs) => {
       blockModeToggle.classList.toggle("is-edit", isEdit);
       blockModeToggle.dataset.blockMode = mode;
       blockModeToggle.setAttribute("aria-pressed", isEdit ? "true" : "false");
-      blockModeToggle.setAttribute("aria-label", isEdit ? "編集モード" : "挿入モード");
+      blockModeToggle.setAttribute("aria-label", isEdit ? "Edit mode" : "insert mode");
     }
   };
 

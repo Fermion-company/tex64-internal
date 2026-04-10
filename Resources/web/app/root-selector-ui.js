@@ -1,9 +1,11 @@
+import { uiText } from "./i18n.js";
 export const initRootSelectorUi = (context, deps) => {
     const { settingsRootSelect, settingsRootAuto } = context.dom;
     const requestSetRoot = (path) => {
         if (!deps.getWorkspaceRootKey()) {
-            deps.updateIssues(1, "ワークスペースが未選択です。", "error", [
-                { severity: "error", message: "ワークスペースが未選択です。" },
+            const message = uiText("No workspace is selected.", "ワークスペースが未選択です。");
+            deps.updateIssues(1, message, "error", [
+                { severity: "error", message },
             ]);
             return;
         }
@@ -14,8 +16,9 @@ export const initRootSelectorUi = (context, deps) => {
     };
     const requestDetectRoot = () => {
         if (!deps.getWorkspaceRootKey()) {
-            deps.updateIssues(1, "ワークスペースが未選択です。", "error", [
-                { severity: "error", message: "ワークスペースが未選択です。" },
+            const message = uiText("No workspace is selected.", "ワークスペースが未選択です。");
+            deps.updateIssues(1, message, "error", [
+                { severity: "error", message },
             ]);
             return;
         }
@@ -35,13 +38,15 @@ export const initRootSelectorUi = (context, deps) => {
             .sort((a, b) => a.localeCompare(b, "ja"));
         const placeholder = document.createElement("option");
         if (!workspaceRootKey) {
-            placeholder.textContent = "ワークスペース未選択";
+            placeholder.textContent = uiText("No workspace selected", "ワークスペース未選択");
         }
         else if (texFiles.length === 0) {
-            placeholder.textContent = "TeXファイルがありません";
+            placeholder.textContent = uiText("No TeX files found", "TeX file is missing");
         }
         else {
-            placeholder.textContent = rootFilePath ? "メインTeX" : "メインTeXを選択";
+            placeholder.textContent = rootFilePath
+                ? uiText("Main TeX", "メインTeX")
+                : uiText("Select main TeX", "メインTeXを選択");
         }
         placeholder.value = "";
         placeholder.disabled = true;
@@ -52,7 +57,7 @@ export const initRootSelectorUi = (context, deps) => {
         if (rootFilePath && !texFiles.includes(rootFilePath)) {
             const missing = document.createElement("option");
             missing.value = rootFilePath;
-            missing.textContent = `${rootFilePath} (見つかりません)`;
+            missing.textContent = uiText(`${rootFilePath} (not found)`, `${rootFilePath} (not found)`);
             settingsRootSelect.appendChild(missing);
         }
         texFiles.forEach((path) => {
@@ -65,7 +70,10 @@ export const initRootSelectorUi = (context, deps) => {
         settingsRootSelect.value = rootFilePath !== null && rootFilePath !== void 0 ? rootFilePath : "";
         if (settingsRootAuto instanceof HTMLButtonElement) {
             settingsRootAuto.disabled = !workspaceRootKey || texFiles.length === 0;
-            settingsRootAuto.textContent = rootSource === "manual" ? "自動に戻す" : "再検出";
+            settingsRootAuto.textContent =
+                rootSource === "manual"
+                    ? uiText("Revert to automatic", "revert to automatic")
+                    : uiText("Detect again", "redetection");
         }
     };
     const setupActions = () => {

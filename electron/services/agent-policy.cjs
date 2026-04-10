@@ -181,7 +181,7 @@ const buildAgentPolicy = (settings = {}) => {
 
 const formatByteLimit = (bytes) => {
   if (!Number.isFinite(bytes)) {
-    return "無制限";
+    return "Unlimited";
   }
   if (bytes >= 1024 * 1024) {
     const mb = bytes / (1024 * 1024);

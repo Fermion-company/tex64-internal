@@ -1,9 +1,9 @@
-import { tabConfig } from "./config.js";
+import { TAB_KEY_SET } from "./config.js";
 export const initTabController = (context, deps) => {
     const { tabs, sidebarPanels, } = context.dom;
     const activeTabStorageKey = "tex64.activeTab";
     const normalizeTabKey = (key) => {
-        if (key && key in tabConfig) {
+        if (key && TAB_KEY_SET.has(key)) {
             return key;
         }
         return "files";

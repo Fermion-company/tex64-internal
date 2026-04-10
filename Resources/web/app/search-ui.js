@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 export const initSearchUi = (context, deps) => {
     const { searchInput, searchButton, searchResults, searchRenameFrom, searchRenameTo, searchRenameLabel, searchRenameCite, searchRenameRun, searchRenameOpenAi, searchRenameStatus, } = context.dom;
     let searchResultsData = [];
@@ -83,7 +84,7 @@ export const initSearchUi = (context, deps) => {
             name.style.flex = "1 1 auto";
             const count = document.createElement("span");
             count.className = "search-file-count";
-            count.textContent = `${groupList.length}件`;
+            count.textContent = uiText(`${groupList.length} items`, `${groupList.length}件`);
             header.appendChild(icon);
             header.appendChild(name);
             header.appendChild(count);
@@ -94,7 +95,7 @@ export const initSearchUi = (context, deps) => {
                 item.className = "search-match-item";
                 const line = document.createElement("div");
                 line.className = "search-match-line";
-                line.textContent = `行 ${result.line}`;
+                line.textContent = uiText(`Line ${result.line}`, `行 ${result.line}`);
                 const preview = document.createElement("div");
                 preview.className = "search-match-preview";
                 renderPreviewWithHighlight(preview, result, lastSearchQuery);
@@ -152,7 +153,7 @@ export const initSearchUi = (context, deps) => {
             searchMessage =
                 lastSearchQuery.trim().length === 0
                     ? ""
-                    : "一致する結果がありません。";
+                    : uiText("No matching results found.", "一致する結果がありません。");
         }
         renderSearchResults();
     };
@@ -170,23 +171,23 @@ export const initSearchUi = (context, deps) => {
     };
     const validateRenameInputs = () => {
         if (!deps.getWorkspaceRootKey()) {
-            return { ok: false, message: "ワークスペースが未選択です。" };
+            return { ok: false, message: uiText("No workspace is selected.", "ワークスペースが未選択です。") };
         }
         const from = searchRenameFrom instanceof HTMLInputElement ? searchRenameFrom.value.trim() : "";
         const to = searchRenameTo instanceof HTMLInputElement ? searchRenameTo.value.trim() : "";
         if (!from || !to) {
-            return { ok: false, message: "現在のキーと新しいキーを入力してください。" };
+            return { ok: false, message: uiText("Enter the current key and the new key.", "Please enter your current key and new key.") };
         }
         if (from === to) {
-            return { ok: false, message: "新しいキーが同じです。" };
+            return { ok: false, message: uiText("The new key is the same.", "新しいキーが同じです。") };
         }
         const invalidPattern = /[\s,{}]/;
         if (invalidPattern.test(from) || invalidPattern.test(to)) {
-            return { ok: false, message: "キーに空白・カンマ・{} は使えません。" };
+            return { ok: false, message: uiText("Keys cannot contain spaces, commas, or {}.", "Spaces, commas, and {} cannot be used in keys.") };
         }
         const { kinds, labelEnabled, citeEnabled } = buildRenameKinds();
         if (!labelEnabled && !citeEnabled) {
-            return { ok: false, message: "対象（ラベル/参照・引用）を選んでください。" };
+            return { ok: false, message: uiText("Select a target (labels/references/citations).", "Please select the target (label/reference/citation).") };
         }
         return { ok: true, from, to, kinds };
     };
@@ -197,12 +198,12 @@ export const initSearchUi = (context, deps) => {
         }
         const validation = validateRenameInputs();
         if (!validation.ok) {
-            setRenameStatus((_a = validation.message) !== null && _a !== void 0 ? _a : "入力を確認してください。", "error");
+            setRenameStatus((_a = validation.message) !== null && _a !== void 0 ? _a : uiText("Please check your input.", "入力を確認してください。"), "error");
             return;
         }
         const { from, to, kinds } = validation;
         setRenameBusy(true);
-        setRenameStatus("提案を作成中...", "busy");
+        setRenameStatus(uiText("Creating a proposal...", "提案を作成中..."), "busy");
         const context = deps.buildRenameContext ? deps.buildRenameContext() : undefined;
         deps.postToNative({
             type: "search:renameSymbol",
@@ -217,17 +218,17 @@ export const initSearchUi = (context, deps) => {
         var _a, _b, _c, _d;
         setRenameBusy(false);
         if (!payload.ok) {
-            setRenameStatus((_a = payload.error) !== null && _a !== void 0 ? _a : "リネームに失敗しました。", "error");
+            setRenameStatus((_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Rename failed.", "リネームに失敗しました。"), "error");
             return;
         }
         const fileCount = (_b = payload.fileCount) !== null && _b !== void 0 ? _b : 0;
         const appliedCount = (_c = payload.appliedCount) !== null && _c !== void 0 ? _c : 0;
         const skippedCount = (_d = payload.skippedCount) !== null && _d !== void 0 ? _d : 0;
-        let message = `${fileCount}ファイルに提案を作成しました（${appliedCount}箇所）`;
+        let message = uiText(`Created suggestions for ${fileCount} files (${appliedCount} locations)`, `Created suggestion in ${fileCount} file (${appliedCount} place)`);
         if (skippedCount > 0) {
-            message += `。除外: ${skippedCount}件`;
+            message += uiText(`. Excluded: ${skippedCount}`, `。除外: ${skippedCount}件`);
         }
-        message += "。AIパネルで確認できます。";
+        message += uiText(". Check the AI panel.", ". You can check it on the AI ​​panel.");
         setRenameStatus(message, "ok");
     };
     const requestSearch = (query) => {
@@ -237,7 +238,7 @@ export const initSearchUi = (context, deps) => {
         const requestId = currentSearchRequestId;
         if (!deps.getWorkspaceRootKey()) {
             searchResultsData = [];
-            searchMessage = "ワークスペースが未選択です。";
+            searchMessage = uiText("No workspace is selected.", "ワークスペースが未選択です。");
             renderSearchResults();
             return;
         }
@@ -248,7 +249,7 @@ export const initSearchUi = (context, deps) => {
             return;
         }
         searchResultsData = [];
-        searchMessage = "検索中...";
+        searchMessage = uiText("Searching...", "検索中...");
         renderSearchResults();
         deps.postToNative({
             type: "search",

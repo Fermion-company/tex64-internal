@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 export const createIssuesProxy = (onUpdate) => {
     let lastIssueSnapshot = null;
     const recordIssuesSnapshot = (count, summary, status, issues) => {
@@ -16,7 +17,7 @@ export const createIssuesProxy = (onUpdate) => {
                 ? [
                     {
                         severity: status === "error" ? "error" : "warning",
-                        message: (summary === null || summary === void 0 ? void 0 : summary.trim()) || "エラーが発生しました。",
+                        message: (summary === null || summary === void 0 ? void 0 : summary.trim()) || uiText("An error has occurred.", "エラーが発生しました。"),
                     },
                 ]
                 : [];

@@ -38,30 +38,30 @@ export const createSettingsPlatformUpdateOps = (
       return runtime.state.platformUpdateStatus.message.trim();
     }
     if (phase === "checking") {
-      return "更新を確認しています。";
+      return "Checking for updates.";
     }
     if (phase === "up-to-date") {
-      return latest ? `最新バージョン ${latest} です。` : "最新状態です。";
+      return latest ? `Latest version ${latest}.` : "Up to date.";
     }
     if (phase === "available") {
-      return latest ? `新しいバージョン ${latest} を利用できます。` : "新しいバージョンを利用できます。";
+      return latest ? `A new version of ${latest} is available.` : "A new version is available.";
     }
     if (phase === "downloading") {
       const transferred = formatBytes(runtime.state.platformUpdateStatus?.transferredBytes ?? 0);
       const total = formatBytes(runtime.state.platformUpdateStatus?.totalBytes ?? 0);
-      return `更新をダウンロード中です（${transferred} / ${total}）。`;
+      return `Downloading updates (${transferred} / ${total}).`;
     }
     if (phase === "downloaded") {
-      return "ダウンロード完了。適用ボタンでインストーラを起動できます。";
+      return "Download completed. You can launch the installer with the Apply button.";
     }
     if (phase === "installing") {
-      return "インストーラを起動しました。画面の手順に沿って更新してください。";
+      return "I started the installer. Follow the on-screen instructions to update.";
     }
     if (phase === "error") {
       const message = runtime.state.platformUpdateStatus?.error?.message;
-      return message && message.trim() ? message.trim() : "アップデート処理に失敗しました。";
+      return message && message.trim() ? message.trim() : "Update processing failed.";
     }
-    return "更新確認待ちです。";
+    return "Waiting for update check.";
   };
 
   const updatePlatformUpdateUi = () => {

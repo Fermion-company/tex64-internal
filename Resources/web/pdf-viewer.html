@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,43 +15,43 @@
     <div class="pdf-app">
       <header class="pdf-toolbar">
         <div class="pdf-toolbar-group">
-          <button class="pdf-btn ghost" id="pdf-sidebar-toggle" type="button" title="サイドバー">
+          <button class="pdf-btn ghost" id="pdf-sidebar-toggle" type="button" title="Sidebar">
             ☰
           </button>
-          <span class="pdf-title" id="pdf-title">PDF ビューア</span>
+          <span class="pdf-title" id="pdf-title">PDF Viewer</span>
         </div>
         <div class="pdf-toolbar-group">
-          <button class="pdf-btn ghost" id="pdf-prev" type="button" title="前のページ">◀</button>
-          <input class="pdf-page-input" id="pdf-page-input" type="number" min="1" value="1" aria-label="ページ">
+          <button class="pdf-btn ghost" id="pdf-prev" type="button" title="Previous page">◀</button>
+          <input class="pdf-page-input" id="pdf-page-input" type="number" min="1" value="1" aria-label="Page">
           <span class="pdf-page-count" id="pdf-page-count">/ 0</span>
-          <button class="pdf-btn ghost" id="pdf-next" type="button" title="次のページ">▶</button>
-          <button class="pdf-btn ghost" id="pdf-zoom-out" type="button" title="縮小">−</button>
+          <button class="pdf-btn ghost" id="pdf-next" type="button" title="Next page">▶</button>
+          <button class="pdf-btn ghost" id="pdf-zoom-out" type="button" title="Zoom out">−</button>
           <span class="pdf-zoom-label" id="pdf-zoom-label">100%</span>
-          <button class="pdf-btn ghost" id="pdf-zoom-in" type="button" title="拡大">＋</button>
-          <button class="pdf-btn ghost" id="pdf-fit-width" type="button" title="幅に合わせる">幅</button>
-          <button class="pdf-btn ghost" id="pdf-fit-page" type="button" title="ページに合わせる">頁</button>
-          <button class="pdf-btn ghost" id="pdf-rotate-left" type="button" title="左回転">⟲</button>
-          <button class="pdf-btn ghost" id="pdf-rotate-right" type="button" title="右回転">⟳</button>
-          <input class="pdf-search-input" id="pdf-search-input" type="text" placeholder="検索">
-          <button class="pdf-btn ghost" id="pdf-search-prev" type="button" title="前を検索">↑</button>
-          <button class="pdf-btn ghost" id="pdf-search-next" type="button" title="次を検索">↓</button>
-          <button class="pdf-btn ghost" id="pdf-invert" type="button" title="反転">反転</button>
-          <button class="pdf-btn ghost" id="pdf-download" type="button" title="ダウンロード">DL</button>
-          <button class="pdf-btn ghost" id="pdf-print" type="button" title="印刷">印刷</button>
-          <button class="pdf-btn ghost" id="pdf-reload" type="button" title="再読み込み">再読込</button>
+          <button class="pdf-btn ghost" id="pdf-zoom-in" type="button" title="Zoom in">＋</button>
+          <button class="pdf-btn ghost" id="pdf-fit-width" type="button" title="Fit width">Width</button>
+          <button class="pdf-btn ghost" id="pdf-fit-page" type="button" title="Fit page">Page</button>
+          <button class="pdf-btn ghost" id="pdf-rotate-left" type="button" title="Rotate left">⟲</button>
+          <button class="pdf-btn ghost" id="pdf-rotate-right" type="button" title="Rotate right">⟳</button>
+          <input class="pdf-search-input" id="pdf-search-input" type="text" placeholder="Search">
+          <button class="pdf-btn ghost" id="pdf-search-prev" type="button" title="Search previous">↑</button>
+          <button class="pdf-btn ghost" id="pdf-search-next" type="button" title="Search next">↓</button>
+          <button class="pdf-btn ghost" id="pdf-invert" type="button" title="Invert">Invert</button>
+          <button class="pdf-btn ghost" id="pdf-download" type="button" title="Download">DL</button>
+          <button class="pdf-btn ghost" id="pdf-print" type="button" title="Print">Print</button>
+          <button class="pdf-btn ghost" id="pdf-reload" type="button" title="Reload">Reload</button>
         </div>
         <div class="pdf-toolbar-group">
-          <span class="pdf-status" id="pdf-status">待機中</span>
+          <span class="pdf-status" id="pdf-status">Waiting</span>
         </div>
       </header>
       <div class="pdf-body" id="pdf-body">
-        <aside class="pdf-sidebar is-hidden" id="pdf-sidebar" aria-label="PDF サイドバー">
+        <aside class="pdf-sidebar is-hidden" id="pdf-sidebar" aria-label="PDF Sidebar">
           <div class="pdf-sidebar-tabs">
-            <button class="pdf-tab is-active" id="pdf-tab-outline" type="button">目次</button>
-            <button class="pdf-tab" id="pdf-tab-thumbs" type="button">サムネイル</button>
+            <button class="pdf-tab is-active" id="pdf-tab-outline" type="button">Outline</button>
+            <button class="pdf-tab" id="pdf-tab-thumbs" type="button">Thumbnails</button>
           </div>
-          <div class="pdf-sidebar-panel is-active" id="pdf-outline" aria-label="目次"></div>
-          <div class="pdf-sidebar-panel" id="pdf-thumbnails" aria-label="サムネイル"></div>
+          <div class="pdf-sidebar-panel is-active" id="pdf-outline" aria-label="Outline"></div>
+          <div class="pdf-sidebar-panel" id="pdf-thumbnails" aria-label="Thumbnails"></div>
         </aside>
         <div class="pdf-scroll" id="pdf-scroll">
           <div class="pdf-pages pdfViewer" id="pdf-pages"></div>

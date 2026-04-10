@@ -199,7 +199,7 @@ const featureMethods = {
       return clone(state.aiAccessCache);
     }
     if (!state.session?.accessToken) {
-      const blocked = this.buildBlockedAccess("AUTH_REQUIRED", "Googleログインが必要です。", false);
+      const blocked = this.buildBlockedAccess("AUTH_REQUIRED", "Google login is required.", false);
       state.aiAccessCache = blocked;
       state.aiAccessFetchedAt = Date.now();
       this.state = state;
@@ -298,7 +298,7 @@ const featureMethods = {
         summary: null,
         byFeature: null,
         errorCode: "AUTH_REQUIRED",
-        message: "Googleログインが必要です。",
+        message: "Google login is required.",
         fetchedAt: Date.now(),
       };
       state.aiUsageCache = payload;

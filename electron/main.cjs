@@ -699,7 +699,7 @@ ipcMain.handle("tex64:capture:getSources", async (_event, options) => {
     return {
       id: source.id,
       title: source.name,
-      app: isScreen ? "画面" : source.appIcon ? source.name.split(" - ")[0] : "",
+      app: isScreen ? "Screen" : source.appIcon ? source.name.split(" - ")[0] : "",
       thumbnailUrl:
         typeof thumbnail.isEmpty === "function" && thumbnail.isEmpty()
           ? ""
@@ -1108,6 +1108,10 @@ ipcMain.on("tex64", (_event, message) => {
   }
   if (type === "agent:undoLastRunApply") {
     agentHandlers.handleAgentUndoLastRunApply(message.conversationId);
+    return;
+  }
+  if (type === "agent:undoLastApply") {
+    agentHandlers.handleAgentUndoLastApply(message.conversationId);
     return;
   }
   if (type === "agent:clear") {

@@ -3,8 +3,8 @@ export const initDiffModal = (context, deps) => {
     var _a;
     const { diffModal, diffTitle, diffModalSubmit, blockDiffContainer, diffSummary, diffFileName } = context.dom;
     const defaultDiffSubmitLabel = diffModalSubmit instanceof HTMLButtonElement
-        ? (_a = diffModalSubmit.textContent) !== null && _a !== void 0 ? _a : "確定"
-        : "確定";
+        ? (_a = diffModalSubmit.textContent) !== null && _a !== void 0 ? _a : "Confirm"
+        : "Confirm";
     let diffEditor = null;
     let diffOriginalModel = null;
     let diffModifiedModel = null;
@@ -30,7 +30,7 @@ export const initDiffModal = (context, deps) => {
             }
         });
         if (adds === 0 && dels === 0) {
-            diffSummary.textContent = "変更なし";
+            diffSummary.textContent = "No change";
             return;
         }
         const add = document.createElement("span");
@@ -45,11 +45,11 @@ export const initDiffModal = (context, deps) => {
         var _a;
         if (diffTitle instanceof HTMLElement) {
             diffTitle.textContent =
-                (diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "block" ? "変更内容の確認（確定後に整形）" : "変更内容の確認";
+                (diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "block" ? "Confirm changes (format after finalization)" : "Confirm changes";
         }
         if (diffFileName instanceof HTMLElement) {
             const activePath = deps.getActiveFilePath();
-            const fileName = activePath ? (_a = activePath.split(/[/\\]/).pop()) !== null && _a !== void 0 ? _a : activePath : "未保存";
+            const fileName = activePath ? (_a = activePath.split(/[/\\]/).pop()) !== null && _a !== void 0 ? _a : activePath : "Unsaved";
             diffFileName.textContent = fileName;
         }
     };
@@ -313,10 +313,10 @@ export const initDiffModal = (context, deps) => {
         resetDiffEditor();
         // Header
         if (diffTitle instanceof HTMLElement) {
-            diffTitle.textContent = (_a = options === null || options === void 0 ? void 0 : options.title) !== null && _a !== void 0 ? _a : "変更内容の確認";
+            diffTitle.textContent = (_a = options === null || options === void 0 ? void 0 : options.title) !== null && _a !== void 0 ? _a : "Confirm changes";
         }
         if (diffFileName instanceof HTMLElement) {
-            diffFileName.textContent = `${files.length}ファイル`;
+            diffFileName.textContent = `${files.length}file`;
         }
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.textContent = (_b = options === null || options === void 0 ? void 0 : options.submitLabel) !== null && _b !== void 0 ? _b : defaultDiffSubmitLabel;
@@ -401,7 +401,7 @@ export const initDiffModal = (context, deps) => {
             diffFileName.textContent = "";
         }
         if (diffTitle instanceof HTMLElement) {
-            diffTitle.textContent = "変更内容の確認";
+            diffTitle.textContent = "Confirm changes";
         }
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.textContent = defaultDiffSubmitLabel;

@@ -290,7 +290,7 @@ export const initEnvRegistry = (context, deps) => {
             if (entry.discouraged) {
                 const flag = document.createElement("span");
                 flag.className = "env-registry-flag";
-                flag.textContent = "非推奨";
+                flag.textContent = uiText("Deprecated", "Not recommended");
                 label.appendChild(flag);
             }
             if (entry.source === "custom") {
@@ -304,7 +304,7 @@ export const initEnvRegistry = (context, deps) => {
                 const remove = document.createElement("button");
                 remove.type = "button";
                 remove.className = "panel-button ghost env-registry-remove";
-                remove.textContent = "削除";
+                remove.textContent = uiText("Delete", "削除");
                 remove.dataset.envAction = "remove";
                 remove.dataset.envName = entry.name;
                 remove.dataset.envKind = entry.kind;
@@ -361,11 +361,11 @@ export const initEnvRegistry = (context, deps) => {
         }
         if (disabledEnvNames.has(base)) {
             disabledEnvNames.delete(base);
-            setEnvRegistryHint(`${base} を有効にしました。`);
+            setEnvRegistryHint(uiText(`${base} enabled.`, `${base} を有効にしました。`));
         }
         else {
             disabledEnvNames.add(base);
-            setEnvRegistryHint(`${base} を無効にしました。`);
+            setEnvRegistryHint(uiText(`${base} disabled.`, `${base} を無効にしました。`));
         }
         saveDisabledEnvRegistry();
         rebuildEnvRegistry();
@@ -374,11 +374,11 @@ export const initEnvRegistry = (context, deps) => {
     const addCustomEnvEntry = (name, kind) => {
         const base = getEnvBaseName(normalizeEnvName(name));
         if (!base) {
-            setEnvRegistryHint("環境名が空です。");
+            setEnvRegistryHint(uiText("Environment name is empty.", "環境名が空です。"));
             return;
         }
         if (hasRegistryEntryInOtherKind(base, kind)) {
-            setEnvRegistryHint("既に別カテゴリで登録されています。");
+            setEnvRegistryHint(uiText("Already registered in another category.", "既に別カテゴリで登録されています。"));
             return;
         }
         if (!hasRegistryEntry(base, kind)) {
@@ -392,17 +392,17 @@ export const initEnvRegistry = (context, deps) => {
                 saveDisabledEnvRegistry();
             }
             setCustomEnvRegistry(customEnvRegistry);
-            setEnvRegistryHint(`${base} を追加しました。`);
+            setEnvRegistryHint(uiText(`${base} added.`, `${base} をadditionしました。`));
             return;
         }
         if (disabledEnvNames.has(base)) {
             disabledEnvNames.delete(base);
             rebuildEnvRegistry();
             handleEnvRegistryUpdate(false);
-            setEnvRegistryHint(`${base} を有効にしました。`);
+            setEnvRegistryHint(uiText(`${base} enabled.`, `${base} を有効にしました。`));
             return;
         }
-        setEnvRegistryHint("既に登録されています。");
+        setEnvRegistryHint(uiText("Already registered.", "既に登録されています。"));
     };
     const removeCustomEnvEntry = (name, kind) => {
         const base = getEnvBaseName(normalizeEnvName(name));
@@ -416,7 +416,7 @@ export const initEnvRegistry = (context, deps) => {
         }
         customEnvRegistry = next;
         setCustomEnvRegistry(customEnvRegistry);
-        setEnvRegistryHint(`${base} を削除しました。`);
+        setEnvRegistryHint(uiText(`${base} removed.`, `${base} をDeleteしました。`));
     };
     const handleEnvRegistryListClick = (event) => {
         var _a, _b;
@@ -445,7 +445,7 @@ export const initEnvRegistry = (context, deps) => {
                 ? "table"
                 : "math";
             if (!name) {
-                setEnvRegistryHint("環境名が空です。");
+                setEnvRegistryHint(uiText("Environment name is empty.", "環境名が空です。"));
                 return;
             }
             addCustomEnvEntry(name, kind);
@@ -479,3 +479,4 @@ export const initEnvRegistry = (context, deps) => {
         },
     };
 };
+import { uiText } from "./i18n.js";

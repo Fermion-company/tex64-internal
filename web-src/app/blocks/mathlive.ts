@@ -1,4 +1,5 @@
 import type { AppContext } from "../context.js";
+import { getUiLocale, onUiLocaleChange } from "../i18n.js";
 import { closeMathfieldInternalMenu } from "../../math/mathfield-private-adapter.js";
 
 type MathLiveDeps = {
@@ -28,6 +29,42 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
   let setupInFlight = false;
   let setupRetryScheduled = false;
   let containerPointerDownHandler: ((event: PointerEvent) => void) | null = null;
+
+  const resolveMathLiveLocale = () => (getUiLocale() === "en" ? "en" : "ja");
+  const applyMathfieldLocale = (
+    mathfield:
+      | (HTMLElement & {
+          setOptions?: (options: Record<string, unknown>) => void;
+          locale?: string;
+        })
+      | null
+      | undefined
+  ) => {
+    if (!(mathfield instanceof HTMLElement)) {
+      return;
+    }
+    const locale = resolveMathLiveLocale();
+    mathfield.setAttribute("lang", locale);
+    try {
+      if (typeof mathfield.setOptions === "function") {
+        mathfield.setOptions({ locale });
+      } else if ("locale" in mathfield) {
+        mathfield.locale = locale;
+      }
+    } catch {
+      // ignore locale update failures
+    }
+  };
+
+  onUiLocaleChange(() => {
+    const currentMathfield = blockMathInputContainer?.querySelector("#block-math-input") as
+      | (HTMLElement & {
+          setOptions?: (options: Record<string, unknown>) => void;
+          locale?: string;
+        })
+      | null;
+    applyMathfieldLocale(currentMathfield);
+  });
 
   const setupMathField = async () => {
     if (setupInFlight) {
@@ -103,8 +140,8 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       fallbackInput.className = "block-input block-math-input";
       fallbackInput.setAttribute("rows", "4");
       fallbackInput.setAttribute("spellcheck", "false");
-      fallbackInput.setAttribute("aria-label", "数式入力（テキスト）");
-      fallbackInput.placeholder = "LaTeX を入力";
+      fallbackInput.setAttribute("aria-label", "Formula input (text)");
+      fallbackInput.placeholder = "Enter LaTeX";
       fallbackInput.style.width = "100%";
       fallbackInput.style.minHeight = "96px";
       fallbackInput.style.resize = "vertical";
@@ -229,7 +266,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       const mathfield = document.createElement("math-field") as any;
       mathfield.id = "block-math-input";
       mathfield.className = "block-math-field";
-      mathfield.setAttribute("placeholder", "数式を入力");
+      mathfield.setAttribute("placeholder", "Enter formula");
 
 
       const scrollHost = document.createElement("div");
@@ -239,7 +276,7 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       const menuToggle = document.createElement("button");
       menuToggle.type = "button";
       menuToggle.className = "block-math-menu-toggle";
-      menuToggle.setAttribute("aria-label", "数式メニュー");
+      menuToggle.setAttribute("aria-label", "Math menu");
       menuToggle.setAttribute("aria-haspopup", "menu");
       menuToggle.tabIndex = -1;
       menuToggle.innerHTML = `
@@ -343,9 +380,11 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
           soundsDirectory: null,
           keypressSound: null,
           plonkSound: null,
-          locale: "ja",
+          locale: resolveMathLiveLocale(),
         });
       }
+
+      applyMathfieldLocale(mathfield);
 
       // Also set properties directly (the recommended path for newer MathLive
       // versions) to ensure the options take effect even if the deprecated
@@ -373,14 +412,14 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
     try {
       if ("menuItems" in mathfield) {
         const blockedLabels = [
-          "モード",
-          "フォントスタイル",
-          "色",
-          "背景",
-          "切り取り",
-          "コピー",
-          "貼り付け",
-          "すべて選択",
+          "Mode",
+          "Font style",
+          "Color",
+          "Background",
+          "Cut",
+          "Copy",
+          "Paste",
+          "Select all",
         ];
         const blockedPattern =
           /(mode|font\s*style|color|background|cut|copy|paste|select\s*all)/i;

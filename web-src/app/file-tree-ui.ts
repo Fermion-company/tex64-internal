@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import type { ContextMenuApi, ContextMenuItem } from "./context-menu.js";
+import { uiText } from "./i18n.js";
 import type { CreateKind, DragPayload, IssueItem, IssuesStatus } from "./types.js";
 import { createFileTreeRenderer } from "./file-tree-render.js";
 import {
@@ -222,14 +223,14 @@ export const initFileTreeUi = (
     }
     createModalKind = kind;
     const basePath = resolveCreateBasePath();
-    setText(createModalTitle, kind === "file" ? "新規ファイルを作成" : "新規フォルダを作成");
+    setText(createModalTitle, kind === "file" ? uiText("Create New File", "create new file") : uiText("Create New Folder", "Create new folder"));
     setText(createModalSubtitle, "");
-    setText(createModalParent, basePath ? basePath : "ワークスペース直下");
-    setText(createModalLabel, kind === "file" ? "ファイル名（拡張子付き）" : "フォルダ名");
+    setText(createModalParent, basePath ? basePath : uiText("Workspace root", "Directly below the workspace"));
+    setText(createModalLabel, kind === "file" ? uiText("File name (with extension)", "ファイル名（拡張子付き）") : uiText("Folder name", "folder name"));
     if (createModalInput instanceof HTMLInputElement) {
       createModalInput.value = "";
       createModalInput.placeholder =
-        kind === "file" ? "例: sections/intro.tex" : "例: sections";
+        kind === "file" ? uiText("Example: sections/intro.tex", "例: sections/intro.tex") : uiText("Example: sections", "例: sections");
       requestAnimationFrame(() => {
         createModalInput.focus();
       });
@@ -249,8 +250,9 @@ export const initFileTreeUi = (
       return;
     }
     if (!deps.getWorkspaceRootKey()) {
-      deps.updateIssues(1, "起動時にフォルダを選択してください。", "error", [
-        { severity: "error", message: "起動時にフォルダを選択してください。" },
+      const message = uiText("Please select a folder at startup.", "起動時にフォルダを選択してください。");
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -259,9 +261,10 @@ export const initFileTreeUi = (
     }
     const rawValue = createModalInput.value.trim();
     if (!rawValue) {
-      setCreateModalHelp("名前を入力してください。", true);
-      deps.updateIssues(1, "名前を入力してください。", "error", [
-        { severity: "error", message: "名前を入力してください。" },
+      const message = uiText("Please enter a name.", "Please enter your name.");
+      setCreateModalHelp(message, true);
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -287,8 +290,9 @@ export const initFileTreeUi = (
 
   const requestCreate = (kind: CreateKind) => {
     if (!deps.getWorkspaceRootKey()) {
-      deps.updateIssues(1, "起動時にフォルダを選択してください。", "error", [
-        { severity: "error", message: "起動時にフォルダを選択してください。" },
+      const message = uiText("Please select a folder at startup.", "起動時にフォルダを選択してください。");
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -297,7 +301,9 @@ export const initFileTreeUi = (
       return;
     }
     const title =
-      kind === "file" ? "新規ファイル名（例: chapter/intro.tex）" : "新規フォルダ名（例: chapter）";
+      kind === "file"
+        ? uiText("New file name (e.g. chapter/intro.tex)", "新規ファイル名（例: chapter/intro.tex）")
+        : uiText("New folder name (e.g. chapter)", "新規フォルダ名（例: chapter）");
     const input = window.prompt(title);
     if (!input) {
       return;
@@ -335,11 +341,11 @@ export const initFileTreeUi = (
     renameTargetPath = path;
     renameTargetType = kind;
     const currentName = path.split("/").filter(Boolean).pop() ?? "";
-    setText(renameModalTitle, "名前の変更");
+    setText(renameModalTitle, uiText("Rename", "rename"));
     setText(renameModalTarget, path);
     if (renameModalInput instanceof HTMLInputElement) {
       renameModalInput.value = currentName;
-      renameModalInput.placeholder = "新しい名前";
+      renameModalInput.placeholder = uiText("New name", "new name");
       requestAnimationFrame(() => {
         renameModalInput.focus();
         renameModalInput.select();
@@ -368,7 +374,10 @@ export const initFileTreeUi = (
       return renameTargetType === "dir" ? path.startsWith(`${renameTargetPath}/`) : false;
     });
     if (hasDirtyAffected) {
-      const message = "未保存の変更があります。保存してから名前を変更してください。";
+      const message = uiText(
+        "There are unsaved changes. Please save before renaming.",
+        "There are unsaved changes. Please save and rename."
+      );
       setRenameModalHelp(message, true);
       deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
       return;
@@ -378,11 +387,11 @@ export const initFileTreeUi = (
     }
     const rawValue = renameModalInput.value.trim();
     if (!rawValue) {
-      setRenameModalHelp("名前を入力してください。", true);
+      setRenameModalHelp(uiText("Please enter a name.", "Please enter your name."), true);
       return;
     }
     if (rawValue.includes("/")) {
-      setRenameModalHelp("名前に / は使えません。", true);
+      setRenameModalHelp(uiText("Names cannot contain /.", "/ cannot be used in the name."), true);
       return;
     }
     const payload = { type: "renameItem", path: renameTargetPath, newName: rawValue };
@@ -410,13 +419,13 @@ export const initFileTreeUi = (
     deleteTargetPath = path;
     deleteTargetType = kind;
     const name = path.split("/").filter(Boolean).pop() ?? path;
-    setText(deleteModalTitle, kind === "dir" ? "フォルダを削除" : "ファイルを削除");
+    setText(deleteModalTitle, kind === "dir" ? uiText("Delete Folder", "delete folder") : uiText("Delete File", "delete file"));
     setText(deleteModalTarget, name);
     if (deleteModalHelp instanceof HTMLElement) {
       deleteModalHelp.textContent =
         kind === "dir"
-          ? "フォルダとその中のすべてのファイルが削除されます。この操作は取り消せません。"
-          : "この操作は取り消せません。";
+          ? uiText("The folder and all files inside it will be deleted. This cannot be undone.", "The folder and all files within it will be deleted. This operation cannot be undone.")
+          : uiText("This action cannot be undone.", "This operation cannot be undone.");
       deleteModalHelp.classList.remove("is-error");
     }
     setDeleteModalOpen(true);
@@ -445,8 +454,12 @@ export const initFileTreeUi = (
       return kind === "dir" ? entryPath.startsWith(`${path}/`) : false;
     });
     if (hasDirtyAffected) {
-      deps.updateIssues(1, "未保存の変更があります。削除前に保存してください。", "error", [
-        { severity: "error", message: "未保存の変更があります。削除前に保存してください。" },
+      const message = uiText(
+        "There are unsaved changes. Please save before deleting.",
+        "There are unsaved changes. Please save before deleting."
+      );
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -467,8 +480,9 @@ export const initFileTreeUi = (
 
   const requestMoveItem = (payload: DragPayload, targetFolder: string) => {
     if (!deps.getWorkspaceRootKey()) {
-      deps.updateIssues(1, "起動時にフォルダを選択してください。", "error", [
-        { severity: "error", message: "起動時にフォルダを選択してください。" },
+      const message = uiText("Please select a folder at startup.", "起動時にフォルダを選択してください。");
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -477,8 +491,9 @@ export const initFileTreeUi = (
       return;
     }
     if (!canDropOnFolder(payload, targetFolder)) {
-      deps.updateIssues(1, "移動先が不正です。", "error", [
-        { severity: "error", message: "移動先が不正です。" },
+      const message = uiText("The destination is invalid.", "移動先が不正です。");
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -490,8 +505,12 @@ export const initFileTreeUi = (
       return payload.kind === "dir" ? path.startsWith(`${payload.path}/`) : false;
     });
     if (hasDirtyAffected) {
-      deps.updateIssues(1, "未保存の変更があります。移動前に保存してください。", "error", [
-        { severity: "error", message: "未保存の変更があります。移動前に保存してください。" },
+      const message = uiText(
+        "There are unsaved changes. Please save before moving.",
+        "There are unsaved changes. Please save before moving."
+      );
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -504,8 +523,9 @@ export const initFileTreeUi = (
     }
     const destination = resolvePasteTarget();
     if (!canDropOnFolder(fileClipboard, destination)) {
-      deps.updateIssues(1, "移動先が不正です。", "error", [
-        { severity: "error", message: "移動先が不正です。" },
+      const message = uiText("The destination is invalid.", "移動先が不正です。");
+      deps.updateIssues(1, message, "error", [
+        { severity: "error", message },
       ]);
       return;
     }
@@ -520,14 +540,14 @@ export const initFileTreeUi = (
   const buildFileContextMenu = (path: string): ContextMenuItem[] => [
     {
       type: "action",
-      label: "開く",
+      label: uiText("Open", "open"),
       action: () => {
         deps.requestOpenFile(path, deps.getActiveEditorGroupKey());
       },
     },
     {
       type: "action",
-      label: "新しいファイル...",
+      label: uiText("New file...", "新しいファイル..."),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "file";
@@ -536,7 +556,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: "新しいフォルダー...",
+      label: uiText("New folder...", "新しいフォルダー..."),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "file";
@@ -545,23 +565,23 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: "Finderで表示",
+      label: uiText("Show in Finder", "Finderで表示"),
       action: () => requestRevealInFinder(path),
     },
     {
       type: "action",
-      label: "ターミナルで開く",
+      label: uiText("Open in terminal", "open in terminal"),
       action: () => requestOpenInTerminal(path),
     },
     { type: "separator" },
     {
       type: "action",
-      label: "名前の変更...",
+      label: uiText("Rename...", "名前の変更..."),
       action: () => openRenameModal(path, "file"),
     },
     {
       type: "action",
-      label: "削除",
+      label: uiText("Delete", "削除"),
       danger: true,
       action: () => requestDeleteItem(path, "file"),
     },
@@ -570,7 +590,7 @@ export const initFileTreeUi = (
   const buildFolderContextMenu = (path: string): ContextMenuItem[] => [
     {
       type: "action",
-      label: "新しいファイル...",
+      label: uiText("New file...", "新しいファイル..."),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "dir";
@@ -579,7 +599,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: "新しいフォルダー...",
+      label: uiText("New folder...", "新しいフォルダー..."),
       action: () => {
         selectedTreePath = path;
         selectedTreeType = "dir";
@@ -588,23 +608,23 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: "Finderで表示",
+      label: uiText("Show in Finder", "Finderで表示"),
       action: () => requestRevealInFinder(path),
     },
     {
       type: "action",
-      label: "ターミナルで開く",
+      label: uiText("Open in terminal", "open in terminal"),
       action: () => requestOpenInTerminal(path),
     },
     { type: "separator" },
     {
       type: "action",
-      label: "名前の変更...",
+      label: uiText("Rename...", "名前の変更..."),
       action: () => openRenameModal(path, "dir"),
     },
     {
       type: "action",
-      label: "削除",
+      label: uiText("Delete", "削除"),
       danger: true,
       action: () => requestDeleteItem(path, "dir"),
     },

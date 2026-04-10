@@ -92,10 +92,10 @@ const decodeBase64Strict = (value) => {
 
 const parseCommandLine = (command) => {
   if (SHELL_OPERATOR_PATTERN.test(command) || SUBSHELL_PATTERN.test(command)) {
-    return { error: "シェル演算子（`|`, `;`, `>`, `&` など）は使用できません。" };
+    return { error: "Shell operators (`|`, `;`, `>`, `&` etc.) are not allowed." };
   }
   if (/[\r\n]/.test(command)) {
-    return { error: "改行を含む command は使用できません。" };
+    return { error: "Commands containing newlines are not allowed." };
   }
   const tokens = [];
   let current = "";
@@ -133,16 +133,16 @@ const parseCommandLine = (command) => {
     current += char;
   }
   if (escaped) {
-    return { error: "command の末尾エスケープが不正です。" };
+    return { error: "Invalid trailing escape in command." };
   }
   if (quote) {
-    return { error: "command の引用符が閉じていません。" };
+    return { error: "Unclosed quotes in command." };
   }
   if (current) {
     tokens.push(current);
   }
   if (tokens.length === 0) {
-    return { error: "command が空です。" };
+    return { error: "command is empty." };
   }
   return {
     executable: tokens[0],
@@ -172,6 +172,7 @@ const runShellCommand = (
       cwd,
       env: { ...process.env, ...sanitizedEnv },
       shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -278,20 +279,20 @@ const handleListFiles = async (service, args, policy) => {
   const directory = normalizePath(args.directory);
   const rootPath = service.workspace.getRootPath();
   if (!rootPath) {
-    return { error: "ワークスペースが選択されていません。" };
+    return { error: "No workspace is selected." };
   }
   if (directory && isBlockedPath(directory, policy)) {
-    return { error: "対象パスは読み取り禁止です。" };
+    return { error: "Target path is read-protected." };
   }
   let basePath = "";
   try {
     basePath = service.workspace.resolvePath(directory);
   } catch {
-    return { error: "ディレクトリが見つかりません。" };
+    return { error: "Directory not found." };
   }
   const baseStat = await fsp.stat(basePath).catch(() => null);
   if (!baseStat || !baseStat.isDirectory()) {
-    return { error: "ディレクトリが見つかりません。" };
+    return { error: "Directory not found." };
   }
   const results = [];
   const maxEntries = 5000;
@@ -326,23 +327,23 @@ const handleRunCommand = async (service, args) => {
   if (service?.agentOptions?.allowRunCommand !== true) {
     return {
       error:
-        "run_command は現在無効です。必要な場合は agent settings の allowRunCommand を有効にしてください。",
+        "run_command is currently disabled. Enable allowRunCommand in agent settings if needed.",
     };
   }
   const command = typeof args.command === "string" ? args.command.trim() : "";
   if (!command) {
-    return { error: "command が空です。" };
+    return { error: "command is empty." };
   }
   const rootPath = service.workspace.getRootPath();
   if (!rootPath) {
-    return { error: "ワークスペースが選択されていません。" };
+    return { error: "No workspace is selected." };
   }
   let cwd = rootPath;
   if (typeof args.cwd === "string" && args.cwd.trim()) {
     try {
       cwd = service.workspace.resolvePath(normalizePath(args.cwd));
     } catch {
-      return { error: "cwd が不正です。" };
+      return { error: "cwd is invalid." };
     }
   }
   const timeoutMs =

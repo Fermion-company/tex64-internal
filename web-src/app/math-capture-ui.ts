@@ -1,4 +1,5 @@
 import type { AppContext } from "./context.js";
+import { uiText } from "./i18n.js";
 
 export type MathCaptureWindowSource = {
   id: string;
@@ -171,7 +172,9 @@ export const initMathCaptureUi = (
   const setCropBusy = (busy: boolean, message?: string) => {
     if (mathCaptureCropApply instanceof HTMLElement) {
       mathCaptureCropApply.classList.toggle("is-busy", busy);
-      mathCaptureCropApply.textContent = busy ? (message ?? "認識中…") : "確定";
+      mathCaptureCropApply.textContent = busy
+        ? (message ?? uiText("Recognizing...", "認識中…"))
+        : uiText("Confirm", "確定");
       (mathCaptureCropApply as HTMLButtonElement).disabled = busy;
     }
     if (mathCaptureCropRetry instanceof HTMLElement) {

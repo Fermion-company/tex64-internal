@@ -229,12 +229,12 @@ export const initBlockInsertFlow = (
     }
     const activeGroup = deps.getActiveGroup();
     if (!activeGroup.editor || !deps.getMonacoApi()) {
-      deps.updateFallback("エディタの準備が完了していません。");
+      deps.updateFallback("Editor is not ready.");
       return;
     }
     if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
-      deps.updateIssues(1, "ブロックは .tex ファイルでのみ挿入できます。", "error", [
-        { severity: "error", message: "ブロックは .tex ファイルでのみ挿入できます。" },
+      deps.updateIssues(1, "Blocks can only be inserted in .tex files.", "error", [
+        { severity: "error", message: "Blocks can only be inserted in .tex files." },
       ]);
       return;
     }
@@ -347,8 +347,8 @@ export const initBlockInsertFlow = (
       return;
     }
     if (!activeGroup.currentFilePath || !activeGroup.currentFilePath.endsWith(".tex")) {
-      deps.updateIssues(1, "ブロックは .tex ファイルでのみ挿入できます。", "error", [
-        { severity: "error", message: "ブロックは .tex ファイルでのみ挿入できます。" },
+      deps.updateIssues(1, "Blocks can only be inserted in .tex files.", "error", [
+        { severity: "error", message: "Blocks can only be inserted in .tex files." },
       ]);
       return;
     }

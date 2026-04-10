@@ -29,6 +29,7 @@ type UiEventsDeps = {
   rootSelectorUi: {
     setupActions: () => void;
   };
+  saveCurrentFile: () => void;
 };
 
 export type UiEventsApi = {
@@ -42,6 +43,7 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
     editorHostSecondary,
     diffModalSubmit,
     diffModalCancel,
+    saveButton,
   } = context.dom;
 
   const setup = () => {
@@ -86,7 +88,17 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
     deps.buildOps.setupActionButtons();
     deps.rootSelectorUi.setupActions();
 
+    if (saveButton instanceof HTMLButtonElement) {
+      saveButton.addEventListener("click", () => {
+        deps.saveCurrentFile();
+      });
+    }
+
     window.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        deps.saveCurrentFile();
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
         event.preventDefault();
         deps.buildOps.startBuild();

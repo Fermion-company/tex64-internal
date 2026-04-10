@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import type { IndexEntry, SectionEntry } from "./types.js";
+import { getUiLocale, onUiLocaleChange } from "./i18n.js";
 import {
   dedupeByKey,
   dedupeByKeyAndLocation,
@@ -59,6 +60,11 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
     return filterEntriesForCurrent(entries);
   };
 
+  const resolveSectionLabels = () =>
+    getUiLocale() === "en"
+      ? ["Chapter", "Section", "Subsection", "Item", "Subitem", "Paragraph", "Subparagraph"]
+      : ["chapter", "section", "measure", "term", "subsection", "paragraph", "small paragraph"];
+
   const renderModeButtons = () => {
     if (outlineModeCurrent instanceof HTMLButtonElement) {
       const isActive = outlineMode === "current";
@@ -116,7 +122,8 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
       return;
     }
     const showNumbering = options.showNumbering !== false;
-    const sectionLabels = ["章", "節", "小節", "項", "小項", "段落", "小段落"];
+    const sectionLabels = resolveSectionLabels();
+    const isEnglish = getUiLocale() === "en";
 
     const baseLevelsByPath = new Map<
       string,
@@ -184,12 +191,14 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
             state.counters[i] = 0;
           }
         }
-        const numberParts = state.counters
+                const numberParts = state.counters
           .slice(0, depth + 1)
           .filter((value) => value > 0);
         if (numberParts.length > 0) {
-          const label = sectionLabels[Math.max(depth + state.labelOffset, 0)] ?? "節";
-          prefix = `${numberParts.join(".")}${label} `;
+          const label = sectionLabels[Math.max(depth + state.labelOffset, 0)] ?? "section";
+          prefix = isEnglish
+            ? `${label} ${numberParts.join(".")} `
+            : `${numberParts.join(".")}${label} `;
         }
       }
 
@@ -253,13 +262,18 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
       if (!hasItems) {
         outlineEmpty.textContent =
           deps.getWorkspaceRootKey() === null
-            ? "ワークスペースが未選択です。"
+            ? (getUiLocale() === "en" ? "No workspace selected." : "No workspace is selected.")
             : outlineMode === "current" && deps.getActiveFilePath() === null
-            ? "ファイルが未選択です。"
-            : "インデックス項目が見つかりません。";
+              ? (getUiLocale() === "en" ? "No file selected." : "No file selected.")
+              : (getUiLocale() === "en" ? "No index entries found." : "No index entries found.");
       }
     }
   };
+
+  onUiLocaleChange(() => {
+    renderModeButtons();
+    render();
+  });
 
   if (outlineModeCurrent instanceof HTMLButtonElement) {
     outlineModeCurrent.addEventListener("click", () => {

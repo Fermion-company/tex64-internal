@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import type { BridgeWindow, IssueItem, IssuesStatus } from "./types.js";
 
 type BridgeSenderDeps = {
@@ -21,8 +22,9 @@ export const initBridgeSender = (deps: BridgeSenderDeps): PostToNative => {
       deps.bridgeWindow.tex64Bridge ?? deps.bridgeWindow.webkit?.messageHandlers?.tex64;
     if (!handler || typeof handler.postMessage !== "function") {
       if (!silent) {
-        deps.updateIssues(1, "ネイティブ連携が利用できません。", "error", [
-          { severity: "error", message: "ネイティブ連携が利用できません。" },
+        const message = uiText("Native integration is not available.", "ネイティブ連携が利用できません。");
+        deps.updateIssues(1, message, "error", [
+          { severity: "error", message },
         ]);
       }
       return false;

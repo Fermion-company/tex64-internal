@@ -13,13 +13,13 @@ module.exports = (SynctexService) => {
   }) {
     const synctexPath = this.findSynctex();
     if (!synctexPath) {
-      return { ok: false, error: "synctex が見つかりません。" };
+      return { ok: false, error: "synctex がnot found。" };
     }
     if (!fs.existsSync(pdfPath)) {
-      return { ok: false, error: "PDFが見つかりません。" };
+      return { ok: false, error: "PDF not found." };
     }
     if (!fs.existsSync(sourcePath)) {
-      return { ok: false, error: "対象のTeXファイルが見つかりません。" };
+      return { ok: false, error: "subjectのTeXfile not found." };
     }
     const target = `${line}:${column}:${sourcePath}`;
     const args = ["view", "-i", target, "-o", pdfPath];
@@ -29,14 +29,14 @@ module.exports = (SynctexService) => {
     try {
       result = await this.runProcess(synctexPath, args, path.dirname(pdfPath), env);
     } catch (_error) {
-      return { ok: false, error: "SyncTeX の解析に失敗しました。" };
+      return { ok: false, error: "SyncTeX parsing failed." };
     }
     if (result.status !== 0) {
-      return { ok: false, error: "SyncTeX の解析に失敗しました。" };
+      return { ok: false, error: "SyncTeX parsing failed." };
     }
     const blocks = this.parseForwardBlocks(result.output);
     if (!blocks.length) {
-      return { ok: false, error: "SyncTeX の位置情報が見つかりません。" };
+      return { ok: false, error: "SyncTeX のpositionがnot found。" };
     }
     const targetLine = Number.isFinite(line) ? line : null;
     const targetColumn = Number.isFinite(column) ? column : null;
@@ -51,7 +51,7 @@ module.exports = (SynctexService) => {
       env,
     });
     if (!selected) {
-      return { ok: false, error: "SyncTeX の位置情報が見つかりません。" };
+      return { ok: false, error: "SyncTeX のpositionがnot found。" };
     }
     if (
       registerHint !== false &&

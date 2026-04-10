@@ -441,10 +441,10 @@ export const createMathfieldMatrixOps = (params: {
       }
     };
     mathWysiwygApi.openCustomCandidates([
-      { id: "matrix-op:add-row", label: "+row", hint: "行を追加", apply: applyCommand("addRowAfter") },
-      { id: "matrix-op:add-col", label: "+col", hint: "列を追加", apply: applyCommand("addColumnAfter") },
-      { id: "matrix-op:remove-row", label: "-row", hint: "行を削除", apply: applyCommand("removeRow") },
-      { id: "matrix-op:remove-col", label: "-col", hint: "列を削除", apply: applyCommand("removeColumn") },
+      { id: "matrix-op:add-row", label: "+row", hint: "add row", apply: applyCommand("addRowAfter") },
+      { id: "matrix-op:add-col", label: "+col", hint: "add column", apply: applyCommand("addColumnAfter") },
+      { id: "matrix-op:remove-row", label: "-row", hint: "delete row", apply: applyCommand("removeRow") },
+      { id: "matrix-op:remove-col", label: "-col", hint: "delete column", apply: applyCommand("removeColumn") },
     ]);
     return true;
   };

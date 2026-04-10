@@ -50,10 +50,10 @@ export const createFileExcerptBroker = (
     const trimmed = typeof path === "string" ? path.trim() : "";
     const lineNumber = Number.isFinite(line) ? Math.floor(line) : Number.NaN;
     if (!trimmed) {
-      return Promise.resolve({ ok: false, error: "path が空です。" });
+      return Promise.resolve({ ok: false, error: "path is empty." });
     }
     if (!Number.isFinite(lineNumber) || lineNumber < 1) {
-      return Promise.resolve({ ok: false, error: "line が不正です。" });
+      return Promise.resolve({ ok: false, error: "line is invalid." });
     }
     const radius = Number.isFinite(options.radius)
       ? Math.min(180, Math.max(0, Math.floor(options.radius ?? 0)))
@@ -70,7 +70,7 @@ export const createFileExcerptBroker = (
     return new Promise((resolve) => {
       const timeoutId = window.setTimeout(() => {
         pending.delete(requestId);
-        resolve({ ok: false, error: "抜粋がタイムアウトしました。" });
+        resolve({ ok: false, error: "Excerpt timed out." });
       }, 1400);
       pending.set(requestId, { resolve, timeoutId, cacheKey });
       postToNative(
@@ -98,7 +98,7 @@ export const createFileExcerptBroker = (
     pending.delete(payload.requestId);
     window.clearTimeout(entry.timeoutId);
     if (!payload.ok) {
-      entry.resolve({ ok: false, error: payload.error ?? "抜粋に失敗しました。" });
+      entry.resolve({ ok: false, error: payload.error ?? "Excerpt failed." });
       return;
     }
     const pathValue = typeof payload.path === "string" ? payload.path.trim() : "";

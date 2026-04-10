@@ -7,8 +7,9 @@ const {
 } = require("./agent-core-utils.cjs");
 
 /**
- * Migrate a conversation array from old Gemini format ({ role, parts })
+ * Migrate a conversation array from legacy format ({ role, parts })
  * to OpenAI format ({ role, content }) if needed.
+ * Kept for backward compatibility with old saved sessions.
  */
 const migrateConversation = (conversation) => {
   if (!Array.isArray(conversation) || conversation.length === 0) {
@@ -19,7 +20,7 @@ const migrateConversation = (conversation) => {
   if (first && typeof first.content === "string") {
     return conversation; // Already OpenAI format
   }
-  // Convert Gemini { role, parts } → OpenAI { role, content }
+  // Convert legacy { role, parts } → OpenAI { role, content }
   const migrated = [];
   conversation.forEach((entry) => {
     if (!entry || typeof entry !== "object") return;
@@ -74,7 +75,7 @@ const ensureSessionsRestored = async (service) => {
         (!service.conversations.has(conversationId) ||
           (service.conversations.get(conversationId)?.length ?? 0) === 0)
       ) {
-        // Auto-migrate old Gemini format sessions to OpenAI format
+        // Auto-migrate old legacy format sessions to OpenAI format
         const migrated = migrateConversation(storedConversation);
         service.conversations.set(conversationId, migrated);
       }

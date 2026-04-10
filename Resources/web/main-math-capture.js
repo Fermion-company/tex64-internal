@@ -130,25 +130,25 @@ export const createMathCaptureHandler = (params) => {
     let mathCaptureBusy = false;
     const handleMathCaptureImage = async (imageDataUrl, onProgress) => {
         if (mathCaptureBusy) {
-            return { ok: false, error: "処理中です。" };
+            return { ok: false, error: uiText("Processing.", "Processingです。") };
         }
         if (!imageDataUrl) {
-            return { ok: false, error: "キャプチャ画像がありません。" };
+            return { ok: false, error: uiText("No capture image available.", "キャプチャNo image available。") };
         }
         mathCaptureBusy = true;
         try {
             const latex = await params.recognizeMath(imageDataUrl, onProgress);
             const normalized = normalizeMathCaptureText(latex);
             if (!normalized) {
-                return { ok: false, error: "数式を認識できませんでした" };
+                return { ok: false, error: uiText("Could not recognize the formula.", "mathematical formulaを認識できませんでした") };
             }
             params.onInsertMath(normalized);
             return { ok: true };
         }
         catch (error) {
             const msg = error instanceof Error
-                ? `認識に失敗しました — ${error.message}`
-                : "認識に失敗しました";
+                ? uiText(`Recognition failed - ${error.message}`, `Recognition failed — ${error.message}`)
+                : uiText("Recognition failed", "認識に失敗しました");
             return { ok: false, error: msg };
         }
         finally {
@@ -159,3 +159,4 @@ export const createMathCaptureHandler = (params) => {
         handleMathCaptureImage,
     };
 };
+import { uiText } from "./app/i18n.js";

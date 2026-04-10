@@ -1,9 +1,33 @@
+import { getUiLocale, onUiLocaleChange } from "../i18n.js";
 import { closeMathfieldInternalMenu } from "../../math/mathfield-private-adapter.js";
 export const initMathLive = (context, deps) => {
     const { blockMathInputContainer } = context.dom;
     let setupInFlight = false;
     let setupRetryScheduled = false;
     let containerPointerDownHandler = null;
+    const resolveMathLiveLocale = () => (getUiLocale() === "en" ? "en" : "ja");
+    const applyMathfieldLocale = (mathfield) => {
+        if (!(mathfield instanceof HTMLElement)) {
+            return;
+        }
+        const locale = resolveMathLiveLocale();
+        mathfield.setAttribute("lang", locale);
+        try {
+            if (typeof mathfield.setOptions === "function") {
+                mathfield.setOptions({ locale });
+            }
+            else if ("locale" in mathfield) {
+                mathfield.locale = locale;
+            }
+        }
+        catch {
+            // ignore locale update failures
+        }
+    };
+    onUiLocaleChange(() => {
+        const currentMathfield = blockMathInputContainer === null || blockMathInputContainer === void 0 ? void 0 : blockMathInputContainer.querySelector("#block-math-input");
+        applyMathfieldLocale(currentMathfield);
+    });
     const setupMathField = async () => {
         var _a, _b, _c, _d;
         if (setupInFlight) {
@@ -62,8 +86,8 @@ export const initMathLive = (context, deps) => {
             fallbackInput.className = "block-input block-math-input";
             fallbackInput.setAttribute("rows", "4");
             fallbackInput.setAttribute("spellcheck", "false");
-            fallbackInput.setAttribute("aria-label", "数式入力（テキスト）");
-            fallbackInput.placeholder = "LaTeX を入力";
+            fallbackInput.setAttribute("aria-label", "Formula input (text)");
+            fallbackInput.placeholder = "Enter LaTeX";
             fallbackInput.style.width = "100%";
             fallbackInput.style.minHeight = "96px";
             fallbackInput.style.resize = "vertical";
@@ -166,14 +190,14 @@ export const initMathLive = (context, deps) => {
             const mathfield = document.createElement("math-field");
             mathfield.id = "block-math-input";
             mathfield.className = "block-math-field";
-            mathfield.setAttribute("placeholder", "数式を入力");
+            mathfield.setAttribute("placeholder", "Enter formula");
             const scrollHost = document.createElement("div");
             scrollHost.className = "block-math-scroll";
             scrollHost.appendChild(mathfield);
             const menuToggle = document.createElement("button");
             menuToggle.type = "button";
             menuToggle.className = "block-math-menu-toggle";
-            menuToggle.setAttribute("aria-label", "数式メニュー");
+            menuToggle.setAttribute("aria-label", "Math menu");
             menuToggle.setAttribute("aria-haspopup", "menu");
             menuToggle.tabIndex = -1;
             menuToggle.innerHTML = `
@@ -285,9 +309,10 @@ export const initMathLive = (context, deps) => {
                     soundsDirectory: null,
                     keypressSound: null,
                     plonkSound: null,
-                    locale: "ja",
+                    locale: resolveMathLiveLocale(),
                 });
             }
+            applyMathfieldLocale(mathfield);
             // Also set properties directly (the recommended path for newer MathLive
             // versions) to ensure the options take effect even if the deprecated
             // setOptions code-path skips them.
@@ -315,14 +340,14 @@ export const initMathLive = (context, deps) => {
             try {
                 if ("menuItems" in mathfield) {
                     const blockedLabels = [
-                        "モード",
-                        "フォントスタイル",
-                        "色",
-                        "背景",
-                        "切り取り",
-                        "コピー",
-                        "貼り付け",
-                        "すべて選択",
+                        "Mode",
+                        "Font style",
+                        "Color",
+                        "Background",
+                        "Cut",
+                        "Copy",
+                        "Paste",
+                        "Select all",
                     ];
                     const blockedPattern = /(mode|font\s*style|color|background|cut|copy|paste|select\s*all)/i;
                     const readText = (value) => {

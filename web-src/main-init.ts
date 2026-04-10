@@ -41,7 +41,7 @@ import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
-import { initI18n } from "./app/i18n.js";
+import { initI18n, uiText } from "./app/i18n.js";
 import {
   initGlobalErrorReporting,
   readErrorReportingEnabledFromStorage,
@@ -183,7 +183,7 @@ export const initMain = () => {
   const getWorkspaceFiles = () => workspaceController?.getWorkspaceFiles() ?? [];
   const getWorkspaceFolders = () => workspaceController?.getWorkspaceFolders() ?? [];
   const getWorkspaceName = () =>
-    workspaceController?.getWorkspaceName() ?? "ワークスペース未選択";
+    workspaceController?.getWorkspaceName() ?? uiText("No workspace selected", "ワークスペース未選択");
   const getRootFilePath = () => workspaceController?.getRootFilePath() ?? null;
   const getRootSource = () => workspaceController?.getRootSource() ?? "auto";
   const getBuildProfiles = () => workspaceController?.getBuildProfiles() ?? [];
@@ -725,22 +725,27 @@ export const initMain = () => {
   editorTabsUi.setupInteractions();
   try { mathLiveApi.setupMathField(); } catch (e: any) { 
     console.error("setupMathField error:", e);
-    updateIssues(1, "数式エディタの初期化に失敗しました: " + e.message, "error", []);
+    updateIssues(
+      1,
+      uiText(`Failed to initialize formula editor: ${e.message}`, "Failed to initialize formula editor: " + e.message),
+      "error",
+      []
+    );
   }
   try { resizerUi.setup(); } catch (e: any) { 
     console.error("setupResizer error:", e); 
-    // リサイズ機能のエラーは致命的ではないので通知しないか、infoレベルで
+    // リサイズ機能のIssuesは致命的ではないので通知しないか、infoレベルで
   }
   try { blockInputApi.attachMathInputListener(); } catch (e: any) { 
     console.error("attachMathInputListener error:", e);
-    // updateIssues(1, "数式入力リスナーのエラー: " + e.message, "error", []);
+    // updateIssues(1, "Formula input listener error: " + e.message, "error", []);
   }
   searchUi.render();
 
   rootSelectorUi.render();
   buildOps.updateSynctexButtonState();
   settingsUi.loadStartupSettings();
-  updateIssues(0, "ビルド結果はここに要約します。", "info", []);
+  updateIssues(0, uiText("Build results are summarized here.", "The build results are summarized here."), "info", []);
   if (!workspaceController.getWorkspaceRootKey()) {
     launcherUi.setVisible(true);
     launcherUi.setStatus({ isBusy: false, message: null });
@@ -766,6 +771,7 @@ export const initMain = () => {
     rootSelectorUi: {
       setupActions: () => rootSelectorUi.setupActions(),
     },
+    saveCurrentFile: () => editorSession.saveCurrentFile(),
   });
   uiEvents.setup();
 
@@ -875,10 +881,10 @@ export const initMain = () => {
           });
           return;
         }
-        const errorMessage = payload?.error ?? "SyncTeX に失敗しました。";
+        const errorMessage = payload?.error ?? uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
         const lower = errorMessage.toLowerCase();
         const hasMissing =
-          errorMessage.includes("見つかりません") || lower.includes("not found");
+          errorMessage.includes("not found") || lower.includes("not found");
         const issue: IssueItem = { severity: "error", message: errorMessage };
         if (hasMissing && lower.includes("synctex")) {
           issue.action = "open-runtime";

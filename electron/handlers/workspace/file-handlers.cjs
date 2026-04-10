@@ -29,7 +29,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     if (!rootPath) {
       sendToRenderer("openFileResult", {
         path: relativePath,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
       });
       return;
     }
@@ -76,7 +76,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       sendToRenderer("file:previewResult", {
         requestId,
         ok: false,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
       });
       return;
     }
@@ -86,7 +86,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         requestId,
         ok: false,
         path: relativePath,
-        error: "プレビューできない形式です。",
+        error: "Cannot preview this format.",
       });
       return;
     }
@@ -98,7 +98,7 @@ const createWorkspaceFileHandlers = (ctx) => {
           requestId,
           ok: false,
           path: relativePath,
-          error: "画像が大きすぎます（2MBまで）。",
+          error: "Image is too large (max 2MB).",
         });
         return;
       }
@@ -129,7 +129,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       sendToRenderer("file:excerptResult", {
         requestId,
         ok: false,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
       });
       return;
     }
@@ -139,7 +139,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         requestId,
         ok: false,
         path: relativePath,
-        error: "抜粋できない形式です。",
+        error: "Cannot excerpt this format.",
       });
       return;
     }
@@ -208,7 +208,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       sendToRenderer("saveResult", {
         path: relativePath,
         ok: false,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
       });
       return;
     }
@@ -233,7 +233,7 @@ const createWorkspaceFileHandlers = (ctx) => {
           state.formatWarningShown = true;
           const lower = formatResult.warning.toLowerCase();
           const isEnvMissing =
-            (formatResult.warning.includes("見つかりません") || lower.includes("not found")) &&
+            (formatResult.warning.includes("not found") || lower.includes("not found")) &&
             lower.includes("latexindent");
           const issue = {
             severity: "warning",
@@ -248,7 +248,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         if (formatResult.ok && typeof formatResult.content === "string") {
           finalContent = formatResult.content;
         } else {
-          formatError = formatResult.error ?? "整形に失敗しました。";
+          formatError = formatResult.error ?? "Formatting failed.";
           if (!state.formatWarningShown) {
             state.formatWarningShown = true;
             sendIssues(1, formatError, "info", [
@@ -278,7 +278,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       sendToRenderer("formatResult", {
         path: relativePath,
         ok: false,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
         source,
       });
       return;
@@ -292,7 +292,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         state.formatWarningShown = true;
         const lower = result.warning.toLowerCase();
         const isEnvMissing =
-          (result.warning.includes("見つかりません") || lower.includes("not found")) &&
+          (result.warning.includes("not found") || lower.includes("not found")) &&
           lower.includes("latexindent");
         const issue = {
           severity: "warning",
@@ -305,10 +305,10 @@ const createWorkspaceFileHandlers = (ctx) => {
       if (!result.ok) {
         if (!state.formatWarningShown) {
           state.formatWarningShown = true;
-          sendIssues(1, result.error ?? "整形に失敗しました。", "info", [
+          sendIssues(1, result.error ?? "Formatting failed.", "info", [
             {
               severity: "warning",
-              message: result.error ?? "整形に失敗しました。",
+              message: result.error ?? "Formatting failed.",
               line: null,
             },
           ]);
@@ -316,7 +316,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         sendToRenderer("formatResult", {
           path: relativePath,
           ok: false,
-          error: result.error ?? "整形に失敗しました。",
+          error: result.error ?? "Formatting failed.",
           source,
         });
         return;
@@ -340,8 +340,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleCreateFile = async (relativePath) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -350,7 +350,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       await workspace.createFile(relativePath);
       await sendWorkspace(rootPath);
       sendToRenderer("openFileResult", { path: relativePath, content: "" });
-      sendIssues(0, "ファイルを作成しました。", "success", []);
+      sendIssues(0, "File created.", "success", []);
       if (workspace.isIndexTarget(relativePath)) {
         requestIndex(rootPath);
       }
@@ -364,8 +364,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleCreateFolder = async (relativePath) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -373,7 +373,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     try {
       await workspace.createFolder(relativePath);
       await sendWorkspace(rootPath);
-      sendIssues(0, "フォルダを作成しました。", "success", []);
+      sendIssues(0, "Folder created.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },
@@ -384,8 +384,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleRevealInFinder = (relativePath) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -399,8 +399,8 @@ const createWorkspaceFileHandlers = (ctx) => {
     try {
       revealInFinder(relativePath);
     } catch (_error) {
-      sendIssues(1, "対象が見つかりません。", "error", [
-        { severity: "error", message: "対象が見つかりません。", line: null },
+      sendIssues(1, "Target not found.", "error", [
+        { severity: "error", message: "Target not found.", line: null },
       ]);
     }
   };
@@ -408,8 +408,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleOpenInTerminal = (relativePath) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -423,8 +423,8 @@ const createWorkspaceFileHandlers = (ctx) => {
     try {
       openInTerminal(relativePath);
     } catch (_error) {
-      sendIssues(1, "ターミナルを開けませんでした。", "error", [
-        { severity: "error", message: "ターミナルを開けませんでした。", line: null },
+      sendIssues(1, "Failed to open terminal.", "error", [
+        { severity: "error", message: "Failed to open terminal.", line: null },
       ]);
     }
   };
@@ -432,8 +432,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleRenameItem = async (relativePath, newName) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -448,7 +448,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         isDirectory,
       });
       await sendWorkspace(rootPath);
-      sendIssues(0, "名前を変更しました。", "success", []);
+      sendIssues(0, "Renamed.", "success", []);
       if (isDirectory || workspace.isIndexTarget(relativePath) || workspace.isIndexTarget(newPath)) {
         requestIndex(rootPath);
       }
@@ -462,8 +462,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleDeleteItem = async (relativePath) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -471,7 +471,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     try {
       await workspace.deleteItem(relativePath);
       await sendWorkspace(rootPath);
-      sendIssues(0, "削除しました。", "success", []);
+      sendIssues(0, "Deleted.", "success", []);
       if (workspace.isIndexTarget(relativePath)) {
         requestIndex(rootPath);
       }
@@ -485,8 +485,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleMoveItem = async (relativePath, destination) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -501,7 +501,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         isDirectory,
       });
       await sendWorkspace(rootPath);
-      sendIssues(0, "移動しました。", "success", []);
+      sendIssues(0, "Moved.", "success", []);
       if (isDirectory || workspace.isIndexTarget(relativePath) || workspace.isIndexTarget(newPath)) {
         requestIndex(rootPath);
       }
@@ -515,8 +515,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleCopyItem = async (relativePath, destination) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -524,7 +524,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     try {
       const newPath = await workspace.copyItem(relativePath, destination);
       await sendWorkspace(rootPath);
-      sendIssues(0, "コピーしました。", "success", []);
+      sendIssues(0, "Copied.", "success", []);
       if (workspace.isIndexTarget(relativePath) || workspace.isIndexTarget(newPath)) {
         requestIndex(rootPath);
       }
@@ -538,8 +538,8 @@ const createWorkspaceFileHandlers = (ctx) => {
   const handleUndoFileOperation = async () => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -547,7 +547,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     try {
       const operation = await workspace.undoLastOperation();
       if (!operation) {
-        sendIssues(0, "戻す操作はありません。", "info", []);
+        sendIssues(0, "No operation to undo.", "info", []);
         return;
       }
       if (operation.kind === "move" && operation.toPath) {
@@ -558,7 +558,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         });
       }
       await sendWorkspace(rootPath);
-      sendIssues(0, "操作を戻しました。", "success", []);
+      sendIssues(0, "Operation undone.", "success", []);
       if (operation.affectsIndex) {
         requestIndex(rootPath);
       }

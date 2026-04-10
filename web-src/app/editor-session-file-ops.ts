@@ -93,6 +93,37 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     getLanguageIdForPath,
   } = ctx;
 
+  /**
+   * Replace model content via executeEdits (preserves undo stack) when available,
+   * falling back to setValue (clears undo stack) otherwise.
+   */
+  const replaceContentViaEdits = (
+    editor: {
+      executeEdits?: (
+        source: string,
+        edits: Array<{ range: unknown; text: string; forceMoveMarkers?: boolean }>,
+      ) => void;
+      setValue?: (value: string) => void;
+    } | null,
+    model: MonacoModel | null,
+    newContent: string,
+    source: string,
+  ): void => {
+    if (editor?.executeEdits && model?.getFullModelRange) {
+      const fullRange = model.getFullModelRange();
+      if (fullRange) {
+        model.pushStackElement?.();
+        editor.executeEdits(source, [
+          { range: fullRange, text: newContent, forceMoveMarkers: true },
+        ]);
+        model.pushStackElement?.();
+        return;
+      }
+    }
+    if (model?.setValue) { model.setValue(newContent); return; }
+    if (editor?.setValue) { editor.setValue(newContent); }
+  };
+
   const applyViewerFile = (
     group: EditorGroupState,
     path: string,
@@ -204,7 +235,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   ) => {
     const monacoApi = deps.getMonacoApi();
     if (!group.editor || !monacoApi) {
-      deps.updateFallback("エディタの準備が完了していません。");
+      deps.updateFallback("Editor is not ready.");
       return;
     }
     const editor = group.editor as {
@@ -272,7 +303,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
 
   // Track active AI diff decorations per editor group
   const aiDiffDecorations = new Map<string, string[]>();
-  let aiDiffClearTimer: ReturnType<typeof setTimeout> | null = null;
 
   const clearAiDiffDecorations = (group: EditorGroupState) => {
     const editorAny = group.editor as { deltaDecorations?: (old: string[], n: unknown[]) => string[] };
@@ -304,6 +334,10 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       deltaDecorations?: (oldDecorations: string[], newDecorations: unknown[]) => string[];
       getDomNode?: () => HTMLElement | null;
       onDidChangeModelContent?: (listener: () => void) => { dispose: () => void };
+      executeEdits?: (
+        source: string,
+        edits: Array<{ range: unknown; text: string; forceMoveMarkers?: boolean }>,
+      ) => void;
     };
     const entry = monacoModels.get(path);
     const currentValue = entry?.model.getValue() ?? editor.getValue?.() ?? "";
@@ -330,11 +364,12 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       }
 
       group.isApplyingFile = true;
-      if (entry?.model.setValue) {
-        entry.model.setValue(content);
-      } else if (editor.setValue) {
-        editor.setValue(content);
-      }
+      replaceContentViaEdits(
+        editor,
+        entry?.model ?? null,
+        content,
+        options?.showAiDiff ? "ai-apply" : "format-on-save",
+      );
       group.isApplyingFile = false;
       if (viewState && editor.restoreViewState) {
         editor.restoreViewState(viewState);
@@ -342,7 +377,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
 
       // Add AI diff decorations
       if (options?.showAiDiff && changedLineNumbers.length > 0 && editor.deltaDecorations) {
-        // Clear any existing AI diff decorations
         clearAiDiffDecorations(group);
 
         const decorations = changedLineNumbers.map((lineNumber) => ({
@@ -356,7 +390,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         const ids = editor.deltaDecorations([], decorations);
         aiDiffDecorations.set(group.key, ids);
 
-        // Show Undo/Keep bar
+        // Show Undo/Confirm bar
         const editorDom = editor.getDomNode?.();
         const editorContainer = editorDom?.parentElement;
         if (editorContainer) {
@@ -369,16 +403,17 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
 
           const undoBtn = document.createElement("button");
           undoBtn.className = "ai-undo-keep-btn is-undo";
-          undoBtn.textContent = "元に戻す";
+          undoBtn.textContent = "Undo";
           undoBtn.addEventListener("click", () => {
-            const bridge = (window as { bridge?: { postToNative?: (p: unknown) => boolean } }).bridge;
-            bridge?.postToNative?.({ type: "agent:undoLastApply" });
+            // Use Monaco's undo — the AI edit is on the undo stack
+            const editorTrigger = group.editor as { trigger?: (source: string, handlerId: string, payload: unknown) => void };
+            editorTrigger?.trigger?.("ai-undo-bar", "undo", null);
             clearAiDiffDecorations(group);
           });
 
           const keepBtn = document.createElement("button");
           keepBtn.className = "ai-undo-keep-btn is-keep";
-          keepBtn.textContent = "確定";
+          keepBtn.textContent = "Confirm";
           keepBtn.addEventListener("click", () => {
             clearAiDiffDecorations(group);
           });
@@ -387,20 +422,13 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           editorContainer.appendChild(bar);
         }
 
-        // Auto-clear decorations on next user edit
+        // Auto-clear on next content change (user edit, undo, redo)
         if (editor.onDidChangeModelContent) {
           const disposable = editor.onDidChangeModelContent(() => {
             clearAiDiffDecorations(group);
             disposable.dispose();
           });
         }
-
-        // Auto-clear after 30 seconds
-        if (aiDiffClearTimer) clearTimeout(aiDiffClearTimer);
-        aiDiffClearTimer = setTimeout(() => {
-          clearAiDiffDecorations(group);
-          aiDiffClearTimer = null;
-        }, 30_000);
       }
     }
     if (options?.updateSaved) {
@@ -457,8 +485,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       if (index >= 0) {
         state.pendingOpenRequests.splice(index, 1);
       }
-      deps.updateIssues(1, "ファイルを開けません。", "error", [
-        { severity: "error", message: "ファイルを開けません。" },
+      deps.updateIssues(1, "Unable to open file.", "error", [
+        { severity: "error", message: "Unable to open file." },
       ]);
     }
     return ok;
@@ -469,8 +497,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const activePath = activeGroup.currentFilePath;
     if (!activePath || !activeGroup.editor || !isTextFilePath(activePath)) {
       const message = activePath
-        ? "このファイル形式は編集できません。"
-        : "保存するファイルが選択されていません。";
+        ? "This file format cannot be edited."
+        : "No files have been selected to save.";
       deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
       return Promise.resolve(false);
     }
@@ -486,7 +514,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         const enqueue = () => {
           if (state.pendingSave) {
             if (Date.now() - startedAt >= timeoutMs) {
-              reject("保存の待機がタイムアウトしました。");
+              reject("Waiting for save timed out.");
               return;
             }
             window.setTimeout(enqueue, 25);
@@ -498,7 +526,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           const safetyTimer = window.setTimeout(() => {
             if (state.pendingSave && state.pendingSave.path === path) {
               console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
-              state.pendingSave.reject("保存の応答がタイムアウトしました。");
+              state.pendingSave.reject("Timed out waiting for a save response.");
               state.pendingSave = null;
             }
           }, 30_000);
@@ -508,19 +536,16 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           const wrappedReject = (e: unknown) => { clearTimeout(safetyTimer); origReject(e); };
           state.pendingSave.resolve = wrappedResolve;
           state.pendingSave.reject = wrappedReject;
-          const fmtPayload = deps.settings.buildFormatSettingsPayload();
           const ok = deps.postToNative({
             type: "saveFile",
             path,
             content: value,
-            format: fmtPayload.enabled !== false,
-            formatSource: "save",
-            formatSettings: fmtPayload,
+            format: false,
           });
           if (!ok) {
             clearTimeout(safetyTimer);
             state.pendingSave = null;
-            reject("ネイティブ連携が利用できません。");
+            reject("Native integration is not available.");
           }
         };
         enqueue();
@@ -583,8 +608,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       await waitForCompositionIfNeeded(path);
       const content = readBuffer(path);
       if (content === null) {
-        deps.updateIssues(1, `保存対象の内容を取得できません: ${path}`, "error", [
-          { severity: "error", message: `保存対象の内容を取得できません: ${path}` },
+        deps.updateIssues(1, `Unable to retrieve content to save: ${path}`, "error", [
+          { severity: "error", message: `Unable to retrieve content to save: ${path}` },
         ]);
         return false;
       }
@@ -594,7 +619,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           const enqueue = () => {
             if (state.pendingSave) {
               if (Date.now() - startedAt >= 8000) {
-                reject("保存の待機がタイムアウトしました。");
+                reject("Waiting for save timed out.");
                 return;
               }
               window.setTimeout(enqueue, 25);
@@ -604,7 +629,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             const safetyTimer = window.setTimeout(() => {
               if (state.pendingSave && state.pendingSave.path === path) {
                 console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
-                state.pendingSave.reject("保存の応答がタイムアウトしました。");
+                state.pendingSave.reject("Timed out waiting for a save response.");
                 state.pendingSave = null;
               }
             }, 30_000);
@@ -612,26 +637,23 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             const origReject2 = reject;
             state.pendingSave.resolve = (v: boolean) => { clearTimeout(safetyTimer); origResolve2(v); };
             state.pendingSave.reject = (e: unknown) => { clearTimeout(safetyTimer); origReject2(e); };
-            const fmtPayload2 = deps.settings.buildFormatSettingsPayload();
             const ok = deps.postToNative({
               type: "saveFile",
               path,
               content,
-              format: fmtPayload2.enabled !== false,
-              formatSource: "save",
-              formatSettings: fmtPayload2,
+              format: false,
             });
             if (!ok) {
               clearTimeout(safetyTimer);
               state.pendingSave = null;
-              reject("ネイティブ連携が利用できません。");
+              reject("Native integration is not available.");
             }
           };
           enqueue();
         });
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "保存に失敗しました。";
+          error instanceof Error ? error.message : "Saving failed.";
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
         return false;
       }
@@ -772,7 +794,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           savedContent = state.pendingSave.content;
           state.pendingSave.resolve(true);
         } else {
-          state.pendingSave.reject(payload.error ?? "保存に失敗しました。");
+          state.pendingSave.reject(payload.error ?? "Saving failed.");
         }
         state.pendingSave = null;
       } else {
@@ -784,8 +806,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       }
     }
     if (!payload.ok) {
-      deps.updateIssues(1, payload.error ?? "保存に失敗しました。", "error", [
-        { severity: "error", message: payload.error ?? "保存に失敗しました。" },
+      deps.updateIssues(1, payload.error ?? "Saving failed.", "error", [
+        { severity: "error", message: payload.error ?? "Saving failed." },
       ]);
       return;
     }

@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 export const AUTONOMOUS_LOOP_LIMIT = 100;
 export const createChatState = (id, title, autonomous, autoLoopBudget) => ({
     id,
@@ -5,7 +6,7 @@ export const createChatState = (id, title, autonomous, autoLoopBudget) => ({
     messages: [],
     proposals: new Map(),
     appliedProposalIds: new Set(),
-    statusMessage: "待機中",
+    statusMessage: uiText("Waiting", "待機中"),
     hasUndo: false,
     autonomous,
     autoLoopBudget,

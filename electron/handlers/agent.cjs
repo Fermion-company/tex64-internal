@@ -79,19 +79,19 @@ const createAgentHandlers = (deps) => {
         ? access.pricingUrl.trim()
         : "https://tex64.com/pricing";
     if (!access?.authenticated || reason === "AUTH_REQUIRED" || reason === "TOKEN_EXPIRED") {
-      return "AI機能を使うには Google ログインが必要です。";
+      return "Google login is required to use Axiom.";
     }
     if (reason === "QUOTA_EXCEEDED") {
-      return `今月のAIトークン上限に達しました。プランの変更は ${pricingUrl} から行えます。`;
+      return `You have reached your AI token limit for this month. Change plan at ${pricingUrl}.`;
     }
     if (
       reason === "PLAN_REQUIRED" ||
       reason === "FEATURE_NOT_ENABLED" ||
       reason === "PAYMENT_PAST_DUE"
     ) {
-      return `現在の契約状態ではAI機能を利用できません。プラン確認: ${pricingUrl}`;
+      return `AI functions are not available under the current contract status. Check plan: ${pricingUrl}`;
     }
-    return "AI機能を利用できません。しばらくしてから再試行してください。";
+    return "Axiom is not available. Please try again later.";
   };
 
   const guardAiAccess = async (conversationId, source) => {
@@ -180,7 +180,7 @@ const createAgentHandlers = (deps) => {
     }
     await agentService.run({
       message:
-        "直前のユーザー指示と会話の目的を最優先して、途中から継続してください。必要なら編集とビルド検証を繰り返して完了まで進めてください。",
+        "Continue from where you left off, prioritizing the last user instruction and the conversation purpose. Repeat edits and build verification as needed until complete.",
       context,
       conversationId: normalizedConversationId,
     });
@@ -242,6 +242,10 @@ const createAgentHandlers = (deps) => {
     await agentService.undoLastRunApply(conversationId);
   };
 
+  const handleAgentUndoLastApply = async (conversationId) => {
+    await agentService.undoLastApply(conversationId);
+  };
+
   const handleAgentClear = (conversationId) => {
     agentService.clearConversation(conversationId || "default");
   };
@@ -260,6 +264,7 @@ const createAgentHandlers = (deps) => {
     handleAgentAbort,
     handleAgentApply,
     handleAgentUndoLastRunApply,
+    handleAgentUndoLastApply,
     handleAgentClear,
     handleAgentStateGet,
     handleAgentResume,

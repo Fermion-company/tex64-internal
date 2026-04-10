@@ -187,7 +187,7 @@ const configureMarked = () => {
         `<div class="ai-code-block">` +
         `<div class="ai-code-header">` +
         `<span class="ai-code-lang">${lang}</span>` +
-        `<button class="ai-code-copy" type="button" data-copy>コピー</button>` +
+        `<button class="ai-code-copy" type="button" data-copy>${uiText("Copy", "コピー")}</button>` +
         `</div>` +
         `<pre><code>${code}</code></pre>` +
         `</div>`
@@ -293,8 +293,8 @@ const attachCopyHandlers = (container: Element) => {
       const code = btn.closest(".ai-code-block")?.querySelector("code")?.textContent ?? "";
       navigator.clipboard.writeText(code).then(
         () => {
-          btn.textContent = "コピー済み";
-          setTimeout(() => { btn.textContent = "コピー"; }, 1500);
+          btn.textContent = uiText("Copied", "コピー済み");
+          setTimeout(() => { btn.textContent = uiText("Copy", "コピー"); }, 1500);
         },
         () => { /* clipboard write failed — ignore silently */ }
       );
@@ -352,3 +352,4 @@ export const updateMessageElement = (wrapper: HTMLElement | null, text: string) 
     content.textContent = text;
   }
 };
+import { uiText } from "./i18n.js";

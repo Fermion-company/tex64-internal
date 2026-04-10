@@ -1,4 +1,4 @@
-import { tabConfig } from "./config.js";
+import { getTabConfig } from "./config.js";
 export const initSidebarVisibility = (context, deps) => {
     const { tabs, sidebarPanels, sidebar } = context.dom;
     const primarySidebarTabs = [
@@ -163,6 +163,7 @@ export const initSidebarVisibility = (context, deps) => {
         applyVisibility();
     };
     const buildSidebarContextMenuItems = () => primaryTabOrder.map((key) => {
+        const tabConfig = getTabConfig();
         const visible = sidebarVisibleTabs.has(key);
         const canHide = sidebarVisibleTabs.size > 1;
         return {

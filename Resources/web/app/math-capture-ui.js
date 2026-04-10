@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 export const initMathCaptureUi = (context, deps = {}) => {
     const { mathCaptureWindowModal, mathCaptureWindowCancel, mathCaptureWindowSearch, mathCaptureWindowGrid, mathCaptureWindowItemTemplate, mathCaptureCropModal, mathCaptureCropRetry, mathCaptureCropCancel, mathCaptureCropApply, mathCaptureCropImage, mathCaptureCropSize, capturePermissionModal, capturePermissionOpen, capturePermissionRetry, capturePermissionClose, } = context.dom;
     let sources = [];
@@ -115,7 +116,9 @@ export const initMathCaptureUi = (context, deps = {}) => {
     const setCropBusy = (busy, message) => {
         if (mathCaptureCropApply instanceof HTMLElement) {
             mathCaptureCropApply.classList.toggle("is-busy", busy);
-            mathCaptureCropApply.textContent = busy ? (message !== null && message !== void 0 ? message : "認識中…") : "確定";
+            mathCaptureCropApply.textContent = busy
+                ? (message !== null && message !== void 0 ? message : uiText("Recognizing...", "認識中…"))
+                : uiText("Confirm", "確定");
             mathCaptureCropApply.disabled = busy;
         }
         if (mathCaptureCropRetry instanceof HTMLElement) {

@@ -195,7 +195,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   const getChat = (chatId?: string | null) => getChatState(chatIndex, activeChatId, chatId);
 
   const resolveChatTitle = (chatId: string) => {
-    if (chatId === "search-rename") return "シンボルリネーム";
+    if (chatId === "search-rename") return "symbol rename";
     return `Chat ${chats.length + 1}`;
   };
 
@@ -244,7 +244,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     activeChatId = null;
     clearPendingAttachments();
     if (aiTopbarTitle instanceof HTMLElement) {
-      aiTopbarTitle.textContent = "新規チャット";
+      aiTopbarTitle.textContent = "New chat";
     }
     const chatLog = getChatLog();
     if (chatLog) {
@@ -307,16 +307,18 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const isRunning = Boolean(active && runningConversations.has(active.id));
     const canResume = Boolean(active && !isRunning && resumableConversations.has(active.id));
     const canUndo = Boolean(active && active.hasUndo && !isRunning);
-    // activeChatId === null は「新規チャット」画面 → 常に入力を有効にする（並列実行対応）
-    const blockInput = activeChatId !== null && isRunning;
+    // AI running 中でも入力欄は常に有効 (ChatGPT/Claude と同じ UX)。
+    // ユーザーは返答を待ちながら次のメッセージを準備できる。
+    // 送信ボタンは非表示にし、代わりに停止ボタンを表示する。
+    const blockSend = activeChatId !== null && isRunning;
     if (aiSend instanceof HTMLButtonElement) {
-      aiSend.disabled = blockInput;
+      aiSend.disabled = blockSend;
       aiSend.classList.remove("is-loading");
-      aiSend.style.display = blockInput ? "none" : "flex";
+      aiSend.style.display = blockSend ? "none" : "flex";
     }
-    if (aiInput instanceof HTMLTextAreaElement) aiInput.disabled = blockInput;
-    if (aiAttach instanceof HTMLButtonElement) aiAttach.disabled = blockInput;
-    if (aiAttachInput instanceof HTMLInputElement) aiAttachInput.disabled = blockInput;
+    if (aiInput instanceof HTMLTextAreaElement) aiInput.disabled = false;
+    if (aiAttach instanceof HTMLButtonElement) aiAttach.disabled = blockSend;
+    if (aiAttachInput instanceof HTMLInputElement) aiAttachInput.disabled = blockSend;
     if (aiStop instanceof HTMLButtonElement) {
       aiStop.disabled = false;
       aiStop.innerHTML = isRunning
@@ -352,8 +354,14 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const chatLog = getChatLog();
     const proposals = getProposalsContainer();
     if (!chatLog || !proposals) return null;
-    if (proposals.parentElement !== chatLog) chatLog.appendChild(proposals);
-    else if (chatLog.lastElementChild !== proposals) chatLog.appendChild(proposals);
+    // Insert proposals right after the last assistant message, not at the very end
+    const assistantMessages = chatLog.querySelectorAll(".ai-message.is-assistant");
+    const lastAssistant = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : null;
+    if (lastAssistant && lastAssistant.nextSibling !== proposals) {
+      lastAssistant.after(proposals);
+    } else if (!lastAssistant && proposals.parentElement !== chatLog) {
+      chatLog.appendChild(proposals);
+    }
     return proposals;
   };
 
@@ -361,12 +369,16 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     const chatLog = getChatLog();
     if (!chatLog) return;
     chatLog.querySelector(".ai-empty-state")?.remove();
-    const proposals = getProposalsContainer();
-    if (proposals && proposals.parentElement === chatLog) chatLog.insertBefore(element, proposals);
-    else chatLog.appendChild(element);
+    chatLog.appendChild(element);
   };
 
-  const scrollToBottom = () => { if (aiChat instanceof HTMLElement) aiChat.scrollTop = aiChat.scrollHeight; };
+  const scrollToBottom = () => {
+    if (!(aiChatLog instanceof HTMLElement)) return;
+    // Use rAF to ensure the DOM layout is up-to-date before scrolling.
+    requestAnimationFrame(() => {
+      aiChatLog.scrollTop = aiChatLog.scrollHeight;
+    });
+  };
 
   const ensureStreamingMessage = (chatId: string) => {
     const existing = streamingMessages.get(chatId);
@@ -422,7 +434,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
 
   const normalizeThinkingText = (text?: string) => {
     const raw = typeof text === "string" ? text.trim() : "";
-    if (!raw) return "考えています...";
+    if (!raw) return "Thinking...";
     return raw;
   };
 
@@ -696,7 +708,13 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     refreshContextBar: updateContextBar,
     handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
     handlePlatformUpdate,
-    applyPendingFromDiffModal: () => { for (const id of pendingAiProposalIds) { deps.postToNative({ type: "agent:apply", proposalId: id }); } pendingAiProposalIds = []; },
+    applyPendingFromDiffModal: () => {
+      for (const id of pendingAiProposalIds) { deps.postToNative({ type: "agent:apply", proposalId: id }); }
+      pendingAiProposalIds = [];
+      // Clear the editor's Undo/Confirm bar to keep it in sync
+      const bar = document.getElementById("ai-undo-keep-bar");
+      if (bar) bar.remove();
+    },
     clearPending: () => { pendingAiProposalIds = []; },
   };
 };

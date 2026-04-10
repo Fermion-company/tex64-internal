@@ -21,26 +21,36 @@ const {
   handleListFiles,
   handleRunCommand,
 } = require("./agent-tools-file-utils.cjs");
+const {
+  hashContent,
+  shortSha,
+  describeChange,
+  isDestructiveShrink,
+  verifyExpectedSha,
+  verifyPostWrite,
+  checkLatexInvariants,
+  formatChangeSummary,
+} = require("./agent-tools-safety.cjs");
 
 const handleReadFile = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
   if (!targetPath) {
-    return { error: "path が空です。" };
+    return { error: "path is empty." };
   }
   if (isBlockedPath(targetPath, policy)) {
-    return { error: "対象パスは読み取り禁止です。" };
+    return { error: "Target path is read-protected." };
   }
   const useBase64 = wantsBase64(args);
   if (!isTextExtension(targetPath, policy) && !useBase64) {
     return {
       error:
-        "テキストファイルのみ読み取れます。バイナリは encoding: base64 を指定してください。",
+        "Only text files can be read. Specify encoding: base64 for binary.",
     };
   }
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
   if (snapshot && snapshot.content) {
     if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "ファイルが大きすぎます。" };
+      return { error: "File is too large." };
     }
     if (useBase64) {
       return {
@@ -60,10 +70,10 @@ const handleReadFile = async (service, args, policy, conversationId) => {
   const resolved = service.workspace.resolvePath(targetPath);
   const stat = await fsp.stat(resolved).catch(() => null);
   if (!stat || !stat.isFile()) {
-    return { error: "ファイルが見つかりません。" };
+    return { error: "file not found." };
   }
   if (stat.size > policy.maxFileBytes) {
-    return { error: "ファイルが大きすぎます。" };
+    return { error: "File is too large." };
   }
   const result = await readFileFromDisk(resolved, { forceBase64: useBase64 });
   const response = { content: result.content };
@@ -78,10 +88,10 @@ const handleReadFile = async (service, args, policy, conversationId) => {
 const handleReadFiles = async (service, args, policy, conversationId) => {
   const paths = Array.isArray(args.paths) ? args.paths : [];
   if (paths.length === 0) {
-    return { error: "paths が空です。" };
+    return { error: "paths is empty." };
   }
   if (paths.length > policy.maxReadFiles) {
-    return { error: `一度に読み取れるファイルは${policy.maxReadFiles}個までです。` };
+    return { error: `Up to ${policy.maxReadFiles} files can be read at once.` };
   }
   const useBase64 = wantsBase64(args);
   const results = {};
@@ -94,8 +104,8 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
     ) {
       results[p] = {
         error: useBase64
-          ? "読み取り不可"
-          : "テキストのみ読み取り可能です。バイナリは encoding: base64 を指定してください。",
+          ? "Unreadable"
+          : "Only text files readable. Specify encoding: base64 for binary.",
       };
       continue;
     }
@@ -103,7 +113,7 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
       const snapshot = service.getContextSnapshot(conversationId, targetPath);
       if (snapshot && snapshot.content) {
         if (snapshot.contentLength > policy.maxFileBytes) {
-          results[p] = { error: "ファイルが大きすぎます。" };
+          results[p] = { error: "File is too large." };
         } else {
           if (useBase64) {
             results[p] = {
@@ -126,7 +136,7 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
       const resolved = service.workspace.resolvePath(targetPath);
       const stat = await fsp.stat(resolved).catch(() => null);
       if (!stat || !stat.isFile() || stat.size > policy.maxFileBytes) {
-        results[p] = { error: "ファイルが見つからないか大きすぎます" };
+        results[p] = { error: "File not found or too large" };
         continue;
       }
       const result = await readFileFromDisk(resolved, { forceBase64: useBase64 });
@@ -137,7 +147,7 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
         results[p].size = result.size;
       }
     } catch {
-      results[p] = { error: "読み取りエラー" };
+      results[p] = { error: "Read error" };
     }
   }
   return { files: results };
@@ -152,7 +162,7 @@ const autoApplyProposal = async (service, proposal, options = {}) => {
   const result =
     applyResult && typeof applyResult === "object"
       ? applyResult
-      : { ok: false, proposalId: proposal.id, error: "操作に失敗しました。" };
+      : { ok: false, proposalId: proposal.id, error: "Operation failed." };
   // Send proposal to renderer so the chat shows a summary card (already in applied state)
   if (result.ok) {
     service.sendToRenderer("agent:proposal", {
@@ -168,61 +178,132 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   const summary = typeof args.summary === "string" ? args.summary : "";
   const encoding = normalizeEncoding(args.encoding);
   const binaryWrite = encoding === "base64";
+  // Safety flags passed through from the tool layer:
+  //   args.mode           — "create" (new file only) | "overwrite" (existing only) | "any"
+  //   args.allowFullRewrite — explicit acknowledgement for destructive shrinks
+  const mode = typeof args.mode === "string" ? args.mode : "any";
+  const allowFullRewrite = args.allowFullRewrite === true;
   if (!targetPath) {
-    return { error: "path が空です。" };
+    return { error: "path is empty." };
   }
   if (isBlockedPath(targetPath, policy)) {
-    return { error: "対象パスは書き込み禁止です。" };
+    return { error: "Target path is write-protected." };
   }
   if (!isTextExtension(targetPath, policy) && !binaryWrite) {
     return {
       error:
-        "テキストファイルのみ書き込み可能です。バイナリは encoding: base64 を指定してください。",
+        "Only text files can be written. Specify encoding: base64 for binary.",
     };
   }
   let contentBytes = Buffer.byteLength(content, "utf8");
   if (binaryWrite) {
     const decoded = decodeBase64Strict(content);
     if (!decoded) {
-      return { error: "base64 の内容が不正です。" };
+      return { error: "Invalid base64 content." };
     }
     contentBytes = decoded.buffer.length;
   }
   if (contentBytes > policy.maxFileBytes) {
-    return { error: "内容が大きすぎます。" };
+    return { error: "Content is too large." };
   }
   let originalContent = "";
   let isNewFile = true;
   let isBinary = binaryWrite;
   let baseContentHash = null;
   let baseSource = null;
-  const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "ファイルが大きすぎます。" };
-    }
-    originalContent = binaryWrite
-      ? Buffer.from(snapshot.content, "utf8").toString("base64")
-      : snapshot.content;
+  // Always read from disk FIRST when a file exists on disk. The context
+  // snapshot was the source of several hallucination bugs: it went stale
+  // after consecutive writes, and `handleProposeWrite` would then operate
+  // on a phantom version of the file that no longer matched reality.
+  let diskRead = false;
+  try {
+    const resolved = service.workspace.resolvePath(targetPath);
+    const result = await readFileFromDisk(resolved, { forceBase64: binaryWrite });
+    originalContent = result.content;
+    isBinary = isBinary || result.binary;
     isNewFile = false;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const resolved = service.workspace.resolvePath(targetPath);
-      const result = await readFileFromDisk(resolved, { forceBase64: binaryWrite });
-      originalContent = result.content;
-      isBinary = isBinary || result.binary;
+    baseContentHash = result.contentHash;
+    baseSource = "disk";
+    diskRead = true;
+  } catch {
+    // File not on disk — may still be open in the editor via snapshot.
+  }
+  if (!diskRead) {
+    const snapshot = service.getContextSnapshot(conversationId, targetPath);
+    if (snapshot && snapshot.content) {
+      if (snapshot.contentLength > policy.maxFileBytes) {
+        return { error: "File is too large." };
+      }
+      originalContent = binaryWrite
+        ? Buffer.from(snapshot.content, "utf8").toString("base64")
+        : snapshot.content;
       isNewFile = false;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
+      if (!snapshot.isDirty && !snapshot.truncated) {
+        baseContentHash = hashUtf8Text(snapshot.content);
+        baseSource = "snapshot";
+      }
+    } else {
       originalContent = "";
       isNewFile = true;
     }
   }
+
+  // ---- Mode enforcement ----
+  if (mode === "create" && !isNewFile) {
+    return {
+      error:
+        "create_file requires the target not to exist. File already exists: " +
+        targetPath +
+        ". Use replace_lines / insert_lines / delete_lines for surgical edits, " +
+        "or write_file with allowFullRewrite=true if you truly mean to replace the whole file.",
+    };
+  }
+  if (mode === "overwrite" && isNewFile) {
+    return {
+      error:
+        "overwrite mode requires the file to already exist, but " +
+        targetPath +
+        " does not. Use create_file for new files.",
+    };
+  }
+
+  // ---- Destructive shrink guard ----
+  // Skip for new files (nothing to shrink) and for binary writes.
+  if (!isNewFile && !binaryWrite && !allowFullRewrite) {
+    if (isDestructiveShrink(originalContent, content)) {
+      const oldLines = originalContent.split(/\r?\n/).length;
+      const newLines = content.split(/\r?\n/).length;
+      return {
+        error:
+          "DESTRUCTIVE SHRINK REJECTED: this write would shrink " +
+          targetPath +
+          " from " +
+          oldLines +
+          " lines to " +
+          newLines +
+          " lines. This is almost always a bug — full-file `write_file` is the " +
+          "wrong tool for targeted edits. Prefer replace_lines, insert_lines, " +
+          "delete_lines, or replace_section. If you truly intend to replace the " +
+          "entire file, retry with allowFullRewrite=true.",
+        conflict: true,
+      };
+    }
+    const brokenInvariants = checkLatexInvariants(targetPath, originalContent, content);
+    if (brokenInvariants.length > 0) {
+      return {
+        error:
+          "STRUCTURAL INVARIANT VIOLATION: this write would remove critical LaTeX " +
+          "elements that were present in the original file: " +
+          brokenInvariants.join(", ") +
+          ". These elements are protected. If you truly intend to restructure the " +
+          "document, pass allowFullRewrite=true. Otherwise, use targeted edit tools " +
+          "(replace_lines, replace_section) so the listed elements remain intact.",
+        conflict: true,
+        brokenInvariants,
+      };
+    }
+  }
+
   const id =
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -245,12 +326,50 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     createdAt: Date.now(),
   };
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
+  if (!apply.ok) {
+    return {
+      status: "apply_failed",
+      proposalId: id,
+      path: targetPath,
+      apply,
+      error: apply.error,
+      conflict: apply.conflict === true,
+    };
+  }
+
+  // ---- Post-write verification ----
+  // Re-read from disk and compare against what we intended to write.
+  // This catches silent drops / partial applies where the editor buffer
+  // got out of sync with the file system.
+  if (!binaryWrite) {
+    const resolved = service.workspace.resolvePath(targetPath);
+    const verify = await verifyPostWrite(resolved, content);
+    if (!verify.ok) {
+      return {
+        status: "apply_failed",
+        proposalId: id,
+        path: targetPath,
+        error: verify.error,
+      };
+    }
+    const change = describeChange(originalContent, content);
+    return {
+      status: "applied",
+      proposalId: id,
+      path: targetPath,
+      apply,
+      change,
+      verified: true,
+      summary: formatChangeSummary(targetPath, change),
+      sha: verify.actualSha,
+    };
+  }
+
   return {
-    status: apply.ok ? "applied" : "apply_failed",
+    status: "applied",
     proposalId: id,
     path: targetPath,
     apply,
-    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
   };
 };
 
@@ -260,7 +379,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   const normalizedEdits = [];
 
   if (editsArg && editsArg.length === 0) {
-    return { error: "edits が空です。" };
+    return { error: "edits is empty." };
   }
 
   if (editsArg && editsArg.length > 0) {
@@ -270,7 +389,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       const replace = typeof edit?.replace === "string" ? edit.replace : "";
       const replaceAll = edit?.replaceAll === true;
       if (!targetPath || !search) {
-        return { error: "edits の各項目に path と search は必須です。" };
+        return { error: "path and search are required for each edit." };
       }
       normalizedEdits.push({ path: targetPath, search, replace, replaceAll });
     }
@@ -280,7 +399,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     const replace = typeof args.replace === "string" ? args.replace : "";
     const replaceAll = args.replaceAll === true;
     if (!targetPath || !search) {
-      return { error: "path と search は必須です。" };
+      return { error: "path and search are required." };
     }
     normalizedEdits.push({ path: targetPath, search, replace, replaceAll });
   }
@@ -288,10 +407,10 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   const editsByPath = new Map();
   for (const edit of normalizedEdits) {
     if (isBlockedPath(edit.path, policy)) {
-      return { error: "対象パスは編集禁止です。" };
+      return { error: "Target path is edit-protected." };
     }
     if (!isTextExtension(edit.path, policy)) {
-      return { error: "テキストファイルのみ編集可能です。" };
+      return { error: "Only text files can be edited." };
     }
     if (!editsByPath.has(edit.path)) {
       editsByPath.set(edit.path, []);
@@ -310,9 +429,9 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     if (edits.length === 1) {
       const searchPreview = edits[0].search.slice(0, 20);
       const replacePreview = edits[0].replace.slice(0, 20);
-      base = `"${searchPreview}..." → "${replacePreview}..." (${appliedCount}箇所)`;
+      base = `"${searchPreview}..." → "${replacePreview}..." (${appliedCount}places)`;
     } else {
-      base = `${edits.length}件の置換（${appliedCount}箇所）`;
+      base = `${edits.length} replacements (${appliedCount} places)`;
     }
     if (!summaryPrefix) {
       return base;
@@ -324,17 +443,17 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     let originalContent = "";
     let baseContentHash = null;
     let baseSource = null;
-    // Always read from disk first so that sequential propose_patch calls within the
+    // Always read from disk first so that sequential write_file calls within the
     // same run each operate on the current file content rather than a stale snapshot.
     let diskRead = false;
     try {
       const resolved = service.workspace.resolvePath(targetPath);
       const result = await readFileFromDisk(resolved);
       if (result.binary) {
-        return { error: "バイナリファイルのため部分編集できません。" };
+        return { error: "Cannot partially edit binary file." };
       }
       if (result.size > policy.maxFileBytes) {
-        return { error: "ファイルが大きすぎます。" };
+        return { error: "File is too large." };
       }
       originalContent = result.content;
       baseContentHash = result.contentHash;
@@ -347,7 +466,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       const snapshot = service.getContextSnapshot(conversationId, targetPath);
       if (snapshot && snapshot.content) {
         if (snapshot.contentLength > policy.maxFileBytes) {
-          return { error: "ファイルが大きすぎます。" };
+          return { error: "File is too large." };
         }
         originalContent = snapshot.content;
         if (!snapshot.isDirty && !snapshot.truncated) {
@@ -355,7 +474,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
           baseSource = "snapshot";
         }
       } else {
-        return { error: "ファイルが見つかりません。" };
+        return { error: "file not found." };
       }
     }
     let updatedContent = originalContent;
@@ -365,16 +484,16 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
         ? replaceAllWithCount(updatedContent, edit.search, edit.replace)
         : replaceOnceWithCount(updatedContent, edit.search, edit.replace);
       if (result.count === 0) {
-        return { error: `${targetPath} に検索文字列が見つかりません。` };
+        return { error: `${targetPath}  search string not found.` };
       }
       updatedContent = result.text;
       appliedCount += result.count;
     }
     if (appliedCount === 0 || updatedContent === originalContent) {
-      return { error: "変更がありません。" };
+      return { error: "No changes." };
     }
     if (updatedContent.length > policy.maxFileBytes) {
-      return { error: "内容が大きすぎます。" };
+      return { error: "Content is too large." };
     }
     preparedProposals.push({
       path: targetPath,
@@ -415,7 +534,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
       path: prepared.path,
       appliedCount: prepared.appliedCount,
       ok: Boolean(apply?.ok),
-      error: apply?.ok ? undefined : apply?.error ?? "適用に失敗しました。",
+      error: apply?.ok ? undefined : apply?.error ?? "Apply failed.",
     });
   }
 
@@ -428,57 +547,196 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   };
 };
 
+/**
+ * Shared helper: read the current text content for an existing file,
+ * preferring disk so we never operate on a stale snapshot. Returns
+ * { ok, content, baseContentHash, baseSource, error? }.
+ */
+const readCurrentTextContent = async (service, policy, conversationId, targetPath) => {
+  try {
+    const resolved = service.workspace.resolvePath(targetPath);
+    const result = await readFileFromDisk(resolved);
+    if (result.binary) {
+      return { ok: false, error: "Cannot edit a binary file." };
+    }
+    if (result.size > policy.maxFileBytes) {
+      return { ok: false, error: "File is too large." };
+    }
+    return {
+      ok: true,
+      content: result.content,
+      baseContentHash: result.contentHash,
+      baseSource: "disk",
+    };
+  } catch {
+    // Fall through to snapshot
+  }
+  const snapshot = service.getContextSnapshot(conversationId, targetPath);
+  if (snapshot && snapshot.content) {
+    if (snapshot.contentLength > policy.maxFileBytes) {
+      return { ok: false, error: "File is too large." };
+    }
+    return {
+      ok: true,
+      content: snapshot.content,
+      baseContentHash:
+        !snapshot.isDirty && !snapshot.truncated
+          ? hashUtf8Text(snapshot.content)
+          : null,
+      baseSource: "snapshot",
+    };
+  }
+  return { ok: false, error: "file not found." };
+};
+
+/**
+ * Shared helper: submit an edited file content through the proposal system
+ * with full safety (destructive-shrink guard, structural invariants, post-write verify).
+ */
+const submitEditedContent = async ({
+  service,
+  policy,
+  conversationId,
+  targetPath,
+  originalContent,
+  updatedContent,
+  baseContentHash,
+  baseSource,
+  summary,
+  allowFullRewrite,
+  proposalType = "patch",
+}) => {
+  if (isBlockedPath(targetPath, policy)) {
+    return { error: "Target path is edit-protected." };
+  }
+  if (!isTextExtension(targetPath, policy)) {
+    return { error: "Only text files can be edited." };
+  }
+  if (Buffer.byteLength(updatedContent, "utf8") > policy.maxFileBytes) {
+    return { error: "Content is too large." };
+  }
+  if (updatedContent === originalContent) {
+    return { error: "No changes: the edit produced identical content." };
+  }
+  if (!allowFullRewrite && isDestructiveShrink(originalContent, updatedContent)) {
+    const oldLines = originalContent.split(/\r?\n/).length;
+    const newLines = updatedContent.split(/\r?\n/).length;
+    return {
+      error:
+        "DESTRUCTIVE SHRINK REJECTED: this edit would shrink " +
+        targetPath +
+        " from " +
+        oldLines +
+        " lines to " +
+        newLines +
+        " lines. Use a narrower edit range, or pass allowFullRewrite=true " +
+        "if this is truly intended.",
+      conflict: true,
+    };
+  }
+  if (!allowFullRewrite) {
+    const brokenInvariants = checkLatexInvariants(
+      targetPath,
+      originalContent,
+      updatedContent,
+    );
+    if (brokenInvariants.length > 0) {
+      return {
+        error:
+          "STRUCTURAL INVARIANT VIOLATION: this edit would remove critical LaTeX " +
+          "elements that were present in the original file: " +
+          brokenInvariants.join(", ") +
+          ". These elements are protected. If you truly intend to restructure the " +
+          "document (e.g. convert to a different class or remove \\maketitle), pass " +
+          "allowFullRewrite=true. Otherwise, narrow your edit so the listed " +
+          "elements remain intact.",
+        conflict: true,
+        brokenInvariants,
+      };
+    }
+  }
+
+  const id =
+    typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const proposal = {
+    id,
+    type: proposalType,
+    path: targetPath,
+    content: updatedContent,
+    originalContent,
+    summary,
+    isNewFile: false,
+    conversationId,
+    workspaceRootPath: service.workspace.getRootPath() || undefined,
+    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
+    baseExists: true,
+    baseSource: baseSource || undefined,
+    createdAt: Date.now(),
+  };
+  const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
+  if (!apply.ok) {
+    return {
+      status: "apply_failed",
+      proposalId: id,
+      path: targetPath,
+      error: apply.error,
+      conflict: apply.conflict === true,
+    };
+  }
+  const resolved = service.workspace.resolvePath(targetPath);
+  const verify = await verifyPostWrite(resolved, updatedContent);
+  if (!verify.ok) {
+    return {
+      status: "apply_failed",
+      proposalId: id,
+      path: targetPath,
+      error: verify.error,
+    };
+  }
+  const change = describeChange(originalContent, updatedContent);
+  return {
+    status: "applied",
+    proposalId: id,
+    path: targetPath,
+    change,
+    verified: true,
+    summary: formatChangeSummary(targetPath, change),
+    sha: verify.actualSha,
+  };
+};
+
 const handleReplaceLines = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
   const summary = typeof args.summary === "string" ? args.summary : "";
   const startLineRaw = Number(args.startLine);
   const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
+  const allowFullRewrite = args.allowFullRewrite === true;
   if (!targetPath) {
-    return { error: "path が空です。" };
+    return { error: "path is empty." };
   }
   if (isBlockedPath(targetPath, policy)) {
-    return { error: "対象パスは編集禁止です。" };
+    return { error: "Target path is edit-protected." };
   }
   if (!isTextExtension(targetPath, policy)) {
-    return { error: "テキストファイルのみ編集可能です。" };
+    return { error: "Only text files can be edited." };
   }
   if (!Number.isFinite(startLineRaw) || startLineRaw < 1) {
-    return { error: "startLine は 1 以上の数値が必要です。" };
+    return { error: "startLine must be a number >= 1." };
   }
   if (!Number.isFinite(endLineRaw) || endLineRaw < startLineRaw) {
-    return { error: "endLine は startLine 以上の数値が必要です。" };
+    return { error: "endLine must be >= startLine." };
   }
   const startLine = Math.round(startLineRaw);
   const endLine = Math.round(endLineRaw);
   const replacementText = typeof args.content === "string" ? args.content : "";
 
-  let originalContent = "";
-  let baseContentHash = null;
-  let baseSource = null;
-  const snapshot = service.getContextSnapshot(conversationId, targetPath);
-  if (snapshot && snapshot.content) {
-    if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "ファイルが大きすぎます。" };
-    }
-    originalContent = snapshot.content;
-    if (!snapshot.isDirty && !snapshot.truncated) {
-      baseContentHash = hashUtf8Text(snapshot.content);
-      baseSource = "snapshot";
-    }
-  } else {
-    try {
-      const resolved = service.workspace.resolvePath(targetPath);
-      const result = await readFileFromDisk(resolved);
-      if (result.binary) {
-        return { error: "バイナリファイルのため行置換できません。" };
-      }
-      originalContent = result.content;
-      baseContentHash = result.contentHash;
-      baseSource = "disk";
-    } catch {
-      return { error: "ファイルが見つかりません。" };
-    }
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  if (!read.ok) {
+    return { error: read.error };
   }
+  const originalContent = read.content;
 
   const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
   const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
@@ -486,10 +744,10 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
   const startIndex = startLine - 1;
   const endIndex = endLine - 1;
   if (startIndex < 0 || startIndex >= originalLines.length) {
-    return { error: "startLine が範囲外です。" };
+    return { error: "startLine is out of range (file has " + originalLines.length + " lines)." };
   }
   if (endIndex < 0 || endIndex >= originalLines.length) {
-    return { error: "endLine が範囲外です。" };
+    return { error: "endLine is out of range (file has " + originalLines.length + " lines)." };
   }
 
   const normalizedReplacement = replacementText.replace(/\r\n/g, "\n");
@@ -503,58 +761,180 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
   if (newline === "\r\n") {
     updatedContent = updatedContent.replace(/\n/g, "\r\n");
   }
-  if (updatedContent === originalContent) {
-    return { error: "変更がありません。" };
-  }
-  if (Buffer.byteLength(updatedContent, "utf8") > policy.maxFileBytes) {
-    return { error: "内容が大きすぎます。" };
-  }
-
-  const id =
-    typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const lineRangeLabel = startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
-  const proposal = {
-    id,
-    type: "patch",
-    path: targetPath,
-    content: updatedContent,
-    originalContent,
-    summary: summary.trim() ? summary : `行置換: ${targetPath}:${lineRangeLabel}`,
-    isNewFile: false,
+  return submitEditedContent({
+    service,
+    policy,
     conversationId,
-    workspaceRootPath: service.workspace.getRootPath() || undefined,
-    baseContentHash: typeof baseContentHash === "string" ? baseContentHash : undefined,
-    baseExists: true,
-    baseSource: baseSource || undefined,
-    createdAt: Date.now(),
-  };
+    targetPath,
+    originalContent,
+    updatedContent,
+    baseContentHash: read.baseContentHash,
+    baseSource: read.baseSource,
+    summary: summary.trim() ? summary : `Replace lines ${lineRangeLabel} in ${targetPath}`,
+    allowFullRewrite,
+    proposalType: "patch",
+  });
+};
 
-  const apply = await autoApplyProposal(service, proposal);
-  return {
-    status: apply.ok ? "applied" : "apply_failed",
-    proposalId: id,
-    path: targetPath,
-    apply,
-    autoBuild: apply.autoBuild ?? null,
-    ...(apply.ok ? {} : { error: apply.error, conflict: apply.conflict === true }),
-  };
+const handleInsertLines = async (service, args, policy, conversationId) => {
+  const targetPath = normalizePath(args.path);
+  const summary = typeof args.summary === "string" ? args.summary : "";
+  const afterLineRaw = Number(args.afterLine);
+  if (!targetPath) {
+    return { error: "path is empty." };
+  }
+  if (!Number.isFinite(afterLineRaw) || afterLineRaw < 0) {
+    return {
+      error: "afterLine must be a number >= 0 (use 0 to insert at the top of the file).",
+    };
+  }
+  const afterLine = Math.round(afterLineRaw);
+  const insertion = typeof args.content === "string" ? args.content : "";
+  if (!insertion) {
+    return { error: "content is empty — nothing to insert." };
+  }
+
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  if (!read.ok) {
+    return { error: read.error };
+  }
+  const originalContent = read.content;
+
+  const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
+  const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
+  const originalLines = normalizedOriginal.split("\n");
+  if (afterLine > originalLines.length) {
+    return {
+      error:
+        "afterLine " +
+        afterLine +
+        " is out of range (file has " +
+        originalLines.length +
+        " lines).",
+    };
+  }
+  const normalizedInsertion = insertion.replace(/\r\n/g, "\n");
+  const insertionLines = normalizedInsertion.split("\n");
+  // Drop the spurious empty line that split creates when insertion ends with \n
+  if (
+    insertionLines.length > 0 &&
+    insertionLines[insertionLines.length - 1] === "" &&
+    normalizedInsertion.endsWith("\n")
+  ) {
+    insertionLines.pop();
+  }
+  const updatedLines = [
+    ...originalLines.slice(0, afterLine),
+    ...insertionLines,
+    ...originalLines.slice(afterLine),
+  ];
+  let updatedContent = updatedLines.join("\n");
+  if (newline === "\r\n") {
+    updatedContent = updatedContent.replace(/\n/g, "\r\n");
+  }
+  return submitEditedContent({
+    service,
+    policy,
+    conversationId,
+    targetPath,
+    originalContent,
+    updatedContent,
+    baseContentHash: read.baseContentHash,
+    baseSource: read.baseSource,
+    summary:
+      summary.trim() ||
+      `Insert ${insertionLines.length} lines after line ${afterLine} in ${targetPath}`,
+    // Inserting always grows the file, so destructive shrink does not apply.
+    allowFullRewrite: true,
+    proposalType: "patch",
+  });
+};
+
+const handleDeleteLines = async (service, args, policy, conversationId) => {
+  const targetPath = normalizePath(args.path);
+  const summary = typeof args.summary === "string" ? args.summary : "";
+  const startLineRaw = Number(args.startLine);
+  const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
+  const allowFullRewrite = args.allowFullRewrite === true;
+  if (!targetPath) {
+    return { error: "path is empty." };
+  }
+  if (!Number.isFinite(startLineRaw) || startLineRaw < 1) {
+    return { error: "startLine must be a number >= 1." };
+  }
+  if (!Number.isFinite(endLineRaw) || endLineRaw < startLineRaw) {
+    return { error: "endLine must be >= startLine." };
+  }
+  const startLine = Math.round(startLineRaw);
+  const endLine = Math.round(endLineRaw);
+
+  const read = await readCurrentTextContent(service, policy, conversationId, targetPath);
+  if (!read.ok) {
+    return { error: read.error };
+  }
+  const originalContent = read.content;
+  const newline = originalContent.includes("\r\n") ? "\r\n" : "\n";
+  const normalizedOriginal = originalContent.replace(/\r\n/g, "\n");
+  const originalLines = normalizedOriginal.split("\n");
+  if (startLine < 1 || startLine > originalLines.length) {
+    return { error: "startLine is out of range (file has " + originalLines.length + " lines)." };
+  }
+  if (endLine < 1 || endLine > originalLines.length) {
+    return { error: "endLine is out of range (file has " + originalLines.length + " lines)." };
+  }
+  const updatedLines = [
+    ...originalLines.slice(0, startLine - 1),
+    ...originalLines.slice(endLine),
+  ];
+  let updatedContent = updatedLines.join("\n");
+  if (newline === "\r\n") {
+    updatedContent = updatedContent.replace(/\n/g, "\r\n");
+  }
+  const lineRangeLabel = startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
+  return submitEditedContent({
+    service,
+    policy,
+    conversationId,
+    targetPath,
+    originalContent,
+    updatedContent,
+    baseContentHash: read.baseContentHash,
+    baseSource: read.baseSource,
+    summary: summary.trim() || `Delete lines ${lineRangeLabel} from ${targetPath}`,
+    allowFullRewrite,
+    proposalType: "patch",
+  });
+};
+
+const handleCreateFile = async (service, args, policy, conversationId) => {
+  // Delegates to handleProposeWrite with mode: "create".
+  return handleProposeWrite(
+    service,
+    {
+      path: args.path,
+      content: args.content,
+      summary: args.summary || `Create file ${args.path}`,
+      mode: "create",
+    },
+    policy,
+    conversationId,
+  );
 };
 
 const handleProposeDelete = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
-  const summary = typeof args.summary === "string" ? args.summary : "ファイル削除";
+  const summary = typeof args.summary === "string" ? args.summary : "fileDelete";
   if (!targetPath) {
-    return { error: "path が空です。" };
+    return { error: "path is empty." };
   }
   if (isBlockedPath(targetPath, policy)) {
-    return { error: "対象パスは削除禁止です。" };
+    return { error: "Target path is protected from deletion." };
   }
   const resolved = service.workspace.resolvePath(targetPath);
   const stat = await fsp.stat(resolved).catch(() => null);
   if (!stat || !stat.isFile()) {
-    return { error: "ファイルが見つかりません。" };
+    return { error: "file not found." };
   }
   let originalContent = "";
   let isBinary = false;
@@ -563,7 +943,7 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
   const snapshot = service.getContextSnapshot(conversationId, targetPath);
   if (snapshot && snapshot.content) {
     if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "ファイルが大きすぎます。" };
+      return { error: "File is too large." };
     }
     originalContent = snapshot.content;
     if (!snapshot.isDirty && !snapshot.truncated) {
@@ -616,15 +996,15 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   const newPath = normalizePath(args.newPath);
   const summary = typeof args.summary === "string" ? args.summary : `${oldPath} → ${newPath}`;
   if (!oldPath || !newPath) {
-    return { error: "oldPath と newPath は必須です。" };
+    return { error: "oldPath and newPath are required." };
   }
   if (isBlockedPath(oldPath, policy) || isBlockedPath(newPath, policy)) {
-    return { error: "対象パスは操作禁止です。" };
+    return { error: "Target path is protected from this operation." };
   }
   const resolved = service.workspace.resolvePath(oldPath);
   const stat = await fsp.stat(resolved).catch(() => null);
   if (!stat || !stat.isFile()) {
-    return { error: "ファイルが見つかりません。" };
+    return { error: "file not found." };
   }
   let originalContent = "";
   let isBinary = false;
@@ -633,7 +1013,7 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   const snapshot = service.getContextSnapshot(conversationId, oldPath);
   if (snapshot && snapshot.content) {
     if (snapshot.contentLength > policy.maxFileBytes) {
-      return { error: "ファイルが大きすぎます。" };
+      return { error: "File is too large." };
     }
     originalContent = snapshot.content;
     if (!snapshot.isDirty && !snapshot.truncated) {
@@ -684,12 +1064,12 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
 
 const handleProposeCreateDirectory = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
-  const summary = typeof args.summary === "string" ? args.summary : "ディレクトリ作成";
+  const summary = typeof args.summary === "string" ? args.summary : "Create directory";
   if (!targetPath) {
-    return { error: "path が空です。" };
+    return { error: "path is empty." };
   }
   if (isBlockedPath(targetPath, policy)) {
-    return { error: "対象パスは作成禁止です。" };
+    return { error: "Target path is protected from creation." };
   }
   const id =
     typeof crypto.randomUUID === "function"
@@ -724,6 +1104,9 @@ module.exports = {
   MAX_COMMAND_TIMEOUT_MS,
   decodeBase64Strict,
   DEFAULT_MAX_COMMAND_OUTPUT_BYTES,
+  handleCreateFile,
+  handleDeleteLines,
+  handleInsertLines,
   handleListFiles,
   handleProposeCreateDirectory,
   handleProposeDelete,
@@ -734,6 +1117,8 @@ module.exports = {
   handleReadFile,
   handleReadFiles,
   handleRunCommand,
+  readCurrentTextContent,
+  submitEditedContent,
   readFileFromDisk,
   replaceAllWithCount,
   replaceOnceWithCount,

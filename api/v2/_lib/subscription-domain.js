@@ -46,11 +46,41 @@ const toIso = (date) => {
   return date.toISOString();
 };
 
-export const startOfMonthUtc = (date) =>
-  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1, 0, 0, 0, 0));
-
-export const addMonthsUtc = (date, months) =>
-  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1, 0, 0, 0, 0));
+/**
+ * Add N calendar months to a date, preserving the day-of-month anchor.
+ * If the target month has fewer days than the source day, clamps to the
+ * last day of the target month (Stripe-compatible behavior).
+ *
+ * Examples:
+ *   2026-01-15 + 1mo → 2026-02-15
+ *   2026-01-31 + 1mo → 2026-02-28 (clamped, non-leap)
+ *   2026-01-31 + 1mo → 2026-02-29 (clamped, leap year)
+ *   2026-12-31 + 1mo → 2027-01-31 (cross-year)
+ *
+ * Hours/minutes/seconds/milliseconds are preserved.
+ */
+export const addCalendarMonthsUtc = (date, months) => {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const targetMonth = month + months;
+  // Last day of the target month: day 0 of the *next* month = last day of this month
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(year, targetMonth + 1, 0)
+  ).getUTCDate();
+  const targetDay = Math.min(day, lastDayOfTargetMonth);
+  return new Date(
+    Date.UTC(
+      year,
+      targetMonth,
+      targetDay,
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+      date.getUTCMilliseconds()
+    )
+  );
+};
 
 const addDaysUtc = (date, days) => new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 
@@ -95,8 +125,12 @@ const ensurePeriod = (rawStart, rawEnd, now) => {
   if (parsedStart && parsedEnd && parsedEnd.getTime() > parsedStart.getTime()) {
     return { start: parsedStart, end: parsedEnd };
   }
-  const start = startOfMonthUtc(now);
-  const end = addMonthsUtc(start, 1);
+  // Fallback: anchor to `now` (signup time). This ensures a user who signs up
+  // mid-month gets a full month, not a partial calendar-month period.
+  // When Stripe later sends current_period_start/end via webhook, those values
+  // replace this fallback via upsertSubscriptionRecord.
+  const start = new Date(now.getTime());
+  const end = addCalendarMonthsUtc(start, 1);
   return { start, end };
 };
 
@@ -155,6 +189,18 @@ const normalizeSubscriptionRecord = (subscription, config, now) => {
   };
 };
 
+/**
+ * Lazy rollover fallback for when Stripe webhooks haven't arrived yet.
+ *
+ * Stripe is the authoritative source of period boundaries — each successful
+ * charge triggers a webhook that updates billingPeriodStart/End via
+ * upsertSubscriptionRecord. This function only runs if the stored period has
+ * already passed AND no webhook has replaced it.
+ *
+ * Advances month-by-month while preserving the day-of-month anchor from the
+ * original Stripe period. For example, a user whose Stripe cycle is the 15th
+ * will always have periods of [..15, next month 15), not calendar months.
+ */
 const applyActiveRollover = (subscription, now, config) => {
   let changed = false;
   let billingStart = parseDate(subscription.billingPeriodStart);
@@ -167,8 +213,12 @@ const applyActiveRollover = (subscription, now, config) => {
   }
   let guard = 0;
   while (billingEnd.getTime() <= now.getTime() && guard < 60) {
+    // Advance by one calendar month, preserving the day-of-month anchor.
+    // Compute next billingEnd FIRST from the current billingEnd (which becomes
+    // the new billingStart), so the anchor day stays consistent across rollovers.
+    const nextBillingEnd = addCalendarMonthsUtc(billingEnd, 1);
     billingStart = billingEnd;
-    billingEnd = addMonthsUtc(billingEnd, 1);
+    billingEnd = nextBillingEnd;
     subscription.quotaPeriodStart = toIso(billingStart);
     subscription.quotaPeriodEnd = toIso(billingEnd);
     subscription.quotaLimitTokens = computeTokenLimitForPlan(subscription.plan, config);
@@ -183,7 +233,11 @@ const applyActiveRollover = (subscription, now, config) => {
 
 const applyGraceState = (subscription, now, config) => {
   let changed = false;
-  const billingEnd = parseDate(subscription.billingPeriodEnd) || addMonthsUtc(startOfMonthUtc(now), 1);
+  // Fallback: if billingPeriodEnd is missing, anchor 1 month from now (not month start).
+  // In practice this path should be unreachable because normalizeSubscriptionRecord
+  // always fills in a period via ensurePeriod.
+  const billingEnd =
+    parseDate(subscription.billingPeriodEnd) || addCalendarMonthsUtc(new Date(now.getTime()), 1);
   const existingGraceEndsAt = parseDate(subscription.graceEndsAt);
   const graceEndsAt = existingGraceEndsAt || addDaysUtc(billingEnd, Math.max(0, config.graceDays || 3));
   if (!existingGraceEndsAt) {

@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 export const createAiChatRunner = (options) => {
     const { isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, ensureChat, runningConversations, pendingAgentRequests, buildContextPayload, getAgentSettings, upsertThinkingMessage, renderHistoryList, updateSendState, postToNative, clearThinkingMessage, restoreDraftFromPending, } = options;
     const requestAgentRun = (chatId, message, parts, contextPayload) => {
@@ -23,7 +24,7 @@ export const createAiChatRunner = (options) => {
             parts: Array.isArray(parts) ? parts : undefined,
             contextPayload: contextToSend,
         });
-        chat.statusMessage = "考えています...";
+        chat.statusMessage = uiText("Thinking...", "考えています...");
         runningConversations.add(chat.id);
         upsertThinkingMessage(chat.id, chat.statusMessage);
         renderHistoryList();

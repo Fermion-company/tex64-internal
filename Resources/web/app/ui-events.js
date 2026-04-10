@@ -1,5 +1,5 @@
 export const initUiEvents = (context, deps) => {
-    const { tabs, editorHost, editorHostSecondary, diffModalSubmit, diffModalCancel, } = context.dom;
+    const { tabs, editorHost, editorHostSecondary, diffModalSubmit, diffModalCancel, saveButton, } = context.dom;
     const setup = () => {
         tabs.forEach((tab) => {
             tab.addEventListener("click", () => {
@@ -39,7 +39,16 @@ export const initUiEvents = (context, deps) => {
         }
         deps.buildOps.setupActionButtons();
         deps.rootSelectorUi.setupActions();
+        if (saveButton instanceof HTMLButtonElement) {
+            saveButton.addEventListener("click", () => {
+                deps.saveCurrentFile();
+            });
+        }
         window.addEventListener("keydown", (event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+                event.preventDefault();
+                deps.saveCurrentFile();
+            }
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
                 event.preventDefault();
                 deps.buildOps.startBuild();

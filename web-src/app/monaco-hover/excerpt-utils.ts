@@ -6,7 +6,7 @@ export const renderExcerpt = (payload: {
   const start = Math.max(1, payload.startLine);
   const lines = Array.isArray(payload.lines) ? payload.lines : [];
   if (lines.length === 0) {
-    return "```tex\n(抜粋なし)\n```";
+    return "```tex\n(No excerpt)\n```";
   }
   const endLine = start + lines.length - 1;
   const width = Math.max(String(start).length, String(endLine).length);

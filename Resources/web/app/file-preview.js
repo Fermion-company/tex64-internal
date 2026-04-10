@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 const buildRequestId = (() => {
     let counter = 0;
     return () => `preview-${Date.now().toString(36)}-${counter++}`;
@@ -9,7 +10,7 @@ export const createFilePreviewBroker = (postToNative) => {
     const requestPreview = (path) => {
         const trimmed = typeof path === "string" ? path.trim() : "";
         if (!trimmed) {
-            return Promise.resolve({ ok: false, error: "path が空です。" });
+            return Promise.resolve({ ok: false, error: uiText("path is empty.", "path が空です。") });
         }
         const cached = cache.get(trimmed);
         if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
@@ -19,7 +20,7 @@ export const createFilePreviewBroker = (postToNative) => {
         return new Promise((resolve) => {
             const timeoutId = window.setTimeout(() => {
                 pending.delete(requestId);
-                resolve({ ok: false, error: "プレビューがタイムアウトしました。" });
+                resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
             }, 1600);
             pending.set(requestId, { resolve, timeoutId });
             postToNative({
@@ -41,13 +42,13 @@ export const createFilePreviewBroker = (postToNative) => {
         pending.delete(payload.requestId);
         window.clearTimeout(entry.timeoutId);
         if (!payload.ok) {
-            entry.resolve({ ok: false, error: (_a = payload.error) !== null && _a !== void 0 ? _a : "プレビューに失敗しました。" });
+            entry.resolve({ ok: false, error: (_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Preview failed.", "プレビューに失敗しました。") });
             return;
         }
         const data = typeof payload.data === "string" ? payload.data : "";
         const mimeType = typeof payload.mimeType === "string" ? payload.mimeType : "image/*";
         if (!data) {
-            entry.resolve({ ok: false, error: "画像データが空です。" });
+            entry.resolve({ ok: false, error: uiText("Image data is empty.", "画像データが空です。") });
             return;
         }
         const dataUrl = `data:${mimeType};base64,${data}`;

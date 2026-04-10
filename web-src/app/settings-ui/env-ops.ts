@@ -36,7 +36,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     if (target === "latexindent") {
       return "latexindent";
     }
-    return target || "実行環境";
+    return target || "Runtime Environment";
   };
 
   const setRuntimeInstallStatus = (
@@ -116,32 +116,32 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
       settingsRuntimeOnboardingStatus.classList.remove("is-warning", "is-success");
       if (!summary || !summary.hasAnyResult) {
         settingsRuntimeOnboardingStatus.textContent =
-          "初回セットアップ: 1) 実行環境を確認中 2) ワークスペースを開く 3) 最初のビルドを実行";
+          "First time setup: 1) Checking the execution environment 2) Opening the workspace 3) Running the first build";
       } else if (firstBuildCompleted) {
         settingsRuntimeOnboardingStatus.classList.add("is-success");
         settingsRuntimeOnboardingStatus.textContent =
-          "初回セットアップ完了: いつでも Build を実行できます。";
+          "First-time setup complete: You can run Build at any time.";
       } else if (!summary.runtimeReady) {
         const missing = summary.missingRequired.map((item) => resolveRuntimeMissingLabel(item));
         settingsRuntimeOnboardingStatus.classList.add("is-warning");
         settingsRuntimeOnboardingStatus.textContent =
           missing.length > 0
-            ? `初回セットアップ: 1/3 実行環境が不足 (${missing.join(", ")})。上の「インストール」ボタンをクリックしてください。`
-            : "初回セットアップ: 1/3 実行環境が不足しています。上の「インストール」ボタンをクリックしてください。";
+            ? `First time setup: 1/3 Missing runtime (${missing.join(", ")}). Click the "Install" button above.`
+            : "First time setup: 1/3 Runtime is missing. Click the \"Install\" button above.";
       } else if (!hasWorkspace) {
         settingsRuntimeOnboardingStatus.classList.add("is-warning");
-        settingsRuntimeOnboardingStatus.textContent = "初回セットアップ: 2/3 ワークスペースを開いてください。";
+        settingsRuntimeOnboardingStatus.textContent = "First time setup: 2/3 Open your workspace.";
       } else {
         settingsRuntimeOnboardingStatus.classList.add("is-success");
         settingsRuntimeOnboardingStatus.textContent =
-          "初回セットアップ: 3/3 最初のビルドを実行してください。";
+          "First time setup: 3/3 Run your first build.";
       }
     }
 
     if (settingsRuntimeRunFirstBuild instanceof HTMLButtonElement) {
       const canRunBuild = Boolean(summary?.runtimeReady && hasWorkspace);
       settingsRuntimeRunFirstBuild.disabled = !canRunBuild;
-      settingsRuntimeRunFirstBuild.textContent = firstBuildCompleted ? "ビルドを実行" : "最初のビルドを実行";
+      settingsRuntimeRunFirstBuild.textContent = firstBuildCompleted ? "run build" : "run the first build";
     }
   };
 
@@ -152,7 +152,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     const summary = runtime.state.runtimeStatusSummary;
     settingsRuntimeSetupStatus.classList.remove("is-warning", "is-success");
     if (!summary || !summary.hasAnyResult) {
-      settingsRuntimeSetupStatus.textContent = "実行環境を確認中です。";
+      settingsRuntimeSetupStatus.textContent = "Checking the execution environment.";
       updateRuntimeOnboardingUi();
       return;
     }
@@ -160,16 +160,16 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
       settingsRuntimeSetupStatus.classList.add("is-success");
       if (summary.missingRecommended.includes("latexindent")) {
         settingsRuntimeSetupStatus.textContent =
-          "利用開始の準備は完了しています（任意: latexindent 未検出）。";
+          "Ready to start using (optional: latexindent not detected).";
       } else {
-        settingsRuntimeSetupStatus.textContent = "利用開始の準備が完了しています。";
+        settingsRuntimeSetupStatus.textContent = "Preparations for start of use are complete.";
       }
       updateRuntimeOnboardingUi();
       return;
     }
     settingsRuntimeSetupStatus.classList.add("is-warning");
     const missing = summary.missingRequired.map((item) => resolveRuntimeMissingLabel(item));
-    settingsRuntimeSetupStatus.textContent = `不足: ${missing.join(", ")}。TeX環境を整備して再チェックしてください。`;
+    settingsRuntimeSetupStatus.textContent = `Missing: ${missing.join(", ")}. Please prepare the TeX environment and check again.`;
     updateRuntimeOnboardingUi();
   };
 
@@ -179,15 +179,15 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     const target =
       typeof payload?.target === "string" && payload.target.trim() ? payload.target.trim() : "";
     if (!target) {
-      setRuntimeInstallStatus("インストールを開始しました。");
+      setRuntimeInstallStatus("Installation has started.");
       return;
     }
     const label = resolveEnvInstallTargetLabel(target);
-    setRuntimeInstallStatus(`${label} をインストールしています...`);
+    setRuntimeInstallStatus(`${label}  is being installed...`);
     envBtns
       .filter((btn) => btn.dataset.target === target)
       .forEach((btn) => {
-        btn.textContent = "インストール中...";
+        btn.textContent = "Installing...";
         btn.disabled = true;
       });
   };
@@ -201,7 +201,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     const label = resolveEnvInstallTargetLabel(target);
     const message =
       rawMessage ||
-      (success ? `${label} のインストールを実行しました。` : `${label} のインストールに失敗しました。`);
+      (success ? `${label}  installation performed。` : `${label}  installation failed。`);
     setRuntimeInstallStatus(message, success ? "success" : "error");
     checkEnvironmentStatus();
   };
@@ -227,7 +227,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
       if (!target) {
         return;
       }
-      btn.textContent = "インストール中...";
+      btn.textContent = "Installing...";
       btn.disabled = true;
       runtime.deps.postToNative({ type: "env:install", target });
     });

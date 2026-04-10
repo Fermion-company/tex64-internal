@@ -138,6 +138,11 @@ select:focus-visible,
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Build spinner: always animate (essential status feedback) */
+  .build-button-spinner {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
+  }
   /* Thinking indicator: always animate (status feedback) */
   .ai-message.ai-thinking-message::after {
     animation-duration: 2s !important;
@@ -530,6 +535,39 @@ body.has-launcher .app {
   font-size: 12px;
   color: var(--muted);
   text-align: center;
+}
+
+.launcher-lang-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  z-index: 1;
+}
+
+.launcher-lang-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--panel-border-strong);
+  color: var(--text);
+}
+
+.launcher-lang-toggle:active {
+  transform: translateY(1px);
+}
+
+.launcher-lang-toggle svg {
+  flex-shrink: 0;
 }
 
 .topbar {
@@ -3190,6 +3228,7 @@ math-field.block-math-field::placeholder {
   position: relative;
 }
 
+#save-button,
 #format-button,
 #synctex-button,
 #update-button,
@@ -3216,6 +3255,7 @@ math-field.block-math-field::placeholder {
     transform 0.12s ease;
 }
 
+#save-button,
 #format-button,
 #synctex-button {
   border-color: var(--panel-border);
@@ -3223,9 +3263,15 @@ math-field.block-math-field::placeholder {
   color: var(--text-soft);
 }
 
+#save-button,
 #format-button,
 #synctex-button {
   color: var(--text);
+}
+
+#save-button {
+  gap: 4px;
+  letter-spacing: 0.06em;
 }
 
 #format-button {
@@ -3236,6 +3282,7 @@ math-field.block-math-field::placeholder {
   letter-spacing: 0.06em;
 }
 
+#save-button:hover,
 #format-button:hover,
 #synctex-button:hover {
   color: var(--text);
@@ -3243,6 +3290,7 @@ math-field.block-math-field::placeholder {
   background: rgba(255, 255, 255, 0.08);
 }
 
+#save-button:active,
 #format-button:active,
 #synctex-button:active {
   transform: translateY(1px);
@@ -3252,6 +3300,7 @@ math-field.block-math-field::placeholder {
   color: var(--text);
 }
 
+#save-button:focus-visible,
 #format-button:focus-visible,
 #synctex-button:focus-visible,
 #update-button:focus-visible,
@@ -3487,7 +3536,7 @@ math-field.block-math-field::placeholder {
 
 #build-button.is-busy {
   color: var(--accent-strong);
-  cursor: wait;
+  cursor: default;
 }
 
 @keyframes build-spin {

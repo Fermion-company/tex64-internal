@@ -58,8 +58,8 @@ export const restorePendingAiDraft = (options: RestorePendingAiDraftOptions) => 
     {
       role: "system",
       text: restoredImages.length > 0
-        ? `送信できなかった入力を復元しました（画像${restoredImages.length}件含む）。内容を確認して再送信してください。`
-        : "送信できなかった入力を復元しました。内容を確認して再送信してください。",
+        ? `Restored unsent input (including ${restoredImages.length} attached images). Please review and resend.`
+        : "Restored input that could not be sent. Please check the contents and resend.",
     },
     chatId
   );

@@ -60,11 +60,11 @@ const getProposalType = (proposal: AgentProposal) => {
 
 const getProposalBadgeText = (proposal: AgentProposal): string | null => {
   switch (getProposalType(proposal)) {
-    case "delete": return "削除";
-    case "rename": return "移動";
-    case "mkdir": return "フォルダ";
-    case "new": return "新規";
-    default: return null; // 「編集」は自明なので表示しない
+    case "delete": return "Delete";
+    case "rename": return "move";
+    case "mkdir": return "folder";
+    case "new": return "New";
+    default: return null; // "Edit" is obvious, no need to display
   }
 };
 
@@ -101,14 +101,14 @@ export const createUnifiedProposalCard = (
   titleEl.textContent =
     proposals.length === 1
       ? proposals[0].path
-      : `${proposals.length}件のファイル変更`;
+      : `${proposals.length} file changes`;
 
   header.append(icon, titleEl);
 
   const badge = document.createElement("span");
   badge.className = "ai-proposal-badge";
   if (allApplied) {
-    badge.textContent = "適用済み";
+    badge.textContent = "Applied";
     badge.style.background = "rgba(99, 102, 241, 0.1)";
     badge.style.color = "#818cf8";
     badge.style.borderColor = "rgba(99, 102, 241, 0.2)";
@@ -116,7 +116,7 @@ export const createUnifiedProposalCard = (
   } else {
     const badgeText = proposals.length === 1
       ? getProposalBadgeText(proposals[0])
-      : null; // 複数ファイルの集約バッジは不要
+      : null; // No aggregate badge needed for multiple files
     if (badgeText) {
       badge.textContent = badgeText;
       header.appendChild(badge);
@@ -186,10 +186,10 @@ export const createUnifiedProposalCard = (
       if (adds > 0 || dels > 0) {
         summary.appendChild(createDiffSummaryEl(adds, dels));
       } else {
-        summary.textContent = "変更なし";
+        summary.textContent = "No change";
       }
     } else {
-      summary.textContent = p.summary || "ファイルの変更案";
+      summary.textContent = p.summary || "Proposed file changes";
     }
     card.append(header, summary);
   }
@@ -207,7 +207,7 @@ export const createUnifiedProposalCard = (
     const reviewButton = document.createElement("button");
     reviewButton.type = "button";
     reviewButton.className = "panel-button ghost";
-    reviewButton.textContent = "差分を見る";
+    reviewButton.textContent = "View diff";
     reviewButton.addEventListener("click", (event) => {
       event.stopPropagation();
       deps.setPendingProposalIds(proposalIds);
@@ -223,9 +223,9 @@ export const createUnifiedProposalCard = (
           p.content ?? "",
           0,
           {
-            title: "変更内容の確認",
+            title: "Confirm changes",
             fileName: p.path,
-            submitLabel: allApplied ? "確定" : "適用",
+            submitLabel: allApplied ? "Confirm" : "Apply",
           }
         );
       } else {
@@ -235,43 +235,28 @@ export const createUnifiedProposalCard = (
           modified: p.content ?? "",
         }));
         deps.showMultiFileDiff(files, {
-          title: "変更内容の確認",
-          submitLabel: allApplied ? "確定" : "すべて適用",
+          title: "Confirm changes",
+          submitLabel: allApplied ? "Confirm" : "Apply all",
         });
       }
     });
     actions.appendChild(reviewButton);
   }
 
-  if (allApplied) {
-    const undoButton = document.createElement("button");
-    undoButton.type = "button";
-    undoButton.className = "panel-button ghost";
-    undoButton.textContent = "元に戻す";
-    undoButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (proposals.length > 0) {
-        deps.postToNative({
-          type: "agent:undoLastApply",
-          conversationId: proposals[0].conversationId,
-        });
-      }
-    });
-    actions.appendChild(undoButton);
-  } else {
+  if (!allApplied) {
     const applyButton = document.createElement("button");
     applyButton.type = "button";
     applyButton.className = "panel-button";
     applyButton.textContent =
       proposals.length === 1
         ? getProposalType(proposals[0]) === "delete"
-          ? "削除"
+          ? "Delete"
           : getProposalType(proposals[0]) === "mkdir"
-          ? "作成"
+          ? "Create"
           : getProposalType(proposals[0]) === "rename"
-          ? "移動"
-          : "適用"
-        : "すべて適用";
+          ? "move"
+          : "Apply"
+        : "Apply all";
     applyButton.addEventListener("click", (event) => {
       event.stopPropagation();
       const unapplied = proposals.filter((p) => !appliedIds.has(p.id));

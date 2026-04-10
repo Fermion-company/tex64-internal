@@ -9,13 +9,13 @@ export const createSettingsPlatformAuthOps = (runtime) => {
             : "";
         if (settingsAuthStatus instanceof HTMLElement) {
             if (authenticated) {
-                settingsAuthStatus.textContent = userLabel ? `ログイン済み: ${userLabel}` : "ログイン済み";
+                settingsAuthStatus.textContent = userLabel ? `Signed in: ${userLabel}` : "Signed in";
             }
             else if (pending) {
-                settingsAuthStatus.textContent = "ログイン処理中";
+                settingsAuthStatus.textContent = "Signing in";
             }
             else {
-                settingsAuthStatus.textContent = "未ログイン";
+                settingsAuthStatus.textContent = "Signed out";
             }
         }
         if (settingsAuthLogin instanceof HTMLButtonElement) {
@@ -23,7 +23,7 @@ export const createSettingsPlatformAuthOps = (runtime) => {
             settingsAuthLogin.classList.toggle("is-hidden", !showLogin);
             settingsAuthLogin.setAttribute("aria-hidden", showLogin ? "false" : "true");
             settingsAuthLogin.disabled = pending;
-            settingsAuthLogin.textContent = pending ? "ログイン処理中..." : "ログイン";
+            settingsAuthLogin.textContent = pending ? "Signing in..." : "Login";
         }
         if (settingsAuthLogout instanceof HTMLButtonElement) {
             settingsAuthLogout.classList.toggle("is-hidden", !authenticated);

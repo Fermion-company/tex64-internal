@@ -160,7 +160,7 @@ const configureMarked = () => {
             return (`<div class="ai-code-block">` +
                 `<div class="ai-code-header">` +
                 `<span class="ai-code-lang">${lang}</span>` +
-                `<button class="ai-code-copy" type="button" data-copy>コピー</button>` +
+                `<button class="ai-code-copy" type="button" data-copy>${uiText("Copy", "コピー")}</button>` +
                 `</div>` +
                 `<pre><code>${code}</code></pre>` +
                 `</div>`);
@@ -251,8 +251,8 @@ const attachCopyHandlers = (container) => {
             e.stopPropagation();
             const code = (_c = (_b = (_a = btn.closest(".ai-code-block")) === null || _a === void 0 ? void 0 : _a.querySelector("code")) === null || _b === void 0 ? void 0 : _b.textContent) !== null && _c !== void 0 ? _c : "";
             navigator.clipboard.writeText(code).then(() => {
-                btn.textContent = "コピー済み";
-                setTimeout(() => { btn.textContent = "コピー"; }, 1500);
+                btn.textContent = uiText("Copied", "コピー済み");
+                setTimeout(() => { btn.textContent = uiText("Copy", "コピー"); }, 1500);
             }, () => { });
         });
     });
@@ -310,3 +310,4 @@ export const updateMessageElement = (wrapper, text) => {
         content.textContent = text;
     }
 };
+import { uiText } from "./i18n.js";

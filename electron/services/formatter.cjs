@@ -722,7 +722,7 @@ class FormatterService {
     };
     const latexindentPath = this.findLatexindent();
     if (!latexindentPath) {
-      return fallbackWithWarning("latexindentが見つかりません。簡易整形を使用しました。");
+      return fallbackWithWarning("latexindentがnot found。簡易FormatをUsedしました。");
     }
     const tempDir = path.join(rootPath, ".tex64", ".format");
     await ensureDirectory(tempDir);
@@ -737,7 +737,7 @@ class FormatterService {
     );
     if (!settingsPaths) {
       await safeRm(runDir);
-      return fallbackWithWarning("latexindent設定が読み込めません。簡易整形を使用しました。");
+      return fallbackWithWarning("latexindentSettingsが読み込めません。簡易FormatをUsedしました。");
     }
     const baseName = path.basename(relativePath, path.extname(relativePath)) || "document";
     const tempName = `${baseName}.tex`;
@@ -774,8 +774,8 @@ class FormatterService {
     }
     const message = (result.output ?? "").trim();
     const warning = message
-      ? `latexindentに失敗しました。簡易整形を使用しました。(${message})`
-      : "latexindentに失敗しました。簡易整形を使用しました。";
+      ? `latexindentに失敗しました。簡易FormatをUsedしました。(${message})`
+      : "latexindentに失敗しました。簡易FormatをUsedしました。";
     return fallbackWithWarning(warning);
   }
 

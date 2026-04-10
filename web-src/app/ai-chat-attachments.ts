@@ -88,7 +88,7 @@ export const createAiChatAttachmentsController = (
       remove.type = "button";
       remove.className = "ai-attachment-remove";
       remove.textContent = "×";
-      remove.setAttribute("aria-label", "添付を削除");
+      remove.setAttribute("aria-label", "remove attachment");
       remove.addEventListener("click", () => {
         pendingAttachments = pendingAttachments.filter((_, targetIndex) => targetIndex !== index);
         renderAttachmentBar();
@@ -144,19 +144,19 @@ export const createAiChatAttachmentsController = (
     renderAttachmentBar();
     const notices: string[] = [];
     if (rejectedTooLarge > 0) {
-      notices.push(`5MBを超える画像は添付できません（${rejectedTooLarge}件）。`);
+      notices.push(`Images larger than 5MB cannot be attached (${rejectedTooLarge}).`);
     }
     if (rejectedByTotal > 0) {
-      notices.push("添付画像の合計サイズは8MBまでです。");
+      notices.push("The total size of attached images is up to 8MB.");
     }
     if (rejectedByCount > 0) {
-      notices.push("画像添付は最大4件までです。");
+      notices.push("Up to 4 images can be attached.");
     }
     if (rejectedNonImage > 0) {
-      notices.push(`画像ファイルのみ添付できます（${rejectedNonImage}件を除外）。`);
+      notices.push(`Only image files can be attached (excluding ${rejectedNonImage}).`);
     }
     if (rejectedUnreadable > 0) {
-      notices.push(`画像の読み込みに失敗したため添付できませんでした（${rejectedUnreadable}件）。`);
+      notices.push(`The image could not be attached because it failed to load (${rejectedUnreadable} items).`);
     }
     if (notices.length > 0) {
       const chat = getChat(getActiveChatId());

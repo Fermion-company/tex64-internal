@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import type { BridgeWindow } from "./types.js";
 
 const TARGET_WIDTH = 384;
@@ -40,7 +41,7 @@ const loadImage = (dataUrl: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
+    image.onerror = () => reject(new Error(uiText("Failed to load image.", "画像の読み込みに失敗しました。")));
     image.src = dataUrl;
   });
 
@@ -57,7 +58,7 @@ const copyCanvas = (source: HTMLCanvasElement) => {
   const clone = createCanvas(source.width, source.height);
   const ctx = clone.getContext("2d");
   if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   ctx.drawImage(source, 0, 0);
   return clone;
@@ -72,7 +73,7 @@ const fitCanvasWithPadding = (
   const fitted = createCanvas(width, height);
   const ctx = fitted.getContext("2d");
   if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   ctx.fillStyle = `rgb(${background},${background},${background})`;
   ctx.fillRect(0, 0, width, height);
@@ -94,7 +95,7 @@ const enhanceCanvas = (
 ) => {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   const { width, height } = canvas;
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -318,7 +319,7 @@ const trimBoundingBoxByProjection = (
 const binarizeCanvas = (canvas: HTMLCanvasElement, options: BinarizeOptions = {}) => {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   const { width, height } = canvas;
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -358,7 +359,7 @@ const getImageData = (image: HTMLImageElement) => {
   const canvas = createCanvas(image.naturalWidth || image.width, image.naturalHeight || image.height);
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   ctx.drawImage(image, 0, 0);
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -501,7 +502,7 @@ const extractCropCanvas = (image: HTMLImageElement, box: BoundingBox) => {
   const cropCanvas = createCanvas(box.width, box.height);
   const cropCtx = cropCanvas.getContext("2d");
   if (!cropCtx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   cropCtx.drawImage(
     image,
@@ -523,7 +524,7 @@ const canvasToPayload = (
 ): MathOcrPayload => {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error("キャンバスの初期化に失敗しました。");
+    throw new Error(uiText("Canvas initialization failed.", "キャンバスの初期化に失敗しました。"));
   }
   const finalData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
   const pixelCount = canvas.width * canvas.height;
@@ -675,7 +676,7 @@ const recognizeMathInternal = async (
   const bridgeWindow = window as BridgeWindow;
   const bridge = bridgeWindow.__tex64TestMathOcr ?? bridgeWindow.tex64MathOcr;
   if (!bridge?.run) {
-    throw new Error("数式OCRが利用できません。");
+    throw new Error(uiText("Formula OCR is not available.", "数式OCRが利用できません。"));
   }
 
   const pipelineStart = Date.now();
@@ -713,7 +714,7 @@ const recognizeMathInternal = async (
         return true;
       }
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("OCRに失敗しました。");
+      lastError = error instanceof Error ? error : new Error(uiText("OCR failed.", "OCRに失敗しました。"));
     }
     return false;
   };
@@ -750,7 +751,7 @@ const recognizeMathInternal = async (
   if (lastError) {
     throw lastError;
   }
-  throw new Error("OCR結果が空でした。");
+  throw new Error(uiText("OCR result was empty.", "OCR結果が空でした。"));
 };
 
 export const recognizeMath = async (
@@ -761,7 +762,7 @@ export const recognizeMath = async (
     recognizeMathInternal(imageDataUrl, onProgress),
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error("OCRがタイムアウトしました。")),
+        () => reject(new Error(uiText("OCR timed out.", "OCRがタイムアウトしました。"))),
         PIPELINE_TIMEOUT_MS
       )
     ),

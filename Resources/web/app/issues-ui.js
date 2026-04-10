@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import { getIssueResolution } from "./issue-resolution.js";
 export const initIssuesUi = (context, deps) => {
     const { issuesList, issuesEmpty } = context.dom;
@@ -27,7 +28,10 @@ export const initIssuesUi = (context, deps) => {
             header.className = "issue-header";
             const badge = document.createElement("span");
             badge.className = `issue-badge issue-badge-${issue.severity}`;
-            badge.textContent = issue.severity === "warning" ? "警告" : "エラー";
+            badge.textContent =
+                issue.severity === "warning"
+                    ? uiText("Warning", "警告")
+                    : uiText("Error", "Issues");
             const location = document.createElement("span");
             location.className = "issue-location";
             if (detail.path && detail.line) {
@@ -37,10 +41,10 @@ export const initIssuesUi = (context, deps) => {
                 location.textContent = detail.path;
             }
             else if (detail.line) {
-                location.textContent = `行 ${detail.line}`;
+                location.textContent = uiText(`Line ${detail.line}`, `行 ${detail.line}`);
             }
             else {
-                location.textContent = "位置不明";
+                location.textContent = uiText("Unknown location", "位置不明");
             }
             header.append(badge, location);
             const message = document.createElement("div");
@@ -59,10 +63,10 @@ export const initIssuesUi = (context, deps) => {
             const showResolution = Boolean(resolutionText);
             resolution.textContent = resolutionText;
             hint.textContent = isRuntimeAction
-                ? "クリックでRuntimeを開く"
+                ? uiText("Click to open Runtime", "Click to open Environment")
                 : hasJumpTarget
-                    ? "クリックで移動"
-                    : "移動先を特定できません。ビルドログを確認";
+                    ? uiText("Click to jump", "Click to move")
+                    : uiText("Unable to determine destination. Check the build log", "移動先を特定できません。ビルドログを確認");
             if (showResolution) {
                 detailBlock.append(resolution);
             }

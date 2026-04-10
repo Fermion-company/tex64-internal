@@ -121,7 +121,7 @@ export const initWorkspaceController = (
   let indexTodos: IndexEntry[] = [];
   let workspaceFiles: string[] = [];
   let workspaceFolders: string[] = [];
-  let workspaceName = "ワークスペース未選択";
+  let workspaceName = "No workspace selected";
   let workspaceRootKey: string | null = null;
   let rootFilePath: string | null = null;
   let rootSource: RootSource = "auto";
@@ -212,7 +212,7 @@ export const initWorkspaceController = (
       const primary = entries[0];
       issues.push({
         severity: "warning",
-        message: `Duplicate label: ${key} (${entries.length} 箇所: ${detailText})`,
+        message: `Duplicate label: ${key} (${entries.length} location: ${detailText})`,
         path: primary.path,
         line: primary.line,
       });

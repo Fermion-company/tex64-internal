@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import { buildFileTree, canDropOnFolder, clearDropTargets, getDragData, getParentPath, setDragData, } from "./file-tree-utils.js";
 export const createFileTreeRenderer = ({ fileTree, deps, actions, }) => {
     const renderFileNodes = (nodes, container, depth) => {
@@ -177,10 +178,11 @@ export const createFileTreeRenderer = ({ fileTree, deps, actions, }) => {
         if (workspaceFiles.length === 0 && workspaceFolders.length === 0) {
             const empty = document.createElement("div");
             empty.className = "panel-placeholder";
-            empty.textContent =
-                deps.getWorkspaceName() === "ワークスペース未選択"
-                    ? "フォルダを開いてください。"
-                    : "ファイルが見つかりません。";
+            empty.textContent = uiText(deps.getWorkspaceName() === uiText("No workspace selected", "ワークスペース未選択")
+                ? "Please open a folder."
+                : "No files found.", deps.getWorkspaceName() === uiText("No workspace selected", "ワークスペース未選択")
+                ? "Please open the folder."
+                : "file not found.");
             fileTree.appendChild(empty);
             return;
         }

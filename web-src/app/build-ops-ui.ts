@@ -1,4 +1,5 @@
 import type { AppContext } from "./context.js";
+import { uiText } from "./i18n.js";
 import type {
   BuildState,
   FormatSettingsPayload,
@@ -156,7 +157,7 @@ export const initBuildOpsUi = (
 
   const isEnvMissingMessage = (message: string) => {
     const lower = message.toLowerCase();
-    const hasMissing = message.includes("見つかりません") || lower.includes("not found");
+    const hasMissing = message.includes("not found") || lower.includes("not found");
     return hasMissing && lower.includes("synctex");
   };
 
@@ -198,7 +199,7 @@ export const initBuildOpsUi = (
     const enabled = Boolean(targetPath && targetPath.endsWith(".tex"));
     synctexButton.disabled = !enabled;
     synctexButton.style.display = "inline-flex";
-    synctexButton.textContent = "ジャンプ";
+    synctexButton.textContent = uiText("Jump", "ジャンプ");
   };
 
   const handleBuildLog = (log: string | null) => {
@@ -232,8 +233,9 @@ export const initBuildOpsUi = (
     const activeGroup = deps.getActiveGroup();
     const targetPath = overridePath ?? activeGroup.currentFilePath;
     if (!targetPath || !targetPath.endsWith(".tex")) {
-      deps.updateIssues(1, "SyncTeX は .tex ファイルでのみ利用できます。", "info", [
-        { severity: "warning", message: "SyncTeX は .tex ファイルでのみ利用できます。" },
+      const message = uiText("SyncTeX is only available for .tex files.", "SyncTeX は .tex ファイルでのみ利用できます。");
+      deps.updateIssues(1, message, "info", [
+        { severity: "warning", message },
       ]);
       return;
     }
@@ -311,8 +313,8 @@ export const initBuildOpsUi = (
       buildButton.disabled = false;
       buildButton.classList.toggle("is-busy", isBusy);
       buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-      buildButton.setAttribute("aria-label", isBusy ? "キャンセル" : "ビルド");
-      buildButton.title = isBusy ? "ビルドをキャンセル" : "ビルド (Cmd+B)";
+      buildButton.setAttribute("aria-label", isBusy ? uiText("Cancel", "cancel") : uiText("Build", "build"));
+      buildButton.title = isBusy ? uiText("Cancel build", "cancel build") : uiText("Build (Cmd+B)", "ビルド (Cmd+B)");
     }
     if (state === "success") {
       try {
@@ -347,43 +349,44 @@ export const initBuildOpsUi = (
     if (currentBuildState === "building") {
       const ok = deps.postToNative({ type: "build:cancel" });
       if (ok) {
-        deps.updateIssues(0, "ビルドをキャンセルしています...", "info", []);
+        deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
       }
       return;
     }
 
     const runtimeSummary = deps.settings.getRuntimeStatusSummary();
     if (!runtimeSummary || !runtimeSummary.hasAnyResult) {
+      // Environment hasn't been checked yet — trigger an async check but
+      // proceed to build anyway. The main process has its own
+      // ensureRuntimeReadyForBuild() that will block and report errors if
+      // required tools are missing. Previously this path returned early,
+      // which prevented the spinner from ever appearing ("stops midway").
       deps.settings.checkEnvironmentStatus();
-      deps.updateIssues(1, "実行環境チェック中です。完了後に再度 Build を実行してください。", "error", [
-        {
-          severity: "error",
-          message: "実行環境チェック中です。完了後に再度 Build を実行してください。",
-          action: "open-runtime",
-        },
-      ]);
-      deps.setPendingBuildIssuesFocus(true);
-      return;
-    }
-    if (!runtimeSummary.runtimeReady) {
+    } else if (!runtimeSummary.runtimeReady) {
       const missing = runtimeSummary.missingRequired.map((item) =>
         resolveRuntimeMissingLabel(item)
       );
       const summaryText =
         missing.length > 0
-          ? `実行環境が不足しています: ${missing.join(", ")}`
-          : "実行環境が不足しています。";
+          ? uiText(`Missing runtime environment: ${missing.join(", ")}`, `Runtime Environmentが不足しています: ${missing.join(", ")}`)
+          : uiText("Runtime environment is missing.", "Execution environment is insufficient.");
       const issues =
         runtimeSummary.missingRequired.length > 0
           ? runtimeSummary.missingRequired.map((item) => ({
               severity: "error" as const,
-              message: `${resolveRuntimeMissingLabel(item)} が未検出です。Settings > 実行環境で確認してください。`,
+              message: uiText(
+                `${resolveRuntimeMissingLabel(item)} is not detected. Check Settings > Runtime Environment.`,
+                `${resolveRuntimeMissingLabel(item)} is not detected. Please check Settings > Execution environment.`
+              ),
               action: "open-runtime" as const,
             }))
           : [
               {
                 severity: "error" as const,
-                message: "実行環境が不足しています。Settings > 実行環境で確認してください。",
+                message: uiText(
+                  "Runtime environment is missing. Check Settings > Runtime Environment.",
+                  "Execution environment is insufficient. Please check Settings > Execution environment."
+                ),
                 action: "open-runtime" as const,
               },
             ];
@@ -424,7 +427,7 @@ export const initBuildOpsUi = (
     if (deps.postToNative(payload)) {
       setBuildState("building");
       handleBuildLog(null);
-      deps.updateIssues(0, "ビルドを開始します。", "info", []);
+      deps.updateIssues(0, uiText("Starting build.", "Start the build."), "info", []);
     }
   };
 
@@ -458,8 +461,9 @@ export const initBuildOpsUi = (
       formatInFlightSnapshot = null;
       if (!formatWarningShown) {
         formatWarningShown = true;
-        deps.updateIssues(1, "整形のリクエストに失敗しました。", "info", [
-          { severity: "warning", message: "整形のリクエストに失敗しました。" },
+        const message = uiText("Failed to request formatting.", "The formatting request failed.");
+        deps.updateIssues(1, message, "info", [
+          { severity: "warning", message },
         ]);
       }
     }
@@ -487,8 +491,9 @@ export const initBuildOpsUi = (
     if (!payload.ok) {
       if (!formatWarningShown) {
         formatWarningShown = true;
-        deps.updateIssues(1, payload.error ?? "整形に失敗しました。", "info", [
-          { severity: "warning", message: payload.error ?? "整形に失敗しました。" },
+        const message = payload.error ?? uiText("Formatting failed.", "整形に失敗しました。");
+        deps.updateIssues(1, message, "info", [
+          { severity: "warning", message },
         ]);
       }
     } else if (typeof payload.content === "string") {
@@ -625,7 +630,7 @@ export const initBuildOpsUi = (
       }
       return;
     }
-    const errorMessage = payload.error ?? "SyncTeX に失敗しました。";
+    const errorMessage = payload.error ?? uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
     const issue: IssueItem = { severity: "error", message: errorMessage };
     if (isEnvMissingMessage(errorMessage)) {
       issue.action = "open-runtime";

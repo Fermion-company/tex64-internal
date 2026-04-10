@@ -73,10 +73,10 @@ const createWorkspaceProjectHandlers = (ctx) => {
     const result =
       consumeE2eDialogResult("openWorkspace") ??
       (await dialog.showOpenDialog(state.mainWindow, {
-        title: "プロジェクトを選択",
-        message: "LaTeXプロジェクトのフォルダを選択してください。",
+        title: "Select project",
+        message: "Select a folder for your LaTeX project.",
         properties: ["openDirectory"],
-        buttonLabel: "選択",
+        buttonLabel: "Select",
       }));
     if (result.canceled || result.filePaths.length === 0) {
       sendLauncherStatus({ isBusy: false, message: null });
@@ -109,7 +109,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
     try {
       const stats = await fsp.stat(projectPath);
       if (!stats.isDirectory()) {
-        sendLauncherStatus({ isBusy: false, message: "フォルダが見つかりません。" });
+        sendLauncherStatus({ isBusy: false, message: "Folder not found." });
         // Remove from recent projects if it doesn't exist
         if (userSettings) {
           userSettings
@@ -122,7 +122,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
         return;
       }
     } catch {
-      sendLauncherStatus({ isBusy: false, message: "フォルダが見つかりません。" });
+      sendLauncherStatus({ isBusy: false, message: "Folder not found." });
       if (userSettings) {
         userSettings
           .removeRecentProject(projectPath)
@@ -158,10 +158,10 @@ const createWorkspaceProjectHandlers = (ctx) => {
     const result =
       consumeE2eDialogResult("createProject") ??
       (await dialog.showOpenDialog(state.mainWindow, {
-        title: "新規プロジェクト",
-        message: "プロジェクト用フォルダを作成または選択してください。",
+        title: "New project",
+        message: "Create or select a folder for your project.",
         properties: ["openDirectory", "createDirectory"],
-        buttonLabel: "作成",
+        buttonLabel: "Create",
       }));
     if (result.canceled || result.filePaths.length === 0) {
       sendLauncherStatus({ isBusy: false, message: null });
@@ -194,15 +194,15 @@ const createWorkspaceProjectHandlers = (ctx) => {
   const handleSetRoot = async (relativePath) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
     try {
       await workspace.setRootFile(relativePath);
       await sendWorkspace(rootPath);
-      sendIssues(0, "メインTeXを更新しました。", "success", []);
+      sendIssues(0, "Main TeX updated.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },
@@ -213,15 +213,15 @@ const createWorkspaceProjectHandlers = (ctx) => {
   const handleDetectRoot = async () => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
     try {
       await workspace.clearRootOverride();
       await sendWorkspace(rootPath);
-      sendIssues(0, "メインTeXを自動検出しました。", "success", []);
+      sendIssues(0, "Main TeX auto-detected.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },
@@ -232,8 +232,8 @@ const createWorkspaceProjectHandlers = (ctx) => {
   const handleBuildProfilesUpdate = async (profiles, activeId) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
-      sendIssues(1, "ワークスペースが選択されていません。", "error", [
-        { severity: "error", message: "ワークスペースが選択されていません。", line: null },
+      sendIssues(1, "No workspace is selected.", "error", [
+        { severity: "error", message: "No workspace is selected.", line: null },
       ]);
       return;
     }
@@ -283,7 +283,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
         return settings;
       });
       await sendWorkspace(rootPath);
-      sendIssues(0, "ビルドプロファイルを更新しました。", "success", []);
+      sendIssues(0, "Build profile updated.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },
@@ -305,7 +305,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
       sendToRenderer("updateSearch", {
         query,
         results: [],
-        message: "ワークスペースが未選択です。",
+        message: "No workspace is selected.",
         requestId,
       });
       return;

@@ -72,7 +72,6 @@ export type AgentSettings = {
   model?: string;
 
   temperature: number;
-  maxOutputTokens: number;
   maxIterations?: number;
   stream?: boolean;
   autoApply?: boolean;

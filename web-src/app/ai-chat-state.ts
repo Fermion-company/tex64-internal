@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import type { AgentProposal } from "./types.js";
 
 export const AUTONOMOUS_LOOP_LIMIT = 100;
@@ -30,7 +31,7 @@ export const createChatState = (
   messages: [],
   proposals: new Map(),
   appliedProposalIds: new Set(),
-  statusMessage: "待機中",
+  statusMessage: uiText("Waiting", "待機中"),
   hasUndo: false,
   autonomous,
   autoLoopBudget,

@@ -42,6 +42,7 @@ const handler = async (req, res) => {
       );
     }
 
+    const isStreaming = body.stream === true;
     const openaiBaseUrl = config.openaiBaseUrl || "https://api.openai.com/v1";
     const upstream = await fetch(`${openaiBaseUrl}/chat/completions`, {
       method: "POST",
@@ -65,22 +66,78 @@ const handler = async (req, res) => {
       );
     }
 
-    const data = await upstream.json();
+    if (isStreaming) {
+      // Pipe SSE stream directly to the client while tee'ing a copy
+      // to extract the usage chunk from the final SSE event.
+      // Clients must send `stream_options: { include_usage: true }` for usage
+      // to appear in the stream; otherwise we fall back to 0-token accounting.
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      });
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = "";
+      let capturedUsage = null;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // Forward raw bytes to the client immediately (no buffering)
+          res.write(value);
+          // Also decode a copy to parse out the usage chunk
+          sseBuffer += decoder.decode(value, { stream: true });
+          const lines = sseBuffer.split("\n");
+          sseBuffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data: ")) continue;
+            const payload = trimmed.slice(6);
+            if (payload === "[DONE]") continue;
+            try {
+              const chunk = JSON.parse(payload);
+              if (chunk && typeof chunk === "object" && chunk.usage) {
+                capturedUsage = chunk.usage;
+              }
+            } catch { /* non-JSON SSE event, ignore */ }
+          }
+        }
+      } catch { /* stream interrupted */ }
+      res.end();
 
-    const usage = data.usage;
-    if (usage) {
+      // Commit actual token consumption (or fall back to 0 if usage chunk missing)
+      const consumedTokens = capturedUsage
+        ? (capturedUsage.prompt_tokens || 0) + (capturedUsage.completion_tokens || 0)
+        : 0;
       try {
         await commitQuotaConsumption({
           save: aiContext.save,
           usage: aiContext.usage,
           featureName: "ai_chat",
-          consumedTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+          consumedTokens,
           consumedRequests: 1,
         });
-      } catch { /* quota commit is best-effort */ }
-    }
+      } catch { /* best-effort */ }
+    } else {
+      // Non-streaming: parse JSON and track usage
+      const data = await upstream.json();
 
-    sendJson(res, 200, data);
+      const usage = data.usage;
+      if (usage) {
+        try {
+          await commitQuotaConsumption({
+            save: aiContext.save,
+            usage: aiContext.usage,
+            featureName: "ai_chat",
+            consumedTokens: (usage.prompt_tokens || 0) + (usage.completion_tokens || 0),
+            consumedRequests: 1,
+          });
+        } catch { /* quota commit is best-effort */ }
+      }
+
+      sendJson(res, 200, data);
+    }
   } catch (error) {
     sendApiError(res, requestId, error);
   }

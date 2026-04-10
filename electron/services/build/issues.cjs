@@ -253,10 +253,10 @@ module.exports = (BuildService) => {
       lower.includes("'latexmk' is not recognized") ||
       lower.includes('"latexmk" is not recognized');
     if (latexmkMissing) {
-      return "latexmk が見つかりません。TeX環境を確認してください。";
+      return "latexmk がnot found。TeX environmentを確認してください。";
     }
     if (output.includes(mainFileName) && output.includes("No such file")) {
-      return `${mainFileName} が見つかりません。`;
+      return `${mainFileName} がnot found。`;
     }
     const firstError = issues.find((issue) => issue.severity === "error");
     if (firstError) {
@@ -265,7 +265,7 @@ module.exports = (BuildService) => {
     if (issues[0]) {
       return issues[0].message;
     }
-    return "ビルドに失敗しました。Issuesを確認してください。";
+    return "build failed。Issuesを確認してください。";
   };
 };
 

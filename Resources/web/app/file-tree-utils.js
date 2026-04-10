@@ -4,16 +4,16 @@ export const normalizeInputPath = (value) => {
 };
 export const validatePath = (value, kind) => {
     if (!value) {
-        return "名前を入力してください。";
+        return "Please enter your name.";
     }
     if (/^[A-Za-z]:\//.test(value) || value.startsWith("/")) {
-        return "絶対パスは使えません。";
+        return "Absolute paths cannot be used.";
     }
     if (value.includes("..")) {
-        return "親ディレクトリを含む名前は使えません。";
+        return "Names that include parent directories cannot be used.";
     }
     if (kind === "file" && value.endsWith("/")) {
-        return "ファイル名に末尾の / は使えません。";
+        return "Trailing / cannot be used in file names.";
     }
     return null;
 };

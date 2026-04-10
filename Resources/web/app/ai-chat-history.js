@@ -61,7 +61,7 @@ export const createHistoryController = (params) => {
         if (chats.length === 0) {
             const empty = document.createElement("div");
             empty.className = "ai-history-empty";
-            empty.textContent = "履歴なし";
+            empty.textContent = "No history";
             aiHistoryList.appendChild(empty);
             return;
         }
@@ -75,9 +75,9 @@ export const createHistoryController = (params) => {
                 item.classList.add("is-running");
             const suffixParts = [];
             if (runningConversations.has(chat.id))
-                suffixParts.push("実行中");
+                suffixParts.push("Running");
             if (chat.proposals.size > 0)
-                suffixParts.push(`提案 ${chat.proposals.size}`);
+                suffixParts.push(`Proposals ${chat.proposals.size}`);
             const suffix = suffixParts.length > 0 ? ` (${suffixParts.join(" / ")})` : "";
             const label = document.createElement("button");
             label.className = "ai-history-item";

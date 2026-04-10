@@ -36,7 +36,7 @@ export const createMentionController = (deps) => {
         if (visible.length === 0) {
             const empty = document.createElement("div");
             empty.className = "ai-mention-empty";
-            empty.textContent = "ファイルが見つかりません";
+            empty.textContent = "File not found";
             popover.appendChild(empty);
             return;
         }
@@ -59,7 +59,7 @@ export const createMentionController = (deps) => {
         if (items.length > MAX_VISIBLE_ITEMS) {
             const more = document.createElement("div");
             more.className = "ai-mention-more";
-            more.textContent = `… 他 ${items.length - MAX_VISIBLE_ITEMS} 件`;
+            more.textContent = `... ${items.length - MAX_VISIBLE_ITEMS} more`;
             popover.appendChild(more);
         }
     };

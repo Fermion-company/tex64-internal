@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import type { IssueItem, IssuesStatus } from "./types.js";
 
 type UpdateIssuesFn = (
@@ -44,7 +45,7 @@ export const createIssuesProxy = (onUpdate: UpdateIssuesFn) => {
         ? [
             {
               severity: status === "error" ? "error" : "warning",
-              message: summary?.trim() || "エラーが発生しました。",
+              message: summary?.trim() || uiText("An error has occurred.", "エラーが発生しました。"),
             },
           ]
         : [];

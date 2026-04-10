@@ -319,7 +319,7 @@ class AgentService {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingSettingsRequests.delete(requestId);
-        resolve({ error: "設定の取得に失敗しました。" });
+        resolve({ error: "Failed to get settings." });
       }, 3000);
       this.pendingSettingsRequests.set(requestId, { resolve, timer });
       this.sendToRenderer("settings:request", {

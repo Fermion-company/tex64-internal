@@ -35,7 +35,7 @@ export const createSettingsFormatOps = (runtime) => {
             const remove = document.createElement("button");
             remove.type = "button";
             remove.className = "panel-button ghost env-registry-remove";
-            remove.textContent = "削除";
+            remove.textContent = "Delete";
             remove.dataset.verbatimAction = "remove";
             remove.dataset.verbatimName = entry;
             row.appendChild(remove);
@@ -90,17 +90,17 @@ export const createSettingsFormatOps = (runtime) => {
     const addEditorFormatVerbatim = (value) => {
         const name = normalizeVerbatimInput(value);
         if (!name) {
-            setEditorFormatVerbatimHint("環境名が空です。");
+            setEditorFormatVerbatimHint("Environment name is empty.");
             return;
         }
         if (runtime.state.editorFormatSettings.customVerbatim.includes(name)) {
-            setEditorFormatVerbatimHint("既に登録されています。");
+            setEditorFormatVerbatimHint("Already registered.");
             return;
         }
         setEditorFormatSettings({
             customVerbatim: runtime.state.editorFormatSettings.customVerbatim.concat(name),
         });
-        setEditorFormatVerbatimHint(`${name} を追加しました。`);
+        setEditorFormatVerbatimHint(`Added ${name}.`);
     };
     const removeEditorFormatVerbatim = (value) => {
         const name = normalizeVerbatimInput(value);
@@ -112,7 +112,7 @@ export const createSettingsFormatOps = (runtime) => {
             return;
         }
         setEditorFormatSettings({ customVerbatim: next });
-        setEditorFormatVerbatimHint(`${name} を削除しました。`);
+        setEditorFormatVerbatimHint(`Removed ${name}.`);
     };
     const handleEditorFormatVerbatimListClick = (event) => {
         const target = event.target;

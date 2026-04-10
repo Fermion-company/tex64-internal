@@ -5,8 +5,8 @@
  *   1. Direct fetch to OpenAI-compatible /chat/completions endpoint
  *   2. tool_choice defaults to "auto" — LLM freely decides text vs tools
  *   3. Simple loop: call API → if tool_calls, execute → loop; if text → done
- *   4. 7 tools: read_file, list_files, propose_patch, apply_patch,
- *      get_compile_log, arxiv_search, arxiv_bibtex
+ *   4. 10 tools: read_file, list_files, write_file, apply_patch, run_command,
+ *      get_compile_log, arxiv_search, arxiv_bibtex, check_environment, install_environment
  *   5. Simple system prompt (matching OpenPrism)
  *
  * API transport: fetch → tex64.com proxy → OpenAI-compatible LLM
@@ -34,15 +34,15 @@ const runAgentConversation = async (
   const rootPath = service.workspace.getRootPath();
   if (!rootPath) {
     service.sendToRenderer("agent:error", {
-      message: "ワークスペースが選択されていません。",
+      message: "No workspace is selected.",
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "ワークスペースが未選択です。", targetConversationId);
+    service.sendStatus("error", "No workspace is selected.", targetConversationId);
     return;
   }
 
   // ---- Resolve settings & policy ----
-  service.sendStatus("running", "準備しています...", targetConversationId);
+  service.sendStatus("running", "Preparing...", targetConversationId);
   const settings = await service.ensureUserSettings().getAgentSettings();
   const policy = service.resolveAgentPolicy(settings);
   const options = service.resolveAgentOptions(settings);
@@ -52,10 +52,10 @@ const runAgentConversation = async (
   const userParts = normalizeUserMessageParts(message, parts);
   if (!userParts) {
     service.sendToRenderer("agent:error", {
-      message: "入力が空です。",
+      message: "Input is empty.",
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "入力が空です。", targetConversationId);
+    service.sendStatus("error", "Input is empty.", targetConversationId);
     return;
   }
   const userText = extractTextFromParts(userParts);
@@ -106,10 +106,10 @@ const runAgentConversation = async (
   }
   if (!accessToken) {
     service.sendToRenderer("agent:error", {
-      message: "ログインが必要です。サインインしてから再度お試しください。",
+      message: "Login required. Please sign in and try again.",
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "ログインが必要です", targetConversationId);
+    service.sendStatus("error", "Login required", targetConversationId);
     return;
   }
 
@@ -151,7 +151,7 @@ const runAgentConversation = async (
   const isCurrentRun = () =>
     service.isRunCurrent(targetConversationId, run.token);
 
-  service.sendStatus("running", "考えています...", targetConversationId);
+  service.sendStatus("running", "Thinking...", targetConversationId);
 
   // ---- Build the user message for LLM (with context metadata) ----
   const userContent = userImages.length > 0
@@ -173,6 +173,41 @@ const runAgentConversation = async (
     const maxIterations = options.maxIterations || 15;
     let iterations = 0;
     const toolErrorHistory = []; // Track consecutive identical errors for loop detection
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
+
+    // Track write tool usage across the entire run so we can verify that
+    // the final assistant message matches what actually happened. The E2E
+    // test showed the LLM would report "I added the Preliminaries content"
+    // after making zero tool calls. We refuse to let such hallucinated
+    // success reach the user.
+    const WRITE_TOOL_NAMES = new Set([
+      "write_file",
+      "create_file",
+      "apply_patch",
+      "replace_lines",
+      "insert_lines",
+      "delete_lines",
+      "replace_section",
+      "append_to_section",
+      "run_command",
+    ]);
+    const writeToolInvocations = [];
+    // Regexes matching "modification claim" phrasing in the final assistant
+    // message. If we see one of these but the run made ZERO write tool
+    // calls, we treat the turn as a hallucination and loop the agent back
+    // with a corrective system message.
+    const MODIFICATION_CLAIM_PATTERNS = [
+      // English
+      /\b(?:I(?:'ve| have)?|I'll|let me|i just)\s+(?:added|inserted|updated|modified|changed|created|wrote|filled(?:\s+in)?|replaced|removed|deleted|fixed|refactored|renamed|rewrote|expanded|appended)\b/i,
+      /\b(?:added|inserted|updated|modified|changed|created|wrote|filled(?:\s+in)?|replaced|removed|deleted|fixed|rewrote|expanded|appended)\s+(?:the|a|an)\b/i,
+      /\b(?:has been|have been)\s+(?:added|inserted|updated|modified|changed|created|written|filled(?:\s+in)?|replaced|removed|deleted|fixed|rewrote|expanded|appended)\b/i,
+      // Japanese
+      /(?:追加|挿入|更新|変更|作成|書[きい]|記述|修正|置換|削除|リファクタ|名称?変更|書き換え|書き加え|埋め)(?:しました|されました|ました|した)/,
+      /(?:しました|されました|ました|した)\b/,
+    ];
+    let halluciationRetryCount = 0;
+    const MAX_HALLUCINATION_RETRIES = 2;
 
     while (iterations < maxIterations) {
       if (!isCurrentRun()) return;
@@ -181,6 +216,7 @@ const runAgentConversation = async (
       // ---- Call OpenAI-compatible API (streaming, with retry for transient errors) ----
       let response;
       const maxRetries = 3;
+      const MAX_RETRY_AFTER_SEC = 60; // Give up if server asks to wait longer than this
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         if (!isCurrentRun()) return;
         response = await fetch(apiUrl, {
@@ -194,6 +230,8 @@ const runAgentConversation = async (
             messages,
             tools: toolDefinitions,
             stream: true,
+            stream_options: { include_usage: true },
+            ...(typeof llmConfig.temperature === "number" ? { temperature: llmConfig.temperature } : {}),
           }),
           signal: run.controller.signal,
         });
@@ -204,10 +242,41 @@ const runAgentConversation = async (
         const status = response.status;
         console.error(`[run-loop] API error ${status} (attempt ${attempt}/${maxRetries}): ${errorText.slice(0, 500)}`);
 
+        // Parse server-provided Retry-After (header or JSON body's retryAfterSec)
+        let retryAfterSec = null;
+        const retryAfterHeader = response.headers.get("retry-after");
+        if (retryAfterHeader) {
+          const parsed = Number(retryAfterHeader);
+          if (Number.isFinite(parsed) && parsed >= 0) {
+            retryAfterSec = parsed;
+          }
+        }
+        if (retryAfterSec === null && errorText) {
+          try {
+            const body = JSON.parse(errorText);
+            const bodyRetry = body?.error?.retryAfterSec ?? body?.retryAfterSec;
+            if (Number.isFinite(bodyRetry) && bodyRetry >= 0) {
+              retryAfterSec = bodyRetry;
+            }
+          } catch { /* not JSON, ignore */ }
+        }
+
+        // If server asks to wait too long (e.g. monthly quota reset), don't retry — surface clearly
+        if (status === 429 && retryAfterSec !== null && retryAfterSec > MAX_RETRY_AFTER_SEC) {
+          const hours = Math.ceil(retryAfterSec / 3600);
+          throw new Error(
+            `Rate limit / quota exhausted. Retry after ~${hours}h. ` +
+            `Server response: ${errorText.slice(0, 300)}`
+          );
+        }
+
         // Retry on 429 (rate limit) or 5xx (server error), but not on 4xx client errors
         if ((status === 429 || status >= 500) && attempt < maxRetries) {
-          const backoffMs = status === 429 ? 5000 * attempt : 2000 * attempt;
-          console.log(`[run-loop] Retrying in ${backoffMs}ms...`);
+          // Prefer server-provided Retry-After, else fall back to linear backoff
+          const fallbackMs = status === 429 ? 5000 * attempt : 2000 * attempt;
+          const backoffMs =
+            retryAfterSec !== null ? Math.max(1000, retryAfterSec * 1000) : fallbackMs;
+          console.log(`[run-loop] Retrying in ${backoffMs}ms (Retry-After=${retryAfterSec ?? "none"})...`);
           await new Promise((r) => setTimeout(r, backoffMs));
           continue;
         }
@@ -250,6 +319,12 @@ const runAgentConversation = async (
               continue;
             }
 
+            // Capture usage from final SSE chunk (stream_options: include_usage)
+            if (chunk.usage) {
+              totalPromptTokens += chunk.usage.prompt_tokens || 0;
+              totalCompletionTokens += chunk.usage.completion_tokens || 0;
+            }
+
             const delta = chunk.choices?.[0]?.delta;
             if (!delta) continue;
 
@@ -285,6 +360,10 @@ const runAgentConversation = async (
       } else {
         // ---- JSON fallback (non-streaming response) ----
         const data = await response.json();
+        if (data.usage) {
+          totalPromptTokens += data.usage.prompt_tokens || 0;
+          totalCompletionTokens += data.usage.completion_tokens || 0;
+        }
         const choice = data.choices?.[0];
         if (choice?.message) {
           assistantContent = choice.message.content || "";
@@ -328,16 +407,47 @@ const runAgentConversation = async (
       if (toolCalls.length === 0) {
         const reply = assistantContent || "";
 
+        // ---- Claim verification ----
+        // If the assistant's final message claims a modification but the
+        // agent made zero write tool calls during the ENTIRE run, this is
+        // a hallucinated success. Reject it and loop back with a corrective
+        // system reminder (up to MAX_HALLUCINATION_RETRIES times).
+        const claimsModification = MODIFICATION_CLAIM_PATTERNS.some((re) => re.test(reply));
+        const madeAnyWrite = writeToolInvocations.length > 0;
+        if (
+          claimsModification &&
+          !madeAnyWrite &&
+          halluciationRetryCount < MAX_HALLUCINATION_RETRIES
+        ) {
+          halluciationRetryCount += 1;
+          console.warn(
+            `[run-loop] Hallucination detected — message claims a modification but zero write tools were called. ` +
+              `Injecting corrective reminder (retry ${halluciationRetryCount}/${MAX_HALLUCINATION_RETRIES}).`
+          );
+          messages.push({
+            role: "user",
+            content:
+              "SYSTEM: Your last response claims you made a change, but you did not " +
+              "actually call any file-editing tool (write_file, replace_lines, " +
+              "insert_lines, delete_lines, replace_section, append_to_section, " +
+              "apply_patch, or create_file). You MUST call the appropriate tool to " +
+              "make the change, then verify by re-reading the file. Do not claim " +
+              "success without a real tool call. Retry the user's request now.",
+          });
+          // Reset streaming buffers and fall through to next iteration
+          continue;
+        }
+
         // Store AI response in conversation
         conversation.push({ role: "assistant", content: reply });
         service.markSessionDirty(targetConversationId);
 
         // Send final message (finalizes streaming element on frontend)
         service.sendToRenderer("agent:message", {
-          text: reply || "完了しました。",
+          text: reply || "Done.",
           conversationId: targetConversationId,
         });
-        service.sendStatus("idle", "待機中", targetConversationId);
+        service.sendStatus("idle", "Waiting", targetConversationId);
         return;
       }
 
@@ -377,6 +487,11 @@ const runAgentConversation = async (
         } else {
           toolErrorHistory.length = 0; // Reset on success
         }
+
+        // Track successful write-tool invocations for claim verification
+        if (!isError && WRITE_TOOL_NAMES.has(fnName)) {
+          writeToolInvocations.push({ name: fnName });
+        }
       }
 
       // Detect repeated identical tool failures (same tool, same error 3+ times)
@@ -387,7 +502,7 @@ const runAgentConversation = async (
           messages.push({
             role: "user",
             content: "SYSTEM: The same tool call has failed 3 times with the same error. " +
-              "You MUST try a different approach. If apply_patch keeps failing, use propose_patch instead " +
+              "You MUST try a different approach. If apply_patch keeps failing, use write_file instead " +
               "with the full desired file content. Do NOT retry the same failing tool call.",
           });
           toolErrorHistory.length = 0; // Reset to avoid re-triggering
@@ -398,30 +513,45 @@ const runAgentConversation = async (
     }
 
     // ---- Max iterations reached ----
-    const reply = "処理の上限に達しました。";
+    const reply = `Reached the processing limit (${iterations} iterations). You can send another message to continue.`;
     conversation.push({ role: "assistant", content: reply });
     service.markSessionDirty(targetConversationId);
     service.sendToRenderer("agent:message", {
       text: reply,
       conversationId: targetConversationId,
     });
-    service.sendStatus("idle", "待機中", targetConversationId);
+    service.sendStatus("resumable", "Paused", targetConversationId);
   } catch (error) {
     if (error?.name === "AbortError" || run.controller.signal.aborted) {
       if (isCurrentRun()) {
-        service.sendStatus("idle", "中断しました。", targetConversationId);
+        service.sendStatus("idle", "Aborted.", targetConversationId);
       }
       return;
     }
-    const errMsg = error?.message ?? "応答の取得に失敗しました。";
+    const errMsg = error?.message ?? "Failed to get response.";
     service.sendToRenderer("agent:error", {
       message: errMsg,
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "エラーが発生しました", targetConversationId);
+    service.sendStatus("error", "An error has occurred", targetConversationId);
   } finally {
     service.finishConversationRun(targetConversationId, run.token);
     service.markSessionDirty(targetConversationId);
+
+    // Record local usage tracking
+    if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+      try {
+        if (service.apiUsageService && typeof service.apiUsageService.recordUsage === "function") {
+          await service.apiUsageService.recordUsage({
+            model: llmConfig.model,
+            promptTokens: totalPromptTokens,
+            outputTokens: totalCompletionTokens,
+            totalTokens: totalPromptTokens + totalCompletionTokens,
+            source: "agent",
+          });
+        }
+      } catch { /* usage tracking is best-effort */ }
+    }
   }
 };
 

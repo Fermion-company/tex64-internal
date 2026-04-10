@@ -37,7 +37,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       return;
     }
     settingsFeedbackSend.disabled = runtime.state.feedbackPending;
-    settingsFeedbackSend.textContent = runtime.state.feedbackPending ? "送信中..." : "送信";
+    settingsFeedbackSend.textContent = runtime.state.feedbackPending ? "Sending..." : "Send";
   };
 
   const saveFeedbackQueue = () => {
@@ -239,8 +239,8 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     const prefix =
       typeof baseMessage === "string" && baseMessage.trim()
         ? baseMessage.trim()
-        : "フィードバック送信に失敗しました。再送します。";
-    setFeedbackStatus(`${prefix} (${seconds}秒後に再試行)`, "error");
+        : "Failed to send feedback. I will resend it.";
+    setFeedbackStatus(`${prefix} (retry after ${seconds} seconds)`, "error");
     scheduleFeedbackFlush(delayMs + 60);
   };
 
@@ -274,7 +274,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     runtime.state.feedbackPending = true;
     runtime.state.feedbackInFlightId = nextItem.id;
     updateFeedbackSendState();
-    setFeedbackStatus("フィードバックを送信しています...");
+    setFeedbackStatus("Submitting feedback...");
     const posted = runtime.deps.postToNative(
       {
         type: "feedback:send",
@@ -289,7 +289,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       runtime.state.feedbackPending = false;
       runtime.state.feedbackInFlightId = null;
       updateFeedbackSendState();
-      markFeedbackRetry(nextItem, "フィードバック送信を開始できませんでした。");
+      markFeedbackRetry(nextItem, "Failed to start sending feedback.");
     }
   };
 
@@ -299,7 +299,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     }
     const message = settingsFeedbackMessage.value.trim();
     if (!message) {
-      setFeedbackStatus("フィードバック内容を入力してください。", "error");
+      setFeedbackStatus("Please enter your feedback.", "error");
       settingsFeedbackMessage.focus();
       return;
     }
@@ -310,7 +310,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     const contactEmail =
       settingsFeedbackEmail instanceof HTMLInputElement ? settingsFeedbackEmail.value.trim() : "";
     if (contactEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contactEmail)) {
-      setFeedbackStatus("連絡先メールアドレスの形式を確認してください。", "error");
+      setFeedbackStatus("Please check the format of your contact email address.", "error");
       settingsFeedbackEmail.focus();
       return;
     }
@@ -326,7 +326,7 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     };
     runtime.state.feedbackQueue.push(item);
     saveFeedbackQueue();
-    setFeedbackStatus("送信キューに追加しました。");
+    setFeedbackStatus("Added to send queue.");
     flushFeedbackQueue();
   };
 
@@ -354,17 +354,17 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       }
       const suffix = payload.feedbackId ? ` (ID: ${payload.feedbackId})` : "";
       const remainCount = runtime.state.feedbackQueue.length;
-      const remainLabel = remainCount > 0 ? ` 残り${remainCount}件を再送待ちです。` : "";
-      setFeedbackStatus(`フィードバックを送信しました${suffix}${remainLabel}`, "success");
+      const remainLabel = remainCount > 0 ? ` We are waiting for the remaining ${remainCount} items to be resent.` : "";
+      setFeedbackStatus(`Submitted feedback${suffix}${remainLabel}`, "success");
       scheduleFeedbackFlush(40);
       return;
     }
     const message =
       payload?.error?.message && payload.error.message.trim()
         ? payload.error.message.trim()
-        : "フィードバック送信に失敗しました。";
+        : "Failed to send feedback.";
     if (inFlightItem) {
-      markFeedbackRetry(inFlightItem, `${message} 再送キューに保存しました。`);
+      markFeedbackRetry(inFlightItem, `${message} Saved in retransmission queue.`);
       return;
     }
     setFeedbackStatus(message, "error");

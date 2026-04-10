@@ -6,7 +6,7 @@
  *   2. rename_latex_symbol — called by handleSearchRename (handlers/agent.cjs)
  *
  * All other tools (30+) have been removed.  The 7-tool OpenPrism agent
- * (read_file, list_files, propose_patch, apply_patch, get_compile_log,
+ * (read_file, list_files, write_file, apply_patch, get_compile_log,
  * arxiv_search, arxiv_bibtex) is handled by openprism/tools.cjs.
  */
 
@@ -73,11 +73,11 @@ const executeToolCall = async (service, toolCall, conversationId) => {
     // ---- run_build ----
     if (name === "run_build") {
       if (!service.buildService) {
-        return { error: "ビルド機能が利用できません。" };
+        return { error: "Build feature is not available." };
       }
       const rootPath = service.workspace.getRootPath();
       if (!rootPath) {
-        return { error: "ワークスペースが選択されていません。" };
+        return { error: "No workspace is selected." };
       }
       const requestedMain = typeof args.mainFile === "string" ? args.mainFile.trim() : "";
       const requestedEngine = typeof args.engine === "string" ? args.engine.trim() : "";
@@ -96,8 +96,8 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       } else if (requestedFile && !rootInfo?.path) {
         targetFile = requestedFile;
       }
-      service.sendBuildState?.("building", "ビルドしています...");
-      service.sendIssues?.(0, "ビルドしています...", "info", []);
+      service.sendBuildState?.("building", "Building...");
+      service.sendIssues?.(0, "Building...", "info", []);
       const settings = await service.workspace.loadSettings().catch(() => null);
       const activeId =
         typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";
@@ -126,17 +126,17 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         buildProfile
       );
       if (result.kind === "busy") {
-        service.sendBuildState?.("building", "すでにビルド中です。");
-        service.sendIssues?.(0, "すでにビルド中です。", "info", []);
-        return { status: "busy", summary: "すでにビルド中です。" };
+        service.sendBuildState?.("building", "Build is already running.");
+        service.sendIssues?.(0, "Build is already running.", "info", []);
+        return { status: "busy", summary: "Build is already running." };
       }
       if (result.log) {
         service.sendBuildLog?.(result.log);
       }
       if (result.kind === "cancelled") {
-        service.sendBuildState?.("idle", result.summary ?? "ビルドをキャンセルしました。");
-        service.sendIssues?.(0, result.summary ?? "ビルドをキャンセルしました。", "info", []);
-        return { status: "cancelled", summary: result.summary ?? "ビルドをキャンセルしました。" };
+        service.sendBuildState?.("idle", result.summary ?? "Build cancelled.");
+        service.sendIssues?.(0, result.summary ?? "Build cancelled.", "info", []);
+        return { status: "cancelled", summary: result.summary ?? "Build cancelled." };
       }
       if (result.kind === "success") {
         const warningIssues = result.issues.filter(
@@ -163,7 +163,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         service.sendIssues?.(count, summaryText, "error", result.issues);
         return { status: "failure", summary: result.summary, issues: result.issues };
       }
-      return { status: "unknown", summary: "ビルド結果が不明です。" };
+      return { status: "unknown", summary: "Build result unknown." };
     }
 
     // ---- rename_latex_symbol ----
@@ -171,14 +171,14 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       const from = typeof args.from === "string" ? args.from.trim() : "";
       const to = typeof args.to === "string" ? args.to.trim() : "";
       if (!from || !to) {
-        return { error: "from と to は必須です。" };
+        return { error: "from and to are required." };
       }
       if (from === to) {
-        return { error: "from と to が同じです。" };
+        return { error: "from and to are the same." };
       }
       const invalidPattern = /[\s,{}]/;
       if (invalidPattern.test(from) || invalidPattern.test(to)) {
-        return { error: "from/to に空白や区切り文字は使えません。" };
+        return { error: "from/to must not contain spaces or delimiters." };
       }
       const kinds = normalizeStringList(args.kinds).map((entry) => entry.toLowerCase());
       const renameLabels =
@@ -186,7 +186,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       const renameCites =
         kinds.length === 0 || kinds.includes("cite") || kinds.includes("citation");
       if (!renameLabels && !renameCites) {
-        return { error: "kinds が不正です。" };
+        return { error: "kinds is invalid." };
       }
       const extOverride = normalizeExtensionList(args.extensions);
       const targetExtensions =
@@ -200,7 +200,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       try {
         fileList = await service.workspace.listFiles();
       } catch {
-        return { error: "ファイル一覧の取得に失敗しました。" };
+        return { error: "Failed to get file list." };
       }
 
       const preparedProposals = [];
@@ -229,8 +229,8 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           if (snapshot.truncated && snapshot.isDirty) {
             return {
               error:
-                `${targetPath} は未保存の変更があり、スナップショットが省略されています。` +
-                "保存してから再実行してください。",
+                `${targetPath} has unsaved changes and snapshot is omitted.` +
+                "Please save and try again.",
             };
           }
           if (!snapshot.truncated) {
@@ -297,16 +297,16 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       }
 
       if (preparedProposals.length === 0) {
-        return { error: "一致するシンボルが見つかりません。" };
+        return { error: "No matching symbol found." };
       }
 
       const proposals = [];
       const summaryBase =
         renameLabels && renameCites
-          ? "シンボルリネーム"
+          ? "Symbol rename"
           : renameLabels
-          ? "ラベルリネーム"
-          : "引用キーリネーム";
+          ? "Label rename"
+          : "Citation key rename";
 
       const autoApply = service?.agentOptions?.autoApply === true;
       for (const prepared of preparedProposals) {
@@ -320,7 +320,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           path: prepared.path,
           content: prepared.updatedContent,
           originalContent: prepared.originalContent,
-          summary: `${summaryBase}: ${from} → ${to} (${prepared.appliedCount}箇所)`,
+          summary: `${summaryBase}: ${from} → ${to} (${prepared.appliedCount}places)`,
           isNewFile: false,
           conversationId,
           workspaceRootPath: service.workspace.getRootPath() || undefined,
@@ -336,7 +336,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
             path: prepared.path,
             appliedCount: prepared.appliedCount,
             ok: Boolean(apply?.ok),
-            error: apply?.ok ? undefined : apply?.error ?? "適用に失敗しました。",
+            error: apply?.ok ? undefined : apply?.error ?? "Apply failed.",
           });
         } else {
           service.proposals.set(id, proposal);

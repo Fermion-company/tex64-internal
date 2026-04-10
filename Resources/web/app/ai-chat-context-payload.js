@@ -1,4 +1,5 @@
 import { getIssueResolution } from "./issue-resolution.js";
+import { getUiLocale } from "./i18n.js";
 const MAX_ACTIVE_FILE_CONTEXT_CHARS = 10000;
 const MAX_OPEN_FILE_CONTEXT_CHARS = 8000;
 const MAX_SELECTION_CONTEXT_CHARS = 4000;
@@ -95,6 +96,7 @@ export const createContextPayloadBuilder = (deps) => {
     };
     return (agentSettings) => {
         const payload = {
+            uiLocale: getUiLocale(),
             ...buildActiveFileContext(agentSettings),
             ...buildSelectionContext(agentSettings),
             ...buildOpenFilesContext(agentSettings),

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>TeX64 UI Review — Design Token Audit</title>
@@ -42,7 +42,7 @@
 <h1>TeX64 Design Token Audit</h1>
 
 <!-- ============ A-1: BORDER RADIUS ============ -->
-<h2>A-1: Border Radius の不統一（現状 15種類）</h2>
+<h2>A-1: Border Radius inconsistency (currently 15 types)</h2>
 <div class="section">
   <div class="row">
     <span class="label">launcher-action</span>
@@ -79,13 +79,13 @@
 </div>
 
 <!-- ============ A-2: BUTTONS ============ -->
-<h2>A-2: ボタンスタイルの不統一（実際のCSS適用）</h2>
+<h2>A-2: Button style inconsistency (actual CSS applied)</h2>
 <div class="section">
-  <p style="font-size:11px; color:var(--muted); margin:0 0 12px;">同じ「ボタン」でも高さ・padding・hover が全て異なる</p>
+  <p style="font-size:11px; color:var(--muted); margin:0 0 12px;">Same "button" but height, padding, hover all differ</p>
 
   <div class="row">
     <span class="label">panel-button</span>
-    <button class="panel-button">通常ボタン</button>
+    <button class="panel-button">Normal button</button>
     <button class="panel-button ghost">Ghost</button>
     <button class="panel-button danger">Danger</button>
     <span class="badge">h:24px, pad:4px 8px, r:6px</span>
@@ -94,15 +94,15 @@
   <div class="row">
     <span class="label">launcher-action</span>
     <div style="display:inline-flex;">
-      <button class="launcher-action" style="display:inline-flex; padding:12px 16px; border-radius:8px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); font-size:13px; cursor:pointer;">ランチャーボタン</button>
+      <button class="launcher-action" style="display:inline-flex; padding:12px 16px; border-radius:8px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); font-size:13px; cursor:pointer;">Launcher button</button>
     </div>
     <span class="badge">pad:12px 16px, r:8px</span>
   </div>
 
   <div class="row">
-    <span class="label">modal内 button</span>
-    <button class="panel-button" style="padding:8px 18px; font-size:12px; height:auto;">モーダル内</button>
-    <span class="badge issue">pad:8px 18px, h:auto（上書き）</span>
+    <span class="label">Modal button</span>
+    <button class="panel-button" style="padding:8px 18px; font-size:12px; height:auto;">In modal</button>
+    <span class="badge issue">pad:8px 18px, h:auto（overridden）</span>
   </div>
 
   <hr class="divider">
@@ -112,12 +112,12 @@
     <button class="topbar-layout-toggle" style="display:inline-flex; align-items:center; justify-content:center; width:28px; height:24px; border-radius:5px; background:transparent; border:1px solid var(--control-border); color:var(--text-soft); cursor:pointer;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
     </button>
-    <span class="badge issue">28x24px 非正方形, r:5px</span>
+    <span class="badge issue">28x24px non-square, r:5px</span>
   </div>
 </div>
 
 <!-- ============ A-3: SPACING ============ -->
-<h2>A-3: スペーシングの不統一</h2>
+<h2>A-3: Spacing inconsistency</h2>
 <div class="section">
   <div class="row">
     <span class="label">topbar gap</span>
@@ -126,7 +126,7 @@
       <div style="width:24px; height:24px; background:var(--accent-soft); border-radius:4px;"></div>
       <div style="width:24px; height:24px; background:var(--accent-soft); border-radius:4px;"></div>
     </div>
-    <span class="badge issue">gap: 3px（狭すぎる）</span>
+    <span class="badge issue">gap: 3px（too narrow）</span>
   </div>
   <div class="row">
     <span class="label">panel gap</span>
@@ -140,49 +140,49 @@
   <div class="row">
     <span class="label">sidebar pad</span>
     <div style="display:flex; padding:8px 6px; background:rgba(255,255,255,0.04);">
-      <span style="font-size:11px; color:var(--muted);">8px 6px（非対称）</span>
+      <span style="font-size:11px; color:var(--muted);">8px 6px（asymmetric）</span>
     </div>
-    <span class="badge issue">上下8px 左右6px</span>
+    <span class="badge issue">vertical 8px horizontal 6px</span>
   </div>
   <div class="row">
     <span class="label">settings-item</span>
     <div style="display:flex; padding:10px 0; background:rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.04);">
       <span style="font-size:11px; color:var(--muted); padding:0 8px;">padding: 10px 0</span>
     </div>
-    <span class="badge">10px垂直, 水平0</span>
+    <span class="badge">10px vertical, 0 horizontal</span>
   </div>
 </div>
 
 <!-- ============ A-4: FOCUS RINGS ============ -->
-<h2>A-4: フォーカスリングの不統一</h2>
+<h2>A-4: Focus ring inconsistency</h2>
 <div class="section">
-  <p style="font-size:11px; color:var(--muted); margin:0 0 12px;">Tab キーで移動してフォーカス状態を確認してください</p>
+  <p style="font-size:11px; color:var(--muted); margin:0 0 12px;">Press Tab to move and check focus state</p>
   <div class="row">
-    <span class="label">outline方式</span>
+    <span class="label">outline method</span>
     <button class="panel-button" style="outline:2px solid var(--focus-ring); outline-offset:2px;">outline + offset</button>
   </div>
   <div class="row">
-    <span class="label">box-shadow方式</span>
+    <span class="label">box-shadow method</span>
     <button class="panel-button" style="box-shadow:0 0 0 2px var(--accent-soft);">box-shadow ring</button>
   </div>
   <div class="row">
-    <span class="label">フォーカスなし</span>
-    <button class="panel-button">フォーカス表示なし</button>
-    <span class="badge issue">多くのボタンに該当</span>
+    <span class="label">No focus</span>
+    <button class="panel-button">No focus display</button>
+    <span class="badge issue">Applies to many buttons</span>
   </div>
 </div>
 
 <!-- ============ B: AI CHAT COMPONENTS ============ -->
-<h2>B: Axiom チャット コンポーネント</h2>
+<h2>B: Axiom Chat Components</h2>
 <div class="section">
 
   <!-- Empty state -->
   <div class="ai-empty-state" style="display:flex; flex-direction:column; align-items:center; padding:32px 16px; text-align:center;">
     <div class="ai-empty-title" style="font-size:15px; font-weight:600; margin-bottom:6px; color:var(--text);">Axiom</div>
-    <div class="ai-empty-desc" style="font-size:12px; color:var(--muted); margin-bottom:16px;">LaTeX論文の執筆をサポートするAIアシスタントです。</div>
+    <div class="ai-empty-desc" style="font-size:12px; color:var(--muted); margin-bottom:16px;">Axiom supports LaTeX paper writing.</div>
     <div style="display:flex; flex-direction:column; gap:6px; width:100%; max-width:300px;">
-      <button class="ai-empty-hint" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px; color:var(--text-soft); font-size:12px; cursor:pointer; text-align:left;">この論文のアブストラクトを書いて</button>
-      <button class="ai-empty-hint" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px; color:var(--text-soft); font-size:12px; cursor:pointer; text-align:left;">参考文献を整理して</button>
+      <button class="ai-empty-hint" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px; color:var(--text-soft); font-size:12px; cursor:pointer; text-align:left;">Write the abstract for this paper</button>
+      <button class="ai-empty-hint" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px; color:var(--text-soft); font-size:12px; cursor:pointer; text-align:left;">References organize</button>
     </div>
   </div>
 
@@ -191,17 +191,17 @@
   <!-- Messages -->
   <div style="display:flex; flex-direction:column; gap:4px; max-width:460px;">
     <div class="ai-message is-user" style="display:flex; gap:8px; padding:10px 14px; border-radius:16px 16px 4px 16px; background:linear-gradient(135deg,#6366f1,#7c3aed); color:#fff; font-size:13px; align-self:flex-end; max-width:80%;">
-      この章を簡潔にまとめて
+      Summarize this chapter concisely
     </div>
     <div class="ai-message is-assistant" style="display:flex; gap:8px; padding:10px 14px;">
       <div class="ai-message-indicator" style="flex-shrink:0; width:18px; height:18px; display:flex; align-items:center; justify-content:center;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent);"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.4 5.7 21l2.3-7L2 9.4h7.6z"/></svg>
       </div>
       <div style="font-size:13px; line-height:1.55; color:var(--text);">
-        承知しました。第3章の内容を要約します。
+        Understood. I will summarize the content of Chapter 3.
         <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 12px; margin-top:8px; font-family:'SF Mono',monospace; font-size:12px; color:var(--text-soft);">
-          \section{実験結果}<br>
-          本研究では...
+          \section{Results}<br>
+          In this study...
         </div>
       </div>
     </div>
@@ -215,13 +215,13 @@
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:rgba(129,140,248,0.7);"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
         <span style="font-size:12px; color:var(--text); font-weight:500;">chapters/method.tex</span>
-        <span style="margin-left:auto; font-size:10px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.06); color:var(--text-soft);">提案</span>
+        <span style="margin-left:auto; font-size:10px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.06); color:var(--text-soft);">Proposal</span>
       </div>
-      <div style="font-size:11px; color:var(--muted); margin-bottom:10px;">実験手法セクションを追加</div>
+      <div style="font-size:11px; color:var(--muted); margin-bottom:10px;">Add methods section</div>
       <div style="display:flex; gap:6px; justify-content:flex-end;">
-        <button class="panel-button ghost" style="font-size:11px;">差分を見る</button>
-        <button class="panel-button ghost" style="font-size:11px;">取り消し</button>
-        <button class="panel-button" style="font-size:11px;">適用</button>
+        <button class="panel-button ghost" style="font-size:11px;">View diff</button>
+        <button class="panel-button ghost" style="font-size:11px;">Dismiss</button>
+        <button class="panel-button" style="font-size:11px;">Apply</button>
       </div>
     </div>
   </div>
@@ -234,7 +234,7 @@
       <button style="width:28px; height:28px; border:none; background:transparent; color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
       </button>
-      <textarea style="flex:1; background:transparent; border:none; outline:none; color:var(--text); font-size:13px; resize:none; height:24px; line-height:1.5; font-family:inherit;" placeholder="Axiomにメッセージを送信..."></textarea>
+      <textarea style="flex:1; background:transparent; border:none; outline:none; color:var(--text); font-size:13px; resize:none; height:24px; line-height:1.5; font-family:inherit;" placeholder="Axiom type a messageSend..."></textarea>
       <button style="width:28px; height:28px; border:none; background:var(--accent); color:#fff; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
       </button>
@@ -243,14 +243,14 @@
 </div>
 
 <!-- ============ SETTINGS ============ -->
-<h2>設定パネル（実際のCSSクラス）</h2>
+<h2>Settings panel (actual CSS classes)</h2>
 <div class="section">
   <div class="settings-group" style="margin:0;">
-    <div class="settings-group-title">エディタ設定</div>
+    <div class="settings-group-title">Editor settings</div>
     <div class="settings-item" style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
       <div>
-        <div class="settings-title" style="font-size:13px; font-weight:500; color:var(--text);">行の折り返し</div>
-        <div class="settings-desc" style="font-size:11px; color:var(--muted); margin-top:2px;">長い行を自動的に折り返します。</div>
+        <div class="settings-title" style="font-size:13px; font-weight:500; color:var(--text);">Word wrap</div>
+        <div class="settings-desc" style="font-size:11px; color:var(--muted); margin-top:2px;">Automatically wraps long lines.</div>
       </div>
       <label class="settings-switch" style="position:relative; display:inline-block; width:36px; height:20px;">
         <input type="checkbox" checked style="opacity:0; width:0; height:0;">
@@ -259,8 +259,8 @@
     </div>
     <div class="settings-item" style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
       <div>
-        <div class="settings-title" style="font-size:13px; font-weight:500; color:var(--text);">フォントサイズ</div>
-        <div class="settings-desc" style="font-size:11px; color:var(--muted); margin-top:2px;">エディタのフォントサイズを変更します。</div>
+        <div class="settings-title" style="font-size:13px; font-weight:500; color:var(--text);">Font size</div>
+        <div class="settings-desc" style="font-size:11px; color:var(--muted); margin-top:2px;">Change the editor font size.</div>
       </div>
       <select class="settings-select" style="background:var(--input-bg); border:1px solid var(--control-border); border-radius:8px; padding:4px 8px; color:var(--text); font-size:12px;">
         <option>12px</option><option selected>14px</option><option>16px</option>
@@ -268,19 +268,19 @@
     </div>
     <div class="settings-item" style="display:flex; align-items:center; justify-content:space-between; padding:10px 0;">
       <div>
-        <div class="settings-title" style="font-size:13px; font-weight:500; color:var(--text);">ビルドプロファイル</div>
-        <div class="settings-desc" style="font-size:11px; color:var(--muted); margin-top:2px;">LaTeXコンパイラの設定です。</div>
+        <div class="settings-title" style="font-size:13px; font-weight:500; color:var(--text);">build profile</div>
+        <div class="settings-desc" style="font-size:11px; color:var(--muted); margin-top:2px;">LaTeX compiler settings.</div>
       </div>
       <div style="display:flex; gap:6px;">
-        <button class="panel-button">追加</button>
-        <button class="panel-button ghost">削除</button>
+        <button class="panel-button">addition</button>
+        <button class="panel-button ghost">Delete</button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- ============ MODALS ============ -->
-<h2>モーダル radius 比較</h2>
+<h2>Modal radius comparison</h2>
 <div class="section">
   <div class="row">
     <div style="width:200px; height:100px; background:var(--panel-strong); border:1px solid var(--panel-border); border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--muted);">
@@ -296,9 +296,9 @@
 </div>
 
 <!-- ============ COLOR AUDIT ============ -->
-<h2>カラーパレット監査</h2>
+<h2>Color palette audit</h2>
 <div class="section">
-  <p style="font-size:11px; color:var(--muted); margin:0 0 12px;">CSS変数 vs ハードコード</p>
+  <p style="font-size:11px; color:var(--muted); margin:0 0 12px;">CSS variables vs hardcoded</p>
   <div class="row">
     <span class="label ok">--accent</span>
     <div class="color-swatch" style="background:#797EF9;"></div>
@@ -312,7 +312,7 @@
   <div class="row">
     <span class="label issue">hardcoded blue</span>
     <div class="color-swatch" style="background:rgba(92,156,255,0.4);"></div>
-    <span class="badge issue">rgba(92,156,255) — accent と異なる青</span>
+    <span class="badge issue">rgba(92,156,255) — different blue from accent</span>
   </div>
   <hr class="divider">
   <div class="row">
@@ -323,12 +323,12 @@
   <div class="row">
     <span class="label issue">hardcoded red</span>
     <div class="color-swatch" style="background:#ff6b6b;"></div>
-    <span class="badge issue">#ff6b6b — danger と異なる赤</span>
+    <span class="badge issue">#ff6b6b — different red from danger</span>
   </div>
   <div class="row">
     <span class="label issue">hardcoded red 2</span>
     <div class="color-swatch" style="background:#ff9aa2;"></div>
-    <span class="badge issue">#ff9aa2 — さらに別の赤</span>
+    <span class="badge issue">#ff9aa2 — yet another red</span>
   </div>
 </div>
 

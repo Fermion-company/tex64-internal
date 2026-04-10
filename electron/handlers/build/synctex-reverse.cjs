@@ -14,7 +14,7 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     if (!rootPath) {
       sendToRenderer("synctex:reverseResult", withRequestId({
         ok: false,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
       }));
       return;
     }
@@ -26,7 +26,7 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     if (!pdfPath) {
       sendToRenderer("synctex:reverseResult", withRequestId({
         ok: false,
-        error: "PDFがまだ生成されていません。",
+        error: "PDF has not been generated yet.",
       }));
       return;
     }
@@ -37,7 +37,7 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     if (!Number.isFinite(page) || !Number.isFinite(x) || !Number.isFinite(y)) {
       sendToRenderer("synctex:reverseResult", withRequestId({
         ok: false,
-        error: "SyncTeX の座標が不正です。",
+        error: "SyncTeX coordinates are invalid.",
       }));
       return;
     }
@@ -65,7 +65,7 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     } catch (_error) {
       sendToRenderer("synctex:reverseResult", withRequestId({
         ok: false,
-        error: "SyncTeX の解析に失敗しました。",
+        error: "SyncTeX parsing failed.",
       }));
       return;
     }
@@ -89,7 +89,7 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     if (!resolvedSourcePath) {
       sendToRenderer("synctex:reverseResult", withRequestId({
         ok: false,
-        error: "SyncTeX の参照先がワークスペース外です。",
+        error: "SyncTeX reference is outside the workspace.",
       }));
       return;
     }

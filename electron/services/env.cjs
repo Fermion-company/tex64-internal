@@ -106,38 +106,38 @@ class EnvService {
     let fallbackHint = "";
     if (target === "basictex") {
       cmd = "brew install --cask basictex";
-      fallbackHint = "https://tug.org/mactex/ から MacTeX をダウンロードしてインストールしてください。";
+      fallbackHint = "Download and install MacTeX from https://tug.org/mactex/.";
     } else if (target === "latexmk") {
       cmd = "brew install latexmk";
-      fallbackHint = "ターミナルで brew install latexmk を実行してください。";
+      fallbackHint = "Run brew install latexmk in terminal.";
     } else if (target === "latexindent") {
       // Try tlmgr first (TeX Live package manager), then brew
       try {
         await execAsync("tlmgr install latexindent");
-        return { success: true, message: "latexindent のインストールを実行しました。再チェックしてください。" };
+        return { success: true, message: "Performed latexindent installation. Please recheck." };
       } catch {
         cmd = "brew install latexindent";
-        fallbackHint = "ターミナルで tlmgr install latexindent または brew install latexindent を実行してください。";
+        fallbackHint = "Run tlmgr install latexindent or brew install latexindent in terminal.";
       }
     }
 
-    if (!cmd) return { success: false, message: "不明なインストール対象です。" };
+    if (!cmd) return { success: false, message: "Unknown install target." };
 
     // Check if Homebrew is available
     const brewAvailable = await this.hasBrew();
     if (!brewAvailable) {
       const message = target === "basictex"
-        ? `Homebrew が見つかりません。${fallbackHint}`
-        : `Homebrew が見つかりません。${fallbackHint}`;
+        ? `Homebrew not found. ${fallbackHint}`
+        : `Homebrew not found. ${fallbackHint}`;
       return { success: false, message };
     }
 
     try {
        await execAsync(cmd, { timeout: 600000 }); // 10 min timeout for large downloads
-       return { success: true, message: "インストールを実行しました。再チェックしてください。" };
+       return { success: true, message: "Installation performed. Please recheck." };
     } catch (error) {
        console.error("Install failed:", error);
-       return { success: false, message: `インストールに失敗しました。ターミナルで ${cmd} を実行してください。` };
+       return { success: false, message: `Installation failed. Run ${cmd} in terminal.` };
     }
   }
 
@@ -147,13 +147,13 @@ class EnvService {
        cmd = "winget install -e --id TeXLive.TeXLive";
     }
 
-    if (!cmd) return { success: false, message: "不明なインストール対象です。" };
+    if (!cmd) return { success: false, message: "Unknown install target." };
 
     try {
       await execAsync(cmd, { timeout: 600000 });
-      return { success: true, message: "インストールを実行しました。再チェックしてください。" };
+      return { success: true, message: "Installation performed. Please recheck." };
     } catch (error) {
-      return { success: false, message: `インストールに失敗しました。PowerShell で ${cmd} を実行してください。` };
+      return { success: false, message: `Installation failed. Run ${cmd} in PowerShell.` };
     }
   }
 }

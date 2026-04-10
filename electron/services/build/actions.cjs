@@ -83,7 +83,7 @@ module.exports = (BuildService) => {
     if (!fs.existsSync(mainFilePath)) {
       const issue = {
         severity: "error",
-        message: `${mainFileName} が見つかりません。`,
+        message: `${mainFileName} がnot found。`,
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -126,7 +126,7 @@ module.exports = (BuildService) => {
       if (result.cancelled === true || this.cancelRequested) {
         return {
           kind: "cancelled",
-          summary: "ビルドをキャンセルしました。",
+          summary: "Build cancelled.",
           issues: [],
           log: output,
         };
@@ -136,7 +136,7 @@ module.exports = (BuildService) => {
       if (isEnvMissingMessage(message)) {
         const issue = {
           severity: "error",
-          message: "latexmk が見つかりません。TeX環境を確認してください。",
+          message: "latexmk がnot found。TeX environmentを確認してください。",
           line: null,
           action: "open-runtime",
         };
@@ -144,7 +144,7 @@ module.exports = (BuildService) => {
       }
       const issue = {
         severity: "error",
-        message: "ビルドの起動に失敗しました。",
+        message: "Failed to start buildしました。",
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -160,7 +160,7 @@ module.exports = (BuildService) => {
         output = [
           output,
           "",
-          "[tex64] xypdf エラーを検出したため、pdflatex で再実行しました。",
+          "[tex64] xypdf Issuesを検出したため、pdflatex で再executionしました。",
           fallback.output,
         ]
           .filter(Boolean)
@@ -169,7 +169,7 @@ module.exports = (BuildService) => {
         if (fallback.cancelled === true || this.cancelRequested) {
           return {
             kind: "cancelled",
-            summary: "ビルドをキャンセルしました。",
+            summary: "Build cancelled.",
             issues: [],
             log: output,
           };
@@ -179,7 +179,7 @@ module.exports = (BuildService) => {
         if (isEnvMissingMessage(message)) {
           const issue = {
             severity: "error",
-            message: "latexmk が見つかりません。TeX環境を確認してください。",
+            message: "latexmk がnot found。TeX environmentを確認してください。",
             line: null,
             action: "open-runtime",
           };
@@ -199,14 +199,14 @@ module.exports = (BuildService) => {
       if (resolvedPdfPath) {
         return {
           kind: "success",
-          summary: "ビルド成功",
+          summary: "build成功",
           issues,
           pdfPath: resolvedPdfPath,
           log: output,
         };
       }
       const message =
-        "ビルドは成功しましたが、PDFが見つかりません。-jobname / outDir / latexmkrc を確認してください。";
+        "buildは成功しましたが、PDF not found.-jobname / outDir / latexmkrc を確認してください。";
       return {
         kind: "failure",
         summary: message,
@@ -232,8 +232,8 @@ module.exports = (BuildService) => {
     const summaryText = typeof summary === "string" ? summary.trim() : "";
     const summaryLooksWarning = /\bwarning\b/i.test(summaryText);
     const fallbackMessage = summaryLooksWarning
-      ? "ビルドに失敗しました。警告だけでは原因を特定できません。ビルドログを確認してください。"
-      : summaryText || "ビルドに失敗しました。ビルドログを確認してください。";
+      ? "build failed。Warningだけでは原因を特定できません。buildログを確認してください。"
+      : summaryText || "build failed。buildログを確認してください。";
     const fallback = {
       severity: "error",
       message: fallbackMessage,
@@ -254,7 +254,7 @@ module.exports = (BuildService) => {
     if (!fs.existsSync(mainFilePath)) {
       const issue = {
         severity: "error",
-        message: `${mainFileName} が見つかりません。`,
+        message: `${mainFileName} がnot found。`,
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -287,7 +287,7 @@ module.exports = (BuildService) => {
       if (result.cancelled === true || this.cancelRequested) {
         return {
           kind: "cancelled",
-          summary: deep ? "clean（全削除）をキャンセルしました。" : "clean をキャンセルしました。",
+          summary: deep ? "clean（全Delete）をCancelled." : "Clean cancelled.",
           issues: [],
           log: output,
         };
@@ -297,7 +297,7 @@ module.exports = (BuildService) => {
       if (isEnvMissingMessage(message)) {
         const issue = {
           severity: "error",
-          message: "latexmk が見つかりません。TeX環境を確認してください。",
+          message: "latexmk がnot found。TeX environmentを確認してください。",
           line: null,
           action: "open-runtime",
         };
@@ -313,7 +313,7 @@ module.exports = (BuildService) => {
     if (status === 0) {
       return {
         kind: "success",
-        summary: deep ? "clean（全削除）完了" : "clean 完了",
+        summary: deep ? "clean（全Delete）Done" : "Clean done",
         issues: [],
         log: output,
       };

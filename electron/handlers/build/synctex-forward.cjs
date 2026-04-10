@@ -172,7 +172,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     if (!rootPath) {
       sendToRenderer("synctex:forwardResult", withRequestId({
         ok: false,
-        error: "ワークスペースが選択されていません。",
+        error: "No workspace is selected.",
       }));
       return;
     }
@@ -182,21 +182,21 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     if (!sourcePath) {
       sendToRenderer("synctex:forwardResult", withRequestId({
         ok: false,
-        error: "対象のTeXファイルが選択されていません。",
+        error: "No TeX file selected.",
       }));
       return;
     }
     if (!sourcePath.toLowerCase().endsWith(".tex")) {
       sendToRenderer("synctex:forwardResult", withRequestId({
         ok: false,
-        error: "SyncTeX は TeX ファイルのみ対応しています。",
+        error: "SyncTeX only supports TeX files.",
       }));
       return;
     }
     if (!pdfPath) {
       sendToRenderer("synctex:forwardResult", withRequestId({
         ok: false,
-        error: "PDFがまだ生成されていません。",
+        error: "PDF has not been generated yet.",
       }));
       return;
     }
@@ -253,7 +253,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
     const isRetryableSynctexError = (error) =>
       typeof error === "string" &&
-      (error.includes("位置情報") || error.includes("解析に失敗"));
+      (error.includes("position") || error.includes("parsing failed"));
     const getForwardTargetDiff = (forwardResult, expectedLine) => {
       if (!forwardResult || forwardResult.ok !== true || !Number.isFinite(expectedLine)) {
         return Number.POSITIVE_INFINITY;

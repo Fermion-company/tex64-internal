@@ -1,4 +1,5 @@
 import type { AppContext } from "./context.js";
+import { uiText } from "./i18n.js";
 import type { IndexEntry } from "./types.js";
 import type { EditorGroupKey, EditorSessionApi, EditorGroupState } from "./editor-session.js";
 import { registerCompletionProvider } from "./monaco-completion.js";
@@ -67,7 +68,7 @@ export const initMonacoSetup = (
   };
 
   if (!(editorHost instanceof HTMLElement)) {
-    deps.updateFallback("エディタ領域が見つかりません。");
+    deps.updateFallback(uiText("Editor area not found.", "エディタ領域が見つかりません。"));
     return api;
   }
 
@@ -130,7 +131,7 @@ export const initMonacoSetup = (
   };
 
   if (!monacoWindow.require || !monacoWindow.require.config) {
-    deps.updateFallback("Monacoのローダーが見つかりません。");
+    deps.updateFallback(uiText("Monaco loader not found.", "Monacoのローダーが見つかりません。"));
     return;
   }
 
@@ -139,7 +140,7 @@ export const initMonacoSetup = (
     ["vs/editor/editor.main"],
     () => {
       if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
-        deps.updateFallback("Monacoの初期化に失敗しました。");
+        deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
         return;
       }
 
@@ -354,13 +355,10 @@ export const initMonacoSetup = (
         editorAny.onDidScrollChange?.(() => {
           scheduleHoverFixedAnchor();
         });
-        editor.onDidChangeModelContent(() => {
-          if (group.isApplyingFile) {
-            return;
-          }
-          if (!group.currentFilePath) {
-            return;
-          }
+        editor.onDidChangeModelContent((e: { isFlush?: boolean; isUndoing?: boolean; isRedoing?: boolean }) => {
+          if (group.isApplyingFile) return;
+          if (e.isFlush) return;
+          if (!group.currentFilePath) return;
           const currentValue = editor.getValue();
           deps.editorSession.updateDirtyState(group.currentFilePath, currentValue);
           deps.editorTabs.render(group);
@@ -368,7 +366,9 @@ export const initMonacoSetup = (
             deps.editorSession.clearJumpHighlight(group);
             deps.editorSession.updateBreadcrumbs();
             deps.fileTree.render();
-            deps.editorSession.scheduleAutoSave();
+            if (!e.isUndoing && !e.isRedoing) {
+              deps.editorSession.scheduleAutoSave();
+            }
           }
         });
         editor.onDidChangeCursorPosition?.(
@@ -405,7 +405,7 @@ export const initMonacoSetup = (
           if (KeyMod && KeyCode) {
             (editor as any).addAction?.({
               id: "tex64.ai-edit-selection",
-              label: "Axiomで編集",
+              label: uiText("Edit with Axiom", "Axiomで編集"),
               keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],
               contextMenuGroupId: "9_ai",
               contextMenuOrder: 1,
@@ -427,7 +427,7 @@ export const initMonacoSetup = (
       document.body.classList.add("has-editor");
     },
     () => {
-      deps.updateFallback("Monacoの読み込みに失敗しました。");
+      deps.updateFallback(uiText("Failed to load Monaco.", "Monacoの読み込みに失敗しました。"));
     }
   );
 

@@ -1,4 +1,5 @@
 import { getIssueResolution } from "./issue-resolution.js";
+import { getUiLocale } from "./i18n.js";
 import type { AgentSettings, IssueItem, IssuesStatus } from "./types.js";
 
 type ContextDeps = {
@@ -122,6 +123,7 @@ export const createContextPayloadBuilder = (deps: ContextDeps) => {
 
   return (agentSettings: AgentSettings | null) => {
     const payload = {
+      uiLocale: getUiLocale(),
       ...buildActiveFileContext(agentSettings),
       ...buildSelectionContext(agentSettings),
       ...buildOpenFilesContext(agentSettings),

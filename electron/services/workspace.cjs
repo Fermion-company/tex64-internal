@@ -26,15 +26,15 @@ const IGNORED_FILES = new Set([
 ]);
 
 const WorkspaceError = {
-  invalidPath: "不正なパスです。",
-  invalidName: "名前が不正です。",
-  invalidEncoding: "UTF-8以外の文字コードです。",
-  alreadyExists: "すでに存在します。",
-  notFound: "見つかりません。",
-  notEmpty: "フォルダが空ではありません。",
-  invalidMove: "移動先が不正です。",
-  cancelled: "キャンセルしました。",
-  unknown: "プロジェクトの作成に失敗しました。",
+  invalidPath: "Invalid path.",
+  invalidName: "Invalid name.",
+  invalidEncoding: "Non-UTF-8 encoding.",
+  alreadyExists: "Already exists.",
+  notFound: "not found。",
+  notEmpty: "Folder is not empty.",
+  invalidMove: "Invalid destination.",
+  cancelled: "Cancelled.",
+  unknown: "Failed to create project.",
 };
 
 const normalizeRelativePath = (relativePath) => {

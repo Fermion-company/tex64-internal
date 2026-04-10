@@ -1,5 +1,6 @@
 import type { AgentSettings } from "./types.js";
 import type { ChatState } from "./ai-chat-state.js";
+import { uiText } from "./i18n.js";
 
 export type AiRequestPart = {
   text?: string;
@@ -75,7 +76,7 @@ export const createAiChatRunner = (options: CreateAiChatRunnerOptions) => {
       parts: Array.isArray(parts) ? parts : undefined,
       contextPayload: contextToSend,
     });
-    chat.statusMessage = "考えています...";
+    chat.statusMessage = uiText("Thinking...", "考えています...");
     runningConversations.add(chat.id);
     upsertThinkingMessage(chat.id, chat.statusMessage);
     renderHistoryList();

@@ -57,10 +57,16 @@ const resolveLLMConfig = (settings) => {
   const model = (
     (typeof agentSettings.model === "string" && agentSettings.model.trim()) ||
     (typeof process.env.TEX64_LLM_MODEL === "string" && process.env.TEX64_LLM_MODEL.trim()) ||
-    "gpt-5-nano"
+    "gpt-5.4-mini"
   ).trim();
 
-  return { endpoint, model };
+  const rawTemp = agentSettings.temperature;
+  const parsedTemp = typeof rawTemp === "number" ? rawTemp : Number(rawTemp);
+  const temperature = Number.isFinite(parsedTemp)
+    ? Math.min(2, Math.max(0, parsedTemp))
+    : undefined; // omit → use model default
+
+  return { endpoint, model, temperature };
 };
 
 module.exports = {

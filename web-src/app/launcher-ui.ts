@@ -1,4 +1,5 @@
 import type { AppContext } from "./context.js";
+import { getUiLocale, setUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
 
 type RecentProject = {
   path: string;
@@ -35,6 +36,8 @@ export const initLauncherUi = (
     launcherRecentList,
     launcherRecentEmpty,
     launcherRecentToggle,
+    launcherLangToggle,
+    launcherLangToggleLabel,
   } = context.dom;
 
   let selectedActionIndex = 0;
@@ -130,8 +133,8 @@ export const initLauncherUi = (
       removeButton.className = "launcher-recent-remove";
       removeButton.type = "button";
       removeButton.textContent = "×";
-      removeButton.title = "最近から削除";
-      removeButton.setAttribute("aria-label", "最近から削除");
+      removeButton.title = uiText("Remove from recent", "Delete from recent");
+      removeButton.setAttribute("aria-label", uiText("Remove from recent", "Delete from recent"));
       removeButton.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -158,7 +161,9 @@ export const initLauncherUi = (
       launcherRecentToggle.setAttribute("aria-expanded", recentExpanded ? "true" : "false");
       const toggleText = launcherRecentToggle.querySelector(".launcher-recent-toggle-text");
       if (toggleText) {
-        toggleText.textContent = recentExpanded ? "折りたたむ" : "すべて表示";
+        toggleText.textContent = recentExpanded
+          ? uiText("Collapse", "fold")
+          : uiText("Show all", "Show All");
       }
     }
     
@@ -226,6 +231,25 @@ export const initLauncherUi = (
       }
       setStatus({ isBusy: true, message: null });
       deps.onOpen();
+    });
+  }
+
+  // Language toggle
+  const syncLangLabel = () => {
+    if (launcherLangToggleLabel instanceof HTMLElement) {
+      launcherLangToggleLabel.textContent = getUiLocale() === "en" ? "日本語" : "English";
+    }
+  };
+
+  syncLangLabel();
+  onUiLocaleChange(() => {
+    syncLangLabel();
+    renderRecentProjects();
+  });
+
+  if (launcherLangToggle instanceof HTMLElement) {
+    launcherLangToggle.addEventListener("click", () => {
+      setUiLocale(getUiLocale() === "en" ? "ja" : "en");
     });
   }
 

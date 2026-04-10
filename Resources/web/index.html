@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,6 +15,14 @@
   <body>
 
     <div class="launcher" id="launcher" aria-hidden="true">
+      <button class="launcher-lang-toggle" id="launcher-lang-toggle" type="button" aria-label="Switch language">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M2 12h20"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/>
+        </svg>
+        <span class="launcher-lang-toggle-label" id="launcher-lang-toggle-label">日本語</span>
+      </button>
       <div class="launcher-container">
         <div class="launcher-left">
           <div class="launcher-brand">
@@ -26,10 +34,10 @@
 
           <div class="launcher-actions">
             <button class="launcher-action primary" id="launcher-open" type="button">
-              <span class="launcher-action-title">フォルダを開く</span>
+              <span class="launcher-action-title">Open Folder</span>
             </button>
             <button class="launcher-action" id="launcher-create" type="button">
-              <span class="launcher-action-title">新規作成</span>
+              <span class="launcher-action-title">Create New</span>
             </button>
           </div>
           <div class="launcher-status is-hidden" id="launcher-status" role="status" aria-live="polite"></div>
@@ -37,9 +45,9 @@
         <div class="launcher-right">
           <div class="launcher-recent" id="launcher-recent">
             <div class="launcher-recent-header">
-              <span class="launcher-recent-title">最近のプロジェクト</span>
+              <span class="launcher-recent-title">Recent Projects</span>
               <button class="launcher-recent-toggle" id="launcher-recent-toggle" type="button" aria-expanded="false">
-                <span class="launcher-recent-toggle-text">すべて表示</span>
+                <span class="launcher-recent-toggle-text">Show All</span>
                 <svg class="launcher-recent-toggle-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M6 9l6 6 6-6"/>
                 </svg>
@@ -47,7 +55,7 @@
             </div>
             <div class="launcher-recent-list" id="launcher-recent-list"></div>
             <div class="launcher-recent-empty" id="launcher-recent-empty">
-              まだプロジェクトを開いていません
+              No project opened yet
             </div>
           </div>
         </div>
@@ -61,8 +69,8 @@
             id="toggle-sidebar-button"
             type="button"
             class="topbar-layout-toggle is-active"
-            aria-label="サイドバー"
-            title="サイドバー"
+            aria-label="sidebar"
+            title="sidebar"
             aria-pressed="true"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -75,8 +83,8 @@
             id="toggle-bottom-panel-button"
             type="button"
             class="topbar-layout-toggle"
-            aria-label="ボトムパネル"
-            title="ボトムパネル"
+            aria-label="bottom panel"
+            title="bottom panel"
             aria-pressed="false"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -89,16 +97,24 @@
             id="editor-split-button"
             type="button"
             class="topbar-layout-toggle"
-            aria-label="分割"
-            title="分割"
+            aria-label="division"
+            title="division"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="5" width="18" height="14" rx="2"></rect>
               <path d="M12 5v14"></path>
             </svg>
           </button>
-          <button id="format-button" type="button" aria-label="整形" title="整形">
-            整形
+          <button id="save-button" type="button" aria-label="Save" title="Save (Cmd+S)">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Save
+          </button>
+          <button id="format-button" type="button" aria-label="Format" title="Format">
+            Format
           </button>
           <button
             id="synctex-button"
@@ -111,8 +127,8 @@
           <button
             id="build-button"
             type="button"
-            aria-label="ビルド"
-            title="ビルド (Cmd+B)"
+            aria-label="build"
+            title="Build (Cmd+B)"
           >
             <span class="build-button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="20" height="20">
@@ -125,15 +141,15 @@
       </header>
       <div class="main">
         <aside class="sidebar">
-          <div class="tab-group" role="tablist" aria-label="サイドバー">
+          <div class="tab-group" role="tablist" aria-label="sidebar">
             <button
               class="tab is-active"
               type="button"
               role="tab"
               data-tab="files"
               aria-selected="true"
-              aria-label="ファイル"
-              title="ファイル"
+              aria-label="file"
+              title="file"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -148,8 +164,8 @@
               role="tab"
               data-tab="search"
               aria-selected="false"
-              aria-label="検索"
-              title="検索"
+              aria-label="Search"
+              title="Search"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -164,8 +180,8 @@
               role="tab"
               data-tab="outline"
               aria-selected="false"
-              aria-label="アウトライン"
-              title="アウトライン"
+              aria-label="Outline"
+              title="Outline"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -180,8 +196,8 @@
               role="tab"
               data-tab="blocks"
               aria-selected="false"
-              aria-label="ブロック"
-              title="ブロック"
+              aria-label="Blocks"
+              title="Blocks"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -215,8 +231,8 @@
               role="tab"
               data-tab="issues"
               aria-selected="false"
-              aria-label="エラー"
-              title="エラー"
+              aria-label="Issues"
+              title="Issues"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -232,8 +248,8 @@
               role="tab"
               data-tab="project"
               aria-selected="false"
-              aria-label="プロジェクト"
-              title="プロジェクト"
+              aria-label="Project"
+              title="Project"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -244,7 +260,7 @@
               </span>
             </button>
           </div>
-          <div class="tab-group secondary" role="tablist" aria-label="補助">
+          <div class="tab-group secondary" role="tablist" aria-label="auxiliary">
             <button
               class="tab"
               id="settings-tab"
@@ -252,8 +268,8 @@
               role="tab"
               data-tab="settings"
               aria-selected="false"
-              aria-label="設定"
-              title="設定"
+              aria-label="Settings"
+              title="Settings"
             >
               <span class="tab-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -266,19 +282,19 @@
             </button>
           </div>
         </aside>
-        <aside class="sidebar-panel" aria-label="サイドバー詳細">
+        <aside class="sidebar-panel" aria-label="Sidebar details">
           <div class="panel is-active no-header" data-panel="files">
             <div class="panel-header">
-              <span class="panel-title">エクスプローラー</span>
+              <span class="panel-title">explorer</span>
             </div>
             <div class="panel-body">
-              <div class="workspace-label" id="workspace-label">ワークスペース未選択</div>
+              <div class="workspace-label" id="workspace-label">No workspace selected</div>
               <div class="file-tree" id="file-tree" tabindex="0"></div>
             </div>
           </div>
           <div class="panel no-header" data-panel="outline">
             <div class="panel-header">
-              <span class="panel-title">アウトライン</span>
+              <span class="panel-title">Outline</span>
               <div class="panel-header-actions">
                 <button class="panel-button ghost" id="outline-mode-current" type="button" aria-pressed="true">
                   Current
@@ -289,17 +305,17 @@
               </div>
             </div>
             <div class="panel-body outline-panel">
-              <div class="outline-empty" id="outline-empty">インデックスを作成中です。</div>
+              <div class="outline-empty" id="outline-empty">Creating index.</div>
               <details class="outline-section" data-outline="sections" open>
-                <summary class="outline-section-title">章節</summary>
+                <summary class="outline-section-title">chapter and verse</summary>
                 <div class="outline-list" id="outline-sections"></div>
               </details>
               <details class="outline-section" data-outline="labels" open>
-                <summary class="outline-section-title">ラベル</summary>
+                <summary class="outline-section-title">label</summary>
                 <div class="outline-list" id="outline-labels"></div>
               </details>
               <details class="outline-section" data-outline="citations" open>
-                <summary class="outline-section-title">参考文献</summary>
+                <summary class="outline-section-title">References</summary>
                 <div class="outline-list" id="outline-citations"></div>
               </details>
               <details class="outline-section" data-outline="todos" open>
@@ -310,7 +326,7 @@
           </div>
           <div class="panel no-header" data-panel="blocks">
             <div class="panel-header">
-              <span class="panel-title">ブロック</span>
+              <span class="panel-title">Blocks</span>
             </div>
             <div class="panel-body blocks-panel">
               <div class="block-compose">
@@ -322,7 +338,7 @@
                       type="button"
                       aria-haspopup="dialog"
                       aria-expanded="false"
-                      aria-label="数式ブロック設定"
+                      aria-label="Formula block settings"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
@@ -334,7 +350,7 @@
                       class="panel-button block-capture-button"
                       id="block-capture-button"
                       type="button"
-                      aria-label="数式取り込み"
+                      aria-label="Formula import"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path
@@ -357,11 +373,11 @@
                           role="listbox"
                           aria-hidden="true"
                         >
-                          <button class="block-format-option" type="button" data-format="inline">インライン</button>
-                          <button class="block-format-option" type="button" data-format="display">別行</button>
+                          <button class="block-format-option" type="button" data-format="inline">inline</button>
+                          <button class="block-format-option" type="button" data-format="display">Separate line</button>
                           <button class="block-format-option" type="button" data-format="align">align*</button>
                           <button class="block-format-option" type="button" data-format="gather">gather*</button>
-                          <button class="block-format-option" type="button" data-format="none">囲まない</button>
+                          <button class="block-format-option" type="button" data-format="none">Not enclosed</button>
                         </div>
                       </div>
                       <button
@@ -370,12 +386,12 @@
                         type="button"
                         data-block-mode="insert"
                         aria-pressed="false"
-                        aria-label="挿入モード"
+                        aria-label="insert mode"
                       >
-                        <span class="block-mode-toggle-label block-mode-toggle-label--insert" aria-hidden="true">挿入</span>
-                        <span class="block-mode-toggle-label block-mode-toggle-label--edit" aria-hidden="true">編集</span>
+                        <span class="block-mode-toggle-label block-mode-toggle-label--insert" aria-hidden="true">insert</span>
+                        <span class="block-mode-toggle-label block-mode-toggle-label--edit" aria-hidden="true">Edit</span>
                       </button>
-                      <button class="panel-button" id="block-insert-button" type="button">確定</button>
+                      <button class="panel-button" id="block-insert-button" type="button">Confirm</button>
                     </div>
                   </div>
                 </div>
@@ -390,15 +406,15 @@
                     <button class="math-keyboard-shift" id="math-keyboard-shift" type="button" aria-pressed="false">Shift</button>
                   </div>
                 </div>
-                <div class="math-keyboard-tabs" role="tablist" aria-label="数式キーボード">
+                <div class="math-keyboard-tabs" role="tablist" aria-label="math keyboard">
                   <button class="math-keyboard-tab is-active" type="button" data-math-tab="sets">
-                    集合
+                    set
                   </button>
                   <button class="math-keyboard-tab" type="button" data-math-tab="logic">
-                    論理
+                    logic
                   </button>
                   <button class="math-keyboard-tab" type="button" data-math-tab="arrows">
-                    矢印
+                    arrow
                   </button>
                 </div>
                 <div class="math-keyboard-grid" id="math-keyboard-grid"></div>
@@ -422,27 +438,27 @@
                       <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
                     </svg>
                   </div>
-                  <div class="ai-login-overlay-title">Axiom でTeX執筆を加速しよう</div>
-                  <div class="ai-login-overlay-subtitle">ログインして Axiom を利用</div>
+                  <div class="ai-login-overlay-title">Accelerate TeX writing with Axiom</div>
+                  <div class="ai-login-overlay-subtitle">Log in to use Axiom</div>
                   <button class="ai-login-overlay-btn" id="ai-login-overlay-btn" type="button">
-                    <span>Googleでログイン</span>
+                    <span>Log in with Google</span>
                     <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 10h14M12 5l5 5-5 5"/></svg>
                   </button>
                 </div>
               </div>
               <div class="ai-topbar">
-                <button class="ai-icon-btn" id="ai-history-toggle" type="button" aria-label="履歴">
+                <button class="ai-icon-btn" id="ai-history-toggle" type="button" aria-label="History">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
                 </button>
                 <span class="ai-topbar-title" id="ai-topbar-title">Axiom</span>
                 <span class="ai-topbar-status" id="ai-topbar-status" aria-live="polite"></span>
-                <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="Axiom 使用量">
+                <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="Axiom usage">
                   <span class="ai-usage-meter-text" id="ai-usage-meter-text">-</span>
                 </div>
                 <button class="panel-button ghost ai-topbar-auth is-hidden" id="ai-auth-topbar" type="button">
-                  ログイン
+                  Login
                 </button>
-                <button class="ai-icon-btn" id="ai-chat-new" type="button" aria-label="新しいチャット">
+                <button class="ai-icon-btn" id="ai-chat-new" type="button" aria-label="New Chat">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </div>
@@ -451,11 +467,11 @@
               </div>
               <div class="ai-chat-delete-modal" id="ai-chat-delete-modal">
                 <div class="ai-chat-delete-modal-card">
-                  <div class="ai-chat-delete-modal-title">チャットを削除</div>
-                  <div class="ai-chat-delete-modal-text">「<span id="ai-chat-delete-target"></span>」を削除しますか？</div>
+                  <div class="ai-chat-delete-modal-title">Delete chat</div>
+                  <div class="ai-chat-delete-modal-text">Delete "<span id="ai-chat-delete-target"></span>"?</div>
                   <div class="ai-chat-delete-modal-actions">
-                    <button class="panel-button ghost" id="ai-chat-delete-cancel" type="button">キャンセル</button>
-                    <button class="panel-button danger" id="ai-chat-delete-confirm" type="button">削除</button>
+                    <button class="panel-button ghost" id="ai-chat-delete-cancel" type="button">cancel</button>
+                    <button class="panel-button danger" id="ai-chat-delete-confirm" type="button">Delete</button>
                   </div>
                 </div>
               </div>
@@ -476,17 +492,17 @@
                     multiple
                     hidden
                   />
-                  <button class="ai-btn-icon ai-btn-attach" id="ai-attach" type="button" aria-label="画像を添付">
+                  <button class="ai-btn-icon ai-btn-attach" id="ai-attach" type="button" aria-label="Attach image">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21.44 11.05l-8.49 8.49a5 5 0 0 1-7.07-7.07l8.49-8.49a3.5 3.5 0 1 1 4.95 4.95l-8.49 8.49a2 2 0 1 1-2.83-2.83l7.78-7.78"/>
                     </svg>
                   </button>
                   <textarea class="ai-chat-textarea" id="ai-input" rows="1" placeholder=""></textarea>
-                  <button class="ai-btn-icon ai-btn-stop" id="ai-stop" type="button" disabled aria-label="停止">
+                  <button class="ai-btn-icon ai-btn-stop" id="ai-stop" type="button" disabled aria-label="Stop">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                   </button>
 
-                  <button class="ai-btn-icon ai-btn-send" id="ai-send" type="button" aria-label="送信">
+                  <button class="ai-btn-icon ai-btn-send" id="ai-send" type="button" aria-label="Send">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
                   </button>
                 </div>
@@ -496,36 +512,36 @@
           </div>
           <div class="panel no-header" data-panel="project">
             <div class="panel-header">
-              <span class="panel-title">プロジェクト</span>
+              <span class="panel-title">Project</span>
             </div>
             <div class="panel-body settings-panel">
               <div class="settings-group">
-                <div class="settings-group-title">プロジェクト</div>
+                <div class="settings-group-title">Project</div>
                 <div class="settings-item">
                   <div class="settings-label">
-                    <span class="settings-title">メインTeX</span>
-                    <span class="settings-desc">ビルド対象の主ファイルです。</span>
+                    <span class="settings-title">Main TeX</span>
+                    <span class="settings-desc">This is the main file to be built.</span>
                   </div>
                   <div class="settings-control">
                     <select class="settings-select" id="settings-root-select"></select>
                     <button class="panel-button ghost" id="settings-root-auto" type="button">
-                      自動検出
+                      automatic detection
                     </button>
                   </div>
                 </div>
                 <div class="settings-item">
                   <div class="settings-label">
-                    <span class="settings-title">ワークスペース</span>
-                    <span class="settings-desc">現在開いているフォルダです。</span>
+                    <span class="settings-title">work space</span>
+                    <span class="settings-desc">This is the currently open folder.</span>
                   </div>
-                  <div class="settings-path" id="settings-workspace">未選択</div>
+                  <div class="settings-path" id="settings-workspace">Not selected</div>
                 </div>
               </div>
             </div>
           </div>
           <div class="panel no-header" data-panel="search">
             <div class="panel-header">
-              <span class="panel-title">検索</span>
+              <span class="panel-title">Search</span>
             </div>
             <div class="panel-body search-panel">
               <div class="search-input-row">
@@ -533,30 +549,30 @@
                   class="search-input"
                   id="search-input"
                   type="text"
-                  placeholder="検索語"
+                  placeholder="search term"
                 >
-                <button class="panel-button" id="search-button" type="button">検索</button>
+                <button class="panel-button" id="search-button" type="button">Search</button>
               </div>
               <div class="search-rename is-hidden" id="search-rename" aria-hidden="true">
                 <div class="search-rename-header">
                   <svg class="search-rename-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11 1H5L1 5v6l4 4h6l4-4V5l-4-4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 6l4 4M10 6l-4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-                  <span class="search-rename-title">リネーム</span>
+                  <span class="search-rename-title">rename</span>
                 </div>
                 <div class="search-rename-fields">
                   <input
                     class="search-rename-input"
                     id="search-rename-from"
                     type="text"
-                    placeholder="現在のキー"
-                    aria-label="現在のキー"
+                    placeholder="current key"
+                    aria-label="current key"
                   >
                   <svg class="search-rename-arrow" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h10M10 5l3 3-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   <input
                     class="search-rename-input"
                     id="search-rename-to"
                     type="text"
-                    placeholder="新しいキー"
-                    aria-label="新しいキー"
+                    placeholder="new key"
+                    aria-label="new key"
                   >
                 </div>
                 <div class="search-rename-footer">
@@ -572,7 +588,7 @@
                   </div>
                   <button class="search-rename-btn" id="search-rename-run" type="button">
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M13.5 8l-5-4v8l5-4z" fill="currentColor"/><path d="M2 4v8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                    実行
+                    execution
                   </button>
                 </div>
                 <div class="search-rename-status" id="search-rename-status"></div>
@@ -582,89 +598,89 @@
           </div>
           <div class="panel no-header" data-panel="issues">
             <div class="panel-header">
-              <span class="panel-title">エラー</span>
+              <span class="panel-title">Issues</span>
             </div>
             <div class="panel-body issues-panel-body">
-              <div class="issues-empty" id="issues-empty">問題はありません。</div>
+              <div class="issues-empty" id="issues-empty">No issues.</div>
               <div class="issues-list" id="issues-list"></div>
               <details class="issues-log is-hidden" id="issues-log">
-                <summary class="issues-log-summary">詳細ログ</summary>
+                <summary class="issues-log-summary">Detailed log</summary>
                 <pre class="issues-log-content" id="issues-log-content"></pre>
               </details>
             </div>
           </div>
           <div class="panel no-header" data-panel="settings">
             <div class="panel-header">
-              <span class="panel-title">設定</span>
+              <span class="panel-title">Settings</span>
             </div>
             <div class="panel-body settings-panel" id="settings-panel">
               <div class="settings-nav" id="settings-nav">
                 <button class="settings-nav-item" data-settings-target="editor" type="button">
-                  <span class="settings-nav-title">エディタ</span>
-                  <span class="settings-nav-desc">表示 / AI補完</span>
+                  <span class="settings-nav-title">editor</span>
+                  <span class="settings-nav-desc">Display / AI completion</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="format" type="button">
-                  <span class="settings-nav-title">整形</span>
-                  <span class="settings-nav-desc">latexindent / 環境検出</span>
+                  <span class="settings-nav-title">Format</span>
+                  <span class="settings-nav-desc">latexindent / environment detection</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="build" type="button">
-                  <span class="settings-nav-title">ビルド</span>
-                  <span class="settings-nav-desc">コンパイル / SyncTeX / プロファイル</span>
+                  <span class="settings-nav-title">build</span>
+                  <span class="settings-nav-desc">Compile / SyncTeX / Profile</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="env" type="button">
                     <span class="settings-nav-title-row">
-                    <span class="settings-nav-title">環境</span>
+                    <span class="settings-nav-title">Environment</span>
                     <span class="settings-nav-badge is-hidden" id="settings-runtime-attention" aria-hidden="true">
-                      要対応
+                      Action required
                     </span>
                   </span>
-                  <span class="settings-nav-desc">TeX Distribution / ツール確認</span>
+                  <span class="settings-nav-desc">TeX Distribution / Tool Status</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
                   <span class="settings-nav-title-row">
-                    <span class="settings-nav-title">アカウント</span>
+                    <span class="settings-nav-title">Account</span>
                     <span class="settings-nav-badge is-hidden" id="settings-account-attention" aria-hidden="true">
-                      更新あり
+                      Update
                     </span>
                   </span>
-                  <span class="settings-nav-desc">ログイン / アップデート</span>
+                  <span class="settings-nav-desc">Login/Update</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="feedback" type="button">
-                  <span class="settings-nav-title">フィードバック</span>
-                  <span class="settings-nav-desc">不具合・要望を送信</span>
+                  <span class="settings-nav-title">Feedback</span>
+                  <span class="settings-nav-desc">Send a bug/request</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="info" type="button">
-                  <span class="settings-nav-title">情報</span>
-                  <span class="settings-nav-desc">法務 / サポート</span>
+                  <span class="settings-nav-title">Info</span>
+                  <span class="settings-nav-desc">Legal/Support</span>
                 </button>
               </div>
               <div class="settings-pages is-hidden" id="settings-pages" aria-hidden="true">
                 <div class="settings-page is-hidden" data-settings-page="editor" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">エディタ</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">editor</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">言語</div>
+                    <div class="settings-group-title">Language</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">表示言語</span>
-                        <span class="settings-desc">UI の表示言語を切り替えます。</span>
+                        <span class="settings-title">Language</span>
+                        <span class="settings-desc">Switch the UI language.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-ui-language">
-                          <option value="ja">日本語</option>
+                          <option value="ja">Japanese</option>
                           <option value="en">English</option>
                         </select>
                       </div>
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">表示</div>
+                    <div class="settings-group-title">display</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">行を折り返して表示</span>
-                        <span class="settings-desc">ON の場合、長い行をエディタ幅で折り返します。</span>
+                        <span class="settings-title">Wrap lines</span>
+                        <span class="settings-desc">If ON, wrap long lines at the editor width.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-word-wrap">
@@ -677,15 +693,15 @@
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="format" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">整形</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Format</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">整形</div>
+                    <div class="settings-group-title">Format</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">保存時に自動整形</span>
-                        <span class="settings-description">保存時に latexindent で自動整形する</span>
+                        <span class="settings-title">Auto-format on save</span>
+                        <span class="settings-description">Auto-format with latexindent on save</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-enabled">
@@ -696,19 +712,19 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">インデント</span>
+                        <span class="settings-title">indentation</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-indent">
-                          <option value="spaces-2">スペース: 2</option>
-                          <option value="spaces-4">スペース: 4</option>
-                          <option value="tab">タブ</option>
+                          <option value="spaces-2">Space: 2</option>
+                          <option value="spaces-4">Space: 4</option>
+                          <option value="tab">tab</option>
                         </select>
                       </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">\begin / \end を別行にする</span>
+                        <span class="settings-title">Put \begin / \end on separate lines</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-begin-end">
@@ -719,7 +735,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">document をインデントしない</span>
+                        <span class="settings-title">do not indent document</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-document-noindent">
@@ -730,7 +746,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">数式の & を揃える</span>
+                        <span class="settings-title">Align the & in the formula</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-align-math">
@@ -741,7 +757,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">表の & を揃える</span>
+                        <span class="settings-title">Align & in table</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-align-table">
@@ -752,19 +768,19 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">空行の扱い</span>
+                        <span class="settings-title">Handling of blank lines</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-blank-lines">
-                          <option value="preserve">保持</option>
-                          <option value="condense">1行にまとめる</option>
-                          <option value="remove">削除</option>
+                          <option value="preserve">retention</option>
+                          <option value="condense">summarize in one line</option>
+                          <option value="remove">Delete</option>
                         </select>
                       </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">\begin / \end を揃える</span>
+                        <span class="settings-title">Align \begin / \end</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-align-env">
@@ -774,9 +790,9 @@
                       </div>
                     </div>
                     <div class="settings-subsection">
-                      <div class="settings-subsection-title">verbatim 系環境</div>
+                      <div class="settings-subsection-title">verbatim environment</div>
                       <div class="settings-subsection-desc">
-                        整形をスキップする環境を追加できます。
+                        You can add an environment to skip formatting.
                       </div>
                     </div>
                     <div class="settings-inline">
@@ -784,45 +800,45 @@
                         class="settings-input"
                         id="editor-format-verbatim-input"
                         type="text"
-                        placeholder="minted / myenv など"
+                        placeholder="minted / myenv etc."
                       >
                       <button class="panel-button" id="editor-format-verbatim-add" type="button">
-                        追加
+                        addition
                       </button>
                     </div>
                     <div class="env-registry-hint is-hidden" id="editor-format-verbatim-hint">
-                      環境名のみ（`*` 不要）
+                      Environment name only (`*` not required)
                     </div>
                     <div class="env-registry-list" id="editor-format-verbatim-list"></div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">数式/表 環境</div>
+                    <div class="settings-group-title">Formula/Table Environment</div>
                     <div class="env-registry">
                       <div class="env-registry-add">
                         <input
                           class="env-registry-input"
                           id="env-registry-input"
                           type="text"
-                          placeholder="align / myenv など"
+                          placeholder="align / myenv etc."
                         >
                         <select class="env-registry-select" id="env-registry-kind">
-                          <option value="math">数式</option>
-                          <option value="table">表</option>
+                          <option value="math">mathematical formula</option>
+                          <option value="table">table</option>
                         </select>
                         <button class="panel-button" id="env-registry-add" type="button">
-                          追加
+                          addition
                         </button>
                       </div>
                       <div class="env-registry-hint is-hidden" id="env-registry-hint">
-                        環境名のみ（`*` 不要）
+                        Environment name only (`*` not required)
                       </div>
                       <div class="env-registry-lists">
                         <div class="env-registry-section">
-                          <div class="env-registry-title">数式</div>
+                          <div class="env-registry-title">mathematical formula</div>
                           <div class="env-registry-list" id="env-registry-math"></div>
                         </div>
                         <div class="env-registry-section">
-                          <div class="env-registry-title">表</div>
+                          <div class="env-registry-title">table</div>
                           <div class="env-registry-list" id="env-registry-table"></div>
                         </div>
                       </div>
@@ -831,15 +847,15 @@
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="build" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">ビルド</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">build</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">コンパイル</div>
+                    <div class="settings-group-title">compile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">コンパイルエンジン</span>
-                        <span class="settings-desc">ビルドに使用するエンジンを選択します。</span>
+                        <span class="settings-title">compilation engine</span>
+                        <span class="settings-desc">Select the engine to use for your build.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-compile-engine">
@@ -852,8 +868,8 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">別ウィンドウでビルド</span>
-                        <span class="settings-desc">OFF の場合は PDF を別タブで開きます。</span>
+                        <span class="settings-title">Build in separate window</span>
+                        <span class="settings-desc">If OFF, the PDF will open in a separate tab.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-pdf-window">
@@ -867,8 +883,8 @@
                     <div class="settings-group-title">SyncTeX</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">ビルド時SyncTeX</span>
-                        <span class="settings-desc">ビルド成功時に自動でPDFへジャンプします。</span>
+                        <span class="settings-title">SyncTeX at build time</span>
+                        <span class="settings-desc">Automatically jumps to PDF when build is successful.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-auto-synctex-build">
@@ -879,8 +895,8 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">逆SyncTeX（PDF→ソース）</span>
-                        <span class="settings-desc">PDF上でCtrl/Cmd+Clickした位置へジャンプします。</span>
+                        <span class="settings-title">Reverse SyncTeX (PDF → source)</span>
+                        <span class="settings-desc">Jump to the Ctrl/Cmd+Click position on the PDF.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-reverse-synctex">
@@ -891,11 +907,11 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">ビルドプロファイル</div>
+                    <div class="settings-group-title">build profile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">ビルドプロファイル</span>
-                        <span class="settings-desc">プロジェクトの流儀に合わせて latexmk の出力先や追加オプションを切り替えます。</span>
+                        <span class="settings-title">build profile</span>
+                        <span class="settings-desc">Switch latexmk's output destination and additional options to suit your project style.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-build-profile"></select>
@@ -903,7 +919,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">プロファイル名</span>
+                        <span class="settings-title">profile name</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-input" id="settings-build-profile-name" type="text" placeholder="My profile">
@@ -912,7 +928,7 @@
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">outDir</span>
-                        <span class="settings-desc">生成物の出力先（空ならデフォルト）。例: build</span>
+                        <span class="settings-desc">Destination for output of products (default if empty). Example: build</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-input" id="settings-build-outdir" type="text" placeholder="build">
@@ -920,8 +936,8 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">latexmk 追加オプション</span>
-                        <span class="settings-desc">例: -use-biber -shell-escape</span>
+                        <span class="settings-title">latexmk additional options</span>
+                        <span class="settings-desc">Example: -use-biber -shell-escape</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-input" id="settings-build-extra-args" type="text" placeholder="-use-biber -shell-escape">
@@ -929,21 +945,21 @@
                     </div>
                     <div class="settings-inline">
                       <button class="panel-button" id="settings-build-profile-add" type="button">
-                        追加
+                        addition
                       </button>
                       <button class="panel-button ghost" id="settings-build-profile-delete" type="button">
-                        削除
+                        Delete
                       </button>
                     </div>
                     <div class="settings-help-text" id="settings-build-profile-hint">
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">クリーン</div>
+                    <div class="settings-group-title">clean</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">clean</span>
-                        <span class="settings-desc">補助ファイル（.aux/.log/.synctex.gz 等）を削除します。</span>
+                        <span class="settings-desc">Delete auxiliary files (.aux/.log/.synctex.gz, etc.).</span>
                       </div>
                       <div class="settings-control settings-inline">
                         <button class="panel-button ghost" id="settings-build-clean" type="button">
@@ -955,99 +971,99 @@
                       </div>
                     </div>
                     <div class="settings-help-text">
-                      clean -C は PDF なども削除します。実行前に確認ダイアログが表示されます。
+                      clean -C also removes PDFs etc. A confirmation dialog will be displayed before execution.
                     </div>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="env" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">環境</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Environment</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">実行環境</div>
+                    <div class="settings-group-title">Runtime Environment</div>
                     <div class="settings-item env-item" data-env="lualatex">
                       <div class="settings-label">
                         <span class="settings-title">TeX Distribution</span>
-                        <span class="settings-desc">TeX Live / MacTeX / BasicTeX など、LaTeX エンジンと基本ツール一式。</span>
+                        <span class="settings-desc">A LaTeX engine and a set of basic tools, including TeX Live / MacTeX / BasicTeX.</span>
                       </div>
                       <div class="settings-control">
-                        <span class="env-badge checking">確認中...</span>
+                        <span class="env-badge checking">Checking...</span>
                         <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
-                          インストール
+                          install
                         </button>
                       </div>
                     </div>
                     <div class="settings-item env-item" data-env="latexmk">
                       <div class="settings-label">
                         <span class="settings-title">latexmk</span>
-                        <span class="settings-desc">ビルドを自動化するコマンド。TeX Distribution に同梱されることが多い。</span>
+                        <span class="settings-desc">Commands to automate builds. Often bundled with TeX Distribution.</span>
                       </div>
                       <div class="settings-control">
-                        <span class="env-badge checking">確認中...</span>
+                        <span class="env-badge checking">Checking...</span>
                         <button class="panel-button env-btn is-hidden" data-target="latexmk" type="button">
-                          インストール
+                          install
                         </button>
                       </div>
                     </div>
                     <div class="settings-item env-item" data-env="latexindent">
                       <div class="settings-label">
                         <span class="settings-title">latexindent</span>
-                        <span class="settings-desc">整形（Format）に使用。TeX Distribution に同梱されることが多い。</span>
+                        <span class="settings-desc">Used for formatting. Often bundled with TeX Distribution.</span>
                       </div>
                       <div class="settings-control">
-                        <span class="env-badge checking">確認中...</span>
+                        <span class="env-badge checking">Checking...</span>
                         <button class="panel-button env-btn is-hidden" data-target="latexindent" type="button">
-                          インストール
+                          install
                         </button>
                       </div>
                     </div>
                     <div class="settings-item env-item" data-env="synctex">
                       <div class="settings-label">
                         <span class="settings-title">SyncTeX</span>
-                        <span class="settings-desc">PDF へのジャンプに使用。TeX Distribution に同梱されることが多い。</span>
+                        <span class="settings-desc">Used to jump to PDF. Often bundled with TeX Distribution.</span>
                       </div>
                       <div class="settings-control">
-                        <span class="env-badge checking">確認中...</span>
+                        <span class="env-badge checking">Checking...</span>
                         <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
-                          インストール
+                          install
                         </button>
                       </div>
                     </div>
                     <div class="settings-help-text">
-                      本アプリのビルド/整形/SyncTeX には TeX Distribution と
-                      latexmk / latexindent / synctex が必要です（多くは同梱）。
+                      TeX Distribution and latexmk / latexindent / synctex are required
+                      for building/formatting/SyncTeX of this application (many are included).
                     </div>
                     <div class="settings-help-text is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
                     <div class="settings-help-text settings-runtime-setup-status" id="settings-runtime-setup-status">
-                      実行環境を確認中です。
+                      Checking the execution environment.
                     </div>
                     <div class="settings-help-text settings-runtime-onboarding" id="settings-runtime-onboarding-status">
-                      初回セットアップを準備中です。
+                      Preparing for initial setup.
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button" id="settings-runtime-run-first-build" type="button" disabled>
-                        最初のビルドを実行
+                        run the first build
                       </button>
                       <button class="panel-button ghost" id="settings-runtime-open-getting-started" type="button">
-                        はじめに
+                        Introduction
                       </button>
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button ghost" id="settings-runtime-open-install-docs" type="button">
-                        インストール手順
+                        Installation instructions
                       </button>
                       <button class="panel-button ghost" id="settings-runtime-open-tex-docs" type="button">
-                        TeX環境ガイド
+                        TeX environment guide
                       </button>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">環境チェック</span>
+                        <span class="settings-title">Environment Check</span>
                       </div>
                       <div class="settings-control">
                         <button class="panel-button ghost" id="settings-env-refresh" type="button">
-                          再チェック
+                          Recheck
                         </button>
                       </div>
                     </div>
@@ -1055,31 +1071,31 @@
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="account" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">アカウント</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Account</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">アカウント</div>
+                    <div class="settings-group-title">Account</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Googleログイン</span>
-                        <span class="settings-desc" id="settings-auth-status">未ログイン</span>
+                        <span class="settings-title">Google login</span>
+                        <span class="settings-desc" id="settings-auth-status">Signed out</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
                         <button class="panel-button" id="settings-auth-login" type="button">
-                          ログイン
+                          Login
                         </button>
                         <button class="panel-button ghost is-hidden" id="settings-auth-logout" type="button">
-                          ログアウト
+                          Logout
                         </button>
                       </div>
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">アップデート</div>
+                    <div class="settings-group-title">update</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">現在のバージョン</span>
+                        <span class="settings-title">current version</span>
                       </div>
                       <div class="settings-control">
                         <span class="settings-version-badge" id="settings-update-current">-</span>
@@ -1087,66 +1103,66 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">最新バージョン</span>
+                        <span class="settings-title">Latest version</span>
                       </div>
                       <div class="settings-control">
                         <span class="settings-version-badge" id="settings-update-latest">-</span>
                       </div>
                     </div>
                     <div class="settings-help-text" id="settings-update-status">
-                      更新確認待ちです。
+                      Waiting for update check.
                     </div>
                     <div class="settings-update-progress is-hidden" id="settings-update-progress" aria-hidden="true">
                       <div class="settings-update-progress-fill" id="settings-update-progress-fill"></div>
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button ghost" id="settings-update-check" type="button">
-                        更新を確認
+                        Check for updates
                       </button>
                       <button class="panel-button is-hidden" id="settings-update-apply" type="button">
-                        更新を適用
+                        Apply updates
                       </button>
                       <button class="panel-button ghost" id="settings-update-open" type="button">
-                        手動ダウンロード
+                        manual download
                       </button>
                     </div>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="feedback" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">フィードバック</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Feedback</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">フィードバック</div>
+                    <div class="settings-group-title">Feedback</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">カテゴリ</span>
+                        <span class="settings-title">category</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-feedback-category">
-                          <option value="bug">不具合</option>
-                          <option value="idea">要望</option>
-                          <option value="other">その他</option>
+                          <option value="bug">defect</option>
+                          <option value="idea">request</option>
+                          <option value="other">others</option>
                         </select>
                       </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">内容</span>
+                        <span class="settings-title">Content</span>
                       </div>
                       <div class="settings-control">
                         <textarea
                           class="settings-input"
                           id="settings-feedback-message"
                           rows="4"
-                          placeholder="改善してほしい点や不具合の再現手順など"
+                          placeholder="Points to be improved and steps to reproduce the problem, etc."
                         ></textarea>
                       </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">連絡先（任意）</span>
+                        <span class="settings-title">Contact information (optional)</span>
                       </div>
                       <div class="settings-control">
                         <input
@@ -1159,8 +1175,8 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">診断情報を添付（任意）</span>
-                        <span class="settings-desc">OS/バージョンなどの診断情報を送信します。</span>
+                        <span class="settings-title">Attach diagnostic information (optional)</span>
+                        <span class="settings-desc">Sends diagnostic information such as OS/version.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="settings-feedback-include-diagnostics">
@@ -1175,13 +1191,13 @@
                     </div>
                     <div class="settings-inline">
                       <button class="panel-button" id="settings-feedback-send" type="button">
-                        送信
+                        Send
                       </button>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">匿名エラーレポート</span>
-                        <span class="settings-desc">致命的エラー時に診断情報を tex64.com へ送信します。</span>
+                        <span class="settings-title">anonymous error report</span>
+                        <span class="settings-desc">Sends diagnostic information to tex64.com on fatal errors.</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="settings-error-reporting-enabled">
@@ -1195,60 +1211,60 @@
                       </div>
                     </div>
                     <div class="settings-help-text">
-                      フィードバック送信に失敗した場合は、アプリ内で再送キューに保存して再試行します。
+                      If sending feedback fails, save it to a resend queue within the app and try again.
                     </div>
                     <div class="settings-help-text is-hidden" id="settings-feedback-status"></div>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="info" aria-hidden="true">
                   <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="戻る"></button>
-                    <div class="settings-page-title">情報</div>
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Info</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">法務</div>
+                    <div class="settings-group-title">legal affairs</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Legal</span>
-                        <span class="settings-desc">利用規約やプライバシーポリシーを確認します。</span>
+                        <span class="settings-desc">Check the terms of use and privacy policy.</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
                         <button class="panel-button ghost" id="settings-link-terms" type="button">
-                          利用規約
+                          terms of service
                         </button>
                         <button class="panel-button ghost" id="settings-link-privacy" type="button">
-                          プライバシー
+                          privacy
                         </button>
                         <button class="panel-button ghost" id="settings-link-commercial" type="button">
-                          特商法
+                          Special commercial law
                         </button>
                         <button class="panel-button ghost" id="settings-link-refund" type="button">
-                          返金ポリシー
+                          Refund policy
                         </button>
                       </div>
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">サポート</div>
+                    <div class="settings-group-title">support</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">サポート</span>
-                        <span class="settings-desc">ヘルプ、問い合わせ、リリース情報を開きます。</span>
+                        <span class="settings-title">support</span>
+                        <span class="settings-desc">Open Help, Contact Us, Release Information.</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
                         <button class="panel-button ghost" id="settings-link-support" type="button">
-                          ヘルプ
+                          help
                         </button>
                         <button class="panel-button ghost" id="settings-link-contact" type="button">
-                          問い合わせ
+                          inquiry
                         </button>
                         <button class="panel-button ghost" id="settings-link-releases" type="button">
-                          リリースノート
+                          release notes
                         </button>
                       </div>
                     </div>
                     <div class="settings-help-text">
-                      すべて tex64.com の公開ページをブラウザで開きます。
+                      Open all public tex64.com pages in your browser.
                     </div>
                   </div>
                 </div>
@@ -1276,16 +1292,16 @@
                     <img
                       id="editor-viewer-image"
                       class="editor-viewer-media editor-viewer-image"
-                      alt="プレビュー"
+                      alt="preview"
                     />
                     <iframe
                       id="editor-viewer-pdf"
                       class="editor-viewer-media editor-viewer-pdf"
-                      title="PDFプレビュー"
+                      title="PDF preview"
                     ></iframe>
                     <div id="editor-viewer-message" class="editor-viewer-message">
-                      <h2>非対応ファイルです</h2>
-                      <p>このファイル形式はエディタで開けません。</p>
+                      <h2>This is an unsupported file.</h2>
+                      <p>This file format cannot be opened with an editor.</p>
                     </div>
                   </div>
                 </div>
@@ -1299,7 +1315,7 @@
               id="editor-splitter"
               role="separator"
               aria-orientation="vertical"
-              aria-label="分割ビューの境界"
+              aria-label="Split view boundaries"
               aria-valuemin="0"
               aria-valuemax="100"
               aria-valuenow="50"
@@ -1322,19 +1338,19 @@
                     <img
                       id="editor-viewer-image-secondary"
                       class="editor-viewer-media editor-viewer-image"
-                      alt="プレビュー"
+                      alt="preview"
                     />
                     <iframe
                       id="editor-viewer-pdf-secondary"
                       class="editor-viewer-media editor-viewer-pdf"
-                      title="PDFプレビュー"
+                      title="PDF preview"
                     ></iframe>
                     <div
                       id="editor-viewer-message-secondary"
                       class="editor-viewer-message"
                     >
-                      <h2>非対応ファイルです</h2>
-                      <p>このファイル形式はエディタで開けません。</p>
+                      <h2>This is an unsupported file.</h2>
+                      <p>This file format cannot be opened with an editor.</p>
                     </div>
                   </div>
                 </div>
@@ -1348,14 +1364,14 @@
             id="bottom-panel-resizer"
             role="separator"
             aria-orientation="horizontal"
-            aria-label="ボトムパネルの境界"
+            aria-label="bottom panel border"
           ></div>
           <div class="bottom-panel" id="bottom-panel" aria-hidden="true">
             <div class="bottom-panel-header">
               <div class="bottom-panel-tabs">
-                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">ブロック</button>
+                <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
               </div>
-              <button class="bottom-panel-close" id="bottom-panel-close" type="button" aria-label="パネルを閉じる">
+              <button class="bottom-panel-close" id="bottom-panel-close" type="button" aria-label="Close panel">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 6L6 18M6 6l12 12"/>
                 </svg>
@@ -1373,23 +1389,23 @@
           aria-modal="true"
           aria-labelledby="create-modal-title"
         >
-          <div class="modal-title" id="create-modal-title">新規作成</div>
+          <div class="modal-title" id="create-modal-title">Create New</div>
           <div class="modal-subtitle" id="create-modal-subtitle">
           </div>
           <div class="modal-body">
             <div class="modal-row">
-              <span class="modal-label">作成先</span>
-              <span class="modal-path" id="create-modal-parent">ワークスペース直下</span>
+              <span class="modal-label">Create destination</span>
+              <span class="modal-path" id="create-modal-parent">Directly below the workspace</span>
             </div>
             <div class="modal-field">
               <label class="modal-label" for="create-modal-input" id="create-modal-label">
-                ファイル名
+                file name
               </label>
               <input
                 class="modal-input"
                 id="create-modal-input"
                 type="text"
-                placeholder="新規ファイル名"
+                placeholder="new file name"
                 autocomplete="off"
               />
             </div>
@@ -1397,9 +1413,9 @@
           </div>
           <div class="modal-actions">
             <button class="panel-button ghost" id="create-modal-cancel" type="button">
-              キャンセル
+              cancel
             </button>
-            <button class="panel-button" id="create-modal-submit" type="button">作成</button>
+            <button class="panel-button" id="create-modal-submit" type="button">Create</button>
           </div>
         </div>
       </div>
@@ -1411,25 +1427,25 @@
           aria-modal="true"
           aria-labelledby="rename-modal-title"
         >
-          <div class="modal-title" id="rename-modal-title">名前の変更</div>
+          <div class="modal-title" id="rename-modal-title">rename</div>
           <div class="modal-body">
             <div class="modal-row">
-              <span class="modal-label">対象</span>
-              <span class="modal-path" id="rename-modal-target">未選択</span>
+              <span class="modal-label">subject</span>
+              <span class="modal-path" id="rename-modal-target">Not selected</span>
             </div>
             <input
               class="modal-input"
               id="rename-modal-input"
               type="text"
-              placeholder="新しい名前"
+              placeholder="new name"
             />
             <div class="modal-help" id="rename-modal-help"></div>
           </div>
           <div class="modal-actions">
             <button class="panel-button ghost" id="rename-modal-cancel" type="button">
-              キャンセル
+              cancel
             </button>
-            <button class="panel-button" id="rename-modal-submit" type="button">変更</button>
+            <button class="panel-button" id="rename-modal-submit" type="button">Rename</button>
           </div>
         </div>
       </div>
@@ -1441,19 +1457,19 @@
           aria-modal="true"
           aria-labelledby="delete-modal-title"
         >
-          <div class="modal-title" id="delete-modal-title">削除の確認</div>
+          <div class="modal-title" id="delete-modal-title">Confirm deletion</div>
           <div class="modal-body">
             <div class="modal-row">
-              <span class="modal-label">対象</span>
-              <span class="modal-path" id="delete-modal-target">未選択</span>
+              <span class="modal-label">subject</span>
+              <span class="modal-path" id="delete-modal-target">Not selected</span>
             </div>
-            <div class="modal-help" id="delete-modal-help">この操作は取り消せません。</div>
+            <div class="modal-help" id="delete-modal-help">This operation cannot be undone.</div>
           </div>
           <div class="modal-actions">
             <button class="panel-button ghost" id="delete-modal-cancel" type="button">
-              キャンセル
+              cancel
             </button>
-            <button class="panel-button danger" id="delete-modal-submit" type="button">削除</button>
+            <button class="panel-button danger" id="delete-modal-submit" type="button">Delete</button>
           </div>
         </div>
       </div>
@@ -1467,7 +1483,7 @@
         >
           <div class="modal-header diff-modal-header">
             <div class="diff-header-left">
-              <div class="modal-title diff-title" id="diff-modal-title">変更内容の確認</div>
+              <div class="modal-title diff-title" id="diff-modal-title">Confirm changes</div>
               <div class="diff-meta-row">
                 <div class="diff-file" id="diff-file-name"></div>
                 <div class="diff-summary" id="diff-summary"></div>
@@ -1475,9 +1491,9 @@
             </div>
             <div class="diff-header-actions">
               <button class="panel-button" id="diff-modal-cancel" type="button">
-                キャンセル
+                cancel
               </button>
-              <button class="panel-button" id="diff-modal-submit" type="button">確定</button>
+              <button class="panel-button" id="diff-modal-submit" type="button">Confirm</button>
             </div>
           </div>
           <div class="modal-body diff-modal-body">
@@ -1494,9 +1510,9 @@
           aria-labelledby="block-settings-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="block-settings-title">数式ブロック設定</div>
+            <div class="modal-title" id="block-settings-title">Formula block settings</div>
             <button class="panel-button ghost" id="block-settings-close" type="button">
-              閉じる
+              close
             </button>
           </div>
           <div class="block-settings-body">
@@ -1506,18 +1522,18 @@
                 type="button"
                 data-block-settings-target="insert-format"
               >
-                <span class="block-settings-item-title">挿入形式</span>
-                <span class="block-settings-item-desc">インライン/別行の囲み方</span>
+                <span class="block-settings-item-title">Insertion format</span>
+                <span class="block-settings-item-desc">How to enclose inline/separate line</span>
               </button>
             </div>
             <div class="block-settings-page" data-block-settings-page="insert-format">
               <div class="block-settings-nav">
                 <button class="panel-button ghost block-settings-back" type="button">
-                  戻る
+                  Back
                 </button>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">インラインの囲み</div>
+                <div class="block-settings-section-title">inline box</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
@@ -1532,7 +1548,7 @@
                 </div>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">別行立ての囲み</div>
+                <div class="block-settings-section-title">separate line box</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
@@ -1550,58 +1566,58 @@
             <div class="block-settings-page" data-block-settings-page="suggestions">
               <div class="block-settings-nav">
                 <button class="panel-button ghost block-settings-back" type="button">
-                  戻る
+                  Back
                 </button>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">候補の表示</div>
+                <div class="block-settings-section-title">Show suggestions</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-auto="on"
-                  >自動で表示</button>
+                  >Display automatically</button>
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-auto="off"
-                  >手動のみ</button>
+                  >manual only</button>
                 </div>
                 <div class="block-settings-section-hint">
-                  手動表示: <span class="block-settings-kbd">Ctrl</span> + <span class="block-settings-kbd">.</span>
+                  Manual display: <span class="block-settings-kbd">Ctrl</span> + <span class="block-settings-kbd">.</span>
                 </div>
               </div>
               <div class="block-settings-section">
-                <div class="block-settings-section-title">トリガーパック</div>
+                <div class="block-settings-section-title">trigger pack</div>
                 <div class="block-settings-options">
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-pack="math"
-                  >数学拡張</button>
+                  >math extension</button>
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-pack="physics"
-                  >物理/量子</button>
+                  >physics/quantum</button>
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-pack="cs"
-                  >集合/論理</button>
+                  >set/logic</button>
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-pack="personal"
-                  >個人/装飾</button>
+                  >personal/decoration</button>
                   <button
                     class="block-settings-option"
                     type="button"
                     data-wysiwyg-pack="jp"
-                  >日本語トリガー</button>
+                  >Japanese trigger</button>
                 </div>
                 <div class="block-settings-section-hint">
-                  自動サジェストに含める候補を切り替えます（手動表示は全パックを検索）
+                  Switch the suggestions to be included in automatic suggestions (search all packs for manual display)
                 </div>
               </div>
             </div>
@@ -1617,9 +1633,9 @@
           aria-labelledby="math-capture-window-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="math-capture-window-title">取り込み対象を選択</div>
+            <div class="modal-title" id="math-capture-window-title">Select import target</div>
             <button class="panel-button ghost" id="math-capture-window-cancel" type="button">
-              閉じる
+              close
             </button>
           </div>
           <div class="capture-window-body">
@@ -1628,7 +1644,7 @@
                 class="settings-input capture-window-search"
                 id="math-capture-window-search"
                 type="text"
-                placeholder="検索"
+                placeholder="Search"
               >
             </div>
             <div class="capture-window-grid" id="math-capture-window-grid"></div>
@@ -1671,10 +1687,10 @@
               <span class="capture-crop-hint" id="math-capture-crop-hint"></span>
               <div class="capture-crop-actions">
                 <button class="panel-button ghost" id="math-capture-crop-retry" type="button">
-                  戻る
+                  Back
                 </button>
                 <button class="panel-button primary" id="math-capture-crop-apply" type="button">
-                  確定
+                  Confirm
                 </button>
               </div>
             </div>
@@ -1690,31 +1706,31 @@
           aria-labelledby="capture-permission-title"
         >
           <div class="modal-header">
-            <div class="modal-title" id="capture-permission-title">画面収録の許可が必要です</div>
+            <div class="modal-title" id="capture-permission-title">Screen recording permission required</div>
           </div>
           <div class="capture-permission-body">
             <p class="capture-permission-description">
-              数式取り込み機能は、画面上のウィンドウをキャプチャするために
-              macOS の「画面収録」の許可が必要です。
+              The formula import feature requires macOS Screen Recording
+              permission to capture windows on screen.
             </p>
             <ol class="capture-permission-steps">
-              <li>下の「設定を開く」をクリックしてシステム設定を開きます</li>
-              <li>アプリ一覧から <strong>TeX64</strong> を探し、スイッチをオンにします</li>
-              <li>TeX64 を<strong>再起動</strong>して、もう一度お試しください</li>
+              <li>Click "Open Settings" below to open System Settings</li>
+              <li>Find <strong>TeX64</strong> in the app list and turn on the switch</li>
+              <li><strong>Restart</strong> TeX64 and try again</li>
             </ol>
             <p class="capture-permission-note">
-              許可後はアプリの再起動が必要な場合があります。
+              You may need to restart the app after granting permission.
             </p>
           </div>
           <div class="capture-permission-footer">
             <button class="panel-button primary" id="capture-permission-open" type="button">
-              設定を開く
+              Open Settings
             </button>
             <button class="panel-button" id="capture-permission-retry" type="button">
-              再試行
+              Retry
             </button>
             <button class="panel-button ghost" id="capture-permission-close" type="button">
-              閉じる
+              close
             </button>
           </div>
         </div>

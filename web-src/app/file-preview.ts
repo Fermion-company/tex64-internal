@@ -1,3 +1,5 @@
+import { uiText } from "./i18n.js";
+
 export type FilePreviewResultPayload = {
   requestId: string;
   ok: boolean;
@@ -32,7 +34,7 @@ export const createFilePreviewBroker = (
   ): Promise<{ ok: boolean; dataUrl?: string | null; error?: string }> => {
     const trimmed = typeof path === "string" ? path.trim() : "";
     if (!trimmed) {
-      return Promise.resolve({ ok: false, error: "path が空です。" });
+      return Promise.resolve({ ok: false, error: uiText("path is empty.", "path が空です。") });
     }
     const cached = cache.get(trimmed);
     if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
@@ -42,7 +44,7 @@ export const createFilePreviewBroker = (
     return new Promise((resolve) => {
       const timeoutId = window.setTimeout(() => {
         pending.delete(requestId);
-        resolve({ ok: false, error: "プレビューがタイムアウトしました。" });
+        resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
       }, 1600);
       pending.set(requestId, { resolve, timeoutId });
       postToNative(
@@ -67,13 +69,13 @@ export const createFilePreviewBroker = (
     pending.delete(payload.requestId);
     window.clearTimeout(entry.timeoutId);
     if (!payload.ok) {
-      entry.resolve({ ok: false, error: payload.error ?? "プレビューに失敗しました。" });
+      entry.resolve({ ok: false, error: payload.error ?? uiText("Preview failed.", "プレビューに失敗しました。") });
       return;
     }
     const data = typeof payload.data === "string" ? payload.data : "";
     const mimeType = typeof payload.mimeType === "string" ? payload.mimeType : "image/*";
     if (!data) {
-      entry.resolve({ ok: false, error: "画像データが空です。" });
+      entry.resolve({ ok: false, error: uiText("Image data is empty.", "画像データが空です。") });
       return;
     }
     const dataUrl = `data:${mimeType};base64,${data}`;

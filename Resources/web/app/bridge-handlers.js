@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 export const initBridgeHandlers = (deps) => {
     var _a;
     const { bridgeWindow } = deps;
@@ -167,7 +168,7 @@ export const initBridgeHandlers = (deps) => {
                     requestId,
                     ok,
                     settings,
-                    error: ok ? undefined : "設定が取得できませんでした。",
+                    error: ok ? undefined : uiText("Settings could not be retrieved.", "設定が取得できませんでした。"),
                 }, true);
                 break;
             }
@@ -202,7 +203,7 @@ export const initBridgeHandlers = (deps) => {
                 (_21 = (_20 = deps.agent) === null || _20 === void 0 ? void 0 : _20.handleThought) === null || _21 === void 0 ? void 0 : _21.call(_20, message.payload);
                 break;
             case "agent:error":
-                (_22 = deps.agent) === null || _22 === void 0 ? void 0 : _22.handleError((_23 = message.payload.message) !== null && _23 !== void 0 ? _23 : "Axiom エラー", message.payload.conversationId);
+                (_22 = deps.agent) === null || _22 === void 0 ? void 0 : _22.handleError((_23 = message.payload.message) !== null && _23 !== void 0 ? _23 : uiText("Axiom error", "Axiom エラー"), message.payload.conversationId);
                 break;
             case "api:usage":
                 (_24 = deps.api) === null || _24 === void 0 ? void 0 : _24.handleUsage(message.payload);
@@ -233,7 +234,7 @@ export const initBridgeHandlers = (deps) => {
                 break;
             case "agent:applyContent":
                 deps.editorSession.applyContentToOpenFile((_33 = message.payload.path) !== null && _33 !== void 0 ? _33 : "", (_34 = message.payload.content) !== null && _34 !== void 0 ? _34 : "", {
-                    updateSaved: message.payload.updateSaved !== false,
+                    updateSaved: message.payload.updateSaved === true,
                     showAiDiff: true,
                 });
                 break;

@@ -16,7 +16,7 @@ const maybeAutoBuild = async (service, proposal) => {
   if (!/\.(tex|bib|sty|cls|ltx|dtx)$/i.test(pathValue)) {
     return null;
   }
-  // Promise チェーンでビルドを直列化（複数会話の同時ビルドを防ぎつつドロップしない）
+  // Serialize builds via Promise chain (prevent concurrent builds across conversations)
   let result = null;
   service.autoBuildQueue = (service.autoBuildQueue || Promise.resolve()).then(async () => {
     try {
@@ -112,7 +112,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
       return {
         ok: false,
         conflict: true,
-        error: "同名のファイルが存在するためディレクトリを作成できません。",
+        error: "Cannot create directory: a file with the same name exists.",
       };
     }
     return { ok: true, targetState: { exists: Boolean(stat), isDirectory: Boolean(stat?.isDirectory?.()) } };
@@ -120,7 +120,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
 
   const targetPath = type === "rename" ? proposal.oldPath : proposal.path;
   if (!targetPath || typeof targetPath !== "string") {
-    return { ok: false, conflict: false, error: "提案の対象パスが不正です。" };
+    return { ok: false, conflict: false, error: "Invalid proposal target path." };
   }
 
   const state = await readCurrentFileState(service, targetPath);
@@ -129,7 +129,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
       return {
         ok: false,
         conflict: true,
-        error: "新規作成予定のファイルが既に存在します。再提案してください。",
+        error: "File already exists. Please re-propose.",
       };
     }
     return { ok: true, targetState: state };
@@ -139,7 +139,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
     return {
       ok: false,
       conflict: true,
-      error: "適用前に対象ファイルが削除または移動されました。再提案してください。",
+      error: "File was deleted or moved before apply. Please re-propose.",
     };
   }
 
@@ -147,7 +147,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
     return {
       ok: false,
       conflict: true,
-      error: "対象パスがファイルではありません。再提案してください。",
+      error: "Target path is not a file. Please re-propose.",
     };
   }
 
@@ -159,7 +159,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
       return {
         ok: false,
         conflict: true,
-        error: "適用前にファイル内容が変更されました。差分を確認して再提案してください。",
+        error: "File content was modified before apply. Please review the diff and re-propose.",
       };
     }
   }
@@ -170,7 +170,7 @@ const validateProposalBeforeApply = async (service, proposal) => {
       return {
         ok: false,
         conflict: true,
-        error: "移動先に同名ファイルが存在します。別名で再提案してください。",
+        error: "A file with the same name exists at the destination. Please re-propose with a different name.",
       };
     }
   }
@@ -229,14 +229,14 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
       );
       service.sendToRenderer("agent:undoResult", {
         ok: false,
-        message: "取り消せる操作がありません。",
+        message: "No operations to undo.",
         conversationId: requestedConversationId || undefined,
       });
     }
     return {
       ok: false,
       reason: "no_entry",
-      message: "取り消せる操作がありません。",
+      message: "No operations to undo.",
       conversationId: requestedConversationId || undefined,
     };
   }
@@ -266,14 +266,14 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
     if (emitRenderer) {
       service.sendToRenderer("agent:undoResult", {
         ok: false,
-        message: "ワークスペースが選択されていません。",
+        message: "No workspace is selected.",
         conversationId: targetConversationId || entry.conversationId,
       });
     }
     return {
       ok: false,
       reason: "workspace_missing",
-      message: "ワークスペースが選択されていません。",
+      message: "No workspace is selected.",
       conversationId: targetConversationId || entry.conversationId,
     };
   }
@@ -314,11 +314,11 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
       const toResolved = service.workspace.resolvePath(entry.oldPath);
       const fromStat = await fsp.stat(fromResolved).catch(() => null);
       if (!fromStat || !fromStat.isFile()) {
-        throw new Error("移動先ファイルが見つからないため取り消せません。");
+        throw new Error("Cannot undo: destination file not found.");
       }
       const toStat = await fsp.stat(toResolved).catch(() => null);
       if (toStat) {
-        throw new Error("元のパスに既存ファイルがあるため取り消せません。");
+        throw new Error("Cannot undo: a file already exists at the original path.");
       }
       await fsp.mkdir(path.dirname(toResolved), { recursive: true });
       await fsp.rename(fromResolved, toResolved);
@@ -333,12 +333,12 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
       if (stat && stat.isDirectory()) {
         const childEntries = await fsp.readdir(resolved).catch(() => []);
         if (childEntries.length > 0) {
-          throw new Error("ディレクトリ内にファイルがあるため取り消せません。");
+          throw new Error("Cannot undo: directory is not empty.");
         }
         await fsp.rmdir(resolved);
       }
     } else {
-      throw new Error("未対応の取り消し操作です。");
+      throw new Error("Unsupported undo operation.");
     }
 
     await service.updateWorkspaceIfNeeded(rootPath, true);
@@ -382,7 +382,7 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
     if (emitRenderer) {
       service.sendToRenderer("agent:undoResult", {
         ok: false,
-        message: error?.message ?? "取り消しに失敗しました。",
+        message: error?.message ?? "Undo failed.",
         conversationId: targetConversationId || entry.conversationId,
       });
     }
@@ -390,7 +390,7 @@ const undoEntryAtIndex = async (service, targetIndex, conversationId, { emitRend
     return {
       ok: false,
       reason: "undo_failed",
-      message: error?.message ?? "取り消しに失敗しました。",
+      message: error?.message ?? "Undo failed.",
       conversationId: targetConversationId || entry.conversationId,
     };
   }
@@ -443,7 +443,7 @@ const undoLastRunApply = async (service, conversationId) => {
     if (!result.ok) {
       service.sendToRenderer("agent:undoResult", {
         ok: false,
-        message: result.message ?? "取り消しに失敗しました。",
+        message: result.message ?? "Undo failed.",
         conversationId: (result.conversationId ?? targetConversationId) || undefined,
       });
       return result;
@@ -460,9 +460,9 @@ const undoLastRunApply = async (service, conversationId) => {
   const summaryMessage =
     undoneCount <= 1
       ? firstPath
-        ? `取り消し完了: ${firstPath}`
-        : "取り消し完了"
-      : `実行単位で${undoneCount}件の変更を取り消しました。`;
+        ? `Undone: ${firstPath}`
+        : "Undone"
+      : `Undone ${undoneCount} changes from this run.`;
   service.emitAuditEvent(
     "undo_run_apply",
     { ok: true, runId: targetRunId, count: undoneCount },
@@ -500,9 +500,9 @@ const applyProposal = async (service, proposalId, options = {}) => {
     service.sendToRenderer("agent:applyResult", {
       proposalId,
       ok: false,
-      error: "提案が見つかりません。",
+      error: "Proposal not found.",
     });
-    return { ok: false, proposalId, error: "提案が見つかりません。" };
+    return { ok: false, proposalId, error: "Proposal not found." };
   }
   if (!rootPath) {
     service.emitAuditEvent(
@@ -513,12 +513,12 @@ const applyProposal = async (service, proposalId, options = {}) => {
     service.sendToRenderer("agent:applyResult", {
       proposalId,
       ok: false,
-      error: "ワークスペースが選択されていません。",
+      error: "No workspace is selected.",
     });
     if (discardOnFailure) {
       service.proposals.delete(proposalId);
     }
-    return { ok: false, proposalId, path: proposal.path, error: "ワークスペースが選択されていません。" };
+    return { ok: false, proposalId, path: proposal.path, error: "No workspace is selected." };
   }
   const expectedWorkspace =
     typeof proposal.workspaceRootPath === "string" && proposal.workspaceRootPath.trim()
@@ -540,7 +540,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
     service.sendToRenderer("agent:applyResult", {
       proposalId,
       ok: false,
-      error: "別のワークスペースで作られた提案のため適用できません。",
+      error: "Cannot apply: proposal was created in a different workspace.",
     });
     if (discardOnFailure) {
       service.proposals.delete(proposalId);
@@ -549,7 +549,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
       ok: false,
       proposalId,
       path: proposal.path,
-      error: "別のワークスペースで作られた提案のため適用できません。",
+      error: "Cannot apply: proposal was created in a different workspace.",
     };
   }
   try {
@@ -573,7 +573,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
         proposalId,
         ok: false,
         conflict: validation.conflict === true,
-        error: validation.error || "適用前チェックに失敗しました。",
+        error: validation.error || "Pre-apply validation failed.",
       });
       if (discardOnFailure) {
         service.proposals.delete(proposalId);
@@ -583,7 +583,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
         proposalId,
         path: proposal.path,
         conflict: validation.conflict === true,
-        error: validation.error || "適用前チェックに失敗しました。",
+        error: validation.error || "Pre-apply validation failed.",
       };
     }
     let undoEntry = null;
@@ -592,7 +592,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
       const resolved = service.workspace.resolvePath(proposal.path);
       const currentState = validation.targetState;
       if (!currentState?.buffer) {
-        throw new Error("削除前の内容を取得できませんでした。");
+        throw new Error("Could not read file content before deletion.");
       }
       undoEntry = {
         type: "delete",
@@ -645,12 +645,12 @@ const applyProposal = async (service, proposalId, options = {}) => {
         service.sendToRenderer("agent:applyResult", {
           proposalId,
           ok: false,
-          error: "変更内容がありません。",
+          error: "No change detected.",
         });
         if (discardOnFailure) {
           service.proposals.delete(proposalId);
         }
-        return { ok: false, proposalId, path: proposal.path, error: "変更内容がありません。" };
+        return { ok: false, proposalId, path: proposal.path, error: "No change detected." };
       }
       undoEntry = {
         type: "write",
@@ -665,7 +665,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
       if (proposal.encoding === "base64") {
         const decoded = decodeBase64Strict(proposal.content);
         if (!decoded) {
-          throw new Error("base64 の内容が不正です。");
+          throw new Error("Invalid base64 content.");
         }
         const buffer = Buffer.from(decoded.normalized, "base64");
         await fsp.writeFile(resolved, buffer);
@@ -676,6 +676,13 @@ const applyProposal = async (service, proposalId, options = {}) => {
           content: proposal.content,
           updateSaved: true,
         });
+        // Update context snapshot so consecutive writes see fresh content
+        const ctx = service.contextByConversation.get(proposal.conversationId || "default");
+        if (ctx && ctx.activeFilePath === proposal.path) {
+          ctx.activeFileContent = proposal.content;
+          ctx.activeFileIsDirty = false;
+          ctx.activeFileContentTruncated = false;
+        }
       }
     }
 
@@ -714,7 +721,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
     service.sendToRenderer("agent:applyResult", {
       proposalId,
       ok: false,
-      error: error?.message ?? "操作に失敗しました。",
+      error: error?.message ?? "Operation failed.",
     });
     service.markSessionDirty(proposal.conversationId || "default");
     if (discardOnFailure) {
@@ -725,7 +732,7 @@ const applyProposal = async (service, proposalId, options = {}) => {
       proposalId,
       path: proposal.path,
       type: proposal.type || "write",
-      error: error?.message ?? "操作に失敗しました。",
+      error: error?.message ?? "Operation failed.",
     };
   }
 };

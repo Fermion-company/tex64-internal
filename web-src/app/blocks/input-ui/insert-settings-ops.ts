@@ -43,7 +43,7 @@ export const createBlockInsertSettingsOps = (runtime: BlockInputRuntime): BlockI
       const fullLabel = getFormatLabel(value);
       blockFormatButton.textContent = getFormatShortLabel(value);
       blockFormatButton.setAttribute("title", fullLabel);
-      blockFormatButton.setAttribute("aria-label", `挿入形式: ${fullLabel}`);
+      blockFormatButton.setAttribute("aria-label", `Insertion format: ${fullLabel}`);
     }
     if (Array.isArray(blockFormatOptions)) {
       blockFormatOptions.forEach((option) => {

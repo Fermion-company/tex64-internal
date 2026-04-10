@@ -55,12 +55,12 @@ export const buildDiffPreview = (before: string, after: string) => {
   const beforeText = before.trimEnd();
   const afterText = after.trimEnd();
   if (beforeText === afterText) {
-    return "変更なし";
+    return "No change";
   }
   const beforeLines = beforeText.length ? beforeText.split(/\r?\n/) : [""];
   const afterLines = afterText.length ? afterText.split(/\r?\n/) : [""];
   const diffLines = buildLineDiff(beforeLines, afterLines);
-  const header = "差分（-削除 / +追加）";
+  const header = "Difference (-delete/+add)";
   const body = diffLines
     .map((entry) => {
       const prefix = entry.type === "add" ? "+" : entry.type === "del" ? "-" : " ";

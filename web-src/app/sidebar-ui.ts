@@ -1,4 +1,4 @@
-import { tabConfig, type TabKey } from "./config.js";
+import { getTabConfig, type TabKey } from "./config.js";
 import type { AppContext } from "./context.js";
 import type { ContextMenuApi, ContextMenuItem } from "./context-menu.js";
 
@@ -196,6 +196,7 @@ export const initSidebarVisibility = (
 
   const buildSidebarContextMenuItems = (): ContextMenuItem[] =>
     primaryTabOrder.map((key) => {
+      const tabConfig = getTabConfig();
       const visible = sidebarVisibleTabs.has(key);
       const canHide = sidebarVisibleTabs.size > 1;
       return {

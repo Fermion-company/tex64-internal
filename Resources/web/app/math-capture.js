@@ -10,13 +10,13 @@ export const initMathCapture = (context, deps) => {
     let dragStart = { x: 0, y: 0 };
     let selection = { x: 0, y: 0, width: 0, height: 0 };
     const captureIssueMessages = new Set([
-        "画面キャプチャが利用できません。",
-        "画面キャプチャが利用できません。画面収録の許可を確認してください。",
-        "ウィンドウ一覧の取得に失敗しました。",
-        "ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。",
-        "取り込み可能なウィンドウがありません。画面収録の許可を確認してください。",
-        "選択した画面のサムネイル取得に失敗しました。別の画面を選択してください。",
-        "切り取りに失敗しました。",
+        "Screen capture is not available.",
+        "Screen capture is not available. Please confirm permission for screen recording.",
+        "Failed to get window list.",
+        "Failed to get window list. Please confirm permission for screen recording.",
+        "There are no retrievable windows. Please confirm permission for screen recording.",
+        "Failed to obtain thumbnail of selected screen. Please select another screen.",
+        "Cutting failed.",
     ]);
     const clearCaptureIssues = () => {
         if (!deps.getCurrentIssues)
@@ -172,7 +172,7 @@ export const initMathCapture = (context, deps) => {
     const fetchSources = async () => {
         const captureApi = getCaptureApi();
         if (!(captureApi === null || captureApi === void 0 ? void 0 : captureApi.listSources)) {
-            setStatus("画面キャプチャが利用できません。画面収録の許可を確認してください。");
+            setStatus("Screen capture is not available. Please confirm permission for screen recording.");
             return false;
         }
         try {
@@ -184,7 +184,7 @@ export const initMathCapture = (context, deps) => {
             // List failed — check if it's a permission issue
             const guided = await showPermissionGuideIfNeeded();
             if (!guided) {
-                setStatus("ウィンドウ一覧の取得に失敗しました。画面収録の許可を確認してください。");
+                setStatus("Failed to get window list. Please confirm permission for screen recording.");
             }
             return false;
         }
@@ -192,7 +192,7 @@ export const initMathCapture = (context, deps) => {
             // Empty sources — likely permission denied (macOS returns [] when denied)
             const guided = await showPermissionGuideIfNeeded();
             if (!guided) {
-                setStatus("取り込み可能なウィンドウがありません。画面収録の許可を確認してください。");
+                setStatus("There are no retrievable windows. Please confirm permission for screen recording.");
             }
             return false;
         }
@@ -228,7 +228,7 @@ export const initMathCapture = (context, deps) => {
             if (!selectedSource)
                 return;
             if (!selectedSource.thumbnailUrl) {
-                setStatus("選択した画面のサムネイル取得に失敗しました。別の画面を選択してください。");
+                setStatus("Failed to obtain thumbnail of selected screen. Please select another screen.");
                 return;
             }
             deps.captureUi.closeWindowPicker();
@@ -240,7 +240,7 @@ export const initMathCapture = (context, deps) => {
                 imageUrl,
                 sizeLabel: sizeWidth && sizeHeight
                     ? `${sizeWidth} × ${sizeHeight}`
-                    : "選択中",
+                    : "Selected",
             });
             if (mathCaptureCropImage instanceof HTMLImageElement) {
                 mathCaptureCropImage.onload = () => {
@@ -292,25 +292,25 @@ export const initMathCapture = (context, deps) => {
             var _a;
             const dataUrl = cropToDataUrl();
             if (!dataUrl) {
-                setStatus("切り取りに失敗しました。");
+                setStatus("Cutting failed.");
                 return;
             }
             // Show loading state while OCR processes
-            deps.captureUi.setCropBusy(true, "認識中…");
+            deps.captureUi.setCropBusy(true, "Recognizing...");
             try {
                 const result = await deps.onCaptureImage(dataUrl, (current, total) => {
-                    deps.captureUi.setCropBusy(true, `認識中… (${current}/${total})`);
+                    deps.captureUi.setCropBusy(true, `Recognizing... (${current}/${total})`);
                 });
                 if (result.ok) {
                     deps.captureUi.closeCropper();
                 }
                 else {
                     // Show error, let user retry with adjusted selection
-                    deps.captureUi.setCropError((_a = result.error) !== null && _a !== void 0 ? _a : "認識に失敗しました");
+                    deps.captureUi.setCropError((_a = result.error) !== null && _a !== void 0 ? _a : "Recognition failed");
                 }
             }
             catch {
-                deps.captureUi.setCropError("認識に失敗しました");
+                deps.captureUi.setCropError("Recognition failed");
             }
             finally {
                 deps.captureUi.setCropBusy(false);

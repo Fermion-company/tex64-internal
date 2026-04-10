@@ -101,10 +101,10 @@ export const createMathWysiwygCandidateOps = (
       }) satisfies Candidate;
 
     return [
-      makeOp("matrix-op:add-row", "+row", "行を追加", "\\begin{matrix}a\\\\b\\end{matrix}", "addRowAfter", 260),
-      makeOp("matrix-op:add-col", "+col", "列を追加", "\\begin{matrix}a&b\\end{matrix}", "addColumnAfter", 258),
-      makeOp("matrix-op:remove-row", "-row", "行を削除", "\\begin{matrix}a\\\\b\\end{matrix}", "removeRow", 256),
-      makeOp("matrix-op:remove-col", "-col", "列を削除", "\\begin{matrix}a&b\\end{matrix}", "removeColumn", 254),
+      makeOp("matrix-op:add-row", "+row", "add row", "\\begin{matrix}a\\\\b\\end{matrix}", "addRowAfter", 260),
+      makeOp("matrix-op:add-col", "+col", "add column", "\\begin{matrix}a&b\\end{matrix}", "addColumnAfter", 258),
+      makeOp("matrix-op:remove-row", "-row", "delete row", "\\begin{matrix}a\\\\b\\end{matrix}", "removeRow", 256),
+      makeOp("matrix-op:remove-col", "-col", "delete column", "\\begin{matrix}a&b\\end{matrix}", "removeColumn", 254),
     ];
   };
 

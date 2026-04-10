@@ -2,7 +2,7 @@ import { updateMessageElement } from "./ai-chat-message.js";
 export const createAiChatIncomingHandlers = (options) => {
     const { chats, chatIndex, proposalIndex, runningConversations, resumableConversations, streamingMessages, thinkingMessages, pendingAgentRequests, getActiveChatId, setActiveChatId, ensureChat, getChat, setChatTitle, clearPendingAttachments, renderHistoryList, renderChatContent, updateSendState, updateStatusDisplay, upsertThinkingMessage, clearThinkingMessage, finalizeStreamingMessage, ensureStreamingMessage, scrollToBottom, appendMessage, disableAutonomous, enableAutonomous, scheduleUsageRefresh, rebuildProposalCards, restoreDraftFromPending, updateContextBar, buildContextPayload, getAgentSettings, postToNative, switchActiveChat, } = options;
     const AUTONOMOUS_RESUME_DELAY_MS = 600;
-    // バックグラウンドで完了したエージェントのトースト通知
+    // バックグラウンドでDoneしたエージェントのトースト通知
     const showCompletionToast = (chatId, isError) => {
         const chat = getChat(chatId);
         if (!chat || chat.id === getActiveChatId())
@@ -14,14 +14,14 @@ export const createAiChatIncomingHandlers = (options) => {
         toast.className = `ai-bg-toast${isError ? " is-error" : ""}`;
         const label = document.createElement("span");
         label.textContent = isError
-            ? `${chat.title || "チャット"}: エラー`
-            : `${chat.title || "チャット"}: 完了`;
+            ? `${chat.title || "Chat"}: Issues`
+            : `${chat.title || "Chat"}: Done`;
         toast.appendChild(label);
         if (switchActiveChat) {
             const viewBtn = document.createElement("button");
             viewBtn.type = "button";
             viewBtn.className = "ai-bg-toast-action";
-            viewBtn.textContent = "表示";
+            viewBtn.textContent = "display";
             viewBtn.addEventListener("click", () => {
                 switchActiveChat(chat.id);
                 toast.remove();
@@ -101,7 +101,7 @@ export const createAiChatIncomingHandlers = (options) => {
             chat.hasUndo = ((_c = session.status) === null || _c === void 0 ? void 0 : _c.undoAvailable) === true;
             if (statusState === "running") {
                 runningConversations.add(chat.id);
-                chat.statusMessage = statusMessage || "考えています...";
+                chat.statusMessage = statusMessage || "Thinking...";
                 upsertThinkingMessage(chat.id, chat.statusMessage);
             }
             else if (statusState === "error") {
@@ -121,7 +121,7 @@ export const createAiChatIncomingHandlers = (options) => {
         if (!chat.autonomous || chat.autoLoopBudget <= 0)
             return false;
         chat.autoLoopBudget -= 1;
-        chat.statusMessage = "作業中...";
+        chat.statusMessage = "Working...";
         runningConversations.add(chat.id);
         resumableConversations.delete(chat.id);
         upsertThinkingMessage(chat.id, chat.statusMessage);
@@ -152,7 +152,7 @@ export const createAiChatIncomingHandlers = (options) => {
         if (state === "running") {
             runningConversations.add(chat.id);
             resumableConversations.delete(chat.id);
-            chat.statusMessage = message || "考えています...";
+            chat.statusMessage = message || "Thinking...";
             upsertThinkingMessage(chat.id, chat.statusMessage);
         }
         else {
@@ -194,7 +194,7 @@ export const createAiChatIncomingHandlers = (options) => {
         resumableConversations.delete(conversationId);
         updateSendState();
         renderHistoryList();
-        // バックグラウンド会話の完了トースト
+        // バックグラウンド会話のDoneトースト
         if (conversationId !== getActiveChatId()) {
             showCompletionToast(conversationId, false);
         }
@@ -224,7 +224,7 @@ export const createAiChatIncomingHandlers = (options) => {
             return;
         const label = typeof payload.label === "string" && payload.label.trim().length > 0
             ? payload.label.trim()
-            : "考えています...";
+            : "Thinking...";
         // Filter out internal status values — only show the label
         chat.statusMessage = label;
         upsertThinkingMessage(chat.id, chat.statusMessage);
@@ -249,7 +249,7 @@ export const createAiChatIncomingHandlers = (options) => {
         }
     };
     const handleApplyResult = (payload) => {
-        var _a, _b;
+        var _a;
         const chatId = (_a = proposalIndex.get(payload.proposalId)) !== null && _a !== void 0 ? _a : payload.conversationId;
         const chat = getChat(chatId);
         if (!chat)
@@ -267,16 +267,18 @@ export const createAiChatIncomingHandlers = (options) => {
             if (chat.id === getActiveChatId()) {
                 rebuildProposalCards(chat.id);
             }
+            // Clear the editor's Undo/Confirm bar so it stays in sync with
+            // the chat-side proposal state. Without this, confirming in the
+            // chat panel leaves a stale Undo/Confirm bar in the editor.
+            const editorBar = document.getElementById("ai-undo-keep-bar");
+            if (editorBar)
+                editorBar.remove();
             renderHistoryList();
             updateSendState();
         }
-        else {
-            const label = payload.conflict ? "適用競合" : "適用失敗";
-            appendMessage({ role: "system", text: `${label}: ${(_b = payload.error) !== null && _b !== void 0 ? _b : "不明なエラー"}` }, chat.id);
-        }
     };
     const handleUndoResult = (payload) => {
-        var _a, _b;
+        var _a;
         const targetChatId = (_a = payload.conversationId) !== null && _a !== void 0 ? _a : getActiveChatId();
         if (payload.ok) {
             const chat = getChat(targetChatId);
@@ -298,9 +300,6 @@ export const createAiChatIncomingHandlers = (options) => {
                 updateSendState();
             }
         }
-        else {
-            appendMessage({ role: "system", text: `取り消し失敗: ${(_b = payload.message) !== null && _b !== void 0 ? _b : "取り消せる操作がありません。"}` }, targetChatId);
-        }
         updateContextBar();
     };
     const handleUndoAvailability = (payload) => {
@@ -321,7 +320,7 @@ export const createAiChatIncomingHandlers = (options) => {
         const chat = ensureChat(payload.conversationId);
         if (!chat || !runningConversations.has(chat.id))
             return;
-        chat.statusMessage = "考えています...";
+        chat.statusMessage = "Thinking...";
         upsertThinkingMessage(chat.id, chat.statusMessage);
     };
     const handleThought = (payload) => {
@@ -330,14 +329,13 @@ export const createAiChatIncomingHandlers = (options) => {
         const chat = ensureChat(payload.conversationId);
         if (!chat || !runningConversations.has(chat.id))
             return;
-        chat.statusMessage = "考えています...";
+        chat.statusMessage = "Thinking...";
         upsertThinkingMessage(chat.id, chat.statusMessage);
     };
     const handleError = (message, conversationId) => {
         var _a;
         if (!conversationId)
             return;
-        appendMessage({ role: "system", text: message }, conversationId);
         const chat = ensureChat(conversationId);
         if (chat) {
             chat.statusMessage = "";
@@ -352,7 +350,7 @@ export const createAiChatIncomingHandlers = (options) => {
         runningConversations.delete(conversationId);
         renderHistoryList();
         updateSendState();
-        // バックグラウンド会話のエラートースト
+        // バックグラウンド会話のIssuesトースト
         if (conversationId !== getActiveChatId()) {
             showCompletionToast(conversationId, true);
         }
