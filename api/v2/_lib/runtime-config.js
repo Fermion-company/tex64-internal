@@ -101,10 +101,9 @@ export const getRuntimeConfig = () => {
   if (runtimeConfigCache) {
     return runtimeConfigCache;
   }
-  const blendedCostPerTokenUsd = Math.max(
-    0.000000001,
-    parseNumber(process.env.TEX64_PLATFORM_BLEND_COST_PER_TOKEN_USD, 0.000002)
-  );
+  // Blended cost for gpt-5.4-mini: input $0.25/1M, output $2.00/1M,
+  // assumed 4:1 input:output ratio → (4×0.25 + 1×2.00) / 5M = $0.60/1M
+  const blendedCostPerTokenUsd = 0.0000006;
   runtimeConfigCache = {
     jwtSecret: resolveJwtSecret(),
     allowDevAuth: parseBoolean(process.env.TEX64_PLATFORM_ALLOW_DEV_AUTH, false),
@@ -128,7 +127,7 @@ export const getRuntimeConfig = () => {
       0,
       parseInteger(process.env.TEX64_PLATFORM_FREE_MONTHLY_TOKENS, 0)
     ),
-    basicBudgetUsd: 10,
+    basicBudgetUsd: 8,
     proBudgetUsd: 20,
     requestLimitFree: Math.max(
       0,
