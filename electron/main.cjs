@@ -31,7 +31,6 @@ const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
 const { ApiUsageService } = require("./services/api-usage.cjs");
 const { PlatformAccessService } = require("./services/platform-access.cjs");
-const { createMainErrorReporter } = require("./services/main-error-reporter.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 
@@ -437,38 +436,6 @@ const agentHandlers = createAgentHandlers({
   platformService: getPlatformAccessService(),
 });
 
-let errorReportingEnabled = true;
-const mainErrorReporter = createMainErrorReporter({
-  isEnabled: () => errorReportingEnabled,
-  sendReport: (report) =>
-    miscHandlers.handleErrorReportSend({
-      report: {
-        ...report,
-        diagnostics: {
-          processPlatform: process.platform,
-          processArch: process.arch,
-          ...(report?.diagnostics && typeof report.diagnostics === "object"
-            ? report.diagnostics
-            : {}),
-        },
-      },
-    }),
-});
-
-const reportMainProcessError = (kind, value, diagnostics = {}) => {
-  mainErrorReporter.report(kind, value, diagnostics);
-};
-
-process.on("uncaughtExceptionMonitor", (error, origin) => {
-  reportMainProcessError("main_uncaught_exception", error, {
-    origin: typeof origin === "string" ? origin : null,
-  });
-});
-
-process.on("unhandledRejection", (reason) => {
-  reportMainProcessError("main_unhandled_rejection", reason, {});
-});
-
 const focusMainWindow = () => {
   if (!state.mainWindow) {
     return;
@@ -641,6 +608,15 @@ app.whenReady().then(() => {
     }, 15_000);
     setInterval(() => {
       triggerUpdateCheck();
+    }, 6 * 60 * 60 * 1000);
+    const triggerAnnouncementsCheck = () => {
+      Promise.resolve(miscHandlers.handleAnnouncementsCheck()).catch(() => {});
+    };
+    setTimeout(() => {
+      triggerAnnouncementsCheck();
+    }, 5_000);
+    setInterval(() => {
+      triggerAnnouncementsCheck();
     }, 6 * 60 * 60 * 1000);
   }
 
@@ -864,7 +840,7 @@ ipcMain.on("tex64", (_event, message) => {
     return;
   }
   if (type === "createProject") {
-    workspaceHandlers.handleCreateProject();
+    workspaceHandlers.handleCreateProject(message);
     return;
   }
   if (type === "synctex:forward") {
@@ -1022,6 +998,14 @@ ipcMain.on("tex64", (_event, message) => {
     miscHandlers.handleUpdateStatusGet();
     return;
   }
+  if (type === "announcements:check") {
+    miscHandlers.handleAnnouncementsCheck();
+    return;
+  }
+  if (type === "announcement:dismiss") {
+    miscHandlers.handleAnnouncementDismiss(message);
+    return;
+  }
   if (type === "auth:google:start") {
     miscHandlers.handleAuthGoogleStart();
     return;
@@ -1040,17 +1024,6 @@ ipcMain.on("tex64", (_event, message) => {
   }
   if (type === "feedback:send") {
     miscHandlers.handleFeedbackSend(message);
-    return;
-  }
-  if (type === "error:reporting:set") {
-    errorReportingEnabled = message?.enabled !== false;
-    return;
-  }
-  if (type === "error:report") {
-    if (!errorReportingEnabled) {
-      return;
-    }
-    miscHandlers.handleErrorReportSend(message);
     return;
   }
   if (type === "api:usage:get") {

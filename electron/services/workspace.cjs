@@ -25,6 +25,550 @@ const IGNORED_FILES = new Set([
   "desktop.ini",
 ]);
 
+const TEMPLATE_LUALATEX_EN = String.raw`% !TEX program = lualatex
+% !TEX root = main.tex
+\documentclass[a4paper,11pt]{article}
+
+% ---------- Layout & typography ----------
+\usepackage[margin=25mm]{geometry}
+\usepackage{microtype}
+\usepackage{lmodern}
+
+% ---------- Math ----------
+\usepackage{amsmath, amssymb, mathtools}
+\usepackage{amsthm}
+
+% ---------- Figures & tables ----------
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+
+% ---------- Lists, quotes, code ----------
+\usepackage{enumitem}
+\usepackage{csquotes}
+\usepackage{listings}
+
+% ---------- Cross-references & links (load late) ----------
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+}
+
+% ---------- Theorem environments ----------
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+% ---------- Listings style ----------
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!60!black}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{teal},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  framerule=0.5pt,
+  rulecolor=\color{gray!50},
+}
+\lstset{style=code}
+
+% ---------- Custom shortcuts ----------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+
+\title{Document Title}
+\author{Your Name\\\small \texttt{your.email@example.com}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+A short summary of the document goes here. State the problem, your approach,
+and the main result in two or three sentences.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+\section{Introduction}
+\label{sec:intro}
+
+Write your text in paragraphs separated by blank lines.
+Use \emph{emphasis} for stress and \textbf{bold} for strong emphasis.
+Footnotes\footnote{Footnotes appear at the bottom of the page.} are
+straightforward.
+
+External links are clickable: \url{https://example.org}, or with
+custom anchor text: \href{https://example.org}{example site}.
+
+\section{Mathematics}
+\label{sec:math}
+
+Inline math like $a^2 + b^2 = c^2$ flows with the surrounding text.
+Display math gets its own line:
+\begin{equation}
+  \label{eq:euler}
+  e^{i\pi} + 1 = 0.
+\end{equation}
+Refer to~\eqref{eq:euler} as needed.
+
+Aligned equations:
+\begin{align}
+  (x + y)^2 &= x^2 + 2xy + y^2, \\
+  (x - y)^2 &= x^2 - 2xy + y^2.
+\end{align}
+
+Cases:
+\begin{equation}
+  \abs{x} =
+  \begin{cases}
+    x  & \text{if } x \ge 0, \\
+    -x & \text{otherwise.}
+  \end{cases}
+\end{equation}
+
+Matrices:
+\begin{equation}
+  A =
+  \begin{pmatrix}
+    a_{11} & a_{12} \\
+    a_{21} & a_{22}
+  \end{pmatrix},
+  \qquad
+  \det A = a_{11} a_{22} - a_{12} a_{21}.
+\end{equation}
+
+\subsection{Theorems and proofs}
+
+\begin{definition}
+  Let $f \colon \R \to \R$ be a function. We say $f$ is \emph{continuous} at
+  $x_0 \in \R$ if for every $\varepsilon > 0$ there exists $\delta > 0$ such
+  that $\abs{x - x_0} < \delta$ implies $\abs{f(x) - f(x_0)} < \varepsilon$.
+\end{definition}
+
+\begin{theorem}[Pythagoras]
+  \label{thm:pythagoras}
+  In a right triangle with legs $a$, $b$ and hypotenuse $c$,
+  \[
+    a^2 + b^2 = c^2.
+  \]
+\end{theorem}
+
+\begin{proof}
+  Omitted; see any standard reference~\cite{euclid}.
+\end{proof}
+
+\begin{remark}
+  Theorem~\ref{thm:pythagoras} extends to higher dimensions via
+  inner-product spaces.
+\end{remark}
+
+\section{Lists, quotes, and code}
+
+\subsection{Lists}
+
+A bulleted list:
+\begin{itemize}
+  \item First item.
+  \item Second item, with a nested list:
+  \begin{itemize}
+    \item Nested item.
+  \end{itemize}
+\end{itemize}
+
+A numbered list with custom labels:
+\begin{enumerate}[label=(\alph*)]
+  \item Step one.
+  \item Step two.
+\end{enumerate}
+
+A description list:
+\begin{description}
+  \item[Domain] The set of inputs.
+  \item[Codomain] The set of possible outputs.
+\end{description}
+
+\subsection{Block quote}
+
+\begin{displayquote}
+  Mathematics is the language with which God has written the universe.
+  \hfill --- attributed to Galileo
+\end{displayquote}
+
+\subsection{Code listing}
+
+\begin{lstlisting}[language=Python, caption={A short example.}, label={lst:example}]
+def fib(n):
+    """Return the n-th Fibonacci number."""
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+\end{lstlisting}
+
+Listing~\ref{lst:example} shows an iterative helper.
+
+\section{Figures and tables}
+
+\subsection{A single figure}
+
+\begin{figure}[ht]
+  \centering
+  % \includegraphics[width=0.6\linewidth]{example}
+  \fbox{\rule{0pt}{6em}\rule{0.6\linewidth}{0pt}}
+  \caption{Replace the placeholder above with \texttt{\textbackslash includegraphics}.}
+  \label{fig:example}
+\end{figure}
+
+\subsection{Side-by-side subfigures}
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.45\linewidth}
+    \centering
+    \fbox{\rule{0pt}{4em}\rule{0.9\linewidth}{0pt}}
+    \caption{Left subfigure.}
+    \label{fig:left}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.45\linewidth}
+    \centering
+    \fbox{\rule{0pt}{4em}\rule{0.9\linewidth}{0pt}}
+    \caption{Right subfigure.}
+    \label{fig:right}
+  \end{subfigure}
+  \caption{A figure made of two subfigures.}
+  \label{fig:subs}
+\end{figure}
+
+See Figure~\ref{fig:example}, and the panels in Figure~\ref{fig:subs}
+(\subref{fig:left} and \subref{fig:right}).
+
+\subsection{A table}
+
+\begin{table}[ht]
+  \centering
+  \caption{A booktabs-style table.}
+  \label{tab:example}
+  \begin{tabular}{lrr}
+    \toprule
+    Item     & Count & Mean (s) \\
+    \midrule
+    Method A &   120 & 0.42 \\
+    Method B &    85 & 0.31 \\
+    Method C &   210 & 0.58 \\
+    \midrule
+    Total    &   415 & 0.44 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:example} summarises the three methods.
+
+\section{Conclusion}
+
+Summarise your contributions and outline future work.
+
+\section*{Acknowledgements}
+
+The author thanks the open-source community for the LaTeX ecosystem.
+
+\begin{thebibliography}{9}
+  \bibitem{euclid}
+    Euclid, \emph{Elements}, ca.\ 300 BCE.
+  \bibitem{knuth1984}
+    D.~E.\ Knuth, \emph{The TeXbook}, Addison--Wesley, 1984.
+\end{thebibliography}
+
+\end{document}
+`;
+
+const TEMPLATE_LUALATEX_JA = String.raw`% !TEX program = lualatex
+% !TEX root = main.tex
+\documentclass[a4paper,11pt]{ltjsarticle}
+
+% ---------- レイアウト・タイポグラフィ ----------
+\usepackage[margin=25mm]{geometry}
+\usepackage{microtype}
+
+% ---------- 数式 ----------
+\usepackage{amsmath, amssymb, mathtools}
+\usepackage{amsthm}
+
+% ---------- 図表 ----------
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+
+% ---------- リスト・引用・コード ----------
+\usepackage{enumitem}
+\usepackage{csquotes}
+\usepackage{listings}
+
+% ---------- 相互参照・リンク（最後に読み込む） ----------
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+}
+
+% ---------- 定理環境 ----------
+\theoremstyle{plain}
+\newtheorem{theorem}{定理}[section]
+\newtheorem{lemma}[theorem]{補題}
+\newtheorem{proposition}[theorem]{命題}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{定義}
+\newtheorem{example}[theorem]{例}
+\theoremstyle{remark}
+\newtheorem*{remark}{注意}
+\renewcommand{\proofname}{証明}
+
+% ---------- リスティングのスタイル ----------
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!60!black}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{teal},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  framerule=0.5pt,
+  rulecolor=\color{gray!50},
+}
+\lstset{style=code}
+
+% ---------- 独自ショートカット ----------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+
+\title{タイトル}
+\author{著者名\\\small \texttt{your.email@example.com}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+ここに概要を書きます。問題設定・アプローチ・主要な結果を 2〜3 文でまとめます。
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+\section{はじめに}
+\label{sec:intro}
+
+段落は空行で区切ります。\emph{強調}や\textbf{太字}も使えます。
+脚注\footnote{脚注は同じページの下部に表示されます。}も自然に扱えます。
+
+外部リンクはそのまま貼れます: \url{https://example.org}。
+別表記のリンクも可能です: \href{https://example.org}{サンプルサイト}。
+
+\section{数式}
+\label{sec:math}
+
+文中の数式は $a^2 + b^2 = c^2$ のように地の文に溶け込みます。
+別行立ては独立した行に表示されます:
+\begin{equation}
+  \label{eq:euler}
+  e^{i\pi} + 1 = 0.
+\end{equation}
+式~\eqref{eq:euler}のように参照できます。
+
+整列した式:
+\begin{align}
+  (x + y)^2 &= x^2 + 2xy + y^2, \\
+  (x - y)^2 &= x^2 - 2xy + y^2.
+\end{align}
+
+場合分け:
+\begin{equation}
+  \abs{x} =
+  \begin{cases}
+    x  & (x \ge 0 \text{ のとき}), \\
+    -x & (\text{それ以外}).
+  \end{cases}
+\end{equation}
+
+行列:
+\begin{equation}
+  A =
+  \begin{pmatrix}
+    a_{11} & a_{12} \\
+    a_{21} & a_{22}
+  \end{pmatrix},
+  \qquad
+  \det A = a_{11} a_{22} - a_{12} a_{21}.
+\end{equation}
+
+\subsection{定理と証明}
+
+\begin{definition}
+  関数 $f \colon \R \to \R$ が点 $x_0 \in \R$ で\emph{連続}であるとは、
+  任意の $\varepsilon > 0$ に対してある $\delta > 0$ が存在して、
+  $\abs{x - x_0} < \delta$ ならば $\abs{f(x) - f(x_0)} < \varepsilon$ が成り立つことをいう。
+\end{definition}
+
+\begin{theorem}[ピタゴラスの定理]
+  \label{thm:pythagoras}
+  直角三角形の 2 辺の長さを $a$, $b$、斜辺を $c$ とすると、
+  \[
+    a^2 + b^2 = c^2.
+  \]
+\end{theorem}
+
+\begin{proof}
+  証明は省略する。標準的な参考文献~\cite{euclid}を参照のこと。
+\end{proof}
+
+\begin{remark}
+  定理~\ref{thm:pythagoras}は内積空間における高次元化が知られている。
+\end{remark}
+
+\section{リスト・引用・コード}
+
+\subsection{リスト}
+
+箇条書き:
+\begin{itemize}
+  \item 1 つめの項目。
+  \item 2 つめの項目（入れ子にもできる）:
+  \begin{itemize}
+    \item ネストした項目。
+  \end{itemize}
+\end{itemize}
+
+ラベルを変えた番号付きリスト:
+\begin{enumerate}[label=(\alph*)]
+  \item 手順 1。
+  \item 手順 2。
+\end{enumerate}
+
+定義リスト:
+\begin{description}
+  \item[定義域] 入力の集合。
+  \item[値域] 出力になりうる値の集合。
+\end{description}
+
+\subsection{ブロック引用}
+
+\begin{displayquote}
+  数学とは、神が宇宙を記述するために用いた言語である。
+  \hfill --- ガリレオ・ガリレイ（伝）
+\end{displayquote}
+
+\subsection{コードリスティング}
+
+\begin{lstlisting}[language=Python, caption={短い例。}, label={lst:example}]
+def fib(n):
+    """n 番目のフィボナッチ数を返す。"""
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+\end{lstlisting}
+
+リスト~\ref{lst:example}は反復版のヘルパーを示す。
+
+\section{図と表}
+
+\subsection{図}
+
+\begin{figure}[ht]
+  \centering
+  % \includegraphics[width=0.6\linewidth]{example}
+  \fbox{\rule{0pt}{6em}\rule{0.6\linewidth}{0pt}}
+  \caption{プレースホルダーは \texttt{\textbackslash includegraphics} で置き換えてください。}
+  \label{fig:example}
+\end{figure}
+
+\subsection{2 枚並べた図}
+
+\begin{figure}[ht]
+  \centering
+  \begin{subfigure}[t]{0.45\linewidth}
+    \centering
+    \fbox{\rule{0pt}{4em}\rule{0.9\linewidth}{0pt}}
+    \caption{左の図。}
+    \label{fig:left}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.45\linewidth}
+    \centering
+    \fbox{\rule{0pt}{4em}\rule{0.9\linewidth}{0pt}}
+    \caption{右の図。}
+    \label{fig:right}
+  \end{subfigure}
+  \caption{2 枚の小図からなる図。}
+  \label{fig:subs}
+\end{figure}
+
+図~\ref{fig:example}と、図~\ref{fig:subs}の各パネル
+(\subref{fig:left}, \subref{fig:right}) を参照のこと。
+
+\subsection{表}
+
+\begin{table}[ht]
+  \centering
+  \caption{booktabs スタイルの表。}
+  \label{tab:example}
+  \begin{tabular}{lrr}
+    \toprule
+    項目     & 件数 & 平均 (秒) \\
+    \midrule
+    手法 A   &  120 & 0.42 \\
+    手法 B   &   85 & 0.31 \\
+    手法 C   &  210 & 0.58 \\
+    \midrule
+    合計     &  415 & 0.44 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:example}は 3 手法の比較である。
+
+\section{まとめ}
+
+主な貢献を要約し、今後の課題を述べる。
+
+\section*{謝辞}
+
+LaTeX エコシステムを支える OSS コミュニティに感謝する。
+
+\begin{thebibliography}{9}
+  \bibitem{euclid}
+    Euclid, \emph{Elements}, ca.\ 300 BCE.
+  \bibitem{knuth1984}
+    D.~E.\ Knuth, \emph{The \TeX book}, Addison--Wesley, 1984.
+\end{thebibliography}
+
+\end{document}
+`;
+
 const WorkspaceError = {
   invalidPath: "Invalid path.",
   invalidName: "Invalid name.",
@@ -488,7 +1032,7 @@ class WorkspaceManager {
     return null;
   }
 
-  async initializeProject(rootPath) {
+  async initializeProject(rootPath, locale = "en") {
     await ensureDirectory(rootPath);
     const ensureUniqueMainPath = async () => {
       let index = 1;
@@ -505,86 +1049,12 @@ class WorkspaceManager {
       return candidate;
     };
     const mainTexPath = await ensureUniqueMainPath();
-    const content = this.templateContent();
+    const content = this.templateContent(locale);
     await writeUtf8File(mainTexPath, content);
   }
 
-  templateContent() {
-    const title = "タイトル";
-    const author = "著者名";
-    return [
-      "% !TEX program = lualatex",
-      "% !TeX program = lualatex",
-      "\\documentclass[a4paper,11pt]{ltjsarticle}",
-      "",
-      "\\usepackage{geometry}",
-      "\\usepackage{graphicx}",
-      "\\usepackage{amsmath,amssymb}",
-      "\\usepackage{hyperref}",
-      "",
-      "\\geometry{margin=25mm}",
-      "\\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}",
-      "",
-      `\\title{${title}}`,
-      `\\author{${author}}`,
-      "\\date{\\today}",
-      "",
-      "\\begin{document}",
-      "\\maketitle",
-      "",
-      "\\begin{abstract}",
-      "概要をここに書きます。目的・手法・結果を2〜3文でまとめます。",
-      "\\end{abstract}",
-      "",
-      "\\section{はじめに}",
-      "ここに本文を書きます。段落の最初は全角スペースで始めても良いです。",
-      "",
-      "\\subsection{箇条書き}",
-      "\\begin{itemize}",
-      "  \\item ポイント1",
-      "  \\item ポイント2",
-      "\\end{itemize}",
-      "",
-      "\\subsection{数式}",
-      "式\\eqref{eq:sample}のように参照できます。",
-      "\\begin{align}",
-      "  E &= mc^2 \\label{eq:sample}",
-      "\\end{align}",
-      "",
-      "\\subsection{図と表}",
-      "図\\ref{fig:sample}、表\\ref{tab:sample}のように参照できます。",
-      "\\begin{figure}[t]",
-      "  \\centering",
-      "  \\fbox{\\rule{0pt}{120pt}\\rule{0.9\\linewidth}{0pt}}",
-      "  \\caption{図の例（画像を入れる場合は \\texttt{\\\\includegraphics} を使います）}",
-      "  \\label{fig:sample}",
-      "\\end{figure}",
-      "",
-      "\\begin{table}[t]",
-      "  \\centering",
-      "  \\caption{表の例}",
-      "  \\label{tab:sample}",
-      "  \\begin{tabular}{lrr}",
-      "    \\hline",
-      "    項目 & 値1 & 値2 \\\\",
-      "    \\hline",
-      "    A & 1 & 2 \\\\",
-      "    B & 3 & 4 \\\\",
-      "    \\hline",
-      "  \\end{tabular}",
-      "\\end{table}",
-      "",
-      "\\section{まとめ}",
-      "結論や今後の課題を書きます。",
-      "",
-      "\\begin{thebibliography}{9}",
-      "  \\bibitem{sample}",
-      "    著者名, \\emph{文献タイトル}, 出版社, 2026.",
-      "\\end{thebibliography}",
-      "",
-      "\\end{document}",
-      "",
-    ].join("\n");
+  templateContent(locale = "en") {
+    return locale === "ja" ? TEMPLATE_LUALATEX_JA : TEMPLATE_LUALATEX_EN;
   }
 
   async detectRootFile() {

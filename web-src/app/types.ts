@@ -159,6 +159,19 @@ export type PlatformUsageSnapshot = {
   fetchedAt?: number;
 };
 
+export type LocalizedText = string | { en?: string; ja?: string } | null;
+
+export type AnnouncementSnapshot = {
+  id: string;
+  kind: "info" | "feedback";
+  title: LocalizedText;
+  body: LocalizedText;
+  url?: string | null;
+  urlLabel?: LocalizedText;
+  publishedAt?: string | null;
+  expiresAt?: string | null;
+};
+
 export type PlatformUpdateSnapshot = {
   platform?: string | null;
   arch?: string | null;

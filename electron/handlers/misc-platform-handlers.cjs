@@ -284,46 +284,6 @@ const createPlatformHandlers = ({
     }
   };
 
-  const handleErrorReportSend = async (payload) => {
-    if (!platformService || typeof platformService.submitErrorReport !== "function") {
-      return;
-    }
-    const raw =
-      payload?.report && typeof payload.report === "object"
-        ? payload.report
-        : payload && typeof payload === "object"
-        ? payload
-        : null;
-    if (!raw) {
-      return;
-    }
-    const report = {
-      ...raw,
-      source:
-        typeof raw.source === "string" && raw.source.trim()
-          ? raw.source.trim()
-          : "app-renderer",
-      appVersion:
-        typeof raw.appVersion === "string" && raw.appVersion.trim()
-          ? raw.appVersion.trim()
-          : appVersion,
-      diagnostics:
-        raw.diagnostics && typeof raw.diagnostics === "object"
-          ? {
-              ...raw.diagnostics,
-              platform: `${appPlatform}-${appArch}`,
-            }
-          : {
-              platform: `${appPlatform}-${appArch}`,
-            },
-    };
-    try {
-      await platformService.submitErrorReport(report, {});
-    } catch {
-      // ignore reporting failures
-    }
-  };
-
   return {
     emitPlatformAiAccess,
     emitPlatformUsage,
@@ -336,7 +296,6 @@ const createPlatformHandlers = ({
     handleAuthSignOut,
     handleOpenExternal,
     handleFeedbackSend,
-    handleErrorReportSend,
   };
 };
 

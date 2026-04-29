@@ -87,7 +87,10 @@ const DEFAULT_SETTINGS = {
     costOutputPerMillion: 0,
   },
   recentProjects: [],
+  dismissedAnnouncementIds: [],
 };
+
+const MAX_DISMISSED_ANNOUNCEMENT_IDS = 200;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -118,6 +121,11 @@ class UserSettingsService {
       recentProjects: Array.isArray(storedObject.recentProjects)
         ? storedObject.recentProjects
         : clone(DEFAULT_SETTINGS.recentProjects),
+      dismissedAnnouncementIds: Array.isArray(storedObject.dismissedAnnouncementIds)
+        ? storedObject.dismissedAnnouncementIds.filter(
+            (id) => typeof id === "string" && id.trim()
+          )
+        : clone(DEFAULT_SETTINGS.dismissedAnnouncementIds),
     };
     return clone(this.state);
   }
@@ -193,9 +201,34 @@ class UserSettingsService {
     await this.save();
     return [];
   }
+
+  async getDismissedAnnouncementIds() {
+    const state = await this.load();
+    return clone(state.dismissedAnnouncementIds ?? []);
+  }
+
+  async addDismissedAnnouncementId(id) {
+    if (typeof id !== "string" || !id.trim()) {
+      return clone(this.state?.dismissedAnnouncementIds ?? []);
+    }
+    const trimmed = id.trim();
+    const state = await this.load();
+    const existing = Array.isArray(state.dismissedAnnouncementIds)
+      ? state.dismissedAnnouncementIds
+      : [];
+    if (existing.includes(trimmed)) {
+      return clone(existing);
+    }
+    const updated = [...existing, trimmed].slice(-MAX_DISMISSED_ANNOUNCEMENT_IDS);
+    state.dismissedAnnouncementIds = updated;
+    this.state = state;
+    await this.save();
+    return clone(updated);
+  }
 }
 
 module.exports = {
   UserSettingsService,
   MAX_RECENT_PROJECTS,
+  MAX_DISMISSED_ANNOUNCEMENT_IDS,
 };

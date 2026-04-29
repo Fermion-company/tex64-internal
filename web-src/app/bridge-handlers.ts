@@ -18,6 +18,7 @@ import type {
   PlatformUsageSnapshot,
   PlatformUpdateSnapshot,
   PlatformUpdateStatusSnapshot,
+  AnnouncementSnapshot,
   BuildProfile,
 } from "./types.js";
 import { uiText } from "./i18n.js";
@@ -194,6 +195,10 @@ type BridgeHandlersDeps = {
       ok: boolean;
       feedbackId?: string | null;
       error?: { code?: string; message?: string };
+    }) => void;
+    handleAnnouncements?: (payload: {
+      announcements: AnnouncementSnapshot[];
+      fetchedAt?: number;
     }) => void;
   };
   editorSession: {
@@ -625,6 +630,14 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             ok: boolean;
             feedbackId?: string | null;
             error?: { code?: string; message?: string };
+          }
+        );
+        break;
+      case "platform:announcements":
+        deps.platform?.handleAnnouncements?.(
+          message.payload as {
+            announcements: AnnouncementSnapshot[];
+            fetchedAt?: number;
           }
         );
         break;

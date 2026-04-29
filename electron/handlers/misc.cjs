@@ -107,6 +107,48 @@ const createMiscHandlers = (deps) => {
     sendToRenderer("api:usage", { snapshot });
   };
 
+  const emitAnnouncementsForRenderer = async (
+    fetchedAnnouncements,
+    fetchedAt
+  ) => {
+    const settings = ensureUserSettings();
+    const dismissed = new Set(await settings.getDismissedAnnouncementIds());
+    const pending = fetchedAnnouncements.filter((entry) => !dismissed.has(entry.id));
+    sendToRenderer("platform:announcements", {
+      announcements: pending,
+      fetchedAt,
+    });
+  };
+
+  const handleAnnouncementsCheck = async () => {
+    if (!platformService || typeof platformService.fetchAnnouncements !== "function") {
+      return;
+    }
+    try {
+      const result = await platformService.fetchAnnouncements();
+      const announcements = Array.isArray(result?.announcements)
+        ? result.announcements
+        : [];
+      const fetchedAt =
+        typeof result?.fetchedAt === "number" ? result.fetchedAt : Date.now();
+      await emitAnnouncementsForRenderer(announcements, fetchedAt);
+    } catch {
+      // Announcements are best-effort. Stay silent on failure.
+    }
+  };
+
+  const handleAnnouncementDismiss = async (payload) => {
+    const id =
+      payload && typeof payload === "object" && typeof payload.id === "string"
+        ? payload.id
+        : "";
+    if (!id.trim()) {
+      return;
+    }
+    const settings = ensureUserSettings();
+    await settings.addDismissedAnnouncementId(id.trim());
+  };
+
   const handleApiUsageReset = async () => {
     if (!apiUsageService) {
       return;
@@ -128,13 +170,14 @@ const createMiscHandlers = (deps) => {
     handleUpdateDownload: updateHandlers.handleUpdateDownload,
     handleUpdateInstall: updateHandlers.handleUpdateInstall,
     handleUpdateStatusGet: updateHandlers.handleUpdateStatusGet,
+    handleAnnouncementsCheck,
+    handleAnnouncementDismiss,
     handleAuthGoogleStart: platformHandlers.handleAuthGoogleStart,
     handleAuthGoogleCallback: platformHandlers.handleAuthGoogleCallback,
     handleAuthGoogleCancel: platformHandlers.handleAuthGoogleCancel,
     handleAuthSignOut: platformHandlers.handleAuthSignOut,
     handleOpenExternal: platformHandlers.handleOpenExternal,
     handleFeedbackSend: platformHandlers.handleFeedbackSend,
-    handleErrorReportSend: platformHandlers.handleErrorReportSend,
   };
 };
 

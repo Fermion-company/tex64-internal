@@ -150,7 +150,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
     sendLauncherStatus({ isBusy: false, message: null });
   };
 
-  const handleCreateProject = async () => {
+  const handleCreateProject = async (payload = {}) => {
     if (!state.mainWindow) {
       return;
     }
@@ -168,8 +168,9 @@ const createWorkspaceProjectHandlers = (ctx) => {
       return;
     }
     const rootPath = result.filePaths[0];
+    const locale = payload && payload.locale === "ja" ? "ja" : "en";
     try {
-      await workspace.initializeProject(rootPath);
+      await workspace.initializeProject(rootPath, locale);
     } catch (error) {
       sendLauncherStatus({ isBusy: false, message: error.message });
       return;

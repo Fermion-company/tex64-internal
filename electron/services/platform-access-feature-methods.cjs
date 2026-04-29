@@ -62,36 +62,6 @@ const featureMethods = {
     };
   },
 
-  async submitErrorReport(payload, options = {}) {
-    const reportBody = payload && typeof payload === "object" ? { ...payload } : {};
-    const requestBody = { report: reportBody };
-    const state = await this.ensureLoadedState();
-    const requestUrl = `${this.apiBaseUrl}/internal/error-report`;
-    const headers = {};
-    if (state?.session?.accessToken) {
-      try {
-        const token = await this.refreshAccessToken(false);
-        if (typeof token === "string" && token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-      } catch {
-        // Ignore auth refresh failures and submit anonymously as fallback.
-      }
-    }
-    const response = await this.requestJson(requestUrl, {
-      method: "POST",
-      headers,
-      body: requestBody,
-      signal: options.signal,
-    });
-    return {
-      requestId: typeof response?.requestId === "string" ? response.requestId : null,
-      feedbackId: typeof response?.feedbackId === "string" ? response.feedbackId : null,
-      status: typeof response?.status === "string" ? response.status : "accepted",
-      storage: typeof response?.storage === "string" ? response.storage : null,
-    };
-  },
-
   async fetchUpdateManifest(options = {}) {
     const normalizePlatform = (value) => {
       const raw = typeof value === "string" && value.trim() ? value.trim() : process.platform;
@@ -155,6 +125,56 @@ const featureMethods = {
       signature: sanitizeDigestText(response?.signature),
       checkedAt: Date.now(),
     };
+  },
+
+  async fetchAnnouncements() {
+    const response = await this.requestJson(`${this.apiBaseUrl}/announcements`);
+    const rawList = Array.isArray(response?.announcements) ? response.announcements : [];
+    const fetchedAt = Date.now();
+    const sanitizeKind = (value) => (value === "feedback" ? "feedback" : "info");
+    // title/body/urlLabel may be either a plain string or a locale-keyed
+    // object: { en: "...", ja: "..." }. We pass through both forms so the
+    // renderer can pick the active locale at display time.
+    const sanitizeLocalized = (value) => {
+      if (typeof value === "string") {
+        return value.trim() ? value : "";
+      }
+      if (value && typeof value === "object") {
+        const out = {};
+        if (typeof value.en === "string" && value.en.trim()) out.en = value.en;
+        if (typeof value.ja === "string" && value.ja.trim()) out.ja = value.ja;
+        return Object.keys(out).length > 0 ? out : "";
+      }
+      return "";
+    };
+    const announcements = rawList
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const id = typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : null;
+        if (!id) {
+          return null;
+        }
+        return {
+          id,
+          kind: sanitizeKind(entry.kind),
+          title: sanitizeLocalized(entry.title),
+          body: sanitizeLocalized(entry.body),
+          url: sanitizeHttpUrl(entry.url) || null,
+          urlLabel: sanitizeLocalized(entry.urlLabel) || null,
+          publishedAt:
+            typeof entry.publishedAt === "string" && entry.publishedAt.trim()
+              ? entry.publishedAt
+              : null,
+          expiresAt:
+            typeof entry.expiresAt === "string" && entry.expiresAt.trim()
+              ? entry.expiresAt
+              : null,
+        };
+      })
+      .filter((entry) => entry !== null);
+    return { announcements, fetchedAt };
   },
 
   buildBlockedAccess(code, message, authenticated = true) {

@@ -1114,84 +1114,32 @@
                     <div class="settings-page-title">Feedback</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Feedback</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">category</span>
+                        <span class="settings-title">Category</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-feedback-category">
-                          <option value="bug">defect</option>
-                          <option value="idea">request</option>
-                          <option value="other">others</option>
+                          <option value="bug">Bug</option>
+                          <option value="idea">Request</option>
+                          <option value="other">Other</option>
                         </select>
                       </div>
                     </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Content</span>
-                      </div>
+                    <div class="settings-item is-stacked">
                       <div class="settings-control">
                         <textarea
                           class="settings-input"
                           id="settings-feedback-message"
-                          rows="4"
-                          placeholder="Points to be improved and steps to reproduce the problem, etc."
+                          rows="6"
+                          placeholder="Type your feedback here."
                         ></textarea>
-                      </div>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Contact information (optional)</span>
-                      </div>
-                      <div class="settings-control">
-                        <input
-                          class="settings-input"
-                          id="settings-feedback-email"
-                          type="email"
-                          placeholder="name@example.com"
-                        >
-                      </div>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Attach diagnostic information (optional)</span>
-                        <span class="settings-desc">Sends diagnostic information such as OS/version.</span>
-                      </div>
-                      <div class="settings-control">
-                        <label class="settings-switch" for="settings-feedback-include-diagnostics">
-                          <input
-                            class="settings-switch-input"
-                            id="settings-feedback-include-diagnostics"
-                            type="checkbox"
-                          >
-                          <span class="settings-switch-track" aria-hidden="true"></span>
-                        </label>
                       </div>
                     </div>
                     <div class="settings-inline">
                       <button class="panel-button" id="settings-feedback-send" type="button">
                         Send
                       </button>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">anonymous error report</span>
-                        <span class="settings-desc">Sends diagnostic information to tex64.com on fatal errors.</span>
-                      </div>
-                      <div class="settings-control">
-                        <label class="settings-switch" for="settings-error-reporting-enabled">
-                          <input
-                            class="settings-switch-input"
-                            id="settings-error-reporting-enabled"
-                            type="checkbox"
-                          >
-                          <span class="settings-switch-track" aria-hidden="true"></span>
-                        </label>
-                      </div>
-                    </div>
-                    <div class="settings-help-text">
-                      If sending feedback fails, save it to a resend queue within the app and try again.
                     </div>
                     <div class="settings-help-text is-hidden" id="settings-feedback-status"></div>
                   </div>
@@ -1660,6 +1608,48 @@
 
       <div class="context-menu" id="context-menu" aria-hidden="true">
         <div class="context-menu-panel" id="context-menu-panel"></div>
+      </div>
+    </div>
+
+    <div class="modal" id="announcement-modal" aria-hidden="true">
+      <div
+        class="modal-card announcement-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="announcement-modal-title"
+      >
+        <div class="modal-title announcement-title" id="announcement-modal-title"></div>
+        <div class="modal-body">
+          <div class="modal-help announcement-body" id="announcement-modal-body"></div>
+          <div class="announcement-input is-hidden" id="announcement-modal-input-wrap" aria-hidden="true">
+            <textarea
+              class="modal-input"
+              id="announcement-modal-input"
+              rows="4"
+              placeholder="Share your thoughts."
+            ></textarea>
+            <div class="announcement-status" id="announcement-modal-status" aria-live="polite"></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button
+            class="panel-button ghost is-hidden"
+            id="announcement-modal-link"
+            type="button"
+            aria-hidden="true"
+          ></button>
+          <button
+            class="panel-button is-hidden"
+            id="announcement-modal-submit"
+            type="button"
+            aria-hidden="true"
+          >
+            Send
+          </button>
+          <button class="panel-button ghost" id="announcement-modal-close" type="button">
+            Close
+          </button>
+        </div>
       </div>
     </div>
 

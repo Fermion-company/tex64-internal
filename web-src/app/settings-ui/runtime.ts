@@ -25,8 +25,6 @@ export const createSettingsUiRuntime = (context: AppContext, deps: SettingsUiDep
     firstBuildCompletedKey: "tex64.onboarding.firstBuildCompleted.v1",
     updateLastAutoCheckAtKey: "tex64.update.lastAutoCheckAt.v1",
     feedbackQueueKey: "tex64.feedback.queue.v1",
-    feedbackIncludeDiagnosticsKey: "tex64.feedback.includeDiagnostics.v1",
-    errorReportingEnabledKey: "tex64.errorReporting.enabled.v1",
   };
 
   const ranges: SettingsUiStorageRanges = {};
@@ -68,8 +66,6 @@ export const createSettingsUiRuntime = (context: AppContext, deps: SettingsUiDep
     feedbackQueue: [],
     feedbackFlushTimer: null,
     feedbackInFlightId: null,
-    feedbackIncludeDiagnostics: false,
-    errorReportingEnabled: true,
   };
 
   return { context, deps, state, keys, ranges, config };

@@ -15,11 +15,8 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
   const {
     settingsFeedbackCategory,
     settingsFeedbackMessage,
-    settingsFeedbackEmail,
-    settingsFeedbackIncludeDiagnostics,
     settingsFeedbackSend,
     settingsFeedbackStatus,
-    settingsErrorReportingEnabled,
   } = runtime.context.dom;
 
   const setFeedbackStatus = (message: string, tone: "neutral" | "success" | "error" = "neutral") => {
@@ -68,14 +65,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     if (!message) {
       return null;
     }
-    const contactEmail =
-      typeof record.contactEmail === "string" && record.contactEmail.trim()
-        ? record.contactEmail.trim()
-        : undefined;
-    const diagnostics =
-      record.diagnostics && typeof record.diagnostics === "object"
-        ? (record.diagnostics as Record<string, unknown>)
-        : undefined;
     const createdAt =
       typeof record.createdAt === "number" && Number.isFinite(record.createdAt) ? record.createdAt : Date.now();
     const attempts =
@@ -88,8 +77,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       id,
       category,
       message,
-      contactEmail,
-      diagnostics,
       createdAt,
       attempts,
       nextRetryAt,
@@ -117,88 +104,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     }
   };
 
-  const readFeedbackIncludeDiagnosticsState = () => {
-    try {
-      const stored = localStorage.getItem(runtime.keys.feedbackIncludeDiagnosticsKey);
-      return stored === "true";
-    } catch {
-      return false;
-    }
-  };
-
-  const saveFeedbackIncludeDiagnosticsState = () => {
-    try {
-      localStorage.setItem(
-        runtime.keys.feedbackIncludeDiagnosticsKey,
-        runtime.state.feedbackIncludeDiagnostics ? "true" : "false"
-      );
-    } catch {
-      // ignore storage failures
-    }
-  };
-
-  const updateFeedbackIncludeDiagnosticsUi = () => {
-    if (settingsFeedbackIncludeDiagnostics instanceof HTMLInputElement) {
-      settingsFeedbackIncludeDiagnostics.checked = runtime.state.feedbackIncludeDiagnostics;
-    }
-  };
-
-  const readErrorReportingEnabledState = () => {
-    try {
-      const stored = localStorage.getItem(runtime.keys.errorReportingEnabledKey);
-      if (stored === null) {
-        return true;
-      }
-      return stored !== "false";
-    } catch {
-      return true;
-    }
-  };
-
-  const saveErrorReportingEnabledState = () => {
-    try {
-      localStorage.setItem(
-        runtime.keys.errorReportingEnabledKey,
-        runtime.state.errorReportingEnabled ? "true" : "false"
-      );
-    } catch {
-      // ignore storage failures
-    }
-  };
-
-  const updateErrorReportingUi = () => {
-    if (settingsErrorReportingEnabled instanceof HTMLInputElement) {
-      settingsErrorReportingEnabled.checked = runtime.state.errorReportingEnabled;
-    }
-  };
-
-  const syncErrorReportingEnabled = () => {
-    runtime.deps.postToNative(
-      {
-        type: "error:reporting:set",
-        enabled: runtime.state.errorReportingEnabled,
-      },
-      true
-    );
-  };
-
-  const buildFeedbackDiagnostics = () => {
-    if (!runtime.state.feedbackIncludeDiagnostics) {
-      return undefined;
-    }
-    const diagnostics: Record<string, unknown> = {
-      source: "settings-feedback-form",
-      sentAt: new Date().toISOString(),
-      appUrl: typeof window.location?.href === "string" ? window.location.href : "",
-      online: typeof navigator?.onLine === "boolean" ? navigator.onLine : undefined,
-      language: typeof navigator?.language === "string" ? navigator.language : undefined,
-      userAgent: typeof navigator?.userAgent === "string" ? navigator.userAgent : undefined,
-    };
-    if (Array.isArray(navigator?.languages) && navigator.languages.length > 0) {
-      diagnostics.languages = navigator.languages.slice(0, 8);
-    }
-    return diagnostics;
-  };
 
   const computeFeedbackRetryDelayMs = (attempts: number) => {
     const safeAttempts = Math.max(1, Math.round(attempts));
@@ -280,8 +185,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
         type: "feedback:send",
         category: nextItem.category,
         message: nextItem.message,
-        contactEmail: nextItem.contactEmail || undefined,
-        diagnostics: nextItem.diagnostics || undefined,
       },
       true
     );
@@ -307,19 +210,10 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
       settingsFeedbackCategory instanceof HTMLSelectElement ? settingsFeedbackCategory.value : "";
     const category: FeedbackCategory =
       rawCategory === "bug" || rawCategory === "idea" || rawCategory === "other" ? rawCategory : "other";
-    const contactEmail =
-      settingsFeedbackEmail instanceof HTMLInputElement ? settingsFeedbackEmail.value.trim() : "";
-    if (contactEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contactEmail)) {
-      setFeedbackStatus("Please check the format of your contact email address.", "error");
-      settingsFeedbackEmail.focus();
-      return;
-    }
     const item: FeedbackQueueItem = {
       id: `fb-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
       category,
       message,
-      contactEmail: contactEmail || undefined,
-      diagnostics: buildFeedbackDiagnostics(),
       createdAt: Date.now(),
       attempts: 0,
       nextRetryAt: 0,
@@ -372,11 +266,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
 
   const loadStartupFeedbackState = () => {
     loadFeedbackQueue();
-    runtime.state.feedbackIncludeDiagnostics = readFeedbackIncludeDiagnosticsState();
-    updateFeedbackIncludeDiagnosticsUi();
-    runtime.state.errorReportingEnabled = readErrorReportingEnabledState();
-    updateErrorReportingUi();
-    syncErrorReportingEnabled();
     if (runtime.state.feedbackQueue.length > 0) {
       scheduleFeedbackFlush(200);
     }
@@ -385,8 +274,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
   const initFeedbackUi = () => {
     updateFeedbackSendState();
     setFeedbackStatus("");
-    updateFeedbackIncludeDiagnosticsUi();
-    updateErrorReportingUi();
   };
 
   if (settingsFeedbackSend instanceof HTMLButtonElement) {
@@ -401,23 +288,6 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
         event.preventDefault();
         sendFeedback();
       }
-    });
-  }
-
-  if (settingsFeedbackIncludeDiagnostics instanceof HTMLInputElement) {
-    settingsFeedbackIncludeDiagnostics.addEventListener("change", () => {
-      runtime.state.feedbackIncludeDiagnostics = settingsFeedbackIncludeDiagnostics.checked;
-      saveFeedbackIncludeDiagnosticsState();
-      updateFeedbackIncludeDiagnosticsUi();
-    });
-  }
-
-  if (settingsErrorReportingEnabled instanceof HTMLInputElement) {
-    settingsErrorReportingEnabled.addEventListener("change", () => {
-      runtime.state.errorReportingEnabled = settingsErrorReportingEnabled.checked;
-      saveErrorReportingEnabledState();
-      updateErrorReportingUi();
-      syncErrorReportingEnabled();
     });
   }
 

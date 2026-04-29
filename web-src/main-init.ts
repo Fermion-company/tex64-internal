@@ -39,12 +39,9 @@ import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
+import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
-import { initI18n, uiText } from "./app/i18n.js";
-import {
-  initGlobalErrorReporting,
-  readErrorReportingEnabledFromStorage,
-} from "./app/error-reporting.js";
+import { getUiLocale, initI18n, uiText } from "./app/i18n.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
 import type {
   BlockContext,
@@ -162,15 +159,6 @@ export const initMain = () => {
     bridgeWindow,
     updateIssues: updateIssuesProxy,
   });
-  const errorReportingEnabled = readErrorReportingEnabledFromStorage();
-  postToNative(
-    {
-      type: "error:reporting:set",
-      enabled: errorReportingEnabled,
-    },
-    true
-  );
-  initGlobalErrorReporting(postToNative, readErrorReportingEnabledFromStorage);
   const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
     postToNative(payload, silent)
   );
@@ -244,10 +232,13 @@ export const initMain = () => {
   });
   isReverseSynctexEnabled = () => settingsUi.getReverseSynctexEnabled();
   onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
+  const announcementsUi = initAnnouncementsUi({
+    postToNative: (payload, silent) => postToNative(payload, silent),
+  });
   const contextMenu = initContextMenu(appContext);
   const launcherUi = initLauncherUi(appContext, {
     onCreate: () => {
-      postToNative({ type: "createProject" });
+      postToNative({ type: "createProject", locale: getUiLocale() });
     },
     onOpen: () => {
       postToNative({ type: "openWorkspace" });
@@ -919,6 +910,7 @@ export const initMain = () => {
       },
       handleUpdateStatus: (payload) => settingsUi.handlePlatformUpdateStatus(payload),
       handleFeedback: (payload) => settingsUi.handlePlatformFeedback(payload),
+      handleAnnouncements: (payload) => announcementsUi.handleAnnouncements(payload),
     },
     filePreview: {
       handlePreviewResult: (payload) => filePreviewBroker.handlePreviewResult(payload),
@@ -939,6 +931,7 @@ export const initMain = () => {
 
   postToNative({ type: "agent:settings:get" }, true);
   postToNative({ type: "agent:state:get" }, true);
+  postToNative({ type: "announcements:check" }, true);
 
   const monacoSetup = initMonacoSetup(appContext, {
     editorSession,

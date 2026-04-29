@@ -20,8 +20,6 @@ export type FeedbackQueueItem = {
   id: string;
   category: FeedbackCategory;
   message: string;
-  contactEmail?: string;
-  diagnostics?: Record<string, unknown>;
   createdAt: number;
   attempts: number;
   nextRetryAt: number;
@@ -74,8 +72,6 @@ export type SettingsUiStorageKeys = {
   firstBuildCompletedKey: string;
   updateLastAutoCheckAtKey: string;
   feedbackQueueKey: string;
-  feedbackIncludeDiagnosticsKey: string;
-  errorReportingEnabledKey: string;
 };
 
 export type SettingsUiConfig = {
@@ -104,7 +100,5 @@ export type SettingsUiState = {
   feedbackQueue: FeedbackQueueItem[];
   feedbackFlushTimer: number | null;
   feedbackInFlightId: string | null;
-  feedbackIncludeDiagnostics: boolean;
-  errorReportingEnabled: boolean;
 };
 

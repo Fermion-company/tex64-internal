@@ -2101,6 +2101,21 @@ math-field.block-math-field::placeholder {
   padding-top: 10px;
 }
 
+.settings-item.is-stacked {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.settings-item.is-stacked .settings-control {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.settings-item.is-stacked .settings-input {
+  width: 100%;
+  resize: vertical;
+}
+
 /* Container query for responsive layout */
 @container (max-width: 300px) {
   .settings-item {
@@ -3790,6 +3805,179 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border-radius: var(--radius-lg); /* Increased radius */
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45); /* Stronger shadow */
   background: var(--panel-strong); /* Ensure panel background */
+}
+
+/* Announcement modal lives at body level (outside .app) so the launcher's
+   `opacity: 0` cascade doesn't hide it. Still needs z-index above the
+   launcher overlay (which is z-index: 20). */
+#announcement-modal {
+  z-index: 40;
+}
+
+.announcement-card {
+  width: min(620px, 94vw);
+  padding: 36px 40px 28px;
+  gap: 22px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at top right, rgba(162, 167, 252, 0.13) 0%, transparent 55%),
+    radial-gradient(ellipse at bottom left, rgba(121, 126, 249, 0.07) 0%, transparent 55%),
+    linear-gradient(180deg, rgba(28, 36, 46, 1) 0%, rgba(20, 25, 32, 1) 100%);
+  border: 1px solid rgba(121, 126, 249, 0.22);
+  border-radius: 18px;
+  box-shadow:
+    0 32px 80px -12px rgba(0, 0, 0, 0.6),
+    0 0 80px -16px rgba(121, 126, 249, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.announcement-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(121, 126, 249, 0.6) 25%,
+    rgba(162, 167, 252, 0.95) 50%,
+    rgba(121, 126, 249, 0.6) 75%,
+    transparent 100%
+  );
+}
+
+.announcement-card::after {
+  content: '';
+  position: absolute;
+  top: -120px;
+  right: -120px;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(162, 167, 252, 0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.announcement-title {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  background: linear-gradient(180deg, #ffffff 0%, #c9d1d9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  position: relative;
+}
+
+.announcement-body {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-soft);
+  white-space: pre-wrap;
+  margin-top: -8px;
+}
+
+.announcement-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.announcement-input.is-hidden {
+  display: none;
+}
+
+.announcement-input textarea {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.announcement-input textarea::placeholder {
+  color: rgba(201, 209, 217, 0.4);
+}
+
+.announcement-input textarea:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.announcement-status {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  min-height: 18px;
+  letter-spacing: 0.01em;
+}
+
+.announcement-status.is-error {
+  color: #f87171;
+}
+
+.announcement-status.is-success {
+  color: #7dd38b;
+}
+
+.announcement-card .modal-actions {
+  margin-top: 6px;
+  gap: 12px;
+}
+
+.announcement-card #announcement-modal-submit {
+  position: relative;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  border: none;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 10px 26px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+  box-shadow:
+    0 6px 16px -4px rgba(121, 126, 249, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
+
+.announcement-card #announcement-modal-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+  box-shadow:
+    0 10px 24px -4px rgba(121, 126, 249, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.announcement-card #announcement-modal-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.announcement-card #announcement-modal-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.announcement-card #announcement-modal-close {
+  font-size: 13px;
 }
 
 .modal-title {
