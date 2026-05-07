@@ -1,4 +1,14 @@
-export type UiLocale = "ja" | "en";
+export type UiLocale = "ja" | "en" | "zh" | "ko" | "fr" | "de" | "es";
+
+export const SUPPORTED_LOCALES: ReadonlyArray<{ code: UiLocale; label: string; nativeLabel: string }> = [
+  { code: "en", label: "English", nativeLabel: "English" },
+  { code: "ja", label: "Japanese", nativeLabel: "日本語" },
+  { code: "zh", label: "Chinese (Simplified)", nativeLabel: "简体中文" },
+  { code: "ko", label: "Korean", nativeLabel: "한국어" },
+  { code: "fr", label: "French", nativeLabel: "Français" },
+  { code: "de", label: "German", nativeLabel: "Deutsch" },
+  { code: "es", label: "Spanish", nativeLabel: "Español" },
+];
 
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 
@@ -693,22 +703,126 @@ const normalizeUiLocaleValue = (value: unknown): UiLocale | null => {
   const normalized = value.trim().toLowerCase();
   if (!normalized) return null;
   const base = normalized.split(/[-_]/, 1)[0];
-  if (base === "ja") return "ja";
-  if (base === "en") return "en";
-  return null;
+  switch (base) {
+    case "ja":
+    case "en":
+    case "zh":
+    case "ko":
+    case "fr":
+    case "de":
+    case "es":
+      return base;
+    default:
+      return null;
+  }
+};
+
+// Per-locale dictionaries. EN is the source language so it has no entries.
+// New locales added in the multilingual update start with a small core set;
+// untranslated strings fall back to the EN source — the same behaviour the
+// original JA-only implementation provided for any non-JA locale.
+const EN_TO_ZH: Record<string, string> = {
+  "Open Folder": "打开文件夹",
+  "Create New": "新建项目",
+  "Recent Projects": "最近的项目",
+  "No project opened yet": "尚未打开项目",
+  "Settings": "设置",
+  "Account": "账户",
+  "Send": "发送",
+  "Close": "关闭",
+  "Cancel": "取消",
+  "Save": "保存",
+  "Feedback": "反馈",
+  "Notice": "通知",
+};
+
+const EN_TO_KO: Record<string, string> = {
+  "Open Folder": "폴더 열기",
+  "Create New": "새로 만들기",
+  "Recent Projects": "최근 프로젝트",
+  "No project opened yet": "아직 열린 프로젝트가 없습니다",
+  "Settings": "설정",
+  "Account": "계정",
+  "Send": "보내기",
+  "Close": "닫기",
+  "Cancel": "취소",
+  "Save": "저장",
+  "Feedback": "피드백",
+  "Notice": "알림",
+};
+
+const EN_TO_FR: Record<string, string> = {
+  "Open Folder": "Ouvrir un dossier",
+  "Create New": "Nouveau projet",
+  "Recent Projects": "Projets récents",
+  "No project opened yet": "Aucun projet ouvert",
+  "Settings": "Paramètres",
+  "Account": "Compte",
+  "Send": "Envoyer",
+  "Close": "Fermer",
+  "Cancel": "Annuler",
+  "Save": "Enregistrer",
+  "Feedback": "Commentaires",
+  "Notice": "Information",
+};
+
+const EN_TO_DE: Record<string, string> = {
+  "Open Folder": "Ordner öffnen",
+  "Create New": "Neu erstellen",
+  "Recent Projects": "Letzte Projekte",
+  "No project opened yet": "Noch kein Projekt geöffnet",
+  "Settings": "Einstellungen",
+  "Account": "Konto",
+  "Send": "Senden",
+  "Close": "Schließen",
+  "Cancel": "Abbrechen",
+  "Save": "Speichern",
+  "Feedback": "Feedback",
+  "Notice": "Hinweis",
+};
+
+const EN_TO_ES: Record<string, string> = {
+  "Open Folder": "Abrir carpeta",
+  "Create New": "Crear nuevo",
+  "Recent Projects": "Proyectos recientes",
+  "No project opened yet": "Aún no hay ningún proyecto abierto",
+  "Settings": "Ajustes",
+  "Account": "Cuenta",
+  "Send": "Enviar",
+  "Close": "Cerrar",
+  "Cancel": "Cancelar",
+  "Save": "Guardar",
+  "Feedback": "Comentarios",
+  "Notice": "Aviso",
+};
+
+const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {
+  ja: EN_TO_JA,
+  zh: EN_TO_ZH,
+  ko: EN_TO_KO,
+  fr: EN_TO_FR,
+  de: EN_TO_DE,
+  es: EN_TO_ES,
 };
 
 const translateCore = (source: string) => {
-  const direct = EN_TO_JA[source];
-  if (typeof direct === "string") return direct;
-  for (const entry of PATTERN_ENTRIES) {
-    const match = source.match(entry.regex);
-    if (!match) continue;
-    let rendered = entry.template;
-    for (let index = 1; index < match.length; index += 1) {
-      rendered = rendered.replace("{var}", match[index] ?? "");
+  if (currentLocale === "en") return source;
+  const dict = TRANSLATIONS_BY_LOCALE[currentLocale];
+  if (dict) {
+    const direct = dict[source];
+    if (typeof direct === "string") return direct;
+  }
+  // PATTERN_ENTRIES is JA-only for now; new locales can extend it later.
+  if (currentLocale === "ja") {
+    for (const entry of PATTERN_ENTRIES) {
+      const match = source.match(entry.regex);
+      if (!match) continue;
+      let rendered = entry.template;
+      for (let index = 1; index < match.length; index += 1) {
+        rendered = rendered.replace("{var}", match[index] ?? "");
+      }
+      return rendered;
     }
-    return rendered;
   }
   return source;
 };
@@ -728,7 +842,7 @@ const applyLocaleToTextNode = (node: Text) => {
   if (!textOriginalMap.has(node)) {
     textOriginalMap.set(node, original);
   }
-  const next = currentLocale === "ja" ? translateKeepingWhitespace(original) : original;
+  const next = currentLocale === "en" ? original : translateKeepingWhitespace(original);
   if (node.data !== next) {
     node.data = next;
   }
@@ -750,7 +864,7 @@ const applyLocaleToAttributes = (element: Element) => {
     if (!element.hasAttribute(attributeName)) continue;
     const currentValue = element.getAttribute(attributeName) ?? "";
     const originalValue = getAttributeOriginal(element, attributeName, currentValue);
-    const next = currentLocale === "ja" ? translateKeepingWhitespace(originalValue) : originalValue;
+    const next = currentLocale === "en" ? originalValue : translateKeepingWhitespace(originalValue);
     if (currentValue !== next) {
       element.setAttribute(attributeName, next);
     }

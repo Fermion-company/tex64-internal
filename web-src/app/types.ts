@@ -159,7 +159,18 @@ export type PlatformUsageSnapshot = {
   fetchedAt?: number;
 };
 
-export type LocalizedText = string | { en?: string; ja?: string } | null;
+export type LocalizedText =
+  | string
+  | {
+      en?: string;
+      ja?: string;
+      zh?: string;
+      ko?: string;
+      fr?: string;
+      de?: string;
+      es?: string;
+    }
+  | null;
 
 export type AnnouncementSnapshot = {
   id: string;
