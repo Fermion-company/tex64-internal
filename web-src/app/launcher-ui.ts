@@ -1,5 +1,12 @@
 import type { AppContext } from "./context.js";
-import { getUiLocale, setUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
+import {
+  getUiLocale,
+  setUiLocale,
+  onUiLocaleChange,
+  uiText,
+  SUPPORTED_LOCALES,
+  type UiLocale,
+} from "./i18n.js";
 
 type RecentProject = {
   path: string;
@@ -38,6 +45,7 @@ export const initLauncherUi = (
     launcherRecentToggle,
     launcherLangToggle,
     launcherLangToggleLabel,
+    launcherLangMenu,
   } = context.dom;
 
   let selectedActionIndex = 0;
@@ -234,24 +242,94 @@ export const initLauncherUi = (
     });
   }
 
-  // Language toggle
+  // Language popover (7 locales)
+  const findLocaleEntry = (code: UiLocale) =>
+    SUPPORTED_LOCALES.find((entry) => entry.code === code) ?? SUPPORTED_LOCALES[0];
+
   const syncLangLabel = () => {
     if (launcherLangToggleLabel instanceof HTMLElement) {
-      launcherLangToggleLabel.textContent = getUiLocale() === "en" ? "日本語" : "English";
+      launcherLangToggleLabel.textContent = findLocaleEntry(getUiLocale()).nativeLabel;
     }
   };
 
+  const closeLangMenu = () => {
+    if (!(launcherLangMenu instanceof HTMLElement)) return;
+    launcherLangMenu.classList.add("is-hidden");
+    launcherLangMenu.setAttribute("aria-hidden", "true");
+    if (launcherLangToggle instanceof HTMLElement) {
+      launcherLangToggle.setAttribute("aria-expanded", "false");
+    }
+  };
+
+  const openLangMenu = () => {
+    if (!(launcherLangMenu instanceof HTMLElement)) return;
+    launcherLangMenu.classList.remove("is-hidden");
+    launcherLangMenu.setAttribute("aria-hidden", "false");
+    if (launcherLangToggle instanceof HTMLElement) {
+      launcherLangToggle.setAttribute("aria-expanded", "true");
+    }
+  };
+
+  const renderLangMenu = () => {
+    if (!(launcherLangMenu instanceof HTMLElement)) return;
+    const active = getUiLocale();
+    launcherLangMenu.replaceChildren();
+    SUPPORTED_LOCALES.forEach((entry) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "launcher-lang-option";
+      item.setAttribute("role", "menuitem");
+      item.dataset.locale = entry.code;
+      if (entry.code === active) item.classList.add("is-active");
+      item.textContent = entry.nativeLabel;
+      item.addEventListener("click", () => {
+        setUiLocale(entry.code);
+        closeLangMenu();
+      });
+      launcherLangMenu.appendChild(item);
+    });
+  };
+
   syncLangLabel();
+  renderLangMenu();
   onUiLocaleChange(() => {
     syncLangLabel();
+    renderLangMenu();
     renderRecentProjects();
   });
 
   if (launcherLangToggle instanceof HTMLElement) {
-    launcherLangToggle.addEventListener("click", () => {
-      setUiLocale(getUiLocale() === "en" ? "ja" : "en");
+    launcherLangToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!(launcherLangMenu instanceof HTMLElement)) return;
+      if (launcherLangMenu.classList.contains("is-hidden")) {
+        openLangMenu();
+      } else {
+        closeLangMenu();
+      }
     });
   }
+
+  document.addEventListener("click", (event) => {
+    if (!(launcherLangMenu instanceof HTMLElement)) return;
+    if (launcherLangMenu.classList.contains("is-hidden")) return;
+    const target = event.target;
+    if (target instanceof Node && launcherLangMenu.contains(target)) return;
+    if (
+      target instanceof Node &&
+      launcherLangToggle instanceof HTMLElement &&
+      launcherLangToggle.contains(target)
+    ) {
+      return;
+    }
+    closeLangMenu();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && launcherLangMenu instanceof HTMLElement && !launcherLangMenu.classList.contains("is-hidden")) {
+      closeLangMenu();
+    }
+  });
 
   return {
     setVisible,

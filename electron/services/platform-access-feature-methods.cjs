@@ -135,14 +135,18 @@ const featureMethods = {
     // title/body/urlLabel may be either a plain string or a locale-keyed
     // object: { en: "...", ja: "..." }. We pass through both forms so the
     // renderer can pick the active locale at display time.
+    const LOCALE_KEYS = ["en", "ja", "zh", "ko", "fr", "de", "es"];
     const sanitizeLocalized = (value) => {
       if (typeof value === "string") {
         return value.trim() ? value : "";
       }
       if (value && typeof value === "object") {
         const out = {};
-        if (typeof value.en === "string" && value.en.trim()) out.en = value.en;
-        if (typeof value.ja === "string" && value.ja.trim()) out.ja = value.ja;
+        for (const key of LOCALE_KEYS) {
+          if (typeof value[key] === "string" && value[key].trim()) {
+            out[key] = value[key];
+          }
+        }
         return Object.keys(out).length > 0 ? out : "";
       }
       return "";

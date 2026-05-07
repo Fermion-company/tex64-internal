@@ -12,10 +12,9 @@ const renderBodyInto = (host, body) => {
     });
 };
 // API may deliver title/body either as a plain string or as a locale-keyed
-// object: { en: "...", ja: "..." }. The Electron-side sanitizer keeps both
-// forms intact; we resolve the active locale here.
+// object such as { en, ja, zh, ko, fr, de, es }. Pick the active locale,
+// fall back to English (the source language), then any other available value.
 const resolveLocalized = (value) => {
-    var _a;
     if (typeof value === "string")
         return value;
     if (!value || typeof value !== "object")
@@ -24,8 +23,15 @@ const resolveLocalized = (value) => {
     const direct = value[locale];
     if (typeof direct === "string" && direct.trim())
         return direct;
-    const fallback = (_a = value.en) !== null && _a !== void 0 ? _a : value.ja;
-    return typeof fallback === "string" ? fallback : "";
+    const englishFallback = value.en;
+    if (typeof englishFallback === "string" && englishFallback.trim())
+        return englishFallback;
+    for (const key of Object.keys(value)) {
+        const candidate = value[key];
+        if (typeof candidate === "string" && candidate.trim())
+            return candidate;
+    }
+    return "";
 };
 export const initAnnouncementsUi = (deps) => {
     const modal = document.getElementById("announcement-modal");

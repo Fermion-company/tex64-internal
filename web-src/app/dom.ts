@@ -40,6 +40,7 @@ export const getDomRefs = () => ({
   launcherStatusMessage: document.getElementById("launcher-status"),
   launcherLangToggle: document.getElementById("launcher-lang-toggle"),
   launcherLangToggleLabel: document.getElementById("launcher-lang-toggle-label"),
+  launcherLangMenu: document.getElementById("launcher-lang-menu"),
   launcherRecent: document.getElementById("launcher-recent"),
   launcherRecentList: document.getElementById("launcher-recent-list"),
   launcherRecentEmpty: document.getElementById("launcher-recent-empty"),
