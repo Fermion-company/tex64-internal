@@ -96,7 +96,7 @@ module.exports = (BuildService) => {
     if (outDirRequested && !outDir) {
       const issue = {
         severity: "error",
-        message: "outDir が不正です。",
+        message: "outDir is invalid.",
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -136,7 +136,7 @@ module.exports = (BuildService) => {
       if (isEnvMissingMessage(message)) {
         const issue = {
           severity: "error",
-          message: "latexmk がnot found。TeX environmentを確認してください。",
+          message: "latexmk not found. Check the TeX environment.",
           line: null,
           action: "open-runtime",
         };
@@ -144,7 +144,7 @@ module.exports = (BuildService) => {
       }
       const issue = {
         severity: "error",
-        message: "Failed to start buildしました。",
+        message: "Failed to start build",
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -179,7 +179,7 @@ module.exports = (BuildService) => {
         if (isEnvMissingMessage(message)) {
           const issue = {
             severity: "error",
-            message: "latexmk がnot found。TeX environmentを確認してください。",
+            message: "latexmk not found. Check the TeX environment.",
             line: null,
             action: "open-runtime",
           };
@@ -268,7 +268,7 @@ module.exports = (BuildService) => {
     if (outDirRequested && !outDir) {
       const issue = {
         severity: "error",
-        message: "outDir が不正です。",
+        message: "outDir is invalid.",
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -297,7 +297,7 @@ module.exports = (BuildService) => {
       if (isEnvMissingMessage(message)) {
         const issue = {
           severity: "error",
-          message: "latexmk がnot found。TeX environmentを確認してください。",
+          message: "latexmk not found. Check the TeX environment.",
           line: null,
           action: "open-runtime",
         };
@@ -305,7 +305,7 @@ module.exports = (BuildService) => {
       }
       const issue = {
         severity: "error",
-        message: "clean の起動に失敗しました。",
+        message: "Failed to start clean.",
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
