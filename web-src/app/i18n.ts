@@ -789,6 +789,28 @@ const EN_TO_JA: Record<string, string> = {
   "Unknown install target.": "インストール対象が不明です。",
   "Installation performed. Please recheck.": "インストールを実行しました。再チェックしてください。",
   "Input is empty.": "入力が空です。",
+
+  // --- Final user-facing message coverage (agent runtime, math OCR, arXiv) ---
+  "Cannot undo: destination file not found.": "取り消せません: 移動先のファイルが見つかりません。",
+  "Cannot undo: a file already exists at the original path.": "取り消せません: 元のパスにファイルが既に存在します。",
+  "Cannot undo: directory is not empty.": "取り消せません: ディレクトリが空ではありません。",
+  "Unsupported undo operation.": "対応していない取り消し操作です。",
+  "Could not read file content before deletion.": "削除前のファイル内容を読み取れませんでした。",
+  "Invalid base64 content.": "base64 の内容が不正です。",
+  "Math OCR model is not installed. See Resources/math-ocr/README.md.": "数式 OCR モデルがインストールされていません。Resources/math-ocr/README.md を参照してください。",
+  "Math OCR encoder output is missing.": "数式 OCR のエンコーダ出力がありません。",
+  "Math OCR decoder output is missing.": "数式 OCR のデコーダ出力がありません。",
+  "Math OCR payload is missing.": "数式 OCR のペイロードがありません。",
+  "Math OCR payload is invalid.": "数式 OCR のペイロードが不正です。",
+  "Math OCR input buffer is invalid.": "数式 OCR の入力バッファが不正です。",
+  "Math OCR model initialization failed.": "数式 OCR モデルの初期化に失敗しました。",
+  "Math OCR decode failed.": "数式 OCR のデコードに失敗しました。",
+  "Math OCR failed.": "数式 OCR に失敗しました。",
+  "Math OCR result was empty.": "数式 OCR の結果が空でした。",
+  "Preparing...": "準備中...",
+  "An error has occurred": "エラーが発生しました",
+  "Invalid arXiv ID": "arXiv ID が不正です",
+  "No arXiv metadata found": "arXiv のメタデータが見つかりません",
 };
 
 const TRANSLATABLE_ATTRIBUTES = ["title", "aria-label", "placeholder", "alt"] as const;
@@ -1617,6 +1639,28 @@ const EN_TO_ZH: Record<string, string> = {
   "Unknown install target.": "未知的安装目标。",
   "Installation performed. Please recheck.": "已执行安装。请重新检查。",
   "Input is empty.": "输入为空。",
+
+  // --- Final user-facing message coverage (agent runtime, math OCR, arXiv) ---
+  "Cannot undo: destination file not found.": "无法撤销：找不到目标文件。",
+  "Cannot undo: a file already exists at the original path.": "无法撤销：原始路径已存在文件。",
+  "Cannot undo: directory is not empty.": "无法撤销：目录不为空。",
+  "Unsupported undo operation.": "不支持的撤销操作。",
+  "Could not read file content before deletion.": "无法在删除前读取文件内容。",
+  "Invalid base64 content.": "base64 内容无效。",
+  "Math OCR model is not installed. See Resources/math-ocr/README.md.": "未安装公式 OCR 模型。请参阅 Resources/math-ocr/README.md。",
+  "Math OCR encoder output is missing.": "公式 OCR 编码器输出缺失。",
+  "Math OCR decoder output is missing.": "公式 OCR 解码器输出缺失。",
+  "Math OCR payload is missing.": "公式 OCR 数据缺失。",
+  "Math OCR payload is invalid.": "公式 OCR 数据无效。",
+  "Math OCR input buffer is invalid.": "公式 OCR 输入缓冲区无效。",
+  "Math OCR model initialization failed.": "公式 OCR 模型初始化失败。",
+  "Math OCR decode failed.": "公式 OCR 解码失败。",
+  "Math OCR failed.": "公式 OCR 失败。",
+  "Math OCR result was empty.": "公式 OCR 结果为空。",
+  "Preparing...": "准备中...",
+  "An error has occurred": "发生错误",
+  "Invalid arXiv ID": "无效的 arXiv ID",
+  "No arXiv metadata found": "未找到 arXiv 元数据",
 };
 
 const EN_TO_KO: Record<string, string> = {
@@ -2394,6 +2438,28 @@ const EN_TO_KO: Record<string, string> = {
   "Unknown install target.": "알 수 없는 설치 대상입니다.",
   "Installation performed. Please recheck.": "설치를 수행했습니다. 다시 확인하세요.",
   "Input is empty.": "입력이 비어 있습니다.",
+
+  // --- Final user-facing message coverage (agent runtime, math OCR, arXiv) ---
+  "Cannot undo: destination file not found.": "되돌릴 수 없습니다: 대상 파일을 찾을 수 없습니다.",
+  "Cannot undo: a file already exists at the original path.": "되돌릴 수 없습니다: 원본 경로에 파일이 이미 존재합니다.",
+  "Cannot undo: directory is not empty.": "되돌릴 수 없습니다: 디렉터리가 비어 있지 않습니다.",
+  "Unsupported undo operation.": "지원되지 않는 되돌리기 작업입니다.",
+  "Could not read file content before deletion.": "삭제 전 파일 내용을 읽을 수 없습니다.",
+  "Invalid base64 content.": "base64 내용이 올바르지 않습니다.",
+  "Math OCR model is not installed. See Resources/math-ocr/README.md.": "수식 OCR 모델이 설치되어 있지 않습니다. Resources/math-ocr/README.md 를 참고하세요.",
+  "Math OCR encoder output is missing.": "수식 OCR 인코더 출력이 없습니다.",
+  "Math OCR decoder output is missing.": "수식 OCR 디코더 출력이 없습니다.",
+  "Math OCR payload is missing.": "수식 OCR 페이로드가 없습니다.",
+  "Math OCR payload is invalid.": "수식 OCR 페이로드가 올바르지 않습니다.",
+  "Math OCR input buffer is invalid.": "수식 OCR 입력 버퍼가 올바르지 않습니다.",
+  "Math OCR model initialization failed.": "수식 OCR 모델 초기화에 실패했습니다.",
+  "Math OCR decode failed.": "수식 OCR 디코딩에 실패했습니다.",
+  "Math OCR failed.": "수식 OCR 에 실패했습니다.",
+  "Math OCR result was empty.": "수식 OCR 결과가 비어 있습니다.",
+  "Preparing...": "준비 중...",
+  "An error has occurred": "오류가 발생했습니다",
+  "Invalid arXiv ID": "arXiv ID 가 올바르지 않습니다",
+  "No arXiv metadata found": "arXiv 메타데이터를 찾을 수 없습니다",
 };
 
 const EN_TO_FR: Record<string, string> = {
@@ -3171,6 +3237,28 @@ const EN_TO_FR: Record<string, string> = {
   "Unknown install target.": "Cible d'installation inconnue.",
   "Installation performed. Please recheck.": "Installation effectuée. Veuillez revérifier.",
   "Input is empty.": "L'entrée est vide.",
+
+  // --- Final user-facing message coverage (agent runtime, math OCR, arXiv) ---
+  "Cannot undo: destination file not found.": "Annulation impossible : fichier de destination introuvable.",
+  "Cannot undo: a file already exists at the original path.": "Annulation impossible : un fichier existe déjà au chemin d'origine.",
+  "Cannot undo: directory is not empty.": "Annulation impossible : le répertoire n'est pas vide.",
+  "Unsupported undo operation.": "Opération d'annulation non prise en charge.",
+  "Could not read file content before deletion.": "Impossible de lire le contenu du fichier avant la suppression.",
+  "Invalid base64 content.": "Contenu base64 invalide.",
+  "Math OCR model is not installed. See Resources/math-ocr/README.md.": "Le modèle Math OCR n'est pas installé. Consultez Resources/math-ocr/README.md.",
+  "Math OCR encoder output is missing.": "La sortie de l'encodeur Math OCR est manquante.",
+  "Math OCR decoder output is missing.": "La sortie du décodeur Math OCR est manquante.",
+  "Math OCR payload is missing.": "La charge utile Math OCR est manquante.",
+  "Math OCR payload is invalid.": "La charge utile Math OCR est invalide.",
+  "Math OCR input buffer is invalid.": "Le tampon d'entrée Math OCR est invalide.",
+  "Math OCR model initialization failed.": "Échec de l'initialisation du modèle Math OCR.",
+  "Math OCR decode failed.": "Le décodage Math OCR a échoué.",
+  "Math OCR failed.": "Math OCR a échoué.",
+  "Math OCR result was empty.": "Le résultat Math OCR était vide.",
+  "Preparing...": "Préparation...",
+  "An error has occurred": "Une erreur s'est produite",
+  "Invalid arXiv ID": "ID arXiv invalide",
+  "No arXiv metadata found": "Aucune métadonnée arXiv trouvée",
 };
 
 const EN_TO_DE: Record<string, string> = {
@@ -3948,6 +4036,28 @@ const EN_TO_DE: Record<string, string> = {
   "Unknown install target.": "Unbekanntes Installationsziel.",
   "Installation performed. Please recheck.": "Installation durchgeführt. Bitte erneut prüfen.",
   "Input is empty.": "Die Eingabe ist leer.",
+
+  // --- Final user-facing message coverage (agent runtime, math OCR, arXiv) ---
+  "Cannot undo: destination file not found.": "Rückgängig nicht möglich: Zieldatei nicht gefunden.",
+  "Cannot undo: a file already exists at the original path.": "Rückgängig nicht möglich: Am ursprünglichen Pfad existiert bereits eine Datei.",
+  "Cannot undo: directory is not empty.": "Rückgängig nicht möglich: Verzeichnis ist nicht leer.",
+  "Unsupported undo operation.": "Nicht unterstützte Rückgängig-Operation.",
+  "Could not read file content before deletion.": "Dateiinhalt konnte vor dem Löschen nicht gelesen werden.",
+  "Invalid base64 content.": "Ungültiger base64-Inhalt.",
+  "Math OCR model is not installed. See Resources/math-ocr/README.md.": "Math-OCR-Modell ist nicht installiert. Siehe Resources/math-ocr/README.md.",
+  "Math OCR encoder output is missing.": "Encoder-Ausgabe von Math OCR fehlt.",
+  "Math OCR decoder output is missing.": "Decoder-Ausgabe von Math OCR fehlt.",
+  "Math OCR payload is missing.": "Math-OCR-Payload fehlt.",
+  "Math OCR payload is invalid.": "Math-OCR-Payload ist ungültig.",
+  "Math OCR input buffer is invalid.": "Eingabepuffer von Math OCR ist ungültig.",
+  "Math OCR model initialization failed.": "Initialisierung des Math-OCR-Modells fehlgeschlagen.",
+  "Math OCR decode failed.": "Math-OCR-Dekodierung fehlgeschlagen.",
+  "Math OCR failed.": "Math OCR fehlgeschlagen.",
+  "Math OCR result was empty.": "Math-OCR-Ergebnis war leer.",
+  "Preparing...": "Wird vorbereitet...",
+  "An error has occurred": "Ein Fehler ist aufgetreten",
+  "Invalid arXiv ID": "Ungültige arXiv-ID",
+  "No arXiv metadata found": "Keine arXiv-Metadaten gefunden",
 };
 
 const EN_TO_ES: Record<string, string> = {
@@ -4725,6 +4835,28 @@ const EN_TO_ES: Record<string, string> = {
   "Unknown install target.": "Destino de instalación desconocido.",
   "Installation performed. Please recheck.": "Instalación realizada. Vuelve a comprobar.",
   "Input is empty.": "La entrada está vacía.",
+
+  // --- Final user-facing message coverage (agent runtime, math OCR, arXiv) ---
+  "Cannot undo: destination file not found.": "No se puede deshacer: archivo de destino no encontrado.",
+  "Cannot undo: a file already exists at the original path.": "No se puede deshacer: ya existe un archivo en la ruta original.",
+  "Cannot undo: directory is not empty.": "No se puede deshacer: el directorio no está vacío.",
+  "Unsupported undo operation.": "Operación de deshacer no compatible.",
+  "Could not read file content before deletion.": "No se pudo leer el contenido del archivo antes de eliminarlo.",
+  "Invalid base64 content.": "Contenido base64 no válido.",
+  "Math OCR model is not installed. See Resources/math-ocr/README.md.": "El modelo de Math OCR no está instalado. Consulta Resources/math-ocr/README.md.",
+  "Math OCR encoder output is missing.": "Falta la salida del codificador de Math OCR.",
+  "Math OCR decoder output is missing.": "Falta la salida del decodificador de Math OCR.",
+  "Math OCR payload is missing.": "Falta la carga útil de Math OCR.",
+  "Math OCR payload is invalid.": "La carga útil de Math OCR no es válida.",
+  "Math OCR input buffer is invalid.": "El búfer de entrada de Math OCR no es válido.",
+  "Math OCR model initialization failed.": "Falló la inicialización del modelo de Math OCR.",
+  "Math OCR decode failed.": "Falló la decodificación de Math OCR.",
+  "Math OCR failed.": "Math OCR ha fallado.",
+  "Math OCR result was empty.": "El resultado de Math OCR estaba vacío.",
+  "Preparing...": "Preparando...",
+  "An error has occurred": "Se ha producido un error",
+  "Invalid arXiv ID": "ID de arXiv no válido",
+  "No arXiv metadata found": "No se encontraron metadatos de arXiv",
 };
 
 const TRANSLATIONS_BY_LOCALE: Record<Exclude<UiLocale, "en">, Record<string, string>> = {
