@@ -6,7 +6,16 @@ export const createAiChatStatusController = (params) => {
             return null;
         return usage;
     };
-    const resolveIntlLocale = () => (getUiLocale() === "en" ? "en-US" : "ja-JP");
+    const INTL_LOCALE_MAP = {
+        ja: "ja-JP",
+        en: "en-US",
+        zh: "zh-CN",
+        ko: "ko-KR",
+        de: "de-DE",
+        fr: "fr-FR",
+        es: "es-ES",
+    };
+    const resolveIntlLocale = () => { var _a; return (_a = INTL_LOCALE_MAP[getUiLocale()]) !== null && _a !== void 0 ? _a : "en-US"; };
     const isAiBlocked = () => Boolean(state.platformAiAccess && state.platformAiAccess.allowed === false);
     const needsLogin = () => {
         var _a;

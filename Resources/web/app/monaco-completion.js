@@ -1,4 +1,5 @@
 import { dedupeByKey, pickCitationEntries } from "./index-utils.js";
+import { getUiLocale } from "./i18n.js";
 const REF_COMMAND_REGEX = /\\(?:eqref|ref|pageref|autoref|cref|Cref|namecref|Namecref|nameref|Nameref)\{([^}]*)$/;
 const CITE_COMMAND_REGEX = /\\(?:cite|citet|citep|citeauthor|citeyear|autocite|parencite|textcite|footcite|supercite)(?:\[[^\]]*\])*\{([^}]*)$/;
 const getPosixDirname = (filePath) => {
@@ -71,7 +72,7 @@ const findPathCandidates = (params) => {
             unique.set(entry.label, entry);
         }
     });
-    return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label, "ja"));
+    return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label, getUiLocale()));
 };
 const ENV_SNIPPETS = {
     figure: `figure}\n  \\centering\n  \\includegraphics[width=\\linewidth]{\${1:path}}\n  \\caption{\${2:caption}}\n  \\label{fig:\${3:key}}\n\\end{figure}`,

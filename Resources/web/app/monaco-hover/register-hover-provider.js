@@ -9,6 +9,7 @@ import { resolveGraphicsCandidates, resolveTexIncludeCandidates, isPreviewableIm
 import { buildPackageHoverMarkdown } from "./package-hover.js";
 import { rememberStableHoverAnchor } from "./stable-hover.js";
 import { findFirstUnescapedPercent, getCursorIndex } from "./utils.js";
+import { getUiLocale } from "../i18n.js";
 export const registerHoverProvider = (monaco, deps, state) => {
     var _a;
     if (state.registered || typeof ((_a = monaco.languages) === null || _a === void 0 ? void 0 : _a.registerHoverProvider) !== "function") {
@@ -213,7 +214,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             })
                 .sort((a, b) => {
                 if (a.path !== b.path) {
-                    return a.path.localeCompare(b.path, "ja");
+                    return a.path.localeCompare(b.path, getUiLocale());
                 }
                 return a.line - b.line;
             });

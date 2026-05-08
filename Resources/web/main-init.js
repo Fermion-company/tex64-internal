@@ -196,7 +196,7 @@ export const initMain = () => {
                 postToNative({ type: "createProject", locale: getUiLocale() });
             },
             onOpen: () => {
-                postToNative({ type: "openWorkspace" });
+                postToNative({ type: "openWorkspace", locale: getUiLocale() });
             },
             onOpenRecent: (path) => {
                 postToNative({ type: "openRecentProject", path });

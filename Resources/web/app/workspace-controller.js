@@ -1,3 +1,4 @@
+import { getUiLocale } from "./i18n.js";
 export const initWorkspaceController = (context, deps) => {
     const { issuesTab, workspaceLabel, settingsWorkspace, } = context.dom;
     let currentIssues = [];
@@ -71,7 +72,7 @@ export const initWorkspaceController = (context, deps) => {
                 byKey.set(key, [entry]);
             }
         });
-        const keys = Array.from(byKey.keys()).sort((a, b) => a.localeCompare(b, "ja"));
+        const keys = Array.from(byKey.keys()).sort((a, b) => a.localeCompare(b, getUiLocale()));
         const issues = [];
         const maxLocationsShown = 4;
         for (const key of keys) {
@@ -81,7 +82,7 @@ export const initWorkspaceController = (context, deps) => {
             }
             entries.sort((a, b) => {
                 if (a.path !== b.path) {
-                    return a.path.localeCompare(b.path, "ja");
+                    return a.path.localeCompare(b.path, getUiLocale());
                 }
                 return a.line - b.line;
             });

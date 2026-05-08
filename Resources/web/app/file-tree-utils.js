@@ -1,3 +1,4 @@
+import { getUiLocale } from "./i18n.js";
 const dragDataType = "application/x-tex64-item";
 export const normalizeInputPath = (value) => {
     return value.trim().replace(/\\/g, "/");
@@ -27,7 +28,7 @@ const sortNodes = (nodes) => {
         if (a.type !== b.type) {
             return a.type === "dir" ? -1 : 1;
         }
-        return a.name.localeCompare(b.name, "ja");
+        return a.name.localeCompare(b.name, getUiLocale());
     });
     nodes.forEach((node) => {
         if (node.children.length > 0) {

@@ -1,3 +1,4 @@
+import { getUiLocale } from "../i18n.js";
 export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
     const pickInitialFilePath = () => {
         const rootFilePath = runtime.deps.getRootFilePath();
@@ -7,7 +8,7 @@ export const createEditorSessionInitialOpenOps = (runtime, coreOps, deps) => {
         }
         const texFiles = workspaceFiles
             .filter((path) => path.toLowerCase().endsWith(".tex"))
-            .sort((a, b) => a.localeCompare(b, "ja"));
+            .sort((a, b) => a.localeCompare(b, getUiLocale()));
         if (texFiles.length > 0) {
             return texFiles[0];
         }

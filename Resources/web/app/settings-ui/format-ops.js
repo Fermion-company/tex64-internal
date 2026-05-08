@@ -1,5 +1,6 @@
 import { buildFormatSettingsPayload as buildFormatSettingsPayloadFromSettings, defaultEditorFormatSettings, normalizeEditorFormatSettings, normalizeVerbatimInput, } from "../settings-format.js";
 import { updateSettingsToggle } from "./utils.js";
+import { getUiLocale } from "../i18n.js";
 export const createSettingsFormatOps = (runtime) => {
     const { editorFormatEnabledToggle, editorFormatIndentSelect, editorFormatBeginEndToggle, editorFormatDocumentNoIndentToggle, editorFormatAlignMathToggle, editorFormatAlignTableToggle, editorFormatBlankLinesSelect, editorFormatVerbatimInput, editorFormatVerbatimAdd, editorFormatVerbatimHint, editorFormatVerbatimList, } = runtime.context.dom;
     const buildFormatSettingsPayload = () => buildFormatSettingsPayloadFromSettings(runtime.state.editorFormatSettings, runtime.deps.envRegistry);
@@ -13,7 +14,7 @@ export const createSettingsFormatOps = (runtime) => {
             return;
         }
         editorFormatVerbatimList.innerHTML = "";
-        const entries = Array.from(new Set(runtime.state.editorFormatSettings.customVerbatim)).sort((a, b) => a.localeCompare(b, "ja"));
+        const entries = Array.from(new Set(runtime.state.editorFormatSettings.customVerbatim)).sort((a, b) => a.localeCompare(b, getUiLocale()));
         entries.forEach((entry) => {
             const row = document.createElement("div");
             row.className = "env-registry-row";

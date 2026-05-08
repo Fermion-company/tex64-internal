@@ -1,4 +1,4 @@
-import { uiText } from "./i18n.js";
+import { getUiLocale, uiText } from "./i18n.js";
 export const initRootSelectorUi = (context, deps) => {
     const { settingsRootSelect, settingsRootAuto } = context.dom;
     const requestSetRoot = (path) => {
@@ -35,7 +35,7 @@ export const initRootSelectorUi = (context, deps) => {
         const rootSource = deps.getRootSource();
         const texFiles = workspaceFiles
             .filter((path) => path.toLowerCase().endsWith(".tex"))
-            .sort((a, b) => a.localeCompare(b, "ja"));
+            .sort((a, b) => a.localeCompare(b, getUiLocale()));
         const placeholder = document.createElement("option");
         if (!workspaceRootKey) {
             placeholder.textContent = uiText("No workspace selected", "ワークスペース未選択");

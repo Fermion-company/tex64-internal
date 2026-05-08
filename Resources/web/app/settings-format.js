@@ -1,4 +1,5 @@
 import { DEFAULT_ENV_REGISTRY, getEnvBaseName, normalizeEnvName, } from "./env-registry.js";
+import { getUiLocale } from "./i18n.js";
 export const defaultEditorFormatSettings = {
     enabled: true,
     indentStyle: "spaces-2",
@@ -91,8 +92,8 @@ export const buildEditorFormatAlignEnvs = (envRegistry) => {
         }
     });
     return {
-        math: Array.from(math).sort((a, b) => a.localeCompare(b, "ja")),
-        table: Array.from(table).sort((a, b) => a.localeCompare(b, "ja")),
+        math: Array.from(math).sort((a, b) => a.localeCompare(b, getUiLocale())),
+        table: Array.from(table).sort((a, b) => a.localeCompare(b, getUiLocale())),
     };
 };
 export const buildFormatSettingsPayload = (editorFormatSettings, envRegistry) => ({

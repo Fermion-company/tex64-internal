@@ -1,3 +1,4 @@
+import { getUiLocale } from "./i18n.js";
 export const dedupeByKey = (entries) => {
     const map = new Map();
     entries.forEach((entry) => {
@@ -5,7 +6,7 @@ export const dedupeByKey = (entries) => {
             map.set(entry.key, entry);
         }
     });
-    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key, "ja"));
+    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key, getUiLocale()));
 };
 export const dedupeByKeyAndLocation = (entries) => {
     const map = new Map();
@@ -15,7 +16,7 @@ export const dedupeByKeyAndLocation = (entries) => {
             map.set(token, entry);
         }
     });
-    return Array.from(map.values()).sort((a, b) => a.path === b.path ? a.line - b.line : a.path.localeCompare(b.path, "ja"));
+    return Array.from(map.values()).sort((a, b) => a.path === b.path ? a.line - b.line : a.path.localeCompare(b.path, getUiLocale()));
 };
 export const dedupeSections = (entries) => {
     const map = new Map();
@@ -27,7 +28,7 @@ export const dedupeSections = (entries) => {
     });
     return Array.from(map.values()).sort((a, b) => {
         if (a.path !== b.path) {
-            return a.path.localeCompare(b.path, "ja");
+            return a.path.localeCompare(b.path, getUiLocale());
         }
         return a.line - b.line;
     });

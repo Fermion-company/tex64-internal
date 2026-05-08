@@ -75,7 +75,11 @@ export const initOutlineUi = (context, deps) => {
         }
         const showNumbering = options.showNumbering !== false;
         const sectionLabels = resolveSectionLabels();
-        const isEnglish = getUiLocale() === "en";
+        // Latin-script locales use the "Section 1.2 Title" prefix style; CJK
+        // (ja/zh/ko) use the "1.2節 Title" suffix style which reads more
+        // naturally in those languages.
+        const LATIN_PREFIX_LOCALES = new Set(["en", "de", "fr", "es"]);
+        const isLatinStyle = LATIN_PREFIX_LOCALES.has(getUiLocale());
         const baseLevelsByPath = new Map();
         if (showNumbering) {
             entries.forEach((entry) => {
@@ -143,7 +147,7 @@ export const initOutlineUi = (context, deps) => {
                     .filter((value) => value > 0);
                 if (numberParts.length > 0) {
                     const label = (_c = sectionLabels[Math.max(depth + state.labelOffset, 0)]) !== null && _c !== void 0 ? _c : "section";
-                    prefix = isEnglish
+                    prefix = isLatinStyle
                         ? `${label} ${numberParts.join(".")} `
                         : `${numberParts.join(".")}${label} `;
                 }
@@ -196,10 +200,12 @@ export const initOutlineUi = (context, deps) => {
             if (!hasItems) {
                 outlineEmpty.textContent =
                     deps.getWorkspaceRootKey() === null
+                        // For en, show the slightly more terse "No workspace selected.";
+                        // for other locales the dictionary key is "No workspace is selected.".
                         ? (getUiLocale() === "en" ? "No workspace selected." : "No workspace is selected.")
                         : outlineMode === "current" && deps.getActiveFilePath() === null
-                            ? (getUiLocale() === "en" ? "No file selected." : "No file selected.")
-                            : (getUiLocale() === "en" ? "No index entries found." : "No index entries found.");
+                            ? "No file selected."
+                            : "No index entries found.";
             }
         }
     };

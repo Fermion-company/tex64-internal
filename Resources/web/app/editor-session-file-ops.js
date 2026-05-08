@@ -1,5 +1,6 @@
 import { isImageFilePath, isPdfFilePath, isTextFilePath } from "./files.js";
 import { buildLineDiff } from "./diff.js";
+import { getUiLocale } from "./i18n.js";
 export const createEditorSessionFileOps = (ctx) => {
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     /**
@@ -410,7 +411,7 @@ export const createEditorSessionFileOps = (ctx) => {
             if (b === activePath) {
                 return 1;
             }
-            return a.localeCompare(b, "ja");
+            return a.localeCompare(b, getUiLocale());
         });
         const readBuffer = (path) => {
             var _a, _b, _c;
