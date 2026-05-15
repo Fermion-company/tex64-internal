@@ -51,7 +51,7 @@ jobs:
           brew install pkg-config cairo pango libpng jpeg giflib librsvg
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Ensure DMG background assets
         shell: bash
@@ -222,7 +222,7 @@ jobs:
           "npm_config_python=$env:pythonLocation\python.exe" >> $env:GITHUB_ENV
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Sync version from tag
         if: startsWith(github.ref, 'refs/tags/v')
