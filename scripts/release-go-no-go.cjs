@@ -254,7 +254,6 @@ const main = async () => {
   );
   const timeoutMs = Number.parseInt(readOption("--timeoutMs") || "15000", 10);
   const archs = parseArchList(readOption("--archs") || "arm64,x64");
-  const winArchs = parseArchList(readOption("--winArchs") || "x64");
 
   if (!version || !/^\d+\.\d+\.\d+/.test(version)) {
     console.error(`ERROR: Missing or invalid --version (resolved: "${version}")`);
@@ -282,7 +281,6 @@ const main = async () => {
   process.stdout.write(`Downloads: ${downloadsBaseUrl}\n`);
   process.stdout.write(`Site: ${siteBaseUrl}\n`);
   process.stdout.write(`macOS Architectures: ${archs.join(", ")}\n`);
-  process.stdout.write(`Windows Architectures: ${winArchs.join(", ")}\n`);
   process.stdout.write("\n");
 
   const failures = [];
@@ -471,7 +469,6 @@ const main = async () => {
   };
 
   await verifyPlatformManifests("darwin", archs, "zip");
-  await verifyPlatformManifests("win32", winArchs, "exe");
 
   process.stdout.write("\n");
   for (const warning of warnings) {
@@ -487,7 +484,7 @@ const main = async () => {
   }
 
   process.stdout.write(
-    `Go/No-Go checks passed (${archs.length + winArchs.length} arch, ${artifacts.length} artifact checks)\n`
+    `Go/No-Go checks passed (${archs.length} macOS arch, ${artifacts.length} artifact checks)\n`
   );
 };
 
