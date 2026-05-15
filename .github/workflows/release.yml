@@ -51,7 +51,7 @@ jobs:
           brew install pkg-config cairo pango libpng jpeg giflib librsvg
 
       - name: Install dependencies
-        run: npm ci --omit=optional
+        run: npm ci
 
       - name: Ensure DMG background assets
         shell: bash
