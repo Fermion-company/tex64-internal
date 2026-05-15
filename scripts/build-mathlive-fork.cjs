@@ -24,9 +24,13 @@ const resolveCommand = (command) => {
   return command;
 };
 
+const requiresWindowsShell = (command) =>
+  process.platform === "win32" && (command === "npm" || command === "npx");
+
 const run = (command, args, cwd) => {
   execFileSync(resolveCommand(command), args, {
     cwd,
+    shell: requiresWindowsShell(command),
     stdio: "inherit",
     env: {
       ...process.env,
