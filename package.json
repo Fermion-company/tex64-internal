@@ -14,6 +14,7 @@
     "electron:pack": "npm run -s dist:prep && npm run -s web:build && electron-builder --dir",
     "electron:dist": "npm run -s dist:prep && npm run -s web:build && electron-builder --publish never",
     "electron:dist:mac": "npm run -s dist:prep && npm run -s web:build && electron-builder --mac --publish never",
+    "electron:dist:win": "npm run -s dist:prep && npm run -s web:build && electron-builder --win --x64 --publish never",
     "dmg:background": "node scripts/generate-dmg-background.cjs",
     "math:check": "node scripts/check-math-stack.cjs",
     "mathlive:clean": "node scripts/clean-mathlive-fork.cjs",
@@ -80,6 +81,26 @@
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}",
+      "icon": "Resources/icons/tex64.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "dmg": {
       "title": "${productName} ${version}",

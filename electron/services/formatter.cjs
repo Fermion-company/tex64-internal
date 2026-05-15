@@ -2,6 +2,10 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
 const { spawn } = require("child_process");
+const {
+  extendTexlivePath,
+  findTexCommand,
+} = require("./texlive-paths.cjs");
 
 const ensureDirectory = async (dirPath) => {
   await fsp.mkdir(dirPath, { recursive: true });
@@ -616,57 +620,14 @@ const stripBlankLinesInMathEnv = (content, settings) => {
 
 class FormatterService {
   extendPath(existingPath) {
-    const base = existingPath ?? "";
-    const extra = [];
-    if (process.platform === "darwin") {
-      extra.push("/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin");
-    } else if (process.platform === "win32") {
-      extra.push(
-        "C:\\texlive\\2024\\bin\\windows",
-        "C:\\texlive\\2023\\bin\\windows",
-        "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",
-        "C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\x64"
-      );
-    }
-    const parts = [...extra, base].filter(Boolean);
-    return parts.join(path.delimiter);
+    return extendTexlivePath(existingPath);
   }
 
   findLatexindent() {
     if (shouldForceMissingTool("latexindent")) {
       return null;
     }
-    const candidates = [];
-    if (process.platform === "darwin") {
-      candidates.push(
-        "/Library/TeX/texbin/latexindent",
-        "/usr/local/bin/latexindent",
-        "/opt/homebrew/bin/latexindent",
-        "/usr/bin/latexindent"
-      );
-    } else if (process.platform === "win32") {
-      candidates.push(
-        "C:\\texlive\\2024\\bin\\windows\\latexindent.exe",
-        "C:\\texlive\\2023\\bin\\windows\\latexindent.exe",
-        "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64\\latexindent.exe",
-        "C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\x64\\latexindent.exe"
-      );
-    }
-    const pathEntries = (process.env.PATH ?? "").split(path.delimiter);
-    pathEntries.forEach((entry) => {
-      if (!entry) {
-        return;
-      }
-      candidates.push(
-        path.join(entry, process.platform === "win32" ? "latexindent.exe" : "latexindent")
-      );
-    });
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
+    return findTexCommand("latexindent");
   }
 
   runProcess(command, args, cwd, env) {

@@ -184,7 +184,7 @@ const fetchRedirectLocation = async (url, timeoutMs) => {
   return { status: response.status, location };
 };
 
-const ensureArtifactMap = (stable, archs, kindFilter = "") => {
+const ensureArtifactMap = (stable, platformFilter, archs, kindFilter = "") => {
   const result = new Map();
   const artifacts = Array.isArray(stable?.artifacts) ? stable.artifacts : [];
   for (const artifact of artifacts) {
@@ -193,7 +193,7 @@ const ensureArtifactMap = (stable, archs, kindFilter = "") => {
     const kind = String(artifact?.kind || "").trim().toLowerCase();
     const url = normalizeUrl(artifact?.url || "");
     const shaHex = normalizeSha256(artifact?.sha256 || "");
-    if (platform !== "darwin" || !arch || !url || !shaHex) continue;
+    if (platform !== platformFilter || !arch || !url || !shaHex) continue;
     if (kindFilter && kind !== kindFilter) continue;
     if (!archs.includes(arch)) continue;
     if (!result.has(arch)) {
@@ -254,6 +254,7 @@ const main = async () => {
   );
   const timeoutMs = Number.parseInt(readOption("--timeoutMs") || "15000", 10);
   const archs = parseArchList(readOption("--archs") || "arm64,x64");
+  const winArchs = parseArchList(readOption("--winArchs") || "x64");
 
   if (!version || !/^\d+\.\d+\.\d+/.test(version)) {
     console.error(`ERROR: Missing or invalid --version (resolved: "${version}")`);
@@ -280,7 +281,8 @@ const main = async () => {
   process.stdout.write(`Channel: ${channel}\n`);
   process.stdout.write(`Downloads: ${downloadsBaseUrl}\n`);
   process.stdout.write(`Site: ${siteBaseUrl}\n`);
-  process.stdout.write(`Architectures: ${archs.join(", ")}\n`);
+  process.stdout.write(`macOS Architectures: ${archs.join(", ")}\n`);
+  process.stdout.write(`Windows Architectures: ${winArchs.join(", ")}\n`);
   process.stdout.write("\n");
 
   const failures = [];
@@ -357,115 +359,119 @@ const main = async () => {
     warnings.push("notesUrl is empty in update feed.");
   }
 
-  const updatePlatform = "darwin";
-  const updateKind = "zip";
-  const stableByArch = ensureArtifactMap(stable, archs, updateKind);
-  for (const arch of archs) {
-    const expected = stableByArch.get(arch);
-    if (!expected) {
-      failures.push(`Update feed is missing ${updatePlatform}/${arch}/${updateKind} artifact.`);
-      continue;
-    }
+  const verifyPlatformManifests = async (updatePlatform, platformArchs, updateKind) => {
+    const stableByArch = ensureArtifactMap(stable, updatePlatform, platformArchs, updateKind);
+    for (const arch of platformArchs) {
+      const label = `${updatePlatform}/${arch}/${updateKind}`;
+      const expected = stableByArch.get(arch);
+      if (!expected) {
+        failures.push(`Update feed is missing ${label} artifact.`);
+        continue;
+      }
 
-    const manifestUrl =
-      `${siteBaseUrl}/api/v2/updates/manifest?platform=${encodeURIComponent(updatePlatform)}` +
-      `&arch=${encodeURIComponent(arch)}` +
-      `&channel=${encodeURIComponent(channel)}` +
-      `&kind=${encodeURIComponent(updateKind)}`;
-    const manifest = await fetchJson(manifestUrl, timeoutMs).catch((error) => {
-      failures.push(`Failed to fetch manifest for ${arch}: ${error.message}`);
-      return null;
-    });
-    if (!manifest) {
-      continue;
-    }
-    printPass(`Fetched manifest for ${arch}`);
+      const manifestUrl =
+        `${siteBaseUrl}/api/v2/updates/manifest?platform=${encodeURIComponent(updatePlatform)}` +
+        `&arch=${encodeURIComponent(arch)}` +
+        `&channel=${encodeURIComponent(channel)}` +
+        `&kind=${encodeURIComponent(updateKind)}`;
+      const manifest = await fetchJson(manifestUrl, timeoutMs).catch((error) => {
+        failures.push(`Failed to fetch manifest for ${label}: ${error.message}`);
+        return null;
+      });
+      if (!manifest) {
+        continue;
+      }
+      printPass(`Fetched manifest for ${label}`);
 
-    if (String(manifest.latestVersion || "") !== version) {
-      failures.push(
-        `Manifest latestVersion mismatch for ${arch} (expected ${version}, got ${String(
-          manifest.latestVersion || ""
-        )})`
-      );
-    } else {
-      printPass(`Manifest latestVersion matches for ${arch}`);
-    }
-
-    const manifestArtifactUrl = sanitizeHttpUrl(manifest.artifactUrl || "");
-    const manifestShaHex = normalizeSha256(manifest.artifactSha256 || manifest.sha256 || "");
-    if (!manifestArtifactUrl) {
-      failures.push(`Manifest artifactUrl is invalid for ${arch}.`);
-    } else {
-      const expectedComparable = normalizeComparableUrl(expected.url);
-      if (normalizeComparableUrl(manifestArtifactUrl) === expectedComparable) {
-        printPass(`Manifest artifactUrl matches update feed for ${arch}`);
+      if (String(manifest.latestVersion || "") !== version) {
+        failures.push(
+          `Manifest latestVersion mismatch for ${label} (expected ${version}, got ${String(
+            manifest.latestVersion || ""
+          )})`
+        );
       } else {
-        const resolvedArtifact = await fetchResolvedUrl(manifestArtifactUrl, timeoutMs).catch((error) => {
-          failures.push(`Failed to resolve manifest artifactUrl for ${arch}: ${error.message}`);
-          return null;
-        });
-        if (!resolvedArtifact?.ok) {
-          failures.push(`Manifest artifactUrl is not reachable for ${arch}.`);
-        } else if (normalizeComparableUrl(resolvedArtifact.url) !== expectedComparable) {
-          failures.push(`Manifest artifactUrl mismatch for ${arch}.`);
+        printPass(`Manifest latestVersion matches for ${label}`);
+      }
+
+      const manifestArtifactUrl = sanitizeHttpUrl(manifest.artifactUrl || "");
+      const manifestShaHex = normalizeSha256(manifest.artifactSha256 || manifest.sha256 || "");
+      if (!manifestArtifactUrl) {
+        failures.push(`Manifest artifactUrl is invalid for ${label}.`);
+      } else {
+        const expectedComparable = normalizeComparableUrl(expected.url);
+        if (normalizeComparableUrl(manifestArtifactUrl) === expectedComparable) {
+          printPass(`Manifest artifactUrl matches update feed for ${label}`);
         } else {
-          printPass(`Manifest artifactUrl resolves to update feed artifact for ${arch}`);
+          const resolvedArtifact = await fetchResolvedUrl(manifestArtifactUrl, timeoutMs).catch((error) => {
+            failures.push(`Failed to resolve manifest artifactUrl for ${label}: ${error.message}`);
+            return null;
+          });
+          if (!resolvedArtifact?.ok) {
+            failures.push(`Manifest artifactUrl is not reachable for ${label}.`);
+          } else if (normalizeComparableUrl(resolvedArtifact.url) !== expectedComparable) {
+            failures.push(`Manifest artifactUrl mismatch for ${label}.`);
+          } else {
+            printPass(`Manifest artifactUrl resolves to update feed artifact for ${label}`);
+          }
         }
       }
-    }
-    if (!manifestShaHex) {
-      failures.push(`Manifest artifactSha256 is invalid for ${arch}.`);
-    } else if (manifestShaHex !== expected.shaHex) {
-      failures.push(`Manifest artifactSha256 mismatch for ${arch}.`);
-    } else {
-      printPass(`Manifest artifactSha256 matches update feed for ${arch}`);
-    }
-
-    if (notesUrl) {
-      const manifestNotesUrl = normalizeUrl(manifest.notesUrl || "");
-      if (!manifestNotesUrl) {
-        warnings.push(`Manifest notesUrl is empty for ${arch}.`);
-      } else if (normalizeComparableUrl(manifestNotesUrl) !== normalizeComparableUrl(notesUrl)) {
-        warnings.push(`Manifest notesUrl differs for ${arch}.`);
+      if (!manifestShaHex) {
+        failures.push(`Manifest artifactSha256 is invalid for ${label}.`);
+      } else if (manifestShaHex !== expected.shaHex) {
+        failures.push(`Manifest artifactSha256 mismatch for ${label}.`);
       } else {
-        printPass(`Manifest notesUrl matches update feed for ${arch}`);
+        printPass(`Manifest artifactSha256 matches update feed for ${label}`);
       }
-    }
 
-    const latestUrl =
-      `${siteBaseUrl}/download/latest?platform=${encodeURIComponent(updatePlatform)}` +
-      `&arch=${encodeURIComponent(arch)}` +
-      `&channel=${encodeURIComponent(channel)}` +
-      `&kind=${encodeURIComponent(updateKind)}`;
-    const redirectResult = await fetchRedirectLocation(latestUrl, timeoutMs).catch((error) => {
-      failures.push(`Failed to resolve /download/latest for ${arch}: ${error.message}`);
-      return null;
-    });
-    if (!redirectResult) {
-      continue;
+      if (notesUrl) {
+        const manifestNotesUrl = normalizeUrl(manifest.notesUrl || "");
+        if (!manifestNotesUrl) {
+          warnings.push(`Manifest notesUrl is empty for ${label}.`);
+        } else if (normalizeComparableUrl(manifestNotesUrl) !== normalizeComparableUrl(notesUrl)) {
+          warnings.push(`Manifest notesUrl differs for ${label}.`);
+        } else {
+          printPass(`Manifest notesUrl matches update feed for ${label}`);
+        }
+      }
+
+      const latestUrl =
+        `${siteBaseUrl}/download/latest?platform=${encodeURIComponent(updatePlatform)}` +
+        `&arch=${encodeURIComponent(arch)}` +
+        `&channel=${encodeURIComponent(channel)}` +
+        `&kind=${encodeURIComponent(updateKind)}`;
+      const redirectResult = await fetchRedirectLocation(latestUrl, timeoutMs).catch((error) => {
+        failures.push(`Failed to resolve /download/latest for ${label}: ${error.message}`);
+        return null;
+      });
+      if (!redirectResult) {
+        continue;
+      }
+      const isRedirect =
+        Number.isInteger(redirectResult.status) &&
+        redirectResult.status >= 300 &&
+        redirectResult.status < 400;
+      if (!isRedirect || !redirectResult.location) {
+        failures.push(`/download/latest did not return a redirect for ${label}.`);
+        continue;
+      }
+      const resolvedLatest = await fetchResolvedUrl(latestUrl, timeoutMs).catch((error) => {
+        failures.push(`Failed to resolve final /download/latest URL for ${label}: ${error.message}`);
+        return null;
+      });
+      if (!resolvedLatest?.ok) {
+        failures.push(`/download/latest is not reachable for ${label}.`);
+        continue;
+      }
+      if (normalizeComparableUrl(resolvedLatest.url) !== normalizeComparableUrl(expected.url)) {
+        failures.push(`/download/latest redirect mismatch for ${label}.`);
+        continue;
+      }
+      printPass(`/download/latest redirect matches update feed for ${label}`);
     }
-    const isRedirect =
-      Number.isInteger(redirectResult.status) &&
-      redirectResult.status >= 300 &&
-      redirectResult.status < 400;
-    if (!isRedirect || !redirectResult.location) {
-      failures.push(`/download/latest did not return a redirect for ${arch}.`);
-      continue;
-    }
-    const resolvedLatest = await fetchResolvedUrl(latestUrl, timeoutMs).catch((error) => {
-      failures.push(`Failed to resolve final /download/latest URL for ${arch}: ${error.message}`);
-      return null;
-    });
-    if (!resolvedLatest?.ok) {
-      failures.push(`/download/latest is not reachable for ${arch}.`);
-      continue;
-    }
-    if (normalizeComparableUrl(resolvedLatest.url) !== normalizeComparableUrl(expected.url)) {
-      failures.push(`/download/latest redirect mismatch for ${arch}.`);
-      continue;
-    }
-    printPass(`/download/latest redirect matches update feed for ${arch}`);
-  }
+  };
+
+  await verifyPlatformManifests("darwin", archs, "zip");
+  await verifyPlatformManifests("win32", winArchs, "exe");
 
   process.stdout.write("\n");
   for (const warning of warnings) {
@@ -481,7 +487,7 @@ const main = async () => {
   }
 
   process.stdout.write(
-    `Go/No-Go checks passed (${archs.length} arch, ${artifacts.length} artifact checks)\n`
+    `Go/No-Go checks passed (${archs.length + winArchs.length} arch, ${artifacts.length} artifact checks)\n`
   );
 };
 

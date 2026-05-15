@@ -14,9 +14,23 @@ const requiredDistFiles = ["mathlive.min.js", "mathlive-static.css"];
 const requiredDistDirs = ["fonts"];
 const staleOutputDirs = ["sounds"];
 
+const resolveCommand = (command) => {
+  if (process.platform !== "win32") {
+    return command;
+  }
+  if (command === "npm" || command === "npx") {
+    return `${command}.cmd`;
+  }
+  return command;
+};
+
+const requiresWindowsShell = (command) =>
+  process.platform === "win32" && (command === "npm" || command === "npx");
+
 const run = (command, args, cwd) => {
-  execFileSync(command, args, {
+  execFileSync(resolveCommand(command), args, {
     cwd,
+    shell: requiresWindowsShell(command),
     stdio: "inherit",
     env: {
       ...process.env,

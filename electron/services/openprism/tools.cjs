@@ -548,7 +548,7 @@ const buildTools = (service, conversationId, policy) => {
   const installEnvironmentTool = make(
     "install_environment",
     "Install a TeX-related package. Input: { target }. Supported targets: 'basictex' " +
-      "(TeX distribution), 'latexmk', 'latexindent'. Uses Homebrew on macOS or winget on Windows.",
+      "(TeX64 managed TeX Live), 'latexmk', 'latexindent'. Uses the official TeX Live installer on macOS/Windows.",
     {
       type: "object",
       properties: { target: { type: "string" } },

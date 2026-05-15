@@ -5,7 +5,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
     const { settingsRuntimeInstallStatus, settingsRuntimeSetupStatus, settingsRuntimeOnboardingStatus, settingsRuntimeRunFirstBuild, settingsRuntimeOpenGettingStarted, settingsRuntimeOpenInstallDocs, settingsRuntimeOpenTexDocs, settingsEnvRefresh, } = runtime.context.dom;
     const resolveEnvInstallTargetLabel = (target) => {
         if (target === "basictex") {
-            return "TeX Distribution";
+            return "TeX64 managed TeX Live";
         }
         if (target === "latexmk") {
             return "latexmk";
@@ -154,7 +154,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             return;
         }
         const label = resolveEnvInstallTargetLabel(target);
-        setRuntimeInstallStatus(`${label}  is being installed...`);
+        setRuntimeInstallStatus(`${label} is being installed. This can take several minutes.`);
         envBtns
             .filter((btn) => btn.dataset.target === target)
             .forEach((btn) => {
@@ -168,7 +168,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         const rawMessage = typeof (payload === null || payload === void 0 ? void 0 : payload.message) === "string" && payload.message.trim() ? payload.message.trim() : "";
         const label = resolveEnvInstallTargetLabel(target);
         const message = rawMessage ||
-            (success ? `${label}  installation performed。` : `${label}  installation failed。`);
+            (success ? `${label} installation completed.` : `${label} installation failed.`);
         setRuntimeInstallStatus(message, success ? "success" : "error");
         checkEnvironmentStatus();
     };

@@ -79,6 +79,9 @@ const resolveArtifacts = async (distDir, version) => {
       // Keep them in dist/ but exclude from the public release bundle.
       return !lower.endsWith("-notary.zip");
     }
+    if (lower.endsWith(".exe")) {
+      return true;
+    }
     return false;
   };
   for (const entry of entries) {
@@ -105,8 +108,8 @@ const main = async () => {
 
   const artifacts = await resolveArtifacts(distDir, version);
   if (artifacts.length === 0) {
-    console.error(`ERROR: No .dmg/.zip artifacts found in ${distDir} for version ${version}.`);
-    console.error(`Run first: npm run -s electron:dist:mac`);
+    console.error(`ERROR: No .dmg/.zip/.exe artifacts found in ${distDir} for version ${version}.`);
+    console.error(`Run first: npm run -s electron:dist`);
     process.exit(1);
   }
 

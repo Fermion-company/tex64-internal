@@ -27,6 +27,7 @@ xcuserdata/
 /Resources/icons/
 /.venv/
 /.venv-ocr/
+/.claude/worktrees/
 /*.aux
 /*.fdb_latexmk
 /*.fls

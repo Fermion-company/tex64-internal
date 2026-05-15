@@ -82,6 +82,8 @@ const featureMethods = {
         ? options.kind.trim()
         : platform === "darwin"
         ? "zip"
+        : platform === "win32"
+        ? "exe"
         : "";
     const kind = String(kindRaw).trim().toLowerCase();
     const currentVersion =

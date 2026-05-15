@@ -71,14 +71,17 @@ const createMiscHandlers = (deps) => {
     sendToRenderer("env:installStart", { target });
     const result = await envService.installEnvironment(target);
     sendToRenderer("env:installResult", { target, ...result });
-    if (target === "basictex") {
-      const lualatex = await envService.checkCommand("lualatex");
-      const latexmk = await envService.checkCommand("latexmk");
-      sendToRenderer("env:checkResult", { command: "lualatex", available: lualatex });
-      sendToRenderer("env:checkResult", { command: "latexmk", available: latexmk });
-    } else if (target === "latexmk") {
-      const available = await envService.checkCommand("latexmk");
-      sendToRenderer("env:checkResult", { command: "latexmk", available });
+    const commands =
+      target === "basictex" || target === "synctex"
+        ? ["lualatex", "pdflatex", "xelatex", "uplatex", "latexmk", "latexindent", "synctex"]
+        : target === "latexmk"
+        ? ["latexmk"]
+        : target === "latexindent"
+        ? ["latexindent"]
+        : [];
+    for (const command of commands) {
+      const available = await envService.checkCommand(command);
+      sendToRenderer("env:checkResult", { command, available });
     }
   };
 

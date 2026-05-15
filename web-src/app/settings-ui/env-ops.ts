@@ -28,7 +28,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
 
   const resolveEnvInstallTargetLabel = (target: string) => {
     if (target === "basictex") {
-      return "TeX Distribution";
+      return "TeX64 managed TeX Live";
     }
     if (target === "latexmk") {
       return "latexmk";
@@ -183,7 +183,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
       return;
     }
     const label = resolveEnvInstallTargetLabel(target);
-    setRuntimeInstallStatus(`${label}  is being installed...`);
+    setRuntimeInstallStatus(`${label} is being installed. This can take several minutes.`);
     envBtns
       .filter((btn) => btn.dataset.target === target)
       .forEach((btn) => {
@@ -201,7 +201,7 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     const label = resolveEnvInstallTargetLabel(target);
     const message =
       rawMessage ||
-      (success ? `${label}  installation performed。` : `${label}  installation failed。`);
+      (success ? `${label} installation completed.` : `${label} installation failed.`);
     setRuntimeInstallStatus(message, success ? "success" : "error");
     checkEnvironmentStatus();
   };
@@ -279,4 +279,3 @@ export const createSettingsEnvOps = (runtime: SettingsUiRuntime, attentionOps: S
     getRuntimeStatusSummary,
   };
 };
-
