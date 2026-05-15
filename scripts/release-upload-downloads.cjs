@@ -97,7 +97,7 @@ const findReleaseArtifacts = (releaseDir, version) => {
     if (!entry.isFile()) continue;
     const name = entry.name;
     const lower = name.toLowerCase();
-    const isTarget = lower.endsWith(".dmg") || lower.endsWith(".zip") || lower.endsWith(".exe");
+    const isTarget = lower.endsWith(".dmg") || lower.endsWith(".zip");
     if (!isTarget) continue;
     if (!name.includes(marker)) continue;
     artifacts.push(path.join(releaseDir, name));
@@ -200,7 +200,7 @@ const main = async () => {
 
   const artifacts = findReleaseArtifacts(releaseDir, version);
   if (artifacts.length === 0) {
-    console.error(`ERROR: No .dmg/.zip/.exe artifacts found in ${releaseDir} for version ${version}`);
+    console.error(`ERROR: No .dmg/.zip artifacts found in ${releaseDir} for version ${version}`);
     process.exit(1);
   }
 
@@ -248,17 +248,6 @@ const main = async () => {
   });
   if (!hasDarwinDmg) {
     console.error(`ERROR: ${feedPath} has no darwin/dmg artifact.`);
-    process.exit(1);
-  }
-
-  const hasWinExe = feedArtifacts.some((item) => {
-    const platform = String(item?.platform || "").trim().toLowerCase();
-    const normalizedArch = normalizeArch(item?.arch);
-    const kind = String(item?.kind || "").trim().toLowerCase();
-    return platform === "win32" && !!normalizedArch && kind === "exe";
-  });
-  if (!hasWinExe) {
-    console.error(`ERROR: ${feedPath} has no win32/exe artifact.`);
     process.exit(1);
   }
 
