@@ -196,5 +196,23 @@
     },
     "mode": "new",
     "createdAt": "2026-04-11T00:10:25.369Z"
+  },
+  {
+    "file": "main.tex",
+    "snippet": "\\[\\sin\\]",
+    "content": {
+      "formula": "\\sin"
+    },
+    "mode": "new",
+    "createdAt": "2026-05-21T10:12:33.027Z"
+  },
+  {
+    "file": "main.tex",
+    "snippet": "$\\sin$",
+    "content": {
+      "formula": "\\sin"
+    },
+    "mode": "new",
+    "createdAt": "2026-05-21T10:16:48.432Z"
   }
 ]
