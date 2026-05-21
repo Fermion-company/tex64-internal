@@ -1,11 +1,13 @@
 import { uiText } from "./i18n.js";
-import { registerCompletionProvider } from "./monaco-completion.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
+import { setupLsp } from "./lsp/setup-lsp.js";
+import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { attachEditorErgonomics } from "./editor-ergonomics.js";
+import { SpellChecker } from "./spell/spell-check.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
-    const completionState = { registered: false };
     const hoverState = { registered: false };
     const setWordWrapEnabled = (enabled) => {
         const wordWrap = enabled ? "on" : "off";
@@ -47,12 +49,9 @@ export const initMonacoSetup = (context, deps) => {
         }
         deps.setMonacoApi(monacoWindow.monaco);
         registerTexLanguages(monacoWindow.monaco);
-        registerCompletionProvider(monacoWindow.monaco, {
-            getActiveFilePath: deps.editorSession.getActiveFilePath,
-            getIndexLabels: deps.getIndexLabels,
-            getIndexCitations: deps.getIndexCitations,
-            getWorkspaceFiles: deps.getWorkspaceFiles,
-        }, completionState);
+        // Completion is provided by texlab (see setupLsp below). The previous
+        // hand-rolled \ref/\cite/path/\begin completion was removed to avoid
+        // duplicate suggestions.
         registerHoverProvider(monacoWindow.monaco, {
             getActiveFilePath: deps.editorSession.getActiveFilePath,
             getWorkspaceFiles: deps.getWorkspaceFiles,
@@ -61,6 +60,12 @@ export const initMonacoSetup = (context, deps) => {
             requestFilePreview: deps.requestFilePreview,
             requestFileExcerpt: deps.requestFileExcerpt,
         }, hoverState);
+        void setupLsp(monacoWindow.monaco, {
+            getWorkspaceRoot: deps.getWorkspaceRoot,
+        });
+        const spellBridge = window.tex64Spell;
+        const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
+        spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
         const themeName = applyMonacoTheme(monacoWindow.monaco);
         const editorOptions = {
             value: "",
@@ -70,10 +75,10 @@ export const initMonacoSetup = (context, deps) => {
             glyphMargin: true,
             minimap: { enabled: false },
             scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
-            fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
-            fontSize: 12,
-            lineHeight: 20,
-            lineNumbersMinChars: 3,
+            fontFamily: editorSettings.getFontFamily(),
+            fontSize: editorSettings.getFontSize(),
+            lineHeight: editorSettings.getLineHeight(),
+            lineNumbersMinChars: 2,
             scrollBeyondLastLine: false,
             wordWrap: deps.getEditorWordWrapEnabled() ? "on" : "off",
             wordBasedSuggestions: "off",
@@ -96,10 +101,11 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
+            attachEditorErgonomics(monacoWindow.monaco, editor, group);
             host.addEventListener("keydown", (event) => {
                 var _a;
                 if (event.key !== "Tab") {
@@ -237,6 +243,20 @@ export const initMonacoSetup = (context, deps) => {
                     });
                 }
             }
+            // Spell: "Add to dictionary" for the word under the cursor (context menu
+            // / command palette). Done as an editor action because this Monaco build
+            // has no editor.registerCommand for code-action commands.
+            if (spellChecker) {
+                (_p = (_o = editor).addAction) === null || _p === void 0 ? void 0 : _p.call(_o, {
+                    id: "tex64.spell.addWordToDictionary",
+                    label: uiText("Add word to dictionary", "単語を辞書に追加"),
+                    contextMenuGroupId: "9_spell",
+                    contextMenuOrder: 1,
+                    run: () => {
+                        void spellChecker.addWordAtCursor(editor);
+                    },
+                });
+            }
         };
         if (editorHost instanceof HTMLElement) {
             createEditorForGroup(deps.editorSession.getEditorGroup("primary"), editorHost);
@@ -245,6 +265,20 @@ export const initMonacoSetup = (context, deps) => {
         if (editorHostSecondary instanceof HTMLElement) {
             createEditorForGroup(deps.editorSession.getEditorGroup("secondary"), editorHostSecondary);
         }
+        // Apply font-family/size changes live across all editor groups.
+        editorSettings.subscribe((change) => {
+            if (change.kind !== "font") {
+                return;
+            }
+            const fontFamily = editorSettings.getFontFamily();
+            const fontSize = editorSettings.getFontSize();
+            const lineHeight = editorSettings.getLineHeight();
+            deps.editorSession.forEachEditorGroup((group) => {
+                var _a;
+                const editorAny = group.editor;
+                (_a = editorAny === null || editorAny === void 0 ? void 0 : editorAny.updateOptions) === null || _a === void 0 ? void 0 : _a.call(editorAny, { fontFamily, fontSize, lineHeight });
+            });
+        });
         document.body.classList.add("has-editor");
     }, () => {
         deps.updateFallback(uiText("Failed to load Monaco.", "Monacoの読み込みに失敗しました。"));

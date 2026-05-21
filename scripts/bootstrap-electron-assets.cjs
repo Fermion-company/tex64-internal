@@ -160,10 +160,19 @@ const ensureMacIcons = async () => {
   execInherit("iconutil", ["--convert", "icns", "--output", icnsPath, iconsetDir]);
 };
 
+const ensureTexlab = async () => {
+  // texlab is bundled into the distributable (see NOTICE.md for GPL-3.0
+  // attribution). macOS is the only active dist target, so fetch both arches.
+  const fetchScript = resolvePath("scripts", "fetch-texlab.cjs");
+  const args = process.platform === "darwin" ? ["--mac"] : [];
+  execInherit(process.execPath, [fetchScript, ...args]);
+};
+
 const main = async () => {
   await ensureEntitlements();
   await ensureLicense();
   await ensureMacIcons();
+  await ensureTexlab();
 };
 
 main().catch((error) => {

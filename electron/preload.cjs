@@ -94,6 +94,85 @@ const mathOcrApi = {
   run: async (payload) => ipcRenderer.invoke("tex64:math-ocr:run", payload),
 };
 
+// LSP bridge: the renderer-side client speaks JSON-RPC through this; main relays
+// it to/from texlab over stdio. `send` is one-way (the client matches replies by
+// id itself); inbound messages and lifecycle status arrive via the listeners.
+const lspMessageHandlers = new Set();
+const lspStatusHandlers = new Set();
+
+ipcRenderer.on("tex64:lsp:message", (_event, message) => {
+  lspMessageHandlers.forEach((handler) => {
+    try {
+      handler(message);
+    } catch (error) {
+      console.error("tex64Lsp message handler error:", error);
+    }
+  });
+});
+
+ipcRenderer.on("tex64:lsp:status", (_event, status) => {
+  lspStatusHandlers.forEach((handler) => {
+    try {
+      handler(status);
+    } catch (error) {
+      console.error("tex64Lsp status handler error:", error);
+    }
+  });
+});
+
+const spellApi = {
+  check: async (words) => {
+    try {
+      return await ipcRenderer.invoke("tex64:spell:check", words);
+    } catch {
+      return [];
+    }
+  },
+  suggest: async (word) => {
+    try {
+      return await ipcRenderer.invoke("tex64:spell:suggest", word);
+    } catch {
+      return [];
+    }
+  },
+  add: async (word) => {
+    try {
+      return await ipcRenderer.invoke("tex64:spell:add", word);
+    } catch {
+      return false;
+    }
+  },
+};
+
+const lspApi = {
+  send: (message) => ipcRenderer.send("tex64:lsp:send", message),
+  onMessage: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    lspMessageHandlers.add(handler);
+    return () => {
+      lspMessageHandlers.delete(handler);
+    };
+  },
+  onStatus: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    lspStatusHandlers.add(handler);
+    return () => {
+      lspStatusHandlers.delete(handler);
+    };
+  },
+  getStatus: async () => {
+    try {
+      return await ipcRenderer.invoke("tex64:lsp:status");
+    } catch {
+      return { available: false, running: false };
+    }
+  },
+};
+
 Object.defineProperty(bridgeApi, "postMessage", {
   get: () => postMessageHandler,
   set: (next) => {
@@ -107,3 +186,5 @@ Object.defineProperty(bridgeApi, "postMessage", {
 contextBridge.exposeInMainWorld("tex64Bridge", bridgeApi);
 contextBridge.exposeInMainWorld("tex64Capture", captureApi);
 contextBridge.exposeInMainWorld("tex64MathOcr", mathOcrApi);
+contextBridge.exposeInMainWorld("tex64Lsp", lspApi);
+contextBridge.exposeInMainWorld("tex64Spell", spellApi);

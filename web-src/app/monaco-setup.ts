@@ -2,13 +2,17 @@ import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
 import type { IndexEntry } from "./types.js";
 import type { EditorGroupKey, EditorSessionApi, EditorGroupState } from "./editor-session.js";
-import { registerCompletionProvider } from "./monaco-completion.js";
 import {
   registerHoverProvider,
   type HoverState,
 } from "./monaco-hover.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
+import { setupLsp } from "./lsp/setup-lsp.js";
+import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { attachEditorErgonomics } from "./editor-ergonomics.js";
+import { SpellChecker } from "./spell/spell-check.js";
+import type { SpellBridge } from "./types.js";
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -28,6 +32,7 @@ type MonacoSetupDeps = {
   getIndexLabels: () => IndexEntry[];
   getIndexCitations: () => IndexEntry[];
   getWorkspaceFiles: () => string[];
+  getWorkspaceRoot: () => string | null;
   requestFilePreview?: (
     path: string
   ) => Promise<{ ok: boolean; dataUrl?: string | null; error?: string }>;
@@ -52,7 +57,6 @@ export const initMonacoSetup = (
 ): MonacoSetupApi => {
   const { editorHost, editorHostSecondary } = context.dom;
 
-  const completionState = { registered: false };
   const hoverState: HoverState = { registered: false };
 
   const setWordWrapEnabled = (enabled: boolean) => {
@@ -146,16 +150,9 @@ export const initMonacoSetup = (
 
       deps.setMonacoApi(monacoWindow.monaco as Record<string, unknown>);
       registerTexLanguages(monacoWindow.monaco);
-      registerCompletionProvider(
-        monacoWindow.monaco,
-        {
-          getActiveFilePath: deps.editorSession.getActiveFilePath,
-          getIndexLabels: deps.getIndexLabels,
-          getIndexCitations: deps.getIndexCitations,
-          getWorkspaceFiles: deps.getWorkspaceFiles,
-        },
-        completionState
-      );
+      // Completion is provided by texlab (see setupLsp below). The previous
+      // hand-rolled \ref/\cite/path/\begin completion was removed to avoid
+      // duplicate suggestions.
       registerHoverProvider(
         monacoWindow.monaco,
         {
@@ -168,6 +165,12 @@ export const initMonacoSetup = (
         },
         hoverState
       );
+      void setupLsp(monacoWindow.monaco, {
+        getWorkspaceRoot: deps.getWorkspaceRoot,
+      });
+      const spellBridge = (window as unknown as { tex64Spell?: SpellBridge }).tex64Spell;
+      const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
+      spellChecker?.start();
       const themeName = applyMonacoTheme(monacoWindow.monaco);
       const editorOptions = {
         value: "",
@@ -177,10 +180,10 @@ export const initMonacoSetup = (
         glyphMargin: true,
         minimap: { enabled: false },
         scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
-        fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
-        fontSize: 12,
-        lineHeight: 20,
-        lineNumbersMinChars: 3,
+        fontFamily: editorSettings.getFontFamily(),
+        fontSize: editorSettings.getFontSize(),
+        lineHeight: editorSettings.getLineHeight(),
+        lineNumbersMinChars: 2,
         scrollBeyondLastLine: false,
         wordWrap: deps.getEditorWordWrapEnabled() ? "on" : "off",
         wordBasedSuggestions: "off",
@@ -266,6 +269,8 @@ export const initMonacoSetup = (
           trigger?: (source: string, handlerId: string, payload?: unknown) => void;
         };
         group.editor = editor;
+
+        attachEditorErgonomics(monacoWindow.monaco, editor, group);
 
         host.addEventListener(
           "keydown",
@@ -414,6 +419,21 @@ export const initMonacoSetup = (
             });
           }
         }
+
+        // Spell: "Add to dictionary" for the word under the cursor (context menu
+        // / command palette). Done as an editor action because this Monaco build
+        // has no editor.registerCommand for code-action commands.
+        if (spellChecker) {
+          (editor as any).addAction?.({
+            id: "tex64.spell.addWordToDictionary",
+            label: uiText("Add word to dictionary", "単語を辞書に追加"),
+            contextMenuGroupId: "9_spell",
+            contextMenuOrder: 1,
+            run: () => {
+              void spellChecker.addWordAtCursor(editor);
+            },
+          });
+        }
       };
 
       if (editorHost instanceof HTMLElement) {
@@ -423,6 +443,20 @@ export const initMonacoSetup = (
       if (editorHostSecondary instanceof HTMLElement) {
         createEditorForGroup(deps.editorSession.getEditorGroup("secondary"), editorHostSecondary);
       }
+
+      // Apply font-family/size changes live across all editor groups.
+      editorSettings.subscribe((change) => {
+        if (change.kind !== "font") {
+          return;
+        }
+        const fontFamily = editorSettings.getFontFamily();
+        const fontSize = editorSettings.getFontSize();
+        const lineHeight = editorSettings.getLineHeight();
+        deps.editorSession.forEachEditorGroup((group) => {
+          const editorAny = group.editor as { updateOptions?: (options: unknown) => void } | null;
+          editorAny?.updateOptions?.({ fontFamily, fontSize, lineHeight });
+        });
+      });
 
       document.body.classList.add("has-editor");
     },

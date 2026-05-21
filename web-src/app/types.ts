@@ -1,3 +1,11 @@
+import type { LspBridge } from "./lsp/lsp-client.js";
+
+export type SpellBridge = {
+  check: (words: string[]) => Promise<string[]>;
+  suggest: (word: string) => Promise<string[]>;
+  add: (word: string) => Promise<boolean>;
+};
+
 export type CreateKind = "file" | "folder";
 export type DragPayload = { path: string; kind: "file" | "dir" };
 
@@ -337,6 +345,8 @@ export type BridgeWindow = Window &
     tex64Bridge?: ElectronBridge;
     tex64Capture?: CaptureBridge;
     tex64MathOcr?: MathOcrBridge;
+    tex64Lsp?: LspBridge;
+    tex64Spell?: SpellBridge;
     __tex64TestCaptureApi?: CaptureBridge;
     __tex64TestMathOcr?: MathOcrBridge;
     __tex64TestRecognizeMath?: (imageDataUrl: string) => Promise<string>;

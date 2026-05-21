@@ -26,6 +26,8 @@ const { EnvService } = require("./services/env.cjs");
 const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
+const { TexlabService } = require("./services/texlab/service.cjs");
+const { SpellService } = require("./services/spell/service.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
@@ -177,6 +179,8 @@ const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
 let mathOcrService = null;
+let texlabService = null;
+let spellService = null;
 let apiUsageService = null;
 let platformAccessService = null;
 let agentAuditService = null;
@@ -192,6 +196,28 @@ const getMathOcrService = () => {
     });
   }
   return mathOcrService;
+};
+
+const getTexlabService = () => {
+  if (!texlabService) {
+    texlabService = new TexlabService({
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    });
+    texlabService.setHandlers({
+      onMessage: (message) => sendLspToRenderer("tex64:lsp:message", message),
+      onStatus: (status, detail) => sendLspToRenderer("tex64:lsp:status", { status, detail }),
+    });
+  }
+  return texlabService;
+};
+
+const getSpellService = () => {
+  if (!spellService) {
+    spellService = new SpellService({ userDataPath: app.getPath("userData") });
+  }
+  return spellService;
 };
 
 const createMainWindow = () => {
@@ -230,6 +256,11 @@ const createMainWindow = () => {
   };
   state.mainWindow.on("resize", trackWindowBounds);
   state.mainWindow.on("move", trackWindowBounds);
+
+  // texlab restart on renderer (re)load is handled by the texlab service itself
+  // (it restarts when a fresh client sends `initialize`). We intentionally do
+  // NOT reset on webContents "did-start-loading" — that also fires for the PDF
+  // viewer iframe and would kill texlab mid-session.
 
   const loadRenderer = () => {
     state.mainWindow.loadFile(indexPath);
@@ -272,6 +303,32 @@ const sendToRenderer = (type, payload) => {
       return;
     }
     console.warn("[main] sendToRenderer failed", error);
+  }
+};
+
+const sendLspToRenderer = (channel, data) => {
+  const mainWindow = state.mainWindow;
+  if (!mainWindow) {
+    return;
+  }
+  if (typeof mainWindow.isDestroyed === "function" && mainWindow.isDestroyed()) {
+    return;
+  }
+  const webContents = mainWindow.webContents;
+  if (!webContents) {
+    return;
+  }
+  if (typeof webContents.isDestroyed === "function" && webContents.isDestroyed()) {
+    return;
+  }
+  try {
+    webContents.send(channel, data);
+  } catch (error) {
+    const message = error && typeof error.message === "string" ? error.message : "";
+    if (message.includes("Object has been destroyed")) {
+      return;
+    }
+    console.warn("[main] sendLspToRenderer failed", error);
   }
 };
 
@@ -628,9 +685,18 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  if (texlabService) {
+    texlabService.shutdown();
+  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+app.on("before-quit", () => {
+  if (texlabService) {
+    texlabService.shutdown();
   }
 });
 
@@ -792,6 +858,46 @@ ipcMain.handle("tex64:capture:captureHighRes", async (_event, options) => {
 ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
   const service = getMathOcrService();
   return service.recognize(payload);
+});
+
+// LSP transport: the renderer owns the LSP client; main just relays JSON-RPC
+// to/from texlab over stdio. Outgoing messages are fire-and-forget; replies and
+// server notifications come back on the "tex64:lsp:message" channel.
+ipcMain.on("tex64:lsp:send", (_event, message) => {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  getTexlabService().send(message);
+});
+
+ipcMain.handle("tex64:lsp:status", async () => {
+  const service = getTexlabService();
+  return { available: service.isAvailable(), running: service.isRunning() };
+});
+
+ipcMain.handle("tex64:spell:check", async (_event, words) => {
+  try {
+    return await getSpellService().check(words);
+  } catch (error) {
+    console.warn("[spell] check failed", error);
+    return [];
+  }
+});
+
+ipcMain.handle("tex64:spell:suggest", async (_event, word) => {
+  try {
+    return await getSpellService().suggest(word);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle("tex64:spell:add", async (_event, word) => {
+  try {
+    return await getSpellService().addWord(word);
+  } catch {
+    return false;
+  }
 });
 
 ipcMain.on("tex64", (_event, message) => {

@@ -1,5 +1,6 @@
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
+import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
 import { createAppContext } from "./app/context.js";
 import { initBridgeHandlers } from "./app/bridge-handlers.js";
 import { initBridgeSender, type PostToNative } from "./app/bridge-sender.js";
@@ -232,6 +233,7 @@ export const initMain = () => {
   });
   isReverseSynctexEnabled = () => settingsUi.getReverseSynctexEnabled();
   onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
+  initEditorSettingsControls();
   const announcementsUi = initAnnouncementsUi({
     postToNative: (payload, silent) => postToNative(payload, silent),
   });
@@ -947,6 +949,7 @@ export const initMain = () => {
     getIndexLabels,
     getIndexCitations,
     getWorkspaceFiles,
+    getWorkspaceRoot: getWorkspaceRootKey,
     onCursorPositionChange: handleCursorPositionChange,
     onCursorSelectionChange: handleCursorPositionChange,
     openAiWithSelection: () => {

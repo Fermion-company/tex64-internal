@@ -689,6 +689,33 @@
                         </label>
                       </div>
                     </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Font family</span>
+                        <span class="settings-desc">Editor font. Defaults to the system monospace stack.</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="editor-font-family">
+                          <option value="">System default</option>
+                          <option value="&quot;SF Mono&quot;, Menlo, Monaco, monospace">SF Mono</option>
+                          <option value="Menlo, Monaco, monospace">Menlo</option>
+                          <option value="&quot;JetBrains Mono&quot;, monospace">JetBrains Mono</option>
+                          <option value="&quot;Fira Code&quot;, monospace">Fira Code</option>
+                          <option value="&quot;Cascadia Code&quot;, monospace">Cascadia Code</option>
+                          <option value="&quot;Source Code Pro&quot;, monospace">Source Code Pro</option>
+                          <option value="Consolas, monospace">Consolas</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Font size</span>
+                        <span class="settings-desc">Editor font size in points (8–40).</span>
+                      </div>
+                      <div class="settings-control">
+                        <input class="settings-select" id="editor-font-size" type="number" min="8" max="40" step="1">
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="format" aria-hidden="true">

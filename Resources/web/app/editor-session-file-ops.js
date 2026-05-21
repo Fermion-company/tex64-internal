@@ -90,7 +90,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }
     };
     const ensureModelEntry = (path, content, savedContent) => {
-        var _a;
+        var _a, _b;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi) {
             return null;
@@ -109,7 +109,11 @@ export const createEditorSessionFileOps = (ctx) => {
         if (!((_a = monacoApiAny.editor) === null || _a === void 0 ? void 0 : _a.createModel)) {
             return null;
         }
-        const model = monacoApiAny.editor.createModel(content, getLanguageIdForPath(path));
+        // Create models with a file:// URI so the LSP layer (texlab) can identify
+        // documents and resolve cross-file references (\input, .bib) by path.
+        const uri = ((_b = monacoApiAny.Uri) === null || _b === void 0 ? void 0 : _b.file) ? monacoApiAny.Uri.file(path) : undefined;
+        const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
+        const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri));
         const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content };
         monacoModels.set(path, nextEntry);
         updateDirtyState(path, content, nextEntry.savedContent);

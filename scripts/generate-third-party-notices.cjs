@@ -142,5 +142,36 @@ for (const row of sorted) {
   );
 }
 
+// Bundled binaries that are not npm packages (and therefore not in the
+// lockfile) but are shipped in the distributable. texlab is GPL-3.0; we invoke
+// it as a separate process (no linking), and convey the unmodified upstream
+// binary, so we provide its license and a pointer to the corresponding source.
+const BUNDLED_BINARIES = [
+  {
+    name: "texlab",
+    version: "v5.25.1",
+    license: "GPL-3.0-only",
+    source: "https://github.com/latex-lsp/texlab",
+    note:
+      "Invoked as a separate language-server process (not linked). The bundled " +
+      "binary is the unmodified upstream release; corresponding source for tag " +
+      "v5.25.1 is available at the source URL above. A copy of the GNU General " +
+      "Public License v3.0 ships at Resources/texlab/LICENSE-GPL-3.0.txt.",
+  },
+];
+
+lines.push("", "## Bundled binaries (not from npm)", "");
+for (const bin of BUNDLED_BINARIES) {
+  lines.push(
+    `### ${bin.name}`,
+    "",
+    `- Version: ${bin.version}`,
+    `- License: ${bin.license}`,
+    `- Source: ${bin.source}`,
+    `- ${bin.note}`,
+    ""
+  );
+}
+
 fs.writeFileSync(outputFile, `${lines.join("\n")}\n`, "utf8");
 console.log(`wrote ${outputFile} (${sorted.length} packages)`);

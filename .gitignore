@@ -26,6 +26,7 @@ xcuserdata/
 /eng.traineddata
 /build/
 /Resources/icons/
+/Resources/texlab/
 /.venv/
 /.venv-ocr/
 /.claude/
