@@ -17,32 +17,51 @@ export const createSettingsPageNavOps = (
   const { settingsPanel, settingsNav, settingsNavItems, settingsPages, settingsPageItems, settingsBackButtons } =
     runtime.context.dom;
 
+  // First nav category is the default page shown when the overlay opens.
+  const defaultPageId =
+    settingsNavItems[0]?.dataset.settingsTarget ??
+    settingsPageItems[0]?.dataset.settingsPage ??
+    null;
+
   const setSettingsPage = (pageId: string | null) => {
-    runtime.state.activeSettingsPage = pageId;
-    const hasPage = !!pageId;
+    // Full-screen side-by-side layout: the category nav stays visible and a
+    // page is always shown in the content pane (no drill-in / back button).
+    const resolved = pageId ?? defaultPageId;
+    runtime.state.activeSettingsPage = resolved;
     if (settingsNav instanceof HTMLElement) {
-      settingsNav.classList.toggle("is-hidden", hasPage);
-      settingsNav.setAttribute("aria-hidden", hasPage ? "true" : "false");
+      settingsNav.classList.remove("is-hidden");
+      settingsNav.setAttribute("aria-hidden", "false");
     }
     if (settingsPages instanceof HTMLElement) {
-      settingsPages.classList.toggle("is-hidden", !hasPage);
-      settingsPages.setAttribute("aria-hidden", hasPage ? "false" : "true");
+      settingsPages.classList.remove("is-hidden");
+      settingsPages.setAttribute("aria-hidden", "false");
     }
+    settingsNavItems.forEach((item) => {
+      const isActive = !!resolved && item.dataset.settingsTarget === resolved;
+      item.classList.toggle("is-active", isActive);
+      item.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
     settingsPageItems.forEach((page) => {
-      const isActive = hasPage && page.dataset.settingsPage === pageId;
+      const isActive = !!resolved && page.dataset.settingsPage === resolved;
       page.classList.toggle("is-hidden", !isActive);
       page.classList.toggle("is-active", isActive);
       page.setAttribute("aria-hidden", isActive ? "false" : "true");
     });
+    const activePage = settingsPageItems.find(
+      (page) => page.dataset.settingsPage === resolved
+    );
+    if (activePage instanceof HTMLElement) {
+      activePage.scrollTop = 0;
+    }
     if (settingsPanel instanceof HTMLElement) {
       settingsPanel.scrollTop = 0;
     }
     attentionOps.syncUpdateAttentionUi();
-    if (pageId === "env") {
+    if (resolved === "env") {
       deps.updateRuntimeOnboardingUi();
       deps.checkEnvironmentStatus();
     }
-    if (pageId === "env" || pageId === "account") {
+    if (resolved === "env" || resolved === "account") {
       deps.maybeRequestPlatformUpdateCheck(false);
     }
   };

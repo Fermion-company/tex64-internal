@@ -639,28 +639,33 @@
             <div class="panel-header">
               <span class="panel-title">Settings</span>
             </div>
+            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Close settings" title="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 6 6 18"></path>
+                <path d="m6 6 12 12"></path>
+              </svg>
+            </button>
             <div class="panel-body settings-panel" id="settings-panel">
               <div class="settings-nav" id="settings-nav">
+                <button class="settings-nav-item" data-settings-target="general" type="button">
+                  <span class="settings-nav-title">General</span>
+                </button>
                 <button class="settings-nav-item" data-settings-target="editor" type="button">
                   <span class="settings-nav-title">editor</span>
-                  <span class="settings-nav-desc">Display / AI completion</span>
-                </button>
-                <button class="settings-nav-item" data-settings-target="format" type="button">
-                  <span class="settings-nav-title">Format</span>
-                  <span class="settings-nav-desc">latexindent / environment detection</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="build" type="button">
                   <span class="settings-nav-title">build</span>
-                  <span class="settings-nav-desc">Compile / SyncTeX / Profile</span>
+                </button>
+                <button class="settings-nav-item" data-settings-target="format" type="button">
+                  <span class="settings-nav-title">Format</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="env" type="button">
-                    <span class="settings-nav-title-row">
+                  <span class="settings-nav-title-row">
                     <span class="settings-nav-title">Environment</span>
                     <span class="settings-nav-badge is-hidden" id="settings-runtime-attention" aria-hidden="true">
                       Action required
                     </span>
                   </span>
-                  <span class="settings-nav-desc">TeX Distribution / Tool Status</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
                   <span class="settings-nav-title-row">
@@ -669,29 +674,21 @@
                       Update
                     </span>
                   </span>
-                  <span class="settings-nav-desc">Login/Update</span>
-                </button>
-                <button class="settings-nav-item" data-settings-target="feedback" type="button">
-                  <span class="settings-nav-title">Feedback</span>
-                  <span class="settings-nav-desc">Send a bug/request</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="info" type="button">
                   <span class="settings-nav-title">Info</span>
-                  <span class="settings-nav-desc">Legal/Support</span>
                 </button>
               </div>
               <div class="settings-pages is-hidden" id="settings-pages" aria-hidden="true">
-                <div class="settings-page is-hidden" data-settings-page="editor" aria-hidden="true">
+                <div class="settings-page is-hidden" data-settings-page="general" aria-hidden="true">
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">editor</div>
+                    <div class="settings-page-title">General</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Language</div>
                     <div class="settings-item">
                       <div class="settings-label">
                         <span class="settings-title">Language</span>
-                        <span class="settings-desc">Switch the UI language.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="settings-ui-language">
@@ -705,6 +702,23 @@
                         </select>
                       </div>
                     </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Build in separate window</span>
+                      </div>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-pdf-window">
+                          <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="settings-page is-hidden" data-settings-page="editor" aria-hidden="true">
+                  <div class="settings-page-header">
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">editor</div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">display</div>
@@ -924,18 +938,6 @@
                         </select>
                       </div>
                     </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Build in separate window</span>
-                        <span class="settings-desc">If OFF, the PDF will open in a separate tab.</span>
-                      </div>
-                      <div class="settings-control">
-                        <label class="settings-switch" for="editor-pdf-window">
-                          <input class="settings-switch-input" id="editor-pdf-window" type="checkbox">
-                          <span class="settings-switch-track" aria-hidden="true"></span>
-                        </label>
-                      </div>
-                    </div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">SyncTeX</div>
@@ -1014,22 +1016,9 @@
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">clean</div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">clean</span>
-                        <span class="settings-desc">Delete auxiliary files (.aux/.log/.synctex.gz, etc.).</span>
-                      </div>
-                      <div class="settings-control settings-inline">
-                        <button class="panel-button ghost" id="settings-build-clean" type="button">
-                          clean
-                        </button>
-                        <button class="panel-button ghost" id="settings-build-clean-all" type="button">
-                          clean -C
-                        </button>
-                      </div>
-                    </div>
-                    <div class="settings-help-text">
-                      clean -C also removes PDFs etc. A confirmation dialog will be displayed before execution.
+                    <div class="settings-actions">
+                      <button class="panel-button ghost" id="settings-build-clean" type="button">clean</button>
+                      <button class="panel-button ghost" id="settings-build-clean-all" type="button">clean -C</button>
                     </div>
                   </div>
                 </div>
@@ -1229,48 +1218,19 @@
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">legal affairs</div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Legal</span>
-                        <span class="settings-desc">Check the terms of use and privacy policy.</span>
-                      </div>
-                      <div class="settings-control settings-inline settings-inline-wrap">
-                        <button class="panel-button ghost" id="settings-link-terms" type="button">
-                          terms of service
-                        </button>
-                        <button class="panel-button ghost" id="settings-link-privacy" type="button">
-                          privacy
-                        </button>
-                        <button class="panel-button ghost" id="settings-link-commercial" type="button">
-                          Special commercial law
-                        </button>
-                        <button class="panel-button ghost" id="settings-link-refund" type="button">
-                          Refund policy
-                        </button>
-                      </div>
+                    <div class="settings-actions">
+                      <button class="panel-button ghost" id="settings-link-terms" type="button">terms of service</button>
+                      <button class="panel-button ghost" id="settings-link-privacy" type="button">privacy</button>
+                      <button class="panel-button ghost" id="settings-link-commercial" type="button">Special commercial law</button>
+                      <button class="panel-button ghost" id="settings-link-refund" type="button">Refund policy</button>
                     </div>
                   </div>
                   <div class="settings-group">
                     <div class="settings-group-title">support</div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">support</span>
-                        <span class="settings-desc">Open Help, Contact Us, Release Information.</span>
-                      </div>
-                      <div class="settings-control settings-inline settings-inline-wrap">
-                        <button class="panel-button ghost" id="settings-link-support" type="button">
-                          help
-                        </button>
-                        <button class="panel-button ghost" id="settings-link-contact" type="button">
-                          inquiry
-                        </button>
-                        <button class="panel-button ghost" id="settings-link-releases" type="button">
-                          release notes
-                        </button>
-                      </div>
-                    </div>
-                    <div class="settings-help-text">
-                      Open all public tex64.com pages in your browser.
+                    <div class="settings-actions">
+                      <button class="panel-button ghost" id="settings-link-support" type="button">help</button>
+                      <button class="panel-button ghost" id="settings-link-contact" type="button">inquiry</button>
+                      <button class="panel-button ghost" id="settings-link-releases" type="button">release notes</button>
                     </div>
                   </div>
                 </div>

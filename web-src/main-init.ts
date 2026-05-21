@@ -202,6 +202,24 @@ export const initMain = () => {
     }
     settingsTab.classList.toggle("is-alert", hasAlert);
   };
+  // The full-screen settings overlay covers the sidebar rail, so closing it
+  // needs its own affordances: the top-right close button and Escape.
+  const settingsCloseButton = document.getElementById("settings-close");
+  if (settingsCloseButton instanceof HTMLElement) {
+    settingsCloseButton.addEventListener("click", () => {
+      setActiveTab("files");
+    });
+  }
+  window.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      tabController.getActiveTab() === "settings"
+    ) {
+      event.preventDefault();
+      setActiveTab("files");
+    }
+  });
   const envRegistry = initEnvRegistry(appContext, {
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
     onRefreshDetectedBlock: (allowTabSwitch = false) => {

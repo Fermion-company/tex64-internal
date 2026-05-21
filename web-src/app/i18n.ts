@@ -13,6 +13,9 @@ export const SUPPORTED_LOCALES: ReadonlyArray<{ code: UiLocale; label: string; n
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 
 const EN_TO_JA: Record<string, string> = {
+  "General": "一般",
+  "Font family": "フォント",
+  "Font size": "フォントサイズ",
   "Help shape TeX64": "TeX64 をより良くする",
   "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
     "TeX64 はまだ開発中で、みなさんの視点が改善の力になります。どんなに小さなことでも構いません — 使いにくい操作、分かりにくい表示、誤字、こんな機能がほしい、ふとした思いつきまで、何でもお聞かせください。些細すぎることなんてありません。いただいた一言ひとことが、これからの TeX64 をかたちづくります。",
@@ -871,6 +874,9 @@ const normalizeUiLocaleValue = (value: unknown): UiLocale | null => {
 // untranslated strings fall back to the EN source — the same behaviour the
 // original JA-only implementation provided for any non-JA locale.
 const EN_TO_ZH: Record<string, string> = {
+  "General": "常规",
+  "Font family": "字体",
+  "Font size": "字号",
   "Help shape TeX64": "一起完善 TeX64",
   "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
     "TeX64 仍在开发中，你的视角能让它变得更好。无论多么微小都没关系——别扭的操作、令人困惑的标签、错别字、你期待的功能，甚至只是一闪而过的想法，我们都想听。没有什么太琐碎。你的每一条反馈，都会切实塑造 TeX64 的下一步。",
@@ -1674,6 +1680,9 @@ const EN_TO_ZH: Record<string, string> = {
 };
 
 const EN_TO_KO: Record<string, string> = {
+  "General": "일반",
+  "Font family": "글꼴",
+  "Font size": "글꼴 크기",
   "Help shape TeX64": "함께 만드는 TeX64",
   "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
     "TeX64는 아직 개발 중이며, 여러분의 시선이 제품을 더 좋게 만듭니다. 아무리 사소해도 괜찮아요 — 어색한 동작, 헷갈리는 라벨, 오타, 있었으면 하는 기능, 문득 떠오른 생각까지 무엇이든 들려주세요. 사소해서 안 될 건 없습니다. 보내주신 한마디 한마디가 TeX64의 다음을 만들어 갑니다.",
@@ -2477,6 +2486,9 @@ const EN_TO_KO: Record<string, string> = {
 };
 
 const EN_TO_FR: Record<string, string> = {
+  "General": "Général",
+  "Font family": "Police",
+  "Font size": "Taille de police",
   "Help shape TeX64": "Aidez-nous à façonner TeX64",
   "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
     "TeX64 est encore en cours de développement, et votre regard l'améliore. Vous avez remarqué quelque chose, même infime ? Une interaction maladroite, un libellé confus, une faute de frappe, une fonctionnalité qui vous manque ou simplement une idée en passant : nous voulons tout entendre. Rien n'est trop insignifiant. Chaque message façonne vraiment la suite de TeX64.",
@@ -3280,6 +3292,9 @@ const EN_TO_FR: Record<string, string> = {
 };
 
 const EN_TO_DE: Record<string, string> = {
+  "General": "Allgemein",
+  "Font family": "Schriftart",
+  "Font size": "Schriftgröße",
   "Help shape TeX64": "Hilf mit, TeX64 zu gestalten",
   "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
     "TeX64 wird noch entwickelt, und deine Sicht macht es besser. Ist dir etwas aufgefallen – und sei es noch so klein? Eine umständliche Bedienung, eine verwirrende Beschriftung, ein Tippfehler, eine Funktion, die du dir wünschst, oder einfach eine spontane Idee: Wir wollen alles hören. Nichts ist zu unbedeutend. Jede Rückmeldung prägt, wohin sich TeX64 als Nächstes entwickelt.",
@@ -4083,6 +4098,9 @@ const EN_TO_DE: Record<string, string> = {
 };
 
 const EN_TO_ES: Record<string, string> = {
+  "General": "General",
+  "Font family": "Fuente",
+  "Font size": "Tamaño de fuente",
   "Help shape TeX64": "Ayuda a dar forma a TeX64",
   "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
     "TeX64 todavía está en desarrollo, y tu perspectiva lo mejora. ¿Has notado algo, por pequeño que sea? Una interacción torpe, una etiqueta confusa, una errata, una función que te gustaría tener o simplemente una idea pasajera: queremos escucharlo todo. Nada es demasiado trivial. Cada comentario da forma de verdad al próximo paso de TeX64.",
@@ -4925,8 +4943,21 @@ const translateKeepingWhitespace = (value: string) => {
   return `${leading}${translated}${trailing}`;
 };
 
+// Regions whose text is code or user content — never UI chrome — and must not
+// be translated. The Monaco editor in particular tokenizes commands such as
+// `\section` into separate spans; translating the "section" token to "節"
+// would corrupt the source the user is editing.
+const NO_I18N_SELECTOR =
+  '.monaco-editor, [data-no-i18n], [contenteditable="true"], script, style';
+
+const isInNoTranslateZone = (node: Node): boolean => {
+  const element = node instanceof Element ? node : node.parentElement;
+  return Boolean(element && element.closest(NO_I18N_SELECTOR));
+};
+
 const applyLocaleToTextNode = (node: Text) => {
   if (!node.parentElement) return;
+  if (isInNoTranslateZone(node)) return;
   const original = textOriginalMap.get(node) ?? node.data;
   if (!textOriginalMap.has(node)) {
     textOriginalMap.set(node, original);
@@ -4949,6 +4980,7 @@ const getAttributeOriginal = (element: Element, attributeName: string, currentVa
 };
 
 const applyLocaleToAttributes = (element: Element) => {
+  if (isInNoTranslateZone(element)) return;
   for (const attributeName of TRANSLATABLE_ATTRIBUTES) {
     if (!element.hasAttribute(attributeName)) continue;
     const currentValue = element.getAttribute(attributeName) ?? "";
@@ -5004,6 +5036,10 @@ const ensureObserver = () => {
   observer = new MutationObserver((mutations) => {
     withApplyGuard(() => {
       mutations.forEach((mutation) => {
+        // Skip the editor and other code/editable regions entirely — both for
+        // correctness (don't translate `\section` -> `\節`) and to avoid
+        // re-processing Monaco's frequent mutations.
+        if (isInNoTranslateZone(mutation.target)) return;
         if (mutation.type === "characterData" && mutation.target instanceof Text) {
           applyLocaleToTextNode(mutation.target);
           return;
