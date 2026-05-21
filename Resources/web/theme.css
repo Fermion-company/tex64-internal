@@ -1946,6 +1946,19 @@ math-field.block-math-field::placeholder {
   background: rgba(248, 81, 73, 0.08);
 }
 
+/* Account "update available" is positive news, not a warning — show it green
+   instead of the red used for runtime-setup alerts. */
+#settings-account-attention {
+  border-color: rgba(39, 201, 72, 0.4);
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+
+.settings-nav-item[data-settings-target="account"].has-alert {
+  border-color: rgba(39, 201, 72, 0.28);
+  background: rgba(39, 201, 72, 0.08);
+}
+
 .settings-nav-item:hover .settings-nav-title {
   color: var(--accent-strong);
 }
@@ -7083,5 +7096,160 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   flex: 1;
   min-height: 0;
   padding: 8px 12px;
+}
+
+/* Full-window feedback overlay */
+.feedback-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  /* Solid, fully opaque: a full-screen page that completely covers the app. */
+  background: var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.feedback-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.feedback-overlay-inner {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  transform: translateY(14px);
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.feedback-overlay.is-open .feedback-overlay-inner {
+  transform: translateY(0);
+}
+
+.feedback-overlay-close {
+  /* Fixed to the top-right corner of the screen (the overlay fills the viewport). */
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.feedback-overlay-close:hover {
+  color: var(--text);
+  background: var(--panel-muted);
+}
+
+.feedback-overlay-close svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.feedback-overlay-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.feedback-overlay-lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-soft);
+}
+
+.feedback-overlay-textarea {
+  width: 100%;
+  min-height: 220px;
+  flex: 1 1 auto;
+  resize: none;
+  padding: 16px 18px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.feedback-overlay-textarea::placeholder {
+  color: var(--muted);
+}
+
+.feedback-overlay-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.feedback-overlay-status {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.feedback-overlay-status.is-error {
+  color: #ff8a8a;
+}
+
+.feedback-overlay-status.is-success {
+  color: #7ee0a6;
+}
+
+.feedback-overlay-status.is-hidden {
+  display: none;
+}
+
+.feedback-overlay-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.feedback-overlay-send {
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.feedback-overlay-send:hover {
+  background: var(--accent-strong);
+}
+
+.feedback-overlay-send:active {
+  transform: translateY(1px);
+}
+
+.feedback-overlay-send:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 

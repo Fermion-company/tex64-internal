@@ -409,6 +409,28 @@ export const initDiffModal = (context, deps) => {
         diffContext = null;
         resetDiffEditor();
     };
+    // Plain Enter confirms (inserts) while the diff modal is open. Captured at the
+    // document level so the keystroke never reaches the editor behind the modal;
+    // the diff preview is read-only, so Enter has no competing meaning here.
+    document.addEventListener("keydown", (event) => {
+        if (!(diffModal instanceof HTMLElement) || !diffModal.classList.contains("is-open")) {
+            return;
+        }
+        if (event.key !== "Enter" ||
+            event.shiftKey ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey ||
+            event.isComposing) {
+            return;
+        }
+        if (!(diffModalSubmit instanceof HTMLButtonElement) || diffModalSubmit.disabled) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        diffModalSubmit.click();
+    }, true);
     return {
         showDiffModal,
         showMultiFileDiff,

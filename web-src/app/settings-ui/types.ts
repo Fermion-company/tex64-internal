@@ -44,6 +44,10 @@ export type SettingsUiApi = {
     feedbackId?: string | null;
     error?: { code?: string; message?: string };
   }) => void;
+  submitFeedback: (category: FeedbackCategory, message: string) => boolean;
+  onFeedbackStatus: (
+    listener: (status: { message: string; tone: "neutral" | "success" | "error" }) => void
+  ) => () => void;
   handlePlatformAuth: (payload: { auth: PlatformAuthSnapshot; error?: { code?: string; message?: string } }) => void;
   handlePlatformUpdate: (payload: {
     source?: string;

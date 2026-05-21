@@ -119,16 +119,32 @@ export const initBottomPanelUi = (context) => {
             return;
         let startY = 0;
         let startHeight = 0;
-        const onMouseMove = (e) => {
-            e.preventDefault();
-            const delta = startY - e.clientY;
+        let pendingClientY = 0;
+        let rafId = null;
+        // Apply the latest pointer position once per animation frame. The CSS var
+        // change reflows the grid, which makes the embedded MathLive field (and the
+        // editor) re-layout — coalescing to one update per frame keeps it smooth.
+        const applyResize = () => {
+            rafId = null;
+            const delta = startY - pendingClientY;
             const newHeight = Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, startHeight + delta));
             panelHeight = newHeight;
             editorSection.style.setProperty("--bottom-panel-height", `${panelHeight}px`);
         };
+        const onMouseMove = (e) => {
+            e.preventDefault();
+            pendingClientY = e.clientY;
+            if (rafId === null) {
+                rafId = window.requestAnimationFrame(applyResize);
+            }
+        };
         const onMouseUp = () => {
             document.removeEventListener("mousemove", onMouseMove);
             document.removeEventListener("mouseup", onMouseUp);
+            if (rafId !== null) {
+                window.cancelAnimationFrame(rafId);
+                rafId = null;
+            }
             bottomPanelResizer.classList.remove("is-resizing");
             document.body.style.cursor = "";
             document.body.style.userSelect = "";
@@ -139,6 +155,7 @@ export const initBottomPanelUi = (context) => {
             e.preventDefault();
             startY = e.clientY;
             startHeight = panelHeight;
+            pendingClientY = e.clientY;
             bottomPanelResizer.classList.add("is-resizing");
             document.body.style.cursor = "row-resize";
             document.body.style.userSelect = "none";

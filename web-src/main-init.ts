@@ -1,6 +1,7 @@
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
+import { initFeedbackModal } from "./app/feedback-modal.js";
 import { createAppContext } from "./app/context.js";
 import { initBridgeHandlers } from "./app/bridge-handlers.js";
 import { initBridgeSender, type PostToNative } from "./app/bridge-sender.js";
@@ -234,6 +235,10 @@ export const initMain = () => {
   isReverseSynctexEnabled = () => settingsUi.getReverseSynctexEnabled();
   onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
   initEditorSettingsControls();
+  initFeedbackModal(appContext, {
+    submitFeedback: settingsUi.submitFeedback,
+    onFeedbackStatus: settingsUi.onFeedbackStatus,
+  });
   const announcementsUi = initAnnouncementsUi({
     postToNative: (payload, silent) => postToNative(payload, silent),
   });
@@ -627,6 +632,12 @@ export const initMain = () => {
         editor?.layout?.();
       });
     },
+    setEditorsAutomaticLayout: (enabled) => {
+      editorSession.forEachEditorGroup((group) => {
+        const editor = group.editor as { updateOptions?: (options: unknown) => void };
+        editor?.updateOptions?.({ automaticLayout: enabled });
+      });
+    },
   });
   outlineUi = initOutlineUi(appContext, {
     getActiveFilePath: () => editorSession.getActiveFilePath(),
@@ -747,7 +758,6 @@ export const initMain = () => {
     blockInsert: blockInsertApi,
     buildOps: {
       setupActionButtons: () => buildOps.setupActionButtons(),
-      startBuild: () => buildOps.startBuild(),
     },
     rootSelectorUi: {
       setupActions: () => rootSelectorUi.setupActions(),

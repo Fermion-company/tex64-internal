@@ -37,7 +37,7 @@ export const createSettingsUiRuntime = (context, deps) => {
         editorFormatSettings: {
             ...defaultEditorFormatSettings,
         },
-        autoSynctexOnBuildEnabled: true,
+        autoSynctexOnBuildEnabled: false,
         reverseSynctexEnabled: true,
         pdfViewerMode: "window",
         platformAuth: null,

@@ -1,7 +1,7 @@
 import { TEX64_LINKS } from "../platform-links.js";
 import { formatBytes, openExternalUrl } from "./utils.js";
 export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
-    const { settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, } = runtime.context.dom;
+    const { settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, updateButton, } = runtime.context.dom;
     const resolveUpdateStatusText = () => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
@@ -76,6 +76,17 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             settingsUpdateApply.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
             settingsUpdateApply.disabled =
                 !canApplyUpdate || phase === "checking" || phase === "downloading" || phase === "installing";
+        }
+        // Mirror the Apply button in the header bar: show a one-click Update button
+        // whenever an update can be applied. Pulse (is-attention) when ready, show
+        // a spinner (is-busy) while downloading/installing.
+        if (updateButton instanceof HTMLButtonElement) {
+            const busy = phase === "downloading" || phase === "installing";
+            updateButton.classList.toggle("is-hidden", !canApplyUpdate);
+            updateButton.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
+            updateButton.classList.toggle("is-busy", busy);
+            updateButton.classList.toggle("is-attention", canApplyUpdate && !busy);
+            updateButton.disabled = !canApplyUpdate || phase === "checking" || busy;
         }
         if (settingsUpdateOpen instanceof HTMLButtonElement) {
             settingsUpdateOpen.disabled = false;
@@ -201,21 +212,29 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             maybeRequestPlatformUpdateCheck(true);
         });
     }
+    const applyUpdate = () => {
+        var _a, _b, _c;
+        const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
+        const hasDownloadedInstaller = Boolean((_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.downloadedPath);
+        if (phase === "downloaded" || hasDownloadedInstaller) {
+            runtime.deps.postToNative({ type: "update:install", openFallbackOnError: true }, true);
+            return;
+        }
+        runtime.deps.postToNative({
+            type: "update:download",
+            forceCheck: true,
+            autoInstall: true,
+            openFallbackOnError: true,
+        }, true);
+    };
     if (settingsUpdateApply instanceof HTMLButtonElement) {
         settingsUpdateApply.addEventListener("click", () => {
-            var _a, _b, _c;
-            const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
-            const hasDownloadedInstaller = Boolean((_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.downloadedPath);
-            if (phase === "downloaded" || hasDownloadedInstaller) {
-                runtime.deps.postToNative({ type: "update:install", openFallbackOnError: true }, true);
-                return;
-            }
-            runtime.deps.postToNative({
-                type: "update:download",
-                forceCheck: true,
-                autoInstall: true,
-                openFallbackOnError: true,
-            }, true);
+            applyUpdate();
+        });
+    }
+    if (updateButton instanceof HTMLButtonElement) {
+        updateButton.addEventListener("click", () => {
+            applyUpdate();
         });
     }
     if (settingsUpdateOpen instanceof HTMLButtonElement) {

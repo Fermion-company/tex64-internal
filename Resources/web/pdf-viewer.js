@@ -108,7 +108,16 @@ const initPdfViewer = () => {
     sidebarTab: "outline",
     thumbObserver: null,
     thumbRendered: new Set(),
+    pendingRestore: null,
   };
+
+  // Tracks the scroll-restore re-apply frame so a SyncTeX jump can cancel it.
+  let restoreRafId = null;
+  // True while a (re)load is loading the new document. A SyncTeX "sync" that
+  // arrives during this window must NOT be applied to the still-showing OLD
+  // document — setDocument would then reset us to the top and lose the jump.
+  // Defer it instead and let pagesinit apply it to the freshly loaded pages.
+  let reloadInFlight = false;
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
@@ -840,6 +849,20 @@ const initPdfViewer = () => {
   };
 
   const applySync = (payload) => {
+    // A SyncTeX jump overrides any scroll-position restore from a reload —
+    // including a re-apply already scheduled for the next animation frame.
+    state.pendingRestore = null;
+    if (restoreRafId !== null) {
+      cancelAnimationFrame(restoreRafId);
+      restoreRafId = null;
+    }
+    if (reloadInFlight) {
+      // The rebuilt PDF is still loading; applying now would scroll the OLD
+      // document and the imminent setDocument would reset us to the top,
+      // losing the jump. Defer so pagesinit lands it on the NEW pages.
+      state.pendingSync = payload;
+      return;
+    }
     const pageIndex = payload.page - 1;
     const pageView = pdfViewer.getPageView(pageIndex);
     if (
@@ -890,9 +913,20 @@ const initPdfViewer = () => {
   };
 
   const loadDocument = async (url, path) => {
+    // Re-opening the SAME PDF (a rebuild, or the reload button) should keep the
+    // current scroll position instead of jumping back to the top — the user is
+    // often zoomed into one spot and rebuilding repeatedly. Zoom level is
+    // already preserved via state.scale/scaleMode (re-applied on pagesinit).
+    const isReload = !!state.doc && state.path !== null && state.path === path;
+    const restorePosition =
+      isReload && scrollEl
+        ? { scrollTop: scrollEl.scrollTop, scrollLeft: scrollEl.scrollLeft }
+        : null;
     state.url = url;
     state.path = path;
     state.pendingSync = null;
+    state.pendingRestore = restorePosition;
+    reloadInFlight = true;
     clearSidebarContent();
     clearSyncMarker();
     setStatus("読み込み中...");
@@ -910,6 +944,7 @@ const initPdfViewer = () => {
       renderThumbnails();
       setStatus("準備完了");
     } catch (error) {
+      reloadInFlight = false;
       setStatus("読み込みに失敗しました。");
       // eslint-disable-next-line no-console
       console.error(error);
@@ -956,14 +991,55 @@ const initPdfViewer = () => {
     clearSyncMarker();
   };
 
+  const restoreScrollPosition = (target) => {
+    if (!scrollEl || !target) return;
+    const apply = () => {
+      scrollEl.scrollTop = target.scrollTop;
+      scrollEl.scrollLeft = target.scrollLeft;
+    };
+    // pdf.js keeps snapping the view back toward the top for several frames
+    // after `pagesinit` — page sizing finalizes asynchronously and the scale
+    // re-apply re-scrolls to the current page (which reset to 1 on reload).
+    // A single re-apply loses that race, so re-assert our target every frame
+    // until it sticks for a few consecutive frames (or we hit the safety cap).
+    // A SyncTeX jump cancels restoreRafId via applySync to take precedence.
+    let frames = 0;
+    let heldFrames = 0;
+    const maxFrames = 90;
+    apply();
+    const tick = () => {
+      if (Math.abs(scrollEl.scrollTop - target.scrollTop) <= 2) {
+        heldFrames += 1;
+      } else {
+        heldFrames = 0;
+      }
+      apply();
+      frames += 1;
+      if (heldFrames >= 4 || frames >= maxFrames) {
+        restoreRafId = null;
+        return;
+      }
+      restoreRafId = requestAnimationFrame(tick);
+    };
+    if (restoreRafId !== null) cancelAnimationFrame(restoreRafId);
+    restoreRafId = requestAnimationFrame(tick);
+  };
+
   eventBus.on("pagesinit", () => {
+    // The new document's pages are ready; deferred SyncTeX jumps may now apply.
+    reloadInFlight = false;
     applyScaleMode(state.scaleMode);
     updateZoomLabel();
     updatePageCount();
     if (state.pendingSync) {
       const payload = state.pendingSync;
       state.pendingSync = null;
+      state.pendingRestore = null;
       applySync(payload);
+    } else if (state.pendingRestore) {
+      const target = state.pendingRestore;
+      state.pendingRestore = null;
+      restoreScrollPosition(target);
     }
   });
 

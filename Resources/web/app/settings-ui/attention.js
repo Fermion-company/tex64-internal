@@ -23,9 +23,10 @@ export const createSettingsAttentionOps = (runtime) => {
         var _a, _b;
         const updateAttention = hasUpdateAttention();
         const runtimeAttention = hasRuntimeSetupAttention();
-        const anyAttention = updateAttention || runtimeAttention;
-        const hideAlertWhileRuntimeOpen = runtime.state.activeSettingsPage === "env" || runtime.state.activeSettingsPage === "account";
-        const showTabAlert = anyAttention && !hideAlertWhileRuntimeOpen;
+        // Updates are surfaced via the header-bar Update button, NOT the settings
+        // (gear) tab — so the gear's alert dot follows only runtime-setup attention.
+        const hideAlertWhileRuntimeOpen = runtime.state.activeSettingsPage === "env";
+        const showTabAlert = runtimeAttention && !hideAlertWhileRuntimeOpen;
         if (runtimeSettingsNavItem instanceof HTMLElement) {
             runtimeSettingsNavItem.classList.toggle("has-alert", runtimeAttention);
         }

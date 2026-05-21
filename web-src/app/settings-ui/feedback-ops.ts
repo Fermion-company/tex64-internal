@@ -1,6 +1,8 @@
 import type { SettingsUiRuntime } from "./runtime.js";
 import type { FeedbackCategory, FeedbackQueueItem } from "./types.js";
 
+export type FeedbackStatus = { message: string; tone: "neutral" | "success" | "error" };
+
 export type SettingsFeedbackOps = {
   handlePlatformFeedback: (payload: {
     ok: boolean;
@@ -9,6 +11,8 @@ export type SettingsFeedbackOps = {
   }) => void;
   loadStartupFeedbackState: () => void;
   initFeedbackUi: () => void;
+  submit: (category: FeedbackCategory, message: string) => boolean;
+  onStatus: (listener: (status: FeedbackStatus) => void) => () => void;
 };
 
 export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsFeedbackOps => {
@@ -19,14 +23,25 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     settingsFeedbackStatus,
   } = runtime.context.dom;
 
-  const setFeedbackStatus = (message: string, tone: "neutral" | "success" | "error" = "neutral") => {
-    if (!(settingsFeedbackStatus instanceof HTMLElement)) {
-      return;
+  type FeedbackTone = "neutral" | "success" | "error";
+  // Other UIs (the feedback modal) subscribe to status so they can mirror the
+  // shared send queue's progress without owning their own queue.
+  const statusListeners = new Set<(status: { message: string; tone: FeedbackTone }) => void>();
+
+  const setFeedbackStatus = (message: string, tone: FeedbackTone = "neutral") => {
+    if (settingsFeedbackStatus instanceof HTMLElement) {
+      settingsFeedbackStatus.textContent = message;
+      settingsFeedbackStatus.classList.toggle("is-hidden", message.trim().length === 0);
+      settingsFeedbackStatus.classList.toggle("is-success", tone === "success");
+      settingsFeedbackStatus.classList.toggle("is-error", tone === "error");
     }
-    settingsFeedbackStatus.textContent = message;
-    settingsFeedbackStatus.classList.toggle("is-hidden", message.trim().length === 0);
-    settingsFeedbackStatus.classList.toggle("is-success", tone === "success");
-    settingsFeedbackStatus.classList.toggle("is-error", tone === "error");
+    statusListeners.forEach((listener) => {
+      try {
+        listener({ message, tone });
+      } catch {
+        // a failing listener must not break feedback
+      }
+    });
   };
 
   const updateFeedbackSendState = () => {
@@ -196,24 +211,18 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     }
   };
 
-  const sendFeedback = () => {
-    if (!(settingsFeedbackMessage instanceof HTMLTextAreaElement)) {
-      return;
-    }
-    const message = settingsFeedbackMessage.value.trim();
-    if (!message) {
+  // Queue a feedback item (DOM-free) so both the settings form and the modal can
+  // submit through the same retry queue. Returns false if the message is empty.
+  const submit = (category: FeedbackCategory, message: string): boolean => {
+    const trimmed = message.trim();
+    if (!trimmed) {
       setFeedbackStatus("Please enter your feedback.", "error");
-      settingsFeedbackMessage.focus();
-      return;
+      return false;
     }
-    const rawCategory =
-      settingsFeedbackCategory instanceof HTMLSelectElement ? settingsFeedbackCategory.value : "";
-    const category: FeedbackCategory =
-      rawCategory === "bug" || rawCategory === "idea" || rawCategory === "other" ? rawCategory : "other";
     const item: FeedbackQueueItem = {
       id: `fb-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
       category,
-      message,
+      message: trimmed,
       createdAt: Date.now(),
       attempts: 0,
       nextRetryAt: 0,
@@ -222,6 +231,29 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     saveFeedbackQueue();
     setFeedbackStatus("Added to send queue.");
     flushFeedbackQueue();
+    return true;
+  };
+
+  const onStatus = (
+    listener: (status: { message: string; tone: FeedbackTone }) => void
+  ): (() => void) => {
+    statusListeners.add(listener);
+    return () => {
+      statusListeners.delete(listener);
+    };
+  };
+
+  const sendFeedback = () => {
+    if (!(settingsFeedbackMessage instanceof HTMLTextAreaElement)) {
+      return;
+    }
+    const rawCategory =
+      settingsFeedbackCategory instanceof HTMLSelectElement ? settingsFeedbackCategory.value : "";
+    const category: FeedbackCategory =
+      rawCategory === "bug" || rawCategory === "idea" || rawCategory === "other" ? rawCategory : "other";
+    if (!submit(category, settingsFeedbackMessage.value)) {
+      settingsFeedbackMessage.focus();
+    }
   };
 
   const handlePlatformFeedback = (payload: {
@@ -299,6 +331,8 @@ export const createSettingsFeedbackOps = (runtime: SettingsUiRuntime): SettingsF
     handlePlatformFeedback,
     loadStartupFeedbackState,
     initFeedbackUi,
+    submit,
+    onStatus,
   };
 };
 

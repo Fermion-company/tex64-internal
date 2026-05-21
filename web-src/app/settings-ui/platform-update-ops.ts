@@ -28,6 +28,7 @@ export const createSettingsPlatformUpdateOps = (
     settingsUpdateCheck,
     settingsUpdateApply,
     settingsUpdateOpen,
+    updateButton,
   } = runtime.context.dom;
 
   const resolveUpdateStatusText = () => {
@@ -112,6 +113,17 @@ export const createSettingsPlatformUpdateOps = (
       settingsUpdateApply.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
       settingsUpdateApply.disabled =
         !canApplyUpdate || phase === "checking" || phase === "downloading" || phase === "installing";
+    }
+    // Mirror the Apply button in the header bar: show a one-click Update button
+    // whenever an update can be applied. Pulse (is-attention) when ready, show
+    // a spinner (is-busy) while downloading/installing.
+    if (updateButton instanceof HTMLButtonElement) {
+      const busy = phase === "downloading" || phase === "installing";
+      updateButton.classList.toggle("is-hidden", !canApplyUpdate);
+      updateButton.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
+      updateButton.classList.toggle("is-busy", busy);
+      updateButton.classList.toggle("is-attention", canApplyUpdate && !busy);
+      updateButton.disabled = !canApplyUpdate || phase === "checking" || busy;
     }
     if (settingsUpdateOpen instanceof HTMLButtonElement) {
       settingsUpdateOpen.disabled = false;
@@ -258,23 +270,33 @@ export const createSettingsPlatformUpdateOps = (
     });
   }
 
+  const applyUpdate = () => {
+    const phase = runtime.state.platformUpdateStatus?.phase ?? "idle";
+    const hasDownloadedInstaller = Boolean(runtime.state.platformUpdateStatus?.downloadedPath);
+    if (phase === "downloaded" || hasDownloadedInstaller) {
+      runtime.deps.postToNative({ type: "update:install", openFallbackOnError: true }, true);
+      return;
+    }
+    runtime.deps.postToNative(
+      {
+        type: "update:download",
+        forceCheck: true,
+        autoInstall: true,
+        openFallbackOnError: true,
+      },
+      true
+    );
+  };
+
   if (settingsUpdateApply instanceof HTMLButtonElement) {
     settingsUpdateApply.addEventListener("click", () => {
-      const phase = runtime.state.platformUpdateStatus?.phase ?? "idle";
-      const hasDownloadedInstaller = Boolean(runtime.state.platformUpdateStatus?.downloadedPath);
-      if (phase === "downloaded" || hasDownloadedInstaller) {
-        runtime.deps.postToNative({ type: "update:install", openFallbackOnError: true }, true);
-        return;
-      }
-      runtime.deps.postToNative(
-        {
-          type: "update:download",
-          forceCheck: true,
-          autoInstall: true,
-          openFallbackOnError: true,
-        },
-        true
-      );
+      applyUpdate();
+    });
+  }
+
+  if (updateButton instanceof HTMLButtonElement) {
+    updateButton.addEventListener("click", () => {
+      applyUpdate();
     });
   }
 

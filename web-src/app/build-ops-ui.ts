@@ -314,7 +314,7 @@ export const initBuildOpsUi = (
       buildButton.classList.toggle("is-busy", isBusy);
       buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
       buildButton.setAttribute("aria-label", isBusy ? uiText("Cancel", "cancel") : uiText("Build", "build"));
-      buildButton.title = isBusy ? uiText("Cancel build", "cancel build") : uiText("Build (Cmd+B)", "ビルド (Cmd+B)");
+      buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : uiText("Build", "ビルド");
     }
     if (state === "success") {
       try {
@@ -322,17 +322,21 @@ export const initBuildOpsUi = (
       } catch {
         // ignore storage failures
       }
-      const targetPath =
-        deps.getLastBuildMainFile() ?? deps.getRootFilePath() ?? deps.getActiveFilePath();
-      if (
-        deps.settings.getAutoSynctexOnBuildEnabled() &&
-        targetPath &&
-        targetPath.endsWith(".tex")
-      ) {
-        requestSynctexForward(targetPath, {
-          fallbackToTop: true,
-          source: "auto-build",
-        });
+      if (deps.settings.getAutoSynctexOnBuildEnabled()) {
+        // Target the .tex the user is actively editing (incl. an \input-ed
+        // sub-file) so SyncTeX jumps to the live cursor; fall back to the built
+        // main file when the active tab isn't a .tex (e.g. the PDF or a .bib).
+        const activePath = deps.getActiveFilePath();
+        const targetPath =
+          activePath && activePath.endsWith(".tex")
+            ? activePath
+            : deps.getLastBuildMainFile() ?? deps.getRootFilePath() ?? null;
+        if (targetPath && targetPath.endsWith(".tex")) {
+          requestSynctexForward(targetPath, {
+            fallbackToTop: false,
+            source: "auto-build",
+          });
+        }
       }
     }
     if (state === "failed") {
@@ -625,6 +629,17 @@ export const initBuildOpsUi = (
         }
         openedGroup.viewer.syncPdf(syncPayload);
       }
+      if (matchedInFlight) {
+        flushQueuedSynctexForward();
+      }
+      return;
+    }
+    if (payloadMeta?.source === "auto-build") {
+      // Auto-build SyncTeX is best-effort: when the cursor line can't be
+      // resolved (preamble, comment, blank line), don't surface an error and
+      // don't jump anywhere — the PDF keeps its current scroll/zoom via the
+      // viewer's reload restore. Only the explicit Jump button (source
+      // "manual") reports failures / falls back to the top.
       if (matchedInFlight) {
         flushQueuedSynctexForward();
       }

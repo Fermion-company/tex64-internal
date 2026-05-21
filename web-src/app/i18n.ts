@@ -13,6 +13,12 @@ export const SUPPORTED_LOCALES: ReadonlyArray<{ code: UiLocale; label: string; n
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 
 const EN_TO_JA: Record<string, string> = {
+  "Help shape TeX64": "TeX64 をより良くする",
+  "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
+    "TeX64 はまだ開発中で、みなさんの視点が改善の力になります。どんなに小さなことでも構いません — 使いにくい操作、分かりにくい表示、誤字、こんな機能がほしい、ふとした思いつきまで、何でもお聞かせください。些細すぎることなんてありません。いただいた一言ひとことが、これからの TeX64 をかたちづくります。",
+  "What did you notice? Anything goes — big or small.": "気づいたことを何でも — 大きなことも、小さなことも。",
+  "Send feedback": "フィードバックを送信",
+  "Close feedback": "フィードバックを閉じる",
   ". Exclude: {var}": "。除外: {var}件",
   ". You can check it on the AI ​​panel.": "。AIパネルで確認できます。",
   "... {var} more": "… 他 {var} 件",
@@ -76,9 +82,7 @@ const EN_TO_JA: Record<string, string> = {
   "Blocks can only be inserted in .tex files.": "ブロックは .tex ファイルでのみ挿入できます。",
   "bottom panel": "ボトムパネル",
   "bottom panel border": "ボトムパネルの境界",
-  "build": "ビルド",
-  "Build (Cmd+B)": "ビルド (Cmd+B)",
-  "build error": "ビルドエラー",
+  "build": "ビルド",  "build error": "ビルドエラー",
   "build failed": "ビルドに失敗しました",
   "Build in separate window": "別ウィンドウでビルド",
   "build profile": "ビルドプロファイル",
@@ -867,6 +871,12 @@ const normalizeUiLocaleValue = (value: unknown): UiLocale | null => {
 // untranslated strings fall back to the EN source — the same behaviour the
 // original JA-only implementation provided for any non-JA locale.
 const EN_TO_ZH: Record<string, string> = {
+  "Help shape TeX64": "一起完善 TeX64",
+  "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
+    "TeX64 仍在开发中，你的视角能让它变得更好。无论多么微小都没关系——别扭的操作、令人困惑的标签、错别字、你期待的功能，甚至只是一闪而过的想法，我们都想听。没有什么太琐碎。你的每一条反馈，都会切实塑造 TeX64 的下一步。",
+  "What did you notice? Anything goes — big or small.": "你注意到了什么？大事小事都欢迎。",
+  "Send feedback": "发送反馈",
+  "Close feedback": "关闭反馈",
   ". Exclude: {var}": "。排除: {var} 项",
   ". You can check it on the AI ​​panel.": "。可在 AI 面板查看。",
   "... {var} more": "… 还有 {var} 项",
@@ -929,9 +939,7 @@ const EN_TO_ZH: Record<string, string> = {
   "Blocks can only be inserted in .tex files.": "块只能在 .tex 文件中插入。",
   "bottom panel": "底部面板",
   "bottom panel border": "底部面板边界",
-  "build": "构建",
-  "Build (Cmd+B)": "构建 (Cmd+B)",
-  "build error": "构建错误",
+  "build": "构建",  "build error": "构建错误",
   "build failed": "构建失败",
   "Build in separate window": "在单独窗口中构建",
   "build profile": "构建配置",
@@ -1666,6 +1674,12 @@ const EN_TO_ZH: Record<string, string> = {
 };
 
 const EN_TO_KO: Record<string, string> = {
+  "Help shape TeX64": "함께 만드는 TeX64",
+  "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
+    "TeX64는 아직 개발 중이며, 여러분의 시선이 제품을 더 좋게 만듭니다. 아무리 사소해도 괜찮아요 — 어색한 동작, 헷갈리는 라벨, 오타, 있었으면 하는 기능, 문득 떠오른 생각까지 무엇이든 들려주세요. 사소해서 안 될 건 없습니다. 보내주신 한마디 한마디가 TeX64의 다음을 만들어 갑니다.",
+  "What did you notice? Anything goes — big or small.": "무엇을 발견하셨나요? 크든 작든 무엇이든 좋아요.",
+  "Send feedback": "피드백 보내기",
+  "Close feedback": "피드백 닫기",
   ". Exclude: {var}": ". 제외: {var}건",
   ". You can check it on the AI ​​panel.": ". AI 패널에서 확인할 수 있습니다.",
   "... {var} more": "… 외 {var}건",
@@ -1728,9 +1742,7 @@ const EN_TO_KO: Record<string, string> = {
   "Blocks can only be inserted in .tex files.": "블록은 .tex 파일에서만 삽입할 수 있습니다.",
   "bottom panel": "하단 패널",
   "bottom panel border": "하단 패널 경계",
-  "build": "빌드",
-  "Build (Cmd+B)": "빌드 (Cmd+B)",
-  "build error": "빌드 오류",
+  "build": "빌드",  "build error": "빌드 오류",
   "build failed": "빌드 실패",
   "Build in separate window": "별도 창에서 빌드",
   "build profile": "빌드 프로필",
@@ -2465,6 +2477,12 @@ const EN_TO_KO: Record<string, string> = {
 };
 
 const EN_TO_FR: Record<string, string> = {
+  "Help shape TeX64": "Aidez-nous à façonner TeX64",
+  "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
+    "TeX64 est encore en cours de développement, et votre regard l'améliore. Vous avez remarqué quelque chose, même infime ? Une interaction maladroite, un libellé confus, une faute de frappe, une fonctionnalité qui vous manque ou simplement une idée en passant : nous voulons tout entendre. Rien n'est trop insignifiant. Chaque message façonne vraiment la suite de TeX64.",
+  "What did you notice? Anything goes — big or small.": "Qu'avez-vous remarqué ? Tout est bienvenu, petit ou grand.",
+  "Send feedback": "Envoyer un commentaire",
+  "Close feedback": "Fermer les commentaires",
   ". Exclude: {var}": ". Exclus : {var}",
   ". You can check it on the AI ​​panel.": ". Vous pouvez le vérifier dans le panneau IA.",
   "... {var} more": "… {var} de plus",
@@ -2527,9 +2545,7 @@ const EN_TO_FR: Record<string, string> = {
   "Blocks can only be inserted in .tex files.": "Les blocs ne peuvent être insérés que dans les fichiers .tex.",
   "bottom panel": "Panneau inférieur",
   "bottom panel border": "Bord du panneau inférieur",
-  "build": "Compiler",
-  "Build (Cmd+B)": "Compiler (Cmd+B)",
-  "build error": "Erreur de compilation",
+  "build": "Compiler",  "build error": "Erreur de compilation",
   "build failed": "Échec de la compilation",
   "Build in separate window": "Compiler dans une fenêtre séparée",
   "build profile": "Profil de compilation",
@@ -3264,6 +3280,12 @@ const EN_TO_FR: Record<string, string> = {
 };
 
 const EN_TO_DE: Record<string, string> = {
+  "Help shape TeX64": "Hilf mit, TeX64 zu gestalten",
+  "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
+    "TeX64 wird noch entwickelt, und deine Sicht macht es besser. Ist dir etwas aufgefallen – und sei es noch so klein? Eine umständliche Bedienung, eine verwirrende Beschriftung, ein Tippfehler, eine Funktion, die du dir wünschst, oder einfach eine spontane Idee: Wir wollen alles hören. Nichts ist zu unbedeutend. Jede Rückmeldung prägt, wohin sich TeX64 als Nächstes entwickelt.",
+  "What did you notice? Anything goes — big or small.": "Was ist dir aufgefallen? Alles ist willkommen – ob groß oder klein.",
+  "Send feedback": "Feedback senden",
+  "Close feedback": "Feedback schließen",
   ". Exclude: {var}": ". Ausgeschlossen: {var}",
   ". You can check it on the AI ​​panel.": ". Sie können es im KI-Panel überprüfen.",
   "... {var} more": "… {var} weitere",
@@ -3326,9 +3348,7 @@ const EN_TO_DE: Record<string, string> = {
   "Blocks can only be inserted in .tex files.": "Blöcke können nur in .tex-Dateien eingefügt werden.",
   "bottom panel": "Unteres Panel",
   "bottom panel border": "Rand des unteren Panels",
-  "build": "Erstellen",
-  "Build (Cmd+B)": "Erstellen (Cmd+B)",
-  "build error": "Erstellungsfehler",
+  "build": "Erstellen",  "build error": "Erstellungsfehler",
   "build failed": "Erstellen fehlgeschlagen",
   "Build in separate window": "In separatem Fenster erstellen",
   "build profile": "Erstellungsprofil",
@@ -4063,6 +4083,12 @@ const EN_TO_DE: Record<string, string> = {
 };
 
 const EN_TO_ES: Record<string, string> = {
+  "Help shape TeX64": "Ayuda a dar forma a TeX64",
+  "TeX64 is still being built, and your perspective makes it better. Noticed something — however small? A clunky interaction, a confusing label, a typo, a feature you wish existed, or just a passing idea: we want to hear all of it. Nothing is too trivial. Every note genuinely shapes where TeX64 goes next.":
+    "TeX64 todavía está en desarrollo, y tu perspectiva lo mejora. ¿Has notado algo, por pequeño que sea? Una interacción torpe, una etiqueta confusa, una errata, una función que te gustaría tener o simplemente una idea pasajera: queremos escucharlo todo. Nada es demasiado trivial. Cada comentario da forma de verdad al próximo paso de TeX64.",
+  "What did you notice? Anything goes — big or small.": "¿Qué has notado? Todo vale, grande o pequeño.",
+  "Send feedback": "Enviar comentarios",
+  "Close feedback": "Cerrar comentarios",
   ". Exclude: {var}": ". Excluido: {var}",
   ". You can check it on the AI ​​panel.": ". Puedes verlo en el panel de IA.",
   "... {var} more": "… {var} más",
@@ -4125,9 +4151,7 @@ const EN_TO_ES: Record<string, string> = {
   "Blocks can only be inserted in .tex files.": "Los bloques solo se pueden insertar en archivos .tex.",
   "bottom panel": "Panel inferior",
   "bottom panel border": "Borde del panel inferior",
-  "build": "Compilar",
-  "Build (Cmd+B)": "Compilar (Cmd+B)",
-  "build error": "Error de compilación",
+  "build": "Compilar",  "build error": "Error de compilación",
   "build failed": "Compilación fallida",
   "Build in separate window": "Compilar en ventana separada",
   "build profile": "Perfil de compilación",

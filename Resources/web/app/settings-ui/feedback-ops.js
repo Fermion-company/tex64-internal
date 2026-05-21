@@ -1,13 +1,23 @@
 export const createSettingsFeedbackOps = (runtime) => {
     const { settingsFeedbackCategory, settingsFeedbackMessage, settingsFeedbackSend, settingsFeedbackStatus, } = runtime.context.dom;
+    // Other UIs (the feedback modal) subscribe to status so they can mirror the
+    // shared send queue's progress without owning their own queue.
+    const statusListeners = new Set();
     const setFeedbackStatus = (message, tone = "neutral") => {
-        if (!(settingsFeedbackStatus instanceof HTMLElement)) {
-            return;
+        if (settingsFeedbackStatus instanceof HTMLElement) {
+            settingsFeedbackStatus.textContent = message;
+            settingsFeedbackStatus.classList.toggle("is-hidden", message.trim().length === 0);
+            settingsFeedbackStatus.classList.toggle("is-success", tone === "success");
+            settingsFeedbackStatus.classList.toggle("is-error", tone === "error");
         }
-        settingsFeedbackStatus.textContent = message;
-        settingsFeedbackStatus.classList.toggle("is-hidden", message.trim().length === 0);
-        settingsFeedbackStatus.classList.toggle("is-success", tone === "success");
-        settingsFeedbackStatus.classList.toggle("is-error", tone === "error");
+        statusListeners.forEach((listener) => {
+            try {
+                listener({ message, tone });
+            }
+            catch {
+                // a failing listener must not break feedback
+            }
+        });
     };
     const updateFeedbackSendState = () => {
         if (!(settingsFeedbackSend instanceof HTMLButtonElement)) {
@@ -157,22 +167,18 @@ export const createSettingsFeedbackOps = (runtime) => {
             markFeedbackRetry(nextItem, "Failed to start sending feedback.");
         }
     };
-    const sendFeedback = () => {
-        if (!(settingsFeedbackMessage instanceof HTMLTextAreaElement)) {
-            return;
-        }
-        const message = settingsFeedbackMessage.value.trim();
-        if (!message) {
+    // Queue a feedback item (DOM-free) so both the settings form and the modal can
+    // submit through the same retry queue. Returns false if the message is empty.
+    const submit = (category, message) => {
+        const trimmed = message.trim();
+        if (!trimmed) {
             setFeedbackStatus("Please enter your feedback.", "error");
-            settingsFeedbackMessage.focus();
-            return;
+            return false;
         }
-        const rawCategory = settingsFeedbackCategory instanceof HTMLSelectElement ? settingsFeedbackCategory.value : "";
-        const category = rawCategory === "bug" || rawCategory === "idea" || rawCategory === "other" ? rawCategory : "other";
         const item = {
             id: `fb-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
             category,
-            message,
+            message: trimmed,
             createdAt: Date.now(),
             attempts: 0,
             nextRetryAt: 0,
@@ -181,6 +187,23 @@ export const createSettingsFeedbackOps = (runtime) => {
         saveFeedbackQueue();
         setFeedbackStatus("Added to send queue.");
         flushFeedbackQueue();
+        return true;
+    };
+    const onStatus = (listener) => {
+        statusListeners.add(listener);
+        return () => {
+            statusListeners.delete(listener);
+        };
+    };
+    const sendFeedback = () => {
+        if (!(settingsFeedbackMessage instanceof HTMLTextAreaElement)) {
+            return;
+        }
+        const rawCategory = settingsFeedbackCategory instanceof HTMLSelectElement ? settingsFeedbackCategory.value : "";
+        const category = rawCategory === "bug" || rawCategory === "idea" || rawCategory === "other" ? rawCategory : "other";
+        if (!submit(category, settingsFeedbackMessage.value)) {
+            settingsFeedbackMessage.focus();
+        }
     };
     const handlePlatformFeedback = (payload) => {
         var _a, _b;
@@ -244,5 +267,7 @@ export const createSettingsFeedbackOps = (runtime) => {
         handlePlatformFeedback,
         loadStartupFeedbackState,
         initFeedbackUi,
+        submit,
+        onStatus,
     };
 };

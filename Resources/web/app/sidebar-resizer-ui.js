@@ -6,7 +6,10 @@ export const initSidebarResizer = (context, deps) => {
             return;
         }
         let isResizing = false;
+        let pendingClientX = 0;
+        let rafId = null;
         const startResize = () => {
+            var _a;
             if (isResizing) {
                 return;
             }
@@ -20,8 +23,12 @@ export const initSidebarResizer = (context, deps) => {
             if (editorHostSecondary instanceof HTMLElement) {
                 editorHostSecondary.style.pointerEvents = "none";
             }
+            // We drive layout manually (throttled) during the drag.
+            (_a = deps.setEditorsAutomaticLayout) === null || _a === void 0 ? void 0 : _a.call(deps, false);
         };
-        const doResize = (event) => {
+        // Applies the latest pointer position once per animation frame.
+        const applyResize = () => {
+            rafId = null;
             if (!isResizing) {
                 return;
             }
@@ -29,15 +36,31 @@ export const initSidebarResizer = (context, deps) => {
             const minPanelWidth = 240;
             const minEditorWidth = 320;
             const maxPanelWidth = Math.max(minPanelWidth, window.innerWidth - sidebarWidth - minEditorWidth);
-            const newWidth = Math.max(minPanelWidth, Math.min(maxPanelWidth, event.clientX - sidebarWidth));
+            const newWidth = Math.max(minPanelWidth, Math.min(maxPanelWidth, pendingClientX - sidebarWidth));
             document.documentElement.style.setProperty("--sidebar-panel-width", `${newWidth}px`);
             deps.layoutEditors();
         };
+        const doResize = (event) => {
+            if (!isResizing) {
+                return;
+            }
+            // Coalesce rapid mousemove events into a single layout per frame —
+            // editor.layout() is expensive and was previously run on every event.
+            pendingClientX = event.clientX;
+            if (rafId === null) {
+                rafId = window.requestAnimationFrame(applyResize);
+            }
+        };
         const stopResize = () => {
+            var _a;
             if (!isResizing) {
                 return;
             }
             isResizing = false;
+            if (rafId !== null) {
+                window.cancelAnimationFrame(rafId);
+                rafId = null;
+            }
             resizer.classList.remove("is-resizing");
             document.body.style.cursor = "";
             document.body.style.userSelect = "";
@@ -47,6 +70,7 @@ export const initSidebarResizer = (context, deps) => {
             if (editorHostSecondary instanceof HTMLElement) {
                 editorHostSecondary.style.pointerEvents = "";
             }
+            (_a = deps.setEditorsAutomaticLayout) === null || _a === void 0 ? void 0 : _a.call(deps, true);
             deps.layoutEditors();
         };
         resizer.addEventListener("mousedown", startResize);

@@ -73,7 +73,9 @@ export const createSettingsEditorPreferenceOps = (runtime) => {
         }
         else {
             const legacy = localStorage.getItem(runtime.keys.editorAutoSynctexOnPdfOpenKey);
-            runtime.state.autoSynctexOnBuildEnabled = legacy !== null ? legacy !== "false" : true;
+            // Default OFF: after a build we keep the current PDF position/zoom rather
+            // than jumping to the cursor via forward SyncTeX.
+            runtime.state.autoSynctexOnBuildEnabled = legacy !== null ? legacy !== "false" : false;
             if (legacy !== null) {
                 localStorage.setItem(runtime.keys.editorAutoSynctexOnBuildKey, runtime.state.autoSynctexOnBuildEnabled ? "true" : "false");
             }

@@ -130,6 +130,8 @@ export const initSettingsUi = (context, deps) => {
         handleEnvInstallResult: envOps.handleEnvInstallResult,
         refreshCompileEngine: engineOps.updateEngineUI,
         handlePlatformFeedback: feedbackOps.handlePlatformFeedback,
+        submitFeedback: feedbackOps.submit,
+        onFeedbackStatus: feedbackOps.onStatus,
         handlePlatformAuth: platformAuthOps.handlePlatformAuth,
         handlePlatformUpdate: platformUpdateOps.handlePlatformUpdate,
         handlePlatformUpdateStatus: platformUpdateOps.handlePlatformUpdateStatus,

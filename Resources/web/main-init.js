@@ -1,6 +1,7 @@
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
+import { initFeedbackModal } from "./app/feedback-modal.js";
 import { createAppContext } from "./app/context.js";
 import { initBridgeHandlers } from "./app/bridge-handlers.js";
 import { initBridgeSender } from "./app/bridge-sender.js";
@@ -189,6 +190,10 @@ export const initMain = () => {
         isReverseSynctexEnabled = () => settingsUi.getReverseSynctexEnabled();
         onSettingsTabActive = () => settingsUi.checkEnvironmentStatus();
         initEditorSettingsControls();
+        initFeedbackModal(appContext, {
+            submitFeedback: settingsUi.submitFeedback,
+            onFeedbackStatus: settingsUi.onFeedbackStatus,
+        });
         const announcementsUi = initAnnouncementsUi({
             postToNative: (payload, silent) => postToNative(payload, silent),
         });
@@ -555,6 +560,13 @@ export const initMain = () => {
                     (_a = editor === null || editor === void 0 ? void 0 : editor.layout) === null || _a === void 0 ? void 0 : _a.call(editor);
                 });
             },
+            setEditorsAutomaticLayout: (enabled) => {
+                editorSession.forEachEditorGroup((group) => {
+                    var _a;
+                    const editor = group.editor;
+                    (_a = editor === null || editor === void 0 ? void 0 : editor.updateOptions) === null || _a === void 0 ? void 0 : _a.call(editor, { automaticLayout: enabled });
+                });
+            },
         });
         outlineUi = initOutlineUi(appContext, {
             getActiveFilePath: () => editorSession.getActiveFilePath(),
@@ -676,7 +688,6 @@ export const initMain = () => {
             blockInsert: blockInsertApi,
             buildOps: {
                 setupActionButtons: () => buildOps.setupActionButtons(),
-                startBuild: () => buildOps.startBuild(),
             },
             rootSelectorUi: {
                 setupActions: () => rootSelectorUi.setupActions(),

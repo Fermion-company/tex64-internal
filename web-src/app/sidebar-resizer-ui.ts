@@ -2,6 +2,9 @@ import type { AppContext } from "./context.js";
 
 type SidebarResizerDeps = {
   layoutEditors: () => void;
+  // Toggle Monaco automaticLayout so it doesn't re-layout in parallel with our
+  // throttled manual layout during a drag (best-effort; no-op if unsupported).
+  setEditorsAutomaticLayout?: (enabled: boolean) => void;
 };
 
 export type SidebarResizerApi = {
@@ -20,6 +23,8 @@ export const initSidebarResizer = (
       return;
     }
     let isResizing = false;
+    let pendingClientX = 0;
+    let rafId: number | null = null;
 
     const startResize = () => {
       if (isResizing) {
@@ -35,9 +40,13 @@ export const initSidebarResizer = (
       if (editorHostSecondary instanceof HTMLElement) {
         editorHostSecondary.style.pointerEvents = "none";
       }
+      // We drive layout manually (throttled) during the drag.
+      deps.setEditorsAutomaticLayout?.(false);
     };
 
-    const doResize = (event: MouseEvent) => {
+    // Applies the latest pointer position once per animation frame.
+    const applyResize = () => {
+      rafId = null;
       if (!isResizing) {
         return;
       }
@@ -50,10 +59,22 @@ export const initSidebarResizer = (
       );
       const newWidth = Math.max(
         minPanelWidth,
-        Math.min(maxPanelWidth, event.clientX - sidebarWidth)
+        Math.min(maxPanelWidth, pendingClientX - sidebarWidth)
       );
       document.documentElement.style.setProperty("--sidebar-panel-width", `${newWidth}px`);
       deps.layoutEditors();
+    };
+
+    const doResize = (event: MouseEvent) => {
+      if (!isResizing) {
+        return;
+      }
+      // Coalesce rapid mousemove events into a single layout per frame —
+      // editor.layout() is expensive and was previously run on every event.
+      pendingClientX = event.clientX;
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(applyResize);
+      }
     };
 
     const stopResize = () => {
@@ -61,6 +82,10 @@ export const initSidebarResizer = (
         return;
       }
       isResizing = false;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       resizer.classList.remove("is-resizing");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
@@ -70,6 +95,7 @@ export const initSidebarResizer = (
       if (editorHostSecondary instanceof HTMLElement) {
         editorHostSecondary.style.pointerEvents = "";
       }
+      deps.setEditorsAutomaticLayout?.(true);
       deps.layoutEditors();
     };
 
