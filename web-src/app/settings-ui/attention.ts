@@ -1,23 +1,14 @@
 import type { SettingsUiRuntime } from "./runtime.js";
 
 export type SettingsAttentionOps = {
-  hasRuntimeSetupAttention: () => boolean;
   hasUpdateAttention: () => boolean;
   syncUpdateAttentionUi: () => void;
 };
 
 export const createSettingsAttentionOps = (runtime: SettingsUiRuntime): SettingsAttentionOps => {
-  const { settingsNavItems, settingsRuntimeAttention, settingsAccountAttention } = runtime.context.dom;
-  const runtimeSettingsNavItem =
-    settingsNavItems.find((button) => button.dataset.settingsTarget === "env") ?? null;
+  const { settingsNavItems, settingsAccountAttention } = runtime.context.dom;
   const accountSettingsNavItem =
     settingsNavItems.find((button) => button.dataset.settingsTarget === "account") ?? null;
-
-  const hasRuntimeSetupAttention = () =>
-    Boolean(
-      runtime.state.runtimeStatusSummary?.hasAnyResult &&
-        runtime.state.runtimeStatusSummary?.runtimeReady === false
-    );
 
   const hasUpdateAttention = () => {
     const phase = runtime.state.platformUpdateStatus?.phase ?? "idle";
@@ -32,31 +23,18 @@ export const createSettingsAttentionOps = (runtime: SettingsUiRuntime): Settings
 
   const syncUpdateAttentionUi = () => {
     const updateAttention = hasUpdateAttention();
-    const runtimeAttention = hasRuntimeSetupAttention();
-    // Updates are surfaced via the header-bar Update button, NOT the settings
-    // (gear) tab — so the gear's alert dot follows only runtime-setup attention.
-    const hideAlertWhileRuntimeOpen = runtime.state.activeSettingsPage === "env";
-    const showTabAlert = runtimeAttention && !hideAlertWhileRuntimeOpen;
-
-    if (runtimeSettingsNavItem instanceof HTMLElement) {
-      runtimeSettingsNavItem.classList.toggle("has-alert", runtimeAttention);
-    }
     if (accountSettingsNavItem instanceof HTMLElement) {
       accountSettingsNavItem.classList.toggle("has-alert", updateAttention);
-    }
-    if (settingsRuntimeAttention instanceof HTMLElement) {
-      settingsRuntimeAttention.textContent = "Setup needed";
-      settingsRuntimeAttention.classList.toggle("is-hidden", !runtimeAttention);
-      settingsRuntimeAttention.setAttribute("aria-hidden", runtimeAttention ? "false" : "true");
     }
     if (settingsAccountAttention instanceof HTMLElement) {
       settingsAccountAttention.textContent = "Update";
       settingsAccountAttention.classList.toggle("is-hidden", !updateAttention);
       settingsAccountAttention.setAttribute("aria-hidden", updateAttention ? "false" : "true");
     }
-    runtime.deps.onUpdateAttentionChange?.(showTabAlert);
+    // The environment screen no longer raises a "setup needed" alert, and app
+    // updates surface via the header Update button — so the gear tab stays clean.
+    runtime.deps.onUpdateAttentionChange?.(false);
   };
 
-  return { hasRuntimeSetupAttention, hasUpdateAttention, syncUpdateAttentionUi };
+  return { hasUpdateAttention, syncUpdateAttentionUi };
 };
-

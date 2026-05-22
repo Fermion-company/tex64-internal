@@ -38,6 +38,12 @@ export type SettingsUiApi = {
   updateEnvStatus: (command: string, available: boolean) => void;
   handleEnvInstallStart: (payload: { target?: string }) => void;
   handleEnvInstallResult: (payload: { target?: string; success?: boolean; message?: string }) => void;
+  handleEnvInstallProgress: (payload: {
+    phase?: string;
+    current?: number | null;
+    total?: number | null;
+    percent?: number | null;
+  }) => void;
   refreshCompileEngine: () => void;
   handlePlatformFeedback: (payload: {
     ok: boolean;

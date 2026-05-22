@@ -234,7 +234,7 @@ const createMainWindow = () => {
     backgroundColor: "#1c2129",
     title: "TeX64",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 12, y: 10 },
+    trafficLightPosition: { x: 12, y: 8 },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

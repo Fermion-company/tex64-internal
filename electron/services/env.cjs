@@ -9,8 +9,8 @@ const fetch = require("node-fetch");
 const {
   extendTexlivePath,
   findTexCommand,
+  findManagedTexCommand,
   getManagedTexliveRoot,
-  getManagedTexliveBinDirs,
   getManagedTexliveYear,
 } = require("./texlive-paths.cjs");
 
@@ -28,6 +28,14 @@ const shouldForceMissingTool = (toolName) => {
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean)
     .includes(needle);
+};
+
+// E2E seam: when set, command detection ignores any system TeX and only counts the
+// app-managed install. Lets us verify the full "empty -> one-click install -> ready"
+// flow on a machine that already has a system TeX, without deleting it.
+const shouldIgnoreSystemTex = () => {
+  const raw = process.env.TEX64_E2E_IGNORE_SYSTEM_TEX;
+  return typeof raw === "string" && /^(1|true|yes)$/i.test(raw.trim());
 };
 
 const INSTALLER_URLS = {
@@ -82,10 +90,27 @@ const runCommand = (command, args = [], options = {}) =>
       shell: useShell,
     });
     let output = "";
+    let lineBuffer = "";
+    const onLine = typeof options.onLine === "function" ? options.onLine : null;
     const appendOutput = (chunk) => {
-      output += chunk.toString();
+      const text = chunk.toString();
+      output += text;
       if (output.length > 24000) {
         output = output.slice(-24000);
+      }
+      if (!onLine) {
+        return;
+      }
+      lineBuffer += text;
+      let newlineIndex;
+      while ((newlineIndex = lineBuffer.indexOf("\n")) >= 0) {
+        const line = lineBuffer.slice(0, newlineIndex);
+        lineBuffer = lineBuffer.slice(newlineIndex + 1);
+        try {
+          onLine(line);
+        } catch {
+          // progress parsing must never break the install
+        }
       }
     };
     const timer = setTimeout(() => {
@@ -149,6 +174,41 @@ class EnvService {
   constructor() {
     this.platform = process.platform;
     this.arch = process.arch;
+    this.onProgress = null;
+  }
+
+  // Map each install phase onto a single monotonic 0-100 bar so the renderer can
+  // show real, forward-moving progress (the long install-tl / tlmgr phases carry
+  // an actual package count). Driven by parsed "[n/m]" lines, not CSS animation,
+  // so it keeps moving even under prefers-reduced-motion.
+  emitProgress(phase, current = null, total = null) {
+    if (typeof this.onProgress !== "function") {
+      return;
+    }
+    const hasCount = Number.isFinite(current) && Number.isFinite(total) && total > 0;
+    const ratio = hasCount ? Math.min(1, current / total) : 0;
+    let percent = null;
+    if (phase === "download") {
+      percent = 2;
+    } else if (phase === "extract") {
+      percent = 6;
+    } else if (phase === "texlive") {
+      percent = Math.min(80, 8 + Math.round(ratio * 72));
+    } else if (phase === "packages") {
+      percent = Math.min(98, 80 + Math.round(ratio * 18));
+    } else if (phase === "finalize") {
+      percent = 99;
+    }
+    try {
+      this.onProgress({
+        phase,
+        current: hasCount ? current : null,
+        total: hasCount ? total : null,
+        percent,
+      });
+    } catch {
+      // never let progress reporting break the install
+    }
   }
 
   getPlatform() {
@@ -166,6 +226,9 @@ class EnvService {
   async checkCommand(command) {
     if (shouldForceMissingTool(command)) {
       return false;
+    }
+    if (shouldIgnoreSystemTex()) {
+      return Boolean(this.findManagedCommand(command));
     }
     const found = this.findCommand(command);
     if (found) {
@@ -195,7 +258,8 @@ class EnvService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 90 * 60 * 1000;
   }
 
-  async installEnvironment(target) {
+  async installEnvironment(target, onProgress) {
+    this.onProgress = typeof onProgress === "function" ? onProgress : null;
     try {
       if (this.platform !== "darwin" && this.platform !== "win32") {
         return { success: false, message: "Unsupported platform." };
@@ -218,6 +282,8 @@ class EnvService {
             ? error.message
             : "Installation failed.",
       };
+    } finally {
+      this.onProgress = null;
     }
   }
 
@@ -245,6 +311,7 @@ class EnvService {
   async installManagedTexlive() {
     await this.ensureManagedTexliveInstalled();
     await this.ensureDefaultPackages();
+    this.emitProgress("finalize");
     const [lualatex, latexmk, synctex] = await Promise.all([
       this.checkCommand("lualatex"),
       this.checkCommand("latexmk"),
@@ -280,11 +347,14 @@ class EnvService {
         workDir,
         this.platform === "win32" ? "install-tl.zip" : "install-tl-unx.tar.gz"
       );
+      this.emitProgress("download");
       await downloadFile(installerUrl, archivePath);
+      this.emitProgress("extract");
       await this.extractInstallerArchive(archivePath, workDir);
       const installer = await this.resolveInstallerExecutable(workDir);
       const profilePath = path.join(workDir, "tex64-texlive.profile");
       await fsp.writeFile(profilePath, this.buildInstallProfile(root), "utf8");
+      this.emitProgress("texlive");
       await this.runInstaller(installer, profilePath);
     } finally {
       await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -351,7 +421,9 @@ class EnvService {
     const texmfUserConfig = normalizeProfilePath(path.join(root, "texmf-user-config"));
     const texmfUserVar = normalizeProfilePath(path.join(root, "texmf-user-var"));
     return [
-      "selected_scheme scheme-small",
+      // Full scheme: install every CTAN package so anything that compiles under a
+      // system MacTeX also compiles through TeX64's managed TeX Live (parity).
+      "selected_scheme scheme-full",
       `TEXDIR ${texdir}`,
       `TEXMFLOCAL ${texmfLocal}`,
       `TEXMFSYSCONFIG ${texmfConfig}`,
@@ -393,31 +465,51 @@ class EnvService {
         TEXLIVE_INSTALL_NO_WELCOME: "1",
       },
       extendPath: false,
+      onLine: (line) => {
+        const match = line.match(/Installing \[(\d+)\/(\d+)/);
+        // install-tl prints a short preliminary "[n/4]" infra pass before the main
+        // package run; ignore tiny totals so the bar climbs once, monotonically,
+        // instead of jumping forward and snapping back to the start.
+        if (match && Number(match[2]) >= 20) {
+          this.emitProgress("texlive", Number(match[1]), Number(match[2]));
+        }
+      },
     });
   }
 
   findManagedCommand(command) {
-    return findTexCommand(
+    return findManagedTexCommand(
       command,
       this.platform,
       this.arch,
-      getManagedTexliveBinDirs(this.platform, this.arch, this.managedRoot())
+      this.managedRoot()
     );
   }
 
   async runTlmgr(args, options = {}) {
-    const tlmgr = this.findManagedCommand("tlmgr") || this.findCommand("tlmgr");
+    // Managed installs must only ever drive the managed tlmgr. Never fall back to
+    // a system tlmgr — that would try to modify a read-only system TeX Live
+    // (e.g. /usr/local/texlive) and fail with a permission error.
+    const tlmgr = this.findManagedCommand("tlmgr");
     if (!tlmgr) {
       if (options.allowFailure) {
-        return { ok: false, code: 127, output: "tlmgr not found" };
+        return { ok: false, code: 127, output: "managed tlmgr not found" };
       }
-      throw new Error("tlmgr not found.");
+      throw new Error(
+        "Managed tlmgr not found; the managed TeX Live install did not complete."
+      );
     }
     const result = await runCommand(tlmgr, args, {
       timeoutMs: options.timeoutMs || this.installTimeoutMs(),
       extendPath: true,
       env: {
         TEXLIVE_INSTALL_ENV_NOCHECK: "1",
+      },
+      onLine: (line) => {
+        const match = line.match(/\[(\d+)\/(\d+)/);
+        if (match) {
+          this.emitProgress("packages", Number(match[1]), Number(match[2]));
+        }
       },
     });
     if (!result.ok && !options.allowFailure) {

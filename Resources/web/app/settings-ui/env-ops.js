@@ -1,21 +1,46 @@
 import { createEnvStatusManager } from "../settings-env.js";
 import { TEX64_LINKS } from "../platform-links.js";
 import { openExternalUrl } from "./utils.js";
+import { uiText } from "../i18n.js";
+// The full-screen Environment screen answers one question for the user: "can I
+// build right now, and if not, what do I press?" Under the hood every install
+// target funnels to the same managed TeX Live install, so the screen exposes a
+// single status + one setup button, with the per-tool detection tucked away.
 export const createSettingsEnvOps = (runtime, attentionOps) => {
-    const { settingsRuntimeInstallStatus, settingsRuntimeSetupStatus, settingsRuntimeOnboardingStatus, settingsRuntimeRunFirstBuild, settingsRuntimeOpenGettingStarted, settingsRuntimeOpenInstallDocs, settingsRuntimeOpenTexDocs, settingsEnvRefresh, } = runtime.context.dom;
-    const resolveEnvInstallTargetLabel = (target) => {
-        if (target === "basictex") {
-            return "TeX64 managed TeX Live";
+    const { settingsRuntimeSetupStatus, settingsRuntimeInstallStatus, settingsRuntimeOpenTexDocs, } = runtime.context.dom;
+    const heroEl = document.getElementById("env-hero");
+    const heroSubEl = document.getElementById("env-hero-sub");
+    const setupBtn = document.getElementById("settings-env-setup");
+    const progressEl = document.getElementById("env-progress");
+    const progressFill = document.getElementById("env-progress-fill");
+    const progressLabel = document.getElementById("env-progress-label");
+    let installing = false;
+    const setHeroState = (state) => {
+        if (!(heroEl instanceof HTMLElement)) {
+            return;
         }
-        if (target === "latexmk") {
-            return "latexmk";
-        }
-        if (target === "latexindent") {
-            return "latexindent";
-        }
-        return target || "Runtime Environment";
+        heroEl.classList.remove("is-checking", "is-missing", "is-installing", "is-ready");
+        heroEl.classList.add(`is-${state}`);
     };
-    const setRuntimeInstallStatus = (message, tone = "neutral") => {
+    const setHeroText = (title, sub) => {
+        if (settingsRuntimeSetupStatus instanceof HTMLElement) {
+            settingsRuntimeSetupStatus.textContent = title;
+        }
+        if (heroSubEl instanceof HTMLElement) {
+            heroSubEl.textContent = sub;
+        }
+    };
+    const setSetupButton = (opts) => {
+        if (!(setupBtn instanceof HTMLButtonElement)) {
+            return;
+        }
+        setupBtn.classList.toggle("is-hidden", !opts.visible);
+        setupBtn.disabled = Boolean(opts.disabled);
+        if (typeof opts.label === "string") {
+            setupBtn.textContent = opts.label;
+        }
+    };
+    const setInstallNote = (message, tone = "neutral") => {
         if (!(settingsRuntimeInstallStatus instanceof HTMLElement)) {
             return;
         }
@@ -27,20 +52,38 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         settingsRuntimeInstallStatus.classList.toggle("is-success", tone === "success");
         settingsRuntimeInstallStatus.classList.toggle("is-error", tone === "error");
     };
-    const resolveRuntimeMissingLabel = (key) => {
-        if (key === "engine") {
-            return "TeX Engine (lualatex / pdflatex / xelatex / uplatex)";
+    const phaseLabel = (phase) => {
+        switch (phase) {
+            case "download":
+                return uiText("Downloading installer…", "インストーラをダウンロード中…");
+            case "extract":
+                return uiText("Preparing installer…", "インストーラを準備中…");
+            case "texlive":
+                return uiText("Installing TeX Live…", "TeX Live をインストール中…");
+            case "packages":
+                return uiText("Installing packages…", "パッケージをインストール中…");
+            case "finalize":
+                return uiText("Finishing up…", "仕上げ中…");
+            default:
+                return uiText("Setting up…", "セットアップ中…");
         }
-        if (key === "latexmk") {
-            return "latexmk";
+    };
+    const showProgress = (visible) => {
+        if (progressEl instanceof HTMLElement) {
+            progressEl.classList.toggle("is-hidden", !visible);
+            progressEl.setAttribute("aria-hidden", visible ? "false" : "true");
         }
-        if (key === "synctex") {
-            return "synctex";
+    };
+    // Width + text are set directly from JS (not a CSS animation), so the bar keeps
+    // advancing even under prefers-reduced-motion.
+    const setProgress = (percent, label) => {
+        if (progressFill instanceof HTMLElement && typeof percent === "number") {
+            const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+            progressFill.style.width = `${clamped}%`;
         }
-        if (key === "latexindent") {
-            return "latexindent";
+        if (progressLabel instanceof HTMLElement) {
+            progressLabel.textContent = label;
         }
-        return key;
     };
     const hasPromptedRuntimeSetup = () => {
         try {
@@ -71,106 +114,47 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         markRuntimeSetupPrompted();
         (_b = (_a = runtime.deps).onRuntimeSetupNeeded) === null || _b === void 0 ? void 0 : _b.call(_a, summary);
     };
-    const hasCompletedFirstBuild = () => {
-        try {
-            return localStorage.getItem(runtime.keys.firstBuildCompletedKey) === "1";
-        }
-        catch {
-            return false;
-        }
-    };
-    const updateRuntimeOnboardingUi = () => {
-        const summary = runtime.state.runtimeStatusSummary;
-        const hasWorkspace = Boolean(runtime.deps.getWorkspaceRootKey());
-        const firstBuildCompleted = hasCompletedFirstBuild();
-        if (settingsRuntimeOnboardingStatus instanceof HTMLElement) {
-            settingsRuntimeOnboardingStatus.classList.remove("is-warning", "is-success");
-            if (!summary || !summary.hasAnyResult) {
-                settingsRuntimeOnboardingStatus.textContent =
-                    "First time setup: 1) Checking the execution environment 2) Opening the workspace 3) Running the first build";
-            }
-            else if (firstBuildCompleted) {
-                settingsRuntimeOnboardingStatus.classList.add("is-success");
-                settingsRuntimeOnboardingStatus.textContent =
-                    "First-time setup complete: You can run Build at any time.";
-            }
-            else if (!summary.runtimeReady) {
-                const missing = summary.missingRequired.map((item) => resolveRuntimeMissingLabel(item));
-                settingsRuntimeOnboardingStatus.classList.add("is-warning");
-                settingsRuntimeOnboardingStatus.textContent =
-                    missing.length > 0
-                        ? `First time setup: 1/3 Missing runtime (${missing.join(", ")}). Click the "Install" button above.`
-                        : "First time setup: 1/3 Runtime is missing. Click the \"Install\" button above.";
-            }
-            else if (!hasWorkspace) {
-                settingsRuntimeOnboardingStatus.classList.add("is-warning");
-                settingsRuntimeOnboardingStatus.textContent = "First time setup: 2/3 Open your workspace.";
-            }
-            else {
-                settingsRuntimeOnboardingStatus.classList.add("is-success");
-                settingsRuntimeOnboardingStatus.textContent =
-                    "First time setup: 3/3 Run your first build.";
-            }
-        }
-        if (settingsRuntimeRunFirstBuild instanceof HTMLButtonElement) {
-            const canRunBuild = Boolean((summary === null || summary === void 0 ? void 0 : summary.runtimeReady) && hasWorkspace);
-            settingsRuntimeRunFirstBuild.disabled = !canRunBuild;
-            settingsRuntimeRunFirstBuild.textContent = firstBuildCompleted ? "run build" : "run the first build";
-        }
+    const showInstalling = () => {
+        installing = true;
+        setHeroState("installing");
+        setHeroText("Setting up your TeX environment…", "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.");
+        setSetupButton({ visible: true, disabled: true, label: "Setting up…" });
+        setInstallNote("");
+        showProgress(true);
+        setProgress(2, uiText("Starting…", "開始しています…"));
     };
     const updateRuntimeSetupUi = () => {
-        if (!(settingsRuntimeSetupStatus instanceof HTMLElement)) {
+        // While an install is in flight the hero is owned by the install handlers;
+        // intermediate status sweeps must not flip it back to "checking".
+        if (installing) {
             return;
         }
+        showProgress(false);
         const summary = runtime.state.runtimeStatusSummary;
-        settingsRuntimeSetupStatus.classList.remove("is-warning", "is-success");
         if (!summary || !summary.hasAnyResult) {
-            settingsRuntimeSetupStatus.textContent = "Checking the execution environment.";
-            updateRuntimeOnboardingUi();
+            setHeroState("checking");
+            setHeroText("Checking your TeX environment…", "This only takes a moment.");
+            setSetupButton({ visible: false });
             return;
         }
         if (summary.runtimeReady) {
-            settingsRuntimeSetupStatus.classList.add("is-success");
-            if (summary.missingRecommended.includes("latexindent")) {
-                settingsRuntimeSetupStatus.textContent =
-                    "Ready to start using (optional: latexindent not detected).";
-            }
-            else {
-                settingsRuntimeSetupStatus.textContent = "Preparations for start of use are complete.";
-            }
-            updateRuntimeOnboardingUi();
+            setHeroState("ready");
+            const optionalMissing = summary.missingRecommended.includes("latexindent");
+            setHeroText("Your TeX environment is ready.", optionalMissing
+                ? "You can build, format, and use SyncTeX. (Optional: latexindent was not detected.)"
+                : "You can build, format, and use SyncTeX right away.");
+            setSetupButton({ visible: false });
+            setInstallNote("");
             return;
         }
-        settingsRuntimeSetupStatus.classList.add("is-warning");
-        const missing = summary.missingRequired.map((item) => resolveRuntimeMissingLabel(item));
-        settingsRuntimeSetupStatus.textContent = `Missing: ${missing.join(", ")}. Please prepare the TeX environment and check again.`;
-        updateRuntimeOnboardingUi();
+        setHeroState("missing");
+        setHeroText("TeX environment is not set up yet.", "Press the button below and TeX64 will install everything you need automatically.");
+        setSetupButton({ visible: true, disabled: false, label: "Set up TeX environment" });
     };
-    const envBtns = Array.from(document.querySelectorAll(".env-btn"));
-    const handleEnvInstallStart = (payload) => {
-        const target = typeof (payload === null || payload === void 0 ? void 0 : payload.target) === "string" && payload.target.trim() ? payload.target.trim() : "";
-        if (!target) {
-            setRuntimeInstallStatus("Installation has started.");
-            return;
-        }
-        const label = resolveEnvInstallTargetLabel(target);
-        setRuntimeInstallStatus(`${label} is being installed. This can take several minutes.`);
-        envBtns
-            .filter((btn) => btn.dataset.target === target)
-            .forEach((btn) => {
-            btn.textContent = "Installing...";
-            btn.disabled = true;
-        });
-    };
-    const handleEnvInstallResult = (payload) => {
-        const target = typeof (payload === null || payload === void 0 ? void 0 : payload.target) === "string" && payload.target.trim() ? payload.target.trim() : "";
-        const success = (payload === null || payload === void 0 ? void 0 : payload.success) === true;
-        const rawMessage = typeof (payload === null || payload === void 0 ? void 0 : payload.message) === "string" && payload.message.trim() ? payload.message.trim() : "";
-        const label = resolveEnvInstallTargetLabel(target);
-        const message = rawMessage ||
-            (success ? `${label} installation completed.` : `${label} installation failed.`);
-        setRuntimeInstallStatus(message, success ? "success" : "error");
-        checkEnvironmentStatus();
+    // The single environment screen is fully driven by the status summary, so the
+    // former onboarding stepper is now a thin alias kept for existing callers.
+    const updateRuntimeOnboardingUi = () => {
+        updateRuntimeSetupUi();
     };
     const envManager = createEnvStatusManager({
         postToNative: runtime.deps.postToNative,
@@ -185,44 +169,51 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         },
     });
     const { checkEnvironmentStatus, updateEnvStatus } = envManager;
-    envBtns.forEach((btn) => {
-        btn.addEventListener("click", () => {
-            const target = btn.dataset.target;
-            if (!target) {
+    const handleEnvInstallStart = (_payload) => {
+        showInstalling();
+    };
+    const handleEnvInstallResult = (payload) => {
+        installing = false;
+        showProgress(false);
+        const success = (payload === null || payload === void 0 ? void 0 : payload.success) === true;
+        const rawMessage = typeof (payload === null || payload === void 0 ? void 0 : payload.message) === "string" && payload.message.trim()
+            ? payload.message.trim()
+            : "";
+        if (success) {
+            setInstallNote(rawMessage || "TeX environment installed successfully.", "success");
+        }
+        else {
+            setInstallNote(rawMessage || "Setup did not finish. Please try again, or open the guide.", "error");
+        }
+        // Re-detect so the hero + component badges reflect the new reality.
+        checkEnvironmentStatus();
+    };
+    const handleEnvInstallProgress = (payload) => {
+        installing = true;
+        setHeroState("installing");
+        showProgress(true);
+        const phase = typeof (payload === null || payload === void 0 ? void 0 : payload.phase) === "string" ? payload.phase : "";
+        const current = typeof (payload === null || payload === void 0 ? void 0 : payload.current) === "number" ? payload.current : null;
+        const total = typeof (payload === null || payload === void 0 ? void 0 : payload.total) === "number" ? payload.total : null;
+        let label = phaseLabel(phase);
+        if (current && total) {
+            label += ` (${current}/${total})`;
+        }
+        const percent = typeof (payload === null || payload === void 0 ? void 0 : payload.percent) === "number" ? payload.percent : null;
+        setProgress(percent, label);
+    };
+    if (setupBtn instanceof HTMLButtonElement) {
+        setupBtn.addEventListener("click", () => {
+            if (setupBtn.disabled) {
                 return;
             }
-            btn.textContent = "Installing...";
-            btn.disabled = true;
-            runtime.deps.postToNative({ type: "env:install", target });
-        });
-    });
-    if (settingsEnvRefresh instanceof HTMLButtonElement) {
-        settingsEnvRefresh.addEventListener("click", () => {
-            checkEnvironmentStatus();
-        });
-    }
-    if (settingsRuntimeOpenInstallDocs instanceof HTMLButtonElement) {
-        settingsRuntimeOpenInstallDocs.addEventListener("click", () => {
-            openExternalUrl(runtime, TEX64_LINKS.docsInstallMac);
-        });
-    }
-    if (settingsRuntimeOpenGettingStarted instanceof HTMLButtonElement) {
-        settingsRuntimeOpenGettingStarted.addEventListener("click", () => {
-            openExternalUrl(runtime, TEX64_LINKS.docsGettingStarted);
+            showInstalling();
+            runtime.deps.postToNative({ type: "env:install", target: "basictex" });
         });
     }
     if (settingsRuntimeOpenTexDocs instanceof HTMLButtonElement) {
         settingsRuntimeOpenTexDocs.addEventListener("click", () => {
             openExternalUrl(runtime, TEX64_LINKS.docsTexDistribution);
-        });
-    }
-    if (settingsRuntimeRunFirstBuild instanceof HTMLButtonElement) {
-        settingsRuntimeRunFirstBuild.addEventListener("click", () => {
-            var _a, _b;
-            if (settingsRuntimeRunFirstBuild.disabled) {
-                return;
-            }
-            (_b = (_a = runtime.deps).onRequestFirstBuild) === null || _b === void 0 ? void 0 : _b.call(_a);
         });
     }
     const getRuntimeStatusSummary = () => runtime.state.runtimeStatusSummary ? { ...runtime.state.runtimeStatusSummary } : null;
@@ -231,6 +222,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         updateEnvStatus,
         handleEnvInstallStart,
         handleEnvInstallResult,
+        handleEnvInstallProgress,
         updateRuntimeOnboardingUi,
         updateRuntimeSetupUi,
         getRuntimeStatusSummary,

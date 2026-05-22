@@ -69,7 +69,9 @@ const createMiscHandlers = (deps) => {
 
   const handleEnvInstall = async (target) => {
     sendToRenderer("env:installStart", { target });
-    const result = await envService.installEnvironment(target);
+    const result = await envService.installEnvironment(target, (progress) => {
+      sendToRenderer("env:installProgress", { target, ...progress });
+    });
     sendToRenderer("env:installResult", { target, ...result });
     const commands =
       target === "basictex" || target === "synctex"

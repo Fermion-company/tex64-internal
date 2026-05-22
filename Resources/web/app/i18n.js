@@ -9,6 +9,22 @@ export const SUPPORTED_LOCALES = [
 ];
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const EN_TO_JA = {
+    "Back to app": "アプリに戻る",
+    "Checking your TeX environment…": "TeX 環境を確認しています…",
+    "This only takes a moment.": "すぐに終わります。",
+    "Your TeX environment is ready.": "TeX 環境の準備ができました。",
+    "You can build, format, and use SyncTeX right away.": "すぐにビルド・整形・SyncTeX が使えます。",
+    "You can build, format, and use SyncTeX. (Optional: latexindent was not detected.)": "ビルド・整形・SyncTeX が使えます（任意の latexindent は未検出です）。",
+    "TeX environment is not set up yet.": "TeX 環境はまだセットアップされていません。",
+    "Press the button below and TeX64 will install everything you need automatically.": "下のボタンを押すと、TeX64 が必要なものを自動でインストールします。",
+    "Set up TeX environment": "TeX 環境をセットアップ",
+    "Setting up your TeX environment…": "TeX 環境をセットアップしています…",
+    "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.": "フル版の TeX Live（数GB）をダウンロード・インストールしています。通常 30〜60 分ほどかかります。その間も作業を続けられます。",
+    "Setting up…": "セットアップ中…",
+    "TeX environment installed successfully.": "TeX 環境のインストールが完了しました。",
+    "Setup did not finish. Please try again, or open the guide.": "セットアップが完了しませんでした。もう一度お試しいただくか、ガイドをご覧ください。",
+    "TeX64 installs its own private TeX Live for you — no manual setup, no admin rights, and it never touches any TeX you already have.": "TeX64 が専用の TeX Live を自動で用意します。手動設定も管理者権限も不要で、既存の TeX 環境には一切影響しません。",
+    "Learn more": "詳しく見る",
     "General": "一般",
     "Font family": "フォント",
     "Font size": "フォントサイズ",

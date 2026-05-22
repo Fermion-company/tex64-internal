@@ -639,11 +639,12 @@
             <div class="panel-header">
               <span class="panel-title">Settings</span>
             </div>
-            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Close settings" title="Close">
+            <button class="settings-overlay-close" id="settings-close" type="button" aria-label="Back to app" title="Back to app">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M18 6 6 18"></path>
-                <path d="m6 6 12 12"></path>
+                <path d="M19 12H5"></path>
+                <path d="m12 19-7-7 7-7"></path>
               </svg>
+              <span class="settings-overlay-close-label">Back to app</span>
             </button>
             <div class="panel-body settings-panel" id="settings-panel">
               <div class="settings-nav" id="settings-nav">
@@ -660,12 +661,7 @@
                   <span class="settings-nav-title">Format</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="env" type="button">
-                  <span class="settings-nav-title-row">
-                    <span class="settings-nav-title">Environment</span>
-                    <span class="settings-nav-badge is-hidden" id="settings-runtime-attention" aria-hidden="true">
-                      Action required
-                    </span>
-                  </span>
+                  <span class="settings-nav-title">Environment</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="account" type="button">
                   <span class="settings-nav-title-row">
@@ -977,7 +973,7 @@
                         <select class="settings-select" id="settings-build-profile"></select>
                       </div>
                     </div>
-                    <div class="settings-item">
+                    <div class="settings-item is-stacked">
                       <div class="settings-label">
                         <span class="settings-title">profile name</span>
                       </div>
@@ -985,7 +981,7 @@
                         <input class="settings-input" id="settings-build-profile-name" type="text" placeholder="My profile">
                       </div>
                     </div>
-                    <div class="settings-item">
+                    <div class="settings-item is-stacked">
                       <div class="settings-label">
                         <span class="settings-title">outDir</span>
                         <span class="settings-desc">Destination for output of products (default if empty). Example: build</span>
@@ -994,7 +990,7 @@
                         <input class="settings-input" id="settings-build-outdir" type="text" placeholder="build">
                       </div>
                     </div>
-                    <div class="settings-item">
+                    <div class="settings-item is-stacked">
                       <div class="settings-label">
                         <span class="settings-title">latexmk additional options</span>
                         <span class="settings-desc">Example: -use-biber -shell-escape</span>
@@ -1027,93 +1023,28 @@
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
                     <div class="settings-page-title">Environment</div>
                   </div>
-                  <div class="settings-group">
-                    <div class="settings-group-title">Runtime Environment</div>
-                    <div class="settings-item env-item" data-env="lualatex">
-                      <div class="settings-label">
-                        <span class="settings-title">TeX Distribution</span>
-                        <span class="settings-desc">A LaTeX engine and basic tools. If missing, TeX64 installs a managed TeX Live environment.</span>
-                      </div>
-                      <div class="settings-control">
-                        <span class="env-badge checking">Checking...</span>
-                        <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
-                          install
-                        </button>
+                  <div class="settings-group env-group">
+                    <div class="env-hero is-checking" id="env-hero">
+                      <span class="env-hero-icon" aria-hidden="true"></span>
+                      <div class="env-hero-text">
+                        <div class="env-hero-title" id="settings-runtime-setup-status">Checking your TeX environment…</div>
+                        <div class="env-hero-sub" id="env-hero-sub">This only takes a moment.</div>
                       </div>
                     </div>
-                    <div class="settings-item env-item" data-env="latexmk">
-                      <div class="settings-label">
-                        <span class="settings-title">latexmk</span>
-                        <span class="settings-desc">Commands to automate builds. Often bundled with TeX Distribution.</span>
+                    <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
+                      <div class="env-progress-track">
+                        <div class="env-progress-fill" id="env-progress-fill"></div>
                       </div>
-                      <div class="settings-control">
-                        <span class="env-badge checking">Checking...</span>
-                        <button class="panel-button env-btn is-hidden" data-target="latexmk" type="button">
-                          install
-                        </button>
-                      </div>
+                      <div class="env-progress-label" id="env-progress-label"></div>
                     </div>
-                    <div class="settings-item env-item" data-env="latexindent">
-                      <div class="settings-label">
-                        <span class="settings-title">latexindent</span>
-                        <span class="settings-desc">Used for formatting. Often bundled with TeX Distribution.</span>
-                      </div>
-                      <div class="settings-control">
-                        <span class="env-badge checking">Checking...</span>
-                        <button class="panel-button env-btn is-hidden" data-target="latexindent" type="button">
-                          install
-                        </button>
-                      </div>
-                    </div>
-                    <div class="settings-item env-item" data-env="synctex">
-                      <div class="settings-label">
-                        <span class="settings-title">SyncTeX</span>
-                        <span class="settings-desc">Used to jump to PDF. Often bundled with TeX Distribution.</span>
-                      </div>
-                      <div class="settings-control">
-                        <span class="env-badge checking">Checking...</span>
-                        <button class="panel-button env-btn is-hidden" data-target="basictex" type="button">
-                          install
-                        </button>
-                      </div>
-                    </div>
-                    <div class="settings-help-text">
-                      TeX Distribution and latexmk / latexindent / synctex are required
-                      for building/formatting/SyncTeX. TeX64 can install a managed TeX Live environment.
-                    </div>
-                    <div class="settings-help-text is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
-                    <div class="settings-help-text settings-runtime-setup-status" id="settings-runtime-setup-status">
-                      Checking the execution environment.
-                    </div>
-                    <div class="settings-help-text settings-runtime-onboarding" id="settings-runtime-onboarding-status">
-                      Preparing for initial setup.
-                    </div>
-                    <div class="settings-inline settings-inline-wrap">
-                      <button class="panel-button" id="settings-runtime-run-first-build" type="button" disabled>
-                        run the first build
-                      </button>
-                      <button class="panel-button ghost" id="settings-runtime-open-getting-started" type="button">
-                        Introduction
-                      </button>
-                    </div>
-                    <div class="settings-inline settings-inline-wrap">
-                      <button class="panel-button ghost" id="settings-runtime-open-install-docs" type="button">
-                        Installation instructions
-                      </button>
-                      <button class="panel-button ghost" id="settings-runtime-open-tex-docs" type="button">
-                        TeX environment guide
-                      </button>
-                    </div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Environment Check</span>
-                      </div>
-                      <div class="settings-control">
-                        <button class="panel-button ghost" id="settings-env-refresh" type="button">
-                          Recheck
-                        </button>
-                      </div>
-                    </div>
+                    <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
+                      Set up TeX environment
+                    </button>
+                    <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
+                    <p class="env-explainer">
+                      TeX64 installs its own private TeX Live for you — no manual setup, no admin rights, and it never touches any TeX you already have.
+                      <button class="env-link" id="settings-runtime-open-tex-docs" type="button">Learn more</button>
+                    </p>
                   </div>
                 </div>
                 <div class="settings-page is-hidden" data-settings-page="account" aria-hidden="true">
@@ -1391,11 +1322,14 @@
           class="feedback-overlay-close"
           id="feedback-modal-cancel"
           type="button"
-          aria-label="Close feedback"
+          aria-label="Back to app"
+          title="Back to app"
         >
-          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18"></path>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5"></path>
+            <path d="m12 19-7-7 7-7"></path>
           </svg>
+          <span class="feedback-overlay-close-label">Back to app</span>
         </button>
         <div
           class="feedback-overlay-inner"

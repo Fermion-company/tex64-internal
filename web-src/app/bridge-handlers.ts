@@ -120,6 +120,12 @@ type BridgeHandlersDeps = {
       success?: boolean;
       message?: string;
     }) => void;
+    handleEnvInstallProgress?: (payload: {
+      phase?: string;
+      current?: number | null;
+      total?: number | null;
+      percent?: number | null;
+    }) => void;
     getSettingsSnapshot?: () => AppSettingsSnapshot;
     applySettingsPatch?: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
   };
@@ -435,6 +441,16 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
       case "env:installResult":
         deps.settings?.handleEnvInstallResult?.(
           message.payload as { target?: string; success?: boolean; message?: string }
+        );
+        break;
+      case "env:installProgress":
+        deps.settings?.handleEnvInstallProgress?.(
+          message.payload as {
+            phase?: string;
+            current?: number | null;
+            total?: number | null;
+            percent?: number | null;
+          }
         );
         break;
       case "launcherStatus":

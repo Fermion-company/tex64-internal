@@ -124,19 +124,9 @@ const commandFileNames = (command, platform = process.platform) => {
   return [`${base}.exe`, `${base}.bat`, `${base}.cmd`, base];
 };
 
-const findTexCommand = (
-  command,
-  platform = process.platform,
-  arch = process.arch,
-  extraDirs = []
-) => {
-  const dirs = unique([
-    ...extraDirs,
-    ...getPreferredTexliveBinDirs(platform, arch),
-    ...(process.env.PATH || "").split(path.delimiter),
-  ]);
+const findCommandInDirs = (command, dirs, platform = process.platform) => {
   const names = commandFileNames(command, platform);
-  for (const dir of dirs) {
+  for (const dir of unique(dirs)) {
     for (const name of names) {
       const candidate = path.join(dir, name);
       if (fs.existsSync(candidate)) {
@@ -147,6 +137,32 @@ const findTexCommand = (
   return null;
 };
 
+const findTexCommand = (
+  command,
+  platform = process.platform,
+  arch = process.arch,
+  extraDirs = []
+) =>
+  findCommandInDirs(
+    command,
+    [
+      ...extraDirs,
+      ...getPreferredTexliveBinDirs(platform, arch),
+      ...(process.env.PATH || "").split(path.delimiter),
+    ],
+    platform
+  );
+
+// Strict managed-only lookup. Unlike findTexCommand it never falls through to a
+// system TeX Live or PATH, so managed install / tlmgr operations can never target
+// a read-only system installation such as /usr/local/texlive.
+const findManagedTexCommand = (
+  command,
+  platform = process.platform,
+  arch = process.arch,
+  root = getManagedTexliveRoot(platform)
+) => findCommandInDirs(command, getManagedTexliveBinDirs(platform, arch, root), platform);
+
 module.exports = {
   DEFAULT_MANAGED_TEXLIVE_YEAR,
   getManagedTexliveYear,
@@ -156,5 +172,7 @@ module.exports = {
   getPreferredTexliveBinDirs,
   extendTexlivePath,
   commandFileNames,
+  findCommandInDirs,
   findTexCommand,
+  findManagedTexCommand,
 };

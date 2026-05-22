@@ -163,7 +163,6 @@ export const getDomRefs = () => ({
   settingsAuthStatus: document.getElementById("settings-auth-status"),
   settingsAuthLogin: document.getElementById("settings-auth-login"),
   settingsAuthLogout: document.getElementById("settings-auth-logout"),
-  settingsRuntimeAttention: document.getElementById("settings-runtime-attention"),
   settingsAccountAttention: document.getElementById("settings-account-attention"),
   settingsRuntimeInstallStatus: document.getElementById("settings-runtime-install-status"),
   settingsRuntimeSetupStatus: document.getElementById("settings-runtime-setup-status"),
