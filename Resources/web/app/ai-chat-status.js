@@ -1,4 +1,5 @@
 import { getUiLocale, onUiLocaleChange } from "./i18n.js";
+import { aiText } from "./ai-i18n.js";
 export const createAiChatStatusController = (params) => {
     const { aiStatus, aiAuthTopbar, aiUsageMeter, aiUsageMeterText, postToNative, requestAiAccessCheck, requestPlatformUsage, pricingFallbackUrl, state, onStatusUpdate, } = params;
     const normalizeUsageSnapshot = (usage) => {
@@ -35,39 +36,39 @@ export const createAiChatStatusController = (params) => {
         const code = typeof error.code === "string" ? error.code : "";
         const fallbackMessage = typeof error.message === "string" && error.message.trim()
             ? error.message.trim()
-            : "login failed.";
+            : aiText("login_failed");
         switch (code) {
             case "AUTH_START_INVALID_URL":
                 return {
                     code,
-                    message: "The login page could not be opened.",
+                    message: aiText("login_err_open"),
                 };
             case "AUTH_BROWSER_UNAVAILABLE":
                 return {
                     code,
-                    message: "Failed to start browser.",
+                    message: aiText("login_err_browser"),
                 };
             case "AUTH_BROWSER_OPEN_FAILED":
                 return {
                     code,
-                    message: "The login page could not be opened.",
+                    message: aiText("login_err_open"),
                 };
             case "OAUTH_PENDING_EXPIRED":
                 return {
                     code,
-                    message: "Login timed out.",
+                    message: aiText("login_err_timeout"),
                 };
             case "OAUTH_NO_PENDING":
                 return {
                     code,
-                    message: "Login status could not be confirmed.",
+                    message: aiText("login_err_confirm"),
                 };
             case "OAUTH_STATE_MISMATCH":
             case "OAUTH_CALLBACK_MISMATCH":
             case "OAUTH_INVALID_CALLBACK":
                 return {
                     code,
-                    message: "Login result validation failed.",
+                    message: aiText("login_err_validate"),
                 };
             case "OAUTH_DENIED":
                 // User simply cancelled the login — not an error
@@ -75,25 +76,6 @@ export const createAiChatStatusController = (params) => {
             default:
                 return { code, message: fallbackMessage };
         }
-    };
-    const formatTokenCount = (value) => new Intl.NumberFormat(resolveIntlLocale()).format(Math.max(0, Math.round(value)));
-    const formatTokenCompact = (value) => {
-        const v = Math.max(0, Math.round(value));
-        if (v < 10000) {
-            return formatTokenCount(v);
-        }
-        if (v < 1000000) {
-            const k = v / 1000;
-            if (k < 100) {
-                return `${k.toFixed(1).replace(/\.0$/, "")}k`;
-            }
-            return `${Math.floor(k)}k`;
-        }
-        const m = v / 1000000;
-        if (m < 100) {
-            return `${m.toFixed(1).replace(/\.0$/, "")}M`;
-        }
-        return `${Math.floor(m)}M`;
     };
     const renderStatus = (headline, detail, actions) => {
         if (!(aiStatus instanceof HTMLElement)) {
@@ -146,7 +128,7 @@ export const createAiChatStatusController = (params) => {
         }
         const authenticated = Boolean((_a = state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated);
         aiAuthTopbar.classList.toggle("is-hidden", authenticated);
-        aiAuthTopbar.textContent = "Login";
+        aiAuthTopbar.textContent = aiText("login");
         aiAuthTopbar.disabled = false;
     };
     const ensureTooltipDom = (parent) => {
@@ -156,21 +138,43 @@ export const createAiChatStatusController = (params) => {
         tooltip = document.createElement("div");
         tooltip.className = "ai-usage-tooltip";
         tooltip.innerHTML = [
-            '<div class="ai-usage-tooltip-header">AI Used量</div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Used</span><span class="ai-usage-tooltip-value" data-field="used">-</span></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Limit</span><span class="ai-usage-tooltip-value" data-field="limit">-</span></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Remaining</span><span class="ai-usage-tooltip-value" data-field="remaining">-</span></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label">Reset</span><span class="ai-usage-tooltip-value" data-field="reset">-</span></div>',
+            '<div class="ai-usage-tooltip-header" data-label="title"></div>',
+            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="used"></span><span class="ai-usage-tooltip-value" data-field="used">-</span></div>',
+            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="limit"></span><span class="ai-usage-tooltip-value" data-field="limit">-</span></div>',
+            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="remaining"></span><span class="ai-usage-tooltip-value" data-field="remaining">-</span></div>',
+            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="reset"></span><span class="ai-usage-tooltip-value" data-field="reset">-</span></div>',
             '<div class="ai-usage-tooltip-bar-track"><div class="ai-usage-tooltip-bar-fill"></div></div>',
         ].join("");
         parent.appendChild(tooltip);
         return tooltip;
+    };
+    const formatTokenCount = (value) => new Intl.NumberFormat(resolveIntlLocale()).format(Math.max(0, Math.round(value)));
+    const formatTokenCompact = (value) => {
+        const v = Math.max(0, Math.round(value));
+        if (v < 10000) {
+            return formatTokenCount(v);
+        }
+        if (v < 1000000) {
+            const k = v / 1000;
+            if (k < 100) {
+                return `${k.toFixed(1).replace(/\.0$/, "")}k`;
+            }
+            return `${Math.floor(k)}k`;
+        }
+        const m = v / 1000000;
+        if (m < 100) {
+            return `${m.toFixed(1).replace(/\.0$/, "")}M`;
+        }
+        return `${Math.floor(m)}M`;
     };
     const updateUsageMeter = () => {
         var _a, _b, _c, _d, _e;
         if (!(aiUsageMeter instanceof HTMLElement)) {
             return;
         }
+        // Usage is metered internally in dollars (real provider cost), but the
+        // user sees TOKENS — we never surface the internal budget/cost. The token
+        // figures are a blended-rate estimate of the monthly budget.
         const quota = (_d = (_b = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _b !== void 0 ? _b : (_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.quota) !== null && _d !== void 0 ? _d : null;
         const limitTokens = typeof (quota === null || quota === void 0 ? void 0 : quota.limitTokens) === "number" && Number.isFinite(quota.limitTokens)
             ? Math.max(0, Math.round(quota.limitTokens))
@@ -211,8 +215,19 @@ export const createAiChatStatusController = (params) => {
             if (el)
                 el.textContent = text;
         };
-        setField("used", `${formatTokenCount(usedTokens)} tokens`);
-        setField("limit", `${formatTokenCount(limitTokens)} tokens`);
+        const setLabel = (label, text) => {
+            const el = tooltip.querySelector(`[data-label="${label}"]`);
+            if (el)
+                el.textContent = text;
+        };
+        setLabel("title", aiText("usage_title"));
+        setLabel("used", aiText("usage_used"));
+        setLabel("limit", aiText("usage_limit"));
+        setLabel("remaining", aiText("usage_remaining"));
+        setLabel("reset", aiText("usage_reset"));
+        const tokensUnit = aiText("usage_tokens");
+        setField("used", `${formatTokenCount(usedTokens)} ${tokensUnit}`);
+        setField("limit", `${formatTokenCount(limitTokens)} ${tokensUnit}`);
         setField("remaining", `${remainingPct.toFixed(1)}% (${formatTokenCompact(remainingTokens)})`);
         const periodEnd = typeof ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
         if (periodEnd && Number.isFinite(Date.parse(periodEnd))) {
@@ -255,11 +270,11 @@ export const createAiChatStatusController = (params) => {
             ? new Date(periodEnd).toLocaleDateString(resolveIntlLocale())
             : "";
         if ((_f = state.platformError) === null || _f === void 0 ? void 0 : _f.message) {
-            renderStatus("login failed.", state.platformError.message, withUtilityActions([{ action: "login", label: "Log in with Google" }]));
+            renderStatus(aiText("login_failed"), state.platformError.message, withUtilityActions([{ action: "login", label: aiText("login_with_google") }]));
             return;
         }
         if ((_g = state.platformAuth) === null || _g === void 0 ? void 0 : _g.pending) {
-            renderStatus("Processing Google login.");
+            renderStatus(aiText("login_processing"));
             return;
         }
         if (needsLogin()) {
@@ -277,26 +292,26 @@ export const createAiChatStatusController = (params) => {
                 if (quota &&
                     typeof quota.usedTokens === "number" &&
                     typeof quota.limitTokens === "number") {
-                    detailPieces.push(`${formatTokenCount(quota.usedTokens)} / ${formatTokenCount(quota.limitTokens)} tokens`);
+                    detailPieces.push(`${formatTokenCount(quota.usedTokens)} / ${formatTokenCount(quota.limitTokens)} ${aiText("usage_tokens")}`);
                 }
                 if (periodEndLabel) {
-                    detailPieces.push(`Next reset: ${periodEndLabel}`);
+                    detailPieces.push(`${aiText("status_next_reset")}: ${periodEndLabel}`);
                 }
-                renderStatus("You have reached your token limit for this month.", detailPieces.join(" / "), withUtilityActions([{ action: "pricing", label: "See plan" }]));
+                renderStatus(aiText("status_quota_reached"), detailPieces.join(" / "), withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
                 return;
             }
             if (reason === "PLAN_REQUIRED" ||
                 reason === "FEATURE_NOT_ENABLED" ||
                 reason === "PAYMENT_PAST_DUE") {
-                renderStatus("AI functions are not available under the current contract status.", "Please check your plan/contract status.", withUtilityActions([{ action: "pricing", label: "See plan" }]));
+                renderStatus(aiText("status_unavailable"), aiText("status_plan_check"), withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
                 return;
             }
             const fallbackMessage = typeof ((_k = state.platformAiAccess) === null || _k === void 0 ? void 0 : _k.message) === "string" && state.platformAiAccess.message.trim()
                 ? state.platformAiAccess.message.trim()
                 : typeof ((_l = state.platformUsage) === null || _l === void 0 ? void 0 : _l.message) === "string" && state.platformUsage.message.trim()
                     ? state.platformUsage.message.trim()
-                    : "Axiom is not available.";
-            renderStatus(fallbackMessage, "", withUtilityActions([{ action: "pricing", label: "See plan" }]));
+                    : aiText("status_unavailable");
+            renderStatus(fallbackMessage, "", withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
             return;
         }
         if (!pricingUrl) {

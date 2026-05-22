@@ -477,6 +477,25 @@
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
                 </button>
                 <span class="ai-topbar-title" id="ai-topbar-title">Axiom</span>
+                <div class="ai-model-picker" id="ai-model-picker">
+                  <button class="ai-model-trigger" id="ai-model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select Axiom model">
+                    <span class="ai-model-trigger-label" id="ai-model-trigger-label">Axiom 0.9.1</span>
+                    <svg class="ai-model-trigger-caret" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                  <div class="ai-model-menu" id="ai-model-menu" role="listbox" aria-label="Axiom model">
+                    <div class="ai-model-menu-list"></div>
+                    <div class="ai-model-upsell">
+                      <div class="ai-model-upsell-row">
+                        <svg class="ai-model-upsell-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                        <div class="ai-model-upsell-text">
+                          <span class="ai-model-upsell-title">Axiom 0.9.1 Pro is a Pro feature</span>
+                          <span class="ai-model-upsell-sub">Upgrade to the Pro plan to use the most capable model.</span>
+                        </div>
+                      </div>
+                      <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
+                    </div>
+                  </div>
+                </div>
                 <span class="ai-topbar-status" id="ai-topbar-status" aria-live="polite"></span>
                 <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="Axiom usage">
                   <span class="ai-usage-meter-text" id="ai-usage-meter-text">-</span>

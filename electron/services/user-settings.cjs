@@ -5,7 +5,7 @@ const MAX_RECENT_PROJECTS = 10;
 
 const DEFAULT_SETTINGS = {
   agent: {
-    model: "gpt-5.4-mini",
+    model: "Axiom0.9.1",
     endpoint: "",
     maxIterations: 500,
     stream: true,

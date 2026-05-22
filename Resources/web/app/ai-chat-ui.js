@@ -1,3 +1,5 @@
+import { aiText } from "./ai-i18n.js";
+import { onUiLocaleChange } from "./i18n.js";
 import { AUTONOMOUS_LOOP_LIMIT, createChat as createChatState, ensureChat as ensureChatState, getChat as getChatState, } from "./ai-chat-state.js";
 import { createMessageElement, updateMessageElement } from "./ai-chat-message.js";
 import { createUnifiedProposalCard } from "./ai-chat-proposal.js";
@@ -14,7 +16,7 @@ import { restorePendingAiDraft } from "./ai-chat-draft-restore.js";
 import { createMentionController } from "./ai-chat-mention.js";
 const USAGE_REFRESH_DELAY_MS = 300;
 export const initAiChatUi = (context, deps) => {
-    const { aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew, aiTopbarTitle, aiTopbarStatus, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar, aiContextBar, aiStop, aiUndo, } = context.dom;
+    const { aiChatLog, aiChat, aiProposals, aiAttachments, aiAttach, aiAttachInput, aiInput, aiSend, aiStatus, aiChatNew, aiTopbarTitle, aiTopbarStatus, aiUsageMeter, aiUsageMeterText, aiHistoryToggle, aiHistory, aiHistoryList, aiAuthTopbar, aiContextBar, aiStop, aiUndo, aiModelPicker, aiModelTrigger, aiModelLabel, aiModelMenu, } = context.dom;
     const chats = [];
     const chatIndex = new Map();
     const proposalIndex = new Map();
@@ -74,6 +76,165 @@ export const initAiChatUi = (context, deps) => {
             deps.postToNative({ type: "auth:google:start" });
         });
     }
+    // ── Model picker (custom dropdown) ─────────────────────
+    // Two selectable models live in agentSettings.model. The server maps the id
+    // to the real upstream model and enforces the Pro gate; the renderer reflects
+    // the choice and shows Axiom 0.9.1 Pro as a locked row for non-Pro plans.
+    const DEFAULT_MODEL = "Axiom0.9.1";
+    const PRO_MODEL = "Axiom0.9.1-pro";
+    const MODEL_LABELS = {
+        [DEFAULT_MODEL]: "Axiom 0.9.1",
+        [PRO_MODEL]: "Axiom 0.9.1 Pro",
+    };
+    const MODEL_OPTIONS = [
+        { id: DEFAULT_MODEL, name: "Axiom 0.9.1", descKey: "model_standard", pro: false },
+        { id: PRO_MODEL, name: "Axiom 0.9.1 Pro", descKey: "model_most_capable", pro: true },
+    ];
+    // Localize the static AI-panel chrome (login overlay, delete modal, upsell).
+    const applyAiStaticI18n = () => {
+        const set = (selector, key) => {
+            const el = document.querySelector(selector);
+            if (el instanceof HTMLElement)
+                el.textContent = aiText(key);
+        };
+        set(".ai-login-overlay-title", "overlay_title");
+        set(".ai-login-overlay-subtitle", "overlay_subtitle");
+        set("#ai-login-overlay-btn span", "login_with_google");
+        set(".ai-chat-delete-modal-title", "delete_chat");
+        set("#ai-chat-delete-cancel", "cancel");
+        set("#ai-chat-delete-confirm", "confirm_delete");
+        set(".ai-model-upsell-title", "upsell_title");
+        set(".ai-model-upsell-sub", "upsell_sub");
+        set(".ai-model-upsell-btn", "see_pro_plans");
+    };
+    const isProPlan = () => {
+        var _a;
+        return typeof ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) === "string" &&
+            platformState.platformAiAccess.plan.toLowerCase() === "pro";
+    };
+    const escapeHtml = (value) => value.replace(/[&<>"]/g, (ch) => ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&quot;");
+    // The selected model, falling back to the standard model when a stored Pro
+    // model is no longer permitted by the current plan.
+    const currentModelId = () => {
+        const stored = (agentSettings === null || agentSettings === void 0 ? void 0 : agentSettings.model) || DEFAULT_MODEL;
+        return stored === PRO_MODEL && !isProPlan() ? DEFAULT_MODEL : stored;
+    };
+    const hideModelUpsell = () => {
+        const upsell = aiModelMenu instanceof HTMLElement ? aiModelMenu.querySelector(".ai-model-upsell") : null;
+        if (upsell instanceof HTMLElement)
+            upsell.classList.remove("is-visible");
+    };
+    const closeModelMenu = () => {
+        if (!(aiModelPicker instanceof HTMLElement))
+            return;
+        aiModelPicker.classList.remove("is-open");
+        if (aiModelTrigger instanceof HTMLElement) {
+            aiModelTrigger.setAttribute("aria-expanded", "false");
+        }
+        hideModelUpsell();
+    };
+    // Rebuild the trigger label + menu rows for the current plan/selection.
+    const syncModelSelect = () => {
+        const pro = isProPlan();
+        const selected = currentModelId();
+        if (aiModelLabel instanceof HTMLElement) {
+            aiModelLabel.textContent = MODEL_LABELS[selected] || MODEL_LABELS[DEFAULT_MODEL];
+        }
+        if (!(aiModelMenu instanceof HTMLElement))
+            return;
+        const list = aiModelMenu.querySelector(".ai-model-menu-list");
+        if (!(list instanceof HTMLElement))
+            return;
+        list.replaceChildren();
+        for (const model of MODEL_OPTIONS) {
+            const locked = model.pro && !pro;
+            const isSelected = model.id === selected;
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "ai-model-menu-item";
+            if (isSelected)
+                item.classList.add("is-selected");
+            if (locked)
+                item.classList.add("is-locked");
+            item.setAttribute("role", "option");
+            item.setAttribute("aria-selected", isSelected ? "true" : "false");
+            if (locked)
+                item.setAttribute("aria-disabled", "true");
+            item.dataset.model = model.id;
+            const desc = locked ? aiText("model_requires_pro") : aiText(model.descKey);
+            const badge = model.pro ? '<span class="ai-model-badge">Pro</span>' : "";
+            item.innerHTML =
+                '<svg class="ai-model-menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>' +
+                    '<span class="ai-model-menu-text">' +
+                    `<span class="ai-model-menu-name">${escapeHtml(model.name)}${badge}</span>` +
+                    `<span class="ai-model-menu-desc">${escapeHtml(desc)}</span>` +
+                    "</span>";
+            list.appendChild(item);
+        }
+    };
+    if (aiModelTrigger instanceof HTMLElement) {
+        aiModelTrigger.addEventListener("click", (event) => {
+            event.stopPropagation();
+            if (!(aiModelPicker instanceof HTMLElement))
+                return;
+            if (aiModelPicker.classList.contains("is-open")) {
+                closeModelMenu();
+            }
+            else {
+                hideModelUpsell();
+                syncModelSelect();
+                aiModelPicker.classList.add("is-open");
+                aiModelTrigger.setAttribute("aria-expanded", "true");
+            }
+        });
+    }
+    if (aiModelMenu instanceof HTMLElement) {
+        aiModelMenu.addEventListener("click", (event) => {
+            const target = event.target;
+            // Upsell CTA → open the pricing page in the browser.
+            if (target === null || target === void 0 ? void 0 : target.closest(".ai-model-upsell-btn")) {
+                event.stopPropagation();
+                deps.postToNative({ type: "shell:openExternal", url: "https://tex64.com/pricing" });
+                closeModelMenu();
+                return;
+            }
+            const item = target === null || target === void 0 ? void 0 : target.closest(".ai-model-menu-item");
+            if (!(item instanceof HTMLElement))
+                return;
+            // Locked Pro-only row on a non-Pro plan → reveal the upgrade prompt
+            // instead of selecting.
+            if (item.classList.contains("is-locked")) {
+                const upsell = aiModelMenu.querySelector(".ai-model-upsell");
+                if (upsell instanceof HTMLElement)
+                    upsell.classList.add("is-visible");
+                return;
+            }
+            const value = item.dataset.model || DEFAULT_MODEL;
+            // Update the local copy so anything reading agentSettings sees it at once,
+            // and persist via the main process (which re-broadcasts agent:settings).
+            if (agentSettings) {
+                agentSettings.model = value;
+            }
+            deps.postToNative({ type: "agent:settings:set", settings: { model: value } }, true);
+            closeModelMenu();
+            syncModelSelect();
+        });
+    }
+    document.addEventListener("click", (event) => {
+        if (!(aiModelPicker instanceof HTMLElement) || !aiModelPicker.classList.contains("is-open")) {
+            return;
+        }
+        if (!aiModelPicker.contains(event.target)) {
+            closeModelMenu();
+        }
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" &&
+            aiModelPicker instanceof HTMLElement &&
+            aiModelPicker.classList.contains("is-open")) {
+            closeModelMenu();
+        }
+    });
     const { isAiBlocked, needsLogin, openExternalUrl, resolvePricingUrl, updateStatusDisplay, handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage, handlePlatformUpdate, } = createAiChatStatusController({
         aiStatus,
         aiAuthTopbar,
@@ -89,6 +250,8 @@ export const initAiChatUi = (context, deps) => {
                 showLoginOverlay();
             else
                 hideLoginOverlay();
+            // Plan may have changed (e.g. AI access refreshed) — re-gate the Pro option.
+            syncModelSelect();
         },
     });
     const _rawUpdateStatusDisplay = updateStatusDisplay;
@@ -98,6 +261,7 @@ export const initAiChatUi = (context, deps) => {
             showLoginOverlay();
         else
             hideLoginOverlay();
+        syncModelSelect();
     };
     const getChat = (chatId) => getChatState(chatIndex, activeChatId, chatId);
     const resolveChatTitle = (chatId) => {
@@ -146,7 +310,7 @@ export const initAiChatUi = (context, deps) => {
         activeChatId = null;
         clearPendingAttachments();
         if (aiTopbarTitle instanceof HTMLElement) {
-            aiTopbarTitle.textContent = "New chat";
+            aiTopbarTitle.textContent = aiText("new_chat");
         }
         const chatLog = getChatLog();
         if (chatLog) {
@@ -545,6 +709,7 @@ export const initAiChatUi = (context, deps) => {
     const handleSettings = (s) => {
         agentSettings = s;
         updateSendState();
+        syncModelSelect();
     };
     const { handleState, handleStatus, handleMessage, handleMessageDelta, handleTool, handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError, } = createAiChatIncomingHandlers({
         postToNative: deps.postToNative,
@@ -587,6 +752,12 @@ export const initAiChatUi = (context, deps) => {
     resetToNewChatState();
     updateContextBar();
     renderAttachmentBar();
+    syncModelSelect();
+    applyAiStaticI18n();
+    onUiLocaleChange(() => {
+        applyAiStaticI18n();
+        syncModelSelect();
+    });
     requestPlatformState();
     return {
         handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,

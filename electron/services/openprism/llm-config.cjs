@@ -57,7 +57,7 @@ const resolveLLMConfig = (settings) => {
   const model = (
     (typeof agentSettings.model === "string" && agentSettings.model.trim()) ||
     (typeof process.env.TEX64_LLM_MODEL === "string" && process.env.TEX64_LLM_MODEL.trim()) ||
-    "gpt-5.4-mini"
+    "Axiom0.9.1"
   ).trim();
 
   const rawTemp = agentSettings.temperature;
