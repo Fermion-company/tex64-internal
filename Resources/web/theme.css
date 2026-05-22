@@ -5067,6 +5067,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 /* ── Top Bar ────────────────────────────────────────────── */
 .ai-topbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -5233,8 +5234,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 /* ── Model picker (topbar dropdown) ─────────────────────── */
+/* Static so the menu anchors to .ai-topbar (full panel width), letting us cap
+   the menu to the panel and avoid the .ai-panel overflow:hidden clip. */
 .ai-model-picker {
-  position: relative;
+  position: static;
   flex-shrink: 0;
 }
 .ai-model-trigger {
@@ -5284,11 +5287,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .ai-model-menu {
   position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  width: max-content;
-  min-width: 168px;
-  max-width: min(228px, calc(100vw - 24px));
+  top: calc(100% + 4px);
+  left: 8px;
+  min-width: 0;
+  max-width: calc(100% - 16px);
   padding: 4px;
   border-radius: var(--radius-md);
   background: rgba(15, 18, 25, 0.94);
