@@ -1,4 +1,4 @@
-import { buildWordCandidates } from "../math-wysiwyg-candidates.js";
+import { buildWordCandidates, type ScoredCandidate } from "../math-wysiwyg-candidates.js";
 import { getKeyByLatex, normalizeLatexKey } from "../math-wysiwyg-keymap.js";
 import { DEFAULT_MRU_STORAGE_KEY, MAX_MRU_ENTRIES } from "./constants.js";
 import type { Candidate } from "../math-wysiwyg-triggers.js";
@@ -18,6 +18,7 @@ export type MathWysiwygMruOps = {
   ensureMruStorageKey: () => void;
   recordMru: (candidate: Candidate) => void;
   applyMruRanking: (items: Candidate[]) => Candidate[];
+  applyRankedMru: (scored: ScoredCandidate[]) => Candidate[];
   buildRecentCandidates: (limit?: number) => Candidate[];
   buildQuickCandidates: () => Candidate[];
 };
@@ -167,6 +168,44 @@ export const createMathWysiwygMruOps = (state: MathWysiwygMruState): MathWysiwyg
     return ranked.map((entry) => entry.item);
   };
 
+  // Like applyMruRanking, but match tier is a hard gate above usage history:
+  // MRU only reorders candidates *within* the same tier, so an exact match
+  // (e.g. "sin" -> \sin) is never demoted below a once-used prefix sibling
+  // (\sinh). Relevance score (incl. case match) breaks remaining ties.
+  const applyRankedMru = (scored: ScoredCandidate[]): Candidate[] => {
+    ensureMruStorageKey();
+    if (scored.length <= 1) {
+      return scored.map((entry) => entry.candidate);
+    }
+    const ranked = scored.map((entry, index) => {
+      const mruEntry = state.mru.get(entry.candidate.id);
+      return {
+        candidate: entry.candidate,
+        tier: entry.tier,
+        score: entry.score,
+        index,
+        count: mruEntry?.count ?? 0,
+        lastUsedAt: mruEntry?.lastUsedAt ?? 0,
+      };
+    });
+    ranked.sort((a, b) => {
+      if (a.tier !== b.tier) {
+        return a.tier - b.tier;
+      }
+      if (a.count !== b.count) {
+        return b.count - a.count;
+      }
+      if (a.lastUsedAt !== b.lastUsedAt) {
+        return b.lastUsedAt - a.lastUsedAt;
+      }
+      if (a.score !== b.score) {
+        return b.score - a.score;
+      }
+      return a.index - b.index;
+    });
+    return ranked.map((entry) => entry.candidate);
+  };
+
   const buildRecentCandidates = (limit = 8) => {
     ensureMruStorageKey();
     const entries = Array.from(state.mru.entries())
@@ -240,6 +279,7 @@ export const createMathWysiwygMruOps = (state: MathWysiwygMruState): MathWysiwyg
     ensureMruStorageKey,
     recordMru,
     applyMruRanking,
+    applyRankedMru,
     buildRecentCandidates,
     buildQuickCandidates,
   };

@@ -148,6 +148,44 @@ export const createMathWysiwygMruOps = (state) => {
         });
         return ranked.map((entry) => entry.item);
     };
+    // Like applyMruRanking, but match tier is a hard gate above usage history:
+    // MRU only reorders candidates *within* the same tier, so an exact match
+    // (e.g. "sin" -> \sin) is never demoted below a once-used prefix sibling
+    // (\sinh). Relevance score (incl. case match) breaks remaining ties.
+    const applyRankedMru = (scored) => {
+        ensureMruStorageKey();
+        if (scored.length <= 1) {
+            return scored.map((entry) => entry.candidate);
+        }
+        const ranked = scored.map((entry, index) => {
+            var _a, _b;
+            const mruEntry = state.mru.get(entry.candidate.id);
+            return {
+                candidate: entry.candidate,
+                tier: entry.tier,
+                score: entry.score,
+                index,
+                count: (_a = mruEntry === null || mruEntry === void 0 ? void 0 : mruEntry.count) !== null && _a !== void 0 ? _a : 0,
+                lastUsedAt: (_b = mruEntry === null || mruEntry === void 0 ? void 0 : mruEntry.lastUsedAt) !== null && _b !== void 0 ? _b : 0,
+            };
+        });
+        ranked.sort((a, b) => {
+            if (a.tier !== b.tier) {
+                return a.tier - b.tier;
+            }
+            if (a.count !== b.count) {
+                return b.count - a.count;
+            }
+            if (a.lastUsedAt !== b.lastUsedAt) {
+                return b.lastUsedAt - a.lastUsedAt;
+            }
+            if (a.score !== b.score) {
+                return b.score - a.score;
+            }
+            return a.index - b.index;
+        });
+        return ranked.map((entry) => entry.candidate);
+    };
     const buildRecentCandidates = (limit = 8) => {
         ensureMruStorageKey();
         const entries = Array.from(state.mru.entries())
@@ -219,6 +257,7 @@ export const createMathWysiwygMruOps = (state) => {
         ensureMruStorageKey,
         recordMru,
         applyMruRanking,
+        applyRankedMru,
         buildRecentCandidates,
         buildQuickCandidates,
     };

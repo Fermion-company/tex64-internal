@@ -77,6 +77,8 @@ export type AiChatApi = {
   handleScratchpad: (payload: { content: string; conversationId?: string }) => void;
   handleThought: (payload: { text: string; conversationId?: string }) => void;
   handleError: (message: string, conversationId?: string) => void;
+  getCurrentPlan: () => string;
+  refreshPlan: (force?: boolean) => void;
   refreshContextBar: () => void;
   handlePlatformAuth: (payload: {
     auth: PlatformAuthSnapshot;
@@ -273,7 +275,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       // Upsell CTA → open the pricing page in the browser.
       if (target?.closest(".ai-model-upsell-btn")) {
         event.stopPropagation();
-        deps.postToNative({ type: "shell:openExternal", url: "https://tex64.com/pricing" });
+        window.dispatchEvent(new CustomEvent("tex64:open-plans"));
         closeModelMenu();
         return;
       }
@@ -872,6 +874,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
     handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
     refreshContextBar: updateContextBar,
+    getCurrentPlan: () => platformState.platformAiAccess?.plan ?? "free",
+    refreshPlan: (force = true) => requestAiAccessCheck(force),
     handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
     handlePlatformUpdate,
     applyPendingFromDiffModal: () => {

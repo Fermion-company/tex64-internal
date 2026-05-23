@@ -208,7 +208,7 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
         return;
       }
       if (action === "pricing") {
-        openExternalUrl(resolvePricingUrl());
+        window.dispatchEvent(new CustomEvent("tex64:open-plans"));
       }
     });
   }

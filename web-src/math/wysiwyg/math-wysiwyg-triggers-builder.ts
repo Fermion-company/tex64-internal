@@ -5,6 +5,16 @@ import type { MathKey } from "../../app/types.js";
 
 const isWordToken = (value: string) => /^[A-Za-z]+$/.test(value);
 
+// Auto-generated script variants (\alpha_{#?}, \alpha^{#?}, \alpha_{#?}^{#?})
+// from expandScriptVariants. These flood the suggestion list with near-identical
+// entries that are rarely picked — users type the base symbol then add a script.
+// Curated limit-forms for big operators (\sum_{}^{}, \int_{}^{}, \lim_{x→a}) live
+// in the manual trigger data and are unaffected by this filter.
+const isAutoScriptVariant = (latex: string) => {
+  const trimmed = latex.trim();
+  return /^\\[A-Za-z]+(?:_\{#\?\})?(?:\^\{#\?\})?$/.test(trimmed) && /[_^]\{#\?\}/.test(trimmed);
+};
+
 const buildMathKeyDisplayLatex = (key: MathKey) => {
   const source = key.displayLatex ?? key.latex ?? key.fallback;
   if (!source) {
@@ -106,6 +116,9 @@ export const buildTriggerMap = () => {
 
   const variants = collectKeyVariants();
   variants.forEach((key) => {
+    if (isAutoScriptVariant(key.latex)) {
+      return;
+    }
     const command = extractCommand(key.latex);
     if (command) {
       addCandidate(command, key, 30);

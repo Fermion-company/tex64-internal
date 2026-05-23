@@ -1,17 +1,23 @@
 export const TEX64_WEB_BASE_URL = "https://tex64.com";
 
+// tex64.com serves these path prefixes in every UI language under /{locale}
+// (de, es, fr, ja, ko, zh). Everything else (e.g. /pricing, /releases,
+// /feedback) exists only at the root and is served in English.
+const LOCALIZED_PREFIXES = ["/terms", "/privacy", "/legal", "/download", "/docs"] as const;
+
+const isLocalizablePath = (path: string): boolean =>
+  LOCALIZED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+
+// Build an absolute tex64.com URL, routing to the localized variant when the
+// site has one for the given locale; otherwise the root (English) path.
+export const tex64Url = (path: string, locale = "en"): string => {
+  const clean = path.startsWith("/") ? path : `/${path}`;
+  const localePrefix = locale && locale !== "en" && isLocalizablePath(clean) ? `/${locale}` : "";
+  return `${TEX64_WEB_BASE_URL}${localePrefix}${clean}`;
+};
+
 export const TEX64_LINKS = {
-  pricing: `${TEX64_WEB_BASE_URL}/pricing`,
-  download: `${TEX64_WEB_BASE_URL}/download`,
-  releases: `${TEX64_WEB_BASE_URL}/releases`,
-  support: `${TEX64_WEB_BASE_URL}/support`,
-  contact: `${TEX64_WEB_BASE_URL}/support`,
-  legalTerms: `${TEX64_WEB_BASE_URL}/terms`,
-  legalPrivacy: `${TEX64_WEB_BASE_URL}/privacy`,
-  legalCommercial: `${TEX64_WEB_BASE_URL}/legal`,
-  legalRefund: `${TEX64_WEB_BASE_URL}/legal`,
-  docsInstallMac: `${TEX64_WEB_BASE_URL}/docs/install-macos`,
-  docsGettingStarted: `${TEX64_WEB_BASE_URL}/docs/getting-started`,
-  docsTexDistribution: `${TEX64_WEB_BASE_URL}/docs/tex-distribution`,
-  docsUpdates: `${TEX64_WEB_BASE_URL}/docs/updates`,
+  pricing: tex64Url("/pricing"),
+  download: tex64Url("/download"),
+  docsTexDistribution: tex64Url("/docs/tex-distribution"),
 } as const;

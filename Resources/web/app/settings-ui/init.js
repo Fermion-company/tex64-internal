@@ -1,5 +1,6 @@
 import { initBuildProfilesUi } from "../settings-build-profiles.js";
-import { TEX64_LINKS } from "../platform-links.js";
+import { tex64Url } from "../platform-links.js";
+import { getUiLocale } from "../i18n.js";
 import { createSettingsUiRuntime } from "./runtime.js";
 import { initSettingsUiLocale } from "./ui-locale.js";
 import { createSettingsAttentionOps } from "./attention.js";
@@ -92,20 +93,20 @@ export const initSettingsUi = (context, deps) => {
         return getSettingsSnapshot();
     };
     const settingsLinkEntries = [
-        { button: context.dom.settingsLinkTerms, url: TEX64_LINKS.legalTerms },
-        { button: context.dom.settingsLinkPrivacy, url: TEX64_LINKS.legalPrivacy },
-        { button: context.dom.settingsLinkCommercial, url: TEX64_LINKS.legalCommercial },
-        { button: context.dom.settingsLinkRefund, url: TEX64_LINKS.legalRefund },
-        { button: context.dom.settingsLinkSupport, url: TEX64_LINKS.support },
-        { button: context.dom.settingsLinkContact, url: TEX64_LINKS.contact },
-        { button: context.dom.settingsLinkReleases, url: TEX64_LINKS.releases },
+        { button: context.dom.settingsLinkTerms, path: "/terms" },
+        { button: context.dom.settingsLinkPrivacy, path: "/privacy" },
+        { button: context.dom.settingsLinkCommercial, path: "/legal" },
+        { button: context.dom.settingsLinkRefund, path: "/legal" },
+        { button: context.dom.settingsLinkSupport, path: "/docs" },
+        { button: context.dom.settingsLinkContact, path: "/feedback" },
+        { button: context.dom.settingsLinkReleases, path: "/releases" },
     ];
     settingsLinkEntries.forEach((entry) => {
         if (!(entry.button instanceof HTMLButtonElement)) {
             return;
         }
         entry.button.addEventListener("click", () => {
-            openExternalUrl(runtime, entry.url);
+            openExternalUrl(runtime, tex64Url(entry.path, getUiLocale()));
         });
     });
     pageNavOps.setSettingsPage(runtime.state.activeSettingsPage);

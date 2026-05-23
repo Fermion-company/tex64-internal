@@ -559,6 +559,33 @@ const featureMethods = {
     await this.save();
     return this.buildAuthSnapshot();
   },
+
+  // Create a Stripe Embedded Checkout session for the in-app upgrade modal. The
+  // renderer mounts it with the returned publishable key + client secret.
+  async createBillingCheckout(plan) {
+    const normalizedPlan = typeof plan === "string" && plan.trim() ? plan.trim() : "pro";
+    const payload = await this.authorizedRequest("/billing/checkout", {
+      method: "POST",
+      body: { plan: normalizedPlan, uiMode: "embedded" },
+    });
+    return {
+      clientSecret: typeof payload?.clientSecret === "string" ? payload.clientSecret : "",
+      publishableKey: typeof payload?.publishableKey === "string" ? payload.publishableKey : "",
+      sessionId: typeof payload?.sessionId === "string" ? payload.sessionId : "",
+    };
+  },
+
+  // Create a Stripe Customer Portal session (manage / cancel). Hosted-only, so
+  // the URL is opened in an in-app child window by the main process.
+  async createBillingPortal() {
+    const payload = await this.authorizedRequest("/billing/portal", {
+      method: "POST",
+      body: {},
+    });
+    return {
+      portalUrl: typeof payload?.portalUrl === "string" ? payload.portalUrl : "",
+    };
+  },
 };
 
 module.exports = {

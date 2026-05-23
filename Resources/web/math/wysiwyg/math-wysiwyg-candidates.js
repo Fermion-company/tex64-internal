@@ -1,4 +1,4 @@
-import { getKeyByLatex, normalizeLatexKey } from "./math-wysiwyg-keymap.js";
+import { extractCommand, getKeyByLatex, normalizeLatexKey } from "./math-wysiwyg-keymap.js";
 import { makeCandidate, TRIGGER_KEYS, TRIGGER_MAP } from "./math-wysiwyg-triggers.js";
 export const OPERATOR_TRIGGERS = {
     "*": [
@@ -162,7 +162,23 @@ export const buildOperatorCandidates = (token) => {
         return makeCandidate(token, key, 120 - index * 2, entry.label, entry.displayLatex);
     });
 };
-export const buildWordCandidates = (token, options = {}) => {
+// Match quality, used as the dominant ranking key. A lower tier always
+// outranks a higher one regardless of usage history, so an exact-name match
+// (e.g. "sin" -> \sin) can never be pushed below a longer prefix sibling
+// (\sinh) — the longer command is reached by typing one more character.
+// Casing is part of the tier too: typing lowercase "pi" keeps \pi above \Pi
+// even if \Pi was used more recently, since the explicit casing is a strong
+// intent signal that MRU should not override.
+export const TIER_EXACT_CASE = 0; // exact name, casing matches what was typed
+export const TIER_EXACT = 1; // exact name, casing differs (e.g. "pi" -> \Pi)
+export const TIER_PREFIX = 2;
+export const TIER_CONTAINS = 3;
+const CASE_MATCH_BONUS = 60;
+const commandMatchesTokenCase = (candidate, originalToken) => {
+    const command = extractCommand(candidate.key.latex);
+    return !!command && command === originalToken;
+};
+export const buildRankedWordCandidates = (token, options = {}) => {
     var _a, _b, _c;
     const normalized = token.toLowerCase();
     const allowContains = (_a = options.allowContains) !== null && _a !== void 0 ? _a : true;
@@ -173,21 +189,23 @@ export const buildWordCandidates = (token, options = {}) => {
     const containsMatches = [];
     const prefixTriggers = getPrefixMatches(normalized);
     prefixTriggers.forEach((trigger) => {
-        const matchType = trigger === normalized ? "exact" : "prefix";
+        const isExact = trigger === normalized;
         const group = TRIGGER_MAP.get(trigger);
         if (!group) {
             return;
         }
-        const baseScoreMap = { exact: 220, prefix: 180 };
         const lengthPenalty = trigger.length - normalized.length;
-        const baseScore = baseScoreMap[matchType] - lengthPenalty;
+        const baseScore = (isExact ? 220 : 180) - lengthPenalty;
         group.candidates.forEach((candidate) => {
+            const caseMatch = commandMatchesTokenCase(candidate, token);
+            const tier = isExact ? (caseMatch ? TIER_EXACT_CASE : TIER_EXACT) : TIER_PREFIX;
             const exactHintBoost = candidate.hint === normalized ? 120 : 0;
             const score = baseScore +
                 candidate.priority +
                 group.priority +
-                exactHintBoost;
-            prefixMatches.push({ candidate, score });
+                exactHintBoost +
+                (caseMatch ? CASE_MATCH_BONUS : 0);
+            prefixMatches.push({ candidate, score, tier });
         });
     });
     if (canContains) {
@@ -202,22 +220,24 @@ export const buildWordCandidates = (token, options = {}) => {
             if (!group) {
                 return;
             }
-            const baseScoreMap = { contains: 120 };
             const indexPenalty = trigger.indexOf(normalized) * 2;
             const lengthPenalty = trigger.length - normalized.length;
-            const baseScore = baseScoreMap.contains - lengthPenalty - indexPenalty;
+            const baseScore = 120 - lengthPenalty - indexPenalty;
             group.candidates.forEach((candidate) => {
-                const score = baseScore + candidate.priority + group.priority;
-                containsMatches.push({ candidate, score });
+                const caseBonus = commandMatchesTokenCase(candidate, token) ? CASE_MATCH_BONUS : 0;
+                const score = baseScore + candidate.priority + group.priority + caseBonus;
+                containsMatches.push({ candidate, score, tier: TIER_CONTAINS });
             });
         });
     }
-    prefixMatches.sort((a, b) => b.score - a.score);
+    // Tier is the primary key (exact > prefix); score orders within a tier.
+    prefixMatches.sort((a, b) => a.tier - b.tier || b.score - a.score);
     containsMatches.sort((a, b) => b.score - a.score);
     const seen = new Set();
     const results = [];
     const pushMatches = (items) => {
-        for (const { candidate } of items) {
+        for (const entry of items) {
+            const candidate = entry.candidate;
             const keyId = dedupeByLatex
                 ? normalizeLatexKey(candidate.key.latex) || candidate.id
                 : `${candidate.id}|${candidate.hint}`;
@@ -225,7 +245,7 @@ export const buildWordCandidates = (token, options = {}) => {
                 continue;
             }
             seen.add(keyId);
-            results.push(candidate);
+            results.push(entry);
             if (results.length >= WORD_CANDIDATE_LIMIT) {
                 break;
             }
@@ -237,3 +257,4 @@ export const buildWordCandidates = (token, options = {}) => {
     }
     return results;
 };
+export const buildWordCandidates = (token, options = {}) => buildRankedWordCandidates(token, options).map((entry) => entry.candidate);

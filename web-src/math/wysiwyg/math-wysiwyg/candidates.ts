@@ -1,5 +1,10 @@
 import { getMathFieldSelectionRange } from "../../../app/blocks/math-input-utils.js";
-import { buildOperatorCandidates, buildWordCandidates } from "../math-wysiwyg-candidates.js";
+import {
+  buildOperatorCandidates,
+  buildRankedWordCandidates,
+  buildWordCandidates,
+  type ScoredCandidate,
+} from "../math-wysiwyg-candidates.js";
 import { getKeyByLatex } from "../math-wysiwyg-keymap.js";
 import { offsetToIndexInRange } from "../math-wysiwyg-selection.js";
 import {
@@ -217,6 +222,9 @@ export const createMathWysiwygCandidateOps = (
 
     let effectiveMatch = tokenMatch;
     let nextCandidates: Candidate[] = [];
+    // Set for plain word matches so MRU can be applied tier-aware (exact > prefix
+    // > contains). Left null for operator/slash paths, which keep flat MRU.
+    let scoredCandidates: ScoredCandidate[] | null = null;
     if (tokenMatch.kind === "operator") {
       nextCandidates = buildOperatorCandidates(tokenMatch.token);
     } else if (tokenMatch.kind === "slash-command") {
@@ -241,10 +249,11 @@ export const createMathWysiwygCandidateOps = (
           .map(applySlashCommandHint);
       }
     } else {
-      nextCandidates = buildWordCandidates(tokenMatch.token, {
+      scoredCandidates = buildRankedWordCandidates(tokenMatch.token, {
         allowContainsMinLength: explicit ? 2 : AUTO_CONTAINS_MIN_LENGTH,
         dedupeByLatex: !explicit,
       });
+      nextCandidates = scoredCandidates.map((entry) => entry.candidate);
     }
 
     const allowSuffixRescue =
@@ -253,12 +262,12 @@ export const createMathWysiwygCandidateOps = (
       const minSuffixLength = 2;
       for (let dropPrefix = 1; dropPrefix <= tokenMatch.token.length - minSuffixLength; dropPrefix += 1) {
         const suffix = tokenMatch.token.slice(dropPrefix);
-        const suffixCandidates = buildWordCandidates(suffix, {
+        const suffixScored = buildRankedWordCandidates(suffix, {
           allowContainsMinLength: explicit ? 2 : AUTO_CONTAINS_MIN_LENGTH,
 
           dedupeByLatex: !explicit,
         });
-        if (suffixCandidates.length === 0) {
+        if (suffixScored.length === 0) {
           continue;
         }
         effectiveMatch = {
@@ -266,7 +275,8 @@ export const createMathWysiwygCandidateOps = (
           token: suffix,
           range: { start: tokenMatch.range.start + dropPrefix, end: tokenMatch.range.end },
         };
-        nextCandidates = suffixCandidates;
+        scoredCandidates = suffixScored;
+        nextCandidates = suffixScored.map((entry) => entry.candidate);
         break;
       }
     }
@@ -279,7 +289,9 @@ export const createMathWysiwygCandidateOps = (
       return;
     }
 
-    nextCandidates = mruOps.applyMruRanking(nextCandidates);
+    nextCandidates = scoredCandidates
+      ? mruOps.applyRankedMru(scoredCandidates)
+      : mruOps.applyMruRanking(nextCandidates);
 
     const sameList =
       runtime.panelState.currentCandidates.length === nextCandidates.length &&

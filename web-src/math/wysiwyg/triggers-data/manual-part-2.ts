@@ -415,9 +415,6 @@ export const MANUAL_TRIGGERS_PART_2: WysiwygManualTrigger[] = [
     priority: 85,
     candidates: [
       { latex: "\\pi", label: "π", displayLatex: "\\pi" },
-      { latex: "\\pi_{#?}", label: "π_i", displayLatex: "\\pi_{i}" },
-      { latex: "\\pi^{#?}", label: "π^2", displayLatex: "\\pi^{2}" },
-      { latex: "\\pi_{#?}^{#?}", label: "π_i^n", displayLatex: "\\pi_{i}^{n}" },
       { latex: "\\varpi", label: "ϖ", displayLatex: "\\varpi" },
       { latex: "\\Pi", label: "Π", displayLatex: "\\Pi" },
     ],

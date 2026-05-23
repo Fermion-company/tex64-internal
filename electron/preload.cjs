@@ -173,6 +173,83 @@ const lspApi = {
   },
 };
 
+// Integrated terminal bridge: `create` opens a pty session and returns its id;
+// keystrokes/resize/kill are fire-and-forget by id; output and exit arrive on
+// the dedicated listener channels.
+const terminalDataHandlers = new Set();
+const terminalExitHandlers = new Set();
+
+ipcRenderer.on("tex64:terminal:data", (_event, message) => {
+  terminalDataHandlers.forEach((handler) => {
+    try {
+      handler(message);
+    } catch (error) {
+      console.error("tex64Terminal data handler error:", error);
+    }
+  });
+});
+
+ipcRenderer.on("tex64:terminal:exit", (_event, message) => {
+  terminalExitHandlers.forEach((handler) => {
+    try {
+      handler(message);
+    } catch (error) {
+      console.error("tex64Terminal exit handler error:", error);
+    }
+  });
+});
+
+const terminalApi = {
+  create: async (options = {}) => {
+    try {
+      return await ipcRenderer.invoke("tex64:terminal:create", options);
+    } catch (error) {
+      return { error: error && error.message ? error.message : "terminal create failed" };
+    }
+  },
+  write: (id, data) => ipcRenderer.send("tex64:terminal:write", { id, data }),
+  resize: (id, cols, rows) => ipcRenderer.send("tex64:terminal:resize", { id, cols, rows }),
+  kill: (id) => ipcRenderer.send("tex64:terminal:kill", { id }),
+  onData: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    terminalDataHandlers.add(handler);
+    return () => {
+      terminalDataHandlers.delete(handler);
+    };
+  },
+  onExit: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    terminalExitHandlers.add(handler);
+    return () => {
+      terminalExitHandlers.delete(handler);
+    };
+  },
+};
+
+// In-app billing: `checkout` returns an embedded Stripe Checkout session
+// (clientSecret + publishableKey) the renderer mounts in a modal; `openPortal`
+// asks main to open the Stripe Customer Portal in an in-app window.
+const billingApi = {
+  checkout: async (plan) => {
+    try {
+      return await ipcRenderer.invoke("tex64:billing:checkout", { plan });
+    } catch (error) {
+      return { error: error && error.message ? error.message : "checkout failed" };
+    }
+  },
+  openPortal: async () => {
+    try {
+      return await ipcRenderer.invoke("tex64:billing:portal");
+    } catch (error) {
+      return { error: error && error.message ? error.message : "portal failed" };
+    }
+  },
+};
+
 Object.defineProperty(bridgeApi, "postMessage", {
   get: () => postMessageHandler,
   set: (next) => {
@@ -188,3 +265,5 @@ contextBridge.exposeInMainWorld("tex64Capture", captureApi);
 contextBridge.exposeInMainWorld("tex64MathOcr", mathOcrApi);
 contextBridge.exposeInMainWorld("tex64Lsp", lspApi);
 contextBridge.exposeInMainWorld("tex64Spell", spellApi);
+contextBridge.exposeInMainWorld("tex64Terminal", terminalApi);
+contextBridge.exposeInMainWorld("tex64Billing", billingApi);

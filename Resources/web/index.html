@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob:;"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval' https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https://js.stripe.com https://*.stripe.com;"
     >
     <title>TeX64</title>
     <link rel="stylesheet" href="./theme.css">
     <link rel="stylesheet" href="./mathlive/mathlive-static.css">
     <link rel="stylesheet" href="./vendor/katex.min.css">
+    <link rel="stylesheet" href="./vendor/xterm.css">
   </head>
   <body>
 
@@ -1286,6 +1287,7 @@
             <div class="bottom-panel-header">
               <div class="bottom-panel-tabs">
                 <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
+                <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
               <button class="bottom-panel-close" id="bottom-panel-close" type="button" aria-label="Close panel">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -1293,7 +1295,9 @@
                 </svg>
               </button>
             </div>
-            <div class="bottom-panel-body" id="bottom-panel-body"></div>
+            <div class="bottom-panel-body" id="bottom-panel-body" data-pane="blocks">
+              <div class="terminal-host" id="terminal-host"></div>
+            </div>
           </div>
         </section>
       </div>
@@ -1369,6 +1373,27 @@
               Send feedback
             </button>
           </div>
+        </div>
+      </div>
+
+      <div class="modal" id="plans-modal" aria-hidden="true">
+        <div
+          class="modal-card plans-card"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="plans-heading"
+        >
+          <button class="plans-close" id="plans-modal-close" type="button" aria-label="Close">×</button>
+          <div class="plans-head">
+            <h2 class="plans-heading" id="plans-heading">Pricing</h2>
+            <p class="plans-sub" id="plans-sub"></p>
+          </div>
+          <div class="plans-list" id="plans-list"></div>
+          <div class="plans-checkout is-hidden" id="plans-checkout">
+            <button class="panel-button ghost" id="plans-checkout-back" type="button">Back to plans</button>
+            <div class="plans-checkout-mount" id="plans-checkout-mount"></div>
+          </div>
+          <div class="plans-status" id="plans-status" aria-live="polite"></div>
         </div>
       </div>
 
@@ -1680,6 +1705,13 @@
     <script src="./vendor/marked.umd.js"></script>
     <script src="./vendor/katex.min.js"></script>
     <script src="./mathlive/mathlive.min.js" onload="window.dispatchEvent(new Event('mathlive-ready'))" onerror="window.MATHLIVE_LOAD_ERROR = 'Script load failed'"></script>
+    <!-- Load xterm before Monaco's AMD loader: its UMD wrapper prefers AMD
+         `define` when present, which would skip the window globals we rely on. -->
+    <script src="./vendor/xterm.js"></script>
+    <script src="./vendor/xterm-addon-fit.js"></script>
+    <!-- Stripe.js (must load from js.stripe.com; loaded before Monaco's AMD loader
+         so it attaches window.Stripe instead of registering as an AMD module). -->
+    <script src="https://js.stripe.com/v3/"></script>
     <script src="./monaco/vs/loader.js"></script>
     <script type="module" src="./main.js"></script>
   </body>

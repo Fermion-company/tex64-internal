@@ -1,5 +1,5 @@
 import { getMathFieldSelectionRange } from "../../../app/blocks/math-input-utils.js";
-import { buildOperatorCandidates, buildWordCandidates } from "../math-wysiwyg-candidates.js";
+import { buildOperatorCandidates, buildRankedWordCandidates, buildWordCandidates, } from "../math-wysiwyg-candidates.js";
 import { getKeyByLatex } from "../math-wysiwyg-keymap.js";
 import { offsetToIndexInRange } from "../math-wysiwyg-selection.js";
 import { hasEnvironmentInContext, isCursorInsideEnvironmentBody, readNativeMathfieldEnvironmentContext, } from "../math-wysiwyg-environment-context.js";
@@ -162,6 +162,9 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
         }
         let effectiveMatch = tokenMatch;
         let nextCandidates = [];
+        // Set for plain word matches so MRU can be applied tier-aware (exact > prefix
+        // > contains). Left null for operator/slash paths, which keep flat MRU.
+        let scoredCandidates = null;
         if (tokenMatch.kind === "operator") {
             nextCandidates = buildOperatorCandidates(tokenMatch.token);
         }
@@ -184,21 +187,22 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
             }
         }
         else {
-            nextCandidates = buildWordCandidates(tokenMatch.token, {
+            scoredCandidates = buildRankedWordCandidates(tokenMatch.token, {
                 allowContainsMinLength: explicit ? 2 : AUTO_CONTAINS_MIN_LENGTH,
                 dedupeByLatex: !explicit,
             });
+            nextCandidates = scoredCandidates.map((entry) => entry.candidate);
         }
         const allowSuffixRescue = explicit && tokenMatch.kind === "word" && tokenMatch.token.length >= EXPLICIT_SUFFIX_MIN_LENGTH;
         if (allowSuffixRescue && nextCandidates.length === 0) {
             const minSuffixLength = 2;
             for (let dropPrefix = 1; dropPrefix <= tokenMatch.token.length - minSuffixLength; dropPrefix += 1) {
                 const suffix = tokenMatch.token.slice(dropPrefix);
-                const suffixCandidates = buildWordCandidates(suffix, {
+                const suffixScored = buildRankedWordCandidates(suffix, {
                     allowContainsMinLength: explicit ? 2 : AUTO_CONTAINS_MIN_LENGTH,
                     dedupeByLatex: !explicit,
                 });
-                if (suffixCandidates.length === 0) {
+                if (suffixScored.length === 0) {
                     continue;
                 }
                 effectiveMatch = {
@@ -206,7 +210,8 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
                     token: suffix,
                     range: { start: tokenMatch.range.start + dropPrefix, end: tokenMatch.range.end },
                 };
-                nextCandidates = suffixCandidates;
+                scoredCandidates = suffixScored;
+                nextCandidates = suffixScored.map((entry) => entry.candidate);
                 break;
             }
         }
@@ -217,7 +222,9 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
             panelOps.setPanelVisible(false);
             return;
         }
-        nextCandidates = mruOps.applyMruRanking(nextCandidates);
+        nextCandidates = scoredCandidates
+            ? mruOps.applyRankedMru(scoredCandidates)
+            : mruOps.applyMruRanking(nextCandidates);
         const sameList = runtime.panelState.currentCandidates.length === nextCandidates.length &&
             runtime.panelState.currentCandidates.every((item, idx) => item.id === nextCandidates[idx].id);
         runtime.panelState.currentCandidates = nextCandidates;

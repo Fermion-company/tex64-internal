@@ -7,6 +7,8 @@ const MIN_PANEL_HEIGHT = 120;
 const MAX_PANEL_HEIGHT = 600;
 const DEFAULT_PANEL_HEIGHT = 220;
 
+export type BottomTab = "blocks" | "terminal";
+
 export type BottomPanelApi = {
   openBottomPanel: () => void;
   closeBottomPanel: () => void;
@@ -16,12 +18,21 @@ export type BottomPanelApi = {
   isSidebarVisible: () => boolean;
 };
 
-export const initBottomPanelUi = (context: AppContext): BottomPanelApi => {
+export type BottomPanelDeps = {
+  onTerminalShow?: () => void;
+  onTerminalHide?: () => void;
+};
+
+export const initBottomPanelUi = (
+  context: AppContext,
+  deps: BottomPanelDeps = {}
+): BottomPanelApi => {
   const {
     bottomPanel,
     bottomPanelResizer,
     bottomPanelClose,
     bottomPanelBody,
+    bottomPanelTabs,
     toggleSidebarButton,
     toggleBottomPanelButton,
   } = context.dom;
@@ -34,8 +45,11 @@ export const initBottomPanelUi = (context: AppContext): BottomPanelApi => {
   let sidebarVisible = true;
   let bottomPanelOpen = false;
   let panelHeight = DEFAULT_PANEL_HEIGHT;
+  let activeBottomTab: BottomTab = "blocks";
   /** remember where block-compose originally lived */
   let blockComposeOriginalParent: HTMLElement | null = sidebarBlocksBody;
+
+  const tabButtons = bottomPanelTabs ?? [];
 
   // --- Persistence ---
 
@@ -77,6 +91,30 @@ export const initBottomPanelUi = (context: AppContext): BottomPanelApi => {
     blockComposeOriginalParent.appendChild(blockCompose);
   };
 
+  // --- Tabs (Blocks / Terminal) ---
+
+  const applyActiveTab = () => {
+    if (bottomPanelBody) {
+      bottomPanelBody.dataset.pane = activeBottomTab;
+    }
+    tabButtons.forEach((button) => {
+      const tab = button.getAttribute("data-bottom-tab");
+      button.classList.toggle("is-active", tab === activeBottomTab);
+    });
+  };
+
+  const setActiveBottomTab = (tab: BottomTab) => {
+    activeBottomTab = tab === "terminal" ? "terminal" : "blocks";
+    applyActiveTab();
+    if (activeBottomTab === "terminal") {
+      if (bottomPanelOpen) {
+        deps.onTerminalShow?.();
+      }
+    } else {
+      deps.onTerminalHide?.();
+    }
+  };
+
   // --- Apply layout ---
 
   const applyBottomPanel = () => {
@@ -98,6 +136,10 @@ export const initBottomPanelUi = (context: AppContext): BottomPanelApi => {
     if (toggleBottomPanelButton) {
       toggleBottomPanelButton.classList.toggle("is-active", bottomPanelOpen);
       toggleBottomPanelButton.setAttribute("aria-pressed", String(bottomPanelOpen));
+    }
+
+    if (bottomPanelOpen && activeBottomTab === "terminal") {
+      deps.onTerminalShow?.();
     }
   };
 
@@ -213,11 +255,22 @@ export const initBottomPanelUi = (context: AppContext): BottomPanelApi => {
   if (bottomPanelClose) {
     bottomPanelClose.addEventListener("click", closeBottomPanel);
   }
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab: BottomTab =
+        button.getAttribute("data-bottom-tab") === "terminal" ? "terminal" : "blocks";
+      if (!bottomPanelOpen) {
+        openBottomPanel();
+      }
+      setActiveBottomTab(tab);
+    });
+  });
 
   // --- Init ---
 
   loadState();
   applySidebar();
+  applyActiveTab();
   applyBottomPanel();
   initResizer();
 

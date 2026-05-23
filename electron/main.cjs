@@ -28,6 +28,7 @@ const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
+const { TerminalService } = require("./services/terminal.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
@@ -181,6 +182,7 @@ const envService = new EnvService();
 let mathOcrService = null;
 let texlabService = null;
 let spellService = null;
+let terminalService = null;
 let apiUsageService = null;
 let platformAccessService = null;
 let agentAuditService = null;
@@ -218,6 +220,17 @@ const getSpellService = () => {
     spellService = new SpellService({ userDataPath: app.getPath("userData") });
   }
   return spellService;
+};
+
+const getTerminalService = () => {
+  if (!terminalService) {
+    terminalService = new TerminalService({
+      onData: (id, data) => sendLspToRenderer("tex64:terminal:data", { id, data }),
+      onExit: (id, exitCode, signal) =>
+        sendLspToRenderer("tex64:terminal:exit", { id, exitCode, signal }),
+    });
+  }
+  return terminalService;
 };
 
 const createMainWindow = () => {
@@ -272,6 +285,9 @@ const createMainWindow = () => {
   state.mainWindow.on("closed", () => {
     // Ensure any teardown work doesn't try to message a destroyed window.
     state.mainWindow = null;
+    if (terminalService) {
+      terminalService.killAll();
+    }
     clearWorkspaceSession({ closePdfWindow: true });
     if (state.captureShortcut) {
       globalShortcut.unregister(state.captureShortcut);
@@ -873,6 +889,84 @@ ipcMain.on("tex64:lsp:send", (_event, message) => {
 ipcMain.handle("tex64:lsp:status", async () => {
   const service = getTexlabService();
   return { available: service.isAvailable(), running: service.isRunning() };
+});
+
+// Integrated terminal: the renderer owns the xterm UI and drives sessions by id.
+// Output and exit stream back on the "tex64:terminal:data" / ":exit" channels.
+ipcMain.handle("tex64:terminal:create", async (_event, options) => {
+  const opts = options && typeof options === "object" ? options : {};
+  try {
+    const cwd = workspace.getRootPath() || undefined;
+    return getTerminalService().create({ cols: opts.cols, rows: opts.rows, cwd });
+  } catch (error) {
+    console.warn("[terminal] create failed", error);
+    return { error: error && error.message ? error.message : "terminal create failed" };
+  }
+});
+
+ipcMain.on("tex64:terminal:write", (_event, message) => {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  getTerminalService().write(message.id, message.data);
+});
+
+ipcMain.on("tex64:terminal:resize", (_event, message) => {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  getTerminalService().resize(message.id, message.cols, message.rows);
+});
+
+ipcMain.on("tex64:terminal:kill", (_event, message) => {
+  if (!message || typeof message !== "object") {
+    return;
+  }
+  getTerminalService().kill(message.id);
+});
+
+// Open the Stripe Customer Portal (hosted-only) in an in-app child window.
+// Plan changes are picked up by the renderer's focus listener on close.
+const openBillingPortalWindow = (url) => {
+  const parent =
+    state.mainWindow && !state.mainWindow.isDestroyed() ? state.mainWindow : undefined;
+  const win = new BrowserWindow({
+    width: 480,
+    height: 760,
+    parent,
+    title: "TeX64",
+    backgroundColor: "#1c2129",
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  win.loadURL(url).catch(() => {});
+};
+
+ipcMain.handle("tex64:billing:checkout", async (_event, payload) => {
+  const plan = payload && typeof payload === "object" ? payload.plan : undefined;
+  try {
+    return await getPlatformAccessService().createBillingCheckout(plan);
+  } catch (error) {
+    return {
+      error: error && error.message ? error.message : "checkout failed",
+      code: error && error.code ? error.code : undefined,
+    };
+  }
+});
+
+ipcMain.handle("tex64:billing:portal", async () => {
+  try {
+    const { portalUrl } = await getPlatformAccessService().createBillingPortal();
+    if (!portalUrl || !/^https:\/\//i.test(portalUrl)) {
+      return { error: "portal unavailable" };
+    }
+    openBillingPortalWindow(portalUrl);
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error && error.message ? error.message : "portal failed",
+      code: error && error.code ? error.code : undefined,
+    };
+  }
 });
 
 ipcMain.handle("tex64:spell:check", async (_event, words) => {

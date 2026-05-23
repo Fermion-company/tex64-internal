@@ -194,7 +194,7 @@ export const initAiChatUi = (context, deps) => {
             // Upsell CTA → open the pricing page in the browser.
             if (target === null || target === void 0 ? void 0 : target.closest(".ai-model-upsell-btn")) {
                 event.stopPropagation();
-                deps.postToNative({ type: "shell:openExternal", url: "https://tex64.com/pricing" });
+                window.dispatchEvent(new CustomEvent("tex64:open-plans"));
                 closeModelMenu();
                 return;
             }
@@ -763,6 +763,8 @@ export const initAiChatUi = (context, deps) => {
         handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
         handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
         refreshContextBar: updateContextBar,
+        getCurrentPlan: () => { var _a, _b; return (_b = (_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) !== null && _b !== void 0 ? _b : "free"; },
+        refreshPlan: (force = true) => requestAiAccessCheck(force),
         handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
         handlePlatformUpdate,
         applyPendingFromDiffModal: () => {

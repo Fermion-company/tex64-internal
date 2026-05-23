@@ -40,6 +40,8 @@ import { initUiEvents } from "./app/ui-events.js";
 import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
+import { initTerminalUi } from "./app/terminal-ui.js";
+import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
@@ -588,7 +590,19 @@ export const initMain = () => {
     setActiveTab,
     normalizeTabKey: tabController.normalizeTabKey,
   });
-  const bottomPanelUi = initBottomPanelUi(appContext);
+  const terminalUi = initTerminalUi(appContext);
+  const bottomPanelUi = initBottomPanelUi(appContext, {
+    onTerminalShow: () => terminalUi.show(),
+    onTerminalHide: () => terminalUi.hide(),
+  });
+
+  // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
+  // by the AI upsell CTAs; it reads/refreshes plan state through the AI chat UI.
+  initBillingUi(appContext, {
+    getCurrentPlan: () => aiChatUi?.getCurrentPlan() ?? "free",
+    onPlanRefresh: () => aiChatUi?.refreshPlan(),
+  });
+  window.addEventListener("focus", () => aiChatUi?.refreshPlan(false));
   editorTabsUi = initEditorTabsUi(appContext, {
     getGroups: () => editorSession.getEditorGroups(),
     getGroup: editorSession.getEditorGroup,

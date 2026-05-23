@@ -1,6 +1,15 @@
 import { collectKeyVariants, extractCommand, getKeyByLatex, normalizeLatexKey } from "./math-wysiwyg-keymap.js";
 import { MANUAL_TRIGGERS } from "./math-wysiwyg-triggers-data.js";
 const isWordToken = (value) => /^[A-Za-z]+$/.test(value);
+// Auto-generated script variants (\alpha_{#?}, \alpha^{#?}, \alpha_{#?}^{#?})
+// from expandScriptVariants. These flood the suggestion list with near-identical
+// entries that are rarely picked — users type the base symbol then add a script.
+// Curated limit-forms for big operators (\sum_{}^{}, \int_{}^{}, \lim_{x→a}) live
+// in the manual trigger data and are unaffected by this filter.
+const isAutoScriptVariant = (latex) => {
+    const trimmed = latex.trim();
+    return /^\\[A-Za-z]+(?:_\{#\?\})?(?:\^\{#\?\})?$/.test(trimmed) && /[_^]\{#\?\}/.test(trimmed);
+};
 const buildMathKeyDisplayLatex = (key) => {
     var _a, _b;
     const source = (_b = (_a = key.displayLatex) !== null && _a !== void 0 ? _a : key.latex) !== null && _b !== void 0 ? _b : key.fallback;
@@ -71,6 +80,9 @@ export const buildTriggerMap = () => {
     });
     const variants = collectKeyVariants();
     variants.forEach((key) => {
+        if (isAutoScriptVariant(key.latex)) {
+            return;
+        }
         const command = extractCommand(key.latex);
         if (command) {
             addCandidate(command, key, 30);
