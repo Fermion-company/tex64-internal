@@ -27,7 +27,19 @@ const os = require("node:os");
 const http = require("node:http");
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const ELECTRON_BIN = path.join(PROJECT_ROOT, "node_modules", ".bin", "electron");
+const ELECTRON_BIN = require("electron");
+
+const closeElectronApp = async (app) => {
+  if (!app) return;
+  const child = typeof app.process === "function" ? app.process() : null;
+  await Promise.race([
+    app.close().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
+  if (child && !child.killed && child.exitCode == null) {
+    child.kill("SIGKILL");
+  }
+};
 
 const startStubServer = () =>
   new Promise((resolve) => {
@@ -173,7 +185,7 @@ test("in-app billing flow (CTA → modal → checkout IPC → embedded mount →
   });
 
   t.after(async () => {
-    await app.close().catch(() => {});
+    await closeElectronApp(app);
     stub.server.close();
   });
 

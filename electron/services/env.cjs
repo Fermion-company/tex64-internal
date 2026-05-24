@@ -2,9 +2,9 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { Readable } = require("stream");
 const { spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
-const fetch = require("node-fetch");
 
 const {
   extendTexlivePath,
@@ -69,6 +69,13 @@ const normalizeProfilePath = (value) => {
     return String(value || "").replace(/\\/g, "/");
   }
   return String(value || "");
+};
+
+const fetch = async (...args) => {
+  if (typeof globalThis.fetch !== "function") {
+    throw new Error("Global fetch is unavailable. Node.js 18+ is required.");
+  }
+  return globalThis.fetch(...args);
 };
 
 const runCommand = (command, args = [], options = {}) =>
@@ -148,7 +155,7 @@ const downloadFile = async (url, outPath) => {
     throw new Error(`Download failed: ${url} (${response.status})`);
   }
   await fsp.mkdir(path.dirname(outPath), { recursive: true });
-  await pipeline(response.body, fs.createWriteStream(outPath));
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outPath));
 };
 
 const walkForFile = async (rootDir, fileNames) => {

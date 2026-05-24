@@ -1,0 +1,990 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Axiom AI Agent Promo</title>
+    <link rel="stylesheet" href="../Resources/web/theme.css">
+    <style>
+      :root {
+        --sidebar-panel-width: 480px;
+        --topbar-height: 33px;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      body {
+        opacity: 1;
+        letter-spacing: 0;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%),
+          radial-gradient(circle at 24% 12%, rgba(121, 126, 249, 0.16), transparent 34%),
+          radial-gradient(circle at 86% 28%, rgba(20, 184, 166, 0.1), transparent 36%),
+          #0d1117;
+      }
+
+      .app {
+        opacity: 1;
+        width: 100vw;
+        height: 100vh;
+        min-height: 0;
+      }
+
+      .main {
+        height: calc(100vh - var(--topbar-height));
+        grid-template-columns: var(--sidebar-width) var(--sidebar-panel-width) 4px 1fr;
+      }
+
+      .brand-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding-left: 78px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        -webkit-app-region: no-drag;
+      }
+
+      .brand-glyph {
+        width: 19px;
+        height: 19px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        color: var(--accent-strong);
+        background: rgba(121, 126, 249, 0.14);
+        border: 1px solid rgba(121, 126, 249, 0.26);
+      }
+
+      .topbar-left {
+        padding-left: 0;
+      }
+
+      .promo-title-strip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        height: 24px;
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(121, 126, 249, 0.24);
+        background: rgba(121, 126, 249, 0.08);
+        color: #c7d2fe;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .traffic-lights {
+        position: absolute;
+        left: 14px;
+        top: 10px;
+        display: inline-flex;
+        gap: 8px;
+      }
+
+      .traffic-lights span {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.24);
+      }
+
+      .traffic-lights span:nth-child(1) { background: #ff5f57; }
+      .traffic-lights span:nth-child(2) { background: #ffbd2e; }
+      .traffic-lights span:nth-child(3) { background: #28c840; }
+
+      .sidebar-panel {
+        box-shadow: 16px 0 36px rgba(0, 0, 0, 0.22);
+      }
+
+      .panel[data-panel="ai"].is-active {
+        display: grid;
+      }
+
+      .tab[data-tab="ai"] {
+        color: var(--text);
+        background: rgba(92, 156, 255, 0.08);
+      }
+
+      .tab[data-tab="ai"]::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+        background: var(--accent);
+        border-radius: 2px;
+      }
+
+      .ai-panel {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.006));
+      }
+
+      .ai-chat-log {
+        padding: 14px 18px 8px;
+        gap: 10px;
+      }
+
+      .ai-message {
+        font-size: 13.5px;
+      }
+
+      .ai-message.is-user .ai-message-content {
+        max-width: 89%;
+        border-radius: 15px;
+        padding: 9px 14px;
+      }
+
+      .ai-message-body {
+        max-width: 92%;
+      }
+
+      .ai-message.is-assistant .ai-message-content p {
+        margin: 0 0 10px;
+      }
+
+      .ai-message.is-assistant .ai-message-content ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      .ai-message.is-assistant .ai-message-content li {
+        margin: 5px 0;
+      }
+
+      .ai-message-content .capability-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px;
+        margin-top: 8px;
+      }
+
+      .capability-pill {
+        min-width: 0;
+        padding: 5px 7px;
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(255, 255, 255, 0.035);
+        color: rgba(226, 232, 240, 0.82);
+        font-size: 10.5px;
+        line-height: 1.28;
+      }
+
+      .capability-pill strong {
+        display: block;
+        color: #f8fafc;
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+
+      .ai-topbar-status {
+        color: #93c5fd;
+      }
+
+      .ai-usage-meter {
+        --ai-remaining-pct: 78;
+      }
+
+      .ai-status {
+        display: block;
+        margin: 0 4px;
+        padding: 7px 10px;
+        color: #bfdbfe;
+        background: rgba(59, 130, 246, 0.08);
+        border-color: rgba(59, 130, 246, 0.16);
+        font-size: 11px;
+      }
+
+      .ai-context-bar {
+        display: flex;
+      }
+
+      .ai-proposal {
+        background: rgba(255, 255, 255, 0.028);
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.17);
+        gap: 3px;
+      }
+
+      .ai-proposal-file-item {
+        padding-top: 2px;
+        padding-bottom: 2px;
+      }
+
+      .ai-proposal-actions {
+        padding-top: 0;
+      }
+
+      .ai-proposal-file-list {
+        padding-bottom: 0;
+      }
+
+      .ai-proposal-file-badge {
+        font-size: 8.5px;
+      }
+
+      .ai-message.is-system .ai-message-content.ai-tool-log-content {
+        max-height: none;
+        padding: 4px 8px;
+        font-size: 9.5px;
+      }
+
+      .ai-message.ai-thinking-message {
+        display: none;
+      }
+
+      .ai-input-area {
+        padding-bottom: 8px;
+      }
+
+      .ai-chat-input {
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+
+      .ai-attachment-chip {
+        padding-top: 1px;
+        padding-bottom: 1px;
+      }
+
+      .ai-context-chip {
+        padding-top: 2px;
+        padding-bottom: 2px;
+      }
+
+      .diff-summary-item {
+        font-family: "SF Mono", Menlo, monospace;
+        font-size: 10.5px;
+        font-weight: 700;
+      }
+
+      .diff-summary-item.is-add {
+        color: #86efac;
+      }
+
+      .diff-summary-item.is-del {
+        color: #fca5a5;
+      }
+
+      .ai-chat-textarea {
+        height: 38px;
+        min-height: 24px;
+      }
+
+      .editor {
+        background:
+          linear-gradient(180deg, rgba(25, 29, 36, 0.96), rgba(13, 17, 23, 1) 42%),
+          var(--bg);
+      }
+
+      .editor-groups {
+        grid-template-columns: minmax(520px, 1.05fr) 8px minmax(420px, 0.95fr);
+      }
+
+      .editor-surface {
+        overflow: hidden;
+      }
+
+      .static-editor {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        background: #0d1117;
+      }
+
+      .editor-command-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 9px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .agent-result-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 9px;
+        border-radius: var(--radius-sm);
+        border: 1px solid rgba(34, 197, 94, 0.24);
+        background: rgba(34, 197, 94, 0.09);
+        color: #bbf7d0;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .agent-result-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: #22c55e;
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+      }
+
+      .code-sheet {
+        overflow: hidden;
+        padding: 14px 0 18px;
+        font-family: "SF Mono", Menlo, Monaco, monospace;
+        font-size: 12px;
+        line-height: 1.72;
+        color: #c9d1d9;
+      }
+
+      .code-line {
+        display: grid;
+        grid-template-columns: 48px 1fr;
+        gap: 14px;
+        min-height: 22px;
+        padding: 0 18px;
+        white-space: pre;
+      }
+
+      .code-line .ln {
+        color: rgba(139, 148, 158, 0.55);
+        text-align: right;
+        user-select: none;
+      }
+
+      .code-line.add {
+        color: #d1fae5;
+        background: rgba(34, 197, 94, 0.1);
+        box-shadow: inset 3px 0 0 rgba(34, 197, 94, 0.62);
+      }
+
+      .code-line.del {
+        color: #fecaca;
+        background: rgba(248, 81, 73, 0.11);
+        box-shadow: inset 3px 0 0 rgba(248, 81, 73, 0.6);
+      }
+
+      .code-line.mark {
+        background: rgba(121, 126, 249, 0.08);
+      }
+
+      .tex-command { color: #4fc1ff; }
+      .tex-env { color: #dcdcaa; }
+      .tex-comment { color: #6a9955; }
+      .tex-accent { color: #a2a7fc; }
+
+      .ai-undo-keep-bar {
+        bottom: 14px;
+      }
+
+      .pdf-preview {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        background: #0f141c;
+      }
+
+      .pdf-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .pdf-page-wrap {
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background:
+          linear-gradient(45deg, rgba(255, 255, 255, 0.018) 25%, transparent 25%),
+          linear-gradient(-45deg, rgba(255, 255, 255, 0.018) 25%, transparent 25%),
+          #111827;
+        background-size: 16px 16px;
+      }
+
+      .pdf-page {
+        width: min(86%, 520px);
+        aspect-ratio: 0.72;
+        padding: 40px 44px;
+        background: #f8fafc;
+        color: #111827;
+        border-radius: 3px;
+        box-shadow: 0 28px 62px rgba(0, 0, 0, 0.45);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      .pdf-paper-title {
+        font-size: 24px;
+        line-height: 1.18;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 18px;
+      }
+
+      .pdf-authors {
+        text-align: center;
+        font-size: 11px;
+        color: #475569;
+        margin-bottom: 22px;
+      }
+
+      .pdf-section-title {
+        margin: 14px 0 8px;
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .pdf-text {
+        font-size: 11.2px;
+        line-height: 1.56;
+        color: #1f2937;
+      }
+
+      .pdf-equation {
+        margin: 16px 0;
+        padding: 12px;
+        text-align: center;
+        border-top: 1px solid #d8dee9;
+        border-bottom: 1px solid #d8dee9;
+        font-size: 15px;
+      }
+
+      .pdf-figure {
+        margin: 16px auto 8px;
+        width: 80%;
+        height: 92px;
+        border-radius: 6px;
+        background:
+          linear-gradient(90deg, rgba(121, 126, 249, 0.14), rgba(20, 184, 166, 0.14)),
+          #e5e7eb;
+        border: 1px solid #cbd5e1;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .pdf-figure::before,
+      .pdf-figure::after {
+        content: "";
+        position: absolute;
+        inset: 20px auto auto 22px;
+        width: 82px;
+        height: 48px;
+        border-radius: 5px;
+        background: rgba(15, 23, 42, 0.72);
+      }
+
+      .pdf-figure::after {
+        left: auto;
+        right: 22px;
+        background: rgba(20, 184, 166, 0.76);
+      }
+
+      .pdf-caption {
+        text-align: center;
+        font-size: 9.5px;
+        color: #475569;
+      }
+
+      .bottom-panel {
+        position: relative;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 144px;
+        max-height: 144px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(8, 12, 18, 0.94);
+      }
+
+      .bottom-tabs {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 7px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .terminal-lines {
+        padding: 8px 14px 12px;
+        font-family: "SF Mono", Menlo, Monaco, monospace;
+        font-size: 11.5px;
+        line-height: 1.55;
+        color: rgba(203, 213, 225, 0.82);
+      }
+
+      .terminal-success { color: #86efac; }
+      .terminal-warn { color: #fde68a; }
+      .terminal-info { color: #93c5fd; }
+
+      .promo-callout {
+        position: absolute;
+        right: 34px;
+        top: 58px;
+        z-index: 5;
+        width: 360px;
+        padding: 16px 18px;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(13, 17, 23, 0.72);
+        backdrop-filter: blur(18px) saturate(1.22);
+        box-shadow: 0 24px 54px rgba(0, 0, 0, 0.34);
+      }
+
+      .promo-callout-kicker {
+        color: #86efac;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .promo-callout-title {
+        margin-top: 6px;
+        color: #f8fafc;
+        font-size: 24px;
+        line-height: 1.12;
+        font-weight: 800;
+      }
+
+      .promo-callout-sub {
+        margin-top: 8px;
+        color: rgba(203, 213, 225, 0.74);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+
+      @media (max-height: 820px) {
+        .ai-chat-log {
+          padding-top: 9px;
+          padding-bottom: 6px;
+          gap: 7px;
+        }
+
+        .ai-message {
+          font-size: 12.3px;
+          line-height: 1.46;
+        }
+
+        .ai-message.is-user .ai-message-content {
+          padding: 8px 13px;
+        }
+
+        .ai-message-content .capability-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 4px;
+          margin-top: 6px;
+        }
+
+        .capability-pill {
+          padding: 4px 5px;
+          font-size: 9px;
+          line-height: 1.18;
+        }
+
+        .capability-pill strong {
+          font-size: 9.5px;
+          margin-bottom: 1px;
+        }
+
+        .ai-message.is-system {
+          display: none;
+        }
+
+        .ai-proposal {
+          padding: 7px 9px;
+        }
+
+        .ai-proposal-file-item {
+          padding: 1px 8px 1px 19px;
+          font-size: 10px;
+        }
+
+        .ai-proposal-file-name {
+          font-size: 10px;
+        }
+
+        .ai-input-area {
+          padding: 3px 8px 6px;
+          gap: 4px;
+        }
+
+        .ai-attachments {
+          display: none;
+        }
+
+        .ai-chat-input {
+          padding-top: 6px;
+          padding-bottom: 6px;
+        }
+
+        .ai-chat-textarea {
+          height: 30px;
+          font-size: 12.5px;
+        }
+
+        .ai-status {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body class="is-ready has-editor" data-active-tab="ai">
+    <div class="traffic-lights" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="app">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="brand-mark">
+            <span class="brand-glyph">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 4L20 12L12 20L4 12Z"/>
+                <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            TeX64
+          </div>
+        </div>
+        <div class="topbar-drag"></div>
+        <div class="top-actions">
+          <div class="promo-title-strip">Axiom autonomous TeX agent</div>
+          <button id="save-button" type="button" aria-label="Save">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Save
+          </button>
+          <button id="format-button" type="button">Format</button>
+          <button id="synctex-button" type="button">SyncTeX</button>
+          <button id="build-button" class="is-busy" type="button" aria-label="Build">
+            <span class="build-button-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 5v14l11-7z"></path></svg>
+            </span>
+            <span class="build-button-spinner" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <div class="main">
+        <aside class="sidebar">
+          <div class="tab-group" role="tablist" aria-label="sidebar">
+            <button class="tab" type="button" aria-label="Files">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M6 3h7l5 5v13H6z"></path><path d="M13 3v5h5"></path></svg>
+              </span>
+            </button>
+            <button class="tab" type="button" aria-label="Search">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+              </span>
+            </button>
+            <button class="tab" type="button" aria-label="Outline">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M8 6h11M8 12h11M8 18h11"></path><path d="M5 6h.01M5 12h.01M5 18h.01"></path></svg>
+              </span>
+            </button>
+            <button class="tab" type="button" aria-label="Blocks">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M6 20h12"></path><path d="M7 15l3.5-3.5 4-4a2.5 2.5 0 0 1 3.5 0l.5.5-8 8-3 1z"></path><path d="M14.5 6.5l3 3"></path></svg>
+              </span>
+            </button>
+            <button class="tab is-active" type="button" data-tab="ai" aria-label="Axiom">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 4L20 12L12 20L4 12Z" fill="none"/>
+                  <ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" fill="none" stroke-width="1" opacity="0.4"/>
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+                </svg>
+              </span>
+            </button>
+            <button class="tab is-alert" type="button" aria-label="Issues">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3l9 16H3z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+              </span>
+            </button>
+            <button class="tab" type="button" aria-label="Project">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"></path><circle cx="9" cy="7" r="2"></circle><circle cx="15" cy="17" r="2"></circle></svg>
+              </span>
+            </button>
+          </div>
+          <div class="tab-group secondary" role="tablist" aria-label="auxiliary">
+            <button class="tab" type="button" aria-label="Feedback">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+              </span>
+            </button>
+            <button class="tab" type="button" aria-label="Settings">
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V21a2 2 0 1 1-4 0v-.1a1 1 0 0 0-.7-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H3a2 2 0 1 1 0-4h.1a1 1 0 0 0 .9-.7 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V3a2 2 0 1 1 4 0v.1a1 1 0 0 0 .7.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H21a2 2 0 1 1 0 4h-.1a1 1 0 0 0-.9.7z"></path></svg>
+              </span>
+            </button>
+          </div>
+        </aside>
+
+        <aside class="sidebar-panel" aria-label="Sidebar details">
+          <div class="panel is-active no-header" data-panel="ai">
+            <div class="panel-header"><span class="panel-title">Axiom</span></div>
+            <div class="panel-body ai-panel" id="ai-panel">
+              <div class="ai-topbar">
+                <button class="ai-icon-btn" type="button" aria-label="History">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+                </button>
+                <span class="ai-topbar-title">Axiom</span>
+                <div class="ai-model-picker">
+                  <button class="ai-model-trigger" type="button" aria-label="Select Axiom model">
+                    <span class="ai-model-trigger-label">Axiom 0.9.1 Pro</span>
+                    <svg class="ai-model-trigger-caret" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                </div>
+                <span class="ai-topbar-status">editing project</span>
+                <div class="ai-usage-meter" role="img" aria-label="Axiom usage">
+                  <span class="ai-usage-meter-text">78%</span>
+                </div>
+                <button class="ai-icon-btn" type="button" aria-label="New Chat">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+              </div>
+
+              <div class="ai-content" id="ai-chat">
+                <div class="ai-chat-log" id="ai-chat-log">
+                  <div class="ai-message is-user">
+                    <div class="ai-message-content">Make this thesis submission-ready: fix the LaTeX build, rewrite weak sections, add citations, generate missing figures, and apply the patch.</div>
+                  </div>
+
+                  <div class="ai-message is-assistant">
+                    <div class="ai-message-body">
+                      <div class="ai-message-content">
+                        <p><strong>I can handle this as a project edit, not just a chat reply.</strong> I inspected the active file, build log, bibliography, figures, and selected theorem.</p>
+                        <div class="capability-grid">
+                          <div class="capability-pill"><strong>Read context</strong> Active file, selection, logs, PDFs, images</div>
+                          <div class="capability-pill"><strong>Patch files</strong> Multi-file edits with reviewable diffs</div>
+                          <div class="capability-pill"><strong>Fix builds</strong> Compile errors, refs, packages, warnings</div>
+                          <div class="capability-pill"><strong>Write TeX</strong> Proofs, captions, equations, citations</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ai-message is-system">
+                    <div class="ai-message-content ai-tool-log-content">Tools: read workspace -> 42 TeX files, 8 figures. latexmk -> 6 errors, 13 warnings, 9 undefined references.</div>
+                  </div>
+
+                  <div class="ai-message ai-thinking-message is-assistant">
+                    <div class="ai-message-body">
+                      <div class="ai-message-content">Planning edits across theorem structure, bibliography, figure assets, and build configuration</div>
+                    </div>
+                  </div>
+
+                  <div class="ai-message is-assistant">
+                    <div class="ai-message-body">
+                      <div class="ai-message-content">
+                        <p><strong>Prepared a complete revision.</strong> The paper compiles, references are stable, and every changed file is ready to review.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ai-proposals">
+                    <div class="ai-proposal">
+                      <div class="ai-proposal-header">
+                        <div class="ai-proposal-icon">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                        </div>
+                        <div class="ai-proposal-path">8 file changes</div>
+                        <span class="ai-proposal-badge">Ready</span>
+                      </div>
+                      <div class="ai-proposal-file-list">
+                        <div class="ai-proposal-file-item">
+                          <span class="ai-proposal-file-name">main.tex</span>
+                          <span class="ai-proposal-file-badge">write</span>
+                          <span class="diff-summary-item is-add">+38</span>
+                          <span class="diff-summary-item is-del">-6</span>
+                        </div>
+                        <div class="ai-proposal-file-item">
+                          <span class="ai-proposal-file-name">sections/method.tex</span>
+                          <span class="ai-proposal-file-badge">edit</span>
+                          <span class="diff-summary-item is-add">+74</span>
+                          <span class="diff-summary-item is-del">-21</span>
+                        </div>
+                        <div class="ai-proposal-file-item">
+                          <span class="ai-proposal-file-name">sections/results.tex</span>
+                          <span class="ai-proposal-file-badge">edit</span>
+                          <span class="diff-summary-item is-add">+46</span>
+                          <span class="diff-summary-item is-del">-18</span>
+                        </div>
+                        <div class="ai-proposal-file-item">
+                          <span class="ai-proposal-file-name">references.bib</span>
+                          <span class="ai-proposal-file-badge">create</span>
+                          <span class="diff-summary-item is-add">+12</span>
+                          <span class="diff-summary-item is-del"></span>
+                        </div>
+                        <div class="ai-proposal-file-item">
+                          <span class="ai-proposal-file-name">figures/agent_pipeline.svg</span>
+                          <span class="ai-proposal-file-badge">new</span>
+                          <span class="diff-summary-item is-add">+1</span>
+                          <span class="diff-summary-item is-del"></span>
+                        </div>
+                        <div class="ai-proposal-file-item">
+                          <span class="ai-proposal-file-name">submission-checklist.md</span>
+                          <span class="ai-proposal-file-badge">new</span>
+                          <span class="diff-summary-item is-add">+31</span>
+                          <span class="diff-summary-item is-del"></span>
+                        </div>
+                      </div>
+                      <div class="ai-proposal-actions">
+                        <button class="panel-button ghost" type="button">View diff</button>
+                        <button class="panel-button" type="button">Apply all</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ai-input-area">
+                <div class="ai-context-bar">
+                  <span class="ai-context-chip ai-context-chip--file">main.tex</span>
+                  <span class="ai-context-chip">build.log</span>
+                  <span class="ai-context-chip ai-context-chip--range">L118-L164</span>
+                </div>
+                <div class="ai-attachments">
+                  <span class="ai-attachment-chip"><span class="ai-attachment-name">reviewer-feedback.pdf</span></span>
+                </div>
+                <div class="ai-chat-input">
+                  <button class="ai-btn-icon ai-btn-attach" type="button" aria-label="Attach image">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-8.49 8.49a5 5 0 0 1-7.07-7.07l8.49-8.49a3.5 3.5 0 1 1 4.95 4.95l-8.49 8.49a2 2 0 1 1-2.83-2.83l7.78-7.78"/></svg>
+                  </button>
+                  <textarea class="ai-chat-textarea" rows="1">Run the build again, explain each changed file, and keep only the edits that improve the submission.</textarea>
+                  <button class="ai-btn-icon ai-btn-stop" type="button" aria-label="Stop">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  </button>
+                  <button class="ai-btn-icon ai-btn-send" type="button" aria-label="Send">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                  </button>
+                </div>
+                <div class="ai-status">Axiom is compiling, applying patches, and keeping every change reversible.</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <div class="resizer" aria-hidden="true"></div>
+
+        <main class="editor has-bottom-panel">
+          <div class="editor-groups" data-split="true">
+            <section class="editor-group">
+              <div class="editor-tabs">
+                <div class="editor-tabs-list">
+                  <button class="editor-tab is-active is-dirty" type="button"><span class="editor-tab-label">main.tex</span><span class="editor-tab-close">x</span></button>
+                  <button class="editor-tab is-dirty" type="button"><span class="editor-tab-label">method.tex</span><span class="editor-tab-close">x</span></button>
+                  <button class="editor-tab" type="button"><span class="editor-tab-label">references.bib</span><span class="editor-tab-close">x</span></button>
+                </div>
+                <div class="editor-tab-actions"><span class="agent-result-badge"><span class="agent-result-dot"></span> Axiom patch preview</span></div>
+              </div>
+              <div class="editor-surface">
+                <div class="static-editor">
+                  <div class="editor-command-strip">
+                    <span>Confirm changes - main.tex</span>
+                    <span>8 files staged by Axiom</span>
+                  </div>
+                  <div class="code-sheet">
+                    <div class="code-line"><span class="ln">116</span><span><span class="tex-command">\begin</span>{<span class="tex-env">theorem</span>}[Stability of the adaptive estimator]</span></div>
+                    <div class="code-line del"><span class="ln">117</span><span>The estimator converges quickly in the easy case.</span></div>
+                    <div class="code-line add"><span class="ln">117</span><span>The estimator is uniformly stable under bounded observation noise and delayed feedback.</span></div>
+                    <div class="code-line add"><span class="ln">118</span><span>For every horizon <span class="tex-accent">T</span>, the regret term is bounded by <span class="tex-accent">O(\sqrt{T \log T})</span>.</span></div>
+                    <div class="code-line"><span class="ln">119</span><span><span class="tex-command">\label</span>{thm:adaptive-stability}</span></div>
+                    <div class="code-line mark"><span class="ln">120</span><span><span class="tex-command">\end</span>{<span class="tex-env">theorem</span>}</span></div>
+                    <div class="code-line add"><span class="ln">121</span><span><span class="tex-command">\begin</span>{<span class="tex-env">proof</span>}</span></div>
+                    <div class="code-line add"><span class="ln">122</span><span>We decompose the update into martingale and approximation terms, then apply Lemma <span class="tex-command">\ref</span>{lem:bounded-drift}.</span></div>
+                    <div class="code-line add"><span class="ln">123</span><span>The remaining term is controlled by the concentration bound of <span class="tex-command">\cite</span>{abbasi2011improved}.</span></div>
+                    <div class="code-line add"><span class="ln">124</span><span><span class="tex-command">\end</span>{<span class="tex-env">proof</span>}</span></div>
+                    <div class="code-line"><span class="ln">125</span><span></span></div>
+                    <div class="code-line del"><span class="ln">126</span><span><span class="tex-command">\includegraphics</span>{pipeline}</span></div>
+                    <div class="code-line add"><span class="ln">126</span><span><span class="tex-command">\includegraphics</span>[width=0.92<span class="tex-command">\linewidth</span>]{figures/agent_pipeline.svg}</span></div>
+                    <div class="code-line add"><span class="ln">127</span><span><span class="tex-command">\caption</span>{Axiom-generated pipeline diagram linking data ingestion, model updates, and verification.}</span></div>
+                    <div class="code-line"><span class="ln">128</span><span><span class="tex-comment">% Axiom fixed missing citation keys and normalized theorem references.</span></span></div>
+                    <div class="code-line add"><span class="ln">129</span><span><span class="tex-command">\bibliographystyle</span>{plainnat}</span></div>
+                    <div class="code-line add"><span class="ln">130</span><span><span class="tex-command">\bibliography</span>{references}</span></div>
+                  </div>
+                  <div class="ai-undo-keep-bar">
+                    <button class="ai-undo-keep-btn" type="button">Undo Axiom edits</button>
+                    <button class="ai-undo-keep-btn is-keep" type="button">Keep changes</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div class="editor-splitter" aria-hidden="true"></div>
+
+            <section class="editor-group is-secondary">
+              <div class="editor-tabs">
+                <div class="editor-tabs-list">
+                  <button class="editor-tab is-active" type="button"><span class="editor-tab-label">main.pdf</span><span class="editor-tab-close">x</span></button>
+                </div>
+                <div class="editor-tab-actions"><span class="editor-status">SyncTeX ready</span></div>
+              </div>
+              <div class="editor-surface">
+                <div class="pdf-preview">
+                  <div class="pdf-toolbar">
+                    <span>main.pdf - Page 3 / 12</span>
+                    <span>100% - rebuilt 3s ago</span>
+                  </div>
+                  <div class="pdf-page-wrap">
+                    <article class="pdf-page">
+                      <div class="pdf-paper-title">Adaptive Estimation with Verified TeX Automation</div>
+                      <div class="pdf-authors">Axiom Research Workspace - Submission Draft</div>
+                      <div class="pdf-section-title">Theorem 2.1</div>
+                      <div class="pdf-text">The estimator is uniformly stable under bounded observation noise and delayed feedback. The proof follows by decomposing the update into martingale and approximation terms.</div>
+                      <div class="pdf-equation">R_T <= C sqrt(T log T) + O(1)</div>
+                      <div class="pdf-section-title">Generated Figure</div>
+                      <div class="pdf-figure"></div>
+                      <div class="pdf-caption">Figure 2: Axiom-generated pipeline diagram with verification checkpoints.</div>
+                      <div class="pdf-section-title">Build Result</div>
+                      <div class="pdf-text">All references resolve, bibliography entries compile, and the final PDF is ready for review.</div>
+                    </article>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section class="bottom-panel">
+            <div class="bottom-tabs">
+              <span>Terminal - latexmk</span>
+              <span>Axiom build loop</span>
+            </div>
+            <div class="terminal-lines">
+              <div><span class="terminal-info">$</span> latexmk -pdf main.tex</div>
+              <div><span class="terminal-warn">Axiom:</span> fixed undefined reference thm:stability -> thm:adaptive-stability</div>
+              <div><span class="terminal-warn">Axiom:</span> created missing BibTeX entry abbasi2011improved and regenerated figure asset</div>
+              <div><span class="terminal-success">Output written on main.pdf (12 pages). 0 errors, 0 undefined references.</span></div>
+            </div>
+          </section>
+
+          <aside class="promo-callout">
+            <div class="promo-callout-kicker">Beyond autocomplete</div>
+            <div class="promo-callout-title">Axiom edits the paper, fixes the build, and shows the diff.</div>
+            <div class="promo-callout-sub">One prompt can coordinate source edits, citations, figures, diagnostics, PDF verification, and reversible apply controls inside TeX64.</div>
+          </aside>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

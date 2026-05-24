@@ -24,7 +24,19 @@ const os = require("node:os");
 // ---------------------------------------------------------------------------
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const ELECTRON_BIN = path.join(PROJECT_ROOT, "node_modules", ".bin", "electron");
+const ELECTRON_BIN = require("electron");
+
+const closeElectronApp = async (electronApp) => {
+  if (!electronApp) return;
+  const child = typeof electronApp.process === "function" ? electronApp.process() : null;
+  await Promise.race([
+    electronApp.close().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
+  if (child && !child.killed && child.exitCode == null) {
+    child.kill("SIGKILL");
+  }
+};
 
 /** Launch the Electron app and return { electronApp, page }. */
 const launchApp = async () => {
@@ -71,6 +83,11 @@ const waitForMathField = async (page) => {
       launcher.setAttribute("aria-hidden", "true");
       launcher.style.display = "none";
     }
+    document.querySelectorAll(".modal.is-open, #announcement-modal").forEach((modal) => {
+      modal.classList.remove("is-open", "is-visible");
+      modal.setAttribute("aria-hidden", "true");
+      modal.style.display = "none";
+    });
     document.body.classList.remove("has-launcher");
 
     // Activate blocks tab by toggling CSS classes directly
@@ -202,11 +219,7 @@ test.before(async () => {
 
 test.after(async () => {
   if (app) {
-    try {
-      await app.close();
-    } catch {
-      // ignore close errors
-    }
+    await closeElectronApp(app);
   }
 });
 

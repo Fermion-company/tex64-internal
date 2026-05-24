@@ -2,9 +2,17 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
-const fetch = require("node-fetch");
+const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 const { toErrorPayload } = require("./misc-platform-utils.cjs");
+
+const fetch = async (...args) => {
+  if (typeof globalThis.fetch !== "function") {
+    throw new Error("Global fetch is unavailable. Node.js 18+ is required.");
+  }
+  return globalThis.fetch(...args);
+};
+
 const createUpdateHandlers = ({
   platformService,
   shell,
@@ -330,11 +338,12 @@ const createUpdateHandlers = ({
           message: `Failed to fetch update file: HTTP ${response.status}.`,
         };
       }
+      const responseStream = Readable.fromWeb(response.body);
       const totalBytesRaw = Number.parseInt(response.headers.get("content-length") || "", 10);
       const totalBytes = Number.isFinite(totalBytesRaw) && totalBytesRaw > 0 ? totalBytesRaw : null;
       let transferredBytes = 0;
       const hash = crypto.createHash("sha256");
-      response.body.on("data", (chunk) => {
+      responseStream.on("data", (chunk) => {
         transferredBytes += chunk?.length ?? 0;
         if (chunk) {
           hash.update(chunk);
@@ -355,7 +364,7 @@ const createUpdateHandlers = ({
           "download"
         );
       });
-      await pipeline(response.body, fs.createWriteStream(tempPath));
+      await pipeline(responseStream, fs.createWriteStream(tempPath));
       const downloadedDigest = hash.digest("hex");
       if (downloadedDigest !== expectedDigest.hex) {
         throw {
