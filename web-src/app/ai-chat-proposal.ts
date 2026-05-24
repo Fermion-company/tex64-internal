@@ -216,30 +216,30 @@ export const createUnifiedProposalCard = (
       const diffable = proposals.filter(
         (p) => !p.isBinary && getProposalType(p) !== "mkdir" && getProposalType(p) !== "rename"
       );
-      const allSamePath =
-        diffable.length > 0 && diffable.every((p) => p.path === diffable[0].path);
-      if (diffable.length === 1 || allSamePath) {
-        // One file (possibly edited several times in a single turn): show ONE
-        // net diff (first edit's original -> last edit's result) in the Monaco
-        // viewer, instead of repeating the same file as multiple sections.
-        const first = diffable[0];
-        const last = diffable[diffable.length - 1];
-        deps.showDiffModal(
-          first.originalContent ?? "",
-          last.content ?? "",
-          0,
-          {
-            title: "Confirm changes",
-            fileName: first.path,
-            submitLabel: allApplied ? "Confirm" : "Apply",
-          }
-        );
+      // Group edits by file: each file's net diff (first edit's original ->
+      // last edit's result). One file -> single Monaco diff; multiple files ->
+      // one Monaco diff per file, stacked (same engine, just repeated).
+      const byPath = new Map<string, FileDiff>();
+      for (const p of diffable) {
+        const existing = byPath.get(p.path);
+        if (existing) {
+          existing.modified = p.content ?? "";
+        } else {
+          byPath.set(p.path, {
+            fileName: p.path,
+            original: p.originalContent ?? "",
+            modified: p.content ?? "",
+          });
+        }
+      }
+      const files = [...byPath.values()];
+      if (files.length === 1) {
+        deps.showDiffModal(files[0].original, files[0].modified, 0, {
+          title: "Confirm changes",
+          fileName: files[0].fileName,
+          submitLabel: allApplied ? "Confirm" : "Apply",
+        });
       } else {
-        const files: FileDiff[] = diffable.map((p) => ({
-          fileName: p.path,
-          original: p.originalContent ?? "",
-          modified: p.content ?? "",
-        }));
         deps.showMultiFileDiff(files, {
           title: "Confirm changes",
           submitLabel: allApplied ? "Confirm" : "Apply all",

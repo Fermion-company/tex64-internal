@@ -4635,6 +4635,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  flex-shrink: 0;
+}
+.multi-diff-monaco {
+  width: 100%;
+  min-height: 60px;
 }
 .multi-diff-file-header {
   display: flex;
@@ -4648,48 +4653,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-family: "SF Mono", Menlo, Monaco, monospace;
   font-size: 12px;
   color: var(--text);
-}
-.multi-diff-editor {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  font-family: "SF Mono", Menlo, Monaco, monospace;
-  font-size: 12px;
-  line-height: 22px;
-}
-.multi-diff-col {
-  padding: 8px 12px;
-  min-width: 0;
-  overflow-x: auto;
-}
-.multi-diff-original {
-  background: rgba(0, 0, 0, 0.15);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-}
-.multi-diff-modified {
-  background: rgba(0, 0, 0, 0.1);
-}
-.multi-diff-line {
-  white-space: pre;
-  padding: 0 4px;
-  min-height: 22px;
-}
-.multi-diff-line.is-same {
-  color: var(--text-soft, rgba(226, 232, 240, 0.4));
-}
-.multi-diff-line.is-del {
-  color: var(--danger-text, #f87171);
-  background: rgba(239, 68, 68, 0.08);
-  margin: 0 -12px;
-  padding: 0 16px;
-}
-.multi-diff-line.is-add {
-  color: #86efac;
-  background: rgba(73, 194, 120, 0.08);
-  margin: 0 -12px;
-  padding: 0 16px;
-}
-.multi-diff-line.is-empty {
-  color: transparent;
 }
 
 .modal-row {
@@ -6070,9 +6033,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   background: rgba(255, 255, 255, 0.035);
   border-color: rgba(99, 102, 241, 0.15);
 }
-.ai-proposal.is-applied {
-  opacity: 0.6;
-}
 .ai-proposal.is-applied::before {
   background: #818cf8;
   opacity: 0.3;
@@ -6146,9 +6106,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .ai-proposal-file-item .diff-summary-item.is-del { grid-column: 4; text-align: center; }
 .ai-proposal-file-item:hover {
   background: rgba(255, 255, 255, 0.02);
-}
-.ai-proposal-file-item.is-applied {
-  opacity: 0.5;
 }
 .ai-proposal-file-name {
   font-family: "SF Mono", Menlo, Monaco, monospace;

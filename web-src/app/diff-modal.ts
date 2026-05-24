@@ -49,6 +49,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
   let diffModifiedModel: { setValue?: (value: string) => void; dispose?: () => void } | null =
     null;
   let diffContext: DiffContext = null;
+  let multiDiffEditors: Array<{ editor: unknown; models: unknown[] }> = [];
 
   const renderDiffSummary = (before: string, after: string) => {
     if (!(diffSummary instanceof HTMLElement)) {
@@ -188,7 +189,27 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     editorAny.updateOptions?.(options);
   };
 
+  const disposeMultiDiffEditors = () => {
+    for (const entry of multiDiffEditors) {
+      try {
+        (entry.editor as { setModel?: (m: unknown) => void; dispose?: () => void }).setModel?.(null);
+        (entry.editor as { dispose?: () => void }).dispose?.();
+      } catch {
+        // ignore disposal errors
+      }
+      for (const model of entry.models) {
+        try {
+          (model as { dispose?: () => void }).dispose?.();
+        } catch {
+          // ignore disposal errors
+        }
+      }
+    }
+    multiDiffEditors = [];
+  };
+
   const resetDiffEditor = () => {
+    disposeMultiDiffEditors();
     diffOriginalModel?.dispose?.();
     diffModifiedModel?.dispose?.();
     diffOriginalModel = null;
@@ -318,8 +339,6 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     });
   };
 
-  /* ── Multi-file HTML diff (Pattern B: vertical concatenation) ── */
-
   const computeDiffCounts = (original: string, modified: string) => {
     const bLines = original.trimEnd().length ? original.trimEnd().split(/\r?\n/) : [""];
     const aLines = modified.trimEnd().length ? modified.trimEnd().split(/\r?\n/) : [""];
@@ -330,94 +349,47 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     return { adds, dels, diffLines: lines };
   };
 
-  const renderSideBySideDiff = (diffLines: ReturnType<typeof buildLineDiff>) => {
-    // Build left (original) and right (modified) line arrays
-    const leftLines: { text: string; type: "same" | "del" | "empty" }[] = [];
-    const rightLines: { text: string; type: "same" | "add" | "empty" }[] = [];
-    let li = 0;
-    let ri = 0;
-    for (const entry of diffLines) {
-      if (entry.type === "same") {
-        li++;
-        ri++;
-        leftLines.push({ text: entry.line, type: "same" });
-        rightLines.push({ text: entry.line, type: "same" });
-      } else if (entry.type === "del") {
-        li++;
-        leftLines.push({ text: entry.line, type: "del" });
-        rightLines.push({ text: "", type: "empty" });
-      } else {
-        ri++;
-        leftLines.push({ text: "", type: "empty" });
-        rightLines.push({ text: entry.line, type: "add" });
-      }
-    }
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "multi-diff-editor";
-    const leftCol = document.createElement("div");
-    leftCol.className = "multi-diff-col multi-diff-original";
-    const rightCol = document.createElement("div");
-    rightCol.className = "multi-diff-col multi-diff-modified";
-    let firstChangeLine: HTMLElement | null = null;
-
-    for (let i = 0; i < leftLines.length; i++) {
-      const ll = leftLines[i];
-      const rl = rightLines[i];
-      const leftDiv = document.createElement("div");
-      leftDiv.className = `multi-diff-line is-${ll.type}`;
-      leftDiv.textContent = ll.type !== "empty" ? ll.text : "";
-      const rightDiv = document.createElement("div");
-      rightDiv.className = `multi-diff-line is-${rl.type}`;
-      rightDiv.textContent = rl.type !== "empty" ? rl.text : "";
-      leftCol.appendChild(leftDiv);
-      rightCol.appendChild(rightDiv);
-      if (!firstChangeLine && (ll.type !== "same" || rl.type !== "same")) {
-        firstChangeLine = leftDiv;
-      }
-    }
-    wrapper.append(leftCol, rightCol);
-    return { element: wrapper, firstChangeLine };
-  };
-
   const showMultiFileDiff = (
     files: FileDiff[],
     options?: { title?: string; submitLabel?: string }
   ) => {
+    const monacoApi = deps.getMonacoApi();
     const container = blockDiffContainer;
-    if (!container) return;
+    if (!monacoApi || !container) return;
+    const monacoApiAny = monacoApi as {
+      editor: {
+        createDiffEditor: (el: HTMLElement, options: unknown) => unknown;
+        createModel: (val: string, lang: string) => unknown;
+      };
+    };
     if (!diffContext) diffContext = { type: "aiApply", proposalIds: [] };
 
-    // Open modal
     if (diffModal) {
       diffModal.classList.add("is-open");
       diffModal.setAttribute("aria-hidden", "false");
     }
-    // Dispose any Monaco editor
+    // Dispose any existing editors (single + multi) and clear the container.
     resetDiffEditor();
 
-    // Header
     if (diffTitle instanceof HTMLElement) {
       diffTitle.textContent = options?.title ?? "Confirm changes";
     }
     if (diffFileName instanceof HTMLElement) {
-      diffFileName.textContent = `${files.length}file`;
+      diffFileName.textContent = files.length === 1 ? files[0].fileName : `${files.length} files`;
     }
     if (diffModalSubmit instanceof HTMLButtonElement) {
       diffModalSubmit.textContent = options?.submitLabel ?? defaultDiffSubmitLabel;
     }
 
-    // Compute totals
     let totalAdds = 0;
     let totalDels = 0;
     const fileDiffs = files.map((f) => {
-      const { adds, dels, diffLines } = computeDiffCounts(f.original, f.modified);
+      const { adds, dels } = computeDiffCounts(f.original, f.modified);
       totalAdds += adds;
       totalDels += dels;
-      return { ...f, adds, dels, diffLines };
+      return { ...f, adds, dels };
     });
 
-    // Render summary
     if (diffSummary instanceof HTMLElement) {
       diffSummary.textContent = "";
       if (totalAdds > 0 || totalDels > 0) {
@@ -431,17 +403,23 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       }
     }
 
-    // Render file sections
     container.innerHTML = "";
     const scrollArea = document.createElement("div");
     scrollArea.className = "multi-diff-scroll";
-    let globalFirstChange: HTMLElement | null = null;
+    container.appendChild(scrollArea);
 
+    // Cap one file so a huge diff can't dominate; outer scroll spans files.
+    const MAX_FILE_HEIGHT = Math.round(
+      (typeof window !== "undefined" ? window.innerHeight : 800) * 0.7
+    );
+
+    // One Monaco diff editor per file — identical engine to the single-file
+    // view, just stacked. Monaco handles vertical scrolling, colours, and
+    // folding of unchanged regions natively.
     for (const fd of fileDiffs) {
       const section = document.createElement("div");
       section.className = "multi-diff-section";
 
-      // File header
       const fileHeader = document.createElement("div");
       fileHeader.className = "multi-diff-file-header";
       const nameSpan = document.createElement("span");
@@ -464,23 +442,70 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       fileHeader.append(nameSpan, countsSpan);
       section.appendChild(fileHeader);
 
-      // Side-by-side diff
-      const { element, firstChangeLine } = renderSideBySideDiff(fd.diffLines);
-      section.appendChild(element);
+      const host = document.createElement("div");
+      host.className = "multi-diff-monaco";
+      section.appendChild(host);
       scrollArea.appendChild(section);
 
-      if (!globalFirstChange && firstChangeLine) {
-        globalFirstChange = firstChangeLine;
-      }
-    }
-
-    container.appendChild(scrollArea);
-
-    // Scroll to first change
-    if (globalFirstChange) {
-      requestAnimationFrame(() => {
-        globalFirstChange!.scrollIntoView({ block: "center" });
+      const lang = detectLanguage(fd.fileName);
+      const original = monacoApiAny.editor.createModel(fd.original, lang);
+      const modified = monacoApiAny.editor.createModel(fd.modified, lang);
+      const editor = monacoApiAny.editor.createDiffEditor(host, {
+        originalEditable: false,
+        readOnly: true,
+        renderSideBySide: true,
+        useInlineViewWhenSpaceIsLimited: false,
+        renderIndicators: true,
+        renderMarginRevertIcon: false,
+        diffWordWrap: "off",
+        wordWrap: "off",
+        hideUnchangedRegions: { enabled: true },
+        scrollBeyondLastLine: false,
+        minimap: { enabled: false },
+        renderOverviewRuler: false,
+        overviewRulerBorder: false,
+        occurrencesHighlight: false,
+        selectionHighlight: false,
+        lineNumbers: "on",
+        automaticLayout: true,
+        fontSize: 12,
+        lineHeight: 20,
+        fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
       });
+      (editor as { setModel?: (m: { original: unknown; modified: unknown }) => void }).setModel?.({
+        original,
+        modified,
+      });
+      multiDiffEditors.push({ editor, models: [original, modified] });
+
+      // Size each editor to its (folded) content so there's no inner scroll —
+      // the outer .multi-diff-scroll is the only scroller and every file's last
+      // line stays reachable.
+      const diffEditor = editor as {
+        getModifiedEditor?: () => {
+          getContentHeight?: () => number;
+          onDidContentSizeChange?: (cb: () => void) => void;
+        };
+        getOriginalEditor?: () => {
+          getContentHeight?: () => number;
+          onDidContentSizeChange?: (cb: () => void) => void;
+        };
+        onDidUpdate?: (cb: () => void) => void;
+        layout?: () => void;
+      };
+      const fitHeight = () => {
+        const mh = diffEditor.getModifiedEditor?.()?.getContentHeight?.() ?? 0;
+        const oh = diffEditor.getOriginalEditor?.()?.getContentHeight?.() ?? 0;
+        const h = Math.max(mh, oh);
+        if (h > 0) {
+          host.style.height = `${Math.min(h, MAX_FILE_HEIGHT)}px`;
+          diffEditor.layout?.();
+        }
+      };
+      diffEditor.onDidUpdate?.(fitHeight);
+      diffEditor.getModifiedEditor?.()?.onDidContentSizeChange?.(fitHeight);
+      diffEditor.getOriginalEditor?.()?.onDidContentSizeChange?.(fitHeight);
+      fitHeight();
     }
   };
 

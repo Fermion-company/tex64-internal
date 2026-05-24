@@ -167,33 +167,37 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
         reviewButton.className = "panel-button ghost";
         reviewButton.textContent = "View diff";
         reviewButton.addEventListener("click", (event) => {
-            var _a, _b;
+            var _a, _b, _c;
             event.stopPropagation();
             deps.setPendingProposalIds(proposalIds);
             deps.setDiffContext({ type: "aiApply", proposalIds });
             const diffable = proposals.filter((p) => !p.isBinary && getProposalType(p) !== "mkdir" && getProposalType(p) !== "rename");
-            const allSamePath = diffable.length > 0 && diffable.every((p) => p.path === diffable[0].path);
-            if (diffable.length === 1 || allSamePath) {
-                // One file (possibly edited several times in a single turn): show ONE
-                // net diff (first edit's original -> last edit's result) in the Monaco
-                // viewer, instead of repeating the same file as multiple sections.
-                const first = diffable[0];
-                const last = diffable[diffable.length - 1];
-                deps.showDiffModal((_a = first.originalContent) !== null && _a !== void 0 ? _a : "", (_b = last.content) !== null && _b !== void 0 ? _b : "", 0, {
+            // Group edits by file: each file's net diff (first edit's original ->
+            // last edit's result). One file -> single Monaco diff; multiple files ->
+            // one Monaco diff per file, stacked (same engine, just repeated).
+            const byPath = new Map();
+            for (const p of diffable) {
+                const existing = byPath.get(p.path);
+                if (existing) {
+                    existing.modified = (_a = p.content) !== null && _a !== void 0 ? _a : "";
+                }
+                else {
+                    byPath.set(p.path, {
+                        fileName: p.path,
+                        original: (_b = p.originalContent) !== null && _b !== void 0 ? _b : "",
+                        modified: (_c = p.content) !== null && _c !== void 0 ? _c : "",
+                    });
+                }
+            }
+            const files = [...byPath.values()];
+            if (files.length === 1) {
+                deps.showDiffModal(files[0].original, files[0].modified, 0, {
                     title: "Confirm changes",
-                    fileName: first.path,
+                    fileName: files[0].fileName,
                     submitLabel: allApplied ? "Confirm" : "Apply",
                 });
             }
             else {
-                const files = diffable.map((p) => {
-                    var _a, _b;
-                    return ({
-                        fileName: p.path,
-                        original: (_a = p.originalContent) !== null && _a !== void 0 ? _a : "",
-                        modified: (_b = p.content) !== null && _b !== void 0 ? _b : "",
-                    });
-                });
                 deps.showMultiFileDiff(files, {
                     title: "Confirm changes",
                     submitLabel: allApplied ? "Confirm" : "Apply all",
