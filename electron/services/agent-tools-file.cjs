@@ -707,6 +707,36 @@ const submitEditedContent = async ({
   };
 };
 
+// Reject edits that make an inserted/replaced line byte-identical to an
+// immediately adjacent line - the signature of an accidental duplication
+// (e.g. "fixing" a stray line by overwriting it with a copy of its neighbor).
+// Only substantive lines (>= 24 trimmed chars) are flagged, so short tokens
+// like "}", "\\", or "\end{...}" never trip it.
+const ADJACENT_DUP_MIN_LEN = 24;
+const findIntroducedAdjacentDuplicate = (lines, blockStartIndex, blockLength) => {
+  if (!Array.isArray(lines) || blockLength <= 0) return null;
+  const substantive = (s) => typeof s === "string" && s.trim().length >= ADJACENT_DUP_MIN_LEN;
+  const firstNew = lines[blockStartIndex];
+  const before = lines[blockStartIndex - 1];
+  if (substantive(firstNew) && firstNew === before) {
+    return { side: "above", line: firstNew };
+  }
+  const lastNew = lines[blockStartIndex + blockLength - 1];
+  const after = lines[blockStartIndex + blockLength];
+  if (substantive(lastNew) && lastNew === after) {
+    return { side: "below", line: lastNew };
+  }
+  return null;
+};
+const adjacentDuplicateError = (dup) =>
+  "DUPLICATE LINE REJECTED: this edit would make a line identical to the line immediately " +
+  dup.side +
+  " it:\n  \"" +
+  (dup.line.length > 80 ? dup.line.slice(0, 80) + "..." : dup.line) +
+  "\"\nThis is almost always an accidental duplication (for example, replacing a stray " +
+  "line with a copy of its neighbor). To DELETE a stray or undefined line, use delete_lines. " +
+  "To change content, write distinct correct text - never copy an adjacent line.";
+
 const handleReplaceLines = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);
   const summary = typeof args.summary === "string" ? args.summary : "";
@@ -757,6 +787,10 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
     ...replacementLines,
     ...originalLines.slice(endIndex + 1),
   ];
+  const replaceDup = findIntroducedAdjacentDuplicate(updatedLines, startIndex, replacementLines.length);
+  if (replaceDup) {
+    return { error: adjacentDuplicateError(replaceDup) };
+  }
   let updatedContent = updatedLines.join("\n");
   if (newline === "\r\n") {
     updatedContent = updatedContent.replace(/\n/g, "\r\n");
@@ -829,6 +863,10 @@ const handleInsertLines = async (service, args, policy, conversationId) => {
     ...insertionLines,
     ...originalLines.slice(afterLine),
   ];
+  const insertDup = findIntroducedAdjacentDuplicate(updatedLines, afterLine, insertionLines.length);
+  if (insertDup) {
+    return { error: adjacentDuplicateError(insertDup) };
+  }
   let updatedContent = updatedLines.join("\n");
   if (newline === "\r\n") {
     updatedContent = updatedContent.replace(/\n/g, "\r\n");

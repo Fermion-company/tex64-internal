@@ -1,12 +1,13 @@
 export const initAiChatEventBindings = (params) => {
     const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
     let sendGuard = false;
-    const handleSend = () => {
+    // Core submit path shared by the send button, Enter, and the quick-action
+    // chips. clearInput is false for quick actions so a half-typed draft is kept.
+    const submitMessage = (rawText, opts) => {
         if (sendGuard)
             return;
-        if (!(aiInput instanceof HTMLTextAreaElement))
-            return;
-        const text = aiInput.value.trim();
+        const clearInput = (opts === null || opts === void 0 ? void 0 : opts.clearInput) !== false;
+        const text = typeof rawText === "string" ? rawText.trim() : "";
         const pendingAttachments = getPendingAttachments();
         const hasAttachments = pendingAttachments.length > 0;
         if (!text && !hasAttachments)
@@ -51,8 +52,10 @@ export const initAiChatEventBindings = (params) => {
         const userLabel = text || "The image has been sent.";
         const attachmentNote = hasAttachments ? `\n[attached images ${pendingAttachments.length}]` : "";
         appendMessage({ role: "user", text: `${userLabel}${attachmentNote}` }, chat.id);
-        aiInput.value = "";
-        autoGrow();
+        if (clearInput && aiInput instanceof HTMLTextAreaElement) {
+            aiInput.value = "";
+            autoGrow();
+        }
         updateContextBar();
         const requestParts = [];
         if (text) {
@@ -76,6 +79,11 @@ export const initAiChatEventBindings = (params) => {
         }
         sendGuard = false;
     };
+    const handleSend = () => {
+        if (!(aiInput instanceof HTMLTextAreaElement))
+            return;
+        submitMessage(aiInput.value, { clearInput: true });
+    };
     if (aiSend instanceof HTMLButtonElement)
         aiSend.addEventListener("click", handleSend);
     if (aiInput instanceof HTMLTextAreaElement) {
@@ -90,8 +98,8 @@ export const initAiChatEventBindings = (params) => {
             const files = (_b = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.files) !== null && _b !== void 0 ? _b : null;
             if (!files || files.length === 0)
                 return;
-            const hasImage = Array.from(files).some((file) => file.type.startsWith("image/"));
-            if (!hasImage)
+            const hasSupported = Array.from(files).some((file) => file.type.startsWith("image/") || file.type === "application/pdf" || /\.pdf$/i.test(file.name));
+            if (!hasSupported)
                 return;
             event.preventDefault();
             void addImageFiles(files);
@@ -136,8 +144,8 @@ export const initAiChatEventBindings = (params) => {
             const files = (_b = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.files) !== null && _b !== void 0 ? _b : null;
             if (!files || files.length === 0)
                 return;
-            const hasImage = Array.from(files).some((file) => file.type.startsWith("image/"));
-            if (!hasImage)
+            const hasSupported = Array.from(files).some((file) => file.type.startsWith("image/") || file.type === "application/pdf" || /\.pdf$/i.test(file.name));
+            if (!hasSupported)
                 return;
             event.preventDefault();
             void addImageFiles(files);

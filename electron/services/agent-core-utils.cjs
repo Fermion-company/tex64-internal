@@ -9,6 +9,7 @@ const TOOL_STATUS_LABELS = {
   read_section: "Reading section",
   replace_section: "Rewriting section",
   append_to_section: "Extending section",
+  find_math_region: "Locating equation",
   replace_lines: "Replacing lines",
   insert_lines: "Inserting lines",
   delete_lines: "Deleting lines",

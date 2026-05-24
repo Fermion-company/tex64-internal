@@ -216,15 +216,21 @@ export const createUnifiedProposalCard = (
       const diffable = proposals.filter(
         (p) => !p.isBinary && getProposalType(p) !== "mkdir" && getProposalType(p) !== "rename"
       );
-      if (diffable.length === 1) {
-        const p = diffable[0];
+      const allSamePath =
+        diffable.length > 0 && diffable.every((p) => p.path === diffable[0].path);
+      if (diffable.length === 1 || allSamePath) {
+        // One file (possibly edited several times in a single turn): show ONE
+        // net diff (first edit's original -> last edit's result) in the Monaco
+        // viewer, instead of repeating the same file as multiple sections.
+        const first = diffable[0];
+        const last = diffable[diffable.length - 1];
         deps.showDiffModal(
-          p.originalContent ?? "",
-          p.content ?? "",
+          first.originalContent ?? "",
+          last.content ?? "",
           0,
           {
             title: "Confirm changes",
-            fileName: p.path,
+            fileName: first.path,
             submitLabel: allApplied ? "Confirm" : "Apply",
           }
         );

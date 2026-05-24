@@ -4659,6 +4659,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .multi-diff-col {
   padding: 8px 12px;
   min-width: 0;
+  overflow-x: auto;
 }
 .multi-diff-original {
   background: rgba(0, 0, 0, 0.15);

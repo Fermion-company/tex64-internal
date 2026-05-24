@@ -115,6 +115,7 @@ const buildTools = (service, conversationId, policy) => {
     handleAppendToSection,
   } = require("../agent-tools-latex.cjs");
   const { handleRunCommand } = require("../agent-tools-file-utils.cjs");
+  const { handleFindMathRegion } = require("../agent-tools-math.cjs");
 
   const rootPath = service.workspace.getRootPath() || "";
 
@@ -313,6 +314,29 @@ const buildTools = (service, conversationId, policy) => {
       required: ["path", "content"],
     },
     async (args) => handleAppendToSection(service, args, policy, conversationId),
+  );
+
+  // ---- Math region location ----
+  const findMathRegionTool = make(
+    "find_math_region",
+    "Locate the LaTeX math construct that contains a given line: a math " +
+      "environment (equation / align / gather / multline / ...), a display " +
+      "block (\\[ \\] or $$ $$), or inline math ($ $ or \\( \\)). Returns " +
+      "{ found, kind, environment, startLine, endLine, content }. Use this " +
+      "BEFORE filling in derivation steps or rewriting an equation when you " +
+      "only know the cursor/selection line: it gives you the full formula and " +
+      "the exact range to pass to replace_lines. Input: { path, line, column? } " +
+      "(line is 1-based).",
+    {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        line: { type: "number", description: "1-based line inside or near the formula" },
+        column: { type: "number", description: "1-based column (optional; disambiguates inline $...$)" },
+      },
+      required: ["path", "line"],
+    },
+    async (args) => handleFindMathRegion(service, args, policy, conversationId),
   );
 
   // ---- Whole-file write (last resort) ----
@@ -601,6 +625,7 @@ const buildTools = (service, conversationId, policy) => {
     readSectionTool,
     replaceSectionTool,
     appendToSectionTool,
+    findMathRegionTool,
     replaceLinesTool,
     insertLinesTool,
     deleteLinesTool,
