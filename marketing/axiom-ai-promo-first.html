@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Axiom First Promo Restore</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: rgba(28, 33, 40, 0.82);
+        --panel-2: rgba(17, 22, 30, 0.94);
+        --line: rgba(255,255,255,.075);
+        --line-strong: rgba(255,255,255,.12);
+        --text: #c9d1d9;
+        --muted: #6e7681;
+        --soft: #8b949e;
+        --accent: #797ef9;
+        --accent-2: #a2a7fc;
+        --green: #6ee7a8;
+        --red: #fca5a5;
+        --mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 25% -8%, rgba(121,126,249,.14), transparent 38%),
+          radial-gradient(circle at 90% 34%, rgba(59,130,246,.09), transparent 36%),
+          #0d1117;
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .app {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: 33px 1fr;
+      }
+
+      .traffic {
+        position: absolute;
+        top: 10px;
+        left: 14px;
+        display: flex;
+        gap: 8px;
+        z-index: 5;
+      }
+
+      .traffic span {
+        width: 12px;
+        height: 12px;
+        border-radius: 99px;
+      }
+
+      .traffic span:nth-child(1) { background: #ff5f57; }
+      .traffic span:nth-child(2) { background: #ffbd2e; }
+      .traffic span:nth-child(3) { background: #28c840; }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        background: rgba(28,33,40,.74);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding-left: 78px;
+        font-weight: 750;
+        font-size: 13px;
+      }
+
+      .brand-icon,
+      .axiom-icon {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        color: #aeb4ff;
+        border: 1px solid rgba(121,126,249,.28);
+        background: rgba(121,126,249,.13);
+      }
+
+      .top-spacer { flex: 1; }
+
+      .promo-strip {
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 11px;
+        border-radius: 6px;
+        border: 1px solid rgba(121,126,249,.24);
+        background: rgba(121,126,249,.08);
+        color: #c7d2fe;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding-right: 10px;
+      }
+
+      .btn {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        padding: 0 8px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        color: var(--text);
+        background: rgba(255,255,255,.025);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .05em;
+      }
+
+      .play {
+        width: 30px;
+        padding: 0;
+        color: #a2a7fc;
+        border-color: rgba(121,126,249,.45);
+        background: rgba(121,126,249,.18);
+      }
+
+      .main {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 52px 480px 4px 1fr;
+      }
+
+      .rail {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 8px;
+        border-right: 1px solid var(--line);
+        background: rgba(255,255,255,.02);
+      }
+
+      .rail-group {
+        display: grid;
+        gap: 3px;
+      }
+
+      .rail-btn {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        color: var(--muted);
+        position: relative;
+      }
+
+      .rail-btn.active {
+        color: var(--text);
+        background: rgba(92,156,255,.08);
+      }
+
+      .rail-btn.active::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+        border-radius: 2px;
+        background: var(--accent);
+      }
+
+      .rail-btn.alert {
+        color: #ff7b72;
+        background: rgba(248,81,73,.14);
+        box-shadow: inset 0 0 0 1px rgba(248,81,73,.35);
+      }
+
+      .ai-panel {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        border-right: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,.026), rgba(255,255,255,.01));
+      }
+
+      .ai-top {
+        height: 57px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255,255,255,.015);
+      }
+
+      .ai-title {
+        flex: 1;
+        font-size: 14px;
+        font-weight: 780;
+      }
+
+      .model {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 23px;
+        padding: 0 8px;
+        border-radius: 6px;
+        color: #c7d2fe;
+        background: rgba(121,126,249,.1);
+        border: 1px solid rgba(121,126,249,.22);
+        font-size: 10.5px;
+        font-weight: 700;
+      }
+
+      .running {
+        color: #93c5fd;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .meter {
+        width: 17px;
+        height: 17px;
+        border-radius: 99px;
+        background: conic-gradient(#797ef9 0 78%, rgba(255,255,255,.08) 0);
+        position: relative;
+      }
+
+      .meter::after {
+        content: "";
+        position: absolute;
+        inset: 3px;
+        border-radius: inherit;
+        background: #111722;
+      }
+
+      .plus {
+        color: var(--soft);
+        font-size: 20px;
+      }
+
+      .chat {
+        min-height: 0;
+        overflow: hidden;
+        padding: 18px 18px 14px;
+      }
+
+      .msg {
+        display: flex;
+        margin-bottom: 13px;
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+
+      .msg.user {
+        justify-content: flex-end;
+        padding-left: 76px;
+      }
+
+      .bubble {
+        max-width: 100%;
+        padding: 12px 16px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.07));
+        border: 1px solid rgba(255,255,255,.065);
+        box-shadow: 0 12px 30px rgba(0,0,0,.16);
+      }
+
+      .assistant strong {
+        color: #eef2ff;
+      }
+
+      .caps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin: 10px 0 12px;
+      }
+
+      .cap {
+        padding: 8px 9px;
+        border-radius: 7px;
+        border: 1px solid rgba(255,255,255,.075);
+        background: rgba(255,255,255,.035);
+        font-size: 11px;
+        line-height: 1.28;
+        color: rgba(226,232,240,.78);
+      }
+
+      .cap b {
+        display: block;
+        margin-bottom: 3px;
+        color: #f8fafc;
+        font-size: 11.5px;
+      }
+
+      .tool-log {
+        margin: 0 0 13px;
+        padding: 8px 10px;
+        color: rgba(191,219,254,.78);
+        background: rgba(59,130,246,.075);
+        border: 1px solid rgba(59,130,246,.16);
+        border-radius: 7px;
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.52;
+      }
+
+      .proposal {
+        padding: 10px 13px;
+        border-radius: 7px;
+        border: 1px solid rgba(255,255,255,.1);
+        background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 18px 38px rgba(0,0,0,.22);
+      }
+
+      .proposal::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: linear-gradient(180deg, #818cf8, #6366f1);
+      }
+
+      .proposal-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 7px;
+      }
+
+      .proposal-title {
+        flex: 1;
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+
+      .badge {
+        padding: 2px 8px;
+        border-radius: 99px;
+        color: #86efac;
+        background: rgba(34,197,94,.12);
+        border: 1px solid rgba(34,197,94,.2);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .files {
+        display: grid;
+        grid-template-columns: 1fr auto auto auto;
+        gap: 2px 7px;
+        align-items: center;
+        padding: 2px 0 8px 20px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+      }
+
+      .fname {
+        color: var(--soft);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .fbadge {
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: rgba(99,102,241,.1);
+        border: 1px solid rgba(99,102,241,.16);
+        color: #a5b4fc;
+        font-size: 9px;
+      }
+
+      .add {
+        min-width: 33px;
+        text-align: center;
+        color: #86efac;
+        font-weight: 800;
+      }
+
+      .del {
+        min-width: 33px;
+        text-align: center;
+        color: var(--red);
+        font-weight: 800;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .small-btn {
+        height: 27px;
+        padding: 0 11px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,.1);
+        background: rgba(255,255,255,.045);
+        color: var(--text);
+        font-size: 11px;
+      }
+
+      .input-area {
+        padding: 8px 14px 12px;
+        border-top: 1px solid var(--line);
+        background: rgba(0,0,0,.12);
+      }
+
+      .chips {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 6px;
+      }
+
+      .chip {
+        min-width: 0;
+        padding: 3px 9px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,.08);
+        background: rgba(255,255,255,.055);
+        color: var(--soft);
+        font-size: 11px;
+      }
+
+      .chip.file { flex: 1; }
+
+      .attachment {
+        width: fit-content;
+        margin-bottom: 7px;
+        padding: 3px 9px;
+        border-radius: 99px;
+        border: 1px solid rgba(147,197,253,.28);
+        background: rgba(59,130,246,.12);
+        color: #bfdbfe;
+        font-size: 11px;
+      }
+
+      .input {
+        min-height: 58px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 10px 8px 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,.08);
+        background: rgba(255,255,255,.04);
+      }
+
+      .round {
+        width: 31px;
+        height: 31px;
+        display: grid;
+        place-items: center;
+        border-radius: 99px;
+        background: rgba(255,255,255,.07);
+        color: var(--soft);
+      }
+
+      .input-text {
+        flex: 1;
+        color: #e5e7eb;
+        font-size: 13px;
+        line-height: 1.42;
+      }
+
+      .stop {
+        color: #f87171;
+        background: rgba(239,68,68,.12);
+      }
+
+      .send {
+        color: #e5e7eb;
+        background: rgba(255,255,255,.11);
+      }
+
+      .status {
+        margin-top: 7px;
+        padding: 7px 10px;
+        border-radius: 7px;
+        color: #bfdbfe;
+        border: 1px solid rgba(59,130,246,.16);
+        background: rgba(59,130,246,.08);
+        font-size: 11px;
+      }
+
+      .resizer {
+        background: var(--line);
+      }
+
+      .editor {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: 1fr 144px;
+        background: linear-gradient(180deg, #191d24, #0d1117 36%);
+        position: relative;
+      }
+
+      .groups {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(520px, 1.05fr) 8px minmax(420px, .95fr);
+      }
+
+      .group {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: 34px 1fr;
+      }
+
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--line);
+        background: rgba(28,33,40,.75);
+      }
+
+      .tab {
+        width: 100px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 11px;
+        border-right: 1px solid var(--line);
+        border-top: 2px solid transparent;
+        color: var(--soft);
+        font-size: 11px;
+      }
+
+      .tab.active {
+        border-top-color: var(--accent);
+        color: var(--text);
+        background: #0d1117;
+      }
+
+      .tab-wide {
+        flex: 1;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        padding-right: 12px;
+      }
+
+      .patch-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 11px;
+        border-radius: 7px;
+        color: #bbf7d0;
+        border: 1px solid rgba(34,197,94,.24);
+        background: rgba(34,197,94,.09);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 99px;
+        background: #22c55e;
+      }
+
+      .surface {
+        position: relative;
+        overflow: hidden;
+        background: #0d1117;
+      }
+
+      .editor-strip,
+      .pdf-strip {
+        height: 33px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 13px;
+        color: var(--soft);
+        border-bottom: 1px solid var(--line);
+        background: rgba(255,255,255,.025);
+        font-size: 11px;
+      }
+
+      .code {
+        padding: 15px 0 18px;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.72;
+      }
+
+      .code-line {
+        display: grid;
+        grid-template-columns: 48px 1fr;
+        gap: 14px;
+        padding: 0 18px;
+        white-space: pre;
+      }
+
+      .ln {
+        color: rgba(139,148,158,.55);
+        text-align: right;
+      }
+
+      .code-add {
+        color: #d1fae5;
+        background: rgba(34,197,94,.1);
+        box-shadow: inset 3px 0 0 rgba(34,197,94,.62);
+      }
+
+      .code-del {
+        color: #fecaca;
+        background: rgba(248,81,73,.11);
+        box-shadow: inset 3px 0 0 rgba(248,81,73,.6);
+      }
+
+      .code-mark {
+        background: rgba(121,126,249,.08);
+      }
+
+      .cmd { color: #4fc1ff; }
+      .env { color: #dcdcaa; }
+      .comment { color: #6a9955; }
+      .math { color: #a2a7fc; }
+
+      .undo {
+        position: absolute;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,.1);
+        background: rgba(30,30,46,.95);
+        box-shadow: 0 8px 18px rgba(0,0,0,.28);
+      }
+
+      .undo button {
+        min-width: 122px;
+        height: 36px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,.12);
+        background: rgba(255,255,255,.06);
+        color: var(--text);
+      }
+
+      .undo .keep {
+        color: #4ade80;
+        border-color: rgba(34,197,94,.3);
+        background: rgba(34,197,94,.15);
+      }
+
+      .split {
+        position: relative;
+      }
+
+      .split::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 1px;
+        background: var(--line);
+      }
+
+      .pdf {
+        height: 100%;
+        display: grid;
+        grid-template-rows: 33px 1fr;
+        background: #0f141c;
+      }
+
+      .pdf-body {
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background:
+          linear-gradient(45deg, rgba(255,255,255,.018) 25%, transparent 25%),
+          linear-gradient(-45deg, rgba(255,255,255,.018) 25%, transparent 25%),
+          #111827;
+        background-size: 16px 16px;
+      }
+
+      .page {
+        width: min(86%, 520px);
+        aspect-ratio: .72;
+        padding: 40px 44px;
+        border-radius: 3px;
+        background: #f8fafc;
+        color: #111827;
+        box-shadow: 0 28px 62px rgba(0,0,0,.45);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      .paper-title {
+        text-align: center;
+        font-size: 24px;
+        line-height: 1.18;
+        font-weight: 800;
+        margin-bottom: 18px;
+      }
+
+      .authors {
+        text-align: center;
+        color: #475569;
+        font-size: 11px;
+        margin-bottom: 22px;
+      }
+
+      .section {
+        margin: 14px 0 8px;
+        font-size: 13px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+      }
+
+      .pdf-text {
+        font-size: 11.2px;
+        line-height: 1.56;
+        color: #1f2937;
+      }
+
+      .eq {
+        margin: 16px 0;
+        padding: 12px;
+        text-align: center;
+        border-top: 1px solid #d8dee9;
+        border-bottom: 1px solid #d8dee9;
+        font-size: 15px;
+      }
+
+      .figure {
+        margin: 16px auto 8px;
+        width: 80%;
+        height: 92px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        background:
+          linear-gradient(90deg, rgba(121,126,249,.14), rgba(20,184,166,.14)),
+          #e5e7eb;
+        position: relative;
+      }
+
+      .figure::before,
+      .figure::after {
+        content: "";
+        position: absolute;
+        top: 20px;
+        width: 82px;
+        height: 48px;
+        border-radius: 5px;
+      }
+
+      .figure::before {
+        left: 22px;
+        background: rgba(15,23,42,.72);
+      }
+
+      .figure::after {
+        right: 22px;
+        background: rgba(20,184,166,.76);
+      }
+
+      .caption {
+        text-align: center;
+        color: #475569;
+        font-size: 9.5px;
+      }
+
+      .terminal {
+        border-top: 1px solid var(--line);
+        background: rgba(8,12,18,.94);
+        display: grid;
+        grid-template-rows: 34px 1fr;
+      }
+
+      .term-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px;
+        color: var(--soft);
+        border-bottom: 1px solid var(--line);
+        font-size: 11px;
+      }
+
+      .term-lines {
+        padding: 8px 14px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        line-height: 1.55;
+      }
+
+      .info { color: #93c5fd; }
+      .warn { color: #fde68a; }
+      .success { color: #86efac; }
+
+      .callout {
+        position: absolute;
+        top: 58px;
+        right: 34px;
+        z-index: 4;
+        width: 360px;
+        padding: 16px 18px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,.1);
+        background: rgba(13,17,23,.72);
+        backdrop-filter: blur(18px) saturate(1.22);
+        box-shadow: 0 24px 54px rgba(0,0,0,.34);
+      }
+
+      .callout .kicker {
+        color: #86efac;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .callout .title {
+        margin-top: 6px;
+        color: #f8fafc;
+        font-size: 24px;
+        line-height: 1.12;
+        font-weight: 900;
+      }
+
+      .callout .sub {
+        margin-top: 8px;
+        color: rgba(203,213,225,.74);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+
+      svg {
+        stroke: currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-icon">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke-width="1.8"><path d="M12 4L20 12L12 20L4 12Z"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+          </span>
+          TeX64
+        </div>
+        <div class="top-spacer"></div>
+        <div class="top-actions">
+          <div class="promo-strip">Axiom autonomous TeX agent</div>
+          <div class="btn">Save</div>
+          <div class="btn">Format</div>
+          <div class="btn">SyncTeX</div>
+          <div class="btn play">↻</div>
+        </div>
+      </header>
+
+      <main class="main">
+        <aside class="rail">
+          <div class="rail-group">
+            <div class="rail-btn">⌷</div>
+            <div class="rail-btn">⌕</div>
+            <div class="rail-btn">☷</div>
+            <div class="rail-btn">⌁</div>
+            <div class="rail-btn active">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke-width="1.6"><path d="M12 4L20 12L12 20L4 12Z"/><ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" opacity=".4"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>
+            </div>
+            <div class="rail-btn alert">△</div>
+            <div class="rail-btn">⌘</div>
+          </div>
+          <div class="rail-group">
+            <div class="rail-btn">♡</div>
+            <div class="rail-btn">⚙</div>
+          </div>
+        </aside>
+
+        <section class="ai-panel">
+          <div class="ai-top">
+            <span class="axiom-icon">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke-width="1.7"><path d="M12 4L20 12L12 20L4 12Z"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <span class="ai-title">Axiom</span>
+            <span class="model">Axiom 0.9.1 Pro⌄</span>
+            <span class="running">editing project</span>
+            <span class="meter"></span>
+            <span class="plus">+</span>
+          </div>
+
+          <div class="chat">
+            <div class="msg user">
+              <div class="bubble">Make this thesis submission-ready: fix the LaTeX build, rewrite weak sections, add citations, generate missing figures, and apply the patch.</div>
+            </div>
+
+            <div class="msg assistant">
+              <div>
+                <strong>I can handle this as a project edit, not just a chat reply.</strong> I inspected the active file, build log, bibliography, figures, and selected theorem.
+                <div class="caps">
+                  <div class="cap"><b>Read context</b>Active file, selection, logs, PDFs, images</div>
+                  <div class="cap"><b>Patch files</b>Multi-file edits with reviewable diffs</div>
+                  <div class="cap"><b>Fix builds</b>Compile errors, refs, packages, warnings</div>
+                  <div class="cap"><b>Write TeX</b>Proofs, captions, equations, citations</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tool-log">Tools: read workspace -> 42 TeX files, 8 figures. latexmk -> 6 errors, 13 warnings, 9 undefined references.</div>
+
+            <div class="msg assistant">
+              <div><strong>Prepared a complete revision.</strong> The paper compiles, references are stable, and every changed file is ready to review.</div>
+            </div>
+
+            <div class="proposal">
+              <div class="proposal-head">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg>
+                <div class="proposal-title">8 file changes</div>
+                <span class="badge">Ready</span>
+              </div>
+              <div class="files">
+                <span class="fname">main.tex</span><span class="fbadge">write</span><span class="add">+38</span><span class="del">-6</span>
+                <span class="fname">sections/method.tex</span><span class="fbadge">edit</span><span class="add">+74</span><span class="del">-21</span>
+                <span class="fname">sections/results.tex</span><span class="fbadge">edit</span><span class="add">+46</span><span class="del">-18</span>
+                <span class="fname">references.bib</span><span class="fbadge">create</span><span class="add">+12</span><span class="del">-0</span>
+                <span class="fname">figures/agent_pipeline.svg</span><span class="fbadge">new</span><span class="add">+1</span><span class="del">-0</span>
+                <span class="fname">submission-checklist.md</span><span class="fbadge">new</span><span class="add">+31</span><span class="del">-0</span>
+              </div>
+              <div class="actions">
+                <button class="small-btn">View diff</button>
+                <button class="small-btn">Apply all</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="input-area">
+            <div class="chips">
+              <span class="chip file">main.tex</span>
+              <span class="chip">build.log</span>
+              <span class="chip">L118-L164</span>
+            </div>
+            <div class="attachment">reviewer-feedback.pdf</div>
+            <div class="input">
+              <div class="round">⌘</div>
+              <div class="input-text">Run the build again, explain each changed file, and keep only the edits that improve the submission.</div>
+              <div class="round stop">■</div>
+              <div class="round send">↑</div>
+            </div>
+            <div class="status">Axiom is compiling, applying patches, and keeping every change reversible.</div>
+          </div>
+        </section>
+
+        <div class="resizer"></div>
+
+        <section class="editor">
+          <div class="groups">
+            <section class="group">
+              <div class="tabs">
+                <div class="tab active">main.tex ×</div>
+                <div class="tab">method.tex ×</div>
+                <div class="tab">references ×</div>
+                <div class="tab-wide"><span class="patch-badge"><span class="dot"></span>Axiom patch preview</span></div>
+              </div>
+              <div class="surface">
+                <div class="editor-strip"><span>Confirm changes - main.tex</span><span>8 files staged by Axiom</span></div>
+                <div class="code">
+                  <div class="code-line"><span class="ln">116</span><span><span class="cmd">\begin</span>{<span class="env">theorem</span>}[Stability of the adaptive estimator]</span></div>
+                  <div class="code-line code-del"><span class="ln">117</span><span>The estimator converges quickly in the easy case.</span></div>
+                  <div class="code-line code-add"><span class="ln">117</span><span>The estimator is uniformly stable under bounded observation noise and delayed feedback.</span></div>
+                  <div class="code-line code-add"><span class="ln">118</span><span>For every horizon <span class="math">T</span>, the regret term is bounded by <span class="math">O(\sqrt{T \log T})</span>.</span></div>
+                  <div class="code-line"><span class="ln">119</span><span><span class="cmd">\label</span>{thm:adaptive-stability}</span></div>
+                  <div class="code-line code-mark"><span class="ln">120</span><span><span class="cmd">\end</span>{<span class="env">theorem</span>}</span></div>
+                  <div class="code-line code-add"><span class="ln">121</span><span><span class="cmd">\begin</span>{<span class="env">proof</span>}</span></div>
+                  <div class="code-line code-add"><span class="ln">122</span><span>We decompose the update into martingale and approximation terms, then apply Lemma <span class="cmd">\ref</span>{lem:bounded-drift}.</span></div>
+                  <div class="code-line code-add"><span class="ln">123</span><span>The remaining term is controlled by the concentration bound of <span class="cmd">\cite</span>{abbasi2011improved}.</span></div>
+                  <div class="code-line code-add"><span class="ln">124</span><span><span class="cmd">\end</span>{<span class="env">proof</span>}</span></div>
+                  <div class="code-line"><span class="ln">125</span><span></span></div>
+                  <div class="code-line code-del"><span class="ln">126</span><span><span class="cmd">\includegraphics</span>{pipeline}</span></div>
+                  <div class="code-line code-add"><span class="ln">126</span><span><span class="cmd">\includegraphics</span>[width=0.92<span class="cmd">\linewidth</span>]{figures/agent_pipeline.svg}</span></div>
+                  <div class="code-line code-add"><span class="ln">127</span><span><span class="cmd">\caption</span>{Axiom-generated pipeline diagram linking data ingestion, model updates, and verification.}</span></div>
+                  <div class="code-line"><span class="ln">128</span><span><span class="comment">% Axiom fixed missing citation keys and normalized theorem references.</span></span></div>
+                  <div class="code-line code-add"><span class="ln">129</span><span><span class="cmd">\bibliographystyle</span>{plainnat}</span></div>
+                  <div class="code-line code-add"><span class="ln">130</span><span><span class="cmd">\bibliography</span>{references}</span></div>
+                </div>
+                <div class="undo"><button>Undo Axiom edits</button><button class="keep">Keep changes</button></div>
+              </div>
+            </section>
+            <div class="split"></div>
+            <section class="group">
+              <div class="tabs">
+                <div class="tab active">main.pdf ×</div>
+                <div class="tab-wide"><span style="color:#a5b4fc;font-size:10px;letter-spacing:.12em">SYNCTEX READY</span></div>
+              </div>
+              <div class="pdf">
+                <div class="pdf-strip"><span>main.pdf - Page 3 / 12</span><span>100% - rebuilt 3s ago</span></div>
+                <div class="pdf-body">
+                  <article class="page">
+                    <div class="paper-title">Adaptive Estimation with Verified TeX Automation</div>
+                    <div class="authors">Axiom Research Workspace - Submission Draft</div>
+                    <div class="section">Theorem 2.1</div>
+                    <div class="pdf-text">The estimator is uniformly stable under bounded observation noise and delayed feedback. The proof follows by decomposing the update into martingale and approximation terms.</div>
+                    <div class="eq">R_T <= C sqrt(T log T) + O(1)</div>
+                    <div class="section">Generated Figure</div>
+                    <div class="figure"></div>
+                    <div class="caption">Figure 2: Axiom-generated pipeline diagram with verification checkpoints.</div>
+                    <div class="section">Build Result</div>
+                    <div class="pdf-text">All references resolve, bibliography entries compile, and the final PDF is ready for review.</div>
+                  </article>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="terminal">
+            <div class="term-head"><span>Terminal - latexmk</span><span>Axiom build loop</span></div>
+            <div class="term-lines">
+              <div><span class="info">$</span> latexmk -pdf main.tex</div>
+              <div><span class="warn">Axiom:</span> fixed undefined reference thm:stability -> thm:adaptive-stability</div>
+              <div><span class="warn">Axiom:</span> created missing BibTeX entry abbasi2011improved and regenerated figure asset</div>
+              <div><span class="success">Output written on main.pdf (12 pages). 0 errors, 0 undefined references.</span></div>
+            </div>
+          </div>
+
+          <aside class="callout">
+            <div class="kicker">Beyond autocomplete</div>
+            <div class="title">Axiom edits the paper, fixes the build, and shows the diff.</div>
+            <div class="sub">One prompt can coordinate source edits, citations, figures, diagnostics, PDF verification, and reversible apply controls inside TeX64.</div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

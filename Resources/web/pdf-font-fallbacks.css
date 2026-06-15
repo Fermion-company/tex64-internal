@@ -1,0 +1,375 @@
+/*
+ * PDF.js can only render a non-embedded PDF font when the browser can resolve
+ * that PDF font name to an installed or bundled font. Many CJK PDFs reference
+ * legacy PostScript names such as Ryumin-Light or GothicBBB-Medium without
+ * embedding the font program. These aliases map those common PDF names to
+ * macOS fonts that cover the same scripts.
+ */
+
+@font-face {
+  font-family: "Ryumin";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho"),
+    local("ToppanBunkyuMinchoPr6N-Regular"),
+    local("Toppan Bunkyu Mincho");
+}
+
+@font-face {
+  font-family: "Ryumin Light";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "KozMin";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "KozMinPro";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "KozMinPr6N";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "HeiseiMin";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "MS Mincho";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "MS PMincho";
+  src:
+    local("HiraMinProN-W3"),
+    local("Hiragino Mincho ProN"),
+    local("YuMincho"),
+    local("Yu Mincho"),
+    local("BIZUDMincho-Regular"),
+    local("BIZ UDMincho");
+}
+
+@font-face {
+  font-family: "GothicBBB";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic"),
+    local("HiraMaruProN-W4"),
+    local("Hiragino Maru Gothic ProN");
+}
+
+@font-face {
+  font-family: "GothicBBB Medium";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "KozGo";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "KozGoPro";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "KozGoPr6N";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "HeiseiKakuGo";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "MS Gothic";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "MS PGothic";
+  src:
+    local("HiraginoSans-W3"),
+    local("Hiragino Sans"),
+    local("YuGo-Medium"),
+    local("YuGothic"),
+    local("BIZUDGothic-Regular"),
+    local("BIZ UDGothic");
+}
+
+@font-face {
+  font-family: "SimSun";
+  src:
+    local("SimSong-Regular"),
+    local("SimSong"),
+    local("STSongti-SC-Regular"),
+    local("Songti SC"),
+    local("STSongti-TC-Regular"),
+    local("Songti TC"),
+    local("PingFangSC-Regular"),
+    local("PingFang SC");
+}
+
+@font-face {
+  font-family: "NSimSun";
+  src:
+    local("SimSong-Regular"),
+    local("SimSong"),
+    local("STSongti-SC-Regular"),
+    local("Songti SC"),
+    local("STSongti-TC-Regular"),
+    local("Songti TC");
+}
+
+@font-face {
+  font-family: "Songti";
+  src:
+    local("STSongti-SC-Regular"),
+    local("Songti SC"),
+    local("STSongti-TC-Regular"),
+    local("Songti TC"),
+    local("SimSong-Regular"),
+    local("SimSong");
+}
+
+@font-face {
+  font-family: "MingLiU";
+  src:
+    local("STSongti-TC-Regular"),
+    local("Songti TC"),
+    local("PingFangTC-Regular"),
+    local("PingFang TC"),
+    local("SimSong-Regular"),
+    local("SimSong");
+}
+
+@font-face {
+  font-family: "PMingLiU";
+  src:
+    local("STSongti-TC-Regular"),
+    local("Songti TC"),
+    local("PingFangTC-Regular"),
+    local("PingFang TC"),
+    local("SimSong-Regular"),
+    local("SimSong");
+}
+
+@font-face {
+  font-family: "SimHei";
+  src:
+    local("PingFangSC-Regular"),
+    local("PingFang SC"),
+    local("STHeitiSC-Medium"),
+    local("Heiti SC"),
+    local("STHeiti"),
+    local("HiraginoSansGB-W3"),
+    local("Hiragino Sans GB");
+}
+
+@font-face {
+  font-family: "Microsoft YaHei";
+  src:
+    local("PingFangSC-Regular"),
+    local("PingFang SC"),
+    local("STHeitiSC-Medium"),
+    local("Heiti SC"),
+    local("HiraginoSansGB-W3"),
+    local("Hiragino Sans GB");
+}
+
+@font-face {
+  font-family: "Heiti";
+  src:
+    local("STHeitiSC-Medium"),
+    local("Heiti SC"),
+    local("STHeitiTC-Medium"),
+    local("Heiti TC"),
+    local("PingFangSC-Regular"),
+    local("PingFang SC"),
+    local("PingFangTC-Regular"),
+    local("PingFang TC");
+}
+
+@font-face {
+  font-family: "Kaiti";
+  src:
+    local("STKaitiSC-Regular"),
+    local("Kaiti SC"),
+    local("STKaitiTC-Regular"),
+    local("Kaiti TC"),
+    local("STKaiti");
+}
+
+@font-face {
+  font-family: "FangSong";
+  src:
+    local("STFangsong"),
+    local("STKaitiSC-Regular"),
+    local("Kaiti SC"),
+    local("Songti SC");
+}
+
+@font-face {
+  font-family: "Batang";
+  src:
+    local("AppleMyungjo"),
+    local("PCMyungjo"),
+    local("NanumGothic"),
+    local("Nanum Gothic"),
+    local("AppleGothic");
+}
+
+@font-face {
+  font-family: "Gulim";
+  src:
+    local("AppleSDGothicNeo-Regular"),
+    local("Apple SD Gothic Neo"),
+    local("AppleGothic"),
+    local("NanumGothic"),
+    local("Nanum Gothic");
+}
+
+@font-face {
+  font-family: "Dotum";
+  src:
+    local("AppleSDGothicNeo-Regular"),
+    local("Apple SD Gothic Neo"),
+    local("AppleGothic"),
+    local("NanumGothic"),
+    local("Nanum Gothic");
+}
+
+@font-face {
+  font-family: "Malgun Gothic";
+  src:
+    local("AppleSDGothicNeo-Regular"),
+    local("Apple SD Gothic Neo"),
+    local("AppleGothic"),
+    local("NanumGothic"),
+    local("Nanum Gothic");
+}
+
+@font-face {
+  font-family: "AdobeSongStd";
+  src:
+    local("STSongti-SC-Regular"),
+    local("Songti SC"),
+    local("SimSong-Regular"),
+    local("SimSong");
+}
+
+@font-face {
+  font-family: "AdobeMingStd";
+  src:
+    local("STSongti-TC-Regular"),
+    local("Songti TC"),
+    local("PingFangTC-Regular"),
+    local("PingFang TC");
+}
+
+@font-face {
+  font-family: "AdobeHeitiStd";
+  src:
+    local("STHeitiSC-Medium"),
+    local("Heiti SC"),
+    local("PingFangSC-Regular"),
+    local("PingFang SC");
+}
+
+@font-face {
+  font-family: "AdobeMyungjoStd";
+  src:
+    local("AppleMyungjo"),
+    local("PCMyungjo"),
+    local("NanumGothic"),
+    local("Nanum Gothic");
+}

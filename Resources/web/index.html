@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,7 @@
     >
     <title>TeX64</title>
     <link rel="stylesheet" href="./theme.css">
+    <link rel="stylesheet" href="./pdf-font-fallbacks.css">
     <link rel="stylesheet" href="./mathlive/mathlive-static.css">
     <link rel="stylesheet" href="./vendor/katex.min.css">
     <link rel="stylesheet" href="./vendor/xterm.css">
@@ -164,7 +165,7 @@
             id="build-button"
             type="button"
             aria-label="build"
-            title="Build"
+            title="Build from the toolbar. Cmd+B inserts \textbf{}."
           >
             <span class="build-button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="20" height="20">
@@ -577,7 +578,7 @@
                 </div>
                 <div class="settings-item">
                   <div class="settings-label">
-                    <span class="settings-title">work space</span>
+                    <span class="settings-title">Workspace</span>
                     <span class="settings-desc">This is the currently open folder.</span>
                   </div>
                   <div class="settings-path" id="settings-workspace">Not selected</div>
@@ -672,10 +673,10 @@
                   <span class="settings-nav-title">General</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="editor" type="button">
-                  <span class="settings-nav-title">editor</span>
+                  <span class="settings-nav-title">Editor</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="build" type="button">
-                  <span class="settings-nav-title">build</span>
+                  <span class="settings-nav-title">Build</span>
                 </button>
                 <button class="settings-nav-item" data-settings-target="format" type="button">
                   <span class="settings-nav-title">Format</span>
@@ -687,7 +688,7 @@
                   <span class="settings-nav-title-row">
                     <span class="settings-nav-title">Account</span>
                     <span class="settings-nav-badge is-hidden" id="settings-account-attention" aria-hidden="true">
-                      Update
+                      Update Available
                     </span>
                   </span>
                 </button>
@@ -720,7 +721,18 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Build in separate window</span>
+                        <span class="settings-title">Theme</span>
+                      </div>
+                      <div class="settings-control">
+                        <select class="settings-select" id="settings-appearance-theme">
+                          <option value="dark">Dark</option>
+                          <option value="light">Light</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Build in Separate Window</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-pdf-window">
@@ -734,13 +746,13 @@
                 <div class="settings-page is-hidden" data-settings-page="editor" aria-hidden="true">
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">editor</div>
+                    <div class="settings-page-title">Editor</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">display</div>
+                    <div class="settings-group-title">Display</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Wrap lines</span>
+                        <span class="settings-title">Wrap Lines</span>
                         <span class="settings-desc">If ON, wrap long lines at the editor width.</span>
                       </div>
                       <div class="settings-control">
@@ -752,12 +764,12 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Font family</span>
+                        <span class="settings-title">Font Family</span>
                         <span class="settings-desc">Editor font. Defaults to the system monospace stack.</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-font-family">
-                          <option value="">System default</option>
+                          <option value="">System Default</option>
                           <option value="&quot;SF Mono&quot;, Menlo, Monaco, monospace">SF Mono</option>
                           <option value="Menlo, Monaco, monospace">Menlo</option>
                           <option value="&quot;JetBrains Mono&quot;, monospace">JetBrains Mono</option>
@@ -770,7 +782,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Font size</span>
+                        <span class="settings-title">Font Size</span>
                         <span class="settings-desc">Editor font size in points (8–40).</span>
                       </div>
                       <div class="settings-control">
@@ -788,7 +800,7 @@
                     <div class="settings-group-title">Format</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Auto-format on save</span>
+                        <span class="settings-title">Auto-Format on Save</span>
                         <span class="settings-description">Auto-format with latexindent on save</span>
                       </div>
                       <div class="settings-control">
@@ -800,19 +812,19 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">indentation</span>
+                        <span class="settings-title">Indentation</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-indent">
                           <option value="spaces-2">Space: 2</option>
                           <option value="spaces-4">Space: 4</option>
-                          <option value="tab">tab</option>
+                          <option value="tab">Tab</option>
                         </select>
                       </div>
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Put \begin / \end on separate lines</span>
+                        <span class="settings-title">Put \begin / \end on Separate Lines</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-begin-end">
@@ -823,7 +835,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">do not indent document</span>
+                        <span class="settings-title">Do Not Indent Document</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-document-noindent">
@@ -834,7 +846,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Align the & in the formula</span>
+                        <span class="settings-title">Align & in Formula</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-align-math">
@@ -845,7 +857,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Align & in table</span>
+                        <span class="settings-title">Align & in Table</span>
                       </div>
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-format-align-table">
@@ -856,12 +868,12 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Handling of blank lines</span>
+                        <span class="settings-title">Handling of Blank Lines</span>
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-format-blank-lines">
-                          <option value="preserve">retention</option>
-                          <option value="condense">summarize in one line</option>
+                          <option value="preserve">Preserve</option>
+                          <option value="condense">Condense to One Line</option>
                           <option value="remove">Delete</option>
                         </select>
                       </div>
@@ -878,7 +890,7 @@
                       </div>
                     </div>
                     <div class="settings-subsection">
-                      <div class="settings-subsection-title">verbatim environment</div>
+                      <div class="settings-subsection-title">Verbatim Environment</div>
                       <div class="settings-subsection-desc">
                         You can add an environment to skip formatting.
                       </div>
@@ -891,7 +903,7 @@
                         placeholder="minted / myenv etc."
                       >
                       <button class="panel-button" id="editor-format-verbatim-add" type="button">
-                        addition
+                        Add
                       </button>
                     </div>
                     <div class="env-registry-hint is-hidden" id="editor-format-verbatim-hint">
@@ -910,11 +922,11 @@
                           placeholder="align / myenv etc."
                         >
                         <select class="env-registry-select" id="env-registry-kind">
-                          <option value="math">mathematical formula</option>
-                          <option value="table">table</option>
+                          <option value="math">Mathematical Formula</option>
+                          <option value="table">Table</option>
                         </select>
                         <button class="panel-button" id="env-registry-add" type="button">
-                          addition
+                          Add
                         </button>
                       </div>
                       <div class="env-registry-hint is-hidden" id="env-registry-hint">
@@ -922,11 +934,11 @@
                       </div>
                       <div class="env-registry-lists">
                         <div class="env-registry-section">
-                          <div class="env-registry-title">mathematical formula</div>
+                          <div class="env-registry-title">Mathematical Formula</div>
                           <div class="env-registry-list" id="env-registry-math"></div>
                         </div>
                         <div class="env-registry-section">
-                          <div class="env-registry-title">table</div>
+                          <div class="env-registry-title">Table</div>
                           <div class="env-registry-list" id="env-registry-table"></div>
                         </div>
                       </div>
@@ -936,13 +948,13 @@
                 <div class="settings-page is-hidden" data-settings-page="build" aria-hidden="true">
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">build</div>
+                    <div class="settings-page-title">Build</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">compile</div>
+                    <div class="settings-group-title">Compile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">compilation engine</span>
+                        <span class="settings-title">Compilation Engine</span>
                         <span class="settings-desc">Select the engine to use for your build.</span>
                       </div>
                       <div class="settings-control">
@@ -955,11 +967,14 @@
                       </div>
                     </div>
                   </div>
+                  <div class="settings-help-text">
+                    Builds are manual in this version: click the toolbar Build button to compile and refresh the PDF. Live auto-build is not available; Cmd+B inserts \textbf{}.
+                  </div>
                   <div class="settings-group">
                     <div class="settings-group-title">SyncTeX</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">SyncTeX at build time</span>
+                        <span class="settings-title">SyncTeX at Build Time</span>
                         <span class="settings-desc">Automatically jumps to PDF when build is successful.</span>
                       </div>
                       <div class="settings-control">
@@ -983,10 +998,10 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">build profile</div>
+                    <div class="settings-group-title">Build Profile</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">build profile</span>
+                        <span class="settings-title">Build Profile</span>
                         <span class="settings-desc">Switch latexmk's output destination and additional options to suit your project style.</span>
                       </div>
                       <div class="settings-control">
@@ -995,7 +1010,7 @@
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">profile name</span>
+                        <span class="settings-title">Profile Name</span>
                       </div>
                       <div class="settings-control">
                         <input class="settings-input" id="settings-build-profile-name" type="text" placeholder="My profile">
@@ -1012,7 +1027,7 @@
                     </div>
                     <div class="settings-item is-stacked">
                       <div class="settings-label">
-                        <span class="settings-title">latexmk additional options</span>
+                        <span class="settings-title">latexmk Additional Options</span>
                         <span class="settings-desc">Example: -use-biber -shell-escape</span>
                       </div>
                       <div class="settings-control">
@@ -1021,7 +1036,7 @@
                     </div>
                     <div class="settings-inline">
                       <button class="panel-button" id="settings-build-profile-add" type="button">
-                        addition
+                        Add
                       </button>
                       <button class="panel-button ghost" id="settings-build-profile-delete" type="button">
                         Delete
@@ -1031,10 +1046,10 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">clean</div>
+                    <div class="settings-group-title">Clean</div>
                     <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-build-clean" type="button">clean</button>
-                      <button class="panel-button ghost" id="settings-build-clean-all" type="button">clean -C</button>
+                      <button class="panel-button ghost" id="settings-build-clean" type="button">Clean</button>
+                      <button class="panel-button ghost" id="settings-build-clean-all" type="button">Clean -C</button>
                     </div>
                   </div>
                 </div>
@@ -1058,12 +1073,12 @@
                       <div class="env-progress-label" id="env-progress-label"></div>
                     </div>
                     <button class="panel-button env-setup-btn is-hidden" id="settings-env-setup" type="button">
-                      Set up TeX environment
+                      Set Up TeX Environment
                     </button>
                     <div class="settings-help-text env-install-note is-hidden" id="settings-runtime-install-status" aria-hidden="true"></div>
                     <p class="env-explainer">
                       TeX64 installs its own private TeX Live for you — no manual setup, no admin rights, and it never touches any TeX you already have.
-                      <button class="env-link" id="settings-runtime-open-tex-docs" type="button">Learn more</button>
+                      <button class="env-link" id="settings-runtime-open-tex-docs" type="button">Learn More</button>
                     </p>
                   </div>
                 </div>
@@ -1076,7 +1091,7 @@
                     <div class="settings-group-title">Account</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Google login</span>
+                        <span class="settings-title">Google Login</span>
                         <span class="settings-desc" id="settings-auth-status">Signed out</span>
                       </div>
                       <div class="settings-control settings-inline settings-inline-wrap">
@@ -1090,10 +1105,10 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">update</div>
+                    <div class="settings-group-title">Update</div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">current version</span>
+                        <span class="settings-title">Current Version</span>
                       </div>
                       <div class="settings-control">
                         <span class="settings-version-badge" id="settings-update-current">-</span>
@@ -1101,7 +1116,7 @@
                     </div>
                     <div class="settings-item">
                       <div class="settings-label">
-                        <span class="settings-title">Latest version</span>
+                        <span class="settings-title">Latest Version</span>
                       </div>
                       <div class="settings-control">
                         <span class="settings-version-badge" id="settings-update-latest">-</span>
@@ -1115,13 +1130,13 @@
                     </div>
                     <div class="settings-inline settings-inline-wrap">
                       <button class="panel-button ghost" id="settings-update-check" type="button">
-                        Check for updates
+                        Check for Updates
                       </button>
                       <button class="panel-button is-hidden" id="settings-update-apply" type="button">
-                        Apply updates
+                        Apply Updates
                       </button>
                       <button class="panel-button ghost" id="settings-update-open" type="button">
-                        manual download
+                        Manual Download
                       </button>
                     </div>
                   </div>
@@ -1168,20 +1183,20 @@
                     <div class="settings-page-title">Info</div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">legal affairs</div>
+                    <div class="settings-group-title">Legal Affairs</div>
                     <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-link-terms" type="button">terms of service</button>
-                      <button class="panel-button ghost" id="settings-link-privacy" type="button">privacy</button>
-                      <button class="panel-button ghost" id="settings-link-commercial" type="button">Special commercial law</button>
-                      <button class="panel-button ghost" id="settings-link-refund" type="button">Refund policy</button>
+                      <button class="panel-button ghost" id="settings-link-terms" type="button">Terms of Service</button>
+                      <button class="panel-button ghost" id="settings-link-privacy" type="button">Privacy</button>
+                      <button class="panel-button ghost" id="settings-link-commercial" type="button">Special Commercial Law</button>
+                      <button class="panel-button ghost" id="settings-link-refund" type="button">Refund Policy</button>
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">support</div>
+                    <div class="settings-group-title">Support</div>
                     <div class="settings-actions">
-                      <button class="panel-button ghost" id="settings-link-support" type="button">help</button>
-                      <button class="panel-button ghost" id="settings-link-contact" type="button">inquiry</button>
-                      <button class="panel-button ghost" id="settings-link-releases" type="button">release notes</button>
+                      <button class="panel-button ghost" id="settings-link-support" type="button">Help</button>
+                      <button class="panel-button ghost" id="settings-link-contact" type="button">Inquiry</button>
+                      <button class="panel-button ghost" id="settings-link-releases" type="button">Release Notes</button>
                     </div>
                   </div>
                 </div>

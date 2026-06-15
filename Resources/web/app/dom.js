@@ -127,6 +127,7 @@ export const getDomRefs = () => ({
     editorFormatVerbatimHint: document.getElementById("editor-format-verbatim-hint"),
     editorFormatVerbatimList: document.getElementById("editor-format-verbatim-list"),
     editorWordWrapToggle: document.getElementById("editor-word-wrap"),
+    settingsAppearanceThemeSelect: document.getElementById("settings-appearance-theme"),
     settingsUiLanguageSelect: document.getElementById("settings-ui-language"),
     editorAutoSynctexBuildToggle: document.getElementById("editor-auto-synctex-build"),
     editorReverseSynctexToggle: document.getElementById("editor-reverse-synctex"),

@@ -47,6 +47,16 @@ const resolveBridge = () => window.tex64Pdf || createParentBridge();
 const isEmbeddedViewer = () =>
   !window.tex64Pdf && Boolean(window.parent && window.parent !== window);
 
+const createPdfDocumentOptions = (source) => ({
+  ...(typeof source === "string" ? { url: source } : source),
+  cMapUrl: new URL("./pdfjs/cmaps/", import.meta.url).href,
+  cMapPacked: true,
+  standardFontDataUrl: new URL("./pdfjs/standard_fonts/", import.meta.url).href,
+  wasmUrl: new URL("./pdfjs/wasm/", import.meta.url).href,
+  useSystemFonts: true,
+  disableFontFace: false,
+});
+
 const initPdfViewer = () => {
   const bridge = resolveBridge();
   document.body.classList.toggle("is-embedded", isEmbeddedViewer());
@@ -931,7 +941,7 @@ const initPdfViewer = () => {
     clearSyncMarker();
     setStatus("読み込み中...");
     try {
-      const task = pdfjs.getDocument(url);
+      const task = pdfjs.getDocument(createPdfDocumentOptions(url));
       state.doc = await task.promise;
       state.pageCount = state.doc.numPages;
       updatePageCount();

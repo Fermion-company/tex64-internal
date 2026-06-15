@@ -570,7 +570,7 @@ LaTeX エコシステムを支える OSS コミュニティに感謝する。
 `;
 const TEMPLATE_LUALATEX_ZH = String.raw`% !TEX program = lualatex
 % !TEX root = main.tex
-\documentclass[UTF8,a4paper,11pt]{ctexart}
+\documentclass[UTF8,a4paper,11pt,fontset=fandol]{ctexart}
 
 % ---------- 版式与排版 ----------
 \usepackage[margin=25mm]{geometry}

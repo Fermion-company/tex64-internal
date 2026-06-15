@@ -27,7 +27,7 @@ export const createSettingsAttentionOps = (runtime: SettingsUiRuntime): Settings
       accountSettingsNavItem.classList.toggle("has-alert", updateAttention);
     }
     if (settingsAccountAttention instanceof HTMLElement) {
-      settingsAccountAttention.textContent = "Update";
+      settingsAccountAttention.textContent = "Update Available";
       settingsAccountAttention.classList.toggle("is-hidden", !updateAttention);
       settingsAccountAttention.setAttribute("aria-hidden", updateAttention ? "false" : "true");
     }

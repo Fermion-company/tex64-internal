@@ -2,6 +2,7 @@ import { uiText } from "./i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
+import { getCurrentAppearanceTheme, onAppearanceThemeChange } from "./appearance.js";
 import { setupLsp } from "./lsp/setup-lsp.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { attachEditorErgonomics } from "./editor-ergonomics.js";
@@ -66,7 +67,12 @@ export const initMonacoSetup = (context, deps) => {
         const spellBridge = window.tex64Spell;
         const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
-        const themeName = applyMonacoTheme(monacoWindow.monaco);
+        const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
+        onAppearanceThemeChange((theme) => {
+            if (monacoWindow.monaco) {
+                applyMonacoTheme(monacoWindow.monaco, theme);
+            }
+        });
         const editorOptions = {
             value: "",
             language: "latex",

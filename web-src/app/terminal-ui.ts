@@ -1,4 +1,9 @@
 import type { AppContext } from "./context.js";
+import {
+  getCurrentAppearanceTheme,
+  onAppearanceThemeChange,
+  type AppearanceTheme,
+} from "./appearance.js";
 
 type TerminalBridge = {
   create: (options?: { cols?: number; rows?: number }) => Promise<{ id?: string; error?: string }>;
@@ -14,18 +19,34 @@ const getBridge = (): TerminalBridge | null => {
   return bridge && typeof bridge.create === "function" ? bridge : null;
 };
 
-// xterm needs concrete colors (no CSS vars). Keep this aligned with the dark panel.
-const TERMINAL_THEME = {
-  background: "#0e1116",
-  foreground: "#cdd3de",
-  cursor: "#cdd3de",
-  selectionBackground: "rgba(255, 255, 255, 0.18)",
-  black: "#1c2129", red: "#f47067", green: "#57ab5a", yellow: "#c69026",
-  blue: "#539bf5", magenta: "#b083f0", cyan: "#39c5cf", white: "#adbac7",
-  brightBlack: "#636e7b", brightRed: "#ff938a", brightGreen: "#6bc46d",
-  brightYellow: "#daaa3f", brightBlue: "#6cb6ff", brightMagenta: "#dcbdfb",
-  brightCyan: "#56d4dd", brightWhite: "#cdd9e5",
+// xterm needs concrete colors (no CSS vars). Keep these aligned with app themes.
+const TERMINAL_THEMES = {
+  dark: {
+    background: "#0e1116",
+    foreground: "#cdd3de",
+    cursor: "#cdd3de",
+    selectionBackground: "rgba(255, 255, 255, 0.18)",
+    black: "#1c2129", red: "#f47067", green: "#57ab5a", yellow: "#c69026",
+    blue: "#539bf5", magenta: "#b083f0", cyan: "#39c5cf", white: "#adbac7",
+    brightBlack: "#636e7b", brightRed: "#ff938a", brightGreen: "#6bc46d",
+    brightYellow: "#daaa3f", brightBlue: "#6cb6ff", brightMagenta: "#dcbdfb",
+    brightCyan: "#56d4dd", brightWhite: "#cdd9e5",
+  },
+  light: {
+    background: "#ffffff",
+    foreground: "#1f2937",
+    cursor: "#1d4ed8",
+    selectionBackground: "rgba(37, 99, 235, 0.18)",
+    black: "#1f2937", red: "#dc2626", green: "#15803d", yellow: "#b45309",
+    blue: "#2563eb", magenta: "#9333ea", cyan: "#0891b2", white: "#e5e7eb",
+    brightBlack: "#64748b", brightRed: "#ef4444", brightGreen: "#16a34a",
+    brightYellow: "#d97706", brightBlue: "#3b82f6", brightMagenta: "#a855f7",
+    brightCyan: "#06b6d4", brightWhite: "#f8fafc",
+  },
 };
+
+const getTerminalTheme = (theme: AppearanceTheme) =>
+  TERMINAL_THEMES[theme] ?? TERMINAL_THEMES.dark;
 
 export type TerminalUiApi = {
   /** Called when the Terminal tab becomes visible: starts the session lazily and fits. */
@@ -48,6 +69,18 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   let sessionDisposers: Array<() => void> = [];
   let resizeObserver: ResizeObserver | null = null;
   let rafId: number | null = null;
+  let currentTheme = getCurrentAppearanceTheme();
+
+  const applyTerminalTheme = () => {
+    if (term) {
+      term.options.theme = { ...getTerminalTheme(currentTheme) };
+    }
+  };
+
+  const disposeThemeListener = onAppearanceThemeChange((theme) => {
+    currentTheme = theme;
+    applyTerminalTheme();
+  });
 
   const showMessage = (text: string) => {
     if (host) {
@@ -163,7 +196,7 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
         fontFamily: 'Menlo, Monaco, "SF Mono", "Cascadia Code", "Roboto Mono", monospace',
         fontSize: 12,
         cursorBlink: true,
-        theme: TERMINAL_THEME,
+        theme: getTerminalTheme(currentTheme),
         scrollback: 5000,
       });
       // eslint-disable-next-line new-cap
@@ -187,17 +220,16 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
       const textarea: HTMLTextAreaElement | null = term.textarea ?? null;
       const hideCursor = () => {
         if (term) {
+          const baseTheme = getTerminalTheme(currentTheme);
           term.options.theme = {
-            ...TERMINAL_THEME,
-            cursor: TERMINAL_THEME.background,
-            cursorAccent: TERMINAL_THEME.background,
+            ...baseTheme,
+            cursor: baseTheme.background,
+            cursorAccent: baseTheme.background,
           };
         }
       };
       const restoreCursor = () => {
-        if (term) {
-          term.options.theme = { ...TERMINAL_THEME };
-        }
+        applyTerminalTheme();
       };
       if (textarea) {
         textarea.addEventListener("compositionstart", hideCursor);
@@ -245,6 +277,7 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   };
 
   const dispose = () => {
+    disposeThemeListener();
     if (rafId !== null) {
       window.cancelAnimationFrame(rafId);
       rafId = null;

@@ -23,6 +23,25 @@ const ensureDir = async (dirPath) => {
   await fsp.mkdir(dirPath, { recursive: true });
 };
 
+const dirExists = async (dirPath) => {
+  try {
+    const stats = await fsp.stat(dirPath);
+    return stats.isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+const copyDirectory = async (sourceDir, destinationDir) => {
+  if (!(await dirExists(sourceDir))) {
+    console.error(`ERROR: source directory not found: ${sourceDir}`);
+    process.exit(1);
+  }
+  await ensureDir(path.dirname(destinationDir));
+  await fsp.rm(destinationDir, { recursive: true, force: true });
+  await fsp.cp(sourceDir, destinationDir, { recursive: true });
+};
+
 const writeFileIfMissing = async (filePath, content, encoding = "utf8") => {
   if (await fileExists(filePath)) {
     return false;
@@ -99,6 +118,18 @@ const ensureLicense = async () => {
   }
 };
 
+const ensurePdfjsAssets = async () => {
+  const sourceBase = resolvePath("node_modules", "pdfjs-dist");
+  const destinationBase = resolvePath("Resources", "web", "pdfjs");
+  for (const directory of ["cmaps", "standard_fonts", "wasm"]) {
+    await copyDirectory(
+      path.join(sourceBase, directory),
+      path.join(destinationBase, directory)
+    );
+  }
+  console.log("Synced PDF.js font and decoder assets.");
+};
+
 const ensureMacIcons = async () => {
   if (process.platform !== "darwin") {
     return;
@@ -171,6 +202,7 @@ const ensureTexlab = async () => {
 const main = async () => {
   await ensureEntitlements();
   await ensureLicense();
+  await ensurePdfjsAssets();
   await ensureMacIcons();
   await ensureTexlab();
 };

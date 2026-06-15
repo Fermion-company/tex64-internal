@@ -7,11 +7,31 @@ module.exports = (BuildService) => {
     const seen = new Set();
     const maxIssues = 20;
     let activeTexPath = null;
+    const pushIssue = (issue) => {
+      const token =
+        issue.code === "missing-glyph"
+          ? `${issue.code}|${issue.path ?? ""}|${issue.codePoint ?? ""}`
+          : `${issue.severity}|${issue.path ?? ""}|${issue.line ?? ""}|${
+              issue.column ?? ""
+            }|${issue.message}`;
+      if (seen.has(token)) {
+        return;
+      }
+      seen.add(token);
+      parsed.push(issue);
+    };
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index] ?? "";
       const contextPath = this.extractContextTexPath(line, rootPath);
       if (contextPath) {
         activeTexPath = contextPath;
+      }
+      const missingGlyphIssues = this.extractMissingGlyphIssues(line, activeTexPath);
+      if (missingGlyphIssues.length > 0) {
+        for (const issue of missingGlyphIssues) {
+          pushIssue(issue);
+        }
+        continue;
       }
       const severity = this.extractIssueSeverity(line);
       if (!severity) {
@@ -32,18 +52,50 @@ module.exports = (BuildService) => {
         column: location?.column ?? nearbyLocation?.column ?? null,
         path: location?.path ?? activeTexPath ?? nearbyLocation?.path ?? null,
       };
-      const token = `${issue.severity}|${issue.path ?? ""}|${issue.line ?? ""}|${
-        issue.column ?? ""
-      }|${issue.message}`;
-      if (seen.has(token)) {
-        continue;
-      }
-      seen.add(token);
-      parsed.push(issue);
+      pushIssue(issue);
     }
     const errors = parsed.filter((issue) => issue.severity === "error");
     const warnings = parsed.filter((issue) => issue.severity === "warning");
     return errors.concat(warnings).slice(0, maxIssues);
+  };
+
+  BuildService.prototype.extractMissingGlyphIssues = function (line, activeTexPath = null) {
+    if (typeof line !== "string" || !line.includes("Missing character:")) {
+      return [];
+    }
+    const issues = [];
+    const regex =
+      /Missing character:\s*There is no\s+(.+?)\s+\(U\+([0-9A-Fa-f]{4,6})\)\s+in font\s+([^!\r\n]*?)(?:!|$)/g;
+    let match = null;
+    while ((match = regex.exec(line)) !== null) {
+      const rawCharacter = String(match[1] ?? "").trim();
+      const codePoint = `U+${String(match[2] ?? "").toUpperCase()}`;
+      const font = String(match[3] ?? "").trim().replace(/[;:]+$/, "");
+      const character = rawCharacter || codePoint;
+      const fontPart = font ? `現在のフォント ${font} にこのグリフがありません。` : "";
+      issues.push({
+        severity: "error",
+        code: "missing-glyph",
+        character,
+        codePoint,
+        font: font || null,
+        line: null,
+        column: null,
+        path: activeTexPath ?? null,
+        message:
+          `PDFで表示できない文字があります: ${character} (${codePoint})。` +
+          `${fontPart}` +
+          "Unicode 対応の文書クラス/パッケージ（日本語: ltjsarticle または luatexja、中国語: ctex、韓国語: kotex、その他: fontspec + 対応フォント）を使ってください。",
+      });
+    }
+    return issues;
+  };
+
+  BuildService.prototype.findMissingGlyphIssues = function (issues) {
+    if (!Array.isArray(issues)) {
+      return [];
+    }
+    return issues.filter((issue) => issue?.code === "missing-glyph");
   };
 
   BuildService.prototype.extractIssueSeverity = function (line) {
@@ -268,4 +320,3 @@ module.exports = (BuildService) => {
     return "build failed。Issuesを確認してください。";
   };
 };
-

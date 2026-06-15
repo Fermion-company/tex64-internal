@@ -1,6 +1,6 @@
 {
   "name": "tex64",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Electron ベースの LaTeX エディタ（開発中）。",
   "private": true,
   "type": "module",

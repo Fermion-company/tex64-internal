@@ -189,6 +189,17 @@ module.exports = (BuildService) => {
     }
 
     const issues = this.parseIssues(output, rootPath);
+    const missingGlyphIssues = this.findMissingGlyphIssues(issues);
+    if (missingGlyphIssues.length > 0) {
+      const summary =
+        "PDFで表示できない文字があります。Unicode 対応の文書クラス/パッケージまたはフォントを設定してください。";
+      return {
+        kind: "failure",
+        summary,
+        issues: missingGlyphIssues,
+        log: output,
+      };
+    }
     if (status === 0) {
       const resolvedPdfPath = this.resolvePdfPathAfterBuild(rootPath, mainFileName, {
         outDir,
@@ -333,4 +344,3 @@ module.exports = (BuildService) => {
     };
   };
 };
-

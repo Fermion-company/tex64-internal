@@ -252,10 +252,7 @@ body.is-embedded .pdf-scroll {
 }
 
 #pdf-pages .textLayer span {
-  padding: 0.08em 0.14em;
-  margin: -0.08em -0.14em;
   border-radius: 2px;
-  line-height: 1.2;
 }
 
 .page {

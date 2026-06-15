@@ -46,6 +46,7 @@ import { initSettingsUi } from "./app/settings-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, uiText } from "./app/i18n.js";
+import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
 import type {
   BlockContext,
@@ -61,6 +62,7 @@ import type {
 
 export const initMain = () => {
   window.addEventListener("DOMContentLoaded", () => {
+    initAppearanceTheme();
     initI18n();
     requestAnimationFrame(() => {
       document.body.classList.add("is-ready");

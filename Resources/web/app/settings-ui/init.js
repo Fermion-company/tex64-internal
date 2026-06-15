@@ -12,6 +12,7 @@ import { createSettingsPlatformAuthOps } from "./platform-auth-ops.js";
 import { createSettingsPlatformUpdateOps } from "./platform-update-ops.js";
 import { createSettingsFeedbackOps } from "./feedback-ops.js";
 import { createSettingsPageNavOps } from "./page-nav-ops.js";
+import { createSettingsAppearanceOps } from "./appearance-ops.js";
 import { openExternalUrl } from "./utils.js";
 export const initSettingsUi = (context, deps) => {
     const runtime = createSettingsUiRuntime(context, deps);
@@ -24,6 +25,7 @@ export const initSettingsUi = (context, deps) => {
     const platformAuthOps = createSettingsPlatformAuthOps(runtime);
     const platformUpdateOps = createSettingsPlatformUpdateOps(runtime, attentionOps);
     const feedbackOps = createSettingsFeedbackOps(runtime);
+    const appearanceOps = createSettingsAppearanceOps(runtime);
     const buildProfilesUi = initBuildProfilesUi(context, {
         getWorkspaceRootKey: deps.getWorkspaceRootKey,
         getBuildProfiles: deps.getBuildProfiles,
@@ -36,6 +38,7 @@ export const initSettingsUi = (context, deps) => {
         maybeRequestPlatformUpdateCheck: platformUpdateOps.maybeRequestPlatformUpdateCheck,
     });
     const loadStartupSettings = () => {
+        appearanceOps.loadAppearanceThemeState();
         editorPrefOps.loadEditorWordWrapState();
         editorPrefOps.loadEditorAutoSynctexBuildState();
         editorPrefOps.loadEditorReverseSynctexState();
@@ -55,6 +58,7 @@ export const initSettingsUi = (context, deps) => {
     };
     const getSettingsSnapshot = () => ({
         compileEngine: localStorage.getItem(runtime.keys.compileEngineKey) || "lualatex",
+        appearanceTheme: runtime.state.appearanceTheme,
         wordWrapEnabled: runtime.state.editorWordWrapEnabled,
         autoSynctexOnBuild: runtime.state.autoSynctexOnBuildEnabled,
         reverseSynctexEnabled: runtime.state.reverseSynctexEnabled,
@@ -71,6 +75,9 @@ export const initSettingsUi = (context, deps) => {
         }
         if (typeof patch.compileEngine === "string") {
             engineOps.setCompileEngine(patch.compileEngine);
+        }
+        if (patch.appearanceTheme === "dark" || patch.appearanceTheme === "light") {
+            appearanceOps.setAppearanceThemeState(patch.appearanceTheme);
         }
         if (typeof patch.wordWrapEnabled === "boolean") {
             editorPrefOps.setEditorWordWrapEnabled(patch.wordWrapEnabled);
@@ -122,6 +129,7 @@ export const initSettingsUi = (context, deps) => {
         getAutoSynctexOnBuildEnabled: () => runtime.state.autoSynctexOnBuildEnabled,
         getReverseSynctexEnabled: () => runtime.state.reverseSynctexEnabled,
         getPdfViewerMode: () => runtime.state.pdfViewerMode,
+        getAppearanceTheme: () => runtime.state.appearanceTheme,
         buildFormatSettingsPayload: formatOps.buildFormatSettingsPayload,
         getSettingsSnapshot,
         applySettingsPatch,

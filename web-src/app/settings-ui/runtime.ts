@@ -1,5 +1,6 @@
 import type { AppContext } from "../context.js";
 import { defaultEditorFormatSettings } from "../settings-format.js";
+import { getCurrentAppearanceTheme } from "../appearance.js";
 import type { SettingsUiConfig, SettingsUiDeps, SettingsUiState, SettingsUiStorageKeys, SettingsUiStorageRanges } from "./types.js";
 
 export type SettingsUiRuntime = {
@@ -48,6 +49,7 @@ export const createSettingsUiRuntime = (context: AppContext, deps: SettingsUiDep
   const state: SettingsUiState = {
     activeSettingsPage: null,
     editorAlignEnvEnabled: true,
+    appearanceTheme: getCurrentAppearanceTheme(),
     editorWordWrapEnabled: false,
     editorFormatSettings: {
       ...defaultEditorFormatSettings,
@@ -70,4 +72,3 @@ export const createSettingsUiRuntime = (context: AppContext, deps: SettingsUiDep
 
   return { context, deps, state, keys, ranges, config };
 };
-

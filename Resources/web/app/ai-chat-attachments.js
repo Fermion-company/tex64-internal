@@ -54,6 +54,15 @@ const loadPdfjs = async () => {
     }
     return pdfjsLibPromise;
 };
+const createPdfDocumentOptions = (source) => ({
+    ...source,
+    cMapUrl: new URL("../pdfjs/cmaps/", import.meta.url).href,
+    cMapPacked: true,
+    standardFontDataUrl: new URL("../pdfjs/standard_fonts/", import.meta.url).href,
+    wasmUrl: new URL("../pdfjs/wasm/", import.meta.url).href,
+    useSystemFonts: true,
+    disableFontFace: false,
+});
 // Rasterize a PDF's pages to PNG/JPEG attachments so they flow through the
 // existing image pipeline. Respects the caller's remaining count/byte budget.
 const renderPdfToImageAttachments = async (file, budget) => {
@@ -64,7 +73,7 @@ const renderPdfToImageAttachments = async (file, budget) => {
     }
     const pdfjsLib = await loadPdfjs();
     const buffer = await file.arrayBuffer();
-    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const doc = await pdfjsLib.getDocument(createPdfDocumentOptions({ data: new Uint8Array(buffer) })).promise;
     const baseName = (file.name || "pdf").replace(/\.pdf$/i, "");
     const maxPages = Math.min(doc.numPages, budget.remainingCount);
     let truncatedPages = doc.numPages > maxPages;

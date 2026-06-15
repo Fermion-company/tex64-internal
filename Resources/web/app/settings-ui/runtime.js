@@ -1,4 +1,5 @@
 import { defaultEditorFormatSettings } from "../settings-format.js";
+import { getCurrentAppearanceTheme } from "../appearance.js";
 export const createSettingsUiRuntime = (context, deps) => {
     const keys = {
         compileEngineKey: "tex64.compileEngine",
@@ -33,6 +34,7 @@ export const createSettingsUiRuntime = (context, deps) => {
     const state = {
         activeSettingsPage: null,
         editorAlignEnvEnabled: true,
+        appearanceTheme: getCurrentAppearanceTheme(),
         editorWordWrapEnabled: false,
         editorFormatSettings: {
             ...defaultEditorFormatSettings,
