@@ -747,6 +747,14 @@ const EN_TO_JA: Record<string, string> = {
 
   // --- Synonyms / variants used by uiText() callers + HTML labels + handler messages ---
   "Cancel": "キャンセル",
+  "Comment": "コメント",
+  "**Comment**": "**コメント**",
+  "Add comment": "コメントを追加",
+  "Edit comment": "コメントを編集",
+  "Delete comment": "コメントを削除",
+  "Write a comment": "コメントを入力",
+  "Comment cannot be empty.": "コメントは空にできません。",
+  "Delete this comment?": "このコメントを削除しますか？",
   "Build": "ビルド",
   "Cancel build": "ビルドをキャンセル",
   "Runtime environment is missing.": "実行環境が不足しています。",
@@ -1605,6 +1613,15 @@ const EN_TO_ZH: Record<string, string> = {
 
   // --- Synonyms / variants used by uiText() callers + HTML labels + handler messages ---
   "Cancel": "取消",
+  "Comment": "注释",
+  "**Comment**": "**注释**",
+  "Add comment": "添加注释",
+  "Edit comment": "编辑注释",
+  "Delete comment": "删除注释",
+  "Write a comment": "输入注释",
+  "Comment cannot be empty.": "注释不能为空。",
+  "Delete this comment?": "删除此注释？",
+  "Add": "添加",
   "Build": "构建",
   "Cancel build": "取消构建",
   "Runtime environment is missing.": "执行环境不足。",
@@ -2412,6 +2429,15 @@ const EN_TO_KO: Record<string, string> = {
 
   // --- Synonyms / variants used by uiText() callers + HTML labels + handler messages ---
   "Cancel": "취소",
+  "Comment": "코멘트",
+  "**Comment**": "**코멘트**",
+  "Add comment": "코멘트 추가",
+  "Edit comment": "코멘트 편집",
+  "Delete comment": "코멘트 삭제",
+  "Write a comment": "코멘트 입력",
+  "Comment cannot be empty.": "코멘트는 비워 둘 수 없습니다.",
+  "Delete this comment?": "이 코멘트를 삭제할까요?",
+  "Add": "추가",
   "Build": "빌드",
   "Cancel build": "빌드 취소",
   "Runtime environment is missing.": "실행 환경이 부족합니다.",
@@ -3219,6 +3245,15 @@ const EN_TO_FR: Record<string, string> = {
 
   // --- Synonyms / variants used by uiText() callers + HTML labels + handler messages ---
   "Cancel": "Annuler",
+  "Comment": "Commentaire",
+  "**Comment**": "**Commentaire**",
+  "Add comment": "Ajouter un commentaire",
+  "Edit comment": "Modifier le commentaire",
+  "Delete comment": "Supprimer le commentaire",
+  "Write a comment": "Écrire un commentaire",
+  "Comment cannot be empty.": "Le commentaire ne peut pas être vide.",
+  "Delete this comment?": "Supprimer ce commentaire ?",
+  "Add": "Ajouter",
   "Build": "Compiler",
   "Cancel build": "Annuler la compilation",
   "Runtime environment is missing.": "L'environnement d'exécution est insuffisant.",
@@ -4026,6 +4061,15 @@ const EN_TO_DE: Record<string, string> = {
 
   // --- Synonyms / variants used by uiText() callers + HTML labels + handler messages ---
   "Cancel": "Abbrechen",
+  "Comment": "Kommentar",
+  "**Comment**": "**Kommentar**",
+  "Add comment": "Kommentar hinzufügen",
+  "Edit comment": "Kommentar bearbeiten",
+  "Delete comment": "Kommentar löschen",
+  "Write a comment": "Kommentar schreiben",
+  "Comment cannot be empty.": "Kommentar darf nicht leer sein.",
+  "Delete this comment?": "Diesen Kommentar löschen?",
+  "Add": "Hinzufügen",
   "Build": "Erstellen",
   "Cancel build": "Erstellung abbrechen",
   "Runtime environment is missing.": "Die Ausführungsumgebung ist unzureichend.",
@@ -4833,6 +4877,15 @@ const EN_TO_ES: Record<string, string> = {
 
   // --- Synonyms / variants used by uiText() callers + HTML labels + handler messages ---
   "Cancel": "Cancelar",
+  "Comment": "Comentario",
+  "**Comment**": "**Comentario**",
+  "Add comment": "Añadir comentario",
+  "Edit comment": "Editar comentario",
+  "Delete comment": "Eliminar comentario",
+  "Write a comment": "Escribe un comentario",
+  "Comment cannot be empty.": "El comentario no puede estar vacío.",
+  "Delete this comment?": "¿Eliminar este comentario?",
+  "Add": "Añadir",
   "Build": "Compilar",
   "Cancel build": "Cancelar compilación",
   "Runtime environment is missing.": "El entorno de ejecución es insuficiente.",
@@ -5145,8 +5198,13 @@ const applyUiLocaleToDocument = (locale: UiLocale) => {
 
 export const getUiLocale = (): UiLocale => currentLocale;
 
-export const uiText = (english: string, japanese: string) =>
-  currentLocale === "ja" ? japanese : english;
+export const uiText = (english: string, japanese?: string) => {
+  if (currentLocale === "ja") {
+    const translated = translateCore(english);
+    return translated !== english ? translated : japanese ?? english;
+  }
+  return translateCore(english);
+};
 
 export const getStoredUiLocale = (): UiLocale | null => {
   try {

@@ -12,6 +12,7 @@ import { getCurrentAppearanceTheme, onAppearanceThemeChange } from "./appearance
 import { setupLsp } from "./lsp/setup-lsp.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { attachEditorErgonomics } from "./editor-ergonomics.js";
+import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
 import type { SpellBridge } from "./types.js";
 
@@ -172,6 +173,9 @@ export const initMonacoSetup = (
       const spellBridge = (window as unknown as { tex64Spell?: SpellBridge }).tex64Spell;
       const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
       spellChecker?.start();
+      const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
+        getWorkspaceRoot: deps.getWorkspaceRoot,
+      });
       const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
       onAppearanceThemeChange((theme) => {
         if (monacoWindow.monaco) {
@@ -277,6 +281,7 @@ export const initMonacoSetup = (
         group.editor = editor;
 
         attachEditorErgonomics(monacoWindow.monaco, editor, group);
+        codeCommentManager.attachToEditor(group);
 
         host.addEventListener(
           "keydown",

@@ -78,6 +78,40 @@ body.is-embedded .pdf-app {
   background: rgba(92, 156, 255, 0.14);
 }
 
+.pdf-sidebar-close {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: 8px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.pdf-sidebar-close:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.pdf-sidebar-close svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+body.is-embedded #pdf-tab-thumbs,
+body.is-embedded #pdf-thumbnails {
+  display: none;
+}
+
 .pdf-sidebar-panel {
   display: none;
   padding: 10px;

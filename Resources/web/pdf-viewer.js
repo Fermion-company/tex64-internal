@@ -59,10 +59,12 @@ const createPdfDocumentOptions = (source) => ({
 
 const initPdfViewer = () => {
   const bridge = resolveBridge();
-  document.body.classList.toggle("is-embedded", isEmbeddedViewer());
+  const embedded = isEmbeddedViewer();
+  document.body.classList.toggle("is-embedded", embedded);
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
   const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");
+  const sidebarCloseBtn = document.getElementById("pdf-sidebar-close");
   const sidebarEl = document.getElementById("pdf-sidebar");
   const outlineTabBtn = document.getElementById("pdf-tab-outline");
   const thumbsTabBtn = document.getElementById("pdf-tab-thumbs");
@@ -273,19 +275,23 @@ const initPdfViewer = () => {
     }
   };
 
-  const setSidebarTab = (tab) => {
-    state.sidebarTab = tab === "thumbs" ? "thumbs" : "outline";
+  const setSidebarTab = (tab, options = {}) => {
+    const persist = options.persist !== false;
+    state.sidebarTab = tab === "thumbs" && !embedded ? "thumbs" : "outline";
     if (outlineTabBtn) {
       outlineTabBtn.classList.toggle("is-active", state.sidebarTab === "outline");
     }
     if (thumbsTabBtn) {
-      thumbsTabBtn.classList.toggle("is-active", state.sidebarTab === "thumbs");
+      thumbsTabBtn.classList.toggle("is-active", !embedded && state.sidebarTab === "thumbs");
     }
     if (outlineEl) {
       outlineEl.classList.toggle("is-active", state.sidebarTab === "outline");
     }
     if (thumbnailsEl) {
-      thumbnailsEl.classList.toggle("is-active", state.sidebarTab === "thumbs");
+      thumbnailsEl.classList.toggle("is-active", !embedded && state.sidebarTab === "thumbs");
+    }
+    if (!persist) {
+      return;
     }
     try {
       localStorage.setItem(sidebarTabKey, state.sidebarTab);
@@ -307,7 +313,7 @@ const initPdfViewer = () => {
     // ignore
   }
   setSidebarVisible(state.sidebarVisible);
-  setSidebarTab(state.sidebarTab);
+  setSidebarTab(state.sidebarTab, { persist: !(embedded && state.sidebarTab === "thumbs") });
 
   const clearSidebarContent = () => {
     if (outlineEl) {
@@ -951,7 +957,9 @@ const initPdfViewer = () => {
       pdfViewer.setDocument(state.doc);
       linkService.setDocument(state.doc, null);
       renderOutline();
-      renderThumbnails();
+      if (!embedded) {
+        renderThumbnails();
+      }
       setStatus("準備完了");
     } catch (error) {
       reloadInFlight = false;
@@ -1221,6 +1229,12 @@ const initPdfViewer = () => {
     });
   }
 
+  if (sidebarCloseBtn) {
+    sidebarCloseBtn.addEventListener("click", () => {
+      setSidebarVisible(false);
+    });
+  }
+
   if (outlineTabBtn) {
     outlineTabBtn.addEventListener("click", () => {
       setSidebarVisible(true);
@@ -1231,6 +1245,10 @@ const initPdfViewer = () => {
   if (thumbsTabBtn) {
     thumbsTabBtn.addEventListener("click", () => {
       setSidebarVisible(true);
+      if (embedded) {
+        setSidebarTab("outline");
+        return;
+      }
       setSidebarTab("thumbs");
     });
   }

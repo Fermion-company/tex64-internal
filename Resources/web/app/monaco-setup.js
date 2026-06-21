@@ -6,6 +6,7 @@ import { getCurrentAppearanceTheme, onAppearanceThemeChange } from "./appearance
 import { setupLsp } from "./lsp/setup-lsp.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { attachEditorErgonomics } from "./editor-ergonomics.js";
+import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
@@ -67,6 +68,9 @@ export const initMonacoSetup = (context, deps) => {
         const spellBridge = window.tex64Spell;
         const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
+        const codeCommentManager = createCodeCommentManager(monacoWindow.monaco, {
+            getWorkspaceRoot: deps.getWorkspaceRoot,
+        });
         const themeName = applyMonacoTheme(monacoWindow.monaco, getCurrentAppearanceTheme());
         onAppearanceThemeChange((theme) => {
             if (monacoWindow.monaco) {
@@ -112,6 +116,7 @@ export const initMonacoSetup = (context, deps) => {
             const editorAny = editor;
             group.editor = editor;
             attachEditorErgonomics(monacoWindow.monaco, editor, group);
+            codeCommentManager.attachToEditor(group);
             host.addEventListener("keydown", (event) => {
                 var _a;
                 if (event.key !== "Tab") {
