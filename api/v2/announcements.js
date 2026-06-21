@@ -115,15 +115,21 @@ const normalizeAnnouncement = (entry) => {
 
 const readConfiguredAnnouncements = () => {
   const raw = process.env.TEX64_ANNOUNCEMENTS_JSON;
+  let configured = [];
   if (typeof raw !== "string" || !raw.trim()) {
     return DEFAULT_ANNOUNCEMENTS;
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_ANNOUNCEMENTS;
+    configured = Array.isArray(parsed) ? parsed : [];
   } catch {
-    return DEFAULT_ANNOUNCEMENTS;
+    configured = [];
   }
+  const defaultIds = new Set(DEFAULT_ANNOUNCEMENTS.map((entry) => entry.id));
+  const configuredOnly = configured.filter(
+    (entry) => !isObject(entry) || !defaultIds.has(String(entry.id || "").trim())
+  );
+  return [...DEFAULT_ANNOUNCEMENTS, ...configuredOnly];
 };
 
 const toTimestamp = (value) => {
