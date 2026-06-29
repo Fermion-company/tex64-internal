@@ -224,21 +224,21 @@ const featureMethods = {
     if (!force && state.aiAccessCache && Date.now() - state.aiAccessFetchedAt < FEATURE_CACHE_TTL_MS) {
       return clone(state.aiAccessCache);
     }
-    if (!state.session?.accessToken) {
-      const blocked = this.buildBlockedAccess("AUTH_REQUIRED", "Google login is required.", false);
-      state.aiAccessCache = blocked;
-      state.aiAccessFetchedAt = Date.now();
-      this.state = state;
-      await this.save();
-      return clone(blocked);
-    }
     try {
-      const payload = await this.authorizedRequest("/me/features?names=ai");
+      const hasSession = Boolean(state.session?.accessToken);
+      const payload = hasSession
+        ? await this.authorizedRequest("/me/features?names=ai")
+        : await this.requestJson(`${this.apiBaseUrl}/me/features?names=ai`, {
+            headers: {
+              "X-Tex64-Device-Id": await this.ensureDeviceId(),
+            },
+          });
       const feature = payload?.features?.ai ?? null;
       const quota = this.buildQuotaSnapshot(feature?.quota ?? null);
       const user = payload?.user && typeof payload.user === "object" ? payload.user : null;
+      const isAnonymous = user?.anonymous === true;
       const access = {
-        authenticated: true,
+        authenticated: hasSession && !isAnonymous,
         allowed: Boolean(feature?.enabled),
         reason:
           typeof feature?.reason === "string" && feature.reason
@@ -249,17 +249,17 @@ const featureMethods = {
         status: typeof feature?.status === "string" ? feature.status : null,
         plan:
           (typeof user?.plan === "string" && user.plan) ||
-          (typeof state.session.plan === "string" ? state.session.plan : null),
+          (typeof state.session?.plan === "string" ? state.session.plan : null),
         user: {
           id:
             (typeof user?.id === "string" && user.id) ||
-            (typeof state.session.user?.id === "string" ? state.session.user.id : null),
+            (typeof state.session?.user?.id === "string" ? state.session.user.id : null),
           email:
             (typeof user?.email === "string" && user.email) ||
-            (typeof state.session.user?.email === "string" ? state.session.user.email : null),
+            (typeof state.session?.user?.email === "string" ? state.session.user.email : null),
           name:
             (typeof user?.name === "string" && user.name) ||
-            (typeof state.session.user?.name === "string" ? state.session.user.name : null),
+            (typeof state.session?.user?.name === "string" ? state.session.user.name : null),
         },
         quota,
         periodStart: parseDate(feature?.periodStart) || quota?.periodStart || null,
@@ -269,11 +269,13 @@ const featureMethods = {
         pricingUrl: this.getPricingUrl(),
         fetchedAt: Date.now(),
       };
-      state.session = {
-        ...(state.session || {}),
-        plan: access.plan,
-        user: access.user,
-      };
+      if (hasSession) {
+        state.session = {
+          ...(state.session || {}),
+          plan: access.plan,
+          user: access.user,
+        };
+      }
       state.aiAccessCache = access;
       state.aiAccessFetchedAt = Date.now();
       this.state = state;

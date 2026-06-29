@@ -11,6 +11,47 @@ const LOCALES = ["en", "ja", "zh", "ko", "fr", "de", "es"];
 
 const DEFAULT_ANNOUNCEMENTS = [
   {
+    id: "tex64-0.1.16-axiom-without-login",
+    kind: "info",
+    title: {
+      en: "Axiom is available before sign-in",
+      ja: "ログイン前でもAxiomを使えます",
+      zh: "无需登录即可使用 Axiom",
+      ko: "로그인 전에도 Axiom을 사용할 수 있습니다",
+      fr: "Axiom est disponible avant la connexion",
+      de: "Axiom ist auch ohne Anmeldung nutzbar",
+      es: "Axiom está disponible antes de iniciar sesión",
+    },
+    body: {
+      en:
+        "You can now open TeX64 and use Axiom right away, even before signing in. Sign in later if you want usage connected to your account and plan.",
+      ja:
+        "TeX64を開いてすぐ、ログイン前でもAxiomを使えるようになりました。アカウントやプランに紐づけて使いたい場合は、あとからログインできます。",
+      zh:
+        "现在打开 TeX64 后，即使尚未登录也可以立即使用 Axiom。若要将使用情况关联到你的账户和方案，可稍后登录。",
+      ko:
+        "이제 TeX64를 열자마자 로그인 전에도 Axiom을 사용할 수 있습니다. 계정과 플랜에 사용량을 연결하려면 나중에 로그인하면 됩니다.",
+      fr:
+        "Vous pouvez maintenant ouvrir TeX64 et utiliser Axiom immédiatement, même avant de vous connecter. Connectez-vous ensuite si vous voulez rattacher l’utilisation à votre compte et à votre formule.",
+      de:
+        "Du kannst TeX64 jetzt öffnen und Axiom sofort nutzen, auch vor der Anmeldung. Melde dich später an, wenn die Nutzung mit deinem Konto und Tarif verbunden werden soll.",
+      es:
+        "Ahora puedes abrir TeX64 y usar Axiom de inmediato, incluso antes de iniciar sesión. Inicia sesión después si quieres asociar el uso a tu cuenta y plan.",
+    },
+    url: "https://tex64.com/releases/0.1.16",
+    urlLabel: {
+      en: "Release notes",
+      ja: "リリースノート",
+      zh: "发行说明",
+      ko: "릴리스 노트",
+      fr: "Notes de version",
+      de: "Versionshinweise",
+      es: "Notas de la versión",
+    },
+    publishedAt: "2026-06-29T03:48:26.000Z",
+    expiresAt: "2026-09-30T23:59:59.000Z",
+  },
+  {
     id: "tex64-0.1.15-code-comments-pdf-sidebar",
     kind: "info",
     title: {

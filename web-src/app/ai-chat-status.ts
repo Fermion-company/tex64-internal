@@ -64,11 +64,11 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     Boolean(state.platformAiAccess && state.platformAiAccess.allowed === false);
   const needsLogin = () =>
     Boolean(
-      !state.platformAuth?.authenticated ||
-        (state.platformAiAccess &&
-          (!state.platformAiAccess.authenticated ||
-            state.platformAiAccess.reason === "AUTH_REQUIRED" ||
-            state.platformAiAccess.reason === "TOKEN_EXPIRED"))
+      !state.platformAiAccess?.allowed &&
+        (!state.platformAuth?.authenticated ||
+          (state.platformAiAccess &&
+            (state.platformAiAccess.reason === "AUTH_REQUIRED" ||
+              state.platformAiAccess.reason === "TOKEN_EXPIRED")))
     );
 
   const withUtilityActions = (actions?: Array<{ action: StatusAction; label: string }>) => {
@@ -411,6 +411,14 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     state.platformAuth = payload?.auth ?? null;
     state.platformError = normalizeAuthError(payload?.error ?? null);
     if (!state.platformAuth?.authenticated) {
+      if (!state.platformAiAccess?.allowed) {
+        requestAiAccessCheck(false);
+      }
+      if (state.platformAiAccess?.allowed) {
+        updateStatusDisplay();
+        onStatusUpdate?.();
+        return;
+      }
       state.platformAiAccess = null;
       state.platformUsage = null;
       state.requestedInitialUsage = false;

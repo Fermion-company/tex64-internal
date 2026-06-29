@@ -10,7 +10,9 @@
  *   5. Simple system prompt (matching OpenPrism)
  *
  * API transport: fetch → tex64.com proxy → OpenAI-compatible LLM
- * Auth: JWT from platformAccess, with TEX64_LLM_API_KEY env var fallback.
+ * Auth: JWT from platformAccess when signed in, otherwise a stable device ID
+ * for the anonymous one-time allowance. TEX64_LLM_API_KEY remains an env var
+ * fallback for local/private endpoints.
  */
 
 "use strict";
@@ -87,29 +89,37 @@ const runAgentConversation = async (
 
   // ---- Resolve LLM config ----
   const llmConfig = resolveLLMConfig(settings);
+  const apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
 
-  // ---- Get access token ----
+  // ---- Resolve platform identity ----
   let accessToken = null;
+  let deviceId = null;
   if (service.platformAccess) {
     try {
       accessToken = await service.platformAccess.refreshAccessToken(false);
     } catch {
       /* will try env var fallback */
     }
+    try {
+      deviceId = await service.platformAccess.ensureDeviceId();
+    } catch {
+      /* anonymous fallback will be unavailable */
+    }
   }
-  if (!accessToken) {
+  const usesPlatformProxy = /\/api\/v2\/ai\/openai\/chat\/completions$/i.test(apiUrl);
+  if (!accessToken && (!deviceId || !usesPlatformProxy)) {
     const envKey =
       typeof process.env.TEX64_LLM_API_KEY === "string"
         ? process.env.TEX64_LLM_API_KEY.trim()
         : "";
     if (envKey) accessToken = envKey;
   }
-  if (!accessToken) {
+  if (!accessToken && !deviceId) {
     service.sendToRenderer("agent:error", {
-      message: "Login required. Please sign in and try again.",
+      message: "Axiom requires either login or a local app identity. Please restart TeX64 and try again.",
       conversationId: targetConversationId,
     });
-    service.sendStatus("error", "Login required", targetConversationId);
+    service.sendStatus("error", "Axiom identity unavailable", targetConversationId);
     return;
   }
 
@@ -164,9 +174,6 @@ const runAgentConversation = async (
     ...chatHistory,
     { role: "user", content: userContent },
   ];
-
-  // ---- API endpoint ----
-  const apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
 
   try {
     // ---- Agent loop ----
@@ -238,8 +245,9 @@ const runAgentConversation = async (
         response = await fetch(apiUrl, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json",
+            ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
+            ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
           },
           body: JSON.stringify({
             model: llmConfig.model,

@@ -19,12 +19,12 @@ export const createAiChatStatusController = (params) => {
     const resolveIntlLocale = () => { var _a; return (_a = INTL_LOCALE_MAP[getUiLocale()]) !== null && _a !== void 0 ? _a : "en-US"; };
     const isAiBlocked = () => Boolean(state.platformAiAccess && state.platformAiAccess.allowed === false);
     const needsLogin = () => {
-        var _a;
-        return Boolean(!((_a = state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated) ||
-            (state.platformAiAccess &&
-                (!state.platformAiAccess.authenticated ||
-                    state.platformAiAccess.reason === "AUTH_REQUIRED" ||
-                    state.platformAiAccess.reason === "TOKEN_EXPIRED")));
+        var _a, _b;
+        return Boolean(!((_a = state.platformAiAccess) === null || _a === void 0 ? void 0 : _a.allowed) &&
+            (!((_b = state.platformAuth) === null || _b === void 0 ? void 0 : _b.authenticated) ||
+                (state.platformAiAccess &&
+                    (state.platformAiAccess.reason === "AUTH_REQUIRED" ||
+                        state.platformAiAccess.reason === "TOKEN_EXPIRED"))));
     };
     const withUtilityActions = (actions) => {
         return Array.isArray(actions) ? [...actions] : [];
@@ -321,15 +321,23 @@ export const createAiChatStatusController = (params) => {
         renderStatus("", "", withUtilityActions());
     };
     const handlePlatformAuth = (payload) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e, _f;
         state.platformAuth = (_a = payload === null || payload === void 0 ? void 0 : payload.auth) !== null && _a !== void 0 ? _a : null;
         state.platformError = normalizeAuthError((_b = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _b !== void 0 ? _b : null);
         if (!((_c = state.platformAuth) === null || _c === void 0 ? void 0 : _c.authenticated)) {
+            if (!((_d = state.platformAiAccess) === null || _d === void 0 ? void 0 : _d.allowed)) {
+                requestAiAccessCheck(false);
+            }
+            if ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.allowed) {
+                updateStatusDisplay();
+                onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
+                return;
+            }
             state.platformAiAccess = null;
             state.platformUsage = null;
             state.requestedInitialUsage = false;
         }
-        else if (!state.platformAuth.pending && !state.requestedInitialUsage && !((_d = payload === null || payload === void 0 ? void 0 : payload.error) === null || _d === void 0 ? void 0 : _d.message)) {
+        else if (!state.platformAuth.pending && !state.requestedInitialUsage && !((_f = payload === null || payload === void 0 ? void 0 : payload.error) === null || _f === void 0 ? void 0 : _f.message)) {
             state.requestedInitialUsage = true;
             requestAiAccessCheck(false);
             requestPlatformUsage(false);
