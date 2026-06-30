@@ -1,9 +1,8 @@
 name: Build Distributables
 
+# Manual only. Automatic tag builds can spam failure notifications when
+# Apple notarization agreements expire outside this repository.
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
