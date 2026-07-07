@@ -41,6 +41,34 @@ const STRINGS = {
     login_err_timeout: { en: "Login timed out.", ja: "ログインがタイムアウトしました。", zh: "登录超时。", ko: "로그인 시간이 초과되었습니다.", fr: "Délai de connexion dépassé.", de: "Zeitüberschreitung bei der Anmeldung.", es: "Tiempo de inicio de sesión agotado." },
     login_err_confirm: { en: "Could not confirm login status.", ja: "ログイン状態を確認できませんでした。", zh: "无法确认登录状态。", ko: "로그인 상태를 확인할 수 없습니다.", fr: "Impossible de confirmer l'état de connexion.", de: "Anmeldestatus konnte nicht bestätigt werden.", es: "No se pudo confirmar el estado de inicio de sesión." },
     login_err_validate: { en: "Login validation failed.", ja: "ログインの検証に失敗しました。", zh: "登录验证失败。", ko: "로그인 검증에 실패했습니다.", fr: "Échec de la validation de la connexion.", de: "Login-Überprüfung fehlgeschlagen.", es: "Falló la validación del inicio de sesión." },
+    // ── Agent activity (thinking bubble / status line) ──
+    status_thinking: { en: "Thinking...", ja: "考え中...", zh: "思考中...", ko: "생각 중...", fr: "Réflexion...", de: "Denkt nach...", es: "Pensando..." },
+    status_working: { en: "Working...", ja: "作業中...", zh: "处理中...", ko: "작업 중...", fr: "En cours...", de: "Arbeitet...", es: "Trabajando..." },
+    status_preparing: { en: "Preparing...", ja: "準備中...", zh: "准备中...", ko: "준비 중...", fr: "Préparation...", de: "Vorbereitung...", es: "Preparando..." },
+    // ── Tool activity labels (shown while the agent runs a tool) ──
+    tool_read_file: { en: "Reading file", ja: "ファイルを読み取り中", zh: "正在读取文件", ko: "파일 읽는 중", fr: "Lecture du fichier", de: "Datei wird gelesen", es: "Leyendo archivo" },
+    tool_list_files: { en: "Checking folder structure", ja: "フォルダ構成を確認中", zh: "正在查看目录结构", ko: "폴더 구조 확인 중", fr: "Analyse des dossiers", de: "Ordnerstruktur wird geprüft", es: "Revisando carpetas" },
+    tool_list_sections: { en: "Reading document outline", ja: "文書構成を確認中", zh: "正在读取文档大纲", ko: "문서 개요 읽는 중", fr: "Lecture du plan du document", de: "Dokumentgliederung wird gelesen", es: "Leyendo el esquema" },
+    tool_read_section: { en: "Reading section", ja: "セクションを読み取り中", zh: "正在读取章节", ko: "섹션 읽는 중", fr: "Lecture de la section", de: "Abschnitt wird gelesen", es: "Leyendo sección" },
+    tool_replace_section: { en: "Rewriting section", ja: "セクションを書き換え中", zh: "正在改写章节", ko: "섹션 다시 쓰는 중", fr: "Réécriture de la section", de: "Abschnitt wird umgeschrieben", es: "Reescribiendo sección" },
+    tool_append_to_section: { en: "Extending section", ja: "セクションに追記中", zh: "正在扩写章节", ko: "섹션에 덧붙이는 중", fr: "Extension de la section", de: "Abschnitt wird erweitert", es: "Ampliando sección" },
+    tool_find_math_region: { en: "Locating equation", ja: "数式を特定中", zh: "正在定位公式", ko: "수식 찾는 중", fr: "Localisation de l'équation", de: "Formel wird gesucht", es: "Localizando ecuación" },
+    tool_replace_lines: { en: "Replacing lines", ja: "行を置換中", zh: "正在替换行", ko: "행 바꾸는 중", fr: "Remplacement de lignes", de: "Zeilen werden ersetzt", es: "Reemplazando líneas" },
+    tool_insert_lines: { en: "Inserting lines", ja: "行を挿入中", zh: "正在插入行", ko: "행 삽입 중", fr: "Insertion de lignes", de: "Zeilen werden eingefügt", es: "Insertando líneas" },
+    tool_delete_lines: { en: "Deleting lines", ja: "行を削除中", zh: "正在删除行", ko: "행 삭제 중", fr: "Suppression de lignes", de: "Zeilen werden gelöscht", es: "Eliminando líneas" },
+    tool_create_file: { en: "Creating file", ja: "ファイルを作成中", zh: "正在创建文件", ko: "파일 만드는 중", fr: "Création du fichier", de: "Datei wird erstellt", es: "Creando archivo" },
+    tool_write_file: { en: "Writing file", ja: "ファイルを書き込み中", zh: "正在写入文件", ko: "파일 쓰는 중", fr: "Écriture du fichier", de: "Datei wird geschrieben", es: "Escribiendo archivo" },
+    tool_apply_patch: { en: "Applying changes", ja: "変更を適用中", zh: "正在应用更改", ko: "변경 적용 중", fr: "Application des modifications", de: "Änderungen werden angewendet", es: "Aplicando cambios" },
+    tool_get_compile_log: { en: "Checking build log", ja: "ビルドログを確認中", zh: "正在查看编译日志", ko: "빌드 로그 확인 중", fr: "Vérification du journal de compilation", de: "Build-Log wird geprüft", es: "Revisando registro de compilación" },
+    tool_arxiv_search: { en: "Searching arXiv", ja: "arXiv を検索中", zh: "正在搜索 arXiv", ko: "arXiv 검색 중", fr: "Recherche sur arXiv", de: "arXiv wird durchsucht", es: "Buscando en arXiv" },
+    tool_arxiv_bibtex: { en: "Fetching BibTeX", ja: "BibTeX を取得中", zh: "正在获取 BibTeX", ko: "BibTeX 가져오는 중", fr: "Récupération du BibTeX", de: "BibTeX wird geladen", es: "Obteniendo BibTeX" },
+    tool_run_command: { en: "Running command", ja: "コマンドを実行中", zh: "正在运行命令", ko: "명령 실행 중", fr: "Exécution de la commande", de: "Befehl wird ausgeführt", es: "Ejecutando comando" },
+    tool_check_environment: { en: "Checking environment", ja: "環境を確認中", zh: "正在检查环境", ko: "환경 확인 중", fr: "Vérification de l'environnement", de: "Umgebung wird geprüft", es: "Comprobando entorno" },
+    tool_install_environment: { en: "Installing environment", ja: "環境をインストール中", zh: "正在安装环境", ko: "환경 설치 중", fr: "Installation de l'environnement", de: "Umgebung wird installiert", es: "Instalando entorno" },
+    // ── Background-chat toast ──
+    toast_done: { en: "Done", ja: "完了", zh: "完成", ko: "완료", fr: "Terminé", de: "Fertig", es: "Listo" },
+    toast_issues: { en: "Issues", ja: "問題あり", zh: "有问题", ko: "문제 발생", fr: "Problèmes", de: "Probleme", es: "Problemas" },
+    toast_view: { en: "View", ja: "表示", zh: "查看", ko: "보기", fr: "Afficher", de: "Anzeigen", es: "Ver" },
     // ── Delete-chat modal ──
     delete_chat: { en: "Delete chat", ja: "チャットを削除", zh: "删除对话", ko: "채팅 삭제", fr: "Supprimer la conversation", de: "Chat löschen", es: "Eliminar chat" },
     cancel: { en: "Cancel", ja: "キャンセル", zh: "取消", ko: "취소", fr: "Annuler", de: "Abbrechen", es: "Cancelar" },
@@ -53,5 +81,27 @@ export const aiText = (key) => {
     const entry = STRINGS[key];
     if (!entry)
         return String(key);
+    return (_a = entry[getUiLocale()]) !== null && _a !== void 0 ? _a : entry.en;
+};
+// Backend agent statuses arrive as fixed English strings (the main process
+// is locale-agnostic). Map the known ones to localized text; anything else
+// (e.g. tool detail labels already localized upstream) passes through.
+const BACKEND_STATUS_KEYS = {
+    "Thinking...": "status_thinking",
+    "Working...": "status_working",
+    "Preparing...": "status_preparing",
+};
+/** Localize a backend-issued status string when it is one of the known ones. */
+export const localizeAgentStatus = (text) => {
+    const key = BACKEND_STATUS_KEYS[text.trim()];
+    return key ? aiText(key) : text;
+};
+/** Localized label for an agent tool by tool name; falls back to `fallback`. */
+export const localizeToolLabel = (name, fallback) => {
+    var _a;
+    const key = `tool_${name}`;
+    const entry = STRINGS[key];
+    if (!entry)
+        return fallback;
     return (_a = entry[getUiLocale()]) !== null && _a !== void 0 ? _a : entry.en;
 };

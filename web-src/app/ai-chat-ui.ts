@@ -69,7 +69,13 @@ export type AiChatApi = {
   handleStatus: (state: AgentStatusState, message?: string, conversationId?: string) => void;
   handleMessage: (text: string, conversationId?: string) => void;
   handleMessageDelta: (text: string, conversationId?: string) => void;
-  handleTool: (payload: { name: string; label?: string; summary?: string; conversationId?: string }) => void;
+  handleTool: (payload: {
+    name: string;
+    label?: string;
+    detail?: string;
+    summary?: string;
+    conversationId?: string;
+  }) => void;
   handleProposal: (proposal: AgentProposal) => void;
   handleApplyResult: (payload: { proposalId: string; ok: boolean; error?: string; conflict?: boolean }) => void;
   handleUndoResult: (payload: { ok: boolean; message?: string; path?: string; conversationId?: string }) => void;
@@ -595,7 +601,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
 
   const normalizeThinkingText = (text?: string) => {
     const raw = typeof text === "string" ? text.trim() : "";
-    if (!raw) return "Thinking...";
+    if (!raw) return aiText("status_thinking");
     return raw;
   };
 

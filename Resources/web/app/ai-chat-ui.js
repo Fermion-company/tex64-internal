@@ -500,7 +500,7 @@ export const initAiChatUi = (context, deps) => {
     const normalizeThinkingText = (text) => {
         const raw = typeof text === "string" ? text.trim() : "";
         if (!raw)
-            return "Thinking...";
+            return aiText("status_thinking");
         return raw;
     };
     const createThinkingElement = (text) => {

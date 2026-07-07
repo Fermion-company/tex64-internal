@@ -1,31 +1,25 @@
 /* ------------------------------------------------------------------ */
 /*  KaTeX math rendering                                              */
 /* ------------------------------------------------------------------ */
+// Inline $...$ with currency guard: the delimiters must hug non-whitespace
+// content ("$x$", not "$5 and $10"), and a closing $ directly followed by a
+// digit is treated as currency, not as a math terminator.
+const INLINE_DOLLAR_MATH = /(?<![\$\\])\$(?!\$)(?!\s)([^$\n]+?)(?<!\s)\$(?!\$)(?!\d)/g;
 const renderMathInText = (html) => {
-    // Display math: $$...$$ (must come before inline)
-    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr) => {
+    const renderKatex = (expr, displayMode) => {
         try {
-            return katex.renderToString(expr.trim(), {
-                displayMode: true,
-                throwOnError: false,
-            });
+            return katex.renderToString(expr.trim(), { displayMode, throwOnError: false });
         }
         catch {
             return `<code>${expr}</code>`;
         }
-    });
-    // Inline math: $...$  (not preceded/followed by $)
-    html = html.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_match, expr) => {
-        try {
-            return katex.renderToString(expr.trim(), {
-                displayMode: false,
-                throwOnError: false,
-            });
-        }
-        catch {
-            return `<code>${expr}</code>`;
-        }
-    });
+    };
+    // Display math first: $$...$$ and \[...\]
+    html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr) => renderKatex(expr, true));
+    html = html.replace(/\\\[([\s\S]+?)\\\]/g, (_match, expr) => renderKatex(expr, true));
+    // Inline math: \(...\) and $...$
+    html = html.replace(/\\\(([\s\S]+?)\\\)/g, (_match, expr) => renderKatex(expr, false));
+    html = html.replace(INLINE_DOLLAR_MATH, (_match, expr) => renderKatex(expr, false));
     return html;
 };
 /* ------------------------------------------------------------------ */
@@ -212,19 +206,41 @@ const renderMarkdownHtml = (text) => {
         configureMarked();
         markedConfigured = true;
     }
+    // Shield code (fenced blocks and inline spans) from the math regexes:
+    // LaTeX answers routinely contain \[ \] or $ inside ```tex fences, and
+    // those must stay verbatim code, not become KaTeX.
+    const codeSpans = [];
+    let protected_ = text;
+    protected_ = protected_.replace(/```[\s\S]*?(?:```|$)/g, (match) => {
+        codeSpans.push(match);
+        return `\x01CODE${codeSpans.length - 1}\x01`;
+    });
+    protected_ = protected_.replace(/`[^`\n]+`/g, (match) => {
+        codeSpans.push(match);
+        return `\x01CODE${codeSpans.length - 1}\x01`;
+    });
     // Protect math blocks from marked's processing
     const mathBlocks = [];
-    let protected_ = text;
-    // Protect display math $$...$$
+    // Protect display math $$...$$ and \[...\]
     protected_ = protected_.replace(/\$\$([\s\S]+?)\$\$/g, (_match, expr) => {
         mathBlocks.push(`$$${expr}$$`);
         return `\x00MATH${mathBlocks.length - 1}\x00`;
     });
-    // Protect inline math $...$
-    protected_ = protected_.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_match, expr) => {
+    protected_ = protected_.replace(/\\\[([\s\S]+?)\\\]/g, (_match, expr) => {
+        mathBlocks.push(`\\[${expr}\\]`);
+        return `\x00MATH${mathBlocks.length - 1}\x00`;
+    });
+    // Protect inline math \(...\) and $...$
+    protected_ = protected_.replace(/\\\(([\s\S]+?)\\\)/g, (_match, expr) => {
+        mathBlocks.push(`\\(${expr}\\)`);
+        return `\x00MATH${mathBlocks.length - 1}\x00`;
+    });
+    protected_ = protected_.replace(INLINE_DOLLAR_MATH, (_match, expr) => {
         mathBlocks.push(`$${expr}$`);
         return `\x00MATH${mathBlocks.length - 1}\x00`;
     });
+    // Restore code before parsing so marked renders it as normal code.
+    protected_ = protected_.replace(/\x01CODE(\d+)\x01/g, (_match, idx) => { var _a; return (_a = codeSpans[Number(idx)]) !== null && _a !== void 0 ? _a : ""; });
     // Parse markdown
     let html;
     try {

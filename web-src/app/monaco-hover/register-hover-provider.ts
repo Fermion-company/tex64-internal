@@ -9,11 +9,18 @@ import {
   extractSingleKey,
   findCommandMatchAt,
 } from "./command-key-match.js";
-import { extractBibEntryText, parseBibFields } from "./bib-utils.js";
+import { extractBibEntryText, formatBibEntryMarkdown, parseBibFields } from "./bib-utils.js";
 import { renderExcerpt, sliceExcerptAroundLine } from "./excerpt-utils.js";
 import { buildImagePreviewHtml, createHtmlHoverContent } from "./hover-html.js";
 import { buildMathPreviewHtml } from "./math-preview.js";
 import { findMathAt } from "./math-scan.js";
+import { extractMathEnvFromExcerpt, extractRefTargetSummary } from "./ref-target-preview.js";
+import {
+  buildColorSwatchHtml,
+  collectDefinedColors,
+  resolveColorSpec,
+  rgbToHex,
+} from "./color-hover.js";
 import { resolveGraphicsCandidates, resolveTexIncludeCandidates, isPreviewableImagePath } from "./path-candidates.js";
 import { buildPackageHoverMarkdown } from "./package-hover.js";
 import { rememberStableHoverAnchor } from "./stable-hover.js";
@@ -111,6 +118,14 @@ export const registerHoverProvider = (
       ? Math.max(lineNumber, Math.floor(endLineNumber ?? lineNumber))
       : lineNumber;
     return new monaco.Range(lineNumber, startColumn, safeEndLine, endColumn);
+  };
+
+  const getModelLineCountSafe = (
+    m: { getLineCount?: () => number },
+    fallback: number
+  ) => {
+    const count = m.getLineCount?.();
+    return Number.isFinite(count) ? Math.max(1, Math.floor(count as number)) : fallback;
   };
 
   const getOrCreatePreviewRequest = (path: string) => {
@@ -264,6 +279,104 @@ export const registerHoverProvider = (
       return rememberHoverResult(tokenKey, { contents: [{ value }], range });
     }
 
+    // ── Color swatch hover (\textcolor / \color / \definecolor / …) ──
+    let colorModelOption: string | null = null;
+    const colorUseMatch = findCommandMatchAt(
+      effectiveLine,
+      cursorIndex,
+      /\\(textcolor|color|colorbox|pagecolor|rowcolor|cellcolor|arrayrulecolor)(?:\[([^\]]*)\])?\{([^}]+)\}/g,
+      (match, index) => {
+        const command = match[1] ?? "";
+        const model = match[2] ?? null;
+        const content = match[3] ?? "";
+        const braceIndex = match[0].indexOf("{");
+        if (braceIndex < 0 || typeof match.index !== "number") {
+          return null;
+        }
+        const contentStart = match.index + braceIndex + 1;
+        const contentEnd = contentStart + content.length;
+        if (index < contentStart || index > contentEnd) {
+          return null;
+        }
+        const key = content.trim();
+        if (!key) {
+          return null;
+        }
+        colorModelOption = model && model.trim() ? model.trim() : null;
+        const leading = content.match(/^\s*/)?.[0]?.length ?? 0;
+        return {
+          command,
+          key,
+          startIndex: contentStart + leading,
+          endIndex: contentStart + leading + key.length,
+        };
+      }
+    );
+    let colorDefineMatch: { command: string; key: string; startIndex: number; endIndex: number } | null =
+      null;
+    let colorDefineModel: string | null = null;
+    let colorDefineSpec = "";
+    if (!colorUseMatch) {
+      const defineRegex =
+        /\\(definecolor|providecolor|colorlet)\s*\{([^{}]+)\}\s*(?:\{([^{}]+)\}\s*)?\{([^{}]+)\}/g;
+      colorDefineMatch = findCommandMatchAt(effectiveLine, cursorIndex, defineRegex, (match, index) => {
+        if (typeof match.index !== "number") {
+          return null;
+        }
+        const start = match.index;
+        const end = start + match[0].length;
+        if (index < start || index > end) {
+          return null;
+        }
+        const name = (match[2] ?? "").trim();
+        const spec = (match[4] ?? "").trim();
+        if (!name || !spec) {
+          return null;
+        }
+        colorDefineModel = match[3] && match[3].trim() ? match[3].trim() : null;
+        colorDefineSpec = spec;
+        return { command: match[1] ?? "definecolor", key: name, startIndex: start, endIndex: end };
+      });
+    }
+    const colorMatch = colorUseMatch ?? colorDefineMatch;
+    if (colorMatch) {
+      const definedColors = collectDefinedColors(
+        (lineNumber) => model.getLineContent(lineNumber),
+        getModelLineCountSafe(model, position.lineNumber)
+      );
+      const rgb = colorUseMatch
+        ? resolveColorSpec(colorMatch.key, colorModelOption, definedColors)
+        : definedColors.get(colorMatch.key) ??
+          resolveColorSpec(colorDefineSpec, colorDefineModel, definedColors);
+      if (rgb) {
+        const hex = rgbToHex(rgb);
+        const tokenKey = buildHoverTokenKey({
+          activePath,
+          lineNumber: position.lineNumber,
+          startIndex: colorMatch.startIndex,
+          endIndex: colorMatch.endIndex,
+          kind: `color:${colorMatch.command}`,
+          extra: `${colorMatch.key}|${hex}`,
+        });
+        rememberStableHoverAnchor({
+          filePath: activePath,
+          startLineNumber: position.lineNumber,
+          startIndex: colorMatch.startIndex,
+          endIndex: colorMatch.endIndex,
+          tokenKey,
+        });
+        const cached = getCachedHoverResult(tokenKey);
+        if (cached) {
+          return cached;
+        }
+        const range = createAnchorRange(position.lineNumber, colorMatch.startIndex, colorMatch.endIndex);
+        return rememberHoverResult(tokenKey, {
+          contents: [createHtmlHoverContent(buildColorSwatchHtml(rgb, colorMatch.key))],
+          range,
+        });
+      }
+    }
+
     const refMatch = findCommandMatchAt(
       effectiveLine,
       cursorIndex,
@@ -322,23 +435,51 @@ export const registerHoverProvider = (
           .requestFileExcerpt(primary.path, primary.line, { radius: 48, maxLines: 220 })
           .then((excerpt) => {
             const contents: any[] = [{ value: `\`${primary.path}:${primary.line}\`` }];
-            const snippet =
-              excerpt?.ok && Array.isArray((excerpt as any).lines)
-                ? (() => {
-                    const slice = sliceExcerptAroundLine({
-                      startLine: (excerpt as any).startLine ?? primary.line,
-                      lines: (excerpt as any).lines,
-                      targetLine: primary.line,
-                      radius: 1,
-                      maxLines: 4,
-                    });
-                    return renderExcerpt({
-                      startLine: slice.startLine,
-                      lines: slice.lines,
-                      highlightLine: primary.line,
-                    });
-                  })()
-                : null;
+            const excerptOk = excerpt?.ok && Array.isArray((excerpt as any).lines);
+            const excerptData = excerptOk
+              ? {
+                  startLine: (excerpt as any).startLine ?? primary.line,
+                  lines: (excerpt as any).lines as string[],
+                  targetLine: primary.line,
+                }
+              : null;
+            // Show WHAT the label points at, not just where: a rendered
+            // preview for equations, the heading for sections, the caption
+            // for figures/tables. The raw excerpt stays as source context.
+            let previewShown = false;
+            if (excerptData) {
+              const mathLatex = extractMathEnvFromExcerpt(excerptData);
+              if (mathLatex) {
+                const mathHtml = buildMathPreviewHtml(mathLatex);
+                if (mathHtml) {
+                  contents.push(createHtmlHoverContent(mathHtml));
+                  previewShown = true;
+                }
+              }
+              if (!previewShown) {
+                const summary = extractRefTargetSummary(excerptData);
+                if (summary) {
+                  contents.push({ value: `**${summary.text}**` });
+                  previewShown = true;
+                }
+              }
+            }
+            const snippet = excerptData
+              ? (() => {
+                  const slice = sliceExcerptAroundLine({
+                    startLine: excerptData.startLine,
+                    lines: excerptData.lines,
+                    targetLine: primary.line,
+                    radius: 1,
+                    maxLines: 4,
+                  });
+                  return renderExcerpt({
+                    startLine: slice.startLine,
+                    lines: slice.lines,
+                    highlightLine: primary.line,
+                  });
+                })()
+              : null;
             if (snippet) {
               contents.push({ value: snippet });
             }
@@ -403,19 +544,16 @@ export const registerHoverProvider = (
               excerpt?.ok && Array.isArray(excerptLines) ? excerptLines.join("\n") : "";
             const entryText = extractBibEntryText(text, citeMatch.key);
             const fields = entryText ? parseBibFields(entryText) : {};
-            const title = fields.title || "";
-            const author = fields.author || "";
-            const year = fields.year || "";
             const where =
               typeof primary.path === "string" && Number.isFinite(primary.line)
                 ? `\`${primary.path}:${primary.line}\``
                 : "";
-            const summaryParts = [title, author, year].filter(Boolean);
+            const summaryMarkdown = formatBibEntryMarkdown(fields);
 
             const contents: any[] = [];
             if (where) contents.push({ value: where });
-            if (summaryParts.length > 0) {
-              contents.push({ value: summaryParts.join("\n") });
+            if (summaryMarkdown) {
+              contents.push({ value: summaryMarkdown });
             }
             if (contents.length === 0) {
               return null;

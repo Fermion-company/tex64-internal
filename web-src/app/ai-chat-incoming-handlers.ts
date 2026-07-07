@@ -6,6 +6,7 @@ import type {
 import { AUTONOMOUS_LOOP_LIMIT, type ChatMessage, type ChatState } from "./ai-chat-state.js";
 import type { PendingAiRequest } from "./ai-chat-runner.js";
 import { updateMessageElement } from "./ai-chat-message.js";
+import { aiText, localizeAgentStatus, localizeToolLabel } from "./ai-i18n.js";
 
 type StreamingEntry = { message: ChatMessage; element: HTMLElement | null };
 type ThinkingEntry = { text: string; element: HTMLElement | null };
@@ -98,15 +99,13 @@ export const createAiChatIncomingHandlers = (
     const toast = document.createElement("div");
     toast.className = `ai-bg-toast${isError ? " is-error" : ""}`;
     const label = document.createElement("span");
-    label.textContent = isError
-      ? `${chat.title || "Chat"}: Issues`
-      : `${chat.title || "Chat"}: Done`;
+    label.textContent = `${chat.title || "Chat"}: ${aiText(isError ? "toast_issues" : "toast_done")}`;
     toast.appendChild(label);
     if (switchActiveChat) {
       const viewBtn = document.createElement("button");
       viewBtn.type = "button";
       viewBtn.className = "ai-bg-toast-action";
-      viewBtn.textContent = "display";
+      viewBtn.textContent = aiText("toast_view");
       viewBtn.addEventListener("click", () => {
         switchActiveChat(chat.id);
         toast.remove();
@@ -192,7 +191,7 @@ export const createAiChatIncomingHandlers = (
       chat.hasUndo = session.status?.undoAvailable === true;
       if (statusState === "running") {
         runningConversations.add(chat.id);
-        chat.statusMessage = statusMessage || "Thinking...";
+        chat.statusMessage = localizeAgentStatus(statusMessage || "Thinking...");
         upsertThinkingMessage(chat.id, chat.statusMessage);
       } else if (statusState === "error") {
         resumableConversations.add(chat.id);
@@ -211,7 +210,7 @@ export const createAiChatIncomingHandlers = (
   const tryAutonomousContinuation = (chat: ChatState) => {
     if (!chat.autonomous || chat.autoLoopBudget <= 0) return false;
     chat.autoLoopBudget -= 1;
-    chat.statusMessage = "Working...";
+    chat.statusMessage = aiText("status_working");
     runningConversations.add(chat.id);
     resumableConversations.delete(chat.id);
     upsertThinkingMessage(chat.id, chat.statusMessage);
@@ -244,7 +243,7 @@ export const createAiChatIncomingHandlers = (
     if (state === "running") {
       runningConversations.add(chat.id);
       resumableConversations.delete(chat.id);
-      chat.statusMessage = message || "Thinking...";
+      chat.statusMessage = localizeAgentStatus(message || "Thinking...");
       upsertThinkingMessage(chat.id, chat.statusMessage);
     } else {
       runningConversations.delete(chat.id);
@@ -304,18 +303,25 @@ export const createAiChatIncomingHandlers = (
   const handleTool = (payload: {
     name: string;
     label?: string;
+    detail?: string;
     summary?: string;
     conversationId?: string;
   }) => {
     if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
     if (!chat || !runningConversations.has(chat.id)) return;
-    const label =
+    const fallback =
       typeof payload.label === "string" && payload.label.trim().length > 0
         ? payload.label.trim()
-        : "Thinking...";
-    // Filter out internal status values — only show the label
-    chat.statusMessage = label;
+        : aiText("status_thinking");
+    const label = localizeToolLabel(payload.name, fallback);
+    // Append the tool target (file path, command, query…) so the activity
+    // line says WHAT is being worked on, e.g. "Reading file — main.tex".
+    const detail =
+      typeof payload.detail === "string" && payload.detail.trim().length > 0
+        ? payload.detail.trim()
+        : "";
+    chat.statusMessage = detail ? `${label} — ${detail}` : label;
     upsertThinkingMessage(chat.id, chat.statusMessage);
     if (chat.id === getActiveChatId()) updateStatusDisplay();
   };
@@ -419,7 +425,7 @@ export const createAiChatIncomingHandlers = (
     if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
     if (!chat || !runningConversations.has(chat.id)) return;
-    chat.statusMessage = "Thinking...";
+    chat.statusMessage = aiText("status_thinking");
     upsertThinkingMessage(chat.id, chat.statusMessage);
   };
 
@@ -427,7 +433,7 @@ export const createAiChatIncomingHandlers = (
     if (!payload.conversationId) return;
     const chat = ensureChat(payload.conversationId);
     if (!chat || !runningConversations.has(chat.id)) return;
-    chat.statusMessage = "Thinking...";
+    chat.statusMessage = aiText("status_thinking");
     upsertThinkingMessage(chat.id, chat.statusMessage);
   };
 

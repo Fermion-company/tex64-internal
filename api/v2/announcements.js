@@ -11,6 +11,47 @@ const LOCALES = ["en", "ja", "zh", "ko", "fr", "de", "es"];
 
 const DEFAULT_ANNOUNCEMENTS = [
   {
+    id: "tex64-0.1.17-hover-axiom-polish",
+    kind: "info",
+    title: {
+      en: "Richer hovers and a clearer Axiom",
+      ja: "ホバー表示の強化とAxiomの改善",
+      zh: "更强大的悬停预览与更清晰的 Axiom",
+      ko: "더 풍부한 호버와 더 명확한 Axiom",
+      fr: "Survols enrichis et Axiom plus clair",
+      de: "Reichere Hover-Vorschauen und ein klareres Axiom",
+      es: "Vistas de cursor más ricas y un Axiom más claro",
+    },
+    body: {
+      en:
+        "Hover previews got a big upgrade: \\ref now shows the referenced equation, section, or caption, citations appear as a formatted reference card, and color commands show inline swatches. Axiom now tells you exactly what it is working on (down to the file), and chat replies render \\( \\) and \\[ \\] math.",
+      ja:
+        "ホバーが大幅に強化されました。\\ref は参照先の数式・セクション・キャプションをプレビューし、引用は整形された文献カード、色コマンドはスウォッチ付きで表示されます。Axiom は作業中の内容（どのファイルを扱っているかまで）を表示し、チャットの \\( \\) や \\[ \\] の数式もレンダリングされます。",
+      zh:
+        "悬停预览全面升级：\\ref 会显示所引用的公式、章节或图表标题，引用以排版好的文献卡片呈现，颜色命令会显示色块。Axiom 现在会实时显示正在处理的内容（具体到文件），聊天回复中的 \\( \\) 和 \\[ \\] 数学公式也会渲染。",
+      ko:
+        "호버 미리보기가 크게 강화되었습니다. \\ref는 참조된 수식·섹션·캡션을 미리 보여주고, 인용은 정리된 문헌 카드로, 색상 명령은 색상 견본과 함께 표시됩니다. Axiom은 지금 어떤 작업을 하는지(어느 파일인지까지) 보여주며, 채팅 답변의 \\( \\)와 \\[ \\] 수식도 렌더링됩니다.",
+      fr:
+        "Les aperçus au survol ont été nettement améliorés : \\ref affiche l'équation, la section ou la légende référencée, les citations apparaissent sous forme de fiche bibliographique mise en forme, et les commandes de couleur montrent un échantillon. Axiom indique désormais précisément ce qu'il fait (jusqu'au fichier concerné), et les réponses du chat rendent les mathématiques \\( \\) et \\[ \\].",
+      de:
+        "Die Hover-Vorschau wurde deutlich verbessert: \\ref zeigt die referenzierte Formel, den Abschnitt oder die Beschriftung, Zitate erscheinen als formatierte Literaturkarte, und Farbbefehle zeigen ein Farbfeld. Axiom zeigt jetzt genau, woran es arbeitet (bis hin zur Datei), und Chat-Antworten rendern \\( \\)- und \\[ \\]-Mathematik.",
+      es:
+        "Las vistas previas al pasar el cursor mejoraron mucho: \\ref muestra la ecuación, sección o leyenda referenciada, las citas aparecen como una ficha bibliográfica formateada y los comandos de color muestran una muestra de color. Axiom ahora indica exactamente en qué está trabajando (hasta el archivo), y las respuestas del chat renderizan matemáticas \\( \\) y \\[ \\].",
+    },
+    url: "https://tex64.com/releases/0.1.17",
+    urlLabel: {
+      en: "Release notes",
+      ja: "リリースノート",
+      zh: "发行说明",
+      ko: "릴리스 노트",
+      fr: "Notes de version",
+      de: "Versionshinweise",
+      es: "Notas de la versión",
+    },
+    publishedAt: "2026-07-07T00:00:00.000Z",
+    expiresAt: "2026-10-31T23:59:59.000Z",
+  },
+  {
     id: "tex64-0.1.16-axiom-without-login",
     kind: "info",
     title: {

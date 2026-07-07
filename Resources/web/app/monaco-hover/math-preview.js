@@ -22,6 +22,12 @@ const normalizeLatexForMathLive = (latex) => {
     if (!value) {
         return value;
     }
+    // \label / \tag / numbering suppressors are document-level metadata that
+    // MathLive either ignores or renders as literal text; drop them so the
+    // hover preview shows only the formula itself.
+    value = value.replace(/\\label\s*\{[^{}]*\}/g, "");
+    value = value.replace(/\\tag\s*\*?\s*\{[^{}]*\}/g, "");
+    value = value.replace(/\\(?:nonumber|notag)\b/g, "");
     // MathLive has weak support for alignat/flalign; map them to aligned for stable hover previews.
     value = value.replace(/\\begin\{alignat\*?\}\s*\{[^}]*\}/g, "\\begin{aligned}");
     value = value.replace(/\\end\{alignat\*?\}/g, "\\end{aligned}");
@@ -120,8 +126,14 @@ export const buildMathPreviewHtml = (latex) => {
         }
         const padX = 6;
         const padY = 4;
+        const MAX_WIDTH = 420;
+        const MAX_HEIGHT = 180;
         let width = 240;
         let height = 92;
+        // When the rendered formula is larger than the hover budget, shrink the
+        // content to fit instead of clipping it (large align blocks used to lose
+        // their right/bottom edge behind overflow:hidden).
+        let contentScale = 1;
         try {
             const probeHost = document.createElement("div");
             probeHost.style.position = "fixed";
@@ -143,18 +155,26 @@ export const buildMathPreviewHtml = (latex) => {
             const rect = probeInner.getBoundingClientRect();
             probeHost.remove();
             if (rect.width > 1 && rect.height > 1) {
-                width = Math.max(34, Math.min(360, Math.ceil(rect.width) + padX * 2));
-                height = Math.max(30, Math.min(140, Math.ceil(rect.height) + padY * 2));
+                const naturalWidth = Math.ceil(rect.width) + padX * 2;
+                const naturalHeight = Math.ceil(rect.height) + padY * 2;
+                contentScale = Math.min(1, MAX_WIDTH / naturalWidth, MAX_HEIGHT / naturalHeight);
+                width = Math.max(34, Math.min(MAX_WIDTH, Math.ceil(naturalWidth * contentScale)));
+                height = Math.max(30, Math.min(MAX_HEIGHT, Math.ceil(naturalHeight * contentScale)));
             }
         }
         catch {
             // Keep fallback size when DOM measurement fails.
         }
+        const scaleStyle = contentScale < 1
+            ? `transform:scale(${contentScale.toFixed(4)});transform-origin:center center;flex-shrink:0;`
+            : "";
         const svg = [
             `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
             `<foreignObject x="0" y="0" width="${width}" height="${height}">`,
             `<div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;width:${width}px;height:${height}px;background:rgba(39,54,84,0.98);color:rgba(247,250,255,0.99);font-family:'STIX Two Math','Cambria Math','Latin Modern Math','Times New Roman',serif;padding:${padY}px ${padX}px;box-sizing:border-box;overflow:hidden;">`,
+            scaleStyle ? `<div style="${scaleStyle}">` : "",
             renderRoot,
+            scaleStyle ? `</div>` : "",
             `</div>`,
             `</foreignObject>`,
             `</svg>`,

@@ -141,6 +141,8 @@ type BridgeHandlersDeps = {
     handleMessageDelta?: (text: string, conversationId?: string) => void;
     handleTool: (payload: {
       name: string;
+      label?: string;
+      detail?: string;
       summary?: string;
       conversationId?: string;
     }) => void;
@@ -546,7 +548,13 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "agent:tool":
         deps.agent?.handleTool(
-          message.payload as { name: string; label?: string; summary?: string; conversationId?: string }
+          message.payload as {
+            name: string;
+            label?: string;
+            detail?: string;
+            summary?: string;
+            conversationId?: string;
+          }
         );
         break;
       case "agent:proposal":

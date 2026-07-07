@@ -175,13 +175,17 @@ const runAgentConversation = async (
     { role: "user", content: userContent },
   ];
 
+  // Token totals are read in the finally block below, so they must be
+  // declared OUTSIDE the try: declaring them inside made the finally throw
+  // ReferenceError and silently skip local usage recording on every run.
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+
   try {
     // ---- Agent loop ----
     const maxIterations = options.maxIterations || 15;
     let iterations = 0;
     const toolErrorHistory = []; // Track consecutive identical errors for loop detection
-    let totalPromptTokens = 0;
-    let totalCompletionTokens = 0;
 
     // Track write tool usage across the entire run so we can verify that
     // the final assistant message matches what actually happened. The E2E
@@ -537,7 +541,17 @@ const runAgentConversation = async (
     }
 
     // ---- Max iterations reached ----
-    const reply = `Reached the processing limit (${iterations} iterations). You can send another message to continue.`;
+    const LIMIT_MESSAGES = {
+      en: (n) => `Reached the processing limit (${n} iterations). You can send another message to continue.`,
+      ja: (n) => `処理の上限（${n} イテレーション）に達しました。続けるにはもう一度メッセージを送ってください。`,
+      zh: (n) => `已达到处理上限（${n} 次迭代）。发送新消息即可继续。`,
+      ko: (n) => `처리 한도(${n}회 반복)에 도달했습니다. 계속하려면 메시지를 다시 보내주세요.`,
+      fr: (n) => `Limite de traitement atteinte (${n} itérations). Envoyez un autre message pour continuer.`,
+      de: (n) => `Verarbeitungslimit erreicht (${n} Iterationen). Sende eine weitere Nachricht, um fortzufahren.`,
+      es: (n) => `Se alcanzó el límite de procesamiento (${n} iteraciones). Envía otro mensaje para continuar.`,
+    };
+    const limitMessage = LIMIT_MESSAGES[context?.uiLocale] || LIMIT_MESSAGES.en;
+    const reply = limitMessage(iterations);
     conversation.push({ role: "assistant", content: reply });
     service.markSessionDirty(targetConversationId);
     service.sendToRenderer("agent:message", {

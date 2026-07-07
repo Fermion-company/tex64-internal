@@ -1,4 +1,155 @@
 import { escapeRegExp } from "./utils.js";
+// LaTeX accent command → combining diacritical mark. Applied as
+// letter + combining mark, then NFC-normalized ("\'e" → "é").
+const ACCENT_COMBINING = {
+    "'": "́",
+    "`": "̀",
+    '"': "̈",
+    "^": "̂",
+    "~": "̃",
+    "=": "̄",
+    ".": "̇",
+    u: "̆",
+    v: "̌",
+    H: "̋",
+    c: "̧",
+    k: "̨",
+};
+const SPECIAL_LETTERS = {
+    "\\ss": "ß",
+    "\\o": "ø",
+    "\\O": "Ø",
+    "\\ae": "æ",
+    "\\AE": "Æ",
+    "\\aa": "å",
+    "\\AA": "Å",
+    "\\l": "ł",
+    "\\L": "Ł",
+    "\\i": "ı",
+    "\\j": "ȷ",
+};
+/**
+ * Reduce a raw BibTeX field value to plain readable text: resolve accent
+ * commands, unwrap style commands, drop protective braces, and normalize
+ * TeX punctuation. Best-effort — unknown commands keep their argument text.
+ */
+export const cleanBibValue = (value) => {
+    if (!value) {
+        return "";
+    }
+    let text = value;
+    // Accent commands: \'e, \'{e}, \c{c}, \v{s}, ...
+    text = text.replace(/\\(['`"^~=.]|[uvHck])\s*\{?([a-zA-Z])\}?/g, (whole, cmd, letter) => {
+        const mark = ACCENT_COMBINING[cmd];
+        return mark ? `${letter}${mark}` : whole;
+    });
+    for (const [command, replacement] of Object.entries(SPECIAL_LETTERS)) {
+        text = text.split(`${command}{}`).join(replacement);
+        text = text.replace(new RegExp(`${escapeRegExp(command)}(?![a-zA-Z])`, "g"), replacement);
+    }
+    // Style commands keep their argument text.
+    text = text.replace(/\\(?:emph|textit|textbf|texttt|textsc|textrm|textsf|mathrm|text|mkbibquote|enquote)\s*\{([^{}]*)\}/g, "$1");
+    text = text.replace(/\\&/g, "&");
+    text = text.replace(/\\%/g, "%");
+    text = text.replace(/\\_/g, "_");
+    text = text.replace(/---/g, "—");
+    text = text.replace(/--/g, "–");
+    text = text.replace(/~/g, " ");
+    // Inline math: keep the content, drop the dollars.
+    text = text.replace(/\$([^$]*)\$/g, "$1");
+    // Remaining unknown commands: drop the backslash-name, keep braces content.
+    text = text.replace(/\\[a-zA-Z]+\s*/g, "");
+    text = text.replace(/[{}]/g, "");
+    text = text.replace(/\s+/g, " ").trim();
+    try {
+        text = text.normalize("NFC");
+    }
+    catch {
+        // Environments without full ICU keep the decomposed form.
+    }
+    return text;
+};
+const MAX_DISPLAY_AUTHORS = 3;
+/** "Last, First and Last2, First2 and others" → "First Last, First2 Last2, et al." */
+export const formatBibAuthors = (raw) => {
+    const cleaned = cleanBibValue(raw);
+    if (!cleaned) {
+        return "";
+    }
+    const parts = cleaned
+        .split(/\s+and\s+/i)
+        .map((part) => part.trim())
+        .filter(Boolean);
+    let hasOthers = false;
+    const names = parts
+        .filter((part) => {
+        if (/^others$/i.test(part)) {
+            hasOthers = true;
+            return false;
+        }
+        return true;
+    })
+        .map((part) => {
+        const commaIndex = part.indexOf(",");
+        if (commaIndex < 0) {
+            return part;
+        }
+        const last = part.slice(0, commaIndex).trim();
+        const first = part.slice(commaIndex + 1).trim();
+        return first ? `${first} ${last}` : last;
+    });
+    if (names.length === 0) {
+        return "";
+    }
+    if (hasOthers || names.length > MAX_DISPLAY_AUTHORS + 1) {
+        return `${names.slice(0, MAX_DISPLAY_AUTHORS).join(", ")}, et al.`;
+    }
+    return names.join(", ");
+};
+/**
+ * Format parsed BibTeX fields as a compact markdown card:
+ * bold title, author line, year · venue, and DOI/URL links.
+ */
+export const formatBibEntryMarkdown = (fields) => {
+    const lines = [];
+    const title = cleanBibValue(fields.title || "");
+    if (title) {
+        lines.push(`**${title}**`);
+    }
+    const authors = formatBibAuthors(fields.author || fields.editor || "");
+    if (authors) {
+        lines.push(authors);
+    }
+    const venue = cleanBibValue(fields.journal ||
+        fields.booktitle ||
+        fields.publisher ||
+        fields.school ||
+        fields.institution ||
+        fields.howpublished ||
+        "");
+    const year = cleanBibValue(fields.year || "");
+    const meta = [year, venue].filter(Boolean).join(" · ");
+    if (meta) {
+        lines.push(meta);
+    }
+    const links = [];
+    const doi = (fields.doi || "").trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "");
+    if (doi) {
+        links.push(`[doi:${doi}](https://doi.org/${encodeURI(doi)})`);
+    }
+    const eprint = (fields.eprint || "").trim();
+    const archivePrefix = (fields.archiveprefix || "").trim().toLowerCase();
+    if (eprint && (archivePrefix === "arxiv" || /^\d{4}\.\d{4,5}/.test(eprint))) {
+        links.push(`[arXiv:${eprint}](https://arxiv.org/abs/${encodeURI(eprint)})`);
+    }
+    else if (!doi && typeof fields.url === "string" && /^https?:\/\//i.test(fields.url.trim())) {
+        links.push(`[URL](${fields.url.trim()})`);
+    }
+    if (links.length > 0) {
+        lines.push(links.join(" · "));
+    }
+    return lines.join("  \n");
+};
 export const extractBibEntryText = (text, citeKey) => {
     if (!text || !citeKey) {
         return null;

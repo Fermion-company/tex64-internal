@@ -36,14 +36,34 @@ const { extractArxivId, fetchArxivEntry, buildArxivBibtex } = require("./arxiv-s
 const { TOOL_STATUS_LABELS } = require("../agent-core-utils.cjs");
 
 /**
+ * Extract a short human-readable target from tool args so the status line
+ * can say "Reading file — main.tex" instead of just "Reading file".
+ */
+const describeToolTarget = (name, args) => {
+  if (!args || typeof args !== "object") {
+    return "";
+  }
+  const candidates = [args.path, args.dir, args.command, args.query, args.arxivId, args.target];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) {
+      const flattened = value.trim().replace(/\s+/g, " ");
+      return flattened.length > 60 ? `${flattened.slice(0, 57)}…` : flattened;
+    }
+  }
+  return "";
+};
+
+/**
  * Wrap a tool function so it emits IPC status events before/after execution.
  */
 const wrapWithIpc = (name, fn, service, conversationId) => {
   return async (args) => {
     const label = TOOL_STATUS_LABELS[name] || name;
+    const detail = describeToolTarget(name, args);
     service.sendToRenderer("agent:tool", {
       name,
       label,
+      detail,
       summary: "running",
       conversationId,
     });
@@ -58,6 +78,7 @@ const wrapWithIpc = (name, fn, service, conversationId) => {
       service.sendToRenderer("agent:tool", {
         name,
         label,
+        detail,
         summary,
         conversationId,
       });
@@ -67,6 +88,7 @@ const wrapWithIpc = (name, fn, service, conversationId) => {
       service.sendToRenderer("agent:tool", {
         name,
         label,
+        detail,
         summary: errMsg,
         conversationId,
       });
