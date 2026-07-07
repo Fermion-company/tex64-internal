@@ -539,10 +539,31 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     chatLog.appendChild(element);
   };
 
-  const scrollToBottom = () => {
+  // Stick-to-bottom scrolling: while the user is reading older messages
+  // (scrolled up), streaming updates must NOT yank the view back down.
+  // The log stays "pinned" as long as the user is at (or near) the bottom;
+  // scrolling up unpins, scrolling back down re-pins. Forced scrolls
+  // (sending a message, switching chats) always re-pin.
+  let chatPinnedToBottom = true;
+  if (aiChatLog instanceof HTMLElement) {
+    aiChatLog.addEventListener(
+      "scroll",
+      () => {
+        const distanceFromBottom =
+          aiChatLog.scrollHeight - aiChatLog.scrollTop - aiChatLog.clientHeight;
+        chatPinnedToBottom = distanceFromBottom < 48;
+      },
+      { passive: true }
+    );
+  }
+
+  const scrollToBottom = (force = false) => {
     if (!(aiChatLog instanceof HTMLElement)) return;
+    if (force) chatPinnedToBottom = true;
+    if (!chatPinnedToBottom) return;
     // Use rAF to ensure the DOM layout is up-to-date before scrolling.
     requestAnimationFrame(() => {
+      if (!chatPinnedToBottom) return;
       aiChatLog.scrollTop = aiChatLog.scrollHeight;
     });
   };
@@ -580,7 +601,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     chat.messages.push(message);
     if (chat.id !== activeChatId || !(aiChatLog instanceof HTMLElement)) return;
     appendToChatLog(createMessageElement(message));
-    scrollToBottom();
+    // Sending your own message always snaps to the bottom; incoming
+    // assistant/system messages respect the user's scroll position.
+    scrollToBottom(message.role === "user");
   };
 
   let setPendingAttachments = (_attachments: AiImageAttachment[]) => {};
@@ -735,7 +758,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       thinking.element = createThinkingElement(thinking.text);
       appendToChatLog(thinking.element);
     }
-    scrollToBottom();
+    scrollToBottom(true);
   };
 
   const restoreDraftFromPending = (chatId: string, request: PendingAiRequest | null) =>

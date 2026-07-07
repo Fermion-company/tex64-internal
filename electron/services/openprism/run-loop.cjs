@@ -213,9 +213,11 @@ const runAgentConversation = async (
       /\b(?:I(?:'ve| have)?|I'll|let me|i just)\s+(?:added|inserted|updated|modified|changed|created|wrote|filled(?:\s+in)?|replaced|removed|deleted|fixed|refactored|renamed|rewrote|expanded|appended)\b/i,
       /\b(?:added|inserted|updated|modified|changed|created|wrote|filled(?:\s+in)?|replaced|removed|deleted|fixed|rewrote|expanded|appended)\s+(?:the|a|an)\b/i,
       /\b(?:has been|have been)\s+(?:added|inserted|updated|modified|changed|created|written|filled(?:\s+in)?|replaced|removed|deleted|fixed|rewrote|expanded|appended)\b/i,
-      // Japanese
+      // Japanese — requires an edit verb before the past-tense ending. (A
+      // bare /(?:しました|…)\b/ pattern used to sit here, but \b after kana
+      // only matches when an ASCII word char follows, so it was dead code —
+      // and its intended broad form would flag ANY polite past sentence.)
       /(?:追加|挿入|更新|変更|作成|書[きい]|記述|修正|置換|削除|リファクタ|名称?変更|書き換え|書き加え|埋め)(?:しました|されました|ました|した)/,
-      /(?:しました|されました|ました|した)\b/,
       // Chinese (Simplified) — past-tense action confirmations: 已 + verb, 完成
       /已(?:添加|新增|插入|更新|修改|更改|创建|写入|编写|替换|移除|删除|修复|重构|重命名|改名|重写|扩展|追加|应用|完成)/,
       /(?:添加|新增|插入|更新|修改|更改|创建|写入|编写|替换|移除|删除|修复|重构|重命名|改名|重写|扩展|追加|应用)了/,

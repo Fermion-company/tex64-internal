@@ -436,11 +436,29 @@ export const initAiChatUi = (context, deps) => {
         (_a = chatLog.querySelector(".ai-empty-state")) === null || _a === void 0 ? void 0 : _a.remove();
         chatLog.appendChild(element);
     };
-    const scrollToBottom = () => {
+    // Stick-to-bottom scrolling: while the user is reading older messages
+    // (scrolled up), streaming updates must NOT yank the view back down.
+    // The log stays "pinned" as long as the user is at (or near) the bottom;
+    // scrolling up unpins, scrolling back down re-pins. Forced scrolls
+    // (sending a message, switching chats) always re-pin.
+    let chatPinnedToBottom = true;
+    if (aiChatLog instanceof HTMLElement) {
+        aiChatLog.addEventListener("scroll", () => {
+            const distanceFromBottom = aiChatLog.scrollHeight - aiChatLog.scrollTop - aiChatLog.clientHeight;
+            chatPinnedToBottom = distanceFromBottom < 48;
+        }, { passive: true });
+    }
+    const scrollToBottom = (force = false) => {
         if (!(aiChatLog instanceof HTMLElement))
+            return;
+        if (force)
+            chatPinnedToBottom = true;
+        if (!chatPinnedToBottom)
             return;
         // Use rAF to ensure the DOM layout is up-to-date before scrolling.
         requestAnimationFrame(() => {
+            if (!chatPinnedToBottom)
+                return;
             aiChatLog.scrollTop = aiChatLog.scrollHeight;
         });
     };
@@ -480,7 +498,9 @@ export const initAiChatUi = (context, deps) => {
         if (chat.id !== activeChatId || !(aiChatLog instanceof HTMLElement))
             return;
         appendToChatLog(createMessageElement(message));
-        scrollToBottom();
+        // Sending your own message always snaps to the bottom; incoming
+        // assistant/system messages respect the user's scroll position.
+        scrollToBottom(message.role === "user");
     };
     let setPendingAttachments = (_attachments) => { };
     ({
@@ -638,7 +658,7 @@ export const initAiChatUi = (context, deps) => {
             thinking.element = createThinkingElement(thinking.text);
             appendToChatLog(thinking.element);
         }
-        scrollToBottom();
+        scrollToBottom(true);
     };
     const restoreDraftFromPending = (chatId, request) => restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage, setPendingAttachments });
     const { requestAgentRun } = createAiChatRunner({

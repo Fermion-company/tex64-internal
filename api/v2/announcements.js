@@ -24,19 +24,19 @@ const DEFAULT_ANNOUNCEMENTS = [
     },
     body: {
       en:
-        "Hover previews got a big upgrade: \\ref now shows the referenced equation, section, or caption, citations appear as a formatted reference card, and color commands show inline swatches. Axiom now tells you exactly what it is working on (down to the file), and chat replies render \\( \\) and \\[ \\] math.",
+        "Hover previews got a big upgrade: \\ref shows the referenced equation, section, or caption, citations appear as a formatted reference card, color commands show inline swatches, PDF figures get thumbnails, and custom macros reveal their definition. Axiom now tells you exactly what it is working on (down to the file), renders \\( \\) and \\[ \\] math in replies, and no longer jumps to the bottom while you read older messages.",
       ja:
-        "ホバーが大幅に強化されました。\\ref は参照先の数式・セクション・キャプションをプレビューし、引用は整形された文献カード、色コマンドはスウォッチ付きで表示されます。Axiom は作業中の内容（どのファイルを扱っているかまで）を表示し、チャットの \\( \\) や \\[ \\] の数式もレンダリングされます。",
+        "ホバーが大幅に強化されました。\\ref は参照先の数式・セクション・キャプションをプレビューし、引用は整形された文献カード、色コマンドはスウォッチ、PDF 図版はサムネイル、自作マクロは定義を表示します。Axiom は作業中の内容（どのファイルを扱っているかまで）を表示し、チャットの \\( \\) や \\[ \\] の数式をレンダリングし、過去のメッセージを読んでいる間に最下部へ飛ばされることもなくなりました。",
       zh:
-        "悬停预览全面升级：\\ref 会显示所引用的公式、章节或图表标题，引用以排版好的文献卡片呈现，颜色命令会显示色块。Axiom 现在会实时显示正在处理的内容（具体到文件），聊天回复中的 \\( \\) 和 \\[ \\] 数学公式也会渲染。",
+        "悬停预览全面升级：\\ref 会显示所引用的公式、章节或图表标题，引用以排版好的文献卡片呈现，颜色命令显示色块，PDF 插图显示缩略图，自定义宏会显示其定义。Axiom 现在会实时显示正在处理的内容（具体到文件），聊天回复中的 \\( \\) 和 \\[ \\] 数学公式会渲染，阅读历史消息时也不会再被强制拉到底部。",
       ko:
-        "호버 미리보기가 크게 강화되었습니다. \\ref는 참조된 수식·섹션·캡션을 미리 보여주고, 인용은 정리된 문헌 카드로, 색상 명령은 색상 견본과 함께 표시됩니다. Axiom은 지금 어떤 작업을 하는지(어느 파일인지까지) 보여주며, 채팅 답변의 \\( \\)와 \\[ \\] 수식도 렌더링됩니다.",
+        "호버 미리보기가 크게 강화되었습니다. \\ref는 참조된 수식·섹션·캡션을 미리 보여주고, 인용은 정리된 문헌 카드로, 색상 명령은 색상 견본, PDF 그림은 썸네일, 사용자 매크로는 정의를 표시합니다. Axiom은 지금 어떤 작업을 하는지(어느 파일인지까지) 보여주고, 채팅 답변의 \\( \\)와 \\[ \\] 수식을 렌더링하며, 이전 메시지를 읽는 동안 맨 아래로 튀지 않습니다.",
       fr:
-        "Les aperçus au survol ont été nettement améliorés : \\ref affiche l'équation, la section ou la légende référencée, les citations apparaissent sous forme de fiche bibliographique mise en forme, et les commandes de couleur montrent un échantillon. Axiom indique désormais précisément ce qu'il fait (jusqu'au fichier concerné), et les réponses du chat rendent les mathématiques \\( \\) et \\[ \\].",
+        "Les aperçus au survol ont été nettement améliorés : \\ref affiche l'équation, la section ou la légende référencée, les citations apparaissent en fiche bibliographique mise en forme, les commandes de couleur montrent un échantillon, les figures PDF ont des vignettes et les macros personnalisées révèlent leur définition. Axiom indique désormais précisément ce qu'il fait (jusqu'au fichier), rend les mathématiques \\( \\) et \\[ \\] dans les réponses, et ne saute plus en bas pendant que vous lisez d'anciens messages.",
       de:
-        "Die Hover-Vorschau wurde deutlich verbessert: \\ref zeigt die referenzierte Formel, den Abschnitt oder die Beschriftung, Zitate erscheinen als formatierte Literaturkarte, und Farbbefehle zeigen ein Farbfeld. Axiom zeigt jetzt genau, woran es arbeitet (bis hin zur Datei), und Chat-Antworten rendern \\( \\)- und \\[ \\]-Mathematik.",
+        "Die Hover-Vorschau wurde deutlich verbessert: \\ref zeigt die referenzierte Formel, den Abschnitt oder die Beschriftung, Zitate erscheinen als formatierte Literaturkarte, Farbbefehle zeigen ein Farbfeld, PDF-Abbildungen erhalten Vorschaubilder und eigene Makros zeigen ihre Definition. Axiom zeigt jetzt genau, woran es arbeitet (bis hin zur Datei), rendert \\( \\)- und \\[ \\]-Mathematik in Antworten und springt nicht mehr nach unten, während du ältere Nachrichten liest.",
       es:
-        "Las vistas previas al pasar el cursor mejoraron mucho: \\ref muestra la ecuación, sección o leyenda referenciada, las citas aparecen como una ficha bibliográfica formateada y los comandos de color muestran una muestra de color. Axiom ahora indica exactamente en qué está trabajando (hasta el archivo), y las respuestas del chat renderizan matemáticas \\( \\) y \\[ \\].",
+        "Las vistas previas al pasar el cursor mejoraron mucho: \\ref muestra la ecuación, sección o leyenda referenciada, las citas aparecen como ficha bibliográfica formateada, los comandos de color muestran una muestra, las figuras PDF tienen miniaturas y las macros propias revelan su definición. Axiom ahora indica exactamente en qué está trabajando (hasta el archivo), renderiza matemáticas \\( \\) y \\[ \\] en las respuestas, y ya no salta al final mientras lees mensajes anteriores.",
     },
     url: "https://tex64.com/releases/0.1.17",
     urlLabel: {

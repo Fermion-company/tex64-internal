@@ -35,7 +35,7 @@ type CreateAiChatIncomingHandlersOptions = {
   clearThinkingMessage: (chatId?: string | null) => void;
   finalizeStreamingMessage: (chatId: string, text: string) => boolean;
   ensureStreamingMessage: (chatId: string) => StreamingEntry | null;
-  scrollToBottom: () => void;
+  scrollToBottom: (force?: boolean) => void;
   appendMessage: (message: ChatMessage, chatId?: string) => void;
   disableAutonomous: (chatId?: string | null) => void;
   enableAutonomous: (chat: ChatState) => void;
@@ -289,6 +289,11 @@ export const createAiChatIncomingHandlers = (
     scheduleUsageRefresh(true);
   };
 
+  // Streaming deltas arrive far faster than the display refreshes, and each
+  // render re-parses the whole message (markdown + KaTeX). Coalesce renders
+  // to one per animation frame; the final agent:message repaints anyway.
+  const pendingDeltaRenders = new Set<string>();
+
   const handleMessageDelta = (text: string, conversationId?: string) => {
     if (!conversationId || !text) return;
     const chatId = conversationId;
@@ -296,8 +301,15 @@ export const createAiChatIncomingHandlers = (
     const entry = ensureStreamingMessage(chatId);
     if (!entry) return;
     entry.message.text += text;
-    updateMessageElement(entry.element, entry.message.text);
-    scrollToBottom();
+    if (pendingDeltaRenders.has(chatId)) return;
+    pendingDeltaRenders.add(chatId);
+    requestAnimationFrame(() => {
+      pendingDeltaRenders.delete(chatId);
+      const current = streamingMessages.get(chatId);
+      if (!current) return;
+      updateMessageElement(current.element, current.message.text);
+      scrollToBottom();
+    });
   };
 
   const handleTool = (payload: {

@@ -59,3 +59,4 @@ export const isPreviewableImagePath = (pathValue) => {
     const ext = (_c = (_b = ((_a = pathValue.split("/").pop()) !== null && _a !== void 0 ? _a : "").split(".").pop()) === null || _b === void 0 ? void 0 : _b.toLowerCase()) !== null && _c !== void 0 ? _c : "";
     return ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tif", "tiff", "ico"].includes(ext);
 };
+export const isPdfPath = (pathValue) => { var _a, _b, _c; return ((_c = (_b = ((_a = pathValue.split("/").pop()) !== null && _a !== void 0 ? _a : "").split(".").pop()) === null || _b === void 0 ? void 0 : _b.toLowerCase()) !== null && _c !== void 0 ? _c : "") === "pdf"; };

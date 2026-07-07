@@ -42,10 +42,12 @@ export const createFilePreviewBroker = (
     }
     const requestId = buildRequestId();
     return new Promise((resolve) => {
+      // PDFs (up to 5MB) take longer to read and ship over IPC than small
+      // images, so the deadline is sized for the slowest allowed payload.
       const timeoutId = window.setTimeout(() => {
         pending.delete(requestId);
         resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
-      }, 1600);
+      }, 4000);
       pending.set(requestId, { resolve, timeoutId });
       postToNative(
         {

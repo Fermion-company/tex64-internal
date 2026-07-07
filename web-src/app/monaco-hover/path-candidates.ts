@@ -66,3 +66,6 @@ export const isPreviewableImagePath = (pathValue: string) => {
   return ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tif", "tiff", "ico"].includes(ext);
 };
 
+export const isPdfPath = (pathValue: string) =>
+  ((pathValue.split("/").pop() ?? "").split(".").pop()?.toLowerCase() ?? "") === "pdf";
+

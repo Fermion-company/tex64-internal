@@ -7,7 +7,9 @@ import { buildMathPreviewHtml } from "./math-preview.js";
 import { findMathAt } from "./math-scan.js";
 import { extractMathEnvFromExcerpt, extractRefTargetSummary } from "./ref-target-preview.js";
 import { buildColorSwatchHtml, collectDefinedColors, resolveColorSpec, rgbToHex, } from "./color-hover.js";
-import { resolveGraphicsCandidates, resolveTexIncludeCandidates, isPreviewableImagePath } from "./path-candidates.js";
+import { resolveGraphicsCandidates, resolveTexIncludeCandidates, isPreviewableImagePath, isPdfPath, } from "./path-candidates.js";
+import { renderPdfFirstPageThumbnail } from "./pdf-thumbnail.js";
+import { findCommandTokenAt, findMacroDefinitionInLines } from "./macro-definition.js";
 import { buildPackageHoverMarkdown } from "./package-hover.js";
 import { rememberStableHoverAnchor } from "./stable-hover.js";
 import { findFirstUnescapedPercent, getCursorIndex } from "./utils.js";
@@ -509,6 +511,23 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 });
                 return rememberHoverResult(tokenKey, pending);
             }
+            // PDF figures (the most common \includegraphics format): rasterize the
+            // first page into a thumbnail via the vendored pdfjs.
+            if (previewPath && isPdfPath(previewPath)) {
+                const pending = getOrCreatePreviewRequest(previewPath).then(async (preview) => {
+                    const contents = [{ value: `\`${previewPath}\`` }, { value: locations }];
+                    if ((preview === null || preview === void 0 ? void 0 : preview.ok) &&
+                        typeof preview.dataUrl === "string" &&
+                        preview.dataUrl.startsWith("data:application/pdf")) {
+                        const thumbnail = await renderPdfFirstPageThumbnail(preview.dataUrl);
+                        if (thumbnail) {
+                            contents.push(createHtmlHoverContent(buildImagePreviewHtml(thumbnail)));
+                        }
+                    }
+                    return { contents, range };
+                });
+                return rememberHoverResult(tokenKey, pending);
+            }
             return rememberHoverResult(tokenKey, {
                 contents: [{ value: locations }],
                 range,
@@ -570,6 +589,43 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 contents: [{ value: locations }],
                 range,
             });
+        }
+        // ── User-defined macro hover ──
+        // Runs last so all specific hovers (math preview, refs, colors, …) win.
+        // Hovering \mymacro in text mode shows its \newcommand/\def definition
+        // from the current file. (Inside math the equation preview takes over.)
+        const commandToken = findCommandTokenAt(effectiveLine, cursorIndex);
+        if (commandToken && commandToken.name.length > 1) {
+            const definition = findMacroDefinitionInLines((lineNumber) => model.getLineContent(lineNumber), getModelLineCountSafe(model, position.lineNumber), commandToken.name);
+            if (definition && definition.lineNumber !== position.lineNumber) {
+                const tokenKey = buildHoverTokenKey({
+                    activePath,
+                    lineNumber: position.lineNumber,
+                    startIndex: commandToken.startIndex,
+                    endIndex: commandToken.endIndex,
+                    kind: "macro-definition",
+                    extra: `${commandToken.name}|${definition.lineNumber}|${definition.text.slice(0, 80)}`,
+                });
+                rememberStableHoverAnchor({
+                    filePath: activePath,
+                    startLineNumber: position.lineNumber,
+                    startIndex: commandToken.startIndex,
+                    endIndex: commandToken.endIndex,
+                    tokenKey,
+                });
+                const cached = getCachedHoverResult(tokenKey);
+                if (cached) {
+                    return cached;
+                }
+                const range = createAnchorRange(position.lineNumber, commandToken.startIndex, commandToken.endIndex);
+                return rememberHoverResult(tokenKey, {
+                    contents: [
+                        { value: `\`${activePath}:${definition.lineNumber}\`` },
+                        { value: `\`\`\`tex\n${definition.text}\n\`\`\`` },
+                    ],
+                    range,
+                });
+            }
         }
         return null;
     };

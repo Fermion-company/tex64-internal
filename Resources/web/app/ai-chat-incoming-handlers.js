@@ -203,6 +203,10 @@ export const createAiChatIncomingHandlers = (options) => {
         updateStatusDisplay();
         scheduleUsageRefresh(true);
     };
+    // Streaming deltas arrive far faster than the display refreshes, and each
+    // render re-parses the whole message (markdown + KaTeX). Coalesce renders
+    // to one per animation frame; the final agent:message repaints anyway.
+    const pendingDeltaRenders = new Set();
     const handleMessageDelta = (text, conversationId) => {
         if (!conversationId || !text)
             return;
@@ -212,8 +216,17 @@ export const createAiChatIncomingHandlers = (options) => {
         if (!entry)
             return;
         entry.message.text += text;
-        updateMessageElement(entry.element, entry.message.text);
-        scrollToBottom();
+        if (pendingDeltaRenders.has(chatId))
+            return;
+        pendingDeltaRenders.add(chatId);
+        requestAnimationFrame(() => {
+            pendingDeltaRenders.delete(chatId);
+            const current = streamingMessages.get(chatId);
+            if (!current)
+                return;
+            updateMessageElement(current.element, current.message.text);
+            scrollToBottom();
+        });
     };
     const handleTool = (payload) => {
         if (!payload.conversationId)

@@ -81,7 +81,10 @@ const createWorkspaceFileHandlers = (ctx) => {
       return;
     }
     await updateWorkspaceIfNeeded(rootPath);
-    if (!isImageFilePath(relativePath)) {
+    // PDFs are allowed through so the renderer can rasterize the first page
+    // into a hover thumbnail (LaTeX figures are very often PDF).
+    const isPdfPreview = isPdfFilePath(relativePath);
+    if (!isImageFilePath(relativePath) && !isPdfPreview) {
       sendToRenderer("file:previewResult", {
         requestId,
         ok: false,
@@ -92,13 +95,13 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
     try {
       const data = await workspace.readBinaryFile(relativePath);
-      const maxBytes = 1024 * 1024 * 2;
+      const maxBytes = isPdfPreview ? 1024 * 1024 * 5 : 1024 * 1024 * 2;
       if (data.length > maxBytes) {
         sendToRenderer("file:previewResult", {
           requestId,
           ok: false,
           path: relativePath,
-          error: "Image is too large (max 2MB).",
+          error: isPdfPreview ? "PDF is too large (max 5MB)." : "Image is too large (max 2MB).",
         });
         return;
       }
@@ -107,7 +110,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         requestId,
         ok: true,
         path: relativePath,
-        mimeType: IMAGE_MIME_TYPES.get(ext) || "image/*",
+        mimeType: isPdfPreview ? "application/pdf" : IMAGE_MIME_TYPES.get(ext) || "image/*",
         data: data.toString("base64"),
       });
     } catch (error) {
