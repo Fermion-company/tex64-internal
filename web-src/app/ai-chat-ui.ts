@@ -84,7 +84,9 @@ export type AiChatApi = {
   handleThought: (payload: { text: string; conversationId?: string }) => void;
   handleError: (message: string, conversationId?: string) => void;
   getCurrentPlan: () => string;
+  getUsageSnapshot: () => PlatformUsageSnapshot | null;
   refreshPlan: (force?: boolean) => void;
+  refreshUsage: (force?: boolean) => void;
   refreshContextBar: () => void;
   handlePlatformAuth: (payload: {
     auth: PlatformAuthSnapshot;
@@ -904,7 +906,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
     refreshContextBar: updateContextBar,
     getCurrentPlan: () => platformState.platformAiAccess?.plan ?? "free",
+    getUsageSnapshot: () => platformState.platformUsage,
     refreshPlan: (force = true) => requestAiAccessCheck(force),
+    refreshUsage: (force = true) => requestPlatformUsage(force),
     handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
     handlePlatformUpdate,
     applyPendingFromDiffModal: () => {

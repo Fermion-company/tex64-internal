@@ -784,7 +784,9 @@ export const initAiChatUi = (context, deps) => {
         handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
         refreshContextBar: updateContextBar,
         getCurrentPlan: () => { var _a, _b; return (_b = (_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) !== null && _b !== void 0 ? _b : "free"; },
+        getUsageSnapshot: () => platformState.platformUsage,
         refreshPlan: (force = true) => requestAiAccessCheck(force),
+        refreshUsage: (force = true) => requestPlatformUsage(force),
         handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
         handlePlatformUpdate,
         applyPendingFromDiffModal: () => {

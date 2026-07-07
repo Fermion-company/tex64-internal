@@ -53,6 +53,8 @@ export type TerminalUiApi = {
   show: () => void;
   /** Called when the tab/panel is hidden; the session is kept alive. */
   hide: () => void;
+  /** Kill the current shell and start a fresh session (header ⟳ button). */
+  restart: () => void;
   dispose: () => void;
 };
 
@@ -276,6 +278,35 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
     /* Keep the pty session alive while hidden, mirroring VS Code. */
   };
 
+  const restart = () => {
+    const bridge = getBridge();
+    if (bridge && sessionId) {
+      const oldId = sessionId;
+      // Drop the id first so the onExit handler doesn't print the
+      // "process exited" hint for a restart the user asked for.
+      sessionId = null;
+      clearSessionDisposers();
+      bridge.kill(oldId);
+    }
+    if (term) {
+      try {
+        term.reset();
+      } catch {
+        /* ignore */
+      }
+    }
+    void ensureStarted().then(() => {
+      scheduleFit();
+      if (term) {
+        try {
+          term.focus();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  };
+
   const dispose = () => {
     disposeThemeListener();
     if (rafId !== null) {
@@ -307,5 +338,5 @@ export const initTerminalUi = (context: AppContext): TerminalUiApi => {
     fitAddon = null;
   };
 
-  return { show, hide, dispose };
+  return { show, hide, restart, dispose };
 };

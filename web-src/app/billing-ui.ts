@@ -1,5 +1,7 @@
 import type { AppContext } from "./context.js";
+import type { PlatformUsageSnapshot } from "./types.js";
 import { getUiLocale } from "./i18n.js";
+import { aiText } from "./ai-i18n.js";
 
 type BillingBridge = {
   checkout: (
@@ -367,6 +369,9 @@ type BillingMessages = {
   openingPortal: string;
   noSub: string;
   portalErrorPrefix: string;
+  activating: string;
+  activated: string;
+  activationSlow: string;
 };
 
 const MSG: Record<string, BillingMessages> = {
@@ -382,6 +387,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "Opening your billing portal…",
     noSub: "No active subscription to manage yet.",
     portalErrorPrefix: "Couldn't open the billing portal: ",
+    activating: "Payment received — activating your plan…",
+    activated: "Your plan is now active. Enjoy!",
+    activationSlow: "Payment received. Activation is taking longer than usual — it will finish in the background.",
   },
   ja: {
     back: "プランに戻る",
@@ -395,6 +403,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "請求ポータルを開いています…",
     noSub: "管理できる有効なサブスクリプションがありません。",
     portalErrorPrefix: "請求ポータルを開けませんでした：",
+    activating: "決済を受け付けました — プランを反映しています…",
+    activated: "プランが有効になりました。",
+    activationSlow: "決済は完了しています。反映に時間がかかっていますが、バックグラウンドで完了します。",
   },
   zh: {
     back: "返回方案",
@@ -408,6 +419,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "正在打开计费门户…",
     noSub: "暂无可管理的有效订阅。",
     portalErrorPrefix: "无法打开计费门户：",
+    activating: "已收到付款 — 正在激活您的方案…",
+    activated: "您的方案已生效。",
+    activationSlow: "已收到付款。激活时间比平常长，将在后台完成。",
   },
   de: {
     back: "Zurück zu den Plänen",
@@ -421,6 +435,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "Abrechnungsportal wird geöffnet…",
     noSub: "Noch kein aktives Abo zum Verwalten.",
     portalErrorPrefix: "Abrechnungsportal konnte nicht geöffnet werden: ",
+    activating: "Zahlung eingegangen — Ihr Plan wird aktiviert…",
+    activated: "Ihr Plan ist jetzt aktiv.",
+    activationSlow: "Zahlung eingegangen. Die Aktivierung dauert länger als üblich und wird im Hintergrund abgeschlossen.",
   },
   ko: {
     back: "플랜으로 돌아가기",
@@ -434,6 +451,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "결제 포털을 여는 중…",
     noSub: "관리할 활성 구독이 아직 없습니다.",
     portalErrorPrefix: "결제 포털을 열지 못했습니다: ",
+    activating: "결제가 완료되었습니다 — 플랜을 적용하는 중…",
+    activated: "플랜이 활성화되었습니다.",
+    activationSlow: "결제는 완료되었습니다. 적용이 평소보다 오래 걸리고 있으며 백그라운드에서 완료됩니다.",
   },
   fr: {
     back: "Retour aux offres",
@@ -447,6 +467,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "Ouverture du portail de facturation…",
     noSub: "Aucun abonnement actif à gérer pour l'instant.",
     portalErrorPrefix: "Impossible d'ouvrir le portail de facturation : ",
+    activating: "Paiement reçu — activation de votre offre…",
+    activated: "Votre offre est maintenant active.",
+    activationSlow: "Paiement reçu. L'activation prend plus de temps que d'habitude et se terminera en arrière-plan.",
   },
   es: {
     back: "Volver a los planes",
@@ -460,6 +483,9 @@ const MSG: Record<string, BillingMessages> = {
     openingPortal: "Abriendo tu portal de facturación…",
     noSub: "Aún no hay una suscripción activa que gestionar.",
     portalErrorPrefix: "No se pudo abrir el portal de facturación: ",
+    activating: "Pago recibido: activando tu plan…",
+    activated: "Tu plan ya está activo.",
+    activationSlow: "Pago recibido. La activación está tardando más de lo habitual y se completará en segundo plano.",
   },
 };
 
@@ -478,6 +504,12 @@ export type BillingUiApi = { open: () => void; close: () => void };
 export type BillingUiDeps = {
   getCurrentPlan: () => string;
   onPlanRefresh: () => void;
+  /** Latest usage snapshot (tokens only) for the in-modal usage banner. */
+  getUsageSnapshot?: () => PlatformUsageSnapshot | null;
+  /** Refresh the usage snapshot (called when the modal opens). */
+  refreshUsage?: () => void;
+  /** Kick off Google sign-in when checkout requires an account. */
+  startSignIn?: () => void;
 };
 
 export const initBillingUi = (context: AppContext, deps: BillingUiDeps): BillingUiApi => {
@@ -494,11 +526,68 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
   } = context.dom;
 
   let embedded: EmbeddedCheckout | null = null;
+  let activationTimer: number | null = null;
 
   const setStatus = (message: string) => {
     if (plansStatus) {
       plansStatus.textContent = message;
     }
+  };
+
+  // Status area with a sign-in CTA: checkout needs an account, and a plain
+  // "please sign in" text with no way to act on it is a dead end.
+  const setStatusWithSignIn = (message: string) => {
+    if (!plansStatus) return;
+    plansStatus.textContent = "";
+    const text = document.createElement("span");
+    text.textContent = message;
+    plansStatus.appendChild(text);
+    if (typeof deps.startSignIn === "function") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "panel-button plans-signin";
+      button.textContent = aiText("login_with_google");
+      button.addEventListener("click", () => {
+        deps.startSignIn?.();
+        setStatus(aiText("login_processing"));
+      });
+      plansStatus.appendChild(button);
+    }
+  };
+
+  const stopActivationPoll = () => {
+    if (activationTimer !== null) {
+      window.clearInterval(activationTimer);
+      activationTimer = null;
+    }
+  };
+
+  // After Stripe reports completion the entitlement lands via webhook, which
+  // can lag by seconds. Poll the plan until it flips (or give up gracefully)
+  // instead of closing the modal while the old plan is still showing.
+  const beginActivationPoll = (purchasedPlan: string) => {
+    stopActivationPoll();
+    const targetRank = PLAN_RANK[purchasedPlan] ?? 1;
+    setStatus(msg().activating);
+    let ticks = 0;
+    activationTimer = window.setInterval(() => {
+      ticks += 1;
+      deps.onPlanRefresh();
+      const current = (deps.getCurrentPlan() || "free").toLowerCase();
+      if ((PLAN_RANK[current] ?? 0) >= targetRank) {
+        stopActivationPoll();
+        showPlansView();
+        renderPlans();
+        setStatus(msg().activated);
+        return;
+      }
+      if (ticks >= 20) {
+        stopActivationPoll();
+        showPlansView();
+        renderPlans();
+        setStatus(msg().activationSlow);
+      }
+    }, 1500);
   };
 
   const destroyEmbedded = () => {
@@ -535,11 +624,11 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     setStatus(msg().preparing);
     const result = await billing.checkout(plan);
     if (!result || result.error || !result.clientSecret || !result.publishableKey) {
-      const reason =
-        result?.code === "AUTH_REQUIRED"
-          ? msg().signIn
-          : result?.error || msg().checkoutUnavailable;
-      setStatus(reason);
+      if (result?.code === "AUTH_REQUIRED") {
+        setStatusWithSignIn(msg().signIn);
+      } else {
+        setStatus(result?.error || msg().checkoutUnavailable);
+      }
       return;
     }
 
@@ -554,10 +643,8 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
         onComplete: () => {
           setStatus(msg().complete);
           deps.onPlanRefresh();
-          window.setTimeout(() => {
-            deps.onPlanRefresh();
-            close();
-          }, 1500);
+          deps.refreshUsage?.();
+          beginActivationPoll(plan);
         },
       });
       embedded = checkout;
@@ -680,6 +767,59 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     return card;
   };
 
+  // Compact usage banner (tokens only, per policy): what you've used this
+  // period and when it resets — the numbers people need to pick a plan.
+  const buildUsageBanner = (): HTMLElement | null => {
+    const usage = deps.getUsageSnapshot?.();
+    const summary = usage?.summary;
+    if (
+      !usage?.authenticated ||
+      !summary ||
+      !Number.isFinite(summary.limitTokens) ||
+      summary.limitTokens <= 0
+    ) {
+      return null;
+    }
+    const locale = getUiLocale();
+    const formatter = new Intl.NumberFormat(locale);
+    const used = Math.max(0, Math.floor(summary.usedTokens || 0));
+    const limit = Math.floor(summary.limitTokens);
+
+    const banner = document.createElement("div");
+    banner.className = "plans-usage";
+
+    const line = document.createElement("div");
+    line.className = "plans-usage-line";
+    const label = document.createElement("span");
+    label.textContent = `${aiText("usage_title")}: ${formatter.format(used)} / ${formatter.format(limit)} ${aiText("usage_tokens")}`;
+    line.appendChild(label);
+    if (typeof summary.periodEnd === "string" && summary.periodEnd) {
+      const resetAt = Date.parse(summary.periodEnd);
+      if (Number.isFinite(resetAt)) {
+        const reset = document.createElement("span");
+        reset.className = "plans-usage-reset";
+        reset.textContent = `${aiText("usage_reset")}: ${new Intl.DateTimeFormat(locale, {
+          month: "short",
+          day: "numeric",
+        }).format(new Date(resetAt))}`;
+        line.appendChild(reset);
+      }
+    }
+    banner.appendChild(line);
+
+    const bar = document.createElement("div");
+    bar.className = "plans-usage-bar";
+    const fill = document.createElement("div");
+    fill.className = "plans-usage-bar-fill";
+    const ratio = Math.max(0, Math.min(1, used / limit));
+    fill.style.width = `${Math.round(ratio * 100)}%`;
+    if (ratio >= 0.9) fill.classList.add("is-high");
+    bar.appendChild(fill);
+    banner.appendChild(bar);
+
+    return banner;
+  };
+
   const renderPlans = () => {
     const copy = CONTENT[getUiLocale()] || CONTENT.en;
     if (plansHeading) plansHeading.textContent = copy.heading;
@@ -691,6 +831,10 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     const onPaidPlan = current === "basic" || current === "pro";
 
     plansList.innerHTML = "";
+    const usageBanner = buildUsageBanner();
+    if (usageBanner) {
+      plansList.appendChild(usageBanner);
+    }
     const grid = document.createElement("div");
     grid.className = "plans-grid-inner";
     for (const plan of PLANS) {
@@ -712,18 +856,33 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     if (!plansModal) {
       return;
     }
+    // Ask for fresh plan + usage; the banner re-renders on the next open if
+    // the numbers changed (snapshot updates arrive asynchronously).
+    deps.onPlanRefresh();
+    deps.refreshUsage?.();
     renderPlans();
     if (plansCheckoutBack) plansCheckoutBack.textContent = msg().back;
     showPlansView();
     setStatus("");
     plansModal.classList.add("is-open");
     plansModal.setAttribute("aria-hidden", "false");
+    // Refreshed plan/usage arrive async — repaint once they've had a moment,
+    // unless the user has already moved into the checkout view.
+    window.setTimeout(() => {
+      if (
+        plansModal.classList.contains("is-open") &&
+        plansCheckout?.classList.contains("is-hidden")
+      ) {
+        renderPlans();
+      }
+    }, 900);
   };
 
   const close = () => {
     if (!plansModal) {
       return;
     }
+    stopActivationPoll();
     destroyEmbedded();
     plansModal.classList.remove("is-open");
     plansModal.setAttribute("aria-hidden", "true");

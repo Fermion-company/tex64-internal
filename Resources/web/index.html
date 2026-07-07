@@ -1105,6 +1105,20 @@
                     </div>
                   </div>
                   <div class="settings-group">
+                    <div class="settings-group-title">Plan</div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Plans &amp; Usage</span>
+                        <span class="settings-desc">View plans and manage your subscription.</span>
+                      </div>
+                      <div class="settings-control">
+                        <button class="panel-button" id="settings-plan-open" type="button">
+                          Open Plans
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="settings-group">
                     <div class="settings-group-title">Update</div>
                     <div class="settings-item">
                       <div class="settings-label">
@@ -1304,6 +1318,17 @@
                 <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
                 <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
+              <button
+                class="bottom-panel-close is-hidden"
+                id="bottom-panel-terminal-restart"
+                type="button"
+                aria-label="New Terminal Session"
+                title="New Terminal Session"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5"/>
+                </svg>
+              </button>
               <button class="bottom-panel-close" id="bottom-panel-close" type="button" aria-label="Close panel">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 6L6 18M6 6l12 12"/>

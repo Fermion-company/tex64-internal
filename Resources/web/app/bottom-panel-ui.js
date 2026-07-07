@@ -5,7 +5,7 @@ const MIN_PANEL_HEIGHT = 120;
 const MAX_PANEL_HEIGHT = 600;
 const DEFAULT_PANEL_HEIGHT = 220;
 export const initBottomPanelUi = (context, deps = {}) => {
-    const { bottomPanel, bottomPanelResizer, bottomPanelClose, bottomPanelBody, bottomPanelTabs, toggleSidebarButton, toggleBottomPanelButton, } = context.dom;
+    const { bottomPanel, bottomPanelResizer, bottomPanelClose, bottomPanelTerminalRestart, bottomPanelBody, bottomPanelTabs, toggleSidebarButton, toggleBottomPanelButton, } = context.dom;
     const editorSection = document.querySelector("section.editor");
     const mainEl = document.querySelector(".main");
     const blockCompose = document.querySelector(".block-compose");
@@ -68,6 +68,9 @@ export const initBottomPanelUi = (context, deps = {}) => {
             const tab = button.getAttribute("data-bottom-tab");
             button.classList.toggle("is-active", tab === activeBottomTab);
         });
+        if (bottomPanelTerminalRestart) {
+            bottomPanelTerminalRestart.classList.toggle("is-hidden", activeBottomTab !== "terminal");
+        }
     };
     const setActiveBottomTab = (tab) => {
         var _a, _b;
@@ -134,6 +137,12 @@ export const initBottomPanelUi = (context, deps = {}) => {
         saveState();
     };
     const isBottomPanelOpen = () => bottomPanelOpen;
+    const openTerminal = () => {
+        if (!bottomPanelOpen) {
+            openBottomPanel();
+        }
+        setActiveBottomTab("terminal");
+    };
     const toggleSidebar = () => {
         sidebarVisible = !sidebarVisible;
         applySidebar();
@@ -202,6 +211,12 @@ export const initBottomPanelUi = (context, deps = {}) => {
     if (bottomPanelClose) {
         bottomPanelClose.addEventListener("click", closeBottomPanel);
     }
+    if (bottomPanelTerminalRestart) {
+        bottomPanelTerminalRestart.addEventListener("click", () => {
+            var _a;
+            (_a = deps.onTerminalRestart) === null || _a === void 0 ? void 0 : _a.call(deps);
+        });
+    }
     tabButtons.forEach((button) => {
         button.addEventListener("click", () => {
             const tab = button.getAttribute("data-bottom-tab") === "terminal" ? "terminal" : "blocks";
@@ -210,6 +225,25 @@ export const initBottomPanelUi = (context, deps = {}) => {
             }
             setActiveBottomTab(tab);
         });
+    });
+    // Ctrl+` toggles the terminal, VS Code-style: opens the panel on the
+    // Terminal tab (focusing the shell), or closes the panel when the terminal
+    // is already showing. (Build shortcuts remain click-only by policy — this
+    // is a panel toggle, not a build binding.)
+    document.addEventListener("keydown", (event) => {
+        if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+            return;
+        }
+        if (event.code !== "Backquote" || event.isComposing) {
+            return;
+        }
+        event.preventDefault();
+        if (bottomPanelOpen && activeBottomTab === "terminal") {
+            closeBottomPanel();
+        }
+        else {
+            openTerminal();
+        }
     });
     // --- Init ---
     loadState();
@@ -222,6 +256,7 @@ export const initBottomPanelUi = (context, deps = {}) => {
         closeBottomPanel,
         toggleBottomPanel,
         isBottomPanelOpen,
+        openTerminal,
         toggleSidebar,
         isSidebarVisible,
     };

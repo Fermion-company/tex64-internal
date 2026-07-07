@@ -596,13 +596,26 @@ export const initMain = () => {
   const bottomPanelUi = initBottomPanelUi(appContext, {
     onTerminalShow: () => terminalUi.show(),
     onTerminalHide: () => terminalUi.hide(),
+    onTerminalRestart: () => terminalUi.restart(),
   });
 
   // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
-  // by the AI upsell CTAs; it reads/refreshes plan state through the AI chat UI.
+  // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
+  // plan + usage state through the AI chat UI.
   initBillingUi(appContext, {
     getCurrentPlan: () => aiChatUi?.getCurrentPlan() ?? "free",
     onPlanRefresh: () => aiChatUi?.refreshPlan(),
+    getUsageSnapshot: () => aiChatUi?.getUsageSnapshot() ?? null,
+    refreshUsage: () => aiChatUi?.refreshUsage(),
+    startSignIn: () => {
+      postToNative({ type: "auth:google:start" });
+    },
+  });
+  // Settings > Account > Plans & Usage: close the full-screen settings first,
+  // then open the same in-app Plans modal used everywhere else.
+  document.getElementById("settings-plan-open")?.addEventListener("click", () => {
+    document.getElementById("settings-close")?.click();
+    window.dispatchEvent(new CustomEvent("tex64:open-plans"));
   });
   window.addEventListener("focus", () => aiChatUi?.refreshPlan(false));
   editorTabsUi = initEditorTabsUi(appContext, {

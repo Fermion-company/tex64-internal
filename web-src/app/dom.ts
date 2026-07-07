@@ -93,6 +93,7 @@ export const getDomRefs = () => ({
   bottomPanel: document.getElementById("bottom-panel"),
   bottomPanelResizer: document.getElementById("bottom-panel-resizer"),
   bottomPanelClose: document.getElementById("bottom-panel-close"),
+  bottomPanelTerminalRestart: document.getElementById("bottom-panel-terminal-restart"),
   bottomPanelBody: document.getElementById("bottom-panel-body"),
   bottomPanelTabs: Array.from(
     document.querySelectorAll<HTMLElement>(".bottom-panel-tab[data-bottom-tab]")

@@ -9,6 +9,11 @@ export const SUPPORTED_LOCALES = [
 ];
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const EN_TO_JA = {
+    "Plan": "プラン",
+    "Plans & Usage": "プランと使用量",
+    "View plans and manage your subscription.": "プランの確認とサブスクリプションの管理を行います。",
+    "Open Plans": "プランを開く",
+    "New Terminal Session": "新しいターミナルセッション",
     "Back to app": "アプリに戻る",
     "Checking your TeX environment…": "TeX 環境を確認しています…",
     "This only takes a moment.": "すぐに終わります。",
@@ -929,6 +934,11 @@ const normalizeUiLocaleValue = (value) => {
 // untranslated strings fall back to the EN source — the same behaviour the
 // original JA-only implementation provided for any non-JA locale.
 const EN_TO_ZH = {
+    "Plan": "方案",
+    "Plans & Usage": "方案与用量",
+    "View plans and manage your subscription.": "查看方案并管理订阅。",
+    "Open Plans": "打开方案",
+    "New Terminal Session": "新建终端会话",
     "General": "常规",
     "Font family": "字体",
     "Font size": "字号",
@@ -1741,6 +1751,11 @@ const EN_TO_ZH = {
     "No arXiv metadata found": "未找到 arXiv 元数据",
 };
 const EN_TO_KO = {
+    "Plan": "플랜",
+    "Plans & Usage": "플랜 및 사용량",
+    "View plans and manage your subscription.": "플랜을 확인하고 구독을 관리합니다.",
+    "Open Plans": "플랜 열기",
+    "New Terminal Session": "새 터미널 세션",
     "General": "일반",
     "Font family": "글꼴",
     "Font size": "글꼴 크기",
@@ -2553,6 +2568,11 @@ const EN_TO_KO = {
     "No arXiv metadata found": "arXiv 메타데이터를 찾을 수 없습니다",
 };
 const EN_TO_FR = {
+    "Plan": "Offre",
+    "Plans & Usage": "Offres et utilisation",
+    "View plans and manage your subscription.": "Consultez les offres et gérez votre abonnement.",
+    "Open Plans": "Voir les offres",
+    "New Terminal Session": "Nouvelle session de terminal",
     "General": "Général",
     "Font family": "Police",
     "Font size": "Taille de police",
@@ -3365,6 +3385,10 @@ const EN_TO_FR = {
     "No arXiv metadata found": "Aucune métadonnée arXiv trouvée",
 };
 const EN_TO_DE = {
+    "Plans & Usage": "Pläne & Nutzung",
+    "View plans and manage your subscription.": "Pläne ansehen und Abo verwalten.",
+    "Open Plans": "Pläne öffnen",
+    "New Terminal Session": "Neue Terminalsitzung",
     "General": "Allgemein",
     "Font family": "Schriftart",
     "Font size": "Schriftgröße",
@@ -4177,6 +4201,10 @@ const EN_TO_DE = {
     "No arXiv metadata found": "Keine arXiv-Metadaten gefunden",
 };
 const EN_TO_ES = {
+    "Plans & Usage": "Planes y uso",
+    "View plans and manage your subscription.": "Consulta los planes y gestiona tu suscripción.",
+    "Open Plans": "Ver planes",
+    "New Terminal Session": "Nueva sesión de terminal",
     "General": "General",
     "Font family": "Fuente",
     "Font size": "Tamaño de fuente",

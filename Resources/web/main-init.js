@@ -48,7 +48,7 @@ import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
-        var _a;
+        var _a, _b;
         initAppearanceTheme();
         initI18n();
         requestAnimationFrame(() => {
@@ -522,12 +522,26 @@ export const initMain = () => {
         const bottomPanelUi = initBottomPanelUi(appContext, {
             onTerminalShow: () => terminalUi.show(),
             onTerminalHide: () => terminalUi.hide(),
+            onTerminalRestart: () => terminalUi.restart(),
         });
         // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
-        // by the AI upsell CTAs; it reads/refreshes plan state through the AI chat UI.
+        // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
+        // plan + usage state through the AI chat UI.
         initBillingUi(appContext, {
             getCurrentPlan: () => { var _a; return (_a = aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.getCurrentPlan()) !== null && _a !== void 0 ? _a : "free"; },
             onPlanRefresh: () => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshPlan(),
+            getUsageSnapshot: () => { var _a; return (_a = aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.getUsageSnapshot()) !== null && _a !== void 0 ? _a : null; },
+            refreshUsage: () => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshUsage(),
+            startSignIn: () => {
+                postToNative({ type: "auth:google:start" });
+            },
+        });
+        // Settings > Account > Plans & Usage: close the full-screen settings first,
+        // then open the same in-app Plans modal used everywhere else.
+        (_a = document.getElementById("settings-plan-open")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => {
+            var _a;
+            (_a = document.getElementById("settings-close")) === null || _a === void 0 ? void 0 : _a.click();
+            window.dispatchEvent(new CustomEvent("tex64:open-plans"));
         });
         window.addEventListener("focus", () => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshPlan(false));
         editorTabsUi = initEditorTabsUi(appContext, {
@@ -663,7 +677,7 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_a = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _a === void 0 ? void 0 : _a.dataset.tab);
+        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_b = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _b === void 0 ? void 0 : _b.dataset.tab);
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();

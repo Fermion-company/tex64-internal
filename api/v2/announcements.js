@@ -11,32 +11,32 @@ const LOCALES = ["en", "ja", "zh", "ko", "fr", "de", "es"];
 
 const DEFAULT_ANNOUNCEMENTS = [
   {
-    id: "tex64-0.1.17-hover-axiom-polish",
+    id: "tex64-0.1.17-terminal-billing-hover",
     kind: "info",
     title: {
-      en: "Richer hovers and a clearer Axiom",
-      ja: "ホバー表示の強化とAxiomの改善",
-      zh: "更强大的悬停预览与更清晰的 Axiom",
-      ko: "더 풍부한 호버와 더 명확한 Axiom",
-      fr: "Survols enrichis et Axiom plus clair",
-      de: "Reichere Hover-Vorschauen und ein klareres Axiom",
-      es: "Vistas de cursor más ricas y un Axiom más claro",
+      en: "Integrated terminal, in-app plans, richer hovers",
+      ja: "ターミナル統合・アプリ内プラン管理・ホバー強化",
+      zh: "集成终端、应用内方案管理、更强悬停预览",
+      ko: "통합 터미널, 앱 내 플랜 관리, 더 풍부한 호버",
+      fr: "Terminal intégré, offres dans l'app, survols enrichis",
+      de: "Integriertes Terminal, Pläne in der App, reichere Hover",
+      es: "Terminal integrado, planes en la app, vistas mejoradas",
     },
     body: {
       en:
-        "Hover previews got a big upgrade: \\ref shows the referenced equation, section, or caption, citations appear as a formatted reference card, color commands show inline swatches, PDF figures get thumbnails, and custom macros reveal their definition. Axiom now tells you exactly what it is working on (down to the file), renders \\( \\) and \\[ \\] math in replies, and no longer jumps to the bottom while you read older messages.",
+        "TeX64 now has an integrated terminal (Ctrl+` in the bottom panel, opens in your project folder) and fully in-app plan management — check your token usage, upgrade, and manage your subscription without leaving the app. Hovers now preview referenced equations, formatted citations, color swatches, PDF figures, and macro definitions. Axiom shows exactly what it's working on, renders math in replies, and no longer jumps while you scroll.",
       ja:
-        "ホバーが大幅に強化されました。\\ref は参照先の数式・セクション・キャプションをプレビューし、引用は整形された文献カード、色コマンドはスウォッチ、PDF 図版はサムネイル、自作マクロは定義を表示します。Axiom は作業中の内容（どのファイルを扱っているかまで）を表示し、チャットの \\( \\) や \\[ \\] の数式をレンダリングし、過去のメッセージを読んでいる間に最下部へ飛ばされることもなくなりました。",
+        "ターミナルを統合しました（下部パネル、Ctrl+`、プロジェクトフォルダで起動）。プラン管理もアプリ内で完結：トークン使用量の確認、アップグレード、サブスクリプション管理までアプリを離れずに行えます。ホバーは参照先の数式・整形された文献情報・色スウォッチ・PDF 図版・マクロ定義をプレビューし、Axiom は作業中の内容を表示、チャットの数式をレンダリングし、スクロール中に飛ばされることもなくなりました。",
       zh:
-        "悬停预览全面升级：\\ref 会显示所引用的公式、章节或图表标题，引用以排版好的文献卡片呈现，颜色命令显示色块，PDF 插图显示缩略图，自定义宏会显示其定义。Axiom 现在会实时显示正在处理的内容（具体到文件），聊天回复中的 \\( \\) 和 \\[ \\] 数学公式会渲染，阅读历史消息时也不会再被强制拉到底部。",
+        "TeX64 集成了终端（底部面板，Ctrl+`，在项目文件夹中启动），方案管理也完全在应用内完成：查看 token 用量、升级和管理订阅都无需离开应用。悬停可预览所引用的公式、排版好的文献信息、色块、PDF 插图和宏定义。Axiom 会显示正在处理的内容，在回复中渲染数学公式，滚动时也不会再跳动。",
       ko:
-        "호버 미리보기가 크게 강화되었습니다. \\ref는 참조된 수식·섹션·캡션을 미리 보여주고, 인용은 정리된 문헌 카드로, 색상 명령은 색상 견본, PDF 그림은 썸네일, 사용자 매크로는 정의를 표시합니다. Axiom은 지금 어떤 작업을 하는지(어느 파일인지까지) 보여주고, 채팅 답변의 \\( \\)와 \\[ \\] 수식을 렌더링하며, 이전 메시지를 읽는 동안 맨 아래로 튀지 않습니다.",
+        "터미널이 통합되었습니다(하단 패널, Ctrl+`, 프로젝트 폴더에서 시작). 플랜 관리도 앱 안에서 완결됩니다 — 토큰 사용량 확인, 업그레이드, 구독 관리를 앱을 떠나지 않고 할 수 있습니다. 호버는 참조된 수식, 정리된 문헌 정보, 색상 견본, PDF 그림, 매크로 정의를 미리 보여주며, Axiom은 작업 내용을 표시하고 답변의 수식을 렌더링하며 스크롤 중 튀지 않습니다.",
       fr:
-        "Les aperçus au survol ont été nettement améliorés : \\ref affiche l'équation, la section ou la légende référencée, les citations apparaissent en fiche bibliographique mise en forme, les commandes de couleur montrent un échantillon, les figures PDF ont des vignettes et les macros personnalisées révèlent leur définition. Axiom indique désormais précisément ce qu'il fait (jusqu'au fichier), rend les mathématiques \\( \\) et \\[ \\] dans les réponses, et ne saute plus en bas pendant que vous lisez d'anciens messages.",
+        "TeX64 intègre désormais un terminal (panneau inférieur, Ctrl+`, ouvert dans le dossier du projet) et une gestion des offres entièrement dans l'app : consultez votre utilisation de jetons, passez à une offre supérieure et gérez votre abonnement sans quitter l'application. Les survols prévisualisent les équations référencées, les citations mises en forme, les échantillons de couleur, les figures PDF et les définitions de macros. Axiom montre ce qu'il fait, rend les mathématiques dans ses réponses et ne saute plus pendant le défilement.",
       de:
-        "Die Hover-Vorschau wurde deutlich verbessert: \\ref zeigt die referenzierte Formel, den Abschnitt oder die Beschriftung, Zitate erscheinen als formatierte Literaturkarte, Farbbefehle zeigen ein Farbfeld, PDF-Abbildungen erhalten Vorschaubilder und eigene Makros zeigen ihre Definition. Axiom zeigt jetzt genau, woran es arbeitet (bis hin zur Datei), rendert \\( \\)- und \\[ \\]-Mathematik in Antworten und springt nicht mehr nach unten, während du ältere Nachrichten liest.",
+        "TeX64 hat jetzt ein integriertes Terminal (unteres Panel, Ctrl+`, startet im Projektordner) und vollständige Planverwaltung in der App: Token-Nutzung prüfen, upgraden und das Abo verwalten, ohne die App zu verlassen. Hover zeigen referenzierte Formeln, formatierte Zitate, Farbfelder, PDF-Abbildungen und Makro-Definitionen. Axiom zeigt, woran es arbeitet, rendert Mathematik in Antworten und springt beim Scrollen nicht mehr.",
       es:
-        "Las vistas previas al pasar el cursor mejoraron mucho: \\ref muestra la ecuación, sección o leyenda referenciada, las citas aparecen como ficha bibliográfica formateada, los comandos de color muestran una muestra, las figuras PDF tienen miniaturas y las macros propias revelan su definición. Axiom ahora indica exactamente en qué está trabajando (hasta el archivo), renderiza matemáticas \\( \\) y \\[ \\] en las respuestas, y ya no salta al final mientras lees mensajes anteriores.",
+        "TeX64 ahora tiene un terminal integrado (panel inferior, Ctrl+`, se abre en la carpeta del proyecto) y gestión de planes totalmente dentro de la app: consulta tu uso de tokens, mejora tu plan y gestiona tu suscripción sin salir de la aplicación. Las vistas al pasar el cursor muestran ecuaciones referenciadas, citas formateadas, muestras de color, figuras PDF y definiciones de macros. Axiom muestra en qué está trabajando, renderiza matemáticas en las respuestas y ya no salta al hacer scroll.",
     },
     url: "https://tex64.com/releases/0.1.17",
     urlLabel: {

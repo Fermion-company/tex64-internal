@@ -7781,6 +7781,17 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   color: var(--text);
 }
 
+/* Restart sits next to Close on the right; hidden unless the Terminal pane
+   is active (toggled from bottom-panel-ui). */
+#bottom-panel-terminal-restart {
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+#bottom-panel-terminal-restart.is-hidden {
+  display: none;
+}
+
 .bottom-panel-body {
   display: flex;
   flex-direction: column;
@@ -8055,6 +8066,59 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 12px;
   color: var(--muted);
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.plans-status .plans-signin {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
+/* Usage banner at the top of the plans list (tokens only). */
+.plans-usage {
+  margin: 0 auto 14px;
+  max-width: 520px;
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+
+.plans-usage-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.plans-usage-reset {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.plans-usage-bar {
+  margin-top: 8px;
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--panel-border) 60%, transparent);
+  overflow: hidden;
+}
+
+.plans-usage-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.plans-usage-bar-fill.is-high {
+  background: #e5534b;
 }
 
 /* --- Bottom Panel overrides for block-compose (horizontal layout) --- */

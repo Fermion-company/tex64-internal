@@ -14,6 +14,8 @@ export type BottomPanelApi = {
   closeBottomPanel: () => void;
   toggleBottomPanel: () => void;
   isBottomPanelOpen: () => boolean;
+  /** Open the panel with the Terminal tab active (used by Ctrl+`). */
+  openTerminal: () => void;
   toggleSidebar: () => void;
   isSidebarVisible: () => boolean;
 };
@@ -21,6 +23,7 @@ export type BottomPanelApi = {
 export type BottomPanelDeps = {
   onTerminalShow?: () => void;
   onTerminalHide?: () => void;
+  onTerminalRestart?: () => void;
 };
 
 export const initBottomPanelUi = (
@@ -31,6 +34,7 @@ export const initBottomPanelUi = (
     bottomPanel,
     bottomPanelResizer,
     bottomPanelClose,
+    bottomPanelTerminalRestart,
     bottomPanelBody,
     bottomPanelTabs,
     toggleSidebarButton,
@@ -101,6 +105,9 @@ export const initBottomPanelUi = (
       const tab = button.getAttribute("data-bottom-tab");
       button.classList.toggle("is-active", tab === activeBottomTab);
     });
+    if (bottomPanelTerminalRestart) {
+      bottomPanelTerminalRestart.classList.toggle("is-hidden", activeBottomTab !== "terminal");
+    }
   };
 
   const setActiveBottomTab = (tab: BottomTab) => {
@@ -174,6 +181,13 @@ export const initBottomPanelUi = (
   };
 
   const isBottomPanelOpen = () => bottomPanelOpen;
+
+  const openTerminal = () => {
+    if (!bottomPanelOpen) {
+      openBottomPanel();
+    }
+    setActiveBottomTab("terminal");
+  };
 
   const toggleSidebar = () => {
     sidebarVisible = !sidebarVisible;
@@ -255,6 +269,11 @@ export const initBottomPanelUi = (
   if (bottomPanelClose) {
     bottomPanelClose.addEventListener("click", closeBottomPanel);
   }
+  if (bottomPanelTerminalRestart) {
+    bottomPanelTerminalRestart.addEventListener("click", () => {
+      deps.onTerminalRestart?.();
+    });
+  }
   tabButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const tab: BottomTab =
@@ -264,6 +283,25 @@ export const initBottomPanelUi = (
       }
       setActiveBottomTab(tab);
     });
+  });
+
+  // Ctrl+` toggles the terminal, VS Code-style: opens the panel on the
+  // Terminal tab (focusing the shell), or closes the panel when the terminal
+  // is already showing. (Build shortcuts remain click-only by policy — this
+  // is a panel toggle, not a build binding.)
+  document.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+      return;
+    }
+    if (event.code !== "Backquote" || event.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    if (bottomPanelOpen && activeBottomTab === "terminal") {
+      closeBottomPanel();
+    } else {
+      openTerminal();
+    }
   });
 
   // --- Init ---
@@ -279,6 +317,7 @@ export const initBottomPanelUi = (
     closeBottomPanel,
     toggleBottomPanel,
     isBottomPanelOpen,
+    openTerminal,
     toggleSidebar,
     isSidebarVisible,
   };
