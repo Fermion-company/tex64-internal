@@ -388,4 +388,137 @@ export const MANUAL_TRIGGERS_PART_4 = [
     { trigger: "varnothing", priority: 80, candidates: [{ latex: "\\varnothing", label: "∅", displayLatex: "\\varnothing" }] },
     { trigger: "triangle", priority: 80, candidates: [{ latex: "\\triangle", label: "△", displayLatex: "\\triangle" }] },
     { trigger: "surd", priority: 80, candidates: [{ latex: "\\surd", label: "√", displayLatex: "\\surd" }] },
+    // ===== Command-name-faithful triggers (corpus-simulation gap fill) =====
+    // A real-arXiv keystroke simulation (2026-07) showed these standard
+    // commands produced ZERO candidates when typed by their exact LaTeX name —
+    // worst-case UX: suggestions that appear on a prefix ("op"), then vanish
+    // as the user finishes typing the actual command ("operatorname").
+    {
+        trigger: "mathrm",
+        priority: 100,
+        candidates: [{ latex: "\\mathrm{#?}", label: "mathrm", displayLatex: "\\mathrm{d}" }],
+    },
+    {
+        trigger: "mathbf",
+        priority: 100,
+        candidates: [
+            { latex: "\\mathbf{#?}", label: "mathbf", displayLatex: "\\mathbf{x}" },
+            { latex: "\\boldsymbol{#?}", label: "boldsymbol", displayLatex: "\\boldsymbol{\\mu}" },
+        ],
+    },
+    {
+        trigger: "mathcal",
+        priority: 100,
+        candidates: [{ latex: "\\mathcal{#?}", label: "mathcal", displayLatex: "\\mathcal{L}" }],
+    },
+    {
+        trigger: "mathbb",
+        priority: 100,
+        candidates: [{ latex: "\\mathbb{#?}", label: "mathbb", displayLatex: "\\mathbb{R}" }],
+    },
+    {
+        trigger: "operatorname",
+        priority: 100,
+        candidates: [
+            { latex: "\\operatorname{#?}", label: "operatorname", displayLatex: "\\operatorname{tr}" },
+        ],
+    },
+    {
+        // Below "text" (85) so \text stays first at the shared "tex..." prefix.
+        trigger: "textrm",
+        priority: 78,
+        candidates: [{ latex: "\\textrm{#?}", label: "textrm", displayLatex: "\\textrm{text}" }],
+    },
+    {
+        trigger: "langle",
+        priority: 95,
+        candidates: [
+            { latex: "\\langle", label: "⟨", displayLatex: "\\langle" },
+            { latex: "\\langle #? \\rangle", label: "⟨ ⟩", displayLatex: "\\langle x \\rangle" },
+        ],
+    },
+    {
+        trigger: "rangle",
+        priority: 95,
+        candidates: [{ latex: "\\rangle", label: "⟩", displayLatex: "\\rangle" }],
+    },
+    {
+        trigger: "lfloor",
+        priority: 90,
+        candidates: [
+            { latex: "\\lfloor", label: "⌊", displayLatex: "\\lfloor" },
+            { latex: "\\lfloor #? \\rfloor", label: "⌊ ⌋", displayLatex: "\\lfloor x \\rfloor" },
+        ],
+    },
+    {
+        trigger: "rfloor",
+        priority: 90,
+        candidates: [{ latex: "\\rfloor", label: "⌋", displayLatex: "\\rfloor" }],
+    },
+    {
+        trigger: "lceil",
+        priority: 90,
+        candidates: [
+            { latex: "\\lceil", label: "⌈", displayLatex: "\\lceil" },
+            { latex: "\\lceil #? \\rceil", label: "⌈ ⌉", displayLatex: "\\lceil x \\rceil" },
+        ],
+    },
+    {
+        trigger: "rceil",
+        priority: 90,
+        candidates: [{ latex: "\\rceil", label: "⌉", displayLatex: "\\rceil" }],
+    },
+    {
+        trigger: "lvert",
+        priority: 88,
+        candidates: [
+            { latex: "\\lvert", label: "|", displayLatex: "\\lvert" },
+            { latex: "\\lvert #? \\rvert", label: "| |", displayLatex: "\\lvert x \\rvert" },
+            { latex: "\\lVert", label: "‖", displayLatex: "\\lVert" },
+            { latex: "\\lVert #? \\rVert", label: "‖ ‖", displayLatex: "\\lVert x \\rVert" },
+        ],
+    },
+    {
+        trigger: "rvert",
+        priority: 88,
+        candidates: [
+            { latex: "\\rvert", label: "|", displayLatex: "\\rvert" },
+            { latex: "\\rVert", label: "‖", displayLatex: "\\rVert" },
+        ],
+    },
+    {
+        trigger: "cfrac",
+        priority: 95,
+        candidates: [{ latex: "\\cfrac{#?}{#?}", label: "cfrac", displayLatex: "\\cfrac{a}{b}" }],
+    },
+    {
+        trigger: "pmod",
+        priority: 90,
+        candidates: [{ latex: "\\pmod{#?}", label: "(mod n)", displayLatex: "x \\pmod{n}" }],
+    },
+    {
+        trigger: "prime",
+        priority: 85,
+        candidates: [{ latex: "\\prime", label: "′", displayLatex: "x^{\\prime}" }],
+    },
+    // \dotsc / \dotsb are amsmath context-aware dots; MathLive does not parse
+    // them, so insert the equivalent fixed forms.
+    {
+        // One above dotsb: at the shared "dots" prefix \ldots should edge \cdots
+        // (amsmath's own default for \dots in comma context).
+        trigger: "dotsc",
+        priority: 79,
+        candidates: [{ latex: "\\ldots", label: "…", displayLatex: "\\ldots" }],
+    },
+    {
+        trigger: "dotsb",
+        priority: 77,
+        candidates: [{ latex: "\\cdots", label: "⋯", displayLatex: "\\cdots" }],
+    },
+    // \Box (amssymb) — same glyph as \square, which MathLive renders.
+    {
+        trigger: "box",
+        priority: 82,
+        candidates: [{ latex: "\\square", label: "□", displayLatex: "\\square" }],
+    },
 ];
