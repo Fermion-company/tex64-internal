@@ -54,6 +54,7 @@
       "**/*.so.*",
       "Resources/math-ocr/**",
       "Resources/texlab/**",
+      "node_modules/dictionary-de/**",
       "node_modules/dictionary-en/**"
     ],
     "files": [

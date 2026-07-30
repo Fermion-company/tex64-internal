@@ -6,6 +6,13 @@ const path = require("node:path");
 
 const { SpellService } = require("../electron/services/spell/service.cjs");
 
+test("spell dictionaries are unpacked in distributable builds", () => {
+  const pkg = require("../package.json");
+  const unpacked = pkg?.build?.asarUnpack || [];
+  assert.ok(unpacked.includes("node_modules/dictionary-en/**"));
+  assert.ok(unpacked.includes("node_modules/dictionary-de/**"));
+});
+
 test("spell service: check flags misspellings, accepts correct words", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-spell-"));
   const svc = new SpellService({ userDataPath: dir });
