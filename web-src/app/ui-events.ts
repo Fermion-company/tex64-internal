@@ -24,6 +24,7 @@ type UiEventsDeps = {
   } | null;
   buildOps: {
     setupActionButtons: () => void;
+    startBuild: () => void;
   };
   rootSelectorUi: {
     setupActions: () => void;
@@ -33,6 +34,42 @@ type UiEventsDeps = {
 
 export type UiEventsApi = {
   setup: () => void;
+};
+
+export const isBuildShortcutEvent = (
+  event: Pick<
+    KeyboardEvent,
+    "altKey" | "ctrlKey" | "defaultPrevented" | "key" | "metaKey" | "shiftKey" | "target"
+  >
+): boolean => {
+  if (
+    event.defaultPrevented ||
+    event.key !== "Enter" ||
+    (!event.metaKey && !event.ctrlKey) ||
+    event.altKey ||
+    event.shiftKey
+  ) {
+    return false;
+  }
+  const target = event.target as
+    | (EventTarget & {
+        closest?: (selector: string) => Element | null;
+        isContentEditable?: boolean;
+        tagName?: string;
+      })
+    | null;
+  if (!target) {
+    return true;
+  }
+  const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
+  const isEditable =
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable === true;
+  const isMonacoEditor =
+    typeof target.closest === "function" && target.closest(".monaco-editor") !== null;
+  return !isEditable || isMonacoEditor;
 };
 
 export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsApi => {
@@ -97,6 +134,11 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         deps.saveCurrentFile();
+        return;
+      }
+      if (isBuildShortcutEvent(event)) {
+        event.preventDefault();
+        deps.buildOps.startBuild();
       }
     });
 

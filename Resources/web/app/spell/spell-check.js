@@ -4,6 +4,7 @@
 // quick-fix code actions (replace with a suggestion, add to dictionary). Gated
 // by the `spell.check` feature flag (live-toggle aware).
 import { editorSettings } from "../editor-settings/editor-settings-store.js";
+import { getUiLocale, onUiLocaleChange, uiText } from "../i18n.js";
 import { tokenizeLatexProse } from "./latex-tokenizer.js";
 const OWNER = "spell";
 const DEBOUNCE_MS = 500;
@@ -30,6 +31,9 @@ export class SpellChecker {
             this.disposables.push(this.monaco.editor.onDidCreateModel((model) => this.attach(model)));
         }
         this.registerCodeActions();
+        this.disposables.push({
+            dispose: onUiLocaleChange(() => this.recheckAll()),
+        });
         // React to the feature flag being toggled at runtime.
         this.disposables.push({
             dispose: editorSettings.subscribe((change) => {
@@ -43,6 +47,9 @@ export class SpellChecker {
                 }
             }),
         });
+    }
+    getDictionaryLocale() {
+        return getUiLocale() === "de" ? "de" : "en";
     }
     attach(model) {
         if (!this.isTarget(model)) {
@@ -116,7 +123,7 @@ export class SpellChecker {
         const unique = Array.from(new Set(tokens.map((t) => t.word)));
         let misspelled = [];
         try {
-            misspelled = await this.bridge.check(unique);
+            misspelled = await this.bridge.check(unique, this.getDictionaryLocale());
         }
         catch {
             return;
@@ -139,7 +146,7 @@ export class SpellChecker {
             .filter((t) => bad.has(t.word))
             .map((t) => ({
             severity,
-            message: `“${t.word}”: possible spelling mistake`,
+            message: uiText(`“${t.word}”: possible spelling mistake`, `「${t.word}」：スペルミスの可能性があります`),
             source: OWNER,
             startLineNumber: t.lineNumber,
             startColumn: t.startColumn,
@@ -164,7 +171,7 @@ export class SpellChecker {
             return;
         }
         try {
-            await this.bridge.add(word);
+            await this.bridge.add(word, this.getDictionaryLocale());
             this.recheckAll();
         }
         catch {
@@ -188,7 +195,7 @@ export class SpellChecker {
                     const word = model.getValueInRange(wordRange);
                     let suggestions = [];
                     try {
-                        suggestions = await this.bridge.suggest(word);
+                        suggestions = await this.bridge.suggest(word, this.getDictionaryLocale());
                     }
                     catch {
                         suggestions = [];

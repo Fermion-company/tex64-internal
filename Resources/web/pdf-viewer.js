@@ -125,6 +125,7 @@ const initPdfViewer = () => {
 
   // Tracks the scroll-restore re-apply frame so a SyncTeX jump can cancel it.
   let restoreRafId = null;
+  let resizeRafId = null;
   // True while a (re)load is loading the new document. A SyncTeX "sync" that
   // arrives during this window must NOT be applied to the still-showing OLD
   // document — setDocument would then reset us to the top and lose the jump.
@@ -155,21 +156,45 @@ const initPdfViewer = () => {
   };
 
   const invertKey = "tex64.pdf.invert";
-  const setInverted = (enabled) => {
+  const setInverted = (enabled, options = {}) => {
     document.body.classList.toggle("is-inverted", enabled === true);
+    if (options.persist === false) {
+      return;
+    }
     try {
       localStorage.setItem(invertKey, enabled === true ? "true" : "false");
     } catch {
       // ignore
     }
   };
-  try {
-    const storedInvert = localStorage.getItem(invertKey);
-    if (storedInvert === "true") {
-      document.body.classList.add("is-inverted");
+  if (embedded) {
+    const syncEmbeddedTheme = () => {
+      try {
+        const parentTheme = window.parent?.document?.documentElement?.dataset?.theme;
+        setInverted(parentTheme === "dark", { persist: false });
+      } catch {
+        // Parent access is best-effort; both documents are normally local files.
+      }
+    };
+    syncEmbeddedTheme();
+    try {
+      const parentRoot = window.parent?.document?.documentElement;
+      if (parentRoot) {
+        const observer = new MutationObserver(syncEmbeddedTheme);
+        observer.observe(parentRoot, { attributes: true, attributeFilter: ["data-theme"] });
+      }
+    } catch {
+      // ignore unavailable parent document
     }
-  } catch {
-    // ignore
+  } else {
+    try {
+      const storedInvert = localStorage.getItem(invertKey);
+      if (storedInvert === "true") {
+        document.body.classList.add("is-inverted");
+      }
+    } catch {
+      // ignore
+    }
   }
 
   const updateZoomLabel = (value = state.scale) => {
@@ -236,6 +261,19 @@ const initPdfViewer = () => {
     }
     state.scale = pdfViewer.currentScale;
     updateZoomLabel();
+  };
+
+  const scheduleScaleModeRefresh = () => {
+    if (!state.doc || state.scaleMode === "manual") {
+      return;
+    }
+    if (resizeRafId !== null) {
+      cancelAnimationFrame(resizeRafId);
+    }
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = null;
+      applyScaleMode(state.scaleMode);
+    });
   };
 
   const scrollToPage = (pageNumber) => {
@@ -1083,6 +1121,8 @@ const initPdfViewer = () => {
     }
   });
 
+  window.addEventListener("resize", scheduleScaleModeRefresh);
+
   if (scrollEl) {
     scrollEl.addEventListener(
       "wheel",
@@ -1328,6 +1368,18 @@ const initPdfViewer = () => {
   }
 
   if (pagesEl) {
+    pagesEl.addEventListener("dblclick", (event) => {
+      if (!event || event.button !== 0 || event.ctrlKey || event.metaKey) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest(".textLayer")) {
+        return;
+      }
+      event.preventDefault();
+      applyScaleMode("fit-width");
+    });
+
     pagesEl.addEventListener("contextmenu", (event) => {
       if (!event) {
         return;

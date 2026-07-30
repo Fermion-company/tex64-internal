@@ -92,6 +92,18 @@ export const attachEditorErgonomics = (
     }
   });
 
+  editor.onDidChangeCursorPosition?.((event: any) => {
+    if (!editorSettings.isEnabled("ergo.typewriterScroll")) {
+      return;
+    }
+    const position = event?.position ?? editor.getPosition?.();
+    if (!position) {
+      return;
+    }
+    const scrollType = monaco?.editor?.ScrollType?.Immediate;
+    editor.revealPositionInCenter?.(position, scrollType);
+  });
+
   // Wrap-selection actions. Registered once; the run handler checks the flag so
   // it can be toggled live.
   if (KeyMod && KeyCode && typeof editor.addAction === "function") {

@@ -16,7 +16,7 @@ const suggestWidgetOpen = () => {
     }
 };
 export const attachEditorErgonomics = (monaco, editor, group) => {
-    var _a;
+    var _a, _b;
     const KeyCode = monaco === null || monaco === void 0 ? void 0 : monaco.KeyCode;
     const KeyMod = monaco === null || monaco === void 0 ? void 0 : monaco.KeyMod;
     if (!editor || !KeyCode) {
@@ -79,6 +79,18 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
                 return;
             }
         }
+    });
+    (_b = editor.onDidChangeCursorPosition) === null || _b === void 0 ? void 0 : _b.call(editor, (event) => {
+        var _a, _b, _c, _d, _e;
+        if (!editorSettings.isEnabled("ergo.typewriterScroll")) {
+            return;
+        }
+        const position = (_a = event === null || event === void 0 ? void 0 : event.position) !== null && _a !== void 0 ? _a : (_b = editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor);
+        if (!position) {
+            return;
+        }
+        const scrollType = (_d = (_c = monaco === null || monaco === void 0 ? void 0 : monaco.editor) === null || _c === void 0 ? void 0 : _c.ScrollType) === null || _d === void 0 ? void 0 : _d.Immediate;
+        (_e = editor.revealPositionInCenter) === null || _e === void 0 ? void 0 : _e.call(editor, position, scrollType);
     });
     // Wrap-selection actions. Registered once; the run handler checks the flag so
     // it can be toggled live.

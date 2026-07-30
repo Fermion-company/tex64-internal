@@ -58,6 +58,9 @@ type BridgeHandlersDeps = {
   }) => void;
   handleLauncherStatus: (payload: { isBusy?: boolean; message?: string }) => void;
   handleRecentProjects: (projects: { path: string; name: string; openedAt: number }[]) => void;
+  app?: {
+    handleCommand: (command: string) => void;
+  };
   search: {
     handleSearchUpdate: (payload: {
       query: string;
@@ -663,6 +666,11 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
             announcements: AnnouncementSnapshot[];
             fetchedAt?: number;
           }
+        );
+        break;
+      case "app:command":
+        deps.app?.handleCommand(
+          (message.payload as { command?: string }).command ?? ""
         );
         break;
       case "file:previewResult":

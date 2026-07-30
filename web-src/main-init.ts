@@ -805,6 +805,7 @@ export const initMain = () => {
     blockInsert: blockInsertApi,
     buildOps: {
       setupActionButtons: () => buildOps.setupActionButtons(),
+      startBuild: () => buildOps.startBuild(),
     },
     rootSelectorUi: {
       setupActions: () => rootSelectorUi.setupActions(),
@@ -902,6 +903,34 @@ export const initMain = () => {
     handleIndexUpdate: workspaceController.handleIndexUpdate,
     handleLauncherStatus,
     handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
+    app: {
+      handleCommand: (command) => {
+        if (command === "file:new") {
+          setActiveTab("files");
+          fileTreeUi.requestCreate("file");
+          return;
+        }
+        if (command === "project:new") {
+          postToNative({ type: "createProject", locale: getUiLocale() });
+          return;
+        }
+        if (command === "project:open") {
+          postToNative({ type: "openWorkspace", locale: getUiLocale() });
+          return;
+        }
+        if (command === "file:save") {
+          editorSession.saveCurrentFile();
+          return;
+        }
+        if (command === "document:build") {
+          buildOps.startBuild();
+          return;
+        }
+        if (command === "settings:open") {
+          setActiveTab("settings");
+        }
+      },
+    },
     search: {
       handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),

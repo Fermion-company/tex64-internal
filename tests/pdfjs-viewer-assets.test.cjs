@@ -63,3 +63,10 @@ test("PDF CJK font fallback aliases are loaded by both app documents", async () 
     assert.match(css, new RegExp(`font-family:\\s*"${fontName}"`));
   }
 });
+
+test("PDF viewer follows container resizing and supports double-click fit", async () => {
+  const source = await fs.readFile(resourcePath("pdf-viewer.js"), "utf8");
+  assert.match(source, /window\.addEventListener\("resize", scheduleScaleModeRefresh\)/);
+  assert.match(source, /pagesEl\.addEventListener\("dblclick"/);
+  assert.match(source, /applyScaleMode\("fit-width"\)/);
+});

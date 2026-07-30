@@ -18,7 +18,7 @@ export const initBuildOpsUi = (context, deps) => {
         let counter = 0;
         return () => `synctex-forward-${Date.now().toString(36)}-${counter++}`;
     })();
-    const getBuildButtonIdleTitle = () => uiText("Build from the toolbar. Cmd+B inserts \\textbf{}.", "ツールバーからビルドします。Cmd+B は \\textbf{} を入力します。");
+    const getBuildButtonIdleTitle = () => uiText("Build (Cmd+Enter). Cmd+B inserts \\textbf{}.", "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。");
     const isEnvMissingMessage = (message) => {
         const lower = message.toLowerCase();
         const hasMissing = message.includes("not found") || lower.includes("not found");
@@ -163,7 +163,7 @@ export const initBuildOpsUi = (context, deps) => {
             buildButton.disabled = false;
             buildButton.classList.toggle("is-busy", isBusy);
             buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-            buildButton.setAttribute("aria-label", isBusy ? uiText("Cancel", "cancel") : uiText("Build", "build"));
+            buildButton.setAttribute("aria-label", isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）"));
             buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
         }
         if (state === "success") {

@@ -133,7 +133,12 @@ const featureMethods = {
     const response = await this.requestJson(`${this.apiBaseUrl}/announcements`);
     const rawList = Array.isArray(response?.announcements) ? response.announcements : [];
     const fetchedAt = Date.now();
-    const sanitizeKind = (value) => (value === "feedback" ? "feedback" : "info");
+    const sanitizeKind = (value) => {
+      if (value === "feedback" || value === "update") {
+        return value;
+      }
+      return "info";
+    };
     // title/body/urlLabel may be either a plain string or a locale-keyed
     // object: { en: "...", ja: "..." }. We pass through both forms so the
     // renderer can pick the active locale at display time.

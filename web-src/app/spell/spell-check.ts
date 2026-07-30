@@ -5,6 +5,7 @@
 // by the `spell.check` feature flag (live-toggle aware).
 
 import { editorSettings } from "../editor-settings/editor-settings-store.js";
+import { getUiLocale, onUiLocaleChange, uiText } from "../i18n.js";
 import { tokenizeLatexProse } from "./latex-tokenizer.js";
 import type { SpellBridge } from "../types.js";
 
@@ -45,6 +46,9 @@ export class SpellChecker {
       );
     }
     this.registerCodeActions();
+    this.disposables.push({
+      dispose: onUiLocaleChange(() => this.recheckAll()),
+    });
     // React to the feature flag being toggled at runtime.
     this.disposables.push({
       dispose: editorSettings.subscribe((change) => {
@@ -57,6 +61,10 @@ export class SpellChecker {
         }
       }),
     });
+  }
+
+  private getDictionaryLocale(): "en" | "de" {
+    return getUiLocale() === "de" ? "de" : "en";
   }
 
   private attach(model: any): void {
@@ -136,7 +144,7 @@ export class SpellChecker {
     const unique = Array.from(new Set(tokens.map((t) => t.word)));
     let misspelled: string[] = [];
     try {
-      misspelled = await this.bridge.check(unique);
+      misspelled = await this.bridge.check(unique, this.getDictionaryLocale());
     } catch {
       return;
     }
@@ -158,7 +166,10 @@ export class SpellChecker {
       .filter((t) => bad.has(t.word))
       .map((t) => ({
         severity,
-        message: `“${t.word}”: possible spelling mistake`,
+        message: uiText(
+          `“${t.word}”: possible spelling mistake`,
+          `「${t.word}」：スペルミスの可能性があります`
+        ),
         source: OWNER,
         startLineNumber: t.lineNumber,
         startColumn: t.startColumn,
@@ -183,7 +194,7 @@ export class SpellChecker {
       return;
     }
     try {
-      await this.bridge.add(word);
+      await this.bridge.add(word, this.getDictionaryLocale());
       this.recheckAll();
     } catch {
       // ignore
@@ -212,7 +223,7 @@ export class SpellChecker {
             const word = model.getValueInRange(wordRange);
             let suggestions: string[] = [];
             try {
-              suggestions = await this.bridge.suggest(word);
+              suggestions = await this.bridge.suggest(word, this.getDictionaryLocale());
             } catch {
               suggestions = [];
             }

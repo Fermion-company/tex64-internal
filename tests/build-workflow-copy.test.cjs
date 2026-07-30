@@ -11,7 +11,7 @@ test("build workflow copy explains manual build and Cmd+B bold input", () => {
     /Builds are manual in this version: click the toolbar Build button to compile and refresh the PDF\./
   );
   assert.match(indexHtml, /Live auto-build is not available; Cmd\+B inserts \\textbf\{\}\./);
-  assert.match(indexHtml, /title="Build from the toolbar\. Cmd\+B inserts \\textbf\{\}\."/);
+  assert.match(indexHtml, /title="Build \(Cmd\+Enter\)\. Cmd\+B inserts \\textbf\{\}\."/);
 });
 
 test("settings do not expose an auto-build compile toggle", () => {

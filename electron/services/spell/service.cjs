@@ -1,9 +1,9 @@
 "use strict";
 
-// Spell-check service (main process). Wraps nspell + the en_US Hunspell
-// dictionary (dictionary-en) and a persisted user dictionary. The renderer does
+// Spell-check service (main process). Wraps nspell + English/German Hunspell
+// dictionaries and a persisted user dictionary. The renderer does
 // the LaTeX-aware tokenization and sends prose words here to be checked, mirroring
-// the math-ocr / texlab service convention. English only for now.
+// the math-ocr / texlab service convention.
 
 const fsp = require("fs/promises");
 const path = require("path");
@@ -14,34 +14,56 @@ class SpellService {
     this.userDictPath = this.userDataPath
       ? path.join(this.userDataPath, "tex64-user-dictionary.json")
       : "";
-    this.spell = null;
-    this.loading = null;
+    this.spellers = new Map();
+    this.loading = new Map();
     this.userWords = new Set();
+    this.userWordsLoading = null;
   }
 
-  async ensureLoaded() {
-    if (this.spell) {
-      return;
+  normalizeLocale(locale) {
+    return typeof locale === "string" && locale.toLowerCase().startsWith("de")
+      ? "de"
+      : "en";
+  }
+
+  async ensureUserWordsLoaded() {
+    if (!this.userWordsLoading) {
+      this.userWordsLoading = this.loadUserWords();
     }
-    if (this.loading) {
-      await this.loading;
-      return;
+    await this.userWordsLoading;
+  }
+
+  async ensureLoaded(locale = "en") {
+    const normalizedLocale = this.normalizeLocale(locale);
+    if (this.spellers.has(normalizedLocale)) {
+      return this.spellers.get(normalizedLocale);
     }
-    this.loading = (async () => {
-      // nspell is CommonJS; dictionary-en is ESM (dynamic import from CJS).
+    if (this.loading.has(normalizedLocale)) {
+      return this.loading.get(normalizedLocale);
+    }
+    const loading = (async () => {
       const nspell = require("nspell");
-      const dictMod = await import("dictionary-en");
-      const dict = dictMod.default || dictMod;
-      const spell = nspell(dict);
-      await this.loadUserWords();
+      const dictionaryModule =
+        normalizedLocale === "de"
+          ? await import("dictionary-de")
+          : await import("dictionary-en");
+      const dictionary = dictionaryModule.default || dictionaryModule;
+      const spell = nspell(dictionary);
+      await this.ensureUserWordsLoaded();
       this.userWords.forEach((word) => spell.add(word));
-      this.spell = spell;
+      this.spellers.set(normalizedLocale, spell);
+      return spell;
     })();
+    this.loading.set(normalizedLocale, loading);
     try {
-      await this.loading;
+      return await loading;
     } catch (error) {
-      this.loading = null;
+      this.loading.delete(normalizedLocale);
       throw error;
+    } finally {
+      if (this.spellers.has(normalizedLocale)) {
+        this.loading.delete(normalizedLocale);
+      }
     }
   }
 
@@ -77,35 +99,36 @@ class SpellService {
   }
 
   // Returns the subset of `words` that are misspelled.
-  async check(words) {
+  async check(words, locale = "en") {
     if (!Array.isArray(words) || words.length === 0) {
       return [];
     }
-    await this.ensureLoaded();
+    const spell = await this.ensureLoaded(locale);
     const misspelled = [];
     for (const word of words) {
-      if (typeof word === "string" && word && !this.spell.correct(word)) {
+      if (typeof word === "string" && word && !spell.correct(word)) {
         misspelled.push(word);
       }
     }
     return misspelled;
   }
 
-  async suggest(word) {
+  async suggest(word, locale = "en") {
     if (typeof word !== "string" || !word) {
       return [];
     }
-    await this.ensureLoaded();
-    return this.spell.suggest(word).slice(0, 8);
+    const spell = await this.ensureLoaded(locale);
+    return spell.suggest(word).slice(0, 8);
   }
 
-  async addWord(word) {
+  async addWord(word, locale = "en") {
     if (typeof word !== "string" || !word.trim()) {
       return false;
     }
-    await this.ensureLoaded();
+    const activeSpell = await this.ensureLoaded(locale);
     const trimmed = word.trim();
-    this.spell.add(trimmed);
+    activeSpell.add(trimmed);
+    this.spellers.forEach((spell) => spell.add(trimmed));
     this.userWords.add(trimmed);
     await this.saveUserWords();
     return true;

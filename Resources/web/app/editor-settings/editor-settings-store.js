@@ -26,6 +26,7 @@ export const EDITOR_FEATURES = [
     { id: "ergo.itemOnEnter", label: "Auto \\item", description: "Insert \\item on Enter inside list environments.", category: "Editing", default: true },
     { id: "ergo.autoCloseEnvironment", label: "Auto-close environment", description: "Insert matching \\end when you type \\begin{...}.", category: "Editing", default: true },
     { id: "ergo.wrapSelection", label: "Wrap selection", description: "Wrap the selection in an environment or command.", category: "Editing", default: true },
+    { id: "ergo.typewriterScroll", label: "Typewriter scrolling", description: "Keep the cursor near the center while writing.", category: "Editing", default: false },
 ];
 const DEFAULTS = new Map(EDITOR_FEATURES.map((f) => [f.id, f.default]));
 // The previous hardcoded editor font; "" font family means "use this default".

@@ -5,6 +5,7 @@ const {
   dialog,
   globalShortcut,
   ipcMain,
+  Menu,
   screen,
   shell,
   systemPreferences,
@@ -39,6 +40,7 @@ const { createBuildHandlers } = require("./handlers/build.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
+const { createApplicationMenuTemplate } = require("./app-menu.cjs");
 
 const e2eUserDataPath =
   typeof process.env.TEX64_E2E_USERDATA === "string"
@@ -320,6 +322,18 @@ const sendToRenderer = (type, payload) => {
     }
     console.warn("[main] sendToRenderer failed", error);
   }
+};
+
+const installApplicationMenu = () => {
+  const template = createApplicationMenuTemplate({
+    appName: app.name || "TeX64",
+    isMac: process.platform === "darwin",
+    sendCommand: (command) => {
+      focusMainWindow();
+      sendToRenderer("app:command", { command });
+    },
+  });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };
 
 const sendLspToRenderer = (channel, data) => {
@@ -660,6 +674,7 @@ app.whenReady().then(() => {
   }
   runStartupWebBuildIfNeeded();
   createMainWindow();
+  installApplicationMenu();
   registerProtocolClient();
   while (pendingOAuthCallbackUrls.length > 0) {
     const url = pendingOAuthCallbackUrls.shift();
@@ -969,26 +984,32 @@ ipcMain.handle("tex64:billing:portal", async () => {
   }
 });
 
-ipcMain.handle("tex64:spell:check", async (_event, words) => {
+ipcMain.handle("tex64:spell:check", async (_event, request) => {
   try {
-    return await getSpellService().check(words);
+    const words = Array.isArray(request) ? request : request?.words;
+    const locale = Array.isArray(request) ? "en" : request?.locale;
+    return await getSpellService().check(words, locale);
   } catch (error) {
     console.warn("[spell] check failed", error);
     return [];
   }
 });
 
-ipcMain.handle("tex64:spell:suggest", async (_event, word) => {
+ipcMain.handle("tex64:spell:suggest", async (_event, request) => {
   try {
-    return await getSpellService().suggest(word);
+    const word = typeof request === "string" ? request : request?.word;
+    const locale = typeof request === "string" ? "en" : request?.locale;
+    return await getSpellService().suggest(word, locale);
   } catch {
     return [];
   }
 });
 
-ipcMain.handle("tex64:spell:add", async (_event, word) => {
+ipcMain.handle("tex64:spell:add", async (_event, request) => {
   try {
-    return await getSpellService().addWord(word);
+    const word = typeof request === "string" ? request : request?.word;
+    const locale = typeof request === "string" ? "en" : request?.locale;
+    return await getSpellService().addWord(word, locale);
   } catch {
     return false;
   }
