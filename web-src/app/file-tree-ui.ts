@@ -37,6 +37,7 @@ type FileTreeDeps = {
 export type FileTreeUiApi = {
   render: () => void;
   loadOpenState: () => void;
+  requestCreate: (kind: CreateKind) => void;
   setTreeFocus: (value: boolean) => void;
   setSelection: (path: string | null, kind: "file" | "dir" | null) => void;
   clearSelection: () => void;
@@ -873,6 +874,7 @@ export const initFileTreeUi = (
   return {
     render,
     loadOpenState,
+    requestCreate,
     setTreeFocus,
     setSelection,
     clearSelection,

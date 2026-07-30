@@ -732,6 +732,7 @@ export const initFileTreeUi = (context, deps) => {
     return {
         render,
         loadOpenState,
+        requestCreate,
         setTreeFocus,
         setSelection,
         clearSelection,

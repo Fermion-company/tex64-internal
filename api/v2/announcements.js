@@ -11,6 +11,47 @@ const LOCALES = ["en", "ja", "zh", "ko", "fr", "de", "es"];
 
 const DEFAULT_ANNOUNCEMENTS = [
   {
+    id: "tex64-0.1.18-feedback-workflow",
+    kind: "update",
+    title: {
+      en: "TeX64 0.1.18 — shaped by your feedback",
+      ja: "TeX64 0.1.18 — 皆さまの声を反映しました",
+      zh: "TeX64 0.1.18 — 由你的反馈共同打造",
+      ko: "TeX64 0.1.18 — 여러분의 피드백을 반영했습니다",
+      fr: "TeX64 0.1.18 — façonné par vos retours",
+      de: "TeX64 0.1.18 — durch euer Feedback verbessert",
+      es: "TeX64 0.1.18 — creado con vuestros comentarios",
+    },
+    body: {
+      en:
+        "Built directly from your July feedback:\n• Native File menu, a clear Build tooltip, and Cmd+Enter build\n• PDF fit-to-width that follows resizing, double-click fit, and better PDF/source navigation\n• Typewriter scrolling and German-aware spell checking\n\nIn August, our team is going all in to revolutionize document writing. If TeX64 helps you, please share it with the writers, students, and researchers around you.",
+      ja:
+        "7月にいただいたフィードバックをもとに改善しました。\n• ネイティブのファイルメニュー、分かりやすいビルド説明、Cmd+Enterでのビルド\n• リサイズに追従するPDF幅合わせ、ダブルクリック幅合わせ、PDFとソース間の移動改善\n• 固定スクロールとドイツ語スペルチェック\n\n8月、開発チームは文書執筆に革命をもたらすため本気で走ります。TeX64が役立ったら、ぜひ周りの執筆者・学生・研究者にも広めてください。",
+      zh:
+        "我们根据大家7月的反馈完成了这些改进：\n• 原生文件菜单、更清晰的构建提示，以及 Cmd+Enter 构建\n• PDF 随窗口调整的适宽显示、双击适宽，以及更好的 PDF/源代码跳转\n• 打字机滚动与德语拼写检查\n\n今年8月，开发团队将全力以赴，为文档写作带来一场革命。如果 TeX64 对你有帮助，请把它分享给身边的写作者、学生和研究人员。",
+      ko:
+        "7월에 보내 주신 피드백을 바탕으로 개선했습니다.\n• 네이티브 파일 메뉴, 명확한 빌드 설명, Cmd+Enter 빌드\n• 창 크기를 따라가는 PDF 너비 맞춤, 더블 클릭 너비 맞춤, PDF/소스 이동 개선\n• 타자기 스크롤과 독일어 맞춤법 검사\n\n8월에는 문서 작성에 혁신을 가져오기 위해 개발팀이 전력을 다하겠습니다. TeX64가 도움이 되었다면 주변의 작가, 학생, 연구자에게도 알려 주세요.",
+      fr:
+        "Cette version répond directement à vos retours de juillet :\n• Menu Fichier natif, explication claire du bouton Compiler et compilation avec Cmd+Entrée\n• PDF ajusté à la largeur lors du redimensionnement, double-clic pour ajuster et meilleure navigation PDF/source\n• Défilement machine à écrire et correction orthographique allemande\n\nEn août, notre équipe se donne à fond pour révolutionner la rédaction de documents. Si TeX64 vous aide, partagez-le avec les auteurs, étudiants et chercheurs autour de vous.",
+      de:
+        "Direkt aus eurem Juli-Feedback entstanden:\n• Natives Datei-Menü, klare Erklärung der Build-Schaltfläche und Build mit Cmd+Enter\n• PDF-Breitenanpassung beim Ändern der Fenstergröße, Doppelklick-Anpassung und bessere PDF/Quelltext-Navigation\n• Schreibmaschinen-Bildlauf und deutsche Rechtschreibprüfung\n\nIm August gibt unser Entwicklungsteam alles, um das Schreiben von Dokumenten zu revolutionieren. Wenn TeX64 dir hilft, erzähle bitte Schreibenden, Studierenden und Forschenden in deinem Umfeld davon.",
+      es:
+        "Mejoras creadas directamente a partir de vuestros comentarios de julio:\n• Menú Archivo nativo, explicación clara de Compilar y compilación con Cmd+Enter\n• Ajuste del PDF al ancho al redimensionar, ajuste con doble clic y mejor navegación PDF/código\n• Desplazamiento de máquina de escribir y corrección ortográfica en alemán\n\nEn agosto, el equipo de desarrollo lo dará todo para revolucionar la escritura de documentos. Si TeX64 te ayuda, compártelo con escritores, estudiantes e investigadores de tu entorno.",
+    },
+    url: "https://tex64.com/releases/0.1.18",
+    urlLabel: {
+      en: "See the update",
+      ja: "アップデートを見る",
+      zh: "查看更新",
+      ko: "업데이트 보기",
+      fr: "Voir la mise à jour",
+      de: "Update ansehen",
+      es: "Ver la actualización",
+    },
+    publishedAt: "2026-07-30T00:00:00.000Z",
+    expiresAt: "2026-10-31T23:59:59.000Z",
+  },
+  {
     id: "tex64-0.1.17-terminal-billing-hover",
     kind: "info",
     title: {
@@ -185,7 +226,10 @@ const normalizeAnnouncement = (entry) => {
   }
   return {
     id,
-    kind: entry.kind === "feedback" ? "feedback" : "info",
+    kind:
+      entry.kind === "feedback" || entry.kind === "update"
+        ? entry.kind
+        : "info",
     title,
     body,
     url: normalizeUrl(entry.url),

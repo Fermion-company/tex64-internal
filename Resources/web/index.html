@@ -164,8 +164,8 @@
           <button
             id="build-button"
             type="button"
-            aria-label="build"
-            title="Build from the toolbar. Cmd+B inserts \textbf{}."
+            aria-label="Build (Cmd+Enter)"
+            title="Build (Cmd+Enter). Cmd+B inserts \textbf{}."
           >
             <span class="build-button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="20" height="20">
@@ -758,6 +758,18 @@
                       <div class="settings-control">
                         <label class="settings-switch" for="editor-word-wrap">
                           <input class="settings-switch-input" id="editor-word-wrap" type="checkbox">
+                          <span class="settings-switch-track" aria-hidden="true"></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="settings-item">
+                      <div class="settings-label">
+                        <span class="settings-title">Typewriter Scrolling</span>
+                        <span class="settings-desc">Keep the cursor near the center while writing.</span>
+                      </div>
+                      <div class="settings-control">
+                        <label class="settings-switch" for="editor-typewriter-scroll">
+                          <input class="settings-switch-input" id="editor-typewriter-scroll" type="checkbox">
                           <span class="settings-switch-track" aria-hidden="true"></span>
                         </label>
                       </div>
@@ -1706,7 +1718,18 @@
         aria-modal="true"
         aria-labelledby="announcement-modal-title"
       >
-        <div class="modal-title announcement-title" id="announcement-modal-title"></div>
+        <div class="announcement-heading">
+          <div class="announcement-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 3l1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3z"></path>
+              <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"></path>
+            </svg>
+          </div>
+          <div class="announcement-heading-copy">
+            <div class="announcement-eyebrow" id="announcement-modal-eyebrow"></div>
+            <div class="modal-title announcement-title" id="announcement-modal-title"></div>
+          </div>
+        </div>
         <div class="modal-body">
           <div class="modal-help announcement-body" id="announcement-modal-body"></div>
           <div class="announcement-input is-hidden" id="announcement-modal-input-wrap" aria-hidden="true">

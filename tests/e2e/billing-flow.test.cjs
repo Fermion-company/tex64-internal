@@ -234,11 +234,18 @@ test("in-app billing flow (CTA → modal → checkout IPC → embedded mount →
   assert.equal(stripeState.clientSecret, "cs_test_e2e_secret", "embedded checkout used the backend client secret");
   assert.equal(stripeState.mounted, true, "embedded checkout mounted into the modal");
 
-  // 3) onComplete → modal closes and the embedded instance is destroyed.
+  // 3) onComplete keeps the modal open while the webhook-backed entitlement
+  //    activates. Closing it explicitly destroys the embedded instance.
   await page.evaluate(() => window.__stripeStub.onComplete && window.__stripeStub.onComplete());
-  await page.waitForFunction(() => !document.getElementById("plans-modal").classList.contains("is-open"), {
-    timeout: 5000,
-  });
+  await page.waitForFunction(
+    () => {
+      const modal = document.getElementById("plans-modal");
+      const status = (document.getElementById("plans-status")?.textContent || "").trim();
+      return modal?.classList.contains("is-open") && status.length > 0;
+    },
+    { timeout: 5000 }
+  );
+  await page.locator("#plans-modal-close").click();
   const destroyed = await page.evaluate(() => window.__stripeStub.destroyed);
   assert.equal(destroyed, true, "embedded checkout destroyed on close");
 

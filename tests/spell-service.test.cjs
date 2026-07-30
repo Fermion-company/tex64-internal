@@ -32,6 +32,23 @@ test("spell service: suggestions for a misspelling", async () => {
   }
 });
 
+test("spell service: German dictionary accepts German and flags misspellings", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-spell-"));
+  const svc = new SpellService({ userDataPath: dir });
+  try {
+    const bad = await svc.check(
+      ["Dokument", "Schreiben", "Rechtschreibung", "Rechtschreibunng"],
+      "de"
+    );
+    assert.ok(!bad.includes("Dokument"), "Dokument should be accepted");
+    assert.ok(!bad.includes("Schreiben"), "Schreiben should be accepted");
+    assert.ok(!bad.includes("Rechtschreibung"), "Rechtschreibung should be accepted");
+    assert.ok(bad.includes("Rechtschreibunng"), "misspelling should be flagged");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("spell service: add to dictionary persists and accepts the word", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-spell-"));
   try {

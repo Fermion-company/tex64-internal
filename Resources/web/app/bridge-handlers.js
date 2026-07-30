@@ -70,7 +70,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -232,14 +232,17 @@ export const initBridgeHandlers = (deps) => {
             case "platform:announcements":
                 (_34 = (_33 = deps.platform) === null || _33 === void 0 ? void 0 : _33.handleAnnouncements) === null || _34 === void 0 ? void 0 : _34.call(_33, message.payload);
                 break;
+            case "app:command":
+                (_35 = deps.app) === null || _35 === void 0 ? void 0 : _35.handleCommand((_36 = message.payload.command) !== null && _36 !== void 0 ? _36 : "");
+                break;
             case "file:previewResult":
-                (_35 = deps.filePreview) === null || _35 === void 0 ? void 0 : _35.handlePreviewResult(message.payload);
+                (_37 = deps.filePreview) === null || _37 === void 0 ? void 0 : _37.handlePreviewResult(message.payload);
                 break;
             case "file:excerptResult":
-                (_36 = deps.fileExcerpt) === null || _36 === void 0 ? void 0 : _36.handleExcerptResult(message.payload);
+                (_38 = deps.fileExcerpt) === null || _38 === void 0 ? void 0 : _38.handleExcerptResult(message.payload);
                 break;
             case "agent:applyContent":
-                deps.editorSession.applyContentToOpenFile((_37 = message.payload.path) !== null && _37 !== void 0 ? _37 : "", (_38 = message.payload.content) !== null && _38 !== void 0 ? _38 : "", {
+                deps.editorSession.applyContentToOpenFile((_39 = message.payload.path) !== null && _39 !== void 0 ? _39 : "", (_40 = message.payload.content) !== null && _40 !== void 0 ? _40 : "", {
                     updateSaved: message.payload.updateSaved === true,
                     showAiDiff: true,
                 });

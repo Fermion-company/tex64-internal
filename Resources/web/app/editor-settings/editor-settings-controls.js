@@ -6,6 +6,7 @@ import { editorSettings, MIN_FONT_SIZE, MAX_FONT_SIZE } from "./editor-settings-
 export const initEditorSettingsControls = () => {
     const familySelect = document.getElementById("editor-font-family");
     const sizeInput = document.getElementById("editor-font-size");
+    const typewriterScrollInput = document.getElementById("editor-typewriter-scroll");
     if (familySelect instanceof HTMLSelectElement) {
         familySelect.value = editorSettings.getFontFamilyRaw();
         familySelect.addEventListener("change", () => {
@@ -20,6 +21,12 @@ export const initEditorSettingsControls = () => {
             editorSettings.setFontSize(Number(sizeInput.value));
             // Reflect the clamped value back into the control.
             sizeInput.value = String(editorSettings.getFontSize());
+        });
+    }
+    if (typewriterScrollInput instanceof HTMLInputElement) {
+        typewriterScrollInput.checked = editorSettings.isEnabled("ergo.typewriterScroll");
+        typewriterScrollInput.addEventListener("change", () => {
+            editorSettings.setFlag("ergo.typewriterScroll", typewriterScrollInput.checked);
         });
     }
 };

@@ -9,6 +9,12 @@ export const SUPPORTED_LOCALES = [
 ];
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const EN_TO_JA = {
+    "What's new in TeX64": "TeX64 の新着情報",
+    "From TeX64": "TeX64 からのお知らせ",
+    "Typewriter Scrolling": "固定スクロール",
+    "Keep the cursor near the center while writing.": "執筆中のカーソル位置を画面中央付近に保ちます。",
+    "Build (Cmd+Enter)": "ビルド（Cmd+Enter）",
+    "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。",
     "Plan": "プラン",
     "Plans & Usage": "プランと使用量",
     "View plans and manage your subscription.": "プランの確認とサブスクリプションの管理を行います。",
@@ -934,6 +940,12 @@ const normalizeUiLocaleValue = (value) => {
 // untranslated strings fall back to the EN source — the same behaviour the
 // original JA-only implementation provided for any non-JA locale.
 const EN_TO_ZH = {
+    "What's new in TeX64": "TeX64 新功能",
+    "From TeX64": "来自 TeX64",
+    "Typewriter Scrolling": "打字机滚动",
+    "Keep the cursor near the center while writing.": "写作时让光标保持在屏幕中央附近。",
+    "Build (Cmd+Enter)": "构建（Cmd+Enter）",
+    "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "构建（Cmd+Enter）。Cmd+B 会插入 \\textbf{}。",
     "Plan": "方案",
     "Plans & Usage": "方案与用量",
     "View plans and manage your subscription.": "查看方案并管理订阅。",
@@ -1751,6 +1763,12 @@ const EN_TO_ZH = {
     "No arXiv metadata found": "未找到 arXiv 元数据",
 };
 const EN_TO_KO = {
+    "What's new in TeX64": "TeX64의 새로운 기능",
+    "From TeX64": "TeX64 소식",
+    "Typewriter Scrolling": "타자기 스크롤",
+    "Keep the cursor near the center while writing.": "작성 중 커서를 화면 중앙 근처에 유지합니다.",
+    "Build (Cmd+Enter)": "빌드(Cmd+Enter)",
+    "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "빌드(Cmd+Enter). Cmd+B는 \\textbf{}를 삽입합니다.",
     "Plan": "플랜",
     "Plans & Usage": "플랜 및 사용량",
     "View plans and manage your subscription.": "플랜을 확인하고 구독을 관리합니다.",
@@ -2568,6 +2586,12 @@ const EN_TO_KO = {
     "No arXiv metadata found": "arXiv 메타데이터를 찾을 수 없습니다",
 };
 const EN_TO_FR = {
+    "What's new in TeX64": "Nouveautés de TeX64",
+    "From TeX64": "Actualités TeX64",
+    "Typewriter Scrolling": "Défilement machine à écrire",
+    "Keep the cursor near the center while writing.": "Maintient le curseur près du centre pendant la rédaction.",
+    "Build (Cmd+Enter)": "Compiler (Cmd+Entrée)",
+    "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "Compiler (Cmd+Entrée). Cmd+B insère \\textbf{}.",
     "Plan": "Offre",
     "Plans & Usage": "Offres et utilisation",
     "View plans and manage your subscription.": "Consultez les offres et gérez votre abonnement.",
@@ -3385,6 +3409,12 @@ const EN_TO_FR = {
     "No arXiv metadata found": "Aucune métadonnée arXiv trouvée",
 };
 const EN_TO_DE = {
+    "What's new in TeX64": "Neu in TeX64",
+    "From TeX64": "Neuigkeiten von TeX64",
+    "Typewriter Scrolling": "Schreibmaschinen-Bildlauf",
+    "Keep the cursor near the center while writing.": "Hält den Cursor beim Schreiben nahe der Bildschirmmitte.",
+    "Build (Cmd+Enter)": "Erstellen (Cmd+Enter)",
+    "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "Erstellen (Cmd+Enter). Cmd+B fügt \\textbf{} ein.",
     "Plans & Usage": "Pläne & Nutzung",
     "View plans and manage your subscription.": "Pläne ansehen und Abo verwalten.",
     "Open Plans": "Pläne öffnen",
@@ -4201,6 +4231,12 @@ const EN_TO_DE = {
     "No arXiv metadata found": "Keine arXiv-Metadaten gefunden",
 };
 const EN_TO_ES = {
+    "What's new in TeX64": "Novedades de TeX64",
+    "From TeX64": "Noticias de TeX64",
+    "Typewriter Scrolling": "Desplazamiento de máquina de escribir",
+    "Keep the cursor near the center while writing.": "Mantiene el cursor cerca del centro mientras escribes.",
+    "Build (Cmd+Enter)": "Compilar (Cmd+Enter)",
+    "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "Compilar (Cmd+Enter). Cmd+B inserta \\textbf{}.",
     "Plans & Usage": "Planes y uso",
     "View plans and manage your subscription.": "Consulta los planes y gestiona tu suscripción.",
     "Open Plans": "Ver planes",

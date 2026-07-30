@@ -1,14 +1,29 @@
-import { getUiLocale, uiText } from "./i18n.js";
+import { getUiLocale, onUiLocaleChange, uiText } from "./i18n.js";
 const renderBodyInto = (host, body) => {
     host.replaceChildren();
     if (!body)
         return;
-    const lines = body.split(/\r?\n/);
-    lines.forEach((line, index) => {
-        host.appendChild(document.createTextNode(line));
-        if (index < lines.length - 1) {
-            host.appendChild(document.createElement("br"));
+    const blocks = body.split(/\r?\n\s*\r?\n/).filter((block) => block.trim());
+    blocks.forEach((block) => {
+        const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const isList = lines.length > 0 && lines.every((line) => /^[•-]\s+/.test(line));
+        if (isList) {
+            const list = document.createElement("ul");
+            lines.forEach((line) => {
+                const item = document.createElement("li");
+                item.textContent = line.replace(/^[•-]\s+/, "");
+                list.appendChild(item);
+            });
+            host.appendChild(list);
+            return;
         }
+        const paragraph = document.createElement("p");
+        lines.forEach((line, index) => {
+            paragraph.appendChild(document.createTextNode(line));
+            if (index < lines.length - 1)
+                paragraph.appendChild(document.createElement("br"));
+        });
+        host.appendChild(paragraph);
     });
 };
 // API may deliver title/body either as a plain string or as a locale-keyed
@@ -35,6 +50,7 @@ const resolveLocalized = (value) => {
 };
 export const initAnnouncementsUi = (deps) => {
     const modal = document.getElementById("announcement-modal");
+    const eyebrowEl = document.getElementById("announcement-modal-eyebrow");
     const titleEl = document.getElementById("announcement-modal-title");
     const bodyEl = document.getElementById("announcement-modal-body");
     const closeBtn = document.getElementById("announcement-modal-close");
@@ -46,7 +62,7 @@ export const initAnnouncementsUi = (deps) => {
     const queue = [];
     const seenInThisSession = new Set();
     let activeId = null;
-    let activeKind = "info";
+    let activeEntry = null;
     let isOpen = false;
     let isSubmitting = false;
     const setStatus = (message, tone = "") => {
@@ -96,10 +112,33 @@ export const initAnnouncementsUi = (deps) => {
         modal.setAttribute("aria-hidden", "true");
         isOpen = false;
         activeId = null;
-        activeKind = "info";
+        activeEntry = null;
+        if (modal instanceof HTMLElement) {
+            delete modal.dataset.kind;
+        }
         isSubmitting = false;
         setInputMode(false);
         setLinkButton(null, null);
+    };
+    const renderActiveEntry = () => {
+        if (!activeEntry ||
+            !(titleEl instanceof HTMLElement) ||
+            !(bodyEl instanceof HTMLElement)) {
+            return;
+        }
+        const resolvedTitle = resolveLocalized(activeEntry.title);
+        const resolvedBody = resolveLocalized(activeEntry.body);
+        titleEl.textContent = resolvedTitle || uiText("Notice", "お知らせ");
+        renderBodyInto(bodyEl, resolvedBody);
+        if (eyebrowEl instanceof HTMLElement) {
+            eyebrowEl.textContent =
+                activeEntry.kind === "feedback"
+                    ? uiText("Help shape TeX64", "TeX64 をより良くする")
+                    : activeEntry.kind === "update"
+                        ? uiText("What's new in TeX64", "TeX64 の新着情報")
+                        : uiText("From TeX64", "TeX64 からのお知らせ");
+        }
+        setLinkButton(activeEntry.kind === "feedback" ? null : activeEntry.url, resolveLocalized(activeEntry.urlLabel));
     };
     const showNext = () => {
         if (isOpen ||
@@ -112,14 +151,11 @@ export const initAnnouncementsUi = (deps) => {
         if (!next)
             return;
         activeId = next.id;
-        activeKind = next.kind;
-        const resolvedTitle = resolveLocalized(next.title);
-        const resolvedBody = resolveLocalized(next.body);
-        titleEl.textContent = resolvedTitle || uiText("Notice", "お知らせ");
-        renderBodyInto(bodyEl, resolvedBody);
+        activeEntry = next;
+        modal.dataset.kind = next.kind;
+        renderActiveEntry();
         const isFeedback = next.kind === "feedback";
         setInputMode(isFeedback);
-        setLinkButton(isFeedback ? null : next.url, resolveLocalized(next.urlLabel));
         modal.classList.add("is-open");
         modal.setAttribute("aria-hidden", "false");
         isOpen = true;
@@ -203,6 +239,11 @@ export const initAnnouncementsUi = (deps) => {
         if (event.key === "Escape") {
             event.preventDefault();
             closeAndDismiss();
+        }
+    });
+    onUiLocaleChange(() => {
+        if (isOpen) {
+            renderActiveEntry();
         }
     });
     const handleAnnouncements = (payload) => {

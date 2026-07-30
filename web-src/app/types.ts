@@ -2,9 +2,9 @@ import type { LspBridge } from "./lsp/lsp-client.js";
 import type { AppearanceTheme } from "./appearance.js";
 
 export type SpellBridge = {
-  check: (words: string[]) => Promise<string[]>;
-  suggest: (word: string) => Promise<string[]>;
-  add: (word: string) => Promise<boolean>;
+  check: (words: string[], locale?: "en" | "de") => Promise<string[]>;
+  suggest: (word: string, locale?: "en" | "de") => Promise<string[]>;
+  add: (word: string, locale?: "en" | "de") => Promise<boolean>;
 };
 
 export type CreateKind = "file" | "folder";
@@ -183,7 +183,7 @@ export type LocalizedText =
 
 export type AnnouncementSnapshot = {
   id: string;
-  kind: "info" | "feedback";
+  kind: "info" | "feedback" | "update";
   title: LocalizedText;
   body: LocalizedText;
   url?: string | null;

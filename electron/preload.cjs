@@ -121,23 +121,23 @@ ipcRenderer.on("tex64:lsp:status", (_event, status) => {
 });
 
 const spellApi = {
-  check: async (words) => {
+  check: async (words, locale = "en") => {
     try {
-      return await ipcRenderer.invoke("tex64:spell:check", words);
+      return await ipcRenderer.invoke("tex64:spell:check", { words, locale });
     } catch {
       return [];
     }
   },
-  suggest: async (word) => {
+  suggest: async (word, locale = "en") => {
     try {
-      return await ipcRenderer.invoke("tex64:spell:suggest", word);
+      return await ipcRenderer.invoke("tex64:spell:suggest", { word, locale });
     } catch {
       return [];
     }
   },
-  add: async (word) => {
+  add: async (word, locale = "en") => {
     try {
-      return await ipcRenderer.invoke("tex64:spell:add", word);
+      return await ipcRenderer.invoke("tex64:spell:add", { word, locale });
     } catch {
       return false;
     }

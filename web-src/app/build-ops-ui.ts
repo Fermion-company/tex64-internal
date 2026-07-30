@@ -157,8 +157,8 @@ export const initBuildOpsUi = (
 
   const getBuildButtonIdleTitle = () =>
     uiText(
-      "Build from the toolbar. Cmd+B inserts \\textbf{}.",
-      "ツールバーからビルドします。Cmd+B は \\textbf{} を入力します。"
+      "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.",
+      "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。"
     );
 
   const isEnvMissingMessage = (message: string) => {
@@ -319,7 +319,10 @@ export const initBuildOpsUi = (
       buildButton.disabled = false;
       buildButton.classList.toggle("is-busy", isBusy);
       buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-      buildButton.setAttribute("aria-label", isBusy ? uiText("Cancel", "cancel") : uiText("Build", "build"));
+      buildButton.setAttribute(
+        "aria-label",
+        isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
+      );
       buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
     }
     if (state === "success") {
