@@ -118,6 +118,10 @@ test("Windows Store build remains independent of marketplace actions", () => {
   assert.match(windowsJob, /permissions:\s*\n\s*contents: read/u);
   assert.match(windowsJob, /uses: \.\/\.github\/actions\/upload-actions-artifact/u);
   assert.match(workflow, /windows_only:\s*\n(?:.*\n){0,5}\s*type: boolean/u);
+  assert.match(
+    workflow,
+    /group: release-\$\{\{ github\.ref \}\}-\$\{\{ inputs\.windows_only && 'windows-only' \|\| 'full' \}\}/u
+  );
   const localAction = fs.readFileSync(
     path.join(
       __dirname,
