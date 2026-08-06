@@ -1,7 +1,19 @@
 import { TEX64_LINKS } from "../platform-links.js";
 import { formatBytes, openExternalUrl } from "./utils.js";
+const MICROSOFT_STORE_UPDATE_MODE = "microsoft-store";
 export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
     const { settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, updateButton, } = runtime.context.dom;
+    const isMicrosoftStoreManaged = () => {
+        var _a, _b;
+        return ((_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.mode) === MICROSOFT_STORE_UPDATE_MODE ||
+            ((_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.channel) === MICROSOFT_STORE_UPDATE_MODE;
+    };
+    const clearUpdateAutoCheckTimer = () => {
+        if (runtime.state.updateAutoCheckTimer !== null) {
+            window.clearTimeout(runtime.state.updateAutoCheckTimer);
+            runtime.state.updateAutoCheckTimer = null;
+        }
+    };
     const resolveUpdateStatusText = () => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
@@ -50,13 +62,14 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             settingsUpdateStatus.textContent = statusText;
             const phase = (_k = (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.phase) !== null && _k !== void 0 ? _k : "idle";
             settingsUpdateStatus.classList.toggle("is-error", phase === "error");
-            settingsUpdateStatus.classList.toggle("is-success", phase === "downloaded");
+            settingsUpdateStatus.classList.toggle("is-success", phase === "downloaded" || isMicrosoftStoreManaged());
         }
         const progress = typeof ((_l = runtime.state.platformUpdateStatus) === null || _l === void 0 ? void 0 : _l.progressPercent) === "number" &&
             Number.isFinite(runtime.state.platformUpdateStatus.progressPercent)
             ? Math.max(0, Math.min(100, runtime.state.platformUpdateStatus.progressPercent))
             : 0;
-        const showProgress = ((_o = (_m = runtime.state.platformUpdateStatus) === null || _m === void 0 ? void 0 : _m.phase) !== null && _o !== void 0 ? _o : "") === "downloading";
+        const storeManaged = isMicrosoftStoreManaged();
+        const showProgress = !storeManaged && ((_o = (_m = runtime.state.platformUpdateStatus) === null || _m === void 0 ? void 0 : _m.phase) !== null && _o !== void 0 ? _o : "") === "downloading";
         if (settingsUpdateProgress instanceof HTMLElement) {
             settingsUpdateProgress.classList.toggle("is-hidden", !showProgress);
             settingsUpdateProgress.setAttribute("aria-hidden", showProgress ? "false" : "true");
@@ -68,9 +81,13 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         const hasUpdate = Boolean((_r = runtime.state.platformUpdate) === null || _r === void 0 ? void 0 : _r.hasUpdate);
         const hasDownloadedInstaller = Boolean((_s = runtime.state.platformUpdateStatus) === null || _s === void 0 ? void 0 : _s.downloadedPath);
         if (settingsUpdateCheck instanceof HTMLButtonElement) {
-            settingsUpdateCheck.disabled = phase === "checking" || phase === "downloading";
+            settingsUpdateCheck.classList.toggle("is-hidden", storeManaged);
+            settingsUpdateCheck.setAttribute("aria-hidden", storeManaged ? "true" : "false");
+            settingsUpdateCheck.disabled =
+                storeManaged || phase === "checking" || phase === "downloading";
         }
-        const canApplyUpdate = hasUpdate || hasDownloadedInstaller || phase === "available" || phase === "downloaded";
+        const canApplyUpdate = !storeManaged &&
+            (hasUpdate || hasDownloadedInstaller || phase === "available" || phase === "downloaded");
         if (settingsUpdateApply instanceof HTMLButtonElement) {
             settingsUpdateApply.classList.toggle("is-hidden", !canApplyUpdate);
             settingsUpdateApply.setAttribute("aria-hidden", canApplyUpdate ? "false" : "true");
@@ -89,7 +106,9 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             updateButton.disabled = !canApplyUpdate || phase === "checking" || busy;
         }
         if (settingsUpdateOpen instanceof HTMLButtonElement) {
-            settingsUpdateOpen.disabled = false;
+            settingsUpdateOpen.classList.toggle("is-hidden", storeManaged);
+            settingsUpdateOpen.setAttribute("aria-hidden", storeManaged ? "true" : "false");
+            settingsUpdateOpen.disabled = storeManaged;
         }
         attentionOps.syncUpdateAttentionUi();
     };
@@ -122,6 +141,10 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
                 },
             };
         }
+        if (isMicrosoftStoreManaged()) {
+            clearUpdateAutoCheckTimer();
+            runtime.state.updateAutoCheckStarted = true;
+        }
         updatePlatformUpdateUi();
     };
     const handlePlatformUpdateStatus = (payload) => {
@@ -134,7 +157,14 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             ...status,
             updatedAt: typeof status.updatedAt === "number" && Number.isFinite(status.updatedAt) ? status.updatedAt : Date.now(),
         };
+        if (isMicrosoftStoreManaged()) {
+            clearUpdateAutoCheckTimer();
+            runtime.state.updateAutoCheckStarted = true;
+        }
         updatePlatformUpdateUi();
+        if (!isMicrosoftStoreManaged() && !runtime.state.updateAutoCheckStarted) {
+            maybeRequestPlatformUpdateCheck(false);
+        }
     };
     const readUpdateLastAutoCheckAt = () => {
         try {
@@ -164,9 +194,9 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         }
     };
     const scheduleUpdateAutoCheck = () => {
-        if (runtime.state.updateAutoCheckTimer !== null) {
-            window.clearTimeout(runtime.state.updateAutoCheckTimer);
-            runtime.state.updateAutoCheckTimer = null;
+        clearUpdateAutoCheckTimer();
+        if (isMicrosoftStoreManaged()) {
+            return;
         }
         const now = Date.now();
         const last = readUpdateLastAutoCheckAt();
@@ -179,7 +209,18 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         }, remaining);
     };
     const maybeRequestPlatformUpdateCheck = (force = false) => {
+        if (!force &&
+            runtime.state.platformUpdate === null &&
+            runtime.state.platformUpdateStatus === null) {
+            runtime.deps.postToNative({ type: "update:status:get" }, true);
+            return false;
+        }
         runtime.deps.postToNative({ type: "update:status:get" }, true);
+        if (isMicrosoftStoreManaged()) {
+            clearUpdateAutoCheckTimer();
+            runtime.state.updateAutoCheckStarted = true;
+            return false;
+        }
         let dispatched = false;
         if (force) {
             markUpdateAutoCheckAt(Date.now());
@@ -214,6 +255,9 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
     }
     const applyUpdate = () => {
         var _a, _b, _c;
+        if (isMicrosoftStoreManaged()) {
+            return;
+        }
         const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
         const hasDownloadedInstaller = Boolean((_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.downloadedPath);
         if (phase === "downloaded" || hasDownloadedInstaller) {
@@ -240,6 +284,9 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
     if (settingsUpdateOpen instanceof HTMLButtonElement) {
         settingsUpdateOpen.addEventListener("click", () => {
             var _a, _b, _c, _d;
+            if (isMicrosoftStoreManaged()) {
+                return;
+            }
             const fallbackUrl = (_d = (_b = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.artifactUrl) !== null && _b !== void 0 ? _b : (_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.notesUrl) !== null && _d !== void 0 ? _d : TEX64_LINKS.download;
             openExternalUrl(runtime, fallbackUrl);
         });

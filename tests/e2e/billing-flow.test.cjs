@@ -4,15 +4,16 @@
  * Exercises the FULL app-side wiring without touching production or Stripe:
  *   CTA event → in-app Plans modal → "Upgrade" → real billing IPC → main
  *   process → /api/v2/billing/checkout (a LOCAL stub) → embedded checkout mount
- *   (window.Stripe is stubbed) → onComplete → modal closes + plan refresh.
+ *   or hosted child window → completion → modal status + plan refresh.
  *
  * Safe by construction:
  *   - The platform API base is pointed at a localhost stub (TEX64_PLATFORM_API_BASE_URL),
  *     so no request reaches tex64.com.
- *   - window.Stripe is stubbed, so no request reaches Stripe and no real card
- *     form is created. (The real Stripe card form needs test keys + a deployed
- *     backend and is therefore out of scope here — that is the ONLY part of the
- *     flow this test does not cover.)
+ *   - window.Stripe is stubbed and checkout.stripe.com is fulfilled by
+ *     Playwright, so no request reaches Stripe and no real card form is created.
+ *     (The real Stripe card form needs test keys + a deployed backend and is
+ *     therefore out of scope here — that is the ONLY part of the flow this test
+ *     does not cover.)
  *   - A "free" platform session is pre-seeded so the upsell/upgrade buttons render.
  *
  * Run:
@@ -64,11 +65,14 @@ const startStubServer = () =>
         res.setHeader("content-type", "application/json");
         if (url.includes("/billing/checkout")) {
           if (parsed.plan === "basic") {
-            // Drive the error path: backend rejects this plan.
-            res.statusCode = 503;
             res.end(
               JSON.stringify({
-                error: { code: "BILLING_NOT_CONFIGURED", message: "Billing is not configured." },
+                requestId: "stub-hosted",
+                sessionId: "cs_e2e_hosted_stub",
+                checkoutUrl: "https://checkout.stripe.com/c/pay/cs_e2e_hosted_stub",
+                clientSecret: "",
+                publishableKey: "",
+                capabilities: { configured: true },
               })
             );
             return;
@@ -163,7 +167,7 @@ const planButton = (page, planName) =>
     return card ? card.querySelector(".plan-cta") : null;
   }, planName);
 
-test("in-app billing flow (CTA → modal → checkout IPC → embedded mount → complete)", async (t) => {
+test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
   const stub = await startStubServer();
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-billing-e2e-"));
   seedFreeSession(userDataDir);
@@ -184,6 +188,41 @@ test("in-app billing flow (CTA → modal → checkout IPC → embedded mount →
     timeout: 30000,
   });
 
+  const stripeScriptRoutes = [];
+  const hostedCheckoutRoutes = [];
+  const checkoutReturnRoutes = [];
+  await app.context().route("https://js.stripe.com/**", async (route) => {
+    stripeScriptRoutes.push(route.request().url());
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
+  });
+  await app.context().route("https://checkout.stripe.com/**", async (route) => {
+    hostedCheckoutRoutes.push(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<!doctype html>
+        <html>
+          <body>
+            <main id="hosted-checkout-stub">
+              <p>Local hosted Checkout stub</p>
+              <a id="hosted-checkout-success" href="https://tex64.com/account/billing?checkout=success">
+                Complete checkout
+              </a>
+            </main>
+          </body>
+        </html>`,
+    });
+  });
+  await app
+    .context()
+    .route(/^https:\/\/(?:www\.)?tex64\.com\/account\/billing(?:[/?#].*)?$/, async (route) => {
+      checkoutReturnRoutes.push(route.request().url());
+      await route.fulfill({ status: 200, contentType: "text/html", body: "local return stub" });
+    });
+  await app.context().route("https://stub.local/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "local portal stub" })
+  );
+
   t.after(async () => {
     await closeElectronApp(app);
     stub.server.close();
@@ -192,6 +231,7 @@ test("in-app billing flow (CTA → modal → checkout IPC → embedded mount →
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await page.waitForSelector("body.is-ready", { timeout: 15000 });
+  assert.equal(stripeScriptRoutes.length, 1, "Stripe.js was fulfilled locally");
   await clearOverlays(page);
   await installStripeStub(page);
 
@@ -249,30 +289,77 @@ test("in-app billing flow (CTA → modal → checkout IPC → embedded mount →
   const destroyed = await page.evaluate(() => window.__stripeStub.destroyed);
   assert.equal(destroyed, true, "embedded checkout destroyed on close");
 
-  // 4) Error path stays smooth: a backend-rejected checkout (stub 503s "basic")
-  //    shows a message, never enters the checkout view, and leaves the modal
-  //    usable — no crash.
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent("tex64:open-plans")));
+  // 4) Older servers return a hosted Stripe URL. The main process opens that URL
+  //    in a child BrowserWindow, then turns the tex64.com success return into a
+  //    renderer activation event without contacting Stripe or production.
+  await page.evaluate(() => {
+    window.Stripe = undefined;
+    window.dispatchEvent(new CustomEvent("tex64:open-plans"));
+  });
   await page.waitForSelector("#plans-modal.is-open .plan-card", { timeout: 5000 });
   const basicBtn = await planButton(page, "Basic");
-  await basicBtn.asElement().click();
+  const hostedWindowPromise = app.waitForEvent("window", { timeout: 8000 });
+  await basicBtn.asElement().evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  const hostedPage = await hostedWindowPromise;
+  await hostedPage.waitForLoadState("domcontentloaded");
+  await hostedPage.waitForSelector("#hosted-checkout-stub", { timeout: 8000 });
+
+  assert.notEqual(hostedPage, page, "hosted Checkout opened in a child BrowserWindow");
+  assert.equal(hostedCheckoutRoutes.length, 1, "hosted Checkout URL was fulfilled locally once");
+  assert.equal(
+    hostedCheckoutRoutes[0],
+    "https://checkout.stripe.com/c/pay/cs_e2e_hosted_stub",
+    "child window loaded the validated Stripe Checkout URL"
+  );
+  const basicCheckoutCalls = stub.calls.filter(
+    (c) => c.url.includes("/billing/checkout") && c.body.plan === "basic"
+  );
+  assert.equal(
+    basicCheckoutCalls.length,
+    1,
+    "a rapid double click creates only one hosted Checkout session"
+  );
+  assert.equal(basicCheckoutCalls[0].body.uiMode, "embedded", "Basic still prefers embedded mode");
+
   await page.waitForFunction(
     () => {
       const status = (document.getElementById("plans-status")?.textContent || "").trim();
-      return status.length > 0 && status !== "Preparing secure checkout…";
+      return status === "Checkout in progress…";
     },
     { timeout: 8000 }
   );
-  const errorState = await page.evaluate(() => ({
+  const hostedState = await page.evaluate(() => ({
     open: document.getElementById("plans-modal").classList.contains("is-open"),
     checkoutHidden: document.getElementById("plans-checkout").classList.contains("is-hidden"),
-    noForm: !document.getElementById("stub-stripe-form"),
     status: (document.getElementById("plans-status")?.textContent || "").trim(),
   }));
-  assert.ok(errorState.open, "modal stays open after a checkout error");
-  assert.ok(errorState.checkoutHidden, "did not enter the checkout view on error");
-  assert.ok(errorState.noForm, "no embedded form mounted on error");
-  assert.ok(errorState.status.length > 0, "an error status is shown to the user");
+  assert.ok(hostedState.open, "plans modal stays open while hosted Checkout is active");
+  assert.ok(hostedState.checkoutHidden, "hosted fallback does not enter the embedded view");
+  assert.equal(hostedState.status, "Checkout in progress…", "hosted fallback is not shown as an error");
+
+  const hostedClosedPromise = hostedPage.waitForEvent("close", { timeout: 5000 });
+  await hostedPage.evaluate(() => document.getElementById("hosted-checkout-success")?.click());
+  await hostedClosedPromise;
+  assert.equal(checkoutReturnRoutes.length, 0, "success return was intercepted before production navigation");
+  await page.waitForFunction(
+    () =>
+      (document.getElementById("plans-status")?.textContent || "").trim() ===
+      "Payment received — activating your plan…",
+    { timeout: 5000 }
+  );
+  const activationState = await page.evaluate(() => ({
+    open: document.getElementById("plans-modal").classList.contains("is-open"),
+    status: (document.getElementById("plans-status")?.textContent || "").trim(),
+  }));
+  assert.ok(activationState.open, "plans modal stays open while the hosted purchase activates");
+  assert.equal(
+    activationState.status,
+    "Payment received — activating your plan…",
+    "success return switches the renderer to activation status"
+  );
 
   // 5) Close paths: the close button and Escape both dismiss the modal.
   await page.evaluate(() => {

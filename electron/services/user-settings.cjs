@@ -1,11 +1,12 @@
 const path = require("path");
 const fsp = require("fs/promises");
+const { migrateLegacyAxiomModel } = require("./openprism/llm-config.cjs");
 
 const MAX_RECENT_PROJECTS = 10;
 
 const DEFAULT_SETTINGS = {
   agent: {
-    model: "Axiom0.9.1",
+    model: "Axiom1.0",
     endpoint: "",
     maxIterations: 500,
     stream: true,
@@ -109,15 +110,24 @@ class UserSettingsService {
       .then((content) => JSON.parse(content))
       .catch(() => null);
     const storedObject = stored && typeof stored === "object" ? stored : {};
+    const storedAgent =
+      storedObject.agent && typeof storedObject.agent === "object"
+        ? storedObject.agent
+        : {};
+    const mergedAgent = {
+      ...clone(DEFAULT_SETTINGS.agent),
+      ...storedAgent,
+    };
+    const migratedModel = migrateLegacyAxiomModel(mergedAgent.model);
+    const didMigrateModel = migratedModel !== mergedAgent.model;
+    if (didMigrateModel) {
+      mergedAgent.model = migratedModel;
+    }
+
     this.state = {
       ...clone(DEFAULT_SETTINGS),
       ...storedObject,
-      agent: {
-        ...clone(DEFAULT_SETTINGS.agent),
-        ...(storedObject.agent && typeof storedObject.agent === "object"
-          ? storedObject.agent
-          : {}),
-      },
+      agent: mergedAgent,
       recentProjects: Array.isArray(storedObject.recentProjects)
         ? storedObject.recentProjects
         : clone(DEFAULT_SETTINGS.recentProjects),
@@ -127,6 +137,12 @@ class UserSettingsService {
           )
         : clone(DEFAULT_SETTINGS.dismissedAnnouncementIds),
     };
+    if (didMigrateModel) {
+      // Persist the canonical id so every renderer and future launch sees the
+      // same model. Loading still succeeds if a transient disk error prevents
+      // this best-effort migration write.
+      await this.save().catch(() => {});
+    }
     return clone(this.state);
   }
 
@@ -141,6 +157,7 @@ class UserSettingsService {
       ...state.agent,
       ...(partial && typeof partial === "object" ? partial : {}),
     };
+    state.agent.model = migrateLegacyAxiomModel(state.agent.model);
     this.state = state;
     await this.save();
     return clone(state.agent);

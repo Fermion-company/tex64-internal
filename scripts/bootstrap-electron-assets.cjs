@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 const { execFileSync } = require("node:child_process");
-const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 
@@ -54,14 +53,15 @@ const writeFileIfMissing = async (filePath, content, encoding = "utf8") => {
 const resolvePath = (...parts) => path.resolve(projectRoot, ...parts);
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const ICO_MAGIC = Buffer.from([0x00, 0x00, 0x01, 0x00]);
 
-const isPngFile = async (filePath) => {
+const hasMagic = async (filePath, magic) => {
   try {
     const handle = await fsp.open(filePath, "r");
     try {
-      const buffer = Buffer.alloc(PNG_MAGIC.length);
+      const buffer = Buffer.alloc(magic.length);
       await handle.read(buffer, 0, buffer.length, 0);
-      return buffer.equals(PNG_MAGIC);
+      return buffer.equals(magic);
     } finally {
       await handle.close();
     }
@@ -69,6 +69,8 @@ const isPngFile = async (filePath) => {
     return false;
   }
 };
+
+const isPngFile = (filePath) => hasMagic(filePath, PNG_MAGIC);
 
 const ENTITLEMENTS_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -191,9 +193,36 @@ const ensureMacIcons = async () => {
   execInherit("iconutil", ["--convert", "icns", "--output", icnsPath, iconsetDir]);
 };
 
+const ensureAppxAssets = async () => {
+  const sourceDir = resolvePath("Resources", "icons", "appx");
+  const required = [
+    "StoreLogo.png",
+    "Square150x150Logo.png",
+    "Square44x44Logo.png",
+    "Wide310x150Logo.png",
+  ];
+  for (const name of required) {
+    const assetPath = path.join(sourceDir, name);
+    if (!(await isPngFile(assetPath))) {
+      throw new Error(`Missing or invalid tracked AppX icon: ${assetPath}`);
+    }
+  }
+  await copyDirectory(sourceDir, resolvePath("build", "appx"));
+};
+
+const ensureWindowsIcons = async () => {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const icoPath = resolvePath("Resources", "icons", "tex64.ico");
+  if (!(await hasMagic(icoPath, ICO_MAGIC))) {
+    throw new Error(`Missing or invalid tracked Windows icon: ${icoPath}`);
+  }
+};
+
 const ensureTexlab = async () => {
   // texlab is bundled into the distributable (see NOTICE.md for GPL-3.0
-  // attribution). macOS is the only active dist target, so fetch both arches.
+  // attribution). Fetch both macOS arches, or the active Windows x64 binary.
   const fetchScript = resolvePath("scripts", "fetch-texlab.cjs");
   const args = process.platform === "darwin" ? ["--mac"] : [];
   execInherit(process.execPath, [fetchScript, ...args]);
@@ -204,6 +233,8 @@ const main = async () => {
   await ensureLicense();
   await ensurePdfjsAssets();
   await ensureMacIcons();
+  await ensureAppxAssets();
+  await ensureWindowsIcons();
   await ensureTexlab();
 };
 

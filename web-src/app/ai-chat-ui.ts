@@ -174,17 +174,23 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // ── Model picker (custom dropdown) ─────────────────────
   // Two selectable models live in agentSettings.model. The server maps the id
   // to the real upstream model and enforces the Pro gate; the renderer reflects
-  // the choice and shows Axiom 0.9.1 Pro as a locked row for non-Pro plans.
-  const DEFAULT_MODEL = "Axiom0.9.1";
-  const PRO_MODEL = "Axiom0.9.1-pro";
+  // the choice and shows Axiom 1.0 Pro as a locked row for non-Pro plans.
+  const DEFAULT_MODEL = "Axiom1.0";
+  const PRO_MODEL = "Axiom1.0-pro";
   const MODEL_LABELS: Record<string, string> = {
-    [DEFAULT_MODEL]: "Axiom 0.9.1",
-    [PRO_MODEL]: "Axiom 0.9.1 Pro",
+    [DEFAULT_MODEL]: "Axiom 1.0",
+    [PRO_MODEL]: "Axiom 1.0 Pro",
   };
   const MODEL_OPTIONS: Array<{ id: string; name: string; descKey: string; pro: boolean }> = [
-    { id: DEFAULT_MODEL, name: "Axiom 0.9.1", descKey: "model_standard", pro: false },
-    { id: PRO_MODEL, name: "Axiom 0.9.1 Pro", descKey: "model_most_capable", pro: true },
+    { id: DEFAULT_MODEL, name: "Axiom 1.0", descKey: "model_efficient", pro: false },
+    { id: PRO_MODEL, name: "Axiom 1.0 Pro", descKey: "model_autonomous", pro: true },
   ];
+  const migrateLegacyModelId = (model: string) =>
+    model === "Axiom0.9.1"
+      ? DEFAULT_MODEL
+      : model === "Axiom0.9.1-pro"
+        ? PRO_MODEL
+        : model;
   // Localize the static AI-panel chrome (login overlay, delete modal, upsell).
   const applyAiStaticI18n = () => {
     const set = (selector: string, key: string) => {
@@ -204,6 +210,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   const isProPlan = () =>
     typeof platformState.platformAiAccess?.plan === "string" &&
     platformState.platformAiAccess.plan.toLowerCase() === "pro";
+  const hasResolvedPlan = () =>
+    typeof platformState.platformAiAccess?.plan === "string" &&
+    platformState.platformAiAccess.plan.trim().length > 0;
   const escapeHtml = (value: string) =>
     value.replace(/[&<>"]/g, (ch) =>
       ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&quot;"
@@ -211,8 +220,20 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // The selected model, falling back to the standard model when a stored Pro
   // model is no longer permitted by the current plan.
   const currentModelId = () => {
-    const stored = agentSettings?.model || DEFAULT_MODEL;
+    const configured = agentSettings?.model || DEFAULT_MODEL;
+    const stored = migrateLegacyModelId(configured);
     return stored === PRO_MODEL && !isProPlan() ? DEFAULT_MODEL : stored;
+  };
+  const persistCompatibleModelSelection = () => {
+    if (!agentSettings) return;
+    const configured = agentSettings.model || DEFAULT_MODEL;
+    const migrated = migrateLegacyModelId(configured);
+    const allowed = migrated === PRO_MODEL && hasResolvedPlan() && !isProPlan()
+      ? DEFAULT_MODEL
+      : migrated;
+    if (configured === allowed) return;
+    agentSettings.model = allowed;
+    deps.postToNative({ type: "agent:settings:set", settings: { model: allowed } }, true);
   };
   const hideModelUpsell = () => {
     const upsell =
@@ -349,6 +370,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       if (needsLogin()) showLoginOverlay();
       else hideLoginOverlay();
       // Plan may have changed (e.g. AI access refreshed) — re-gate the Pro option.
+      persistCompatibleModelSelection();
       syncModelSelect();
     },
   });
@@ -835,6 +857,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
 
   const handleSettings = (s: AgentSettings) => {
     agentSettings = s;
+    persistCompatibleModelSelection();
     updateSendState();
     syncModelSelect();
   };

@@ -254,6 +254,14 @@ const main = async () => {
   );
   const timeoutMs = Number.parseInt(readOption("--timeoutMs") || "15000", 10);
   const archs = parseArchList(readOption("--archs") || "arm64,x64");
+  const winArchsInput =
+    readOption("--winArchs") || process.env.TEX64_GO_NO_GO_WINDOWS_ARCHS || "";
+  const winArchs = parseArchList(winArchsInput);
+  const winKind = String(
+    readOption("--winKind") || process.env.TEX64_GO_NO_GO_WINDOWS_KIND || "exe"
+  )
+    .trim()
+    .toLowerCase();
 
   if (!version || !/^\d+\.\d+\.\d+/.test(version)) {
     console.error(`ERROR: Missing or invalid --version (resolved: "${version}")`);
@@ -275,12 +283,25 @@ const main = async () => {
     console.error("ERROR: Missing valid --archs (expected arm64/x64).");
     process.exit(1);
   }
+  if (winArchsInput && winArchs.length === 0) {
+    console.error("ERROR: Missing valid --winArchs (expected x64/arm64).");
+    process.exit(1);
+  }
+  if (!["exe", "msi"].includes(winKind)) {
+    console.error("ERROR: Invalid --winKind (expected exe/msi; Store packages use Partner Center).");
+    process.exit(1);
+  }
 
   process.stdout.write(`Version: ${version}\n`);
   process.stdout.write(`Channel: ${channel}\n`);
   process.stdout.write(`Downloads: ${downloadsBaseUrl}\n`);
   process.stdout.write(`Site: ${siteBaseUrl}\n`);
   process.stdout.write(`macOS Architectures: ${archs.join(", ")}\n`);
+  process.stdout.write(
+    winArchs.length > 0
+      ? `Windows Direct-Publish Architectures: ${winArchs.join(", ")} (${winKind})\n`
+      : "Windows Direct-Publish: disabled (Microsoft Store updates are managed by Store)\n"
+  );
   process.stdout.write("\n");
 
   const failures = [];
@@ -469,6 +490,9 @@ const main = async () => {
   };
 
   await verifyPlatformManifests("darwin", archs, "zip");
+  if (winArchs.length > 0) {
+    await verifyPlatformManifests("win32", winArchs, winKind);
+  }
 
   process.stdout.write("\n");
   for (const warning of warnings) {
@@ -484,7 +508,7 @@ const main = async () => {
   }
 
   process.stdout.write(
-    `Go/No-Go checks passed (${archs.length} macOS arch, ${artifacts.length} artifact checks)\n`
+    `Go/No-Go checks passed (${archs.length} macOS arch, ${winArchs.length} Windows direct arch, ${artifacts.length} artifact checks)\n`
   );
 };
 

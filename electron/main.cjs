@@ -35,6 +35,13 @@ const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
 const { ApiUsageService } = require("./services/api-usage.cjs");
 const { PlatformAccessService } = require("./services/platform-access.cjs");
+const {
+  resolveDistributionRuntime,
+} = require("./services/distribution-runtime.cjs");
+const {
+  getCheckoutReturnOutcome,
+  normalizeStripeCheckoutUrl,
+} = require("./services/billing-checkout.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 
@@ -51,6 +58,7 @@ const isE2EContext =
   (typeof e2eUserDataPath === "string" && e2eUserDataPath.length > 0);
 const e2eHeadless =
   isE2EContext && process.env.TEX64_E2E_FORCE_HEADLESS !== "0";
+const distributionRuntime = resolveDistributionRuntime(process.windowsStore);
 if (e2eUserDataPath) {
   app.setPath("userData", path.resolve(e2eUserDataPath));
 } else if (!app.isPackaged) {
@@ -506,13 +514,16 @@ const miscHandlers = createMiscHandlers({
   blocksStore,
   apiUsageService: getApiUsageService(),
   platformService: getPlatformAccessService(),
-  ensureProtocolClient: registerProtocolClient,
+  ensureProtocolClient: distributionRuntime.registerCustomProtocol
+    ? registerProtocolClient
+    : null,
   runtimeInfo: {
     version: app.getVersion(),
     platform: process.platform,
     arch: process.arch,
     userDataPath: app.getPath("userData"),
     packaged: app.isPackaged === true,
+    windowsStore: distributionRuntime.windowsStore,
   },
 });
 
@@ -534,13 +545,17 @@ const focusMainWindow = () => {
 };
 
 function registerProtocolClient() {
+  if (!distributionRuntime.registerCustomProtocol) {
+    return false;
+  }
   if (process.defaultApp && process.argv.length >= 2) {
     app.setAsDefaultProtocolClient("tex64", process.execPath, [
       path.resolve(process.argv[1]),
     ]);
-    return;
+    return true;
   }
   app.setAsDefaultProtocolClient("tex64");
+  return true;
 }
 
 const normalizeOAuthPathname = (value) => {
@@ -675,7 +690,9 @@ app.whenReady().then(() => {
   runStartupWebBuildIfNeeded();
   createMainWindow();
   installApplicationMenu();
-  registerProtocolClient();
+  if (distributionRuntime.registerCustomProtocol) {
+    registerProtocolClient();
+  }
   while (pendingOAuthCallbackUrls.length > 0) {
     const url = pendingOAuthCallbackUrls.shift();
     if (url) {
@@ -686,17 +703,19 @@ app.whenReady().then(() => {
     queueOAuthCallbackUrl(arg);
   });
   if (!e2eHeadless) {
-    const triggerUpdateCheck = () => {
-      Promise.resolve(
-        miscHandlers.handleUpdateCheck({ force: false, source: "background" })
-      ).catch(() => {});
-    };
-    setTimeout(() => {
-      triggerUpdateCheck();
-    }, 15_000);
-    setInterval(() => {
-      triggerUpdateCheck();
-    }, 6 * 60 * 60 * 1000);
+    if (distributionRuntime.useIndependentUpdater) {
+      const triggerUpdateCheck = () => {
+        Promise.resolve(
+          miscHandlers.handleUpdateCheck({ force: false, source: "background" })
+        ).catch(() => {});
+      };
+      setTimeout(() => {
+        triggerUpdateCheck();
+      }, 15_000);
+      setInterval(() => {
+        triggerUpdateCheck();
+      }, 6 * 60 * 60 * 1000);
+    }
     const triggerAnnouncementsCheck = () => {
       Promise.resolve(miscHandlers.handleAnnouncementsCheck()).catch(() => {});
     };
@@ -940,6 +959,112 @@ ipcMain.on("tex64:terminal:kill", (_event, message) => {
   getTerminalService().kill(message.id);
 });
 
+let billingCheckoutWindow = null;
+let billingCheckoutRequestInFlight = false;
+
+// The production API currently returns hosted Checkout sessions. Keep the
+// payment inside TeX64, then report the Stripe return URL back to the renderer
+// so it can refresh the user's entitlement without guessing that they paid.
+const openBillingCheckoutWindow = ({ url, plan, sender }) => {
+  if (billingCheckoutWindow && !billingCheckoutWindow.isDestroyed()) {
+    billingCheckoutWindow.focus();
+    return billingCheckoutWindow;
+  }
+
+  const parent =
+    state.mainWindow && !state.mainWindow.isDestroyed() ? state.mainWindow : undefined;
+  const checkoutWebPreferences = {
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    partition: "persist:tex64-billing",
+  };
+  const win = new BrowserWindow({
+    width: 560,
+    height: 760,
+    show: !e2eHeadless,
+    parent,
+    title: "TeX64 — Checkout",
+    backgroundColor: "#1c2129",
+    webPreferences: checkoutWebPreferences,
+  });
+  billingCheckoutWindow = win;
+
+  const billingSession = win.webContents.session;
+  billingSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  billingSession.setPermissionCheckHandler(() => false);
+  win.webContents.setWindowOpenHandler(({ url: popupUrl }) => {
+    try {
+      if (new URL(popupUrl).protocol !== "https:") {
+        return { action: "deny" };
+      }
+    } catch {
+      return { action: "deny" };
+    }
+    return {
+      action: "allow",
+      overrideBrowserWindowOptions: {
+        parent: win,
+        title: "TeX64 — Secure Checkout",
+        webPreferences: { ...checkoutWebPreferences },
+      },
+    };
+  });
+
+  let outcome = "closed";
+  const captureReturn = (event, targetUrl) => {
+    const navigationUrl =
+      event && typeof event.url === "string" && event.url ? event.url : targetUrl;
+    const nextOutcome = getCheckoutReturnOutcome(navigationUrl);
+    if (!nextOutcome) {
+      try {
+        if (new URL(navigationUrl).protocol !== "https:") {
+          event.preventDefault();
+        }
+      } catch {
+        event.preventDefault();
+      }
+      return;
+    }
+    event.preventDefault();
+    outcome = nextOutcome;
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  };
+  win.webContents.on("will-navigate", captureReturn);
+  win.webContents.on("will-redirect", captureReturn);
+  win.on("closed", () => {
+    if (billingCheckoutWindow === win) {
+      billingCheckoutWindow = null;
+    }
+    const target =
+      sender && !sender.isDestroyed()
+        ? sender
+        : state.mainWindow && !state.mainWindow.isDestroyed()
+          ? state.mainWindow.webContents
+          : null;
+    if (target && !target.isDestroyed()) {
+      try {
+        target.send("tex64:billing:checkout-closed", { plan, outcome });
+      } catch {
+        // The main window may have closed between the guard and send.
+      }
+    }
+  });
+  win.loadURL(url).catch(() => {
+    if (outcome === "closed") {
+      outcome = "error";
+    }
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  });
+  return win;
+};
+
 // Open the Stripe Customer Portal (hosted-only) in an in-app child window.
 // Plan changes are picked up by the renderer's focus listener on close.
 const openBillingPortalWindow = (url) => {
@@ -956,15 +1081,40 @@ const openBillingPortalWindow = (url) => {
   win.loadURL(url).catch(() => {});
 };
 
-ipcMain.handle("tex64:billing:checkout", async (_event, payload) => {
+ipcMain.handle("tex64:billing:checkout", async (event, payload) => {
   const plan = payload && typeof payload === "object" ? payload.plan : undefined;
+  if (billingCheckoutWindow && !billingCheckoutWindow.isDestroyed()) {
+    billingCheckoutWindow.focus();
+    return { hosted: true, uiMode: "hosted" };
+  }
+  if (billingCheckoutRequestInFlight) {
+    return {
+      error: "checkout already in progress",
+      code: "BILLING_CHECKOUT_IN_PROGRESS",
+    };
+  }
+  billingCheckoutRequestInFlight = true;
   try {
-    return await getPlatformAccessService().createBillingCheckout(plan);
+    const checkout = await getPlatformAccessService().createBillingCheckout(plan);
+    if (checkout.clientSecret && checkout.publishableKey) {
+      return checkout;
+    }
+    const checkoutUrl = normalizeStripeCheckoutUrl(checkout.checkoutUrl);
+    if (checkoutUrl) {
+      openBillingCheckoutWindow({ url: checkoutUrl, plan, sender: event.sender });
+      return { hosted: true, uiMode: "hosted", sessionId: checkout.sessionId };
+    }
+    return {
+      error: "checkout unavailable",
+      code: "BILLING_CHECKOUT_UNAVAILABLE",
+    };
   } catch (error) {
     return {
       error: error && error.message ? error.message : "checkout failed",
       code: error && error.code ? error.code : undefined,
     };
+  } finally {
+    billingCheckoutRequestInFlight = false;
   }
 });
 

@@ -2,6 +2,9 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  isPublicDownloadsArtifact,
+} = require("./release-artifact-policy.cjs");
 
 if (typeof fetch !== "function") {
   console.error("ERROR: Node.js 18+ is required (global fetch is unavailable).");
@@ -96,9 +99,7 @@ const findReleaseArtifacts = (releaseDir, version) => {
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const name = entry.name;
-    const lower = name.toLowerCase();
-    const isTarget = lower.endsWith(".dmg") || lower.endsWith(".zip");
-    if (!isTarget) continue;
+    if (!isPublicDownloadsArtifact(name)) continue;
     if (!name.includes(marker)) continue;
     artifacts.push(path.join(releaseDir, name));
   }
@@ -200,7 +201,7 @@ const main = async () => {
 
   const artifacts = findReleaseArtifacts(releaseDir, version);
   if (artifacts.length === 0) {
-    console.error(`ERROR: No .dmg/.zip artifacts found in ${releaseDir} for version ${version}`);
+    console.error(`ERROR: No supported release artifacts found in ${releaseDir} for version ${version}`);
     process.exit(1);
   }
 
@@ -368,7 +369,13 @@ const main = async () => {
   console.log(`npm run -s release:go-no-go -- --version ${version} --channel ${channel}`);
 };
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  findReleaseArtifacts,
+};

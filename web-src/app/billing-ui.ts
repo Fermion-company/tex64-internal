@@ -6,8 +6,20 @@ import { aiText } from "./ai-i18n.js";
 type BillingBridge = {
   checkout: (
     plan: string
-  ) => Promise<{ clientSecret?: string; publishableKey?: string; error?: string; code?: string }>;
+  ) => Promise<{
+    clientSecret?: string;
+    publishableKey?: string;
+    hosted?: boolean;
+    error?: string;
+    code?: string;
+  }>;
   openPortal: () => Promise<{ ok?: boolean; error?: string }>;
+  onCheckoutClosed?: (
+    handler: (payload: {
+      plan?: string;
+      outcome?: "success" | "cancel" | "closed" | "error";
+    }) => void
+  ) => () => void;
 };
 
 type EmbeddedCheckout = { mount: (el: HTMLElement | string) => void; destroy: () => void };
@@ -81,7 +93,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "For advanced workflows with expanded AI and platform limits",
       items: [
-        "Axiom 0.9.1 Pro — most capable model (Pro only)",
+        "Axiom 1.0 Pro — advanced autonomous writing (Pro only)",
         "Higher monthly quota",
         "Priority AI chat throughput",
         "Wider context for long-form tasks",
@@ -125,7 +137,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "高度な制作フロー向け。AIと運用の上限を拡張",
       items: [
-        "Axiom 0.9.1 Pro — 最も高性能なモデル（Pro限定）",
+        "Axiom 1.0 Pro — 高度な自律執筆（Pro限定）",
         "より大きい月次上限",
         "AIチャット優先処理",
         "長文タスク向けの広い文脈",
@@ -168,7 +180,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "面向高级工作流，扩展的 AI 与平台限额",
       items: [
-        "Axiom 0.9.1 Pro — 最强模型（仅 Pro）",
+        "Axiom 1.0 Pro — 高级自主写作（仅 Pro）",
         "更高的月度配额",
         "优先级 AI 聊天处理",
         "长篇任务的更宽上下文",
@@ -212,7 +224,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "Für fortgeschrittene Workflows mit erweiterten KI- und Plattformlimits",
       items: [
-        "Axiom 0.9.1 Pro — leistungsstärkstes Modell (nur Pro)",
+        "Axiom 1.0 Pro — fortgeschrittenes autonomes Schreiben (nur Pro)",
         "Höheres monatliches Kontingent",
         "Priorisierter KI-Chat-Durchsatz",
         "Weiterer Kontext für längere Texte",
@@ -256,7 +268,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "고급 워크플로용. 확장된 AI 및 플랫폼 한도",
       items: [
-        "Axiom 0.9.1 Pro — 가장 강력한 모델(Pro 전용)",
+        "Axiom 1.0 Pro — 고급 자율 글쓰기(Pro 전용)",
         "더 높은 월간 한도",
         "우선순위 AI 채팅 처리",
         "장문 작업을 위한 넓은 컨텍스트",
@@ -300,7 +312,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "Pour les workflows avancés avec des limites IA et plateforme étendues",
       items: [
-        "Axiom 0.9.1 Pro — modèle le plus performant (Pro uniquement)",
+        "Axiom 1.0 Pro — rédaction autonome avancée (Pro uniquement)",
         "Quota mensuel plus élevé",
         "Débit prioritaire pour le chat IA",
         "Contexte plus large pour les tâches longues",
@@ -344,7 +356,7 @@ const CONTENT: Record<string, LocaleCopy> = {
     pro: {
       desc: "Para flujos de trabajo avanzados con límites ampliados de IA y plataforma",
       items: [
-        "Axiom 0.9.1 Pro — el modelo más capaz (solo Pro)",
+        "Axiom 1.0 Pro — redacción autónoma avanzada (solo Pro)",
         "Cuota mensual más alta",
         "Procesamiento prioritario del chat de IA",
         "Contexto más amplio para tareas largas",
@@ -362,6 +374,7 @@ type BillingMessages = {
   billingUnavailable: string;
   stripeLoad: string;
   preparing: string;
+  checkoutOpened: string;
   complete: string;
   embedError: string;
   signIn: string;
@@ -380,6 +393,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "Billing is unavailable in this build.",
     stripeLoad: "Couldn't load Stripe. Check your connection and try again.",
     preparing: "Preparing secure checkout…",
+    checkoutOpened: "Checkout in progress…",
     complete: "Payment complete — unlocking your plan…",
     embedError: "Couldn't start the embedded checkout. Please try again.",
     signIn: "Please sign in first, then try again.",
@@ -396,6 +410,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "このビルドでは課金を利用できません。",
     stripeLoad: "Stripe を読み込めませんでした。接続を確認して再試行してください。",
     preparing: "安全な決済を準備しています…",
+    checkoutOpened: "決済中…",
     complete: "決済が完了しました — プランを反映しています…",
     embedError: "埋め込みチェックアウトを開始できませんでした。もう一度お試しください。",
     signIn: "先にサインインしてから再試行してください。",
@@ -412,6 +427,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "此版本无法使用计费。",
     stripeLoad: "无法加载 Stripe。请检查网络后重试。",
     preparing: "正在准备安全结账…",
+    checkoutOpened: "正在结账…",
     complete: "支付完成 — 正在更新您的方案…",
     embedError: "无法启动嵌入式结账，请重试。",
     signIn: "请先登录后再试。",
@@ -428,6 +444,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "Abrechnung ist in diesem Build nicht verfügbar.",
     stripeLoad: "Stripe konnte nicht geladen werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     preparing: "Sicherer Checkout wird vorbereitet…",
+    checkoutOpened: "Checkout läuft…",
     complete: "Zahlung abgeschlossen — Ihr Plan wird aktiviert…",
     embedError: "Eingebetteter Checkout konnte nicht gestartet werden. Bitte erneut versuchen.",
     signIn: "Bitte zuerst anmelden und erneut versuchen.",
@@ -444,6 +461,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "이 빌드에서는 결제를 사용할 수 없습니다.",
     stripeLoad: "Stripe를 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요.",
     preparing: "안전한 결제를 준비하는 중…",
+    checkoutOpened: "결제 진행 중…",
     complete: "결제가 완료되었습니다 — 플랜을 반영하는 중…",
     embedError: "임베디드 결제를 시작하지 못했습니다. 다시 시도해 주세요.",
     signIn: "먼저 로그인한 후 다시 시도하세요.",
@@ -460,6 +478,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "La facturation n'est pas disponible dans cette version.",
     stripeLoad: "Impossible de charger Stripe. Vérifiez votre connexion et réessayez.",
     preparing: "Préparation du paiement sécurisé…",
+    checkoutOpened: "Paiement en cours…",
     complete: "Paiement terminé — activation de votre offre…",
     embedError: "Impossible de démarrer le paiement intégré. Veuillez réessayer.",
     signIn: "Veuillez d'abord vous connecter, puis réessayer.",
@@ -476,6 +495,7 @@ const MSG: Record<string, BillingMessages> = {
     billingUnavailable: "La facturación no está disponible en esta versión.",
     stripeLoad: "No se pudo cargar Stripe. Comprueba tu conexión e inténtalo de nuevo.",
     preparing: "Preparando el pago seguro…",
+    checkoutOpened: "Pago en curso…",
     complete: "Pago completado: activando tu plan…",
     embedError: "No se pudo iniciar el pago integrado. Inténtalo de nuevo.",
     signIn: "Inicia sesión primero y vuelve a intentarlo.",
@@ -527,6 +547,7 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
 
   let embedded: EmbeddedCheckout | null = null;
   let activationTimer: number | null = null;
+  let checkoutPending = false;
 
   const setStatus = (message: string) => {
     if (plansStatus) {
@@ -610,25 +631,44 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     plansList?.classList.remove("is-hidden");
   };
 
-  const startCheckout = async (plan: string) => {
+  getBilling()?.onCheckoutClosed?.(({ plan, outcome }) => {
+    deps.onPlanRefresh();
+    deps.refreshUsage?.();
+    if (outcome === "success") {
+      beginActivationPoll(plan || "basic");
+      return;
+    }
+    showPlansView();
+    setStatus(outcome === "error" ? msg().checkoutUnavailable : "");
+  });
+
+  const performCheckout = async (plan: string) => {
     const billing = getBilling();
-    const stripeFactory = getStripeFactory();
     if (!billing) {
       setStatus(msg().billingUnavailable);
       return;
     }
-    if (!stripeFactory) {
-      setStatus(msg().stripeLoad);
-      return;
-    }
     setStatus(msg().preparing);
     const result = await billing.checkout(plan);
-    if (!result || result.error || !result.clientSecret || !result.publishableKey) {
+    if (!result || result.error) {
       if (result?.code === "AUTH_REQUIRED") {
         setStatusWithSignIn(msg().signIn);
       } else {
         setStatus(result?.error || msg().checkoutUnavailable);
       }
+      return;
+    }
+    if (result.hosted) {
+      setStatus(msg().checkoutOpened);
+      return;
+    }
+    if (!result.clientSecret || !result.publishableKey) {
+      setStatus(msg().checkoutUnavailable);
+      return;
+    }
+    const stripeFactory = getStripeFactory();
+    if (!stripeFactory) {
+      setStatus(msg().stripeLoad);
       return;
     }
 
@@ -654,6 +694,18 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     } catch {
       setStatus(msg().embedError);
       showPlansView();
+    }
+  };
+
+  const startCheckout = async (plan: string) => {
+    if (checkoutPending) {
+      return;
+    }
+    checkoutPending = true;
+    try {
+      await performCheckout(plan);
+    } finally {
+      checkoutPending = false;
     }
   };
 

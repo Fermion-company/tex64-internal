@@ -28,6 +28,7 @@ const createMiscHandlers = (deps) => {
     typeof runtimeInfo?.arch === "string" && runtimeInfo.arch.trim()
       ? runtimeInfo.arch.trim()
       : process.arch;
+  const storeManagedUpdates = runtimeInfo?.windowsStore === true;
   const defaultUpdateChannel =
     typeof process.env.TEX64_UPDATE_CHANNEL === "string" &&
     process.env.TEX64_UPDATE_CHANNEL.trim()
@@ -60,6 +61,7 @@ const createMiscHandlers = (deps) => {
     appVersion,
     defaultUpdateChannel,
     updateDownloadDir,
+    storeManagedUpdates,
   });
 
   const handleEnvCheck = async (command) => {

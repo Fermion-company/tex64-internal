@@ -8,22 +8,63 @@ const normalizeYear = (value) => {
   return /^\d{4}$/.test(text) ? text : DEFAULT_MANAGED_TEXLIVE_YEAR;
 };
 
-const getManagedTexliveYear = () =>
-  normalizeYear(process.env.TEX64_MANAGED_TEXLIVE_YEAR);
+const getManagedTexliveYear = (env = process.env) =>
+  normalizeYear(env?.TEX64_MANAGED_TEXLIVE_YEAR);
 
-const getManagedTexliveRoot = (platform = process.platform) => {
-  if (typeof process.env.TEX64_MANAGED_TEXLIVE_ROOT === "string") {
-    const override = process.env.TEX64_MANAGED_TEXLIVE_ROOT.trim();
-    if (override) {
-      return path.resolve(override);
+const getWindowsLocalAppData = (env = process.env) => {
+  if (typeof env?.LOCALAPPDATA === "string" && env.LOCALAPPDATA.trim()) {
+    return path.win32.resolve(env.LOCALAPPDATA.trim());
+  }
+  if (typeof env?.USERPROFILE === "string" && env.USERPROFILE.trim()) {
+    return path.win32.join(env.USERPROFILE.trim(), "AppData", "Local");
+  }
+  if (
+    typeof env?.HOMEDRIVE === "string" &&
+    env.HOMEDRIVE.trim() &&
+    typeof env?.HOMEPATH === "string" &&
+    env.HOMEPATH.trim()
+  ) {
+    const profile = path.win32.resolve(
+      `${env.HOMEDRIVE.trim()}${env.HOMEPATH.trim()}`
+    );
+    return path.win32.join(profile, "AppData", "Local");
+  }
+  if (typeof env?.APPDATA === "string" && env.APPDATA.trim()) {
+    const roaming = path.win32.resolve(env.APPDATA.trim());
+    if (path.win32.basename(roaming).toLowerCase() === "roaming") {
+      return path.win32.join(path.win32.dirname(roaming), "Local");
     }
   }
-  const year = getManagedTexliveYear();
+  if (
+    typeof env?.HOME === "string" &&
+    /^(?:[a-z]:[\\/]|\\\\)/i.test(env.HOME.trim())
+  ) {
+    return path.win32.join(env.HOME.trim(), "AppData", "Local");
+  }
+  return "";
+};
+
+const getManagedTexliveRoot = (
+  platform = process.platform,
+  env = process.env
+) => {
+  if (typeof env?.TEX64_MANAGED_TEXLIVE_ROOT === "string") {
+    const override = env.TEX64_MANAGED_TEXLIVE_ROOT.trim();
+    if (override) {
+      return platform === "win32"
+        ? path.win32.resolve(override)
+        : path.resolve(override);
+    }
+  }
+  const year = getManagedTexliveYear(env);
   if (platform === "darwin") {
     return path.join("/Users", "Shared", "TeX64", "texlive", year);
   }
   if (platform === "win32") {
-    return path.join("C:\\", "texlive", `tex64-${year}`);
+    const localAppData = getWindowsLocalAppData(env);
+    return localAppData
+      ? path.win32.join(localAppData, "TeX64", "texlive", year)
+      : "";
   }
   return "";
 };
@@ -46,7 +87,7 @@ const getManagedTexliveBinDirs = (
     ];
   }
   if (platform === "win32") {
-    return [path.join(root, "bin", "windows")];
+    return [path.win32.join(root, "bin", "windows")];
   }
   if (platform === "linux") {
     const archSpecific = arch === "arm64" ? "aarch64-linux" : "x86_64-linux";
@@ -67,7 +108,7 @@ const getSystemTexliveBinDirs = (platform = process.platform) => {
   }
   if (platform === "win32") {
     return [
-      path.join("C:\\", "texlive", year, "bin", "windows"),
+      path.win32.join("C:\\", "texlive", year, "bin", "windows"),
       "C:\\texlive\\2026\\bin\\windows",
       "C:\\texlive\\2025\\bin\\windows",
       "C:\\texlive\\2024\\bin\\windows",
@@ -166,6 +207,7 @@ const findManagedTexCommand = (
 module.exports = {
   DEFAULT_MANAGED_TEXLIVE_YEAR,
   getManagedTexliveYear,
+  getWindowsLocalAppData,
   getManagedTexliveRoot,
   getManagedTexliveBinDirs,
   getSystemTexliveBinDirs,

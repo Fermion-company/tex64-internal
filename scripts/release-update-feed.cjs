@@ -2,6 +2,9 @@
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
+const {
+  parsePublicUpdateArtifactKind,
+} = require("./release-artifact-policy.cjs");
 
 const args = process.argv.slice(2);
 
@@ -83,19 +86,7 @@ const parseSha256ChecksumsText = (text) => {
   return result;
 };
 
-const parseKind = (fileName) => {
-  const lower = String(fileName || "").trim().toLowerCase();
-  if (!lower) return "";
-  if (lower.endsWith(".tar.gz")) return "tar.gz";
-  if (lower.endsWith(".dmg")) return "dmg";
-  if (lower.endsWith(".zip")) return "zip";
-  if (lower.endsWith(".exe")) return "exe";
-  if (lower.endsWith(".msi")) return "msi";
-  if (lower.endsWith(".appimage")) return "appimage";
-  if (lower.endsWith(".deb")) return "deb";
-  if (lower.endsWith(".rpm")) return "rpm";
-  return "";
-};
+const parseKind = parsePublicUpdateArtifactKind;
 
 const removeKnownExtension = (fileName) => {
   const kind = parseKind(fileName);
@@ -226,8 +217,13 @@ const run = async () => {
   process.stdout.write(`${outPath}\n`);
 };
 
-run().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  run().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
 
+module.exports = {
+  parseKind,
+};

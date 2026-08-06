@@ -150,6 +150,41 @@ const parseCommandLine = (command) => {
   };
 };
 
+const isPowerShellExecutable = (executable) =>
+  /^(?:powershell|pwsh)(?:\.exe)?$/i.test(
+    path.win32.basename(String(executable || "").trim())
+  );
+
+const resolveShellInvocation = (
+  command,
+  platform = process.platform,
+  env = process.env
+) => {
+  if (platform === "win32") {
+    const comspecCandidates = [env?.COMSPEC, env?.ComSpec];
+    const comspec = comspecCandidates.find(
+      (value) => typeof value === "string" && value.trim()
+    );
+    const executable = comspec ? comspec.trim() : "powershell.exe";
+    if (isPowerShellExecutable(executable)) {
+      return {
+        executable,
+        args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+      };
+    }
+    return {
+      executable,
+      // /d disables cmd AutoRun entries; /s gives /c predictable quote handling.
+      args: ["/d", "/s", "/c", command],
+    };
+  }
+  const executable =
+    typeof env?.SHELL === "string" && env.SHELL.trim()
+      ? env.SHELL.trim()
+      : "/bin/zsh";
+  return { executable, args: ["-lc", command] };
+};
+
 const runShellCommand = (
   executable,
   args,
@@ -353,16 +388,17 @@ const handleRunCommand = async (service, args) => {
   const maxOutputBytes = Number.isFinite(args.maxOutputBytes)
     ? args.maxOutputBytes
     : DEFAULT_MAX_COMMAND_OUTPUT_BYTES;
-  const shellExecutable =
-    typeof process.env.SHELL === "string" && process.env.SHELL.trim()
-      ? process.env.SHELL.trim()
-      : "/bin/zsh";
-  const result = await runShellCommand(shellExecutable, ["-lc", command], {
-    cwd,
-    env: args.env,
-    timeoutMs,
-    maxOutputBytes,
-  });
+  const shellInvocation = resolveShellInvocation(command);
+  const result = await runShellCommand(
+    shellInvocation.executable,
+    shellInvocation.args,
+    {
+      cwd,
+      env: args.env,
+      timeoutMs,
+      maxOutputBytes,
+    }
+  );
   return {
     exitCode: result.exitCode,
     signal: result.signal,
@@ -381,6 +417,7 @@ module.exports = {
   hashUtf8Text,
   decodeBase64Strict,
   parseCommandLine,
+  resolveShellInvocation,
   runShellCommand,
   replaceOnceWithCount,
   replaceAllWithCount,

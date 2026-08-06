@@ -1,7 +1,8 @@
 {
   "name": "tex64",
-  "version": "0.1.18",
-  "description": "Electron ベースの LaTeX エディタ（開発中）。",
+  "version": "0.1.19",
+  "description": "AI搭載のデスクトップLaTeXエディタ。",
+  "author": "株式会社Fermion",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -14,7 +15,9 @@
     "electron:pack": "npm run -s dist:prep && npm run -s web:build && electron-builder --dir",
     "electron:dist": "npm run -s electron:dist:mac",
     "electron:dist:mac": "npm run -s dist:prep && npm run -s web:build && electron-builder --mac --publish never",
-    "electron:dist:win": "node -e \"console.error('Windows distribution is disabled for now. Use npm run electron:dist:mac.'); process.exit(1)\"",
+    "electron:dist:win": "npm run -s electron:dist:win:store && npm run -s electron:dist:win:beta",
+    "electron:dist:win:store": "npm run -s dist:prep && npm run -s web:build && node scripts/build-windows-store.cjs",
+    "electron:dist:win:beta": "npm run -s dist:prep && npm run -s web:build && electron-builder --win nsis --x64 --publish never",
     "dmg:background": "node scripts/generate-dmg-background.cjs",
     "math:check": "node scripts/check-math-stack.cjs",
     "texlab:fetch": "node scripts/fetch-texlab.cjs",
@@ -57,25 +60,25 @@
       "node_modules/dictionary-de/**",
       "node_modules/dictionary-en/**"
     ],
-    "files": [
-      "electron/**",
-      "Resources/**",
-      "package.json",
-      "LICENSE",
-      "NOTICE.md",
-      "!**/tmp/**",
-      "!**/tmp-tesseract/**",
-      "!**/test-workspace/**",
-      "!**/test-sample-hover/**",
-      "!**/tests/**",
-      "!**/.github/**",
-      "!**/.git/**",
-      "!**/.vercel/**",
-      "!**/.tex64/**",
-      "!**/.venv*/**",
-      "!**/docs/**"
-    ],
     "mac": {
+      "files": [
+        "electron/**",
+        "Resources/**",
+        "package.json",
+        "LICENSE",
+        "NOTICE.md",
+        "!**/tmp/**",
+        "!**/tmp-tesseract/**",
+        "!**/test-workspace/**",
+        "!**/test-sample-hover/**",
+        "!**/tests/**",
+        "!**/.github/**",
+        "!**/.git/**",
+        "!**/.vercel/**",
+        "!**/.tex64/**",
+        "!**/.venv*/**",
+        "!**/docs/**"
+      ],
       "target": [
         "dmg",
         "zip"
@@ -87,7 +90,44 @@
       "entitlementsInherit": "build/entitlements.mac.inherit.plist"
     },
     "win": {
+      "files": [
+        "electron/**",
+        "Resources/**",
+        "package.json",
+        "LICENSE",
+        "NOTICE.md",
+        "!**/tmp/**",
+        "!**/tmp-tesseract/**",
+        "!**/test-workspace/**",
+        "!**/test-sample-hover/**",
+        "!**/tests/**",
+        "!**/.github/**",
+        "!**/.git/**",
+        "!**/.vercel/**",
+        "!**/.tex64/**",
+        "!**/.venv*/**",
+        "!**/docs/**",
+        "!LICENSE",
+        "!Resources/texlab/darwin-*/**",
+        "!node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
+        "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+        "!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**",
+        "!node_modules/@napi-rs/canvas-darwin-*/**",
+        "!node_modules/@napi-rs/canvas-linux-*/**",
+        "!node_modules/@napi-rs/canvas-android-*/**",
+        "!node_modules/@napi-rs/canvas-win32-arm64-msvc/**",
+        "!node_modules/@napi-rs/canvas-win32-ia32-msvc/**",
+        "!node_modules/@homebridge/node-pty-prebuilt-multiarch/prebuilds/**",
+        "!node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/spawn-helper",
+        "!node_modules/@homebridge/node-pty-prebuilt-multiarch/third_party/conpty/**/win10-arm64/**"
+      ],
       "target": [
+        {
+          "target": "appx",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "nsis",
           "arch": [
@@ -97,6 +137,25 @@
       ],
       "artifactName": "${productName}-${version}-win-${arch}.${ext}",
       "icon": "Resources/icons/tex64.ico"
+    },
+    "appx": {
+      "applicationId": "TeX64",
+      "identityName": "Fermion.TeX64",
+      "publisher": "CN=63398D06-F7C1-4EA7-A13B-D1CE9B1CE856",
+      "publisherDisplayName": "株式会社Fermion",
+      "displayName": "TeX64",
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}",
+      "languages": [
+        "ja-JP",
+        "en-US"
+      ],
+      "capabilities": [
+        "runFullTrust"
+      ],
+      "minVersion": "10.0.19041.0",
+      "maxVersionTested": "10.0.26100.0",
+      "showNameOnTiles": false,
+      "electronUpdaterAware": false
     },
     "nsis": {
       "oneClick": false,

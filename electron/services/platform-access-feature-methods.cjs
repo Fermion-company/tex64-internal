@@ -567,8 +567,8 @@ const featureMethods = {
     return this.buildAuthSnapshot();
   },
 
-  // Create a Stripe Embedded Checkout session for the in-app upgrade modal. The
-  // renderer mounts it with the returned publishable key + client secret.
+  // Prefer Stripe Embedded Checkout, while preserving the hosted URL returned
+  // by older servers so the main process can open a secure in-app fallback.
   async createBillingCheckout(plan) {
     const normalizedPlan = typeof plan === "string" && plan.trim() ? plan.trim() : "pro";
     const payload = await this.authorizedRequest("/billing/checkout", {
@@ -579,6 +579,16 @@ const featureMethods = {
       clientSecret: typeof payload?.clientSecret === "string" ? payload.clientSecret : "",
       publishableKey: typeof payload?.publishableKey === "string" ? payload.publishableKey : "",
       sessionId: typeof payload?.sessionId === "string" ? payload.sessionId : "",
+      checkoutUrl: typeof payload?.checkoutUrl === "string" ? payload.checkoutUrl : "",
+      uiMode:
+        typeof payload?.clientSecret === "string" &&
+        payload.clientSecret &&
+        typeof payload?.publishableKey === "string" &&
+        payload.publishableKey
+          ? "embedded"
+          : typeof payload?.checkoutUrl === "string" && payload.checkoutUrl
+            ? "hosted"
+            : "",
     };
   },
 

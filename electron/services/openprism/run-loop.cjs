@@ -23,6 +23,24 @@ const { normalizeUserMessageParts } = require("../agent-message-parts.cjs");
 const { extractTextFromParts } = require("../agent-core-utils.cjs");
 const { buildSystemPrompt } = require("../agent-prompt-utils.cjs");
 
+const requiresReasoningNoneForChatTools = (model) => {
+  if (typeof model !== "string") return false;
+  const normalized = model.trim();
+  return /^Axiom1\.0(?:$|-)/i.test(normalized) || /^gpt-5\.6(?:$|-)/i.test(normalized);
+};
+
+const buildChatRequestBody = ({ model, messages, tools, temperature }) => ({
+  model,
+  messages,
+  tools,
+  ...(requiresReasoningNoneForChatTools(model)
+    ? { reasoning_effort: "none" }
+    : {}),
+  stream: true,
+  stream_options: { include_usage: true },
+  ...(typeof temperature === "number" ? { temperature } : {}),
+});
+
 const runAgentConversation = async (
   service,
   { message, parts, context, conversationId = "default" },
@@ -255,14 +273,12 @@ const runAgentConversation = async (
             ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
             ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
           },
-          body: JSON.stringify({
+          body: JSON.stringify(buildChatRequestBody({
             model: llmConfig.model,
             messages,
             tools: toolDefinitions,
-            stream: true,
-            stream_options: { include_usage: true },
-            ...(typeof llmConfig.temperature === "number" ? { temperature: llmConfig.temperature } : {}),
-          }),
+            temperature: llmConfig.temperature,
+          })),
           signal: run.controller.signal,
         });
 
@@ -595,4 +611,8 @@ const runAgentConversation = async (
   }
 };
 
-module.exports = { runAgentConversation };
+module.exports = {
+  buildChatRequestBody,
+  requiresReasoningNoneForChatTools,
+  runAgentConversation,
+};

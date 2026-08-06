@@ -21,6 +21,20 @@ const { PRODUCTION_PLATFORM_API_BASE_URL } = require("../platform-access-shared.
  */
 const DEFAULT_BASE_URL = `${PRODUCTION_PLATFORM_API_BASE_URL}/ai/openai`;
 
+const LEGACY_AXIOM_MODELS = Object.freeze({
+  "axiom0.9.1": "Axiom1.0",
+  "axiom0.9.1-pro": "Axiom1.0-pro",
+});
+
+/**
+ * Canonicalize model ids persisted by TeX64 0.1.18 and earlier.
+ * Unknown/provider-specific ids are returned unchanged.
+ */
+const migrateLegacyAxiomModel = (model) => {
+  if (typeof model !== "string") return model;
+  return LEGACY_AXIOM_MODELS[model.trim().toLowerCase()] || model;
+};
+
 /**
  * Ensure `endpoint` ends with `/chat/completions`.
  *
@@ -54,11 +68,12 @@ const resolveLLMConfig = (settings) => {
     `${DEFAULT_BASE_URL}/chat/completions`
   ).trim();
 
-  const model = (
+  const configuredModel = (
     (typeof agentSettings.model === "string" && agentSettings.model.trim()) ||
     (typeof process.env.TEX64_LLM_MODEL === "string" && process.env.TEX64_LLM_MODEL.trim()) ||
-    "Axiom0.9.1"
+    "Axiom1.0"
   ).trim();
+  const model = migrateLegacyAxiomModel(configuredModel);
 
   const rawTemp = agentSettings.temperature;
   const parsedTemp = typeof rawTemp === "number" ? rawTemp : Number(rawTemp);
@@ -71,6 +86,7 @@ const resolveLLMConfig = (settings) => {
 
 module.exports = {
   DEFAULT_BASE_URL,
+  migrateLegacyAxiomModel,
   normalizeChatEndpoint,
   resolveLLMConfig,
 };

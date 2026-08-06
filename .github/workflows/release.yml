@@ -4,6 +4,23 @@ name: Build Distributables
 # Apple notarization agreements expire outside this repository.
 on:
   workflow_dispatch:
+    inputs:
+      windows_store_identity_name:
+        description: Microsoft Store package identity name (optional; repo variable is used otherwise)
+        required: false
+        type: string
+      windows_store_application_id:
+        description: Microsoft Store application ID inside the package
+        required: false
+        type: string
+      windows_store_publisher:
+        description: Microsoft Store publisher DN, for example CN=...
+        required: false
+        type: string
+      windows_store_publisher_display_name:
+        description: Publisher display name shown by Microsoft Store
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -193,6 +210,399 @@ jobs:
             !dist/*-notary.zip
           if-no-files-found: error
           retention-days: 7
+
+  windows:
+    name: Build (Windows x64 / Microsoft Store)
+    runs-on: windows-2025
+    timeout-minutes: 50
+    env:
+      # Store identity values are public package metadata. Workflow inputs take
+      # precedence, then repository variables/secrets, then the reserved TeX64 identity.
+      TEX64_WINDOWS_STORE_IDENTITY_NAME: ${{ inputs.windows_store_identity_name || vars.TEX64_WINDOWS_STORE_IDENTITY_NAME || secrets.TEX64_WINDOWS_STORE_IDENTITY_NAME || 'Fermion.TeX64' }}
+      TEX64_WINDOWS_STORE_APPLICATION_ID: ${{ inputs.windows_store_application_id || vars.TEX64_WINDOWS_STORE_APPLICATION_ID || secrets.TEX64_WINDOWS_STORE_APPLICATION_ID || 'TeX64' }}
+      TEX64_WINDOWS_STORE_PUBLISHER: ${{ inputs.windows_store_publisher || vars.TEX64_WINDOWS_STORE_PUBLISHER || secrets.TEX64_WINDOWS_STORE_PUBLISHER || 'CN=63398D06-F7C1-4EA7-A13B-D1CE9B1CE856' }}
+      TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: ${{ inputs.windows_store_publisher_display_name || vars.TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME || secrets.TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME || '株式会社Fermion' }}
+      TEX64_WINDOWS_STORE_ID: "9MTHPKSZ4X16"
+      TEX64_WINDOWS_STORE_PFN: "Fermion.TeX64_5bmwje8m8c4gc"
+      # Store ingestion signs AppX packages, so CI intentionally needs no paid certificate.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure node-gyp Python
+        shell: pwsh
+        run: |
+          "PYTHON=$env:pythonLocation\python.exe" >> $env:GITHUB_ENV
+          "npm_config_python=$env:pythonLocation\python.exe" >> $env:GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = "${env:GITHUB_REF_NAME}" -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+') {
+            Write-Host "skip version sync for tag: ${env:GITHUB_REF_NAME}"
+            exit 0
+          }
+          node -e "const fs=require('fs');const p=require('./package.json');p.version=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');" $version
+          Write-Host "package.json version -> $version"
+
+      - name: Validate Microsoft Store identity
+        shell: pwsh
+        run: |
+          $identity = $env:TEX64_WINDOWS_STORE_IDENTITY_NAME
+          $applicationId = $env:TEX64_WINDOWS_STORE_APPLICATION_ID
+          $publisher = $env:TEX64_WINDOWS_STORE_PUBLISHER
+          $publisherDisplayName = $env:TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME
+
+          if ($identity -notmatch '^[A-Za-z0-9.-]{3,50}$') {
+            throw "Invalid Microsoft Store identity name: $identity"
+          }
+          if ($applicationId -notmatch '^([A-Za-z][A-Za-z0-9]*)(\.[A-Za-z][A-Za-z0-9]*)*$' -or $applicationId.Length -gt 64) {
+            throw "Invalid Microsoft Store application ID: $applicationId"
+          }
+          if ([string]::IsNullOrWhiteSpace($publisher) -or $publisher -notmatch '^CN=') {
+            throw "Invalid Microsoft Store publisher DN: $publisher"
+          }
+          if ([string]::IsNullOrWhiteSpace($publisherDisplayName)) {
+            throw "Microsoft Store publisher display name is empty"
+          }
+
+          $reservedIdentity = 'Fermion.TeX64'
+          $reservedPublisher = 'CN=63398D06-F7C1-4EA7-A13B-D1CE9B1CE856'
+          if ($identity -ne $reservedIdentity -or $publisher -ne $reservedPublisher) {
+            Write-Warning "Building with a local/override Store identity. Do not submit it to the reserved TeX64 product."
+          }
+          Write-Host "Microsoft Store identity: $identity"
+          Write-Host "Microsoft Store publisher: $publisher"
+          Write-Host "Microsoft Store ID: $env:TEX64_WINDOWS_STORE_ID"
+          Write-Host "Package family name: $env:TEX64_WINDOWS_STORE_PFN"
+
+      - name: Prepare application assets
+        shell: pwsh
+        run: |
+          npm run -s dist:prep
+          npm run -s web:build
+
+      - name: Build unsigned Store AppX
+        shell: pwsh
+        run: |
+          $storeVersion = node scripts/windows-store-version.cjs
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($storeVersion)) {
+            throw "Could not derive a Microsoft Store package version"
+          }
+          Write-Host "Microsoft Store package version: $storeVersion.0"
+          npx --no-install electron-builder --win appx --x64 --publish never `
+            "--config.extraMetadata.version=$storeVersion" `
+            "--config.appx.identityName=$env:TEX64_WINDOWS_STORE_IDENTITY_NAME" `
+            "--config.appx.applicationId=$env:TEX64_WINDOWS_STORE_APPLICATION_ID" `
+            "--config.appx.publisher=$env:TEX64_WINDOWS_STORE_PUBLISHER" `
+            "--config.appx.publisherDisplayName=$env:TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME"
+
+      - name: Build unsigned NSIS beta
+        shell: pwsh
+        run: npx --no-install electron-builder --win nsis --x64 --publish never
+
+      - name: Smoke-test packaged native modules and texlab
+        shell: pwsh
+        run: |
+          $appDir = Get-ChildItem dist -Directory | Where-Object { $_.Name -like '*unpacked' } | Select-Object -First 1
+          if (-not $appDir) {
+            throw "Windows unpacked application directory was not produced"
+          }
+          $appExe = Join-Path $appDir.FullName 'TeX64.exe'
+          $asarPath = Join-Path $appDir.FullName 'resources\app.asar'
+          if (-not (Test-Path -LiteralPath $appExe) -or -not (Test-Path -LiteralPath $asarPath)) {
+            throw "Packaged TeX64 executable or app.asar is missing"
+          }
+
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          $env:TEX64_PACKAGED_ASAR = $asarPath
+          & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; for (const name of ['@homebridge/node-pty-prebuilt-multiarch','onnxruntime-node']) { const resolved=require.resolve(name,{paths:[root]}); require(resolved); console.log(name+' -> '+resolved); }"
+          if ($LASTEXITCODE -ne 0) {
+            throw "A packaged native module could not be loaded by Electron"
+          }
+          & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; const pty=require(require.resolve('@homebridge/node-pty-prebuilt-multiarch',{paths:[root]})); const shell=process.env.ComSpec||'cmd.exe'; const child=pty.spawn(shell,['/d','/s','/c','echo TEX64_PTY_OK'],{name:'xterm-color',cols:80,rows:24,cwd:process.cwd(),env:process.env}); let output=''; const timer=setTimeout(()=>{console.error('PTY smoke test timed out'); child.kill(); process.exit(1);},10000); child.onData((data)=>{output+=data;}); child.onExit(({exitCode})=>{clearTimeout(timer); if(exitCode!==0||!output.includes('TEX64_PTY_OK')){console.error(output);process.exit(1);} console.log('Packaged ConPTY smoke test passed');});"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged ConPTY could not create and run a Windows shell"
+          }
+          Remove-Item Env:ELECTRON_RUN_AS_NODE
+          Remove-Item Env:TEX64_PACKAGED_ASAR
+
+          $texlab = Get-ChildItem $appDir.FullName -Filter texlab.exe -File -Recurse | Select-Object -First 1
+          if (-not $texlab) {
+            throw "Bundled Windows texlab.exe is missing"
+          }
+          & $texlab.FullName --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Bundled Windows texlab.exe did not start"
+          }
+
+      - name: Capture real Microsoft Store screenshots
+        shell: pwsh
+        run: |
+          $appDir = Get-ChildItem dist -Directory | Where-Object { $_.Name -like '*unpacked' } | Select-Object -First 1
+          if (-not $appDir) {
+            throw "Windows unpacked application directory was not produced"
+          }
+          $appExe = Join-Path $appDir.FullName 'TeX64.exe'
+          node scripts/capture-windows-store-screenshots.cjs `
+            --executable $appExe `
+            --output 'dist\store-screenshots' `
+            --locales 'ja,en' `
+            --require-packaged `
+            --require-platform win32
+
+      - name: Upload Microsoft Store screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex64-windows-store-screenshots-${{ github.run_id }}
+          path: dist/store-screenshots/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Validate AppX package and manifest
+        shell: pwsh
+        run: |
+          $appx = Get-ChildItem dist -Filter 'TeX64-*-win-x64.appx' -File | Select-Object -First 1
+          if (-not $appx -or $appx.Length -lt 1MB) {
+            throw "Microsoft Store AppX artifact is missing or unexpectedly small"
+          }
+
+          $makeAppx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter makeappx.exe -File -Recurse |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $makeAppx) {
+            throw "makeappx.exe was not found in the Windows SDK"
+          }
+
+          $unpacked = Join-Path $env:RUNNER_TEMP 'tex64-appx-validation'
+          if (Test-Path -LiteralPath $unpacked) {
+            Remove-Item -LiteralPath $unpacked -Recurse -Force
+          }
+          & $makeAppx.FullName unpack /v /o /p $appx.FullName /d $unpacked
+          if ($LASTEXITCODE -ne 0) {
+            throw "MakeAppx could not validate and unpack the Store package"
+          }
+
+          [xml]$manifest = Get-Content -LiteralPath (Join-Path $unpacked 'AppxManifest.xml')
+          $identityNode = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Identity']")
+          $propertiesNode = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Properties']")
+          $applicationNode = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Applications']/*[local-name()='Application']")
+          $desktopTarget = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Dependencies']/*[local-name()='TargetDeviceFamily' and @Name='Windows.Desktop']")
+          $runFullTrust = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Capabilities']/*[local-name()='Capability' and @Name='runFullTrust']")
+          $tex64Protocol = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Applications']/*[local-name()='Application']/*[local-name()='Extensions']/*[local-name()='Extension' and @Category='windows.protocol']/*[local-name()='Protocol' and @Name='tex64']")
+          if (-not $identityNode -or -not $propertiesNode -or -not $applicationNode) {
+            throw "AppX manifest is missing required identity, properties, or application nodes"
+          }
+          if ($identityNode.Name -ne $env:TEX64_WINDOWS_STORE_IDENTITY_NAME) {
+            throw "AppX identity name does not match the configured Store identity"
+          }
+          if ($identityNode.Publisher -ne $env:TEX64_WINDOWS_STORE_PUBLISHER) {
+            throw "AppX publisher does not match the configured Store publisher"
+          }
+          if ($identityNode.ProcessorArchitecture -ne 'x64') {
+            throw "AppX processor architecture must be x64"
+          }
+          $packageVersion = [Version]$identityNode.Version
+          if ($packageVersion.Major -lt 1) {
+            throw "Microsoft Store package version major must be at least one: $($identityNode.Version)"
+          }
+          if ($packageVersion.Revision -ne 0) {
+            throw "Microsoft Store package version revision must be zero: $($identityNode.Version)"
+          }
+          if ($applicationNode.Id -ne $env:TEX64_WINDOWS_STORE_APPLICATION_ID) {
+            throw "AppX application ID does not match the configured Store application ID"
+          }
+          if ($propertiesNode.PublisherDisplayName -ne $env:TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME) {
+            throw "AppX publisher display name does not match Partner Center"
+          }
+          if ($propertiesNode.DisplayName -ne 'TeX64') {
+            throw "AppX display name must be TeX64"
+          }
+          if (-not $desktopTarget -or $desktopTarget.MinVersion -ne '10.0.19041.0' -or $desktopTarget.MaxVersionTested -ne '10.0.26100.0') {
+            throw "AppX must target Windows.Desktop 10.0.19041.0 through 10.0.26100.0"
+          }
+          if (-not $runFullTrust) {
+            throw "AppX manifest is missing the runFullTrust capability"
+          }
+          if (-not $tex64Protocol) {
+            throw "AppX manifest is missing the tex64 protocol declaration"
+          }
+          foreach ($required in @(
+            'assets\StoreLogo.png',
+            'assets\Square150x150Logo.png',
+            'assets\Square44x44Logo.png',
+            'assets\Wide310x150Logo.png',
+            'app\TeX64.exe'
+          )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $unpacked $required))) {
+              throw "Required AppX payload is missing: $required"
+            }
+          }
+
+          $assetMap = @{
+            'StoreLogo.png' = 'assets\StoreLogo.png'
+            'Square150x150Logo.png' = 'assets\Square150x150Logo.png'
+            'Square44x44Logo.png' = 'assets\Square44x44Logo.png'
+            'Wide310x150Logo.png' = 'assets\Wide310x150Logo.png'
+          }
+          foreach ($asset in $assetMap.GetEnumerator()) {
+            $sourcePath = Join-Path $PWD "Resources\icons\appx\$($asset.Key)"
+            $packagePath = Join-Path $unpacked $asset.Value
+            $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+            $packageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+            if ($sourceHash -ne $packageHash) {
+              throw "AppX branding asset differs from the approved source: $($asset.Key)"
+            }
+          }
+
+          $forbiddenPayload = Get-ChildItem $unpacked -File -Recurse | Where-Object {
+            $_.FullName -match '(?i)[\\/](win32[\\/]arm64|win10-arm64|texlab[\\/]darwin-[^\\/]+)[\\/]'
+          }
+          if ($forbiddenPayload) {
+            $forbiddenPayload.FullName | Write-Host
+            throw "AppX contains non-Windows-x64 runtime payload"
+          }
+
+          $signingPayload = Get-ChildItem $unpacked -File -Recurse | Where-Object {
+            $_.Extension -in @('.pfx', '.snk')
+          }
+          if ($signingPayload) {
+            $signingPayload.FullName | Write-Host
+            throw "Signing key material must never be included in an AppX"
+          }
+
+          $appAsar = Join-Path $unpacked 'app\resources\app.asar'
+          $asarCli = Join-Path $PWD 'node_modules\.bin\asar.cmd'
+          if (-not (Test-Path -LiteralPath $appAsar) -or -not (Test-Path -LiteralPath $asarCli)) {
+            throw "AppX app.asar or the asar validation CLI is missing"
+          }
+          $asarEntries = @(& $asarCli list $appAsar)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect AppX app.asar"
+          }
+          if ($asarEntries | Where-Object { $_ -match '^[\\/]LICENSE$' }) {
+            throw "The proprietary root LICENSE conflicts with Microsoft Store Standard Application License Terms and must not be packaged"
+          }
+          if ($asarEntries | Where-Object { $_ -match '(?i)\.(pfx|snk)$' }) {
+            throw "Signing key material must never be included in app.asar"
+          }
+
+          function Get-PeMachine {
+            param([Parameter(Mandatory = $true)][string]$Path)
+            $stream = [System.IO.File]::OpenRead($Path)
+            $reader = $null
+            try {
+              $reader = [System.IO.BinaryReader]::new($stream)
+              if ($stream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+                throw "not a PE executable"
+              }
+              $stream.Position = 0x3C
+              $peOffset = $reader.ReadInt32()
+              if ($peOffset -lt 0 -or ($peOffset + 6) -gt $stream.Length) {
+                throw "invalid PE header offset"
+              }
+              $stream.Position = $peOffset
+              if ($reader.ReadUInt32() -ne 0x00004550) {
+                throw "invalid PE signature"
+              }
+              return $reader.ReadUInt16()
+            } finally {
+              if ($null -ne $reader) {
+                $reader.Dispose()
+              } else {
+                $stream.Dispose()
+              }
+            }
+          }
+
+          $peExtensions = @('.exe', '.dll', '.node')
+          $peFiles = Get-ChildItem $unpacked -File -Recurse | Where-Object {
+            $peExtensions -contains $_.Extension.ToLowerInvariant()
+          }
+          if (-not $peFiles) {
+            throw "AppX contains no PE executables to validate"
+          }
+          $invalidPeFiles = [System.Collections.Generic.List[object]]::new()
+          foreach ($peFile in $peFiles) {
+            $relativePath = [System.IO.Path]::GetRelativePath($unpacked, $peFile.FullName)
+            try {
+              $machine = Get-PeMachine -Path $peFile.FullName
+              if ($machine -ne 0x8664) {
+                [void]$invalidPeFiles.Add([pscustomobject]@{
+                  Path = $relativePath
+                  Reason = ('machine 0x{0:X4}, expected x64 0x8664' -f $machine)
+                })
+              }
+            } catch {
+              [void]$invalidPeFiles.Add([pscustomobject]@{
+                Path = $relativePath
+                Reason = $_.Exception.Message
+              })
+            }
+          }
+          if ($invalidPeFiles.Count -gt 0) {
+            $invalidPeFiles | Format-Table -AutoSize | Out-String | Write-Host
+            throw "AppX contains a non-x64 or invalid PE payload"
+          }
+          Write-Host "Validated $($appx.Name) ($($appx.Length) bytes), $($peFiles.Count) x64 PE files, reserved identity, and approved branding"
+
+      - name: Validate NSIS beta artifact
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter 'TeX64-*-win-x64.exe' -File | Select-Object -First 1
+          if (-not $installer -or $installer.Length -lt 1MB) {
+            throw "NSIS beta artifact is missing or unexpectedly small"
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+          Write-Host "NSIS beta signature status: $($signature.Status)"
+          Write-Host "Validated $($installer.Name) ($($installer.Length) bytes)"
+
+      - name: Write Windows release summary
+        shell: pwsh
+        run: |
+          @"
+          ## Windows artifacts
+
+          - **Microsoft Store:** submit the `.appx` artifact to Partner Center. Store ingestion signs it and Store clients receive efficient managed updates.
+          - **Reserved product:** Store ID `$env:TEX64_WINDOWS_STORE_ID`; package family `$env:TEX64_WINDOWS_STORE_PFN`.
+          - **License:** the Store package excludes the repository's proprietary root `LICENSE` and relies on Microsoft Store Standard Application License Terms; third-party notices remain packaged.
+          - **Beta only:** the unsigned `.exe` is retained as a CI artifact for internal testing; it is not added to the public update feed or GitHub Release.
+          - Store metadata overrides: `TEX64_WINDOWS_STORE_IDENTITY_NAME`, `TEX64_WINDOWS_STORE_APPLICATION_ID`, `TEX64_WINDOWS_STORE_PUBLISHER`, and `TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`.
+          "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload Microsoft Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex64-windows-store-x64-${{ github.run_id }}
+          path: dist/TeX64-*-win-x64.appx
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload unsigned Windows beta
+        uses: actions/upload-artifact@v4
+        with:
+          name: tex64-windows-beta-x64-${{ github.run_id }}
+          path: dist/TeX64-*-win-x64.exe
+          if-no-files-found: error
+          retention-days: 14
 
   publish:
     name: Publish Release

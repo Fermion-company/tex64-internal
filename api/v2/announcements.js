@@ -11,6 +11,40 @@ const LOCALES = ["en", "ja", "zh", "ko", "fr", "de", "es"];
 
 const DEFAULT_ANNOUNCEMENTS = [
   {
+    id: "2026-08-06-ai-plans-autonomous-writing",
+    kind: "update",
+    title: {
+      en: "Paid AI plans are now available",
+      ja: "AI機能の有料プランを利用できるようになりました",
+      zh: "AI 付费方案现已开放",
+      ko: "유료 AI 플랜을 이용할 수 있습니다",
+      fr: "Les offres IA payantes sont disponibles",
+      de: "Kostenpflichtige KI-Tarife sind jetzt verfügbar",
+      es: "Los planes de IA de pago ya están disponibles",
+    },
+    body: {
+      en: "You can now subscribe to TeX64’s paid AI plans. We’re sorry checkout was unavailable until now.\n\nAxiom has been upgraded to 1.0. Its new Pro model can plan, write, edit, and verify longer TeX tasks more autonomously.\n\nIf TeX64 helps you, please share it with a friend.",
+      ja: "TeX64のAI機能の有料プランに登録できるようになりました。これまでチェックアウトをご利用いただけず、ご不便をおかけして申し訳ありませんでした。\n\nAxiomを1.0へ強化しました。新しいProモデルは、長いTeXタスクでも計画・執筆・編集・確認をより自律的に進められます。\n\nTeX64が役立ったら、ぜひ友人にも紹介してください。",
+      zh: "现在可以订阅 TeX64 的 AI 付费方案了。对于此前无法使用结账功能给你带来的不便，我们深表歉意。\n\nAxiom 已升级至 1.0。新的 Pro 模型可以更加自主地规划、撰写、编辑并检查较长的 TeX 任务。\n\n如果 TeX64 对你有帮助，也请分享给朋友。",
+      ko: "이제 TeX64의 유료 AI 플랜을 구독할 수 있습니다. 그동안 결제를 이용하지 못해 불편을 드린 점 진심으로 사과드립니다.\n\nAxiom을 1.0으로 강화했습니다. 새로운 Pro 모델은 긴 TeX 작업도 계획하고 작성·편집·검토하는 과정을 더욱 자율적으로 진행할 수 있습니다.\n\nTeX64가 도움이 된다면 친구에게도 알려 주세요.",
+      fr: "Vous pouvez désormais souscrire aux offres IA payantes de TeX64. Nous vous prions de nous excuser : le paiement n’était pas disponible jusqu’à présent.\n\nAxiom passe à la version 1.0. Son nouveau modèle Pro peut planifier, rédiger, modifier et vérifier des tâches TeX plus longues de façon plus autonome.\n\nSi TeX64 vous est utile, partagez-le avec un ami.",
+      de: "Die kostenpflichtigen KI-Tarife von TeX64 können jetzt abonniert werden. Bitte entschuldige, dass der Checkout bisher nicht verfügbar war.\n\nAxiom wurde auf Version 1.0 verbessert. Das neue Pro-Modell kann längere TeX-Aufgaben eigenständiger planen, schreiben, bearbeiten und prüfen.\n\nWenn TeX64 dir hilft, erzähle bitte auch Freunden davon.",
+      es: "Ya puedes suscribirte a los planes de IA de pago de TeX64. Sentimos que el proceso de pago no haya estado disponible hasta ahora.\n\nAxiom se ha actualizado a la versión 1.0. Su nuevo modelo Pro puede planificar, redactar, editar y verificar tareas TeX más largas de forma más autónoma.\n\nSi TeX64 te resulta útil, compártelo con un amigo.",
+    },
+    url: "https://tex64.com/pricing",
+    urlLabel: {
+      en: "View AI plans",
+      ja: "AIプランを見る",
+      zh: "查看 AI 方案",
+      ko: "AI 플랜 보기",
+      fr: "Voir les offres IA",
+      de: "KI-Tarife ansehen",
+      es: "Ver los planes de IA",
+    },
+    publishedAt: "2026-08-06T00:00:00.000Z",
+    expiresAt: "2026-11-30T23:59:59.000Z",
+  },
+  {
     id: "tex64-0.1.18-feedback-workflow",
     kind: "update",
     title: {
@@ -49,7 +83,7 @@ const DEFAULT_ANNOUNCEMENTS = [
       es: "Ver la actualización",
     },
     publishedAt: "2026-07-30T00:00:00.000Z",
-    expiresAt: "2026-10-31T23:59:59.000Z",
+    expiresAt: "2026-08-05T23:59:59.000Z",
   },
   {
     id: "tex64-0.1.17-terminal-billing-hover",
@@ -90,7 +124,7 @@ const DEFAULT_ANNOUNCEMENTS = [
       es: "Notas de la versión",
     },
     publishedAt: "2026-07-07T00:00:00.000Z",
-    expiresAt: "2026-10-31T23:59:59.000Z",
+    expiresAt: "2026-08-05T23:59:59.000Z",
   },
   {
     id: "tex64-0.1.16-axiom-without-login",
@@ -131,7 +165,7 @@ const DEFAULT_ANNOUNCEMENTS = [
       es: "Notas de la versión",
     },
     publishedAt: "2026-06-29T03:48:26.000Z",
-    expiresAt: "2026-09-30T23:59:59.000Z",
+    expiresAt: "2026-08-05T23:59:59.000Z",
   },
   {
     id: "tex64-0.1.15-code-comments-pdf-sidebar",
@@ -172,7 +206,7 @@ const DEFAULT_ANNOUNCEMENTS = [
       es: "Notas de la versión",
     },
     publishedAt: "2026-06-21T00:00:00.000Z",
-    expiresAt: "2026-08-31T23:59:59.000Z",
+    expiresAt: "2026-08-05T23:59:59.000Z",
   },
 ];
 

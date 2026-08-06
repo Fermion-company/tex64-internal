@@ -3,6 +3,9 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
+const {
+  isMicrosoftStoreArtifact,
+} = require("./release-artifact-policy.cjs");
 
 const args = process.argv.slice(2);
 
@@ -17,6 +20,14 @@ const readOption = (name) => {
   }
   return value;
 };
+
+const hasFlag = (name) => args.includes(name);
+
+const isEnvTrue = (value) => /^(1|true|yes|on)$/i.test(String(value || "").trim());
+
+const isStorePublicationRequested = (argv = args, env = process.env) =>
+  argv.includes("--include-windows-store") ||
+  isEnvTrue(env.TEX64_INCLUDE_WINDOWS_STORE);
 
 const normalizeUrl = (value) => {
   if (typeof value !== "string" || !value.trim()) {
@@ -60,9 +71,11 @@ const resolveReleaseVersion = () => {
   return version;
 };
 
-const resolveArtifacts = async (distDir, version) => {
+const resolveArtifacts = async (distDir, version, options = {}) => {
   const entries = await fsp.readdir(distDir, { withFileTypes: true }).catch(() => []);
   const artifacts = [];
+  const excludedWindows = [];
+  const storeArtifacts = [];
   const include = (name) => {
     if (typeof name !== "string" || !name) {
       return false;
@@ -79,6 +92,17 @@ const resolveArtifacts = async (distDir, version) => {
       // Keep them in dist/ but exclude from the public release bundle.
       return !lower.endsWith("-notary.zip");
     }
+    if (isMicrosoftStoreArtifact(name)) {
+      storeArtifacts.push(name);
+      return false;
+    }
+    if (lower.endsWith(".exe") || lower.endsWith(".msi")) {
+      if (!options.includeWindowsDirect) {
+        excludedWindows.push(name);
+        return false;
+      }
+      return true;
+    }
     return false;
   };
   for (const entry of entries) {
@@ -87,7 +111,9 @@ const resolveArtifacts = async (distDir, version) => {
     artifacts.push(path.join(distDir, entry.name));
   }
   artifacts.sort((a, b) => a.localeCompare(b));
-  return artifacts;
+  excludedWindows.sort((a, b) => a.localeCompare(b));
+  storeArtifacts.sort((a, b) => a.localeCompare(b));
+  return { artifacts, excludedWindows, storeArtifacts };
 };
 
 const main = async () => {
@@ -102,11 +128,35 @@ const main = async () => {
   const notesUrl = normalizeUrl(
     process.env.TEX64_RELEASE_NOTES_URL || `https://tex64.com/releases/${version}`
   );
+  if (isStorePublicationRequested()) {
+    throw new Error(
+      "Microsoft Store artifacts cannot be added to the public release bundle. " +
+        "Publish the Store package through the dedicated Partner Center workflow."
+    );
+  }
+  const includeWindowsDirect =
+    hasFlag("--include-windows-direct") || isEnvTrue(process.env.TEX64_INCLUDE_WINDOWS_DIRECT);
 
-  const artifacts = await resolveArtifacts(distDir, version);
+  const { artifacts, excludedWindows, storeArtifacts } = await resolveArtifacts(distDir, version, {
+    includeWindowsDirect,
+  });
+  if (storeArtifacts.length > 0) {
+    console.log("Microsoft Store artifacts isolated from the public release bundle:");
+    for (const name of storeArtifacts) {
+      console.log(`- ${name}`);
+    }
+    console.log("Submit these only through the dedicated Partner Center workflow.");
+  }
+  if (excludedWindows.length > 0) {
+    console.log("Direct Windows artifacts excluded from the public release bundle by default:");
+    for (const name of excludedWindows) {
+      console.log(`- ${name}`);
+    }
+    console.log("Use --include-windows-direct for EXE/MSI direct publication.");
+  }
   if (artifacts.length === 0) {
-    console.error(`ERROR: No .dmg/.zip artifacts found in ${distDir} for version ${version}.`);
-    console.error(`Run first: npm run -s electron:dist:mac`);
+    console.error(`ERROR: No selected release artifacts found in ${distDir} for version ${version}.`);
+    console.error(`Run a platform build first, or opt in to a Windows publication mode.`);
     process.exit(1);
   }
 
@@ -128,7 +178,6 @@ const main = async () => {
     "--version",
     version,
   ]);
-
   execInherit("node", [
     "scripts/release-update-feed.cjs",
     "--dir",
@@ -151,7 +200,14 @@ const main = async () => {
   console.log(`- ${path.join(updateDir, "stable.json")}`);
 };
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  isStorePublicationRequested,
+  resolveArtifacts,
+};

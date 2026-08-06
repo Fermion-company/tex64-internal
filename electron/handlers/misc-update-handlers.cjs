@@ -5,6 +5,9 @@ const crypto = require("crypto");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 const { toErrorPayload } = require("./misc-platform-utils.cjs");
+const {
+  createMicrosoftStoreUpdateState,
+} = require("../services/distribution-runtime.cjs");
 
 const fetch = async (...args) => {
   if (typeof globalThis.fetch !== "function") {
@@ -23,23 +26,31 @@ const createUpdateHandlers = ({
   appVersion,
   defaultUpdateChannel,
   updateDownloadDir,
+  storeManagedUpdates = false,
+  fetchImpl = fetch,
 }) => {
-  let latestUpdateSnapshot = null;
+  const isStoreManagedUpdates = storeManagedUpdates === true;
+  const initialStoreUpdateState = isStoreManagedUpdates
+    ? createMicrosoftStoreUpdateState({ appVersion, appPlatform, appArch })
+    : null;
+  let latestUpdateSnapshot = initialStoreUpdateState?.update ?? null;
   let downloadedInstallerPath = null;
-  let updateStatus = {
-    phase: "idle",
-    mode: "artifact",
-    message: "Waiting for update check.",
-    progressPercent: null,
-    transferredBytes: null,
-    totalBytes: null,
-    downloadedPath: null,
-    currentVersion: appVersion,
-    latestVersion: null,
-    checkedAt: null,
-    updatedAt: Date.now(),
-    error: null,
-  };
+  let updateStatus =
+    initialStoreUpdateState?.status ??
+    {
+      phase: "idle",
+      mode: "artifact",
+      message: "Waiting for update check.",
+      progressPercent: null,
+      transferredBytes: null,
+      totalBytes: null,
+      downloadedPath: null,
+      currentVersion: appVersion,
+      latestVersion: null,
+      checkedAt: null,
+      updatedAt: Date.now(),
+      error: null,
+    };
   let lastNotifiedUpdateVersion = null;
   const toUpdateErrorPayload = (error, fallbackCode = "UPDATE_ERROR") => ({
     code: typeof error?.code === "string" && error.code ? error.code : fallbackCode,
@@ -66,6 +77,22 @@ const createUpdateHandlers = ({
       updatedAt: Date.now(),
     };
     emitUpdateStatus(source);
+  };
+  const emitMicrosoftStoreUpdateState = (source = "store") => {
+    const storeState = createMicrosoftStoreUpdateState({
+      appVersion,
+      appPlatform,
+      appArch,
+    });
+    latestUpdateSnapshot = storeState.update;
+    downloadedInstallerPath = null;
+    updateStatus = storeState.status;
+    sendToRenderer("platform:update", {
+      source,
+      update: latestUpdateSnapshot,
+    });
+    emitUpdateStatus(source);
+    return latestUpdateSnapshot;
   };
   const canShowDesktopNotification = () => {
     if (typeof Notification !== "function") {
@@ -250,10 +277,13 @@ const createUpdateHandlers = ({
     return null;
   };
   const handleUpdateCheck = async (payload) => {
+    const source = payload?.source === "background" ? "background" : "manual";
+    if (isStoreManagedUpdates) {
+      return emitMicrosoftStoreUpdateState(source);
+    }
     if (!platformService || typeof platformService.fetchUpdateManifest !== "function") {
       return null;
     }
-    const source = payload?.source === "background" ? "background" : "manual";
     setUpdateStatus(
       {
         phase: "checking",
@@ -331,7 +361,7 @@ const createUpdateHandlers = ({
     }
     let completed = false;
     try {
-      const response = await fetch(artifactUrl);
+      const response = await fetchImpl(artifactUrl);
       if (!response.ok || !response.body) {
         throw {
           code: "UPDATE_DOWNLOAD_FAILED",
@@ -387,6 +417,9 @@ const createUpdateHandlers = ({
     }
   };
   const handleUpdateDownload = async (payload) => {
+    if (isStoreManagedUpdates) {
+      return emitMicrosoftStoreUpdateState("download");
+    }
     let update = latestUpdateSnapshot;
     const shouldForceCheck = payload?.forceCheck === true;
     if (!update || shouldForceCheck) {
@@ -505,6 +538,9 @@ const createUpdateHandlers = ({
     }
   };
   const handleUpdateInstall = async (payload = {}) => {
+    if (isStoreManagedUpdates) {
+      return emitMicrosoftStoreUpdateState("install");
+    }
     if (!downloadedInstallerPath) {
       setUpdateStatus(
         {
@@ -579,6 +615,9 @@ const createUpdateHandlers = ({
     }
   };
   const handleUpdateStatusGet = async () => {
+    if (isStoreManagedUpdates) {
+      return emitMicrosoftStoreUpdateState("status");
+    }
     if (latestUpdateSnapshot) {
       sendToRenderer("platform:update", { source: "status", update: latestUpdateSnapshot });
     }

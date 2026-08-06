@@ -2,9 +2,9 @@
 "use strict";
 
 // Fetches the texlab language-server binary (GPL-3.0, latex-lsp/texlab) from
-// GitHub Releases into Resources/texlab/<platform>-<arch>/texlab, verifying the
-// downloaded archive against a pinned sha256. Bundled into the distributable;
-// see NOTICE.md for the GPL-3.0 attribution.
+// GitHub Releases into Resources/texlab/<platform>-<arch>/texlab[.exe],
+// verifying the downloaded archive against a pinned sha256. Bundled into the
+// distributable; see NOTICE.md for the GPL-3.0 attribution.
 //
 // Usage:
 //   node scripts/fetch-texlab.cjs            # current platform/arch
@@ -41,6 +41,12 @@ const TARGETS = {
     asset: "texlab-aarch64-linux.tar.gz",
     sha256: "e0d8e0b27b2e6e3526fa5019323bb3fddb1202a0f0049e527672b5ff323cc15e",
   },
+  "win32-x64": {
+    asset: "texlab-x86_64-windows.zip",
+    sha256: "aa5fc1fe6004c17cd83086a57a8c8f28bb3f360914872711bfbb83490dc3c19e",
+    archiveType: "zip",
+    binary: "texlab.exe",
+  },
 };
 
 const keyFor = (platform, arch) => `${platform}-${arch}`;
@@ -48,6 +54,16 @@ const downloadUrl = (asset) =>
   `https://github.com/${REPO}/releases/download/${TEXLAB_VERSION}/${asset}`;
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+
+const binaryNameFor = (target) => target.binary || "texlab";
+
+const archiveSuffixFor = (target) =>
+  target.archiveType === "zip" ? ".zip" : ".tar.gz";
+
+const extractionArgsFor = (target, archivePath, outDir) =>
+  target.archiveType === "zip"
+    ? ["-xf", archivePath, "-C", outDir, binaryNameFor(target)]
+    : ["-xzf", archivePath, "-C", outDir, binaryNameFor(target)];
 
 async function fetchTarget(key) {
   const target = TARGETS[key];
@@ -57,7 +73,8 @@ async function fetchTarget(key) {
     );
   }
   const outDir = path.join(RESOURCES_DIR, key);
-  const binPath = path.join(outDir, "texlab");
+  const binaryName = binaryNameFor(target);
+  const binPath = path.join(outDir, binaryName);
 
   if (fs.existsSync(binPath)) {
     console.log(`[fetch-texlab] ${key}: already present, skipping`);
@@ -79,14 +96,17 @@ async function fetchTarget(key) {
   }
 
   await fsp.mkdir(outDir, { recursive: true });
-  const tmpArchive = path.join(os.tmpdir(), `texlab-${key}-${process.pid}.tar.gz`);
+  const tmpArchive = path.join(
+    os.tmpdir(),
+    `texlab-${key}-${process.pid}${archiveSuffixFor(target)}`
+  );
   await fsp.writeFile(tmpArchive, archive);
-  const extract = spawnSync("tar", ["-xzf", tmpArchive, "-C", outDir, "texlab"], {
+  const extract = spawnSync("tar", extractionArgsFor(target, tmpArchive, outDir), {
     stdio: "inherit",
   });
   await fsp.rm(tmpArchive, { force: true });
   if (extract.status !== 0) {
-    throw new Error(`[fetch-texlab] ${key}: tar extraction failed`);
+    throw new Error(`[fetch-texlab] ${key}: archive extraction failed`);
   }
   await fsp.chmod(binPath, 0o755);
 
@@ -132,7 +152,17 @@ async function main() {
   await fetchLicense();
 }
 
-main().catch((err) => {
-  console.error(err && err.message ? err.message : err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err && err.message ? err.message : err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  TEXLAB_VERSION,
+  TARGETS,
+  binaryNameFor,
+  archiveSuffixFor,
+  extractionArgsFor,
+};

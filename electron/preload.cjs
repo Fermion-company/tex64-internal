@@ -230,9 +230,8 @@ const terminalApi = {
   },
 };
 
-// In-app billing: `checkout` returns an embedded Stripe Checkout session
-// (clientSecret + publishableKey) the renderer mounts in a modal; `openPortal`
-// asks main to open the Stripe Customer Portal in an in-app window.
+// In-app billing: prefer an embedded Stripe session, with a hosted Checkout
+// window fallback for servers that only return checkoutUrl.
 const billingApi = {
   checkout: async (plan) => {
     try {
@@ -247,6 +246,22 @@ const billingApi = {
     } catch (error) {
       return { error: error && error.message ? error.message : "portal failed" };
     }
+  },
+  onCheckoutClosed: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    const listener = (_event, payload) => {
+      try {
+        handler(payload);
+      } catch (error) {
+        console.error("tex64Billing checkout handler error:", error);
+      }
+    };
+    ipcRenderer.on("tex64:billing:checkout-closed", listener);
+    return () => {
+      ipcRenderer.removeListener("tex64:billing:checkout-closed", listener);
+    };
   },
 };
 

@@ -22,11 +22,11 @@ const STRINGS: Record<string, Entry> = {
   usage_tokens: { en: "tokens", ja: "トークン", zh: "tokens", ko: "토큰", fr: "jetons", de: "Tokens", es: "tokens" },
 
   // ── Model picker ──
-  model_standard: { en: "Standard", ja: "標準", zh: "标准", ko: "표준", fr: "Standard", de: "Standard", es: "Estándar" },
-  model_most_capable: { en: "Most capable", ja: "最高性能", zh: "最强性能", ko: "최고 성능", fr: "Le plus performant", de: "Leistungsstärkste", es: "Más capaz" },
+  model_efficient: { en: "Fast and efficient", ja: "高速・低コスト", zh: "快速高效", ko: "빠르고 효율적", fr: "Rapide et efficace", de: "Schnell und effizient", es: "Rápido y eficiente" },
+  model_autonomous: { en: "Advanced autonomous writing", ja: "高度な自律執筆", zh: "高级自主写作", ko: "고급 자율 글쓰기", fr: "Rédaction autonome avancée", de: "Fortgeschrittenes autonomes Schreiben", es: "Redacción autónoma avanzada" },
   model_requires_pro: { en: "Requires Pro plan", ja: "Proプランが必要", zh: "需要 Pro 套餐", ko: "Pro 플랜 필요", fr: "Nécessite le plan Pro", de: "Erfordert Pro-Plan", es: "Requiere plan Pro" },
-  upsell_title: { en: "Axiom 0.9.1 Pro is a Pro feature", ja: "Axiom 0.9.1 Pro は Pro 限定です", zh: "Axiom 0.9.1 Pro 是 Pro 功能", ko: "Axiom 0.9.1 Pro는 Pro 전용입니다", fr: "Axiom 0.9.1 Pro est une fonctionnalité Pro", de: "Axiom 0.9.1 Pro ist eine Pro-Funktion", es: "Axiom 0.9.1 Pro es una función Pro" },
-  upsell_sub: { en: "Upgrade to the Pro plan to use the most capable model.", ja: "Proプランにアップグレードすると最高性能のモデルを使えます。", zh: "升级到 Pro 套餐即可使用最强性能的模型。", ko: "Pro 플랜으로 업그레이드하면 최고 성능 모델을 사용할 수 있습니다.", fr: "Passez au plan Pro pour utiliser le modèle le plus performant.", de: "Mit dem Pro-Plan nutzen Sie das leistungsstärkste Modell.", es: "Cambia al plan Pro para usar el modelo más capaz." },
+  upsell_title: { en: "Axiom 1.0 Pro is a Pro feature", ja: "Axiom 1.0 Pro は Pro 限定です", zh: "Axiom 1.0 Pro 是 Pro 功能", ko: "Axiom 1.0 Pro는 Pro 전용입니다", fr: "Axiom 1.0 Pro est une fonctionnalité Pro", de: "Axiom 1.0 Pro ist eine Pro-Funktion", es: "Axiom 1.0 Pro es una función Pro" },
+  upsell_sub: { en: "Upgrade to Pro for advanced autonomous writing.", ja: "Proにアップグレードすると高度な自律執筆を利用できます。", zh: "升级到 Pro 即可使用高级自主写作。", ko: "Pro로 업그레이드하면 고급 자율 글쓰기를 사용할 수 있습니다.", fr: "Passez à Pro pour la rédaction autonome avancée.", de: "Mit Pro erhalten Sie fortgeschrittenes autonomes Schreiben.", es: "Cambia a Pro para usar la redacción autónoma avanzada." },
   see_pro_plans: { en: "See Pro plans", ja: "Proプランを見る", zh: "查看 Pro 套餐", ko: "Pro 플랜 보기", fr: "Voir les plans Pro", de: "Pro-Pläne ansehen", es: "Ver planes Pro" },
 
   // ── Status messages ──

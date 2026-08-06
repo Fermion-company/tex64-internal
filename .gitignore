@@ -25,7 +25,10 @@ xcuserdata/
 /settings-ui.js
 /eng.traineddata
 /build/
-/Resources/icons/
+/Resources/icons/*
+!/Resources/icons/tex64.ico
+!/Resources/icons/appx/
+!/Resources/icons/appx/*.png
 /Resources/texlab/
 /.venv/
 /.venv-ocr/
