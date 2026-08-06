@@ -343,15 +343,19 @@ jobs:
 
           $env:ELECTRON_RUN_AS_NODE = '1'
           $env:TEX64_PACKAGED_ASAR = $asarPath
-          # onnxruntime-node can leave this short-lived Electron process with a
-          # non-zero teardown status even after every require succeeds. Exit
-          # explicitly once the load checks have completed.
-          & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; for (const name of ['@homebridge/node-pty-prebuilt-multiarch','onnxruntime-node']) { const resolved=require.resolve(name,{paths:[root]}); require(resolved); console.log(name+' -> '+resolved); } console.log('TEX64_NATIVE_LOAD_OK'); process.exit(0);"
-          if ($LASTEXITCODE -ne 0) {
+          # TeX64.exe is a GUI-subsystem executable, so PowerShell can retain a
+          # stale native exit code even after the Electron script succeeds.
+          # Require an explicit success sentinel emitted after every load.
+          $nativeOutput = & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; for (const name of ['@homebridge/node-pty-prebuilt-multiarch','onnxruntime-node']) { const resolved=require.resolve(name,{paths:[root]}); require(resolved); console.log(name+' -> '+resolved); } console.log('TEX64_NATIVE_LOAD_OK'); process.exit(0);" 2>&1
+          $nativeText = $nativeOutput | Out-String
+          Write-Host $nativeText
+          if ($nativeText -notmatch 'TEX64_NATIVE_LOAD_OK') {
             throw "A packaged native module could not be loaded by Electron"
           }
-          & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; const pty=require(require.resolve('@homebridge/node-pty-prebuilt-multiarch',{paths:[root]})); const shell=process.env.ComSpec||'cmd.exe'; const child=pty.spawn(shell,['/d','/s','/c','echo TEX64_PTY_OK'],{name:'xterm-color',cols:80,rows:24,cwd:process.cwd(),env:process.env}); let output=''; const timer=setTimeout(()=>{console.error('PTY smoke test timed out'); child.kill(); process.exit(1);},10000); child.onData((data)=>{output+=data;}); child.onExit(({exitCode})=>{clearTimeout(timer); if(exitCode!==0||!output.includes('TEX64_PTY_OK')){console.error(output);process.exit(1);} console.log('Packaged ConPTY smoke test passed');});"
-          if ($LASTEXITCODE -ne 0) {
+          $ptyOutput = & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; const pty=require(require.resolve('@homebridge/node-pty-prebuilt-multiarch',{paths:[root]})); const shell=process.env.ComSpec||'cmd.exe'; const child=pty.spawn(shell,['/d','/s','/c','echo TEX64_PTY_OK'],{name:'xterm-color',cols:80,rows:24,cwd:process.cwd(),env:process.env}); let output=''; const timer=setTimeout(()=>{console.error('PTY smoke test timed out'); child.kill(); process.exit(1);},10000); child.onData((data)=>{output+=data;}); child.onExit(({exitCode})=>{clearTimeout(timer); if(exitCode!==0||!output.includes('TEX64_PTY_OK')){console.error(output);process.exit(1);} console.log('TEX64_CONPTY_OK');process.exit(0);});" 2>&1
+          $ptyText = $ptyOutput | Out-String
+          Write-Host $ptyText
+          if ($ptyText -notmatch 'TEX64_CONPTY_OK') {
             throw "Packaged ConPTY could not create and run a Windows shell"
           }
           Remove-Item Env:ELECTRON_RUN_AS_NODE

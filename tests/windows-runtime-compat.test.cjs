@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -71,6 +72,28 @@ test("Axiom run_command preserves Unix login-shell invocation", () => {
       executable: "/bin/zsh",
       args: ["-lc", command],
     }
+  );
+});
+
+test("Windows packaged GUI smoke tests require explicit success sentinels", () => {
+  const workflow = fs.readFileSync(
+    path.join(__dirname, "..", ".github", "workflows", "release.yml"),
+    "utf8"
+  );
+  const smokeStep = workflow
+    .split("- name: Smoke-test packaged native modules and texlab")[1]
+    ?.split("- name: Capture real Microsoft Store screenshots")[0];
+
+  assert.ok(smokeStep, "Windows packaged smoke-test step must exist");
+  const guiChecks = smokeStep.split(
+    "Remove-Item Env:ELECTRON_RUN_AS_NODE"
+  )[0];
+  assert.match(guiChecks, /TEX64_NATIVE_LOAD_OK/);
+  assert.match(guiChecks, /TEX64_CONPTY_OK/);
+  assert.doesNotMatch(
+    guiChecks,
+    /\$LASTEXITCODE/,
+    "GUI-subsystem TeX64.exe checks must not depend on a stale native exit code"
   );
 });
 
