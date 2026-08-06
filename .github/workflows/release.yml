@@ -306,6 +306,7 @@ jobs:
           node --test `
             tests/billing-checkout-contract.test.cjs `
             tests/billing-checkout-url.test.cjs `
+            tests/platform-session-secret-storage.test.cjs `
             tests/e2e/billing-flow.test.cjs
 
       - name: Build unsigned Store AppX

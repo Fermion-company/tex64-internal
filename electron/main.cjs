@@ -6,6 +6,7 @@ const {
   globalShortcut,
   ipcMain,
   Menu,
+  safeStorage,
   screen,
   shell,
   systemPreferences,
@@ -59,6 +60,43 @@ const isE2EContext =
 const e2eHeadless =
   isE2EContext && process.env.TEX64_E2E_FORCE_HEADLESS !== "0";
 const distributionRuntime = resolveDistributionRuntime(process.windowsStore);
+const createWindowsSessionSecretStorage = () => {
+  if (process.platform !== "win32" || app.isPackaged !== true) {
+    return null;
+  }
+  return {
+    required: true,
+    encrypt: (plaintext) => {
+      try {
+        if (
+          typeof plaintext !== "string" ||
+          !safeStorage ||
+          !safeStorage.isEncryptionAvailable()
+        ) {
+          return null;
+        }
+        return safeStorage.encryptString(plaintext).toString("base64");
+      } catch {
+        return null;
+      }
+    },
+    decrypt: (ciphertext) => {
+      try {
+        if (
+          typeof ciphertext !== "string" ||
+          !ciphertext ||
+          !safeStorage ||
+          !safeStorage.isEncryptionAvailable()
+        ) {
+          return null;
+        }
+        return safeStorage.decryptString(Buffer.from(ciphertext, "base64"));
+      } catch {
+        return null;
+      }
+    },
+  };
+};
 if (e2eUserDataPath) {
   app.setPath("userData", path.resolve(e2eUserDataPath));
 } else if (!app.isPackaged) {
@@ -427,6 +465,7 @@ const getPlatformAccessService = () => {
       userDataPath: app.getPath("userData"),
       strictProduction: app.isPackaged === true,
       allowDirectOAuthCallbackAuthUrl: app.isPackaged !== true && isE2EContext,
+      sessionSecretStorage: createWindowsSessionSecretStorage(),
     });
   }
   return platformAccessService;
@@ -1065,9 +1104,9 @@ const openBillingCheckoutWindow = ({ url, plan, sender }) => {
   return win;
 };
 
-// Open the Stripe Customer Portal (hosted-only) in an in-app child window.
-// Plan changes are picked up by the renderer's focus listener on close.
-const openBillingPortalWindow = (url) => {
+// Open the Stripe Customer Portal (hosted-only) in an in-app child window and
+// explicitly tell the renderer to refresh entitlement + usage when it closes.
+const openBillingPortalWindow = ({ url, sender }) => {
   const parent =
     state.mainWindow && !state.mainWindow.isDestroyed() ? state.mainWindow : undefined;
   const win = new BrowserWindow({
@@ -1076,9 +1115,39 @@ const openBillingPortalWindow = (url) => {
     parent,
     title: "TeX64",
     backgroundColor: "#1c2129",
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      partition: "persist:tex64-billing",
+    },
   });
-  win.loadURL(url).catch(() => {});
+  const billingSession = win.webContents.session;
+  billingSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  billingSession.setPermissionCheckHandler(() => false);
+  win.on("closed", () => {
+    const target =
+      sender && !sender.isDestroyed()
+        ? sender
+        : state.mainWindow && !state.mainWindow.isDestroyed()
+          ? state.mainWindow.webContents
+          : null;
+    if (target && !target.isDestroyed()) {
+      try {
+        target.send("tex64:billing:portal-closed");
+      } catch {
+        // The main window may have closed between the guard and send.
+      }
+    }
+  });
+  win.loadURL(url).catch(() => {
+    if (!win.isDestroyed()) {
+      win.close();
+    }
+  });
+  return win;
 };
 
 ipcMain.handle("tex64:billing:checkout", async (event, payload) => {
@@ -1118,13 +1187,13 @@ ipcMain.handle("tex64:billing:checkout", async (event, payload) => {
   }
 });
 
-ipcMain.handle("tex64:billing:portal", async () => {
+ipcMain.handle("tex64:billing:portal", async (event) => {
   try {
     const { portalUrl } = await getPlatformAccessService().createBillingPortal();
     if (!portalUrl || !/^https:\/\//i.test(portalUrl)) {
       return { error: "portal unavailable" };
     }
-    openBillingPortalWindow(portalUrl);
+    openBillingPortalWindow({ url: portalUrl, sender: event.sender });
     return { ok: true };
   } catch (error) {
     return {

@@ -15,18 +15,116 @@ const {
   PlatformApiError,
 } = require("./platform-access-shared.cjs");
 
+const SESSION_SECRET_SCHEME = "electron-safe-storage";
+const SESSION_SECRET_VERSION = 1;
+
 const coreMethods = {
   serializeSession(session) {
     if (!isObject(session)) {
       return null;
     }
-    return { ...session };
+    if (!this.requireProtectedSessionSecrets) {
+      return { ...session };
+    }
+
+    const publicSession = { ...session };
+    delete publicSession.accessToken;
+    delete publicSession.refreshToken;
+    delete publicSession.sessionSecrets;
+    const accessToken =
+      typeof session.accessToken === "string" && session.accessToken.trim()
+        ? session.accessToken.trim()
+        : null;
+    if (!accessToken) {
+      return null;
+    }
+    const refreshToken =
+      typeof session.refreshToken === "string" && session.refreshToken.trim()
+        ? session.refreshToken.trim()
+        : null;
+    let ciphertext = null;
+    try {
+      ciphertext = this.sessionSecretStorage?.encrypt(
+        JSON.stringify({ accessToken, refreshToken })
+      );
+    } catch {
+      ciphertext = null;
+    }
+    if (typeof ciphertext !== "string" || !ciphertext.trim()) {
+      // A packaged Windows build must never fall back to plaintext persistence.
+      return null;
+    }
+    return {
+      ...publicSession,
+      sessionSecrets: {
+        scheme: SESSION_SECRET_SCHEME,
+        version: SESSION_SECRET_VERSION,
+        ciphertext: ciphertext.trim(),
+      },
+    };
   },
 
   deserializeSession(session) {
     if (!isObject(session)) {
       return null;
     }
+    if (this.requireProtectedSessionSecrets) {
+      const publicSession = { ...session };
+      delete publicSession.accessToken;
+      delete publicSession.refreshToken;
+      delete publicSession.sessionSecrets;
+      const protectedSecrets = session.sessionSecrets;
+      if (isObject(protectedSecrets)) {
+        if (
+          protectedSecrets.scheme !== SESSION_SECRET_SCHEME ||
+          protectedSecrets.version !== SESSION_SECRET_VERSION ||
+          typeof protectedSecrets.ciphertext !== "string" ||
+          !protectedSecrets.ciphertext.trim()
+        ) {
+          return null;
+        }
+        let decoded = null;
+        try {
+          const plaintext = this.sessionSecretStorage?.decrypt(
+            protectedSecrets.ciphertext.trim()
+          );
+          decoded = typeof plaintext === "string" ? JSON.parse(plaintext) : null;
+        } catch {
+          decoded = null;
+        }
+        const accessToken =
+          typeof decoded?.accessToken === "string" && decoded.accessToken.trim()
+            ? decoded.accessToken.trim()
+            : null;
+        if (!accessToken) {
+          return null;
+        }
+        const refreshToken =
+          typeof decoded?.refreshToken === "string" && decoded.refreshToken.trim()
+            ? decoded.refreshToken.trim()
+            : null;
+        return { ...publicSession, accessToken, refreshToken };
+      }
+
+      const legacyAccessToken =
+        typeof session.accessToken === "string" && session.accessToken.trim()
+          ? session.accessToken.trim()
+          : null;
+      if (!legacyAccessToken) {
+        return null;
+      }
+      const legacyRefreshToken =
+        typeof session.refreshToken === "string" && session.refreshToken.trim()
+          ? session.refreshToken.trim()
+          : null;
+      this._sessionSecretsNeedMigration = true;
+      return {
+        ...publicSession,
+        accessToken: legacyAccessToken,
+        refreshToken: legacyRefreshToken,
+      };
+    }
+
     const accessToken =
       typeof session.accessToken === "string" && session.accessToken.trim()
         ? session.accessToken.trim()
@@ -83,7 +181,13 @@ const coreMethods = {
       .readFile(this.filePath, "utf8")
       .then((content) => JSON.parse(content))
       .catch(() => null);
+    this._sessionSecretsNeedMigration = false;
     this.state = this.deserializeState(stored);
+    const needsSessionSecretMigration = this._sessionSecretsNeedMigration;
+    this._sessionSecretsNeedMigration = false;
+    if (needsSessionSecretMigration) {
+      await this.save();
+    }
     return clone(this.state);
   },
 

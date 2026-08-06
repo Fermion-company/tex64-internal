@@ -40,13 +40,26 @@ class PlatformAccessService {
         PRODUCTION_PLATFORM_OAUTH_REDIRECT_URI;
     this.allowDirectOAuthCallbackAuthUrl =
       options.allowDirectOAuthCallbackAuthUrl === true && !this.strictProduction;
+    const sessionSecretStorage = options.sessionSecretStorage;
+    this.requireProtectedSessionSecrets = sessionSecretStorage?.required === true;
+    this.sessionSecretStorage =
+      sessionSecretStorage &&
+      typeof sessionSecretStorage.encrypt === "function" &&
+      typeof sessionSecretStorage.decrypt === "function"
+        ? sessionSecretStorage
+        : null;
+    this._sessionSecretsNeedMigration = false;
     const requestedBypass =
       options.bypassEntitlement === true ||
       process.env.TEX64_AI_BYPASS_ENTITLEMENT === "1" ||
       process.env.TEX64_E2E_HEADLESS === "1" ||
       (typeof process.env.TEX64_E2E_USERDATA === "string" &&
         process.env.TEX64_E2E_USERDATA.trim().length > 0);
-    this.bypassEntitlement = this.strictProduction ? false : requestedBypass;
+    const requireEntitlement =
+      options.requireEntitlement === true ||
+      process.env.TEX64_E2E_REQUIRE_ENTITLEMENT === "1";
+    this.bypassEntitlement =
+      this.strictProduction || requireEntitlement ? false : requestedBypass;
   }
 }
 

@@ -13,7 +13,7 @@ const getStripeFactory = () => {
 const CONTENT = {
     en: {
         heading: "Pricing",
-        subheading: "Core features plus a monthly AI allowance (~200K tokens) are free. Use Basic or Pro for daily AI work.",
+        subheading: "Core local features are free. Basic and Pro expand your monthly Axiom allowance.",
         currentPlan: "Current plan",
         recommended: "Recommended",
         priceMeta: "USD / mo",
@@ -26,9 +26,9 @@ const CONTENT = {
                 "Local editing & build",
                 "PDF preview + SyncTeX",
                 "Blocks (math input)",
-                "AI: ~200,000 tokens / month",
+                "On-device math OCR",
+                "Monthly Axiom allowance shown in the app",
                 "Documentation access (guides / updates)",
-                "Basic account controls",
             ],
         },
         basic: {
@@ -56,7 +56,7 @@ const CONTENT = {
     },
     ja: {
         heading: "料金",
-        subheading: "基本機能と毎月の AI 利用枠（約20万トークン）は無料。日常的に使うなら Basic か Pro を。",
+        subheading: "ローカル基本機能は無料。Basic と Pro で毎月の Axiom 利用枠を拡張できます。",
         currentPlan: "現在のプラン",
         recommended: "おすすめ",
         priceMeta: "USD / 月",
@@ -69,9 +69,9 @@ const CONTENT = {
                 "ローカル編集・ビルド",
                 "PDFプレビュー + SyncTeX",
                 "Blocks（数式入力）",
-                "AI：月 約 200,000 トークン",
+                "端末内の数式OCR",
+                "Axiomの月次利用枠はアプリ内に表示",
                 "ドキュメント閲覧（ガイド/更新情報）",
-                "アカウント管理（基本）",
             ],
         },
         basic: {
@@ -99,7 +99,7 @@ const CONTENT = {
     },
     zh: {
         heading: "定价",
-        subheading: "核心功能与每月 AI 额度（约 20 万 tokens）免费。日常使用 AI 请选择 Basic 或 Pro。",
+        subheading: "核心本地功能免费。Basic 和 Pro 可扩展每月 Axiom 额度。",
         currentPlan: "当前方案",
         recommended: "推荐",
         priceMeta: "美元 / 月",
@@ -112,9 +112,9 @@ const CONTENT = {
                 "本地编辑与构建",
                 "PDF 预览 + SyncTeX",
                 "Blocks（数学输入）",
-                "AI：每月约 200,000 tokens",
+                "设备端数学 OCR",
+                "每月 Axiom 额度显示在应用内",
                 "文档访问（指南 / 更新）",
-                "基本账户管理",
             ],
         },
         basic: {
@@ -142,7 +142,7 @@ const CONTENT = {
     },
     de: {
         heading: "Preise",
-        subheading: "Kernfunktionen und ein monatliches KI-Kontingent (~200K Tokens) sind kostenlos. Nutzen Sie Basic oder Pro für tägliche KI-Arbeit.",
+        subheading: "Die lokalen Kernfunktionen sind kostenlos. Basic und Pro erweitern das monatliche Axiom-Kontingent.",
         currentPlan: "Aktueller Plan",
         recommended: "Empfohlen",
         priceMeta: "USD / Monat",
@@ -155,9 +155,9 @@ const CONTENT = {
                 "Lokale Bearbeitung & Build",
                 "PDF-Vorschau + SyncTeX",
                 "Blocks (Mathematik-Eingabe)",
-                "KI: ~200.000 Tokens / Monat",
+                "Mathematik-OCR auf dem Gerät",
+                "Monatliches Axiom-Kontingent wird in der App angezeigt",
                 "Dokumentationszugang (Anleitungen / Updates)",
-                "Grundlegende Kontoverwaltung",
             ],
         },
         basic: {
@@ -185,7 +185,7 @@ const CONTENT = {
     },
     ko: {
         heading: "요금제",
-        subheading: "핵심 기능과 매월 AI 사용량(약 20만 토큰)은 무료입니다. 일상적인 AI 사용은 Basic 또는 Pro를 이용하세요.",
+        subheading: "핵심 로컬 기능은 무료입니다. Basic과 Pro는 매월 Axiom 사용량을 확장합니다.",
         currentPlan: "현재 플랜",
         recommended: "추천",
         priceMeta: "USD / 월",
@@ -198,9 +198,9 @@ const CONTENT = {
                 "로컬 편집 및 빌드",
                 "PDF 미리보기 + SyncTeX",
                 "Blocks(수식 입력)",
-                "AI: 월 약 200,000 토큰",
+                "기기 내 수식 OCR",
+                "월간 Axiom 사용량은 앱에 표시",
                 "문서 접근(가이드 / 업데이트)",
-                "기본 계정 관리",
             ],
         },
         basic: {
@@ -228,7 +228,7 @@ const CONTENT = {
     },
     fr: {
         heading: "Tarifs",
-        subheading: "Les fonctionnalités principales et une allocation IA mensuelle (~200K jetons) sont gratuites. Utilisez Basic ou Pro pour un usage IA quotidien.",
+        subheading: "Les fonctions locales essentielles sont gratuites. Basic et Pro augmentent l’allocation Axiom mensuelle.",
         currentPlan: "Plan actuel",
         recommended: "Recommandé",
         priceMeta: "USD / mois",
@@ -241,9 +241,9 @@ const CONTENT = {
                 "Édition & build en local",
                 "Prévisualisation PDF + SyncTeX",
                 "Blocks (saisie mathématique)",
-                "IA : ~200 000 jetons / mois",
+                "OCR mathématique sur l’appareil",
+                "Allocation Axiom mensuelle affichée dans l’application",
                 "Accès à la documentation (guides / mises à jour)",
-                "Contrôles de compte de base",
             ],
         },
         basic: {
@@ -271,7 +271,7 @@ const CONTENT = {
     },
     es: {
         heading: "Precios",
-        subheading: "Las funciones principales y una asignación de IA mensual (~200K tokens) son gratis. Usa Basic o Pro para el uso diario de IA.",
+        subheading: "Las funciones locales principales son gratis. Basic y Pro amplían la asignación mensual de Axiom.",
         currentPlan: "Plan actual",
         recommended: "Recomendado",
         priceMeta: "USD / mes",
@@ -284,9 +284,9 @@ const CONTENT = {
                 "Edición y build en local",
                 "Vista previa de PDF + SyncTeX",
                 "Blocks (entrada matemática)",
-                "IA: ~200.000 tokens / mes",
+                "OCR matemático en el dispositivo",
+                "La asignación mensual de Axiom se muestra en la app",
                 "Acceso a la documentación (guías / actualizaciones)",
-                "Controles básicos de cuenta",
             ],
         },
         basic: {
@@ -442,7 +442,7 @@ const PLANS = [
 ];
 const PLAN_RANK = { free: 0, basic: 1, pro: 2 };
 export const initBillingUi = (context, deps) => {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const { plansModal, plansModalClose, plansHeading, plansSub, plansList, plansCheckout, plansCheckoutBack, plansCheckoutMount, plansStatus, } = context.dom;
     let embedded = null;
     let activationTimer = null;
@@ -538,6 +538,26 @@ export const initBillingUi = (context, deps) => {
         }
         showPlansView();
         setStatus(outcome === "error" ? msg().checkoutUnavailable : "");
+    });
+    (_d = (_c = getBilling()) === null || _c === void 0 ? void 0 : _c.onPortalClosed) === null || _d === void 0 ? void 0 : _d.call(_c, () => {
+        setStatus("");
+        const repaint = () => {
+            if ((plansModal === null || plansModal === void 0 ? void 0 : plansModal.classList.contains("is-open")) &&
+                (!plansCheckout || plansCheckout.classList.contains("is-hidden"))) {
+                renderPlans();
+            }
+        };
+        // Portal changes also arrive through Stripe webhooks. Refresh a few times
+        // so a tier change or cancellation does not depend on a fast webhook, and
+        // repaint shortly after each renderer → main → network round trip.
+        for (const delay of [0, 1500, 4000, 8000]) {
+            window.setTimeout(() => {
+                var _a;
+                deps.onPlanRefresh();
+                (_a = deps.refreshUsage) === null || _a === void 0 ? void 0 : _a.call(deps);
+                window.setTimeout(repaint, 350);
+            }, delay);
+        }
     });
     const performCheckout = async (plan) => {
         const billing = getBilling();

@@ -9,8 +9,9 @@
  * Safe by construction:
  *   - The platform API base is pointed at a localhost stub (TEX64_PLATFORM_API_BASE_URL),
  *     so no request reaches tex64.com.
- *   - window.Stripe is stubbed and checkout.stripe.com is fulfilled by
- *     Playwright, so no request reaches Stripe and no real card form is created.
+ *   - The main renderer does not load remote Stripe.js. window.Stripe is
+ *     injected as a test stub and checkout.stripe.com is fulfilled by Playwright,
+ *     so no request reaches Stripe and no real card form is created.
  *     (The real Stripe card form needs test keys + a deployed backend and is
  *     therefore out of scope here — that is the ONLY part of the flow this test
  *     does not cover.)
@@ -45,6 +46,23 @@ const closeElectronApp = async (app) => {
 const startStubServer = () =>
   new Promise((resolve) => {
     const calls = [];
+    let activePlan = "free";
+    const periodStart = "2026-08-01T00:00:00.000Z";
+    const periodEnd = "2026-09-01T00:00:00.000Z";
+    const quotaForPlan = () => {
+      const limitTokens =
+        activePlan === "pro" ? 10_000_000 : activePlan === "basic" ? 2_000_000 : 200_000;
+      const usedTokens = activePlan === "free" ? 1000 : 2000;
+      return {
+        limitTokens,
+        usedTokens,
+        remainingTokens: limitTokens - usedTokens,
+        usedRequests: 2,
+        remainingRequests: 998,
+        periodStart,
+        periodEnd,
+      };
+    };
     const server = http.createServer((req, res) => {
       let body = "";
       req.on("data", (chunk) => (body += chunk));
@@ -89,6 +107,38 @@ const startStubServer = () =>
           );
         } else if (url.includes("/billing/portal")) {
           res.end(JSON.stringify({ requestId: "stub", portalUrl: "https://stub.local/portal" }));
+        } else if (url.includes("/me/features")) {
+          res.end(
+            JSON.stringify({
+              user: {
+                id: "e2e-user",
+                email: "e2e@example.com",
+                name: "E2E User",
+                plan: activePlan,
+                anonymous: false,
+              },
+              features: {
+                ai: {
+                  enabled: true,
+                  reason: "active",
+                  status: "active",
+                  quota: quotaForPlan(),
+                  periodStart,
+                  periodEnd,
+                  graceEndsAt: null,
+                },
+              },
+            })
+          );
+        } else if (url.includes("/me/usage/ai")) {
+          res.end(
+            JSON.stringify({
+              plan: activePlan,
+              period: "current_month",
+              summary: quotaForPlan(),
+              byFeature: {},
+            })
+          );
         } else {
           // Non-critical startup calls (updates manifest, announcements, …).
           res.end(JSON.stringify({}));
@@ -96,7 +146,14 @@ const startStubServer = () =>
       });
     });
     server.listen(0, "127.0.0.1", () => {
-      resolve({ server, calls, baseUrl: `http://127.0.0.1:${server.address().port}/api/v2` });
+      resolve({
+        server,
+        calls,
+        baseUrl: `http://127.0.0.1:${server.address().port}/api/v2`,
+        setPlan: (plan) => {
+          activePlan = plan;
+        },
+      });
     });
   });
 
@@ -167,6 +224,17 @@ const planButton = (page, planName) =>
     return card ? card.querySelector(".plan-cta") : null;
   }, planName);
 
+const waitForCondition = async (predicate, message, timeoutMs = 8000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail(message);
+};
+
 test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
   const stub = await startStubServer();
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-billing-e2e-"));
@@ -182,6 +250,7 @@ test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
       TEX64_E2E: "1",
       TEX64_E2E_USERDATA: userDataDir,
       TEX64_E2E_FORCE_HEADLESS: "1",
+      TEX64_E2E_REQUIRE_ENTITLEMENT: "1",
       TEX64_PLATFORM_API_BASE_URL: stub.baseUrl,
       NODE_ENV: "test",
     },
@@ -226,12 +295,26 @@ test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
   t.after(async () => {
     await closeElectronApp(app);
     stub.server.close();
+    fs.rmSync(userDataDir, { recursive: true, force: true });
   });
 
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await page.waitForSelector("body.is-ready", { timeout: 15000 });
-  assert.equal(stripeScriptRoutes.length, 1, "Stripe.js was fulfilled locally");
+  const remoteStripeState = await page.evaluate(() => {
+    const csp = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+    return {
+      scriptCount: document.querySelectorAll('script[src^="https://js.stripe.com"]').length,
+      csp: csp?.getAttribute("content") || "",
+    };
+  });
+  assert.equal(stripeScriptRoutes.length, 0, "the main renderer made no Stripe.js request");
+  assert.equal(remoteStripeState.scriptCount, 0, "the main renderer has no remote Stripe.js tag");
+  assert.equal(
+    remoteStripeState.csp.includes("js.stripe.com"),
+    false,
+    "the main renderer CSP does not allow Stripe.js"
+  );
   await clearOverlays(page);
   await installStripeStub(page);
 
@@ -341,6 +424,7 @@ test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
   assert.equal(hostedState.status, "Checkout in progress…", "hosted fallback is not shown as an error");
 
   const hostedClosedPromise = hostedPage.waitForEvent("close", { timeout: 5000 });
+  stub.setPlan("basic");
   await hostedPage.evaluate(() => document.getElementById("hosted-checkout-success")?.click());
   await hostedClosedPromise;
   assert.equal(checkoutReturnRoutes.length, 0, "success return was intercepted before production navigation");
@@ -361,7 +445,63 @@ test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
     "success return switches the renderer to activation status"
   );
 
-  // 5) Close paths: the close button and Escape both dismiss the modal.
+  await page.waitForFunction(
+    () => {
+      const status = (document.getElementById("plans-status")?.textContent || "").trim();
+      const basicCard = Array.from(document.querySelectorAll("#plans-modal .plan-card")).find(
+        (card) =>
+          (card.querySelector(".plan-card-name")?.textContent || "").trim() === "Basic"
+      );
+      return status === "Your plan is now active. Enjoy!" && basicCard?.classList.contains("is-current");
+    },
+    { timeout: 10000 }
+  );
+  assert.ok(
+    await page.locator("#plans-modal .plan-card.is-current", { hasText: "Basic" }).count(),
+    "webhook-backed refresh marks Basic as the current plan"
+  );
+
+  // 5) A portal tier change refreshes both entitlement and usage when the child
+  //    window closes, then repaints the still-open Plans modal.
+  const featureCallsBeforePortalClose = stub.calls.filter((c) => c.url.includes("/me/features")).length;
+  const usageCallsBeforePortalClose = stub.calls.filter((c) => c.url.includes("/me/usage/ai")).length;
+  const portalWindowPromise = app.waitForEvent("window", { timeout: 8000 });
+  await page.click("#plans-modal .plans-manage");
+  const portalPage = await portalWindowPromise;
+  await portalPage.waitForLoadState("domcontentloaded");
+  assert.notEqual(portalPage, page, "billing portal opened in a child BrowserWindow");
+  const portalCalls = stub.calls.filter((c) => c.url.includes("/billing/portal"));
+  assert.equal(portalCalls.length, 1, "exactly one portal request hit the backend");
+  assert.equal(portalCalls[0].method, "POST", "portal is a POST");
+  assert.equal(portalCalls[0].auth, "Bearer e2e-fake-access-token", "portal call carried the bearer token");
+
+  stub.setPlan("pro");
+  const portalClosedPromise = portalPage.waitForEvent("close", { timeout: 5000 });
+  await portalPage.close();
+  await portalClosedPromise;
+  await page.waitForFunction(
+    () => {
+      const proCard = Array.from(document.querySelectorAll("#plans-modal .plan-card")).find(
+        (card) => (card.querySelector(".plan-card-name")?.textContent || "").trim() === "Pro"
+      );
+      return proCard?.classList.contains("is-current");
+    },
+    { timeout: 10000 }
+  );
+  await waitForCondition(
+    () =>
+      stub.calls.filter((c) => c.url.includes("/me/features")).length >
+        featureCallsBeforePortalClose &&
+      stub.calls.filter((c) => c.url.includes("/me/usage/ai")).length >
+        usageCallsBeforePortalClose,
+    "portal close did not force entitlement and usage network refreshes"
+  );
+  assert.ok(
+    await page.locator("#plans-modal .plan-card.is-current", { hasText: "Pro" }).count(),
+    "portal-close refresh marks Pro as the current plan"
+  );
+
+  // 6) Close paths: the close button and Escape both dismiss the modal.
   await page.evaluate(() => {
     if (!document.getElementById("plans-modal").classList.contains("is-open")) {
       window.dispatchEvent(new CustomEvent("tex64:open-plans"));
@@ -379,12 +519,5 @@ test("in-app billing flow (embedded Checkout + hosted fallback)", async (t) => {
   await page.waitForFunction(() => !document.getElementById("plans-modal").classList.contains("is-open"), {
     timeout: 5000,
   });
-
-  // 6) Manage / portal (last — opens an in-app child window): bridge → backend.
-  const portalResult = await page.evaluate(() => window.tex64Billing.openPortal());
-  assert.ok(portalResult && portalResult.ok, "openPortal resolves ok");
-  const portalCalls = stub.calls.filter((c) => c.url.includes("/billing/portal"));
-  assert.equal(portalCalls.length, 1, "exactly one portal request hit the backend");
-  assert.equal(portalCalls[0].method, "POST", "portal is a POST");
-  assert.equal(portalCalls[0].auth, "Bearer e2e-fake-access-token", "portal call carried the bearer token");
+  assert.equal(stripeScriptRoutes.length, 0, "no billing path loaded remote Stripe.js");
 });

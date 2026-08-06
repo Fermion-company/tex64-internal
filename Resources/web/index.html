@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval' https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https://js.stripe.com https://*.stripe.com;"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob:;"
     >
     <title>TeX64</title>
     <link rel="stylesheet" href="./theme.css">
@@ -1772,9 +1772,6 @@
          `define` when present, which would skip the window globals we rely on. -->
     <script src="./vendor/xterm.js"></script>
     <script src="./vendor/xterm-addon-fit.js"></script>
-    <!-- Stripe.js (must load from js.stripe.com; loaded before Monaco's AMD loader
-         so it attaches window.Stripe instead of registering as an AMD module). -->
-    <script src="https://js.stripe.com/v3/"></script>
     <script src="./monaco/vs/loader.js"></script>
     <script type="module" src="./main.js"></script>
   </body>

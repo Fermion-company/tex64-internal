@@ -263,6 +263,22 @@ const billingApi = {
       ipcRenderer.removeListener("tex64:billing:checkout-closed", listener);
     };
   },
+  onPortalClosed: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    const listener = () => {
+      try {
+        handler();
+      } catch (error) {
+        console.error("tex64Billing portal handler error:", error);
+      }
+    };
+    ipcRenderer.on("tex64:billing:portal-closed", listener);
+    return () => {
+      ipcRenderer.removeListener("tex64:billing:portal-closed", listener);
+    };
+  },
 };
 
 Object.defineProperty(bridgeApi, "postMessage", {
