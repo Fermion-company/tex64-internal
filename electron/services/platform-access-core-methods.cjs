@@ -177,7 +177,8 @@ const coreMethods = {
     if (this.state) {
       return clone(this.state);
     }
-    const stored = await fsp
+    const fileSystem = this.fileSystem || fsp;
+    const stored = await fileSystem
       .readFile(this.filePath, "utf8")
       .then((content) => JSON.parse(content))
       .catch(() => null);
@@ -186,38 +187,68 @@ const coreMethods = {
     const needsSessionSecretMigration = this._sessionSecretsNeedMigration;
     this._sessionSecretsNeedMigration = false;
     if (needsSessionSecretMigration) {
-      await this.save();
+      try {
+        await this.save({
+          requireProtectedSession: true,
+          throwOnError: true,
+        });
+      } catch (error) {
+        // Never authenticate with secrets that only came from the legacy
+        // plaintext file. Leave that file intact so a later launch can retry
+        // once protected storage and the filesystem are healthy again.
+        this.state.session = null;
+        console.warn(
+          "[platform-access] legacy session migration failed; signing out:",
+          error.message
+        );
+      }
     }
     return clone(this.state);
   },
 
   _saveQueue: null,
 
-  async save() {
+  async save(options = {}) {
     if (!this.state) {
       return;
     }
+    const requireProtectedSession = options.requireProtectedSession === true;
+    const throwOnError = options.throwOnError === true;
     const run = async () => {
       const serializedState = this.serializeState(this.state);
+      const protectedSecrets = serializedState.session?.sessionSecrets;
+      if (
+        requireProtectedSession &&
+        (!isObject(protectedSecrets) ||
+          protectedSecrets.scheme !== SESSION_SECRET_SCHEME ||
+          protectedSecrets.version !== SESSION_SECRET_VERSION ||
+          typeof protectedSecrets.ciphertext !== "string" ||
+          !protectedSecrets.ciphertext.trim())
+      ) {
+        throw new Error("Could not protect the legacy session secrets");
+      }
+      const fileSystem = this.fileSystem || fsp;
       const dirPath = path.dirname(this.filePath);
       const tempPath = `${this.filePath}.tmp-${process.pid}-${Date.now()}`;
       const payload = JSON.stringify(serializedState, null, 2);
-      await fsp.mkdir(dirPath, { recursive: true });
+      await fileSystem.mkdir(dirPath, { recursive: true });
       try {
-        await fsp.writeFile(tempPath, payload, { encoding: "utf8", mode: 0o600 });
-        await fsp.rename(tempPath, this.filePath);
-        await fsp.chmod(this.filePath, 0o600).catch(() => {});
+        await fileSystem.writeFile(tempPath, payload, {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+        await fileSystem.rename(tempPath, this.filePath);
+        await fileSystem.chmod(this.filePath, 0o600).catch(() => {});
       } catch (error) {
-        await fsp.unlink(tempPath).catch(() => {});
+        await fileSystem.unlink(tempPath).catch(() => {});
         throw error;
       }
     };
-    this._saveQueue = (this._saveQueue || Promise.resolve())
-      .then(run)
-      .catch((err) => {
-        console.warn("[platform-access] save failed:", err.message);
-      });
-    return this._saveQueue;
+    const operation = (this._saveQueue || Promise.resolve()).then(run);
+    this._saveQueue = operation.catch((err) => {
+      console.warn("[platform-access] save failed:", err.message);
+    });
+    return throwOnError ? operation : this._saveQueue;
   },
 
   async ensureLoadedState() {

@@ -567,28 +567,18 @@ const featureMethods = {
     return this.buildAuthSnapshot();
   },
 
-  // Prefer Stripe Embedded Checkout, while preserving the hosted URL returned
-  // by older servers so the main process can open a secure in-app fallback.
+  // Checkout is hosted-only. The renderer never loads Stripe.js; the main
+  // process validates checkoutUrl and opens it in a hardened child window.
   async createBillingCheckout(plan) {
     const normalizedPlan = typeof plan === "string" && plan.trim() ? plan.trim() : "pro";
     const payload = await this.authorizedRequest("/billing/checkout", {
       method: "POST",
-      body: { plan: normalizedPlan, uiMode: "embedded" },
+      body: { plan: normalizedPlan, uiMode: "hosted" },
     });
     return {
-      clientSecret: typeof payload?.clientSecret === "string" ? payload.clientSecret : "",
-      publishableKey: typeof payload?.publishableKey === "string" ? payload.publishableKey : "",
       sessionId: typeof payload?.sessionId === "string" ? payload.sessionId : "",
       checkoutUrl: typeof payload?.checkoutUrl === "string" ? payload.checkoutUrl : "",
-      uiMode:
-        typeof payload?.clientSecret === "string" &&
-        payload.clientSecret &&
-        typeof payload?.publishableKey === "string" &&
-        payload.publishableKey
-          ? "embedded"
-          : typeof payload?.checkoutUrl === "string" && payload.checkoutUrl
-            ? "hosted"
-            : "",
+      uiMode: typeof payload?.checkoutUrl === "string" && payload.checkoutUrl ? "hosted" : "",
     };
   },
 

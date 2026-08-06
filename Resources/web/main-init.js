@@ -71,6 +71,7 @@ export const initMain = () => {
         let rootSelectorUi;
         let resizerUi;
         let aiChatUi = null;
+        let billingUi = null;
         let mathCapture = null;
         const primaryViewer = createViewer({
             editorViewer,
@@ -527,7 +528,7 @@ export const initMain = () => {
         // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
         // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
         // plan + usage state through the AI chat UI.
-        initBillingUi(appContext, {
+        billingUi = initBillingUi(appContext, {
             getCurrentPlan: () => { var _a; return (_a = aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.getCurrentPlan()) !== null && _a !== void 0 ? _a : "free"; },
             onPlanRefresh: () => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshPlan(),
             getUsageSnapshot: () => { var _a; return (_a = aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.getUsageSnapshot()) !== null && _a !== void 0 ? _a : null; },
@@ -907,8 +908,14 @@ export const initMain = () => {
                     aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformAuth(payload);
                     settingsUi.handlePlatformAuth(payload);
                 },
-                handleAiAccess: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformAiAccess(payload),
-                handleUsage: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformUsage(payload),
+                handleAiAccess: (payload) => {
+                    aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformAiAccess(payload);
+                    billingUi === null || billingUi === void 0 ? void 0 : billingUi.handlePlanUpdated();
+                },
+                handleUsage: (payload) => {
+                    aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformUsage(payload);
+                    billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleUsageUpdated();
+                },
                 handleUpdate: (payload) => {
                     settingsUi.handlePlatformUpdate(payload);
                 },

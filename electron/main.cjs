@@ -1165,9 +1165,6 @@ ipcMain.handle("tex64:billing:checkout", async (event, payload) => {
   billingCheckoutRequestInFlight = true;
   try {
     const checkout = await getPlatformAccessService().createBillingCheckout(plan);
-    if (checkout.clientSecret && checkout.publishableKey) {
-      return checkout;
-    }
     const checkoutUrl = normalizeStripeCheckoutUrl(checkout.checkoutUrl);
     if (checkoutUrl) {
       openBillingCheckoutWindow({ url: checkoutUrl, plan, sender: event.sender });

@@ -48,6 +48,7 @@ class PlatformAccessService {
       typeof sessionSecretStorage.decrypt === "function"
         ? sessionSecretStorage
         : null;
+    this.fileSystem = options.fileSystem || null;
     this._sessionSecretsNeedMigration = false;
     const requestedBypass =
       options.bypassEntitlement === true ||

@@ -230,8 +230,7 @@ const terminalApi = {
   },
 };
 
-// In-app billing: prefer an embedded Stripe session, with a hosted Checkout
-// window fallback for servers that only return checkoutUrl.
+// In-app billing: hosted Stripe Checkout opens in a hardened child window.
 const billingApi = {
   checkout: async (plan) => {
     try {

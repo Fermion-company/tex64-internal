@@ -99,6 +99,7 @@ export const initMain = () => {
   let rootSelectorUi: ReturnType<typeof initRootSelectorUi>;
   let resizerUi: ReturnType<typeof initSidebarResizer>;
   let aiChatUi: ReturnType<typeof initAiChatUi> | null = null;
+  let billingUi: ReturnType<typeof initBillingUi> | null = null;
   let mathCapture: ReturnType<typeof initMathCapture> | null = null;
   const primaryViewer = createViewer({
     editorViewer,
@@ -602,7 +603,7 @@ export const initMain = () => {
   // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
   // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
   // plan + usage state through the AI chat UI.
-  initBillingUi(appContext, {
+  billingUi = initBillingUi(appContext, {
     getCurrentPlan: () => aiChatUi?.getCurrentPlan() ?? "free",
     onPlanRefresh: () => aiChatUi?.refreshPlan(),
     getUsageSnapshot: () => aiChatUi?.getUsageSnapshot() ?? null,
@@ -991,8 +992,14 @@ export const initMain = () => {
         aiChatUi?.handlePlatformAuth(payload);
         settingsUi.handlePlatformAuth(payload);
       },
-      handleAiAccess: (payload) => aiChatUi?.handlePlatformAiAccess(payload),
-      handleUsage: (payload) => aiChatUi?.handlePlatformUsage(payload),
+      handleAiAccess: (payload) => {
+        aiChatUi?.handlePlatformAiAccess(payload);
+        billingUi?.handlePlanUpdated();
+      },
+      handleUsage: (payload) => {
+        aiChatUi?.handlePlatformUsage(payload);
+        billingUi?.handleUsageUpdated();
+      },
       handleUpdate: (payload) => {
         settingsUi.handlePlatformUpdate(payload);
       },

@@ -7,8 +7,6 @@ type BillingBridge = {
   checkout: (
     plan: string
   ) => Promise<{
-    clientSecret?: string;
-    publishableKey?: string;
     hosted?: boolean;
     error?: string;
     code?: string;
@@ -23,22 +21,9 @@ type BillingBridge = {
   onPortalClosed?: (handler: () => void) => () => void;
 };
 
-type EmbeddedCheckout = { mount: (el: HTMLElement | string) => void; destroy: () => void };
-type StripeFactory = (publishableKey: string) => {
-  initEmbeddedCheckout: (opts: {
-    fetchClientSecret: () => Promise<string>;
-    onComplete?: () => void;
-  }) => Promise<EmbeddedCheckout>;
-};
-
 const getBilling = (): BillingBridge | null => {
   const bridge = (window as unknown as { tex64Billing?: BillingBridge }).tex64Billing;
   return bridge && typeof bridge.checkout === "function" ? bridge : null;
-};
-
-const getStripeFactory = (): StripeFactory | null => {
-  const factory = (window as unknown as { Stripe?: StripeFactory }).Stripe;
-  return typeof factory === "function" ? factory : null;
 };
 
 type PlanCopy = { desc: string; items: string[] };
@@ -368,16 +353,12 @@ const CONTENT: Record<string, LocaleCopy> = {
   },
 };
 
-// Transient status / error strings + the "back" label, localized for all 7 UI
-// languages (uiText only covers en/ja, so we keep our own table here).
+// Transient status / error strings localized for all 7 UI languages (uiText
+// only covers en/ja, so we keep our own table here).
 type BillingMessages = {
-  back: string;
   billingUnavailable: string;
-  stripeLoad: string;
   preparing: string;
   checkoutOpened: string;
-  complete: string;
-  embedError: string;
   signIn: string;
   checkoutUnavailable: string;
   openingPortal: string;
@@ -390,13 +371,9 @@ type BillingMessages = {
 
 const MSG: Record<string, BillingMessages> = {
   en: {
-    back: "Back to plans",
     billingUnavailable: "Billing is unavailable in this build.",
-    stripeLoad: "Couldn't load Stripe. Check your connection and try again.",
     preparing: "Preparing secure checkout…",
     checkoutOpened: "Checkout in progress…",
-    complete: "Payment complete — unlocking your plan…",
-    embedError: "Couldn't start the embedded checkout. Please try again.",
     signIn: "Please sign in first, then try again.",
     checkoutUnavailable: "Checkout isn't available right now.",
     openingPortal: "Opening your billing portal…",
@@ -407,13 +384,9 @@ const MSG: Record<string, BillingMessages> = {
     activationSlow: "Payment received. Activation is taking longer than usual — it will finish in the background.",
   },
   ja: {
-    back: "プランに戻る",
     billingUnavailable: "このビルドでは課金を利用できません。",
-    stripeLoad: "Stripe を読み込めませんでした。接続を確認して再試行してください。",
     preparing: "安全な決済を準備しています…",
     checkoutOpened: "決済中…",
-    complete: "決済が完了しました — プランを反映しています…",
-    embedError: "埋め込みチェックアウトを開始できませんでした。もう一度お試しください。",
     signIn: "先にサインインしてから再試行してください。",
     checkoutUnavailable: "現在チェックアウトを利用できません。",
     openingPortal: "請求ポータルを開いています…",
@@ -424,13 +397,9 @@ const MSG: Record<string, BillingMessages> = {
     activationSlow: "決済は完了しています。反映に時間がかかっていますが、バックグラウンドで完了します。",
   },
   zh: {
-    back: "返回方案",
     billingUnavailable: "此版本无法使用计费。",
-    stripeLoad: "无法加载 Stripe。请检查网络后重试。",
     preparing: "正在准备安全结账…",
     checkoutOpened: "正在结账…",
-    complete: "支付完成 — 正在更新您的方案…",
-    embedError: "无法启动嵌入式结账，请重试。",
     signIn: "请先登录后再试。",
     checkoutUnavailable: "暂时无法结账。",
     openingPortal: "正在打开计费门户…",
@@ -441,13 +410,9 @@ const MSG: Record<string, BillingMessages> = {
     activationSlow: "已收到付款。激活时间比平常长，将在后台完成。",
   },
   de: {
-    back: "Zurück zu den Plänen",
     billingUnavailable: "Abrechnung ist in diesem Build nicht verfügbar.",
-    stripeLoad: "Stripe konnte nicht geladen werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     preparing: "Sicherer Checkout wird vorbereitet…",
     checkoutOpened: "Checkout läuft…",
-    complete: "Zahlung abgeschlossen — Ihr Plan wird aktiviert…",
-    embedError: "Eingebetteter Checkout konnte nicht gestartet werden. Bitte erneut versuchen.",
     signIn: "Bitte zuerst anmelden und erneut versuchen.",
     checkoutUnavailable: "Checkout ist derzeit nicht verfügbar.",
     openingPortal: "Abrechnungsportal wird geöffnet…",
@@ -458,13 +423,9 @@ const MSG: Record<string, BillingMessages> = {
     activationSlow: "Zahlung eingegangen. Die Aktivierung dauert länger als üblich und wird im Hintergrund abgeschlossen.",
   },
   ko: {
-    back: "플랜으로 돌아가기",
     billingUnavailable: "이 빌드에서는 결제를 사용할 수 없습니다.",
-    stripeLoad: "Stripe를 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요.",
     preparing: "안전한 결제를 준비하는 중…",
     checkoutOpened: "결제 진행 중…",
-    complete: "결제가 완료되었습니다 — 플랜을 반영하는 중…",
-    embedError: "임베디드 결제를 시작하지 못했습니다. 다시 시도해 주세요.",
     signIn: "먼저 로그인한 후 다시 시도하세요.",
     checkoutUnavailable: "지금은 결제를 사용할 수 없습니다.",
     openingPortal: "결제 포털을 여는 중…",
@@ -475,13 +436,9 @@ const MSG: Record<string, BillingMessages> = {
     activationSlow: "결제는 완료되었습니다. 적용이 평소보다 오래 걸리고 있으며 백그라운드에서 완료됩니다.",
   },
   fr: {
-    back: "Retour aux offres",
     billingUnavailable: "La facturation n'est pas disponible dans cette version.",
-    stripeLoad: "Impossible de charger Stripe. Vérifiez votre connexion et réessayez.",
     preparing: "Préparation du paiement sécurisé…",
     checkoutOpened: "Paiement en cours…",
-    complete: "Paiement terminé — activation de votre offre…",
-    embedError: "Impossible de démarrer le paiement intégré. Veuillez réessayer.",
     signIn: "Veuillez d'abord vous connecter, puis réessayer.",
     checkoutUnavailable: "Le paiement n'est pas disponible pour le moment.",
     openingPortal: "Ouverture du portail de facturation…",
@@ -492,13 +449,9 @@ const MSG: Record<string, BillingMessages> = {
     activationSlow: "Paiement reçu. L'activation prend plus de temps que d'habitude et se terminera en arrière-plan.",
   },
   es: {
-    back: "Volver a los planes",
     billingUnavailable: "La facturación no está disponible en esta versión.",
-    stripeLoad: "No se pudo cargar Stripe. Comprueba tu conexión e inténtalo de nuevo.",
     preparing: "Preparando el pago seguro…",
     checkoutOpened: "Pago en curso…",
-    complete: "Pago completado: activando tu plan…",
-    embedError: "No se pudo iniciar el pago integrado. Inténtalo de nuevo.",
     signIn: "Inicia sesión primero y vuelve a intentarlo.",
     checkoutUnavailable: "El pago no está disponible ahora mismo.",
     openingPortal: "Abriendo tu portal de facturación…",
@@ -520,7 +473,12 @@ const PLANS: Array<{ key: PlanKey; name: string; price: string; highlight: boole
 ];
 const PLAN_RANK: Record<string, number> = { free: 0, basic: 1, pro: 2 };
 
-export type BillingUiApi = { open: () => void; close: () => void };
+export type BillingUiApi = {
+  open: () => void;
+  close: () => void;
+  handlePlanUpdated: () => void;
+  handleUsageUpdated: () => void;
+};
 
 export type BillingUiDeps = {
   getCurrentPlan: () => string;
@@ -540,14 +498,12 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     plansHeading,
     plansSub,
     plansList,
-    plansCheckout,
-    plansCheckoutBack,
-    plansCheckoutMount,
     plansStatus,
   } = context.dom;
 
-  let embedded: EmbeddedCheckout | null = null;
   let activationTimer: number | null = null;
+  let activationTargetRank: number | null = null;
+  let activationTicks = 0;
   let checkoutPending = false;
 
   const setStatus = (message: string) => {
@@ -582,6 +538,8 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
       window.clearInterval(activationTimer);
       activationTimer = null;
     }
+    activationTargetRank = null;
+    activationTicks = 0;
   };
 
   // After Stripe reports completion the entitlement lands via webhook, which
@@ -589,78 +547,39 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
   // instead of closing the modal while the old plan is still showing.
   const beginActivationPoll = (purchasedPlan: string) => {
     stopActivationPoll();
-    const targetRank = PLAN_RANK[purchasedPlan] ?? 1;
+    activationTargetRank = PLAN_RANK[purchasedPlan] ?? 1;
     setStatus(msg().activating);
-    let ticks = 0;
+    deps.onPlanRefresh();
     activationTimer = window.setInterval(() => {
-      ticks += 1;
+      activationTicks += 1;
       deps.onPlanRefresh();
-      const current = (deps.getCurrentPlan() || "free").toLowerCase();
-      if ((PLAN_RANK[current] ?? 0) >= targetRank) {
+      if (activationTicks >= 20) {
         stopActivationPoll();
-        showPlansView();
-        renderPlans();
-        setStatus(msg().activated);
-        return;
-      }
-      if (ticks >= 20) {
-        stopActivationPoll();
-        showPlansView();
         renderPlans();
         setStatus(msg().activationSlow);
       }
     }, 1500);
   };
 
-  const destroyEmbedded = () => {
-    if (embedded) {
-      try {
-        embedded.destroy();
-      } catch {
-        /* ignore */
-      }
-      embedded = null;
-    }
-    if (plansCheckoutMount) {
-      plansCheckoutMount.innerHTML = "";
-    }
-  };
-
-  const showPlansView = () => {
-    destroyEmbedded();
-    plansCheckout?.classList.add("is-hidden");
-    plansList?.classList.remove("is-hidden");
-  };
-
   getBilling()?.onCheckoutClosed?.(({ plan, outcome }) => {
-    deps.onPlanRefresh();
     deps.refreshUsage?.();
     if (outcome === "success") {
       beginActivationPoll(plan || "basic");
       return;
     }
-    showPlansView();
     setStatus(outcome === "error" ? msg().checkoutUnavailable : "");
   });
 
   getBilling()?.onPortalClosed?.(() => {
     setStatus("");
-    const repaint = () => {
-      if (
-        plansModal?.classList.contains("is-open") &&
-        (!plansCheckout || plansCheckout.classList.contains("is-hidden"))
-      ) {
-        renderPlans();
-      }
-    };
     // Portal changes also arrive through Stripe webhooks. Refresh a few times
-    // so a tier change or cancellation does not depend on a fast webhook, and
-    // repaint shortly after each renderer → main → network round trip.
+    // so a tier change or cancellation does not depend on a fast webhook.
+    // Rendering is driven by handlePlanUpdated/handleUsageUpdated after the
+    // corresponding native response arrives, never by a guessed round-trip.
     for (const delay of [0, 1500, 4000, 8000]) {
       window.setTimeout(() => {
         deps.onPlanRefresh();
         deps.refreshUsage?.();
-        window.setTimeout(repaint, 350);
       }, delay);
     }
   });
@@ -685,39 +604,7 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
       setStatus(msg().checkoutOpened);
       return;
     }
-    if (!result.clientSecret || !result.publishableKey) {
-      setStatus(msg().checkoutUnavailable);
-      return;
-    }
-    const stripeFactory = getStripeFactory();
-    if (!stripeFactory) {
-      setStatus(msg().stripeLoad);
-      return;
-    }
-
-    plansList?.classList.add("is-hidden");
-    plansCheckout?.classList.remove("is-hidden");
-    setStatus("");
-
-    try {
-      const stripe = stripeFactory(result.publishableKey);
-      const checkout = await stripe.initEmbeddedCheckout({
-        fetchClientSecret: () => Promise.resolve(result.clientSecret as string),
-        onComplete: () => {
-          setStatus(msg().complete);
-          deps.onPlanRefresh();
-          deps.refreshUsage?.();
-          beginActivationPoll(plan);
-        },
-      });
-      embedded = checkout;
-      if (plansCheckoutMount) {
-        checkout.mount(plansCheckoutMount);
-      }
-    } catch {
-      setStatus(msg().embedError);
-      showPlansView();
-    }
+    setStatus(msg().checkoutUnavailable);
   };
 
   const startCheckout = async (plan: string) => {
@@ -927,30 +814,38 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     }
   };
 
+  const isVisible = () => Boolean(plansModal?.classList.contains("is-open"));
+
+  // Native plan/usage messages are delivered only after the network refresh
+  // has completed and aiChatUi has stored the new snapshot. Repaint from that
+  // reliable state boundary instead of estimating request latency with timers.
+  const handlePlanUpdated = () => {
+    if (!isVisible()) return;
+    renderPlans();
+    if (activationTargetRank === null) return;
+    const current = (deps.getCurrentPlan() || "free").toLowerCase();
+    if ((PLAN_RANK[current] ?? 0) >= activationTargetRank) {
+      stopActivationPoll();
+      setStatus(msg().activated);
+    }
+  };
+
+  const handleUsageUpdated = () => {
+    if (isVisible()) renderPlans();
+  };
+
   const open = () => {
     if (!plansModal) {
       return;
     }
-    // Ask for fresh plan + usage; the banner re-renders on the next open if
-    // the numbers changed (snapshot updates arrive asynchronously).
+    // Ask for fresh plan + usage. Their completed native responses call the
+    // state handlers above, which repaint with the stored snapshots.
     deps.onPlanRefresh();
     deps.refreshUsage?.();
     renderPlans();
-    if (plansCheckoutBack) plansCheckoutBack.textContent = msg().back;
-    showPlansView();
     setStatus("");
     plansModal.classList.add("is-open");
     plansModal.setAttribute("aria-hidden", "false");
-    // Refreshed plan/usage arrive async — repaint once they've had a moment,
-    // unless the user has already moved into the checkout view.
-    window.setTimeout(() => {
-      if (
-        plansModal.classList.contains("is-open") &&
-        plansCheckout?.classList.contains("is-hidden")
-      ) {
-        renderPlans();
-      }
-    }, 900);
   };
 
   const close = () => {
@@ -958,16 +853,11 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
       return;
     }
     stopActivationPoll();
-    destroyEmbedded();
     plansModal.classList.remove("is-open");
     plansModal.setAttribute("aria-hidden", "true");
   };
 
   plansModalClose?.addEventListener("click", close);
-  plansCheckoutBack?.addEventListener("click", () => {
-    showPlansView();
-    setStatus("");
-  });
   plansModal?.addEventListener("click", (event) => {
     if (event.target === plansModal) {
       close();
@@ -986,5 +876,5 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
   );
   window.addEventListener("tex64:open-plans", open);
 
-  return { open, close };
+  return { open, close, handlePlanUpdated, handleUsageUpdated };
 };

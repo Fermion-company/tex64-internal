@@ -8191,17 +8191,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   text-decoration: underline;
 }
 
-.plans-checkout {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-}
-.plans-checkout-mount {
-  min-height: 420px;
-  overflow-y: auto;
-}
-
 .plans-status {
   min-height: 18px;
   font-size: 12px;
