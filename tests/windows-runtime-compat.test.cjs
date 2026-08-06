@@ -107,6 +107,7 @@ test("Windows Store build remains independent of marketplace actions", () => {
     ?.split("\n  publish:\n")[0];
 
   assert.ok(windowsJob, "Windows Store build job must exist");
+  assert.match(windowsJob, /\[Version\]"22\.12\.0"/u);
   const actionReferences = [...windowsJob.matchAll(/^\s*uses:\s*(\S+)/gmu)].map(
     (match) => match[1]
   );
@@ -118,6 +119,17 @@ test("Windows Store build remains independent of marketplace actions", () => {
   assert.match(windowsJob, /permissions:\s*\n\s*contents: read/u);
   assert.match(windowsJob, /uses: \.\/\.github\/actions\/upload-actions-artifact/u);
   assert.match(workflow, /windows_only:\s*\n(?:.*\n){0,5}\s*type: boolean/u);
+  const macJob = workflow
+    .split("\n  build:\n")[1]
+    ?.split("\n  windows:\n")[0];
+  const publishJob = workflow.split("\n  publish:\n")[1];
+  assert.match(macJob, /if: \$\{\{ inputs\.windows_only != true \}\}/u);
+  assert.match(publishJob, /if: \$\{\{ inputs\.windows_only != true \}\}/u);
+  assert.equal(
+    [...workflow.matchAll(/node-version: "22\.12\.0"/gu)].length,
+    2,
+    "macOS and publish jobs must use the dependency-compatible Node runtime"
+  );
   assert.match(
     workflow,
     /group: release-\$\{\{ github\.ref \}\}-\$\{\{ inputs\.windows_only && 'windows-only' \|\| 'full' \}\}/u
