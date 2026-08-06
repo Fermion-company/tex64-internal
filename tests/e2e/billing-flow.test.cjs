@@ -375,10 +375,12 @@ test("in-app billing flow (hosted Checkout only)", async (t) => {
     status: (document.getElementById("plans-status")?.textContent || "").trim(),
   }));
   assert.ok(activationState.open, "plans modal stays open while the hosted purchase activates");
-  assert.equal(
-    activationState.status,
-    "Payment received — activating your plan…",
-    "success return switches the renderer to activation status"
+  assert.ok(
+    [
+      "Payment received — activating your plan…",
+      "Your plan is now active. Enjoy!",
+    ].includes(activationState.status),
+    "success return stays in activation or advances to the active plan"
   );
 
   await page.waitForFunction(

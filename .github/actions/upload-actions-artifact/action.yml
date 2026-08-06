@@ -1,0 +1,20 @@
+name: Upload TeX64 build artifact
+description: Upload an Actions artifact without downloading a marketplace action
+inputs:
+  name:
+    description: Immutable artifact name
+    required: true
+  path:
+    description: Newline-delimited file globs relative to the workspace
+    required: true
+  retention-days:
+    description: Artifact retention period
+    required: false
+    default: "30"
+  compression-level:
+    description: ZIP compression level from 0 through 9
+    required: false
+    default: "0"
+runs:
+  using: node24
+  main: index.cjs

@@ -97,6 +97,49 @@ test("Windows packaged GUI smoke tests require explicit success sentinels", () =
   );
 });
 
+test("Windows Store build remains independent of marketplace actions", () => {
+  const workflow = fs.readFileSync(
+    path.join(__dirname, "..", ".github", "workflows", "release.yml"),
+    "utf8"
+  );
+  const windowsJob = workflow
+    .split("\n  windows:\n")[1]
+    ?.split("\n  publish:\n")[0];
+
+  assert.ok(windowsJob, "Windows Store build job must exist");
+  const actionReferences = [...windowsJob.matchAll(/^\s*uses:\s*(\S+)/gmu)].map(
+    (match) => match[1]
+  );
+  assert.ok(actionReferences.length > 0, "Windows artifact upload action must exist");
+  assert.ok(
+    actionReferences.every((reference) => reference.startsWith("./")),
+    "Windows package recovery must not download remote actions"
+  );
+  assert.match(windowsJob, /permissions:\s*\n\s*contents: read/u);
+  assert.match(windowsJob, /uses: \.\/\.github\/actions\/upload-actions-artifact/u);
+  assert.match(workflow, /windows_only:\s*\n(?:.*\n){0,5}\s*type: boolean/u);
+  const localAction = fs.readFileSync(
+    path.join(
+      __dirname,
+      "..",
+      ".github",
+      "actions",
+      "upload-actions-artifact",
+      "action.yml"
+    ),
+    "utf8"
+  );
+  assert.match(localAction, /using: node24/u);
+  assert.match(localAction, /main: index\.cjs/u);
+  const localActionEntrypoint = fs.readFileSync(
+    path.join(__dirname, "..", ".github", "actions", "upload-actions-artifact", "index.cjs"),
+    "utf8"
+  );
+  assert.match(localActionEntrypoint, /scripts\/upload-actions-artifact\.cjs/u);
+  assert.match(localActionEntrypoint, /INPUT_RETENTION-DAYS/u);
+  assert.match(localActionEntrypoint, /INPUT_COMPRESSION-LEVEL/u);
+});
+
 test("managed Windows TeX Live is rooted in per-user LocalAppData", () => {
   const env = {
     LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",

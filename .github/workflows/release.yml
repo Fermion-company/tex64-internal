@@ -21,6 +21,11 @@ on:
         description: Publisher display name shown by Microsoft Store
         required: false
         type: string
+      windows_only:
+        description: Build only the Microsoft Store package (skips macOS and release publishing)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -32,6 +37,7 @@ concurrency:
 jobs:
   build:
     name: Build (macOS ${{ matrix.arch }})
+    if: ${{ inputs.windows_only != true }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -215,6 +221,8 @@ jobs:
     name: Build (Windows x64 / Microsoft Store)
     runs-on: windows-2025
     timeout-minutes: 50
+    permissions:
+      contents: read
     env:
       # Store identity values are public package metadata. Workflow inputs take
       # precedence, then repository variables/secrets, then the reserved TeX64 identity.
@@ -228,25 +236,61 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Configure node-gyp Python
+      - name: Verify preinstalled Windows toolchain
         shell: pwsh
         run: |
-          "PYTHON=$env:pythonLocation\python.exe" >> $env:GITHUB_ENV
-          "npm_config_python=$env:pythonLocation\python.exe" >> $env:GITHUB_ENV
+          $nodeMajor = [int](node -p "process.versions.node.split('.')[0]")
+          if ($LASTEXITCODE -ne 0 -or $nodeMajor -lt 22) {
+            throw "The Windows runner must provide Node.js 22 or newer"
+          }
+          node --version
+          npm --version
+
+          $python = $null
+          try {
+            $candidate = & py -3.11 -c "import sys; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($candidate)) {
+              $python = $candidate.Trim()
+            }
+          } catch {}
+          if ([string]::IsNullOrWhiteSpace($python)) {
+            try {
+              $candidate = & python -c "import sys; print(sys.executable)" 2>$null
+              if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($candidate)) {
+                $python = $candidate.Trim()
+              }
+            } catch {}
+          }
+          if ([string]::IsNullOrWhiteSpace($python) -or -not (Test-Path -LiteralPath $python)) {
+            throw "The Windows runner does not provide a usable Python interpreter"
+          }
+          & $python --version
+          "PYTHON=$python" >> $env:GITHUB_ENV
+          "npm_config_python=$python" >> $env:GITHUB_ENV
+
+      - name: Checkout without marketplace actions
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $credential = [Convert]::ToBase64String(
+            [Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GITHUB_TOKEN")
+          )
+          Write-Output "::add-mask::$credential"
+          git init .
+          git remote add origin "https://github.com/$env:GITHUB_REPOSITORY.git"
+          git -c "http.extraheader=AUTHORIZATION: basic $credential" fetch --no-tags --depth=1 origin $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not fetch the requested source revision"
+          }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not check out the requested source revision"
+          }
+          $checkedOut = git rev-parse HEAD
+          if ($checkedOut -ne $env:GITHUB_SHA) {
+            throw "Checked out $checkedOut instead of $env:GITHUB_SHA"
+          }
 
       - name: Install dependencies
         run: npm ci
@@ -385,13 +429,13 @@ jobs:
             --require-packaged `
             --require-platform win32
 
-      - name: Upload Microsoft Store screenshots
-        uses: actions/upload-artifact@v4
+      - name: Upload Microsoft Store screenshots without marketplace downloads
+        uses: ./.github/actions/upload-actions-artifact
         with:
-          name: tex64-windows-store-screenshots-${{ github.run_id }}
-          path: dist/store-screenshots/
-          if-no-files-found: error
+          name: tex64-windows-store-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/store-screenshots/**/*
           retention-days: 30
+          compression-level: 0
 
       - name: Validate AppX package and manifest
         shell: pwsh
@@ -615,24 +659,25 @@ jobs:
           - Store metadata overrides: `TEX64_WINDOWS_STORE_IDENTITY_NAME`, `TEX64_WINDOWS_STORE_APPLICATION_ID`, `TEX64_WINDOWS_STORE_PUBLISHER`, and `TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`.
           "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
-      - name: Upload Microsoft Store package
-        uses: actions/upload-artifact@v4
+      - name: Upload Microsoft Store package without marketplace downloads
+        uses: ./.github/actions/upload-actions-artifact
         with:
-          name: tex64-windows-store-x64-${{ github.run_id }}
+          name: tex64-windows-store-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/TeX64-*-win-x64.appx
-          if-no-files-found: error
           retention-days: 30
+          compression-level: 0
 
-      - name: Upload unsigned Windows beta
-        uses: actions/upload-artifact@v4
+      - name: Upload unsigned Windows beta without marketplace downloads
+        uses: ./.github/actions/upload-actions-artifact
         with:
-          name: tex64-windows-beta-x64-${{ github.run_id }}
+          name: tex64-windows-beta-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/TeX64-*-win-x64.exe
-          if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
   publish:
     name: Publish Release
+    if: ${{ inputs.windows_only != true }}
     runs-on: ubuntu-latest
     needs:
       - build
