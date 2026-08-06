@@ -300,6 +300,14 @@ jobs:
           npm run -s dist:prep
           npm run -s web:build
 
+      - name: Verify Windows billing flow
+        shell: pwsh
+        run: |
+          node --test `
+            tests/billing-checkout-contract.test.cjs `
+            tests/billing-checkout-url.test.cjs `
+            tests/e2e/billing-flow.test.cjs
+
       - name: Build unsigned Store AppX
         shell: pwsh
         run: |
@@ -334,7 +342,10 @@ jobs:
 
           $env:ELECTRON_RUN_AS_NODE = '1'
           $env:TEX64_PACKAGED_ASAR = $asarPath
-          & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; for (const name of ['@homebridge/node-pty-prebuilt-multiarch','onnxruntime-node']) { const resolved=require.resolve(name,{paths:[root]}); require(resolved); console.log(name+' -> '+resolved); }"
+          # onnxruntime-node can leave this short-lived Electron process with a
+          # non-zero teardown status even after every require succeeds. Exit
+          # explicitly once the load checks have completed.
+          & $appExe -e "const root=process.env.TEX64_PACKAGED_ASAR; for (const name of ['@homebridge/node-pty-prebuilt-multiarch','onnxruntime-node']) { const resolved=require.resolve(name,{paths:[root]}); require(resolved); console.log(name+' -> '+resolved); } console.log('TEX64_NATIVE_LOAD_OK'); process.exit(0);"
           if ($LASTEXITCODE -ne 0) {
             throw "A packaged native module could not be loaded by Electron"
           }
@@ -503,6 +514,17 @@ jobs:
           }
           if ($asarEntries | Where-Object { $_ -match '(?i)\.(pfx|snk)$' }) {
             throw "Signing key material must never be included in app.asar"
+          }
+          foreach ($requiredBillingEntry in @(
+            '\electron\services\billing-checkout.cjs',
+            '\electron\services\platform-access-feature-methods.cjs',
+            '\electron\preload.cjs',
+            '\Resources\web\app\billing-ui.js',
+            '\Resources\web\index.html'
+          )) {
+            if (-not ($asarEntries | Where-Object { $_ -eq $requiredBillingEntry })) {
+              throw "Windows Store package is missing a required billing payload: $requiredBillingEntry"
+            }
           }
 
           function Get-PeMachine {
