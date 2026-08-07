@@ -467,6 +467,13 @@ test("in-app billing flow (hosted Checkout only)", async (t) => {
   );
 
   // 4) Close paths: the close button and Escape both dismiss the modal.
+  // A clean Windows runner can finish TeX environment detection late and put
+  // its full-screen Settings page above the already-open Plans modal. Close
+  // that unrelated startup surface before exercising real pointer input.
+  await page.evaluate(() => document.getElementById("settings-close")?.click());
+  await page.waitForFunction(() => document.body.dataset.activeTab !== "settings", {
+    timeout: 5000,
+  });
   await page.evaluate(() => {
     if (!document.getElementById("plans-modal").classList.contains("is-open")) {
       window.dispatchEvent(new CustomEvent("tex64:open-plans"));
