@@ -15,9 +15,9 @@
     "electron:pack": "npm run -s dist:prep && npm run -s web:build && electron-builder --dir",
     "electron:dist": "npm run -s electron:dist:mac",
     "electron:dist:mac": "npm run -s dist:prep && npm run -s web:build && electron-builder --mac --publish never",
-    "electron:dist:win": "npm run -s electron:dist:win:store && npm run -s electron:dist:win:beta",
+    "electron:dist:win": "npm run -s electron:dist:win:store && npm run -s electron:dist:win:preview",
     "electron:dist:win:store": "npm run -s dist:prep && npm run -s web:build && node scripts/build-windows-store.cjs",
-    "electron:dist:win:beta": "npm run -s dist:prep && npm run -s web:build && electron-builder --win nsis --x64 --publish never",
+    "electron:dist:win:preview": "npm run -s dist:prep && npm run -s web:build && electron-builder --win nsis --x64 --publish never",
     "dmg:background": "node scripts/generate-dmg-background.cjs",
     "math:check": "node scripts/check-math-stack.cjs",
     "texlab:fetch": "node scripts/fetch-texlab.cjs",
@@ -158,6 +158,7 @@
       "electronUpdaterAware": false
     },
     "nsis": {
+      "artifactName": "${productName}-${version}-unsigned-preview-win-${arch}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
