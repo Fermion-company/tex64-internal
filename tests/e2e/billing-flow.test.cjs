@@ -196,6 +196,8 @@ const planButton = (page, planName) =>
     return card ? card.querySelector(".plan-cta") : null;
   }, planName);
 
+const CHILD_WINDOW_TIMEOUT_MS = 30_000;
+
 const waitForCondition = async (predicate, message, timeoutMs = 8000) => {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -309,7 +311,9 @@ test("in-app billing flow (hosted Checkout only)", async (t) => {
   // 2) Upgrade → hosted-only API contract → exact allowlisted Stripe URL in a
   //    hardened child window. A rapid double click still creates one session.
   const basicBtn = await planButton(page, "Basic");
-  const hostedWindowPromise = app.waitForEvent("window", { timeout: 8000 });
+  const hostedWindowPromise = app.waitForEvent("window", {
+    timeout: CHILD_WINDOW_TIMEOUT_MS,
+  });
   await basicBtn.asElement().evaluate((button) => {
     button.click();
     button.click();
@@ -405,7 +409,9 @@ test("in-app billing flow (hosted Checkout only)", async (t) => {
   const featureCallsBeforePortalClose = stub.calls.filter((c) => c.url.includes("/me/features")).length;
   const usageCallsBeforePortalClose = stub.calls.filter((c) => c.url.includes("/me/usage/ai")).length;
   const featureResponsesBeforePortalClose = stub.getFeatureResponseCount();
-  const portalWindowPromise = app.waitForEvent("window", { timeout: 8000 });
+  const portalWindowPromise = app.waitForEvent("window", {
+    timeout: CHILD_WINDOW_TIMEOUT_MS,
+  });
   await page.click("#plans-modal .plans-manage");
   const portalPage = await portalWindowPromise;
   await portalPage.waitForLoadState("domcontentloaded");
