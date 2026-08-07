@@ -412,7 +412,19 @@ test("in-app billing flow (hosted Checkout only)", async (t) => {
   const portalWindowPromise = app.waitForEvent("window", {
     timeout: CHILD_WINDOW_TIMEOUT_MS,
   });
-  await page.click("#plans-modal .plans-manage");
+  // Entitlement and usage responses can repaint the plans list at this exact
+  // boundary. Dispatch the click synchronously on the currently connected
+  // button so Playwright cannot lose the pointer sequence to a replacement
+  // node between mouse-down and mouse-up.
+  const portalButtonClicked = await page.evaluate(() => {
+    const button = document.querySelector("#plans-modal .plans-manage");
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return false;
+    }
+    button.click();
+    return true;
+  });
+  assert.equal(portalButtonClicked, true, "billing portal button is ready and receives the click");
   const portalPage = await portalWindowPromise;
   await portalPage.waitForLoadState("domcontentloaded");
   assert.notEqual(portalPage, page, "billing portal opened in a child BrowserWindow");
