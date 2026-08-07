@@ -5,9 +5,12 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  CAPTURE_METHOD,
+  CAPTURE_SOURCE,
   CAPTURE_HEIGHT,
   CAPTURE_WIDTH,
-  SCREENSHOT_TIMEOUT_MS,
+  NATIVE_CAPTURE_TIMEOUT_MS,
+  captureBrowserWindowPng,
   createDemoPdf,
   parseArgs,
   readPngSize,
@@ -21,9 +24,59 @@ test("Store screenshot size satisfies Partner Center's desktop minimum", () => {
   assert.ok(CAPTURE_HEIGHT >= 768);
 });
 
-test("Store screenshot capture allows a slow Windows compositor", () => {
-  assert.equal(SCREENSHOT_TIMEOUT_MS, 120_000);
-  assert.ok(SCREENSHOT_TIMEOUT_MS > 30_000);
+test("Store screenshot uses Electron's native BrowserWindow capture", async () => {
+  const expectedPng = Buffer.from("native-electron-png");
+  let captureRect = null;
+  let captureOptions = null;
+  const electronApp = {
+    evaluate: async (evaluateInElectron, options) =>
+      evaluateInElectron(
+        {
+          BrowserWindow: {
+            getAllWindows: () => [
+              {
+                isDestroyed: () => false,
+                getContentSize: () => [CAPTURE_WIDTH, CAPTURE_HEIGHT],
+                webContents: {
+                  capturePage: async (rect, nativeOptions) => {
+                    captureRect = rect;
+                    captureOptions = nativeOptions;
+                    return {
+                      isEmpty: () => false,
+                      getSize: () => ({ width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT }),
+                      toPNG: () => expectedPng,
+                    };
+                  },
+                },
+              },
+            ],
+          },
+        },
+        options
+      ),
+  };
+
+  const png = await captureBrowserWindowPng(electronApp);
+  assert.deepEqual(png, expectedPng);
+  assert.deepEqual(captureRect, {
+    x: 0,
+    y: 0,
+    width: CAPTURE_WIDTH,
+    height: CAPTURE_HEIGHT,
+  });
+  assert.deepEqual(captureOptions, { stayHidden: true, stayAwake: true });
+  assert.equal(NATIVE_CAPTURE_TIMEOUT_MS, 30_000);
+  assert.equal(CAPTURE_SOURCE, "real Electron BrowserWindow content");
+  assert.equal(CAPTURE_METHOD, "BrowserWindow.webContents.capturePage");
+});
+
+test("Store screenshot flow cannot regress to Playwright page.screenshot", () => {
+  const script = fs.readFileSync(
+    path.join(__dirname, "..", "scripts", "capture-windows-store-screenshots.cjs"),
+    "utf8"
+  );
+  assert.match(script, /webContents\.capturePage\(/);
+  assert.doesNotMatch(script, /\bpage\.screenshot\s*\(/);
 });
 
 test("capture CLI parses packaged Windows settings and locales", () => {

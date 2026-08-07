@@ -15,7 +15,9 @@ const FIXTURE_TEX = path.join(
 );
 const CAPTURE_WIDTH = 1600;
 const CAPTURE_HEIGHT = 900;
-const SCREENSHOT_TIMEOUT_MS = 120_000;
+const NATIVE_CAPTURE_TIMEOUT_MS = 30_000;
+const CAPTURE_SOURCE = "real Electron BrowserWindow content";
+const CAPTURE_METHOD = "BrowserWindow.webContents.capturePage";
 const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const DEFAULT_LOCALES = ["ja", "en"];
 const SENSITIVE_ENV_KEY =
@@ -317,6 +319,75 @@ const setCaptureWindowSize = async (electronApp) => {
   );
 };
 
+const captureBrowserWindowPng = async (electronApp) => {
+  const capture = await electronApp.evaluate(
+    async ({ BrowserWindow }, options) => {
+      const mainWindow = BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
+      if (!mainWindow) {
+        throw new Error("TeX64 did not create a BrowserWindow");
+      }
+
+      const contentSize = mainWindow.getContentSize();
+      if (contentSize[0] !== options.width || contentSize[1] !== options.height) {
+        throw new Error(
+          `TeX64 content is ${contentSize[0]}x${contentSize[1]}; expected ${options.width}x${options.height}`
+        );
+      }
+
+      let timeout = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`Native Electron capture timed out after ${options.timeoutMs}ms`)),
+          options.timeoutMs
+        );
+      });
+
+      let image;
+      try {
+        image = await Promise.race([
+          mainWindow.webContents.capturePage(
+            { x: 0, y: 0, width: options.width, height: options.height },
+            { stayHidden: true, stayAwake: true }
+          ),
+          timeoutPromise,
+        ]);
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (image.isEmpty()) {
+        throw new Error("Native Electron capture returned an empty image");
+      }
+      const dimensions = image.getSize();
+      const png = image.toPNG();
+      return {
+        pngBase64: png.toString("base64"),
+        width: dimensions.width,
+        height: dimensions.height,
+      };
+    },
+    {
+      width: CAPTURE_WIDTH,
+      height: CAPTURE_HEIGHT,
+      timeoutMs: NATIVE_CAPTURE_TIMEOUT_MS,
+    }
+  );
+
+  if (capture.width !== CAPTURE_WIDTH || capture.height !== CAPTURE_HEIGHT) {
+    throw new Error(
+      `Native Electron capture is ${capture.width}x${capture.height}; expected ${CAPTURE_WIDTH}x${CAPTURE_HEIGHT}`
+    );
+  }
+  if (typeof capture.pngBase64 !== "string" || capture.pngBase64.length === 0) {
+    throw new Error("Native Electron capture did not return PNG bytes");
+  }
+  const png = Buffer.from(capture.pngBase64, "base64");
+  if (png.length === 0) {
+    throw new Error("Native Electron capture returned an empty PNG buffer");
+  }
+  return png;
+};
+
 const prepareAppState = async (page, locale, workspaceName) => {
   const ensureFilesTab = async () => {
     const activeTab = await page.locator("body").getAttribute("data-active-tab");
@@ -528,19 +599,9 @@ const captureScreenshots = async (options) => {
       const localeTag = locale === "ja" ? "ja-JP" : "en-US";
       const fileName = `tex64-editor-pdf-${localeTag}-${CAPTURE_WIDTH}x${CAPTURE_HEIGHT}.png`;
       const filePath = path.join(options.outputDir, fileName);
-      console.log(
-        `[store-screenshot] capturing ${localeTag} (timeout ${SCREENSHOT_TIMEOUT_MS}ms)`
-      );
-      await page.screenshot({
-        path: filePath,
-        type: "png",
-        animations: "disabled",
-        caret: "hide",
-        scale: "css",
-        // Windows hosted runners can spend longer than Playwright's 30-second
-        // default in Chromium's compositor after fonts and the PDF are ready.
-        timeout: SCREENSHOT_TIMEOUT_MS,
-      });
+      console.log(`[store-screenshot] capturing ${localeTag} with ${CAPTURE_METHOD}`);
+      const png = await captureBrowserWindowPng(electronApp);
+      fs.writeFileSync(filePath, png);
       const dimensions = readPngSize(filePath);
       const byteLength = fs.statSync(filePath).size;
       if (dimensions.width !== CAPTURE_WIDTH || dimensions.height !== CAPTURE_HEIGHT) {
@@ -560,7 +621,8 @@ const captureScreenshots = async (options) => {
       schemaVersion: 1,
       capturedAt: new Date().toISOString(),
       runtime,
-      source: "real Playwright Electron page screenshot",
+      source: CAPTURE_SOURCE,
+      method: CAPTURE_METHOD,
       workspace: {
         label: path.basename(workspacePath),
         files: ["main.tex", "main.pdf"],
@@ -601,9 +663,12 @@ if (require.main === module) {
 }
 
 module.exports = {
+  CAPTURE_METHOD,
+  CAPTURE_SOURCE,
   CAPTURE_HEIGHT,
   CAPTURE_WIDTH,
-  SCREENSHOT_TIMEOUT_MS,
+  NATIVE_CAPTURE_TIMEOUT_MS,
+  captureBrowserWindowPng,
   createDemoPdf,
   parseArgs,
   readPngSize,
