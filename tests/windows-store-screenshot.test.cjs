@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   CAPTURE_HEIGHT,
   CAPTURE_WIDTH,
+  SCREENSHOT_TIMEOUT_MS,
   createDemoPdf,
   parseArgs,
   readPngSize,
@@ -18,6 +19,11 @@ test("Store screenshot size satisfies Partner Center's desktop minimum", () => {
   assert.equal(CAPTURE_HEIGHT, 900);
   assert.ok(CAPTURE_WIDTH >= 1366);
   assert.ok(CAPTURE_HEIGHT >= 768);
+});
+
+test("Store screenshot capture allows a slow Windows compositor", () => {
+  assert.equal(SCREENSHOT_TIMEOUT_MS, 120_000);
+  assert.ok(SCREENSHOT_TIMEOUT_MS > 30_000);
 });
 
 test("capture CLI parses packaged Windows settings and locales", () => {

@@ -15,6 +15,7 @@ const FIXTURE_TEX = path.join(
 );
 const CAPTURE_WIDTH = 1600;
 const CAPTURE_HEIGHT = 900;
+const SCREENSHOT_TIMEOUT_MS = 120_000;
 const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const DEFAULT_LOCALES = ["ja", "en"];
 const SENSITIVE_ENV_KEY =
@@ -527,12 +528,18 @@ const captureScreenshots = async (options) => {
       const localeTag = locale === "ja" ? "ja-JP" : "en-US";
       const fileName = `tex64-editor-pdf-${localeTag}-${CAPTURE_WIDTH}x${CAPTURE_HEIGHT}.png`;
       const filePath = path.join(options.outputDir, fileName);
+      console.log(
+        `[store-screenshot] capturing ${localeTag} (timeout ${SCREENSHOT_TIMEOUT_MS}ms)`
+      );
       await page.screenshot({
         path: filePath,
         type: "png",
         animations: "disabled",
         caret: "hide",
         scale: "css",
+        // Windows hosted runners can spend longer than Playwright's 30-second
+        // default in Chromium's compositor after fonts and the PDF are ready.
+        timeout: SCREENSHOT_TIMEOUT_MS,
       });
       const dimensions = readPngSize(filePath);
       const byteLength = fs.statSync(filePath).size;
@@ -596,6 +603,7 @@ if (require.main === module) {
 module.exports = {
   CAPTURE_HEIGHT,
   CAPTURE_WIDTH,
+  SCREENSHOT_TIMEOUT_MS,
   createDemoPdf,
   parseArgs,
   readPngSize,
