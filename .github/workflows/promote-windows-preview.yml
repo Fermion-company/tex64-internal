@@ -1,0 +1,453 @@
+name: Promote Windows Preview
+
+# This workflow deliberately separates publication from the Windows build. It
+# promotes one immutable artifact from a successful Build Distributables run.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Build Distributables run ID containing the Windows NSIS artifact
+        required: true
+        type: string
+      version:
+        description: Existing release version to promote (for example 0.1.21)
+        required: true
+        type: string
+      publish_unsigned_windows_preview:
+        description: I acknowledge this EXE is unsigned and SmartScreen may warn or block it; publish it
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: promote-windows-preview-stable
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote unsigned Windows x64 preview
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      VERSION_INPUT: ${{ inputs.version }}
+      PUBLISH_ACKNOWLEDGED: ${{ inputs.publish_unsigned_windows_preview }}
+      TEX64_DOWNLOADS_PUBLIC_BASE_URL: ${{ secrets.TEX64_DOWNLOADS_PUBLIC_BASE_URL }}
+      TEX64_DOWNLOADS_BUCKET: ${{ secrets.TEX64_DOWNLOADS_BUCKET }}
+      TEX64_DOWNLOADS_ACCESS_KEY_ID: ${{ secrets.TEX64_DOWNLOADS_ACCESS_KEY_ID }}
+      TEX64_DOWNLOADS_SECRET_ACCESS_KEY: ${{ secrets.TEX64_DOWNLOADS_SECRET_ACCESS_KEY }}
+      TEX64_DOWNLOADS_ENDPOINT: ${{ secrets.TEX64_DOWNLOADS_ENDPOINT }}
+      TEX64_DOWNLOADS_REGION: ${{ secrets.TEX64_DOWNLOADS_REGION }}
+
+    steps:
+      - name: Checkout promotion tooling
+        uses: actions/checkout@v4
+
+      - name: Require explicit publication acknowledgement
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH_ACKNOWLEDGED" != "true" ]; then
+            echo "::error::Publication is disabled. Check the unsigned Windows preview acknowledgement to publish."
+            exit 1
+          fi
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::source_run_id must contain only digits"
+            exit 1
+          fi
+          version="${VERSION_INPUT#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version must be a semantic version such as 0.1.21"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Require downloads credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          require_value() {
+            if [ -z "$1" ]; then
+              echo "::error::Missing required secret: $2"
+              missing=1
+            fi
+          }
+          require_value "$TEX64_DOWNLOADS_PUBLIC_BASE_URL" "TEX64_DOWNLOADS_PUBLIC_BASE_URL"
+          require_value "$TEX64_DOWNLOADS_BUCKET" "TEX64_DOWNLOADS_BUCKET"
+          require_value "$TEX64_DOWNLOADS_ACCESS_KEY_ID" "TEX64_DOWNLOADS_ACCESS_KEY_ID"
+          require_value "$TEX64_DOWNLOADS_SECRET_ACCESS_KEY" "TEX64_DOWNLOADS_SECRET_ACCESS_KEY"
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          downloads_base="${TEX64_DOWNLOADS_PUBLIC_BASE_URL%/}"
+          if [[ ! "$downloads_base" =~ ^https:// ]]; then
+            echo "::error::TEX64_DOWNLOADS_PUBLIC_BASE_URL must use HTTPS"
+            exit 1
+          fi
+          echo "DOWNLOADS_BASE_URL=$downloads_base" >> "$GITHUB_ENV"
+
+      - name: Validate source run and select its immutable artifact
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p promotion/source promotion/existing promotion/generated promotion/verification
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > promotion/source-run.json
+
+          status="$(jq -r '.status // ""' promotion/source-run.json)"
+          conclusion="$(jq -r '.conclusion // ""' promotion/source-run.json)"
+          source_repo="$(jq -r '.head_repository.full_name // ""' promotion/source-run.json)"
+          workflow_path="$(jq -r '.path // ""' promotion/source-run.json)"
+          head_sha="$(jq -r '.head_sha // ""' promotion/source-run.json)"
+          run_attempt="$(jq -r '.run_attempt // 0' promotion/source-run.json)"
+
+          if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
+            echo "::error::Source run must be completed successfully (status=$status, conclusion=$conclusion)"
+            exit 1
+          fi
+          if [ "$source_repo" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::Source run belongs to an unexpected repository: $source_repo"
+            exit 1
+          fi
+          if [ "$workflow_path" != ".github/workflows/release.yml" ]; then
+            echo "::error::Source run is not Build Distributables: $workflow_path"
+            exit 1
+          fi
+          if [[ ! "$head_sha" =~ ^[a-f0-9]{40}$ ]] || [[ ! "$run_attempt" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Source run is missing a valid head SHA or run attempt"
+            exit 1
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" \
+            > promotion/source-artifacts.json
+          new_name="tex64-windows-unsigned-preview-x64-${SOURCE_RUN_ID}-${run_attempt}"
+          legacy_name="tex64-windows-beta-x64-${SOURCE_RUN_ID}-${run_attempt}"
+          mapfile -t artifact_names < <(
+            jq -r --arg new "$new_name" --arg legacy "$legacy_name" \
+              '.artifacts[] | select(.expired == false and (.name == $new or .name == $legacy)) | .name' \
+              promotion/source-artifacts.json
+          )
+          if [ "${#artifact_names[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one unexpired Windows preview artifact for run attempt $run_attempt"
+            jq -r '.artifacts[] | "available artifact: \(.name) (expired=\(.expired))"' \
+              promotion/source-artifacts.json
+            exit 1
+          fi
+
+          artifact_name="${artifact_names[0]}"
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$artifact_name" \
+            --dir promotion/source
+          mapfile -t installers < <(find promotion/source -type f -iname '*.exe' -print)
+          if [ "${#installers[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one EXE in $artifact_name, found ${#installers[@]}"
+            find promotion/source -type f -maxdepth 3 -print
+            exit 1
+          fi
+          echo "artifact_path=${installers[0]}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
+
+      - name: Read existing release and stable metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > promotion/existing/release.json
+          if [ "$(jq -r '.draft' promotion/existing/release.json)" != "false" ] || \
+            [ "$(jq -r '.prerelease' promotion/existing/release.json)" != "false" ]; then
+            echo "::error::$tag must be an existing public, non-prerelease GitHub release"
+            exit 1
+          fi
+          if [ "$(jq -r '.tag_name' promotion/existing/release.json)" != "$tag" ]; then
+            echo "::error::Existing release tag does not match $tag"
+            exit 1
+          fi
+          gh release download "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern checksums-sha256.txt \
+            --dir promotion/existing
+          jq -r '.body // ""' promotion/existing/release.json > promotion/existing/release-notes.md
+          curl --fail --show-error --silent --location --retry 5 \
+            "$DOWNLOADS_BASE_URL/tex64/updates/stable.json?source_run_id=$SOURCE_RUN_ID" \
+            --output promotion/existing/stable.json
+
+      - name: Validate unsigned installer and prepare merged metadata
+        id: metadata
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.source.outputs.artifact_path }}
+        run: |
+          set -euo pipefail
+          file_name="$(basename "$ARTIFACT_PATH")"
+          artifact_url="$DOWNLOADS_BASE_URL/tex64/v${VERSION}/$file_name"
+          node scripts/prepare-windows-preview-promotion.cjs \
+            --artifact "$ARTIFACT_PATH" \
+            --version "$VERSION" \
+            --checksums-in promotion/existing/checksums-sha256.txt \
+            --checksums-out promotion/generated/checksums-sha256.txt \
+            --feed-in promotion/existing/stable.json \
+            --feed-out promotion/generated/stable.json \
+            --notes-in promotion/existing/release-notes.md \
+            --notes-out promotion/generated/release-notes.md \
+            --metadata-out promotion/generated/metadata.json \
+            --artifact-url "$artifact_url"
+
+          validated_name="$(jq -r '.fileName' promotion/generated/metadata.json)"
+          sha256="$(jq -r '.sha256' promotion/generated/metadata.json)"
+          size="$(jq -r '.size' promotion/generated/metadata.json)"
+          if [ "$validated_name" != "$file_name" ] || [[ ! "$sha256" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Artifact metadata validation failed"
+            exit 1
+          fi
+          cp "$ARTIFACT_PATH" "promotion/generated/$validated_name"
+          echo "file_name=$validated_name" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+          echo "r2_url=$artifact_url" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable Windows asset and checksums to R2
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.TEX64_DOWNLOADS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.TEX64_DOWNLOADS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.TEX64_DOWNLOADS_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.TEX64_DOWNLOADS_REGION }}
+          FILE_NAME: ${{ steps.metadata.outputs.file_name }}
+          SHA256: ${{ steps.metadata.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          export AWS_EC2_METADATA_DISABLED=true
+          export AWS_S3_FORCE_PATH_STYLE=true
+          export AWS_REGION="${AWS_REGION:-auto}"
+          export AWS_DEFAULT_REGION="$AWS_REGION"
+          aws_args=()
+          if [ -n "$TEX64_DOWNLOADS_ENDPOINT" ]; then
+            aws_args+=(--endpoint-url "$TEX64_DOWNLOADS_ENDPOINT")
+          fi
+          prefix="s3://$TEX64_DOWNLOADS_BUCKET/tex64/v${VERSION}"
+          aws "${aws_args[@]}" s3 cp \
+            "promotion/generated/$FILE_NAME" "$prefix/$FILE_NAME" \
+            --cache-control "public,max-age=31536000,immutable" \
+            --content-type "application/vnd.microsoft.portable-executable" \
+            --metadata "sha256=$SHA256"
+          aws "${aws_args[@]}" s3 cp \
+            promotion/generated/checksums-sha256.txt "$prefix/checksums-sha256.txt" \
+            --cache-control "public,max-age=60" \
+            --content-type "text/plain; charset=utf-8"
+
+      - name: Upload Windows asset and merged checksums to GitHub Release
+        shell: bash
+        env:
+          FILE_NAME: ${{ steps.metadata.outputs.file_name }}
+          SHA256: ${{ steps.metadata.outputs.sha256 }}
+          SIZE: ${{ steps.metadata.outputs.size }}
+        run: |
+          set -euo pipefail
+          uploaded=false
+          for attempt in 1 2 3; do
+            if gh release upload "v${VERSION}" \
+              "promotion/generated/$FILE_NAME" \
+              promotion/generated/checksums-sha256.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber; then
+              sleep 5
+              gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+                > promotion/generated/release-after-upload.json
+              count="$(jq -r --arg name "$FILE_NAME" \
+                '[.assets[] | select(.name == $name)] | length' \
+                promotion/generated/release-after-upload.json)"
+              published_size="$(jq -r --arg name "$FILE_NAME" \
+                '.assets[] | select(.name == $name) | .size' \
+                promotion/generated/release-after-upload.json)"
+              published_digest="$(jq -r --arg name "$FILE_NAME" \
+                '.assets[] | select(.name == $name) | .digest // ""' \
+                promotion/generated/release-after-upload.json)"
+              if [ "$count" = "1" ] && [ "$published_size" = "$SIZE" ] && \
+                { [ -z "$published_digest" ] || [ "$published_digest" = "sha256:$SHA256" ]; }; then
+                uploaded=true
+                break
+              fi
+            fi
+            echo "::warning::GitHub Release asset was not visible or verified after upload attempt $attempt"
+            sleep 10
+          done
+          if [ "$uploaded" != "true" ]; then
+            echo "::error::GitHub Release asset did not pass size/digest verification after three attempts"
+            exit 1
+          fi
+
+      - name: Add the unsigned-preview warning to release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "v${VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes-file promotion/generated/release-notes.md
+
+      - name: Publish merged stable feed last
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.TEX64_DOWNLOADS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.TEX64_DOWNLOADS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.TEX64_DOWNLOADS_REGION }}
+          AWS_DEFAULT_REGION: ${{ env.TEX64_DOWNLOADS_REGION }}
+        run: |
+          set -euo pipefail
+          export AWS_EC2_METADATA_DISABLED=true
+          export AWS_S3_FORCE_PATH_STYLE=true
+          export AWS_REGION="${AWS_REGION:-auto}"
+          export AWS_DEFAULT_REGION="$AWS_REGION"
+          aws_args=()
+          if [ -n "$TEX64_DOWNLOADS_ENDPOINT" ]; then
+            aws_args+=(--endpoint-url "$TEX64_DOWNLOADS_ENDPOINT")
+          fi
+          aws "${aws_args[@]}" s3 cp \
+            promotion/generated/stable.json \
+            "s3://$TEX64_DOWNLOADS_BUCKET/tex64/updates/stable.json" \
+            --cache-control "public,max-age=60" \
+            --content-type "application/json"
+
+      - name: Verify GitHub Release and public downloads end to end
+        shell: bash
+        env:
+          FILE_NAME: ${{ steps.metadata.outputs.file_name }}
+          SHA256: ${{ steps.metadata.outputs.sha256 }}
+          R2_URL: ${{ steps.metadata.outputs.r2_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p promotion/verification
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+            > promotion/verification/github-release.json
+          mapfile -t github_urls < <(
+            jq -r --arg name "$FILE_NAME" \
+              '.assets[] | select(.name == $name) | .browser_download_url' \
+              promotion/verification/github-release.json
+          )
+          if [ "${#github_urls[@]}" -ne 1 ]; then
+            echo "::error::Published GitHub Release does not contain exactly one $FILE_NAME"
+            exit 1
+          fi
+          github_url="${github_urls[0]}"
+          curl --fail --show-error --silent --location --head --retry 5 "$github_url" > /dev/null
+
+          github_digest="$(jq -r --arg name "$FILE_NAME" \
+            '.assets[] | select(.name == $name) | .digest // ""' \
+            promotion/verification/github-release.json)"
+          if [ "$github_digest" != "sha256:$SHA256" ]; then
+            curl --fail --show-error --silent --location --retry 5 \
+              "$github_url?verify=$GITHUB_RUN_ID" \
+              --output promotion/verification/github-installer.exe
+            actual="$(sha256sum promotion/verification/github-installer.exe | cut -d' ' -f1)"
+            if [ "$actual" != "$SHA256" ]; then
+              echo "::error::GitHub Release installer checksum mismatch"
+              exit 1
+            fi
+          fi
+
+          curl --fail --show-error --silent --location --retry 5 \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v${VERSION}/checksums-sha256.txt?verify=$GITHUB_RUN_ID" \
+            --output promotion/verification/github-checksums.txt
+          if ! grep -Fqx "$SHA256  $FILE_NAME" promotion/verification/github-checksums.txt; then
+            echo "::error::GitHub Release checksum file does not contain the Windows installer digest"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent --location --retry 5 \
+            "$DOWNLOADS_BASE_URL/tex64/v${VERSION}/checksums-sha256.txt?verify=$GITHUB_RUN_ID" \
+            --output promotion/verification/r2-checksums.txt
+          if ! grep -Fqx "$SHA256  $FILE_NAME" promotion/verification/r2-checksums.txt; then
+            echo "::error::R2 checksum file does not contain the Windows installer digest"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent --location --retry 5 \
+            "$R2_URL?verify=$GITHUB_RUN_ID" \
+            --output promotion/verification/r2-installer.exe
+          actual="$(sha256sum promotion/verification/r2-installer.exe | cut -d' ' -f1)"
+          if [ "$actual" != "$SHA256" ]; then
+            echo "::error::Public R2 installer checksum mismatch"
+            exit 1
+          fi
+
+          feed_verified=false
+          for attempt in {1..18}; do
+            if curl --fail --show-error --silent --location \
+              "$DOWNLOADS_BASE_URL/tex64/updates/stable.json?verify=${GITHUB_RUN_ID}-${attempt}" \
+              --output promotion/verification/stable.json; then
+              if VERSION="$VERSION" FILE_NAME="$FILE_NAME" SHA256="$SHA256" R2_URL="$R2_URL" \
+                node - <<'NODE'
+          const fs = require("node:fs");
+          const feed = JSON.parse(fs.readFileSync("promotion/verification/stable.json", "utf8"));
+          const windows = Array.isArray(feed.artifacts)
+            ? feed.artifacts.filter(
+                (item) =>
+                  item.platform === "win32" &&
+                  item.arch === "x64" &&
+                  item.kind === "exe" &&
+                  item.url === process.env.R2_URL &&
+                  item.sha256 === `sha256:${process.env.SHA256}`
+              )
+            : [];
+          const mac = Array.isArray(feed.artifacts)
+            ? feed.artifacts.filter((item) => item.platform === "darwin")
+            : [];
+          if (
+            feed.latestVersion !== process.env.VERSION ||
+            feed.channel !== "stable" ||
+            windows.length !== 1 ||
+            mac.length === 0
+          ) {
+            process.exit(1);
+          }
+          NODE
+              then
+                feed_verified=true
+                break
+              fi
+            fi
+            sleep 10
+          done
+          if [ "$feed_verified" != "true" ]; then
+            echo "::error::Public stable feed did not expose the verified Windows artifact"
+            exit 1
+          fi
+
+          if ! jq -e --arg sha "$SHA256" \
+            '(.body // "") | contains("Microsoft Defender SmartScreen") and contains($sha)' \
+            promotion/verification/github-release.json > /dev/null; then
+            echo "::error::GitHub Release notes are missing the SmartScreen/checksum warning"
+            exit 1
+          fi
+
+      - name: Write publication summary
+        shell: bash
+        env:
+          FILE_NAME: ${{ steps.metadata.outputs.file_name }}
+          SHA256: ${{ steps.metadata.outputs.sha256 }}
+          SIZE: ${{ steps.metadata.outputs.size }}
+          R2_URL: ${{ steps.metadata.outputs.r2_url }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+        run: |
+          {
+            echo "## Windows preview published"
+            echo ""
+            echo "- Source run: [#${SOURCE_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID})"
+            echo "- Source commit: `${SOURCE_HEAD_SHA}`"
+            echo "- Release: [v${VERSION}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION})"
+            echo "- Installer: [${FILE_NAME}](${R2_URL}) (${SIZE} bytes)"
+            echo "- SHA-256: `${SHA256}`"
+            echo "- Stable feed: [stable.json](${DOWNLOADS_BASE_URL}/tex64/updates/stable.json)"
+            echo ""
+            echo "> The Windows installer is unsigned. Microsoft Defender SmartScreen may warn or block it."
+          } >> "$GITHUB_STEP_SUMMARY"
