@@ -75,7 +75,7 @@ test("Axiom run_command preserves Unix login-shell invocation", () => {
   );
 });
 
-test("Windows packaged GUI smoke tests require explicit success sentinels", () => {
+test("Windows packaged GUI smoke tests wait for output and require success sentinels", () => {
   const workflow = fs.readFileSync(
     path.join(__dirname, "..", ".github", "workflows", "release.yml"),
     "utf8"
@@ -90,6 +90,18 @@ test("Windows packaged GUI smoke tests require explicit success sentinels", () =
   )[0];
   assert.match(guiChecks, /TEX64_NATIVE_LOAD_OK/);
   assert.match(guiChecks, /TEX64_CONPTY_OK/);
+  assert.match(guiChecks, /System\.Diagnostics\.ProcessStartInfo/);
+  assert.match(guiChecks, /RedirectStandardOutput = \$true/);
+  assert.match(guiChecks, /RedirectStandardError = \$true/);
+  assert.match(guiChecks, /WaitForExit\(30000\)/);
+  assert.match(guiChecks, /Task\]::WaitAll\(\$outputTasks, 5000\)/);
+  assert.match(guiChecks, /Kill\(\$true\)/);
+  assert.doesNotMatch(guiChecks, /\$process\.WaitForExit\(\)/);
+  assert.doesNotMatch(
+    guiChecks,
+    /& \$appExe/,
+    "GUI-subsystem TeX64.exe must not use PowerShell's non-blocking invocation"
+  );
   assert.doesNotMatch(
     guiChecks,
     /\$LASTEXITCODE/,
