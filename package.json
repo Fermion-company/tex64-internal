@@ -1,6 +1,6 @@
 {
   "name": "tex64",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "AI搭載のデスクトップLaTeXエディタ。",
   "author": "株式会社Fermion",
   "private": true,
@@ -211,7 +211,7 @@
     "langchain": "^1.4.2",
     "marked": "^18.0.4",
     "nspell": "^2.1.5",
-    "onnxruntime-node": "^1.26.0",
+    "onnxruntime-node": "1.23.2",
     "pdfjs-dist": "^5.6.205",
     "pg": "^8.21.0",
     "tesseract.js": "^7.0.0",

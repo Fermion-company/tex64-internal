@@ -178,6 +178,38 @@ jobs:
             npx --no-install electron-builder --mac --x64 --publish never
           fi
 
+      - name: Smoke-test packaged ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          appPath="dist/mac-${{ matrix.arch }}/TeX64.app"
+          if [ ! -d "$appPath" ]; then
+            appPath="dist/mac/TeX64.app"
+          fi
+          appExecutable="${appPath}/Contents/MacOS/TeX64"
+          asarPath="${appPath}/Contents/Resources/app.asar"
+          if [ ! -x "$appExecutable" ] || [ ! -f "$asarPath" ]; then
+            echo "::error::Packaged TeX64 executable or app.asar not found for ${{ matrix.arch }}"
+            exit 1
+          fi
+
+          ELECTRON_RUN_AS_NODE=1 \
+            TEX64_PACKAGED_ASAR="$asarPath" \
+            TEX64_EXPECTED_ARCH="${{ matrix.arch }}" \
+            "$appExecutable" -e '
+            const root = process.env.TEX64_PACKAGED_ASAR;
+            const expectedArch = process.env.TEX64_EXPECTED_ARCH;
+            if (process.arch !== expectedArch) {
+              throw new Error(`Packaged Electron arch ${process.arch} does not match ${expectedArch}`);
+            }
+            const resolved = require.resolve("onnxruntime-node", { paths: [root] });
+            require(resolved);
+            console.log(`onnxruntime-node (${process.arch}) -> ${resolved}`);
+            console.log("TEX64_ONNX_LOAD_OK");
+          ' | tee /tmp/tex64-onnx-smoke.log
+          grep -q 'TEX64_ONNX_LOAD_OK' /tmp/tex64-onnx-smoke.log
+
       - name: Rebuild DMG (HFS+ background)
         shell: bash
         run: |
