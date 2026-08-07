@@ -168,6 +168,40 @@ test("Windows Store build remains independent of marketplace actions", () => {
   assert.match(localActionEntrypoint, /INPUT_COMPRESSION-LEVEL/u);
 });
 
+test("tagged full releases gate and clearly label the unsigned Windows preview", () => {
+  const root = path.join(__dirname, "..");
+  const workflow = fs.readFileSync(
+    path.join(root, ".github", "workflows", "release.yml"),
+    "utf8"
+  );
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8")
+  );
+  const windowsJob = workflow
+    .split("\n  windows:\n")[1]
+    ?.split("\n  publish:\n")[0];
+  const publishJob = workflow.split("\n  publish:\n")[1];
+
+  assert.ok(windowsJob, "Windows build job must exist");
+  assert.ok(publishJob, "release publishing job must exist");
+  assert.equal(
+    packageJson.build.nsis.artifactName,
+    "${productName}-${version}-unsigned-preview-win-${arch}.${ext}"
+  );
+  assert.match(workflow, /publish_unsigned_windows_preview:/u);
+  assert.match(workflow, /SmartScreen may warn or block; verify checksums/u);
+  assert.match(windowsJob, /SignatureStatus\]::NotSigned/u);
+  assert.match(publishJob, /needs:\s*\n\s*- build\s*\n\s*- windows/u);
+  assert.match(publishJob, /-name '\*-unsigned-preview-win-\*\.exe'/u);
+  assert.match(
+    publishJob,
+    /inputs\.publish_unsigned_windows_preview \}\}" = "true"/u
+  );
+  assert.match(publishJob, /Windows is an unsigned preview/u);
+  assert.match(publishJob, /Microsoft Defender SmartScreen/u);
+  assert.match(publishJob, /checksums-sha256\.txt/u);
+});
+
 test("managed Windows TeX Live is rooted in per-user LocalAppData", () => {
   const env = {
     LOCALAPPDATA: "C:\\Users\\Alice\\AppData\\Local",

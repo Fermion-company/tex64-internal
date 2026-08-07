@@ -26,6 +26,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish_unsigned_windows_preview:
+        description: Publicly publish the unsigned Windows preview (SmartScreen may warn or block; verify checksums)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -250,7 +255,7 @@ jobs:
           retention-days: 7
 
   windows:
-    name: Build (Windows x64 / Microsoft Store)
+    name: Build (Windows x64 / Store + unsigned preview)
     runs-on: windows-2025
     timeout-minutes: 50
     permissions:
@@ -404,7 +409,7 @@ jobs:
             "--config.appx.publisher=$env:TEX64_WINDOWS_STORE_PUBLISHER" `
             "--config.appx.publisherDisplayName=$env:TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME"
 
-      - name: Build unsigned NSIS beta
+      - name: Build unsigned Windows preview
         shell: pwsh
         run: npx --no-install electron-builder --win nsis --x64 --publish never
 
@@ -730,15 +735,18 @@ jobs:
           }
           Write-Host "Validated $($appx.Name) ($($appx.Length) bytes), $($peFiles.Count) x64 PE files, reserved identity, and approved branding"
 
-      - name: Validate NSIS beta artifact
+      - name: Validate unsigned Windows preview artifact
         shell: pwsh
         run: |
-          $installer = Get-ChildItem dist -Filter 'TeX64-*-win-x64.exe' -File | Select-Object -First 1
+          $installer = Get-ChildItem dist -Filter 'TeX64-*-unsigned-preview-win-x64.exe' -File | Select-Object -First 1
           if (-not $installer -or $installer.Length -lt 1MB) {
-            throw "NSIS beta artifact is missing or unexpectedly small"
+            throw "Unsigned Windows preview artifact is missing or unexpectedly small"
           }
           $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
-          Write-Host "NSIS beta signature status: $($signature.Status)"
+          if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::NotSigned) {
+            throw "Expected the Windows preview installer to be unsigned, got: $($signature.Status)"
+          }
+          Write-Host "Windows preview signature status: $($signature.Status)"
           Write-Host "Validated $($installer.Name) ($($installer.Length) bytes)"
 
       - name: Write Windows release summary
@@ -750,7 +758,8 @@ jobs:
           - **Microsoft Store:** submit the `.appx` artifact to Partner Center. Store ingestion signs it and Store clients receive efficient managed updates.
           - **Reserved product:** Store ID `$env:TEX64_WINDOWS_STORE_ID`; package family `$env:TEX64_WINDOWS_STORE_PFN`.
           - **License:** the Store package excludes the repository's proprietary root `LICENSE` and relies on Microsoft Store Standard Application License Terms; third-party notices remain packaged.
-          - **Beta only:** the unsigned `.exe` is retained as a CI artifact for internal testing; it is not added to the public update feed or GitHub Release.
+          - **Direct download (preview):** the unsigned `.exe` remains private unless the release operator explicitly enables public preview publication.
+          - **SmartScreen:** because the preview installer is not code-signed, Microsoft Defender SmartScreen may warn or block it. Verify its SHA-256 against `checksums-sha256.txt` before running it.
           - Store metadata overrides: `TEX64_WINDOWS_STORE_IDENTITY_NAME`, `TEX64_WINDOWS_STORE_APPLICATION_ID`, `TEX64_WINDOWS_STORE_PUBLISHER`, and `TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`.
           "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
@@ -762,11 +771,11 @@ jobs:
           retention-days: 30
           compression-level: 0
 
-      - name: Upload unsigned Windows beta without marketplace downloads
+      - name: Upload unsigned Windows preview without marketplace downloads
         uses: ./.github/actions/upload-actions-artifact
         with:
-          name: tex64-windows-beta-x64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/TeX64-*-win-x64.exe
+          name: tex64-windows-unsigned-preview-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/TeX64-*-unsigned-preview-win-x64.exe
           retention-days: 14
           compression-level: 0
 
@@ -776,6 +785,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build
+      - windows
     timeout-minutes: 15
     env:
       TEX64_DOWNLOADS_PUBLIC_BASE_URL: ${{ secrets.TEX64_DOWNLOADS_PUBLIC_BASE_URL }}
@@ -824,6 +834,7 @@ jobs:
       - name: Collect release assets
         shell: bash
         run: |
+          set -euo pipefail
           rm -rf release
           mkdir -p release
           find artifacts -type f \( \
@@ -832,6 +843,18 @@ jobs:
             base="$(basename "$file")"
             cp "$file" "release/$base"
           done
+          if [ "${{ inputs.publish_unsigned_windows_preview }}" = "true" ]; then
+            find artifacts -type f \
+              -name '*-unsigned-preview-win-*.exe' \
+              -print0 | while IFS= read -r -d '' file; do
+                base="$(basename "$file")"
+                cp "$file" "release/$base"
+              done
+            if ! compgen -G 'release/*-unsigned-preview-win-*.exe' > /dev/null; then
+              echo "::error::Unsigned Windows preview publication was requested, but the installer is missing"
+              exit 1
+            fi
+          fi
           ls -la release
 
       - name: Generate checksums
@@ -849,6 +872,9 @@ jobs:
             echo "- Set \`TEX64_UPDATE_SOURCE_PRIORITY=remote-first\`."
             echo "- Set \`TEX64_UPDATE_REMOTE_BASE_URL\` (example: \`https://downloads.tex64.com/tex64/updates\`)."
             echo "- (Optional) Set \`TEX64_GITHUB_RELEASE_REPO=${GITHUB_REPOSITORY}\` to allow GitHub fallback."
+            if [ "${{ inputs.publish_unsigned_windows_preview }}" = "true" ]; then
+              echo "- Windows direct download is an unsigned preview. SmartScreen may warn or block it; keep the checksum warning in release notes."
+            fi
             echo "- Import checksum file into tex64.com:"
             echo "  \`npm run -s release:import-checksums -- --version ${version} --file /path/to/checksums-sha256.txt\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -869,6 +895,18 @@ jobs:
             --artifactsBaseUrl "${publicBaseUrl%/}/tex64/v${version}" \
             --notesUrl "$notesUrl"
           ls -la update
+
+      - name: Prepare public release notice
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          : > release-preface.md
+          if [ "${{ inputs.publish_unsigned_windows_preview }}" = "true" ]; then
+            cat >> release-preface.md <<'EOF'
+          > [!WARNING]
+          > **Windows is an unsigned preview.** The `*-unsigned-preview-win-x64.exe` installer is not code-signed, so Microsoft Defender SmartScreen may warn or block it. Verify its SHA-256 against `checksums-sha256.txt` before running it.
+          EOF
+          fi
 
       - name: Upload assets to downloads (S3/R2)
         if: startsWith(github.ref, 'refs/tags/v') && env.TEX64_DOWNLOADS_BUCKET != '' && env.TEX64_DOWNLOADS_ACCESS_KEY_ID != '' && env.TEX64_DOWNLOADS_SECRET_ACCESS_KEY != '' && env.TEX64_DOWNLOADS_PUBLIC_BASE_URL != ''
@@ -913,7 +951,9 @@ jobs:
 
       - name: Publish release assets
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
+          body_path: release-preface.md
