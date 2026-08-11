@@ -742,6 +742,28 @@ app.whenReady().then(() => {
     queueOAuthCallbackUrl(arg);
   });
   if (!e2eHeadless) {
+    if (app.isPackaged === true) {
+      const triggerProductActivity = () => {
+        if (!BrowserWindow.getFocusedWindow()) return;
+        Promise.resolve(
+          getPlatformAccessService().recordActivity({
+            version: app.getVersion(),
+            platform: process.platform,
+            arch: process.arch,
+            distribution: distributionRuntime.windowsStore
+              ? "microsoft-store"
+              : "direct",
+          })
+        ).catch(() => {});
+      };
+      setTimeout(triggerProductActivity, 0);
+      setInterval(() => {
+        if (BrowserWindow.getFocusedWindow()) {
+          triggerProductActivity();
+        }
+      }, 60 * 60 * 1000);
+      app.on("browser-window-focus", triggerProductActivity);
+    }
     if (distributionRuntime.useIndependentUpdater) {
       const triggerUpdateCheck = () => {
         Promise.resolve(

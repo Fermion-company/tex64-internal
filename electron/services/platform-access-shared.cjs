@@ -16,6 +16,7 @@ const DEFAULT_STATE = {
   aiAccessFetchedAt: 0,
   aiUsageCache: null,
   aiUsageFetchedAt: 0,
+  lastActivityDay: null,
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));

@@ -50,6 +50,7 @@ class PlatformAccessService {
         : null;
     this.fileSystem = options.fileSystem || null;
     this._sessionSecretsNeedMigration = false;
+    this._activityRequest = null;
     const requestedBypass =
       options.bypassEntitlement === true ||
       process.env.TEX64_AI_BYPASS_ENTITLEMENT === "1" ||

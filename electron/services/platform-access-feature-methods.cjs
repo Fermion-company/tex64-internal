@@ -16,6 +16,51 @@ const {
 } = require("./platform-access-shared.cjs");
 
 const featureMethods = {
+  async recordActivity(options = {}) {
+    const today = new Date().toISOString().slice(0, 10);
+    const state = await this.ensureLoadedState();
+    if (state.lastActivityDay === today) {
+      return { status: "already-recorded", day: today };
+    }
+    if (this._activityRequest) {
+      return this._activityRequest;
+    }
+
+    const run = async () => {
+      const headers = {
+        "X-Tex64-Device-Id": await this.ensureDeviceId(),
+        "X-Tex64-Client": "desktop",
+      };
+      const response = await this.requestJson(`${this.apiBaseUrl}/activity`, {
+        method: "POST",
+        headers,
+        body: {
+          version: typeof options.version === "string" ? options.version.trim() : "",
+          platform: typeof options.platform === "string" ? options.platform.trim() : "",
+          arch: typeof options.arch === "string" ? options.arch.trim() : "",
+          distribution:
+            typeof options.distribution === "string"
+              ? options.distribution.trim()
+              : "",
+        },
+      });
+      const currentState = await this.ensureLoadedState();
+      currentState.lastActivityDay = today;
+      this.state = currentState;
+      await this.save();
+      return {
+        status:
+          typeof response?.status === "string" ? response.status : "accepted",
+        day: typeof response?.day === "string" ? response.day : today,
+      };
+    };
+
+    this._activityRequest = run().finally(() => {
+      this._activityRequest = null;
+    });
+    return this._activityRequest;
+  },
+
   async submitFeedback(payload, options = {}) {
     const body = payload && typeof payload === "object" ? { ...payload } : {};
     body.category =

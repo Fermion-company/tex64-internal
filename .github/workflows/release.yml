@@ -80,6 +80,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify product activity reporting
+        run: node --test tests/platform-activity.test.cjs
+
       - name: Ensure DMG background assets
         shell: bash
         run: |
@@ -385,12 +388,13 @@ jobs:
           npm run -s dist:prep
           npm run -s web:build
 
-      - name: Verify Windows billing flow
+      - name: Verify Windows platform and billing flow
         shell: pwsh
         run: |
           node --test `
             tests/billing-checkout-contract.test.cjs `
             tests/billing-checkout-url.test.cjs `
+            tests/platform-activity.test.cjs `
             tests/platform-session-secret-storage.test.cjs `
             tests/e2e/billing-flow.test.cjs
 
