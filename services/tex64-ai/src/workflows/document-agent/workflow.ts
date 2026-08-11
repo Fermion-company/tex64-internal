@@ -1,0 +1,812 @@
+import { createDocumentWorkflowAgent } from "@/server/agent/workflow-agent";
+import type { DeterministicFallbackPlan } from "@/server/agent/fallback-planner";
+import type {
+  DocumentToolContext,
+  DocumentToolHandlers,
+} from "@/server/agent/document-tools";
+import type { IndependentDocumentReview } from "@/server/agent/reviewer";
+import {
+  MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
+  MAX_AGENT_TOTAL_TOKENS_PER_RUN,
+} from "@/server/agent/token-budget";
+import { getWorkflowMetadata } from "workflow";
+
+import {
+  MAX_AGENT_STEPS,
+  MAX_CONTENT_REVIEW_REVISIONS,
+  allowsUnchangedDocumentCompletion,
+  buildBriefBackedFallbackPrompt,
+  buildInitialAgentPrompt,
+  buildRepairAgentPrompt,
+  documentAgentExecutionEvidence,
+  needsIndependentReviewAfterCompilation,
+  nextContentReviewAction,
+  nextCompileFailureAction,
+  safeWorkflowFailureCode,
+  semanticEventKey,
+} from "./helpers";
+import { buildReviewRepairInstructions } from "@/server/agent/review-repair-instructions";
+import {
+  applyDocumentPatchToolStep,
+  applyConfirmedBriefLayoutStep,
+  assessDocumentBriefStep,
+  activateDocumentRunWorkflowStep,
+  checkDocumentToolStep,
+  completeDocumentRunStep,
+  createDocumentPlanStep,
+  deleteDocumentToolStep,
+  failDocumentRunStep,
+  formatDocumentToolStep,
+  getRunDocumentRevisionStep,
+  loadDocumentRunStep,
+  markDocumentRunNeedsInputStep,
+  planFallbackDocumentStep,
+  publishDocumentToolStep,
+  readDocumentToolStep,
+  resolveSourceToolStep,
+  reviewDocumentStep,
+  recordSemanticStageStep,
+  resolveDocumentRunDecisionStep,
+  resolveDocumentRunPromptStep,
+  requestInputToolStep,
+  resolveAgentRuntimeStep,
+  runExpensiveTaskToolStep,
+  validateRenderCompileAndStoreStep,
+} from "./steps";
+import type {
+  AgentRuntimeSelection,
+  DocumentAgentWorkflowInput,
+  DocumentAgentWorkflowResult,
+} from "./types";
+
+const durableToolHandlers = {
+  readDocument: readDocumentToolStep,
+  resolveSource: resolveSourceToolStep,
+  applyDocumentPatch: applyDocumentPatchToolStep,
+  checkDocument: checkDocumentToolStep,
+  formatDocument: formatDocumentToolStep,
+  requestInput: requestInputToolStep,
+  deleteDocument: deleteDocumentToolStep,
+  publishDocument: publishDocumentToolStep,
+  runExpensiveTask: runExpensiveTaskToolStep,
+} satisfies DocumentToolHandlers;
+
+function documentToolContext(
+  input: DocumentAgentWorkflowInput,
+): DocumentToolContext {
+  return {
+    documentId: input.documentId,
+    runId: input.runId,
+    actorId: input.userId,
+  };
+}
+
+function unresolvedReviewQuestion(
+  review: IndependentDocumentReview,
+): string {
+  const firstFinding = review.review.findings.find(
+    (finding) =>
+      finding.severity === "blocker" || finding.severity === "major",
+  );
+  return (
+    review.question ??
+    (firstFinding
+      ? `${firstFinding.title}を解決するため、必要な情報や希望する方針を教えてください。`
+      : "文書を完成させるために不足している情報を教えてください。")
+  );
+}
+
+async function applyFallbackPlan(
+  input: DocumentAgentWorkflowInput,
+  plan: DeterministicFallbackPlan,
+): Promise<
+  | { status: "applied"; revision: number }
+  | { status: "needs_input"; question: string }
+> {
+  if (plan.status === "needs_input") {
+    await markDocumentRunNeedsInputStep({
+      workflow: input,
+      code: "clarification_required",
+      question: plan.question,
+    });
+    return { status: "needs_input", question: plan.question };
+  }
+
+  if (plan.requiresApproval) {
+    const question = "この内容を削除してよいですか？";
+    await markDocumentRunNeedsInputStep({
+      workflow: input,
+      code: "approval_required",
+      question,
+      pendingAction: { patch: plan.patch, summary: plan.summary },
+    });
+    return {
+      status: "needs_input",
+      question,
+    };
+  }
+
+  const applied = await applyDocumentPatchToolStep(
+    { patch: plan.patch, summary: plan.summary },
+    documentToolContext(input),
+  );
+  return { status: "applied", revision: applied.revision };
+}
+
+function createDurableAgent(
+  input: DocumentAgentWorkflowInput,
+  runtime: Extract<AgentRuntimeSelection, { provider: "ai_gateway" }>,
+  totalTokenBudget: number,
+) {
+  return createDocumentWorkflowAgent({
+    model: runtime.model,
+    handlers: durableToolHandlers,
+    context: documentToolContext(input),
+    maxSteps: MAX_AGENT_STEPS,
+    maxOutputTokens: Math.min(
+      MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
+      totalTokenBudget,
+    ),
+    maxTotalTokens: totalTokenBudget,
+    approvalMode: "external_run",
+    additionalInstructions: [
+      "この実行では対象文書だけを扱い、少なくとも一度は現在の文書を読んでから判断する。",
+      "承認が必要な操作はこの実行内で待機せず保留し、承認を回避する別操作も試みない。",
+      "文書全体の削除、公開、高コスト処理は未提供であり、自動実行しない。",
+    ],
+  });
+}
+
+function inspectAgentExecution(
+  result: {
+    finishReason: string;
+    steps: readonly {
+      toolCalls: readonly { toolName: string }[];
+      usage?: {
+        totalTokens: number | undefined;
+        inputTokens: number | undefined;
+        outputTokens: number | undefined;
+      };
+    }[];
+  },
+  totalTokenBudget: number,
+) {
+  const evidence = documentAgentExecutionEvidence({
+    finishReason: result.finishReason,
+    steps: result.steps,
+    maxSteps: MAX_AGENT_STEPS,
+    maxTotalTokens: totalTokenBudget,
+  });
+
+  if (!evidence.usageMeasured) {
+    throw new Error("Document agent token usage was unavailable.");
+  }
+  if (evidence.tokenBudgetExceeded) {
+    throw new Error("Document agent exceeded its safe token budget.");
+  }
+  if (evidence.sourceToolLimitExceeded) {
+    throw new Error("Document agent exceeded its safe source lookup limit.");
+  }
+
+  return evidence;
+}
+
+function assertCompletedAgentExecution(
+  evidence: ReturnType<typeof inspectAgentExecution>,
+) {
+  if (!evidence.readObserved) {
+    throw new Error("Document agent did not inspect the current document.");
+  }
+  if (evidence.reachedStepLimit) {
+    throw new Error("Document agent reached the safe execution limit.");
+  }
+  if (evidence.tokenBudgetReached && !evidence.completedNaturally) {
+    throw new Error("Document agent reached its safe token budget.");
+  }
+  if (!evidence.completedNaturally) {
+    throw new Error("Document agent did not finish its work naturally.");
+  }
+  if (!evidence.checkObserved) {
+    throw new Error("Document agent did not check the completed document.");
+  }
+
+  return evidence;
+}
+
+function remainingAgentTokenBudget(consumedTokens: number): number {
+  const remaining = MAX_AGENT_TOTAL_TOKENS_PER_RUN - consumedTokens;
+  if (remaining < 1) {
+    throw new Error("Document agent reached its safe token budget.");
+  }
+  return remaining;
+}
+
+async function verifyDocumentRevision(
+  input: DocumentAgentWorkflowInput,
+  revision: number,
+): Promise<void> {
+  const context = documentToolContext(input);
+  await readDocumentToolStep({ revision }, context);
+  const checked = await checkDocumentToolStep(
+    { revision, checks: ["structure", "references"] },
+    context,
+  );
+  if (checked.revision !== revision || !checked.ok) {
+    throw new Error("The completed document did not pass structural checks.");
+  }
+}
+
+/**
+ * Durable orchestration entrypoint. All persistence, model, compilation, and
+ * artifact I/O happens in module-level step functions (or WorkflowAgent's
+ * internally durable model/tool steps); this body only coordinates them.
+ */
+export async function runDocumentAgentWorkflow(
+  input: DocumentAgentWorkflowInput,
+): Promise<DocumentAgentWorkflowResult> {
+  "use workflow";
+
+  const ownsExecution = await activateDocumentRunWorkflowStep(
+    input,
+    getWorkflowMetadata().workflowRunId,
+  );
+  if (!ownsExecution) {
+    return {
+      status: "cancelled",
+      runId: input.runId,
+      documentId: input.documentId,
+    };
+  }
+
+  try {
+    const loaded = await loadDocumentRunStep(input);
+    if (loaded.state === "completed") {
+      return {
+        status: "completed",
+        runId: input.runId,
+        documentId: input.documentId,
+        revision: loaded.revision,
+        artifact: loaded.artifact,
+      };
+    }
+    if (loaded.state === "cancelled") {
+      return {
+        status: "cancelled",
+        runId: input.runId,
+        documentId: input.documentId,
+      };
+    }
+    if (loaded.state === "failed") {
+      return {
+        status: "failed",
+        runId: input.runId,
+        documentId: input.documentId,
+        message: loaded.message,
+      };
+    }
+    await recordSemanticStageStep(
+      input,
+      "understanding",
+      semanticEventKey(input.runId, "understanding"),
+    );
+    let revision = loaded.currentRevision;
+    const decision = await resolveDocumentRunDecisionStep(input);
+    if (decision.status === "rejected") {
+      return {
+        status: "cancelled",
+        runId: input.runId,
+        documentId: input.documentId,
+      };
+    }
+    if (decision.status === "stale") {
+      return {
+        status: "failed",
+        runId: input.runId,
+        documentId: input.documentId,
+        message: decision.message,
+      };
+    }
+    if (decision.status === "applied") {
+      revision = decision.revision;
+    }
+
+    const runtime = await resolveAgentRuntimeStep();
+    let consumedAgentTokens = 0;
+
+    const promptContext =
+      decision.status === "not_requested"
+        ? await resolveDocumentRunPromptStep(input)
+        : null;
+    const briefAssessment =
+      decision.status === "not_requested" && promptContext
+        ? await assessDocumentBriefStep({
+            workflow: input,
+            promptContext,
+            runtime,
+          })
+        : null;
+
+    if (briefAssessment?.status === "needs_input") {
+      await markDocumentRunNeedsInputStep({
+        workflow: input,
+        code: "clarification_required",
+        question: briefAssessment.question,
+      });
+      return {
+        status: "needs_input",
+        runId: input.runId,
+        documentId: input.documentId,
+        stage: "needs_input",
+        question: briefAssessment.question,
+      };
+    }
+
+    if (decision.status === "not_requested") {
+      await recordSemanticStageStep(
+        input,
+        "planning",
+        semanticEventKey(input.runId, "planning"),
+      );
+    }
+    const documentPlan =
+      decision.status === "not_requested" &&
+      briefAssessment?.status === "ready" &&
+      briefAssessment.brief
+        ? await createDocumentPlanStep({ workflow: input, runtime })
+        : null;
+    if (
+      briefAssessment?.status === "ready" &&
+      briefAssessment.brief &&
+      briefAssessment.briefVersion !== null
+    ) {
+      const formatted = await applyConfirmedBriefLayoutStep({
+        workflow: input,
+        briefVersion: briefAssessment.briefVersion,
+        baseRevision: revision,
+      });
+      if (formatted.status === "needs_input") {
+        return {
+          status: "needs_input",
+          runId: input.runId,
+          documentId: input.documentId,
+          stage: "needs_input",
+          question: formatted.question,
+        };
+      }
+      revision = formatted.revision;
+    }
+    await recordSemanticStageStep(
+      input,
+      "writing",
+      semanticEventKey(input.runId, "writing"),
+    );
+
+    if (
+      decision.status === "not_requested" &&
+      runtime.provider === "ai_gateway"
+    ) {
+      const initialTokenBudget = remainingAgentTokenBudget(consumedAgentTokens);
+      const durableAgent = createDurableAgent(
+        input,
+        runtime,
+        initialTokenBudget,
+      );
+      const agentResult = await durableAgent.stream({
+        prompt: buildInitialAgentPrompt({
+          promptContext:
+            promptContext ?? {
+              effectivePrompt: input.prompt,
+              clarification: null,
+            },
+          documentId: input.documentId,
+          currentRevision: revision,
+          confirmedBrief:
+            briefAssessment?.status === "ready" && briefAssessment.brief
+              ? {
+                  version: briefAssessment.briefVersion ?? 1,
+                  brief: briefAssessment.brief,
+                }
+              : null,
+          documentPlan,
+        }),
+      });
+
+      const current = await getRunDocumentRevisionStep(input);
+      revision = current.revision;
+      const evidence = inspectAgentExecution(agentResult, initialTokenBudget);
+      consumedAgentTokens += evidence.totalTokens;
+
+      if (current.needsInput) {
+        return {
+          status: "needs_input",
+          runId: input.runId,
+          documentId: input.documentId,
+          stage: "needs_input",
+          question:
+            current.question ??
+            "この内容を変更してよいですか？",
+        };
+      }
+
+      assertCompletedAgentExecution(evidence);
+      if (!current.changed) {
+        const effectivePrompt =
+          promptContext?.effectivePrompt ?? input.prompt;
+        if (
+          revision < 1 ||
+          !allowsUnchangedDocumentCompletion(effectivePrompt)
+        ) {
+          throw new Error(
+            "Document agent completed without an applicable document change.",
+          );
+        }
+      } else if (
+        !evidence.patchObserved &&
+        !(current.hasContent && evidence.formatObserved)
+      ) {
+        throw new Error(
+          "Document revision changed without an observed document patch.",
+        );
+      }
+    } else if (decision.status === "not_requested") {
+      const fallback = await applyFallbackPlan(
+        input,
+        await planFallbackDocumentStep({
+          workflow: input,
+          promptContext:
+            briefAssessment?.status === "ready" && briefAssessment.brief
+              ? {
+                  ...(promptContext ?? {
+                    effectivePrompt: input.prompt,
+                    clarification: null,
+                  }),
+                  effectivePrompt: buildBriefBackedFallbackPrompt(
+                    briefAssessment.brief,
+                  ),
+                }
+              : (promptContext ?? {
+                  effectivePrompt: input.prompt,
+                  clarification: null,
+                }),
+        }),
+      );
+      if (fallback.status === "needs_input") {
+        return {
+          status: "needs_input",
+          runId: input.runId,
+          documentId: input.documentId,
+          stage: "needs_input",
+          question: fallback.question,
+        };
+      }
+      revision = fallback.revision;
+    }
+
+    if (
+      briefAssessment?.status === "ready" &&
+      briefAssessment.brief &&
+      briefAssessment.briefVersion !== null
+    ) {
+      const formatted = await applyConfirmedBriefLayoutStep({
+        workflow: input,
+        briefVersion: briefAssessment.briefVersion,
+        baseRevision: revision,
+      });
+      if (formatted.status === "needs_input") {
+        return {
+          status: "needs_input",
+          runId: input.runId,
+          documentId: input.documentId,
+          stage: "needs_input",
+          question: formatted.question,
+        };
+      }
+      revision = formatted.revision;
+    }
+
+    await recordSemanticStageStep(
+      input,
+      "checking",
+      semanticEventKey(input.runId, "checking"),
+    );
+    await verifyDocumentRevision(input, revision);
+
+    let lastIndependentlyReviewedRevision: number | null = null;
+    if (
+      runtime.provider === "ai_gateway" &&
+      documentPlan &&
+      briefAssessment?.status === "ready" &&
+      briefAssessment.brief
+    ) {
+      let reviewRevisionAttempt = 0;
+      while (true) {
+        const independentReview = await reviewDocumentStep({
+          workflow: input,
+          revision,
+          plan: documentPlan,
+          runtime,
+        });
+        lastIndependentlyReviewedRevision = revision;
+        const reviewAction = nextContentReviewAction({
+          hasBlockingFindings: independentReview.hasBlockingFindings,
+          hasBlockingQuestion: independentReview.question !== null,
+          repairFindingCount: independentReview.repairFindings.length,
+          repairAttempts: reviewRevisionAttempt,
+        });
+        if (reviewAction === "accept") break;
+
+        if (reviewAction === "request_input") {
+          const question = unresolvedReviewQuestion(independentReview);
+          await markDocumentRunNeedsInputStep({
+            workflow: input,
+            code: "clarification_required",
+            question,
+          });
+          return {
+            status: "needs_input",
+            runId: input.runId,
+            documentId: input.documentId,
+            stage: "needs_input",
+            question,
+          };
+        }
+
+        if (reviewRevisionAttempt >= MAX_CONTENT_REVIEW_REVISIONS) {
+          throw new Error("Content review exceeded its safe repair limit.");
+        }
+        reviewRevisionAttempt += 1;
+        await recordSemanticStageStep(
+          input,
+          "writing",
+          semanticEventKey(
+            input.runId,
+            "writing",
+            `content-review-${reviewRevisionAttempt}`,
+          ),
+          { attempt: reviewRevisionAttempt },
+        );
+        const reviewTokenBudget = remainingAgentTokenBudget(consumedAgentTokens);
+        const durableAgent = createDurableAgent(
+          input,
+          runtime,
+          reviewTokenBudget,
+        );
+        const previousRevision = revision;
+        const reviewRepair = await durableAgent.stream({
+          prompt: buildInitialAgentPrompt({
+            promptContext: {
+              effectivePrompt: `独立レビューで次の重大な不足が見つかりました。要件と計画を変えずに修正してください。${buildReviewRepairInstructions(
+                independentReview.review,
+              )}`,
+              clarification: null,
+            },
+            documentId: input.documentId,
+            currentRevision: revision,
+            confirmedBrief: {
+              version: briefAssessment.briefVersion ?? 1,
+              brief: briefAssessment.brief,
+            },
+            documentPlan,
+          }),
+        });
+        const repaired = await getRunDocumentRevisionStep(input);
+        revision = repaired.revision;
+        const evidence = inspectAgentExecution(reviewRepair, reviewTokenBudget);
+        consumedAgentTokens += evidence.totalTokens;
+        if (repaired.needsInput) {
+          return {
+            status: "needs_input",
+            runId: input.runId,
+            documentId: input.documentId,
+            stage: "needs_input",
+            question:
+              repaired.question ??
+              "文書を完成させるために必要な情報を教えてください。",
+          };
+        }
+        assertCompletedAgentExecution(evidence);
+        if (!evidence.patchObserved || revision <= previousRevision) {
+          throw new Error(
+            "Document review repair completed without an applicable change.",
+          );
+        }
+        await recordSemanticStageStep(
+          input,
+          "checking",
+          semanticEventKey(
+            input.runId,
+            "checking",
+            `content-review-${reviewRevisionAttempt}`,
+          ),
+          { attempt: reviewRevisionAttempt },
+        );
+        await verifyDocumentRevision(input, revision);
+      }
+    }
+    await recordSemanticStageStep(
+      input,
+      "formatting",
+      semanticEventKey(input.runId, "formatting"),
+    );
+
+    let compileResult = await validateRenderCompileAndStoreStep({
+      workflow: input,
+      revision,
+    });
+    let repairAttempt = 0;
+
+    while (!compileResult.ok) {
+      await recordSemanticStageStep(
+        input,
+        "checking",
+        semanticEventKey(
+          input.runId,
+          "checking",
+          `compile-failure-${repairAttempt}`,
+        ),
+        {
+          code: compileResult.code,
+          attempt: repairAttempt,
+          issueCount: compileResult.issueCount,
+        },
+      );
+
+      if (
+        nextCompileFailureAction({
+          provider: runtime.provider,
+          repairAttempt,
+        }) === "fail"
+      ) {
+        throw new Error("Document preparation failed after safe retries.");
+      }
+
+      repairAttempt += 1;
+      await recordSemanticStageStep(
+        input,
+        "writing",
+        semanticEventKey(input.runId, "writing", `repair-${repairAttempt}`),
+        { attempt: repairAttempt },
+      );
+
+      if (runtime.provider !== "ai_gateway") {
+        throw new Error("Document repair provider is unavailable.");
+      }
+      const repairTokenBudget = remainingAgentTokenBudget(consumedAgentTokens);
+      const durableAgent = createDurableAgent(
+        input,
+        runtime,
+        repairTokenBudget,
+      );
+      const previousRevision = revision;
+      const repairResult = await durableAgent.stream({
+        prompt: buildRepairAgentPrompt({
+          documentId: input.documentId,
+          currentRevision: revision,
+          repairAttempt,
+          confirmedBrief:
+            briefAssessment?.status === "ready" && briefAssessment.brief
+              ? {
+                  version: briefAssessment.briefVersion ?? 1,
+                  brief: briefAssessment.brief,
+                }
+              : null,
+          documentPlan,
+          failure: {
+            code: compileResult.code,
+            issueCount: compileResult.issueCount,
+            ...(compileResult.pageTarget
+              ? { pageTarget: compileResult.pageTarget }
+              : {}),
+            ...(compileResult.visualFindings
+              ? { visualFindings: compileResult.visualFindings }
+              : {}),
+          },
+        }),
+      });
+
+      const repaired = await getRunDocumentRevisionStep(input);
+      revision = repaired.revision;
+      const repairEvidence = inspectAgentExecution(
+        repairResult,
+        repairTokenBudget,
+      );
+      consumedAgentTokens += repairEvidence.totalTokens;
+      if (repaired.needsInput) {
+        return {
+          status: "needs_input",
+          runId: input.runId,
+          documentId: input.documentId,
+          stage: "needs_input",
+          question:
+            repaired.question ??
+            "続けるために必要な条件を教えてください。",
+        };
+      }
+      assertCompletedAgentExecution(repairEvidence);
+      if (
+        !repairEvidence.patchObserved ||
+        repaired.revision <= previousRevision
+      ) {
+        throw new Error(
+          "Document repair completed without an applicable document change.",
+        );
+      }
+      await recordSemanticStageStep(
+        input,
+        "checking",
+        semanticEventKey(input.runId, "checking", `repair-${repairAttempt}`),
+        { attempt: repairAttempt },
+      );
+      await verifyDocumentRevision(input, revision);
+      await recordSemanticStageStep(
+        input,
+        "formatting",
+        semanticEventKey(input.runId, "formatting", `repair-${repairAttempt}`),
+        { attempt: repairAttempt },
+      );
+      compileResult = await validateRenderCompileAndStoreStep({
+        workflow: input,
+        revision,
+      });
+    }
+
+    if (
+      runtime.provider === "ai_gateway" &&
+      documentPlan &&
+      briefAssessment?.status === "ready" &&
+      briefAssessment.brief &&
+      needsIndependentReviewAfterCompilation({
+        reviewEnabled: true,
+        lastReviewedRevision: lastIndependentlyReviewedRevision,
+        compiledRevision: compileResult.revision,
+      })
+    ) {
+      const finalReview = await reviewDocumentStep({
+        workflow: input,
+        revision: compileResult.revision,
+        plan: documentPlan,
+        runtime,
+      });
+      if (finalReview.hasBlockingFindings) {
+        const question = unresolvedReviewQuestion(finalReview);
+        await markDocumentRunNeedsInputStep({
+          workflow: input,
+          code: "clarification_required",
+          question,
+        });
+        return {
+          status: "needs_input",
+          runId: input.runId,
+          documentId: input.documentId,
+          stage: "needs_input",
+          question,
+        };
+      }
+    }
+
+    const artifact = await completeDocumentRunStep({
+      workflow: input,
+      revision: compileResult.revision,
+      artifact: compileResult.release,
+      eventKey: semanticEventKey(input.runId, "ready"),
+    });
+
+    return {
+      status: "completed",
+      runId: input.runId,
+      documentId: input.documentId,
+      revision: compileResult.revision,
+      artifact,
+    };
+  } catch (error) {
+    try {
+      await failDocumentRunStep({
+        workflow: input,
+        code: safeWorkflowFailureCode(error),
+      });
+    } catch {
+      // Preserve the original workflow error if failure persistence is down.
+    }
+    throw error;
+  }
+}

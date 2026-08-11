@@ -51,6 +51,11 @@ playwright-report/
 /web-src/math/fork/build/
 /web-src/math/fork/declarations/
 /web-src/math/fork/coverage/
+/services/tex64-ai/node_modules/
+/services/tex64-ai/.next/
+/services/tex64-ai/.data/
+/services/tex64-ai/.artifacts/
+/services/tex64-ai/.env*.local
 
 # Generated outputs inside sample LaTeX workspaces.
 /test-workspace/tmp/
