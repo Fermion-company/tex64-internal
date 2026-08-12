@@ -38,6 +38,27 @@ export const buildStyFile = (scene, packageName) => {
     const emit = (object, depth) => {
         var _a;
         const indent = "  ".repeat(depth);
+        if (object.type === "code") {
+            if (/(?:-\{(?:Stealth|Latex|Bar)|\{(?:Stealth|Latex|Bar)\}-)/.test(object.tikz))
+                arrows = true;
+            const lines = object.tikz.replace(/\r\n?/g, "\n").trim().split("\n").map(line => indent + line);
+            const t = object.transform, transform = [];
+            if (t.tx || t.ty)
+                transform.push(`shift={(${num(t.tx)},${num(t.ty)})}`);
+            if (t.rotate)
+                transform.push(`rotate=${num(t.rotate)}`);
+            if (t.sx !== 1 || t.sy !== 1) {
+                if (t.sx === t.sy)
+                    transform.push(`scale=${num(t.sx)}`);
+                else {
+                    if (t.sx !== 1)
+                        transform.push(`xscale=${num(t.sx)}`);
+                    if (t.sy !== 1)
+                        transform.push(`yscale=${num(t.sy)}`);
+                }
+            }
+            return transform.length ? [`${indent}\\begin{scope}[${transform.join(", ")}]`, ...lines.map(line => `  ${line}`), `${indent}\\end{scope}`] : lines;
+        }
         if (object.type === "group") {
             const t = object.transform, transform = [];
             if (t.tx || t.ty)

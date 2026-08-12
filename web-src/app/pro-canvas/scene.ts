@@ -30,6 +30,7 @@ export type SceneObject =
   | { id: string; type: "ellipse"; center: Vec; rx: number; ry: number; style: ObjStyle }
   | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; style: ObjStyle }
   | { id: string; type: "group"; children: SceneObject[]; transform: Transform }
+  | { id: string; type: "code"; tikz: string; transform: Transform }
   | { id: string; type: "instance"; symbol: string; transform: Transform; style: ObjStyle }
   | { id: string; type: "repeat"; symbol: string; path: { start: Vec; segments: PathSeg[] }; count: number; align: boolean; style: ObjStyle };
 
@@ -108,6 +109,7 @@ const isSceneObject = (value: unknown): value is SceneObject => {
   if (value.type === "group") {
     return Array.isArray(value.children) && value.children.every(isSceneObject) && isTransform(value.transform);
   }
+  if (value.type === "code") return typeof value.tikz === "string" && isTransform(value.transform);
   if (!isObjStyle(value.style)) return false;
   if (value.type === "instance") return typeof value.symbol === "string" && isTransform(value.transform);
   if (value.type === "repeat") return typeof value.symbol === "string" && isRecord(value.path)

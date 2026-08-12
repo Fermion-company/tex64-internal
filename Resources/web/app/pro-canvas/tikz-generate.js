@@ -84,6 +84,22 @@ export const generateTikz = (scene) => {
     };
     const emitObject = (object, depth) => {
         const indent = "  ".repeat(depth);
+        if (object.type === "code") {
+            if (/(?:-\{(?:Stealth|Latex|Bar)|\{(?:Stealth|Latex|Bar)\}-)/.test(object.tikz))
+                arrowsUsed = true;
+            const source = object.tikz.replace(/\r\n?/g, "\n").split("\n");
+            while (source.length && !source[0].trim())
+                source.shift();
+            while (source.length && !source[source.length - 1].trim())
+                source.pop();
+            const nonBlank = source.filter((line) => line.trim());
+            const common = nonBlank.length ? Math.min(...nonBlank.map((line) => line.match(/^\s*/)[0].length)) : 0;
+            const lines = source.map((line) => `${indent}${line.slice(common)}`);
+            const transform = transformKeys(object.transform);
+            if (!transform.length)
+                return lines;
+            return [`${indent}\\begin{scope}[${transform.join(", ")}]`, ...source.map((line) => `${indent}  ${line.slice(common)}`), `${indent}\\end{scope}`];
+        }
         if (object.type === "group") {
             const t = object.transform;
             const transform = transformKeys(t);

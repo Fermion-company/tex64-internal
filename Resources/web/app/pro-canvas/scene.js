@@ -57,6 +57,8 @@ const isSceneObject = (value) => {
     if (value.type === "group") {
         return Array.isArray(value.children) && value.children.every(isSceneObject) && isTransform(value.transform);
     }
+    if (value.type === "code")
+        return typeof value.tikz === "string" && isTransform(value.transform);
     if (!isObjStyle(value.style))
         return false;
     if (value.type === "instance")

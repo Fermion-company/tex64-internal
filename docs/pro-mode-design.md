@@ -139,8 +139,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    **完了 (2026-08-13)**。仕様: [pro-canvas-c3-spec.md](pro-canvas-c3-spec.md)。リピートは
    弧長等間隔サンプリング（`samplePathPoints`）を `\foreach \p/\a` に展開。実エンジンで
    pic/foreach 生成コードのコンパイルを実走確認済み。
-4. **C4**: コードオブジェクト・AI 経路（スケッチ/画像 → Axiom/texize → シーンまたは
-   コードオブジェクト）・SVG インポート。
+4. **C4**: コードオブジェクト・AI 経路（画像/下絵 → texize → コードオブジェクト）・
+   SVG インポート — **完了 (2026-08-13)**。仕様: [pro-canvas-c4-spec.md](pro-canvas-c4-spec.md)。
+   SVG は style="" インライン CSS も解釈。コードオブジェクトの scope 出力を実エンジンで
+   コンパイル確認済み。
 
 ## texize ブリッジ
 
@@ -167,7 +169,7 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - エディタ右クリックは monaco `addAction`（`tex64.pro-stash-add-selection`）
 4. **P4**: syntax highlight 強化（expl3・embedded Lua）/ 構造ジャンプメニュー（`pro-structure-ui.ts`、Cmd/Ctrl+Alt+O）— **完了 (2026-08-12)**
 5. **P5**: fermion-tex-engine ライブプレビュー統合 — **完了 (2026-08-12)**
-6. **C1**: 作図キャンバス基盤（機能 6 参照）— **完了 (2026-08-13)**。C2–C4 は未着手。
+6. **C1–C4**: 作図キャンバス（機能 6 参照）— **全フェーズ完了 (2026-08-13)**。
    - エンジンは `/Users/majinkuu/Desktop/fermion-tex-engine`（`node server.js`、POST /edit + SSE /events + 内蔵ビューア、`TEX64_FERMION_ENGINE_DIR` で上書き可）
    - `electron/services/fermion-engine.cjs`（遅延spawn・空きポート選択・クラッシュ後再起動・quit時kill）+ `tex64:fermion:*` IPC
    - `web-src/app/pro-live-preview.ts`: プレビューペインの Live トグル + 専用 iframe + 300ms デバウンス。push は main 側が毎回 `/doc` でサーバー実テキストを取得してから全文置換を送るため再接続でずれない

@@ -6,6 +6,8 @@ import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } f
 import { boundsAfterHandleDrag, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
+import { stripTikzWrapper } from "./code-import.js";
+import { importSvg } from "./svg-import.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
@@ -36,6 +38,10 @@ const firstReportError = (report) => {
 };
 const allPoints = (object, scene) => {
     var _a;
+    if (object.type === "code") {
+        const t = object.transform, rad = t.rotate * Math.PI / 180;
+        return [{ x: -5, y: -5 }, { x: 5, y: 5 }].map(p => ({ x: t.tx + p.x * t.sx * Math.cos(rad) - p.y * t.sy * Math.sin(rad), y: t.ty + p.x * t.sx * Math.sin(rad) + p.y * t.sy * Math.cos(rad) }));
+    }
     if (object.type === "rect")
         return [object.from, object.to];
     if (object.type === "ellipse")
@@ -188,14 +194,14 @@ export const initProCanvasUi = (deps) => {
       <button data-action="zoom-out">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in">+</button>
       <span class="pro-canvas-separator"></span><button data-action="undo">Undo</button><button data-action="redo">Redo</button></div>
       <div class="pro-canvas-main"><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg></div><aside class="pro-canvas-inspector"><h3>Style</h3><div class="pro-canvas-style"></div><h3>Named styles</h3><div class="pro-canvas-named"></div><h3>Symbols</h3><div class="pro-canvas-symbols"></div></aside></div>
-      <div class="pro-canvas-bottom"><span class="pro-canvas-status"></span><button data-action="sty">.sty へ書き出し</button><button data-action="tikz">${detail.replaceRange ? "更新" : "TikZ を挿入"}</button>${detail.replaceRange ? "" : '<button data-action="png">画像として挿入 (PNG)</button>'}<button data-action="cancel">キャンセル</button></div>`;
+      <div class="pro-canvas-bottom"><span class="pro-canvas-status"></span><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button><button data-action="tikz">${detail.replaceRange ? "更新" : "TikZ を挿入"}</button>${detail.replaceRange ? "" : '<button data-action="png">画像として挿入 (PNG)</button>'}<button data-action="cancel">キャンセル</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
         const stage = overlay.querySelector(".pro-canvas-stage");
         const status = overlay.querySelector(".pro-canvas-status");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
-        [['select', '選択'], ['pen', 'ペン'], ['line', '直線'], ['rect', '矩形'], ['ellipse', '楕円'], ['node', 'ノード']].forEach(([id, label]) => { const b = document.createElement("button"); b.dataset.tool = id; b.textContent = label; toolHost.appendChild(b); });
+        [['select', '選択'], ['pen', 'ペン'], ['line', '直線'], ['rect', '矩形'], ['ellipse', '楕円'], ['node', 'ノード'], ['code', 'コード']].forEach(([id, label]) => { const b = document.createElement("button"); b.dataset.tool = id; b.textContent = label; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
         let compiledImage = null, compileTimer = null, compileSequence = 0;
@@ -245,6 +251,7 @@ export const initProCanvasUi = (deps) => {
         const point = (event) => snapToGrid(screenToScene({ x: event.clientX, y: event.clientY }, view()), scene.grid.size, scene.grid.snap && !event.altKey);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
+        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         const renderInspector = () => {
             var _a;
             const host = overlay.querySelector(".pro-canvas-style");
@@ -254,8 +261,8 @@ export const initProCanvasUi = (deps) => {
             host.replaceChildren();
             named.replaceChildren();
             symbols.replaceChildren();
-            if (!object || object.type === "group")
-                host.textContent = "Select a drawable object";
+            if (!object || object.type === "group" || object.type === "code")
+                host.textContent = (object === null || object === void 0 ? void 0 : object.type) === "code" ? "Double-click to edit TikZ code" : "Select a drawable object";
             else {
                 const props = (_a = object.style).props || (_a.props = {});
                 const effective = resolveStyle(scene, object.style);
@@ -290,7 +297,7 @@ export const initProCanvasUi = (deps) => {
                     host.append(alignRow);
                 }
             }
-            scene.styles.forEach((style) => { const row = document.createElement("div"); row.className = "pro-canvas-style-row"; row.textContent = style.name; const apply = document.createElement("button"); apply.textContent = "適用"; apply.disabled = !object || object.type === "group"; apply.onclick = () => { if (object && object.type !== "group") {
+            scene.styles.forEach((style) => { const row = document.createElement("div"); row.className = "pro-canvas-style-row"; row.textContent = style.name; const apply = document.createElement("button"); apply.textContent = "適用"; apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
                 snapshot();
                 object.style.ref = style.name;
                 render();
@@ -298,7 +305,7 @@ export const initProCanvasUi = (deps) => {
             const add = document.createElement("button");
             add.textContent = "＋ 新規";
             add.onclick = () => { const name = prompt("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
-                return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
+                return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" && object.type !== "code" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
             named.append(add);
             if (editingSymbolId) {
                 const done = document.createElement("button");
@@ -346,6 +353,7 @@ export const initProCanvasUi = (deps) => {
             }
         };
         const render = () => {
+            var _a;
             svg.replaceChildren();
             const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom;
             const visibleW = stage.clientWidth / scale, visibleH = stage.clientHeight / scale;
@@ -385,6 +393,17 @@ export const initProCanvasUi = (deps) => {
                         container.dataset.id = object.id;
                     parent.append(container);
                     samplePathPoints(object.path, object.count).forEach(sample => { const g = svgEl("g", { transform: `translate(${sample.point.x} ${sample.point.y}) rotate(${object.align ? sample.angleDeg : 0})` }); container.append(g); symbol.objects.forEach(c => draw(c, g, false)); });
+                    return;
+                }
+                if (object.type === "code") {
+                    const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
+                    if (interactive)
+                        g.dataset.id = object.id;
+                    g.append(svgEl("rect", { x: -5, y: -5, width: 10, height: 10, fill: "none", stroke: "currentColor", "stroke-dasharray": "2 1", "vector-effect": "non-scaling-stroke" }));
+                    const label = svgEl("text", { x: 0, y: 1, transform: "scale(1,-1)", "text-anchor": "middle", class: "pro-canvas-node" });
+                    label.textContent = "</>";
+                    g.append(label);
+                    parent.append(g);
                     return;
                 }
                 const style = resolveStyle(scene, object.style);
@@ -430,6 +449,7 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
+            overlay.querySelector("[data-action=ai-import]").disabled = !((_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet);
             renderInspector();
         };
         let drag = null;
@@ -473,6 +493,15 @@ export const initProCanvasUi = (deps) => {
                 if (latex)
                     currentObjects().push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: { props: { draw: "#000000" } } });
                 render();
+                return;
+            }
+            if (tool === "code") {
+                snapshot();
+                const object = { id: newObjectId(), type: "code", tikz: "", transform: { tx: p.x, ty: p.y, rotate: 0, sx: 1, sy: 1 } };
+                currentObjects().push(object);
+                selectedId = object.id;
+                render();
+                editCode(object);
                 return;
             }
             if (tool === "pen") {
@@ -719,6 +748,53 @@ export const initProCanvasUi = (deps) => {
         catch (error) {
             setStatus(error instanceof Error ? error.message : String(error), true);
         } });
+        const pickFile = (accept) => new Promise(resolve => { const input = document.createElement("input"); input.type = "file"; input.accept = accept; input.onchange = () => { var _a; return resolve(((_a = input.files) === null || _a === void 0 ? void 0 : _a[0]) || null); }; input.click(); });
+        const readDataUrl = (file) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error || new Error("File reading failed.")); reader.readAsDataURL(file); });
+        const approximatePng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-live-image").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); clone.setAttribute("width", "1200"); clone.setAttribute("height", String(Math.max(1, 1200 * scene.height / scene.width))); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }), url = URL.createObjectURL(blob); try {
+            const image = new Image();
+            await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG rasterization failed.")); image.src = url; });
+            const canvas = document.createElement("canvas");
+            canvas.width = 1200;
+            canvas.height = Math.max(1, Math.round(1200 * scene.height / scene.width));
+            (_a = canvas.getContext("2d")) === null || _a === void 0 ? void 0 : _a.drawImage(image, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL("image/png").split(",")[1];
+        }
+        finally {
+            URL.revokeObjectURL(url);
+        } };
+        const showAiPreview = (tikz) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 10; area.value = stripTikzWrapper(tikz); const place = document.createElement("button"); place.textContent = "コードオブジェクトとして配置"; place.onclick = () => { snapshot(); const object = { id: newObjectId(), type: "code", tikz: stripTikzWrapper(area.value), transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(object); selectedId = object.id; pop.remove(); render(); scheduleCompile(); }; pop.append(area, place); overlay.append(pop); area.focus(); };
+        const importSvgFile = async () => { const file = await pickFile(".svg,image/svg+xml"); if (!file)
+            return; const result = importSvg(await file.text(), scene.width * .8); if (!result)
+            throw new Error("SVG を読み込めませんでした"); snapshot(); const group = { id: newObjectId(), type: "group", children: result.objects, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); selectedId = group.id; setStatus(result.warnings.length ? `${result.warnings.length} 件の警告: ${result.warnings[0]}` : ""); render(); scheduleCompile(); };
+        const importAi = async () => { var _a; const snippet = (_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet; if (!snippet)
+            return; let imageBase64; if (confirm("OK: 画像ファイルを選ぶ / キャンセル: 今のキャンバスを下絵にする")) {
+            const file = await pickFile("image/*");
+            if (!file)
+                return;
+            imageBase64 = (await readDataUrl(file)).split(",")[1];
+        }
+        else
+            imageBase64 = await approximatePng(); setStatus("TikZ 化中…"); const result = await snippet({ imageBase64 }); if (!(result === null || result === void 0 ? void 0 : result.ok))
+            throw new Error((result === null || result === void 0 ? void 0 : result.error) || "texize failed."); setStatus(""); showAiPreview(result.tex || ""); };
+        overlay.addEventListener("click", async (e) => { var _a; const action = (_a = e.target.closest("button")) === null || _a === void 0 ? void 0 : _a.dataset.action; try {
+            if (action === "svg-import")
+                await importSvgFile();
+            else if (action === "ai-import")
+                await importAi();
+        }
+        catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), true);
+        } });
+        svg.addEventListener("dblclick", e => { var _a; if (tool !== "select")
+            return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = id ? walk(currentObjects(), id) : null; if ((object === null || object === void 0 ? void 0 : object.type) === "code") {
+            selectedId = object.id;
+            render();
+            editCode(object);
+            e.preventDefault();
+        } });
+        svg.addEventListener("pointermove", e => { if ((drag === null || drag === void 0 ? void 0 : drag.kind) !== "rotate" || !drag.id || !drag.bounds)
+            return; const object = walk(currentObjects(), drag.id); if ((object === null || object === void 0 ? void 0 : object.type) !== "code")
+            return; const p = point(e), b = drag.bounds, c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }, angle = (Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI; object.transform.rotate = angle; render(); });
         new ResizeObserver(render).observe(stage);
         render();
         scheduleCompile();
