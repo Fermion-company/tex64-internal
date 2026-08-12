@@ -1355,6 +1355,40 @@ const initPdfViewer = () => {
       if (message.type === "sync" && message.payload) {
         applySync(message.payload);
       }
+      if (message.type === "capture-region") {
+        const requestId = message.requestId;
+        try {
+          const region = message.payload || {};
+          const x = Number(region.x), y = Number(region.y), width = Number(region.width), height = Number(region.height);
+          if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) throw new Error("Invalid capture region.");
+          const canvases = Array.from(pagesEl?.querySelectorAll(".page canvas") || []);
+          const hits = canvases.map((canvas) => {
+            const rect = canvas.getBoundingClientRect();
+            const left = Math.max(x, rect.left), top = Math.max(y, rect.top);
+            const right = Math.min(x + width, rect.right), bottom = Math.min(y + height, rect.bottom);
+            return { canvas, rect, left, top, right, bottom };
+          }).filter((hit) => hit.right > hit.left && hit.bottom > hit.top);
+          if (!hits.length) throw new Error("The selected region does not overlap a rendered PDF page.");
+          const pixelRatio = Math.max(window.devicePixelRatio || 1, ...hits.map(({ canvas, rect }) => Math.max(canvas.width / Math.max(rect.width, 1), canvas.height / Math.max(rect.height, 1))));
+          const output = document.createElement("canvas");
+          output.width = Math.max(1, Math.round(width * pixelRatio));
+          output.height = Math.max(1, Math.round(height * pixelRatio));
+          const context = output.getContext("2d");
+          context.fillStyle = "white"; context.fillRect(0, 0, output.width, output.height);
+          hits.forEach(({ canvas, rect, left, top, right, bottom }) => {
+            const sourceScaleX = canvas.width / Math.max(rect.width, 1);
+            const sourceScaleY = canvas.height / Math.max(rect.height, 1);
+            context.drawImage(canvas,
+              (left - rect.left) * sourceScaleX, (top - rect.top) * sourceScaleY,
+              (right - left) * sourceScaleX, (bottom - top) * sourceScaleY,
+              (left - x) * pixelRatio, (top - y) * pixelRatio,
+              (right - left) * pixelRatio, (bottom - top) * pixelRatio);
+          });
+          bridge.postMessage({ type: "capture-region-result", requestId, ok: true, dataUrl: output.toDataURL("image/png") });
+        } catch (error) {
+          bridge.postMessage({ type: "capture-region-result", requestId, ok: false, error: error?.message || String(error) });
+        }
+      }
     });
     if (typeof bridge.postMessage === "function") {
       if (document.readyState === "loading") {

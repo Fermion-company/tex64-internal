@@ -111,7 +111,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -254,11 +254,30 @@ export const initMonacoSetup = (context, deps) => {
                     });
                 }
             }
+            (_p = (_o = editor).addAction) === null || _p === void 0 ? void 0 : _p.call(_o, {
+                id: "tex64.pro-stash-add-selection",
+                label: uiText("Add selection to stash", "選択範囲をスタッシュへ追加"),
+                contextMenuGroupId: "9_ai",
+                contextMenuOrder: 2,
+                precondition: "editorHasSelection",
+                run: () => {
+                    var _a, _b, _c, _d;
+                    const selection = (_a = editor.getSelection) === null || _a === void 0 ? void 0 : _a.call(editor);
+                    const model = (_c = (_b = editor).getModel) === null || _c === void 0 ? void 0 : _c.call(_b);
+                    const content = selection && model ? (_d = model.getValueInRange) === null || _d === void 0 ? void 0 : _d.call(model, selection) : "";
+                    if (!content) {
+                        return;
+                    }
+                    window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", {
+                        detail: { kind: "text", content },
+                    }));
+                },
+            });
             // Spell: "Add to dictionary" for the word under the cursor (context menu
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_p = (_o = editor).addAction) === null || _p === void 0 ? void 0 : _p.call(_o, {
+                (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

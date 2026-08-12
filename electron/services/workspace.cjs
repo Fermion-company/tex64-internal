@@ -2175,6 +2175,12 @@ class WorkspaceManager {
     await writeUtf8File(resolved, content);
   }
 
+  async writeBinaryFile(relativePath, content) {
+    const resolved = this.resolvePath(relativePath);
+    await ensureDirectory(path.dirname(resolved));
+    await fsp.writeFile(resolved, content);
+  }
+
   async createFile(relativePath) {
     const resolved = this.resolvePath(relativePath);
     const exists = await fsp.stat(resolved).then(() => true).catch(() => false);

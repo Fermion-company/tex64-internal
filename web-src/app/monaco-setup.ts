@@ -431,6 +431,25 @@ export const initMonacoSetup = (
           }
         }
 
+        (editor as any).addAction?.({
+          id: "tex64.pro-stash-add-selection",
+          label: uiText("Add selection to stash", "選択範囲をスタッシュへ追加"),
+          contextMenuGroupId: "9_ai",
+          contextMenuOrder: 2,
+          precondition: "editorHasSelection",
+          run: () => {
+            const selection = editor.getSelection?.();
+            const model = (editor as any).getModel?.();
+            const content = selection && model ? model.getValueInRange?.(selection) : "";
+            if (!content) {
+              return;
+            }
+            window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", {
+              detail: { kind: "text", content },
+            }));
+          },
+        });
+
         // Spell: "Add to dictionary" for the word under the cursor (context menu
         // / command palette). Done as an editor action because this Monaco build
         // has no editor.registerCommand for code-action commands.

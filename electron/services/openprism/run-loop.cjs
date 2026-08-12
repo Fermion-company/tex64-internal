@@ -41,6 +41,53 @@ const buildChatRequestBody = ({ model, messages, tools, temperature }) => ({
   ...(typeof temperature === "number" ? { temperature } : {}),
 });
 
+const resolveRequestIdentity = async (service, apiUrl) => {
+  let accessToken = null;
+  let deviceId = null;
+  if (service.platformAccess) {
+    try { accessToken = await service.platformAccess.refreshAccessToken(false); } catch { /* fallback below */ }
+    try { deviceId = await service.platformAccess.ensureDeviceId(); } catch { /* fallback below */ }
+  }
+  const usesPlatformProxy = /\/api\/v2\/ai\/openai\/chat\/completions$/i.test(apiUrl);
+  if (!accessToken && (!deviceId || !usesPlatformProxy)) {
+    const envKey = typeof process.env.TEX64_LLM_API_KEY === "string" ? process.env.TEX64_LLM_API_KEY.trim() : "";
+    if (envKey) accessToken = envKey;
+  }
+  if (!accessToken && !deviceId) throw new Error("Axiom requires either login or a local app identity. Please restart TeX64 and try again.");
+  return { accessToken, deviceId };
+};
+
+const completeSingleChat = async (service, { system, user }) => {
+  if (typeof system !== "string" || typeof user !== "string" || !user.trim()) throw new Error("AI edit input is empty.");
+  const settings = await service.ensureUserSettings().getAgentSettings();
+  const llmConfig = resolveLLMConfig(settings);
+  const apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
+  const { accessToken, deviceId } = await resolveRequestIdentity(service, apiUrl);
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
+      ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
+    },
+    body: JSON.stringify({
+      model: llmConfig.model,
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      ...(requiresReasoningNoneForChatTools(llmConfig.model) ? { reasoning_effort: "none" } : {}),
+      stream: false,
+      ...(typeof llmConfig.temperature === "number" ? { temperature: llmConfig.temperature } : {}),
+    }),
+  });
+  if (!response.ok) throw new Error(`API error ${response.status}: ${(await response.text().catch(() => "")).slice(0, 500)}`);
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (typeof text !== "string") throw new Error("Axiom returned an empty response.");
+  if (data.usage && service.apiUsageService?.recordUsage) {
+    await service.apiUsageService.recordUsage({ model: llmConfig.model, promptTokens: data.usage.prompt_tokens || 0, outputTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, source: "stash" }).catch(() => {});
+  }
+  return text;
+};
+
 const runAgentConversation = async (
   service,
   { message, parts, context, conversationId = "default" },
@@ -110,29 +157,11 @@ const runAgentConversation = async (
   const apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
 
   // ---- Resolve platform identity ----
-  let accessToken = null;
-  let deviceId = null;
-  if (service.platformAccess) {
-    try {
-      accessToken = await service.platformAccess.refreshAccessToken(false);
-    } catch {
-      /* will try env var fallback */
-    }
-    try {
-      deviceId = await service.platformAccess.ensureDeviceId();
-    } catch {
-      /* anonymous fallback will be unavailable */
-    }
-  }
-  const usesPlatformProxy = /\/api\/v2\/ai\/openai\/chat\/completions$/i.test(apiUrl);
-  if (!accessToken && (!deviceId || !usesPlatformProxy)) {
-    const envKey =
-      typeof process.env.TEX64_LLM_API_KEY === "string"
-        ? process.env.TEX64_LLM_API_KEY.trim()
-        : "";
-    if (envKey) accessToken = envKey;
-  }
-  if (!accessToken && !deviceId) {
+  let accessToken;
+  let deviceId;
+  try {
+    ({ accessToken, deviceId } = await resolveRequestIdentity(service, apiUrl));
+  } catch {
     service.sendToRenderer("agent:error", {
       message: "Axiom requires either login or a local app identity. Please restart TeX64 and try again.",
       conversationId: targetConversationId,
@@ -613,6 +642,7 @@ const runAgentConversation = async (
 
 module.exports = {
   buildChatRequestBody,
+  completeSingleChat,
   requiresReasoningNoneForChatTools,
   runAgentConversation,
 };

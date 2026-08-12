@@ -157,6 +157,16 @@ const createAgentHandlers = (deps) => {
     });
   };
 
+  const handleStashComplete = async (payload) => {
+    const allowed = await guardAiAccess("pro-stash", "stash");
+    if (!allowed) return { ok: false, error: buildAiBlockedMessage({}) };
+    try {
+      return { ok: true, text: await agentService.completeOnce(payload || {}) };
+    } catch (error) {
+      return { ok: false, error: error?.message || "AI edit failed." };
+    }
+  };
+
   const handleAgentStateGet = async () => {
     const state = (await agentService.getUiState?.()) ?? { sessions: [] };
     sendToRenderer("agent:state", state);
@@ -271,6 +281,7 @@ const createAgentHandlers = (deps) => {
     handleAgentProposalDismiss,
     handleSearchRename,
     handleSettingsResponse,
+    handleStashComplete,
   };
 };
 
