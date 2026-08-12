@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=Noto+Serif+JP:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=EB+Garamond:ital@1&display=swap">
+<style>
+  body { margin:0; background:#0E081A; font-family:'Noto Sans JP', system-ui, sans-serif; }
+  ::selection { background: rgba(255,93,200,0.35); }
+  .dv-turn{padding:40px 44px 56px;border-bottom:1px solid rgba(255,255,255,.08);scroll-margin-top:16px}
+  .dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 22px}
+  .dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#fff;color:#1a1a1a;border-radius:4px;text-decoration:none}
+  .dv-tname{font:600 14px/1.2 system-ui,sans-serif;color:#f2eefa}
+  .dv-opts{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start}
+  .dv-opt{flex:none;display:flex;flex-direction:column;gap:10px;scroll-margin-top:16px}
+  .dv-oid{font:700 10.5px ui-monospace,Menlo,monospace;padding:3px 8px;background:rgba(255,255,255,.1);color:#f2eefa;border-radius:5px;text-decoration:none}
+  .dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 12px/1.3 system-ui,sans-serif;color:rgba(255,255,255,.55)}
+  .dv-card{max-width:100%;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4);overflow:hidden}
+  .dv-opt:target .dv-oid{background:#FF5DC8;color:#1a0a16}
+  .dv-next{margin:24px 0 0;font:12px/1.6 system-ui,sans-serif;color:rgba(255,255,255,.45)}
+  .dv-next a{color:#FF8FDA}
+</style>
+</helmet>
+<section class="dv-turn" id="t7">
+  <div class="dv-thd"><a class="dv-tid" href="#t7">7</a><span class="dv-tname">統合版メイン画面 — これまでの検討を1画面に集約</span></div>
+  <div class="dv-opts">
+
+    <!-- ============================= OPTION 7A ============================= -->
+    <div class="dv-opt" id="7a">
+      <div class="dv-olabel"><a class="dv-oid" href="#7a">7a</a>メイン画面(完成形)— チャット・プレビュー・直接編集(文章/数式/画像)を1画面に統合</div>
+      <div class="dv-card" style="width:1600px">
+        <div style="width:1600px;height:900px;background:#150B22;display:flex;flex-direction:column;color:#F4EEFB;">
+
+          <!-- HEADER -->
+          <div style="height:64px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#110A1C;border-bottom:1px solid rgba(255,255,255,.08);">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(255,93,200,.4);">
+                <span style="font:700 16px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+              </div>
+              <span style="color:rgba(255,255,255,.25);font-size:16px;">/</span>
+              <div style="width:24px;height:24px;border-radius:6px;background:#2A1C3D;display:flex;align-items:center;justify-content:center;font-size:11px;color:#C9B8E8;font-weight:700;">A</div>
+              <div style="display:flex;flex-direction:column;line-height:1.25;">
+                <span style="font-size:13px;font-weight:600;color:#F4EEFB;">AttentionPaper</span>
+                <span style="font-size:10.5px;color:#7C6E92;">Personal Workspace</span>
+              </div>
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 4px;"></div>
+              <div style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#128340;</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;background:#1B1029;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:4px;">
+              <div style="padding:7px 18px;border-radius:7px;background:#2A1C3D;font-size:13px;font-weight:600;color:#F4EEFB;">プレビュー</div>
+              <div style="padding:7px 18px;border-radius:7px;font-size:13px;color:#9484AC;">アウトライン</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#E3D6FF;">Y</div>
+              <div style="width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#8943;</div>
+              <div style="padding:8px 16px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);font-size:12.5px;font-weight:700;color:#fff;">アップグレード</div>
+              <div style="padding:8px 18px;border-radius:9px;background:#2A1C3D;border:1px solid rgba(255,255,255,.1);font-size:12.5px;font-weight:600;color:#F4EEFB;">公開</div>
+            </div>
+          </div>
+
+          <!-- BODY -->
+          <div style="flex:1;display:flex;min-height:0;">
+
+            <!-- CHAT PANEL -->
+            <div style="width:380px;flex:none;display:flex;flex-direction:column;background:#1B1029;border-right:1px solid rgba(255,255,255,.08);padding:20px;gap:12px;overflow:hidden;">
+
+              <div style="align-self:flex-end;max-width:88%;background:#2A1C3D;border-radius:12px 12px 2px 12px;padding:12px 14px;">
+                <div style="font-size:13.5px;line-height:1.5;color:#F4EEFB;">深層学習の注意機構について論文を書いて</div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                <div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;">
+                  <span style="font:700 12px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+                </div>
+                <span style="font-size:12.5px;font-weight:600;color:#C9B8E8;">TeX64</span>
+              </div>
+
+              <div style="font-size:12px;color:#F4EEFB;">論文ドラフトが完成しました。概要・本文・数式・図表・参考文献を含みます。文章や数式は紙面を直接クリックして書き換えられます。</div>
+              <div style="font-size:10.5px;color:#7C6E92;">数秒前</div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:6px 14px;margin-top:6px;">
+                <div style="font-size:13px;font-weight:600;color:#F4EEFB;padding:8px 0;">次に何をしますか?</div>
+
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                  <div style="font-size:12.5px;color:#F4EEFB;">参考文献を整形する</div>
+                  <div style="font-size:11px;color:#7C6E92;margin-top:2px;">BibTeXをAPA形式に統一</div>
+                </div>
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                  <div style="font-size:12.5px;color:#F4EEFB;">図表に通し番号をつける</div>
+                  <div style="font-size:11px;color:#7C6E92;margin-top:2px;">本文中の参照も自動更新</div>
+                </div>
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                  <div style="font-size:12.5px;color:#F4EEFB;">結論を書き直す</div>
+                  <div style="font-size:11px;color:#7C6E92;margin-top:2px;">より簡潔なトーンに</div>
+                </div>
+              </div>
+
+              <div style="flex:1;"></div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;">
+                <div style="font-size:13px;color:#5C4D72;">何を執筆しますか?</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;color:#7C6E92;">
+                <span style="font-size:14px;">&#9881;</span>
+                <span style="font-size:15px;font-weight:600;">+</span>
+                <span style="font-size:11px;background:#2A1C3D;color:#D9CEEA;padding:4px 10px;border-radius:7px;">編集</span>
+                <span style="font-size:11px;color:#9484AC;">ディスカス</span>
+                <span style="flex:1;"></span>
+                <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;color:#F4EEFB;font-size:12px;">&#8594;</div>
+              </div>
+            </div>
+
+            <!-- PREVIEW PANEL -->
+            <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#0E081A;">
+
+              <!-- toolbar -->
+              <div style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:#150B22;border-bottom:1px solid rgba(255,255,255,.07);">
+                <div style="display:flex;align-items:center;gap:2px;background:#1B1029;border-radius:8px;padding:3px;">
+                  <div style="padding:6px 14px;border-radius:6px;background:rgba(255,93,200,.16);color:#FF8FDA;font-size:12px;font-weight:600;">編集モード</div>
+                </div>
+                <div style="flex:1;display:flex;align-items:center;gap:10px;background:#1B1029;border-radius:8px;padding:6px 12px;max-width:360px;color:#B6A8C9;font-size:12px;">深層学習における注意機構の理論的解析</div>
+                <div style="display:flex;align-items:center;gap:10px;color:#9484AC;font-size:14px;">
+                  <span>&#8630;</span><span>&#8631;</span>
+                </div>
+                <div style="color:#9484AC;font-size:14px;">&#9974;</div>
+              </div>
+
+              <div style="flex:1;display:flex;min-height:0;">
+                <!-- outline sidebar -->
+                <div style="width:230px;flex:none;background:#150B22;border-right:1px solid rgba(255,255,255,.07);padding:20px 16px;display:flex;flex-direction:column;gap:3px;">
+                  <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#5C4D72;margin-bottom:8px;">アウトライン</div>
+
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">概要</div>
+                  <div style="padding:8px 10px;border-radius:7px;background:rgba(255,93,200,.14);font-size:12.5px;color:#F4EEFB;font-weight:600;">1.&nbsp; はじめに</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">2.&nbsp; 関連手法</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">3.&nbsp; 手法</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">4.&nbsp; 実験</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">5.&nbsp; 結論</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">参考文献</div>
+
+                  <div style="flex:1;"></div>
+                  <div style="padding:9px 10px;font-size:12.5px;color:#7C6E92;border-top:1px solid rgba(255,255,255,.07);margin-top:8px;padding-top:16px;">+&nbsp; セクションを追加</div>
+                </div>
+
+                <!-- paper render -->
+                <div style="flex:1;display:flex;justify-content:center;padding:24px 0 0;overflow:hidden;background:radial-gradient(circle at 50% 0%, rgba(155,47,201,.08), transparent 60%);">
+
+                  <div style="width:620px;height:750px;background:#FBF8F2;border-radius:4px;box-shadow:0 30px 70px rgba(0,0,0,.5);padding:38px 48px;overflow:hidden;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+
+                    <div style="font-size:21px;font-weight:700;line-height:1.4;text-align:center;margin-bottom:12px;">深層学習における注意機構の理論的解析</div>
+                    <div style="text-align:center;font-size:11.5px;color:#6b6b6b;margin-bottom:20px;">Personal Workspace &nbsp;&middot;&nbsp; 2026</div>
+
+                    <div style="font-size:9.5px;font-weight:700;letter-spacing:.08em;color:#9B2FC9;margin-bottom:5px;">概要</div>
+                    <div style="font-size:11px;line-height:1.8;color:#3a3a3a;font-style:italic;margin-bottom:18px;">
+                      本論文では Transformer における注意機構の数理的性質を整理し、既存手法と比較する。
+                    </div>
+
+                    <div style="font-size:13.5px;font-weight:700;margin-bottom:8px;">1.&nbsp; はじめに</div>
+                    <div style="font-size:11px;line-height:1.85;color:#222;text-align:justify;">
+                      自然言語処理における系列変換タスクは、<span style="background:rgba(255,93,200,.22);border-radius:2px;">長らく再帰構造に依存してきた</span><span style="display:inline-block;width:1.5px;height:11px;background:#9B2FC9;vertical-align:-1px;"></span>。Transformer はこれを再考する試みとして提案された。
+                    </div>
+
+                    <div style="width:12px;height:12px;background:#FFFFFF;transform:rotate(45deg);margin:2px 0 -6px 18px;"></div>
+                    <div style="display:flex;align-items:center;gap:1px;background:#FFFFFF;border-radius:8px;padding:5px;width:fit-content;box-shadow:0 8px 20px rgba(0,0,0,.3);margin-bottom:16px;">
+                      <div style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#2a2a2a;">B</div>
+                      <div style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-style:italic;color:#2a2a2a;">I</div>
+                      <div style="width:1px;height:14px;background:#E4E0EA;margin:0 3px;"></div>
+                      <div style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#2a2a2a;">&rdquo;</div>
+                      <div style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#2a2a2a;">&dagger;</div>
+                    </div>
+
+                    <div style="border:1.5px solid #FF5DC8;border-radius:6px;padding:12px 12px;margin-bottom:2px;">
+                      <div style="text-align:center;font-size:11.5px;font-style:italic;">
+                        Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                        <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;">
+                          <span style="border-bottom:1px solid #1a1a1a;padding:0 4px 1px;">QK<sup>T</sup></span>
+                          <span style="padding:1px 4px 0;">&radic;d<sub>k</sub></span>
+                        </span><span style="font-style:normal;">)</span>V
+                        <span style="float:right;font-style:normal;color:#6b6b6b;">(1)</span>
+                      </div>
+                    </div>
+                    <div style="width:12px;height:12px;background:#FFFFFF;transform:rotate(45deg);margin:2px 0 -6px 60px;"></div>
+                    <div style="display:flex;align-items:center;gap:1px;background:#FFFFFF;border-radius:8px;padding:5px;width:fit-content;box-shadow:0 8px 20px rgba(0,0,0,.3);margin-bottom:18px;">
+                      <div style="width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#3a3a3a;">&#8635;</div>
+                      <div style="padding:0 11px;height:26px;display:flex;align-items:center;border-radius:6px;background:#F3F0F7;font-size:11px;font-weight:600;color:#2a2a2a;">編集</div>
+                      <div style="width:1px;height:14px;background:#E4E0EA;margin:0 3px;"></div>
+                      <div style="padding:0 7px;height:26px;display:flex;align-items:center;font-size:10.5px;color:#9a94a3;">ソースを表示</div>
+                      <div style="width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#9a94a3;">&#10005;</div>
+                    </div>
+
+                    <div style="font-size:13.5px;font-weight:700;margin-bottom:8px;">2.&nbsp; 関連手法</div>
+                    <div style="width:100%;border:1.5px dashed #C9B8E8;border-radius:4px;padding:16px 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:rgba(155,47,201,.04);">
+                      <div style="font-size:17px;color:#9B2FC9;line-height:1;">+</div>
+                      <div style="font-size:10.5px;color:#6b6b6b;">画像を挿入</div>
+                      <div style="font-size:9px;color:#a39c8f;">ドラッグ&amp;ドロップ&nbsp;/&nbsp;AIで生成</div>
+                    </div>
+                    <div style="text-align:center;font-size:9.5px;font-style:italic;color:#9a9286;margin-top:6px;">図 1&nbsp;&mdash;&nbsp;挿入後にキャプションが自動生成されます</div>
+
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#7a">7a</a>のチャット内容をもっと簡潔に」・「アウトラインをドラッグで並べ替えられるようにしたい」・「これを最終版としてバックエンド連携の話に進む」</p>
+</section>
+<section class="dv-turn" id="t6">
+  <div class="dv-thd"><a class="dv-tid" href="#t6">6</a><span class="dv-tname">数式入力の詳細化 — 自然文 / 写真から(<a class="dv-oid" href="#5a">5a</a>の続き)</span></div>
+  <div class="dv-opts">
+
+    <!-- ============================= OPTION 6A ============================= -->
+    <div class="dv-opt" id="6a">
+      <div class="dv-olabel"><a class="dv-oid" href="#6a">6a</a>説明する — 自然な言葉で数式を伝える</div>
+      <div class="dv-card" style="width:960px">
+        <div style="width:960px;height:640px;background:radial-gradient(circle at 50% 30%, rgba(155,47,201,.14), transparent 60%), #0E081A;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans JP',sans-serif;position:relative;">
+
+          <div style="width:600px;background:#150B22;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:28px;box-shadow:0 30px 70px rgba(0,0,0,.55);">
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+              <div style="font-size:15px;font-weight:700;color:#F4EEFB;">数式を追加</div>
+              <div style="font-size:14px;color:#7C6E92;">&#10005;</div>
+            </div>
+
+            <div style="display:flex;gap:2px;background:#1B1029;border-radius:9px;padding:3px;width:fit-content;margin-bottom:22px;">
+              <div style="padding:8px 18px;border-radius:7px;background:rgba(255,93,200,.16);color:#FF8FDA;font-size:12.5px;font-weight:600;">説明する</div>
+              <div style="padding:8px 18px;border-radius:7px;color:#9484AC;font-size:12.5px;">写真から</div>
+            </div>
+
+            <div style="font-size:12px;color:#9484AC;margin-bottom:8px;">どんな数式か、自然な言葉で説明してください</div>
+            <div style="background:#0E081A;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.7;color:#F4EEFB;margin-bottom:8px;min-height:60px;">
+              QとKの転置の積をd_kの平方根で割ってソフトマックスをとり、Vを掛けた形<span style="display:inline-block;width:1.5px;height:14px;background:#9B2FC9;vertical-align:-2px;"></span>
+            </div>
+            <div style="font-size:11px;color:#5C4D72;margin-bottom:24px;">入力が止まると自動的に数式へ変換されます</div>
+
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#5C4D72;">プレビュー</div>
+              <div style="font-size:10.5px;color:#5C4D72;">ソースを表示</div>
+            </div>
+            <div style="background:#FBF8F2;border-radius:8px;padding:22px;margin-bottom:24px;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+              <div style="text-align:center;font-size:14px;font-style:italic;">
+                Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 4px;">
+                  <span style="border-bottom:1px solid #1a1a1a;padding:0 4px 1px;">QK<sup>T</sup></span>
+                  <span style="padding:1px 4px 0;">&radic;d<sub>k</sub></span>
+                </span><span style="font-style:normal;">)</span>V
+                <span style="float:right;font-style:normal;color:#6b6b6b;">(1)</span>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:10px;">
+              <div style="padding:10px 18px;font-size:12.5px;color:#9484AC;">キャンセル</div>
+              <div style="padding:10px 22px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);color:#fff;font-size:12.5px;font-weight:700;">挿入</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================= OPTION 6B ============================= -->
+    <div class="dv-opt" id="6b">
+      <div class="dv-olabel"><a class="dv-oid" href="#6b">6b</a>写真から — 手書き・既存資料を読み取る</div>
+      <div class="dv-card" style="width:960px">
+        <div style="width:960px;height:640px;background:radial-gradient(circle at 50% 30%, rgba(155,47,201,.14), transparent 60%), #0E081A;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans JP',sans-serif;position:relative;">
+
+          <div style="width:600px;background:#150B22;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:28px;box-shadow:0 30px 70px rgba(0,0,0,.55);">
+
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+              <div style="font-size:15px;font-weight:700;color:#F4EEFB;">数式を追加</div>
+              <div style="font-size:14px;color:#7C6E92;">&#10005;</div>
+            </div>
+
+            <div style="display:flex;gap:2px;background:#1B1029;border-radius:9px;padding:3px;width:fit-content;margin-bottom:22px;">
+              <div style="padding:8px 18px;border-radius:7px;color:#9484AC;font-size:12.5px;">説明する</div>
+              <div style="padding:8px 18px;border-radius:7px;background:rgba(255,93,200,.16);color:#FF8FDA;font-size:12.5px;font-weight:600;">写真から</div>
+            </div>
+
+            <div style="font-size:12px;color:#9484AC;margin-bottom:10px;">数式が写っている画像をドラッグ、またはクリックして選択</div>
+            <div style="display:flex;align-items:center;gap:12px;border:1.5px dashed rgba(255,255,255,.15);border-radius:10px;padding:14px 16px;background:rgba(255,255,255,.02);margin-bottom:24px;">
+              <div style="width:44px;height:44px;flex:none;border-radius:6px;background:rgba(255,255,255,.07);"></div>
+              <div>
+                <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">手書きメモ.jpg</div>
+                <div style="font-size:11px;color:#7C6E92;margin-top:2px;">1.2 MB &middot; アップロード済み</div>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#5C4D72;">認識結果</div>
+              <div style="font-size:10.5px;color:#5C4D72;">ソースを表示</div>
+            </div>
+            <div style="background:#FBF8F2;border-radius:8px;padding:22px;margin-bottom:24px;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+              <div style="text-align:center;font-size:14px;font-style:italic;">
+                Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 4px;">
+                  <span style="border-bottom:1px solid #1a1a1a;padding:0 4px 1px;">QK<sup>T</sup></span>
+                  <span style="padding:1px 4px 0;">&radic;d<sub>k</sub></span>
+                </span><span style="font-style:normal;">)</span>V
+                <span style="float:right;font-style:normal;color:#6b6b6b;">(1)</span>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:10px;">
+              <div style="padding:10px 18px;font-size:12.5px;color:#9484AC;">キャンセル</div>
+              <div style="padding:10px 22px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);color:#fff;font-size:12.5px;font-weight:700;">挿入</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#6a">6a</a>の例文をもっと初心者向けにして」・「変換中のローディング状態も見せて」・「複数の数式候補から選べるようにしたい」</p>
+</section>
+<section class="dv-turn" id="t5">
+  <div class="dv-thd"><a class="dv-tid" href="#t5">5</a><span class="dv-tname">全体構造(IA)整理 — ビルダー1画面+そこに開く操作</span></div>
+  <div class="dv-opts">
+    <div class="dv-opt" id="5a">
+      <div class="dv-olabel"><a class="dv-oid" href="#5a">5a</a>画面構造マップ</div>
+      <div class="dv-card" style="width:1400px">
+        <div style="width:1400px;background:#0E081A;padding:48px;box-sizing:border-box;font-family:'Noto Sans JP',sans-serif;color:#F4EEFB;">
+
+          <div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:#9B2FC9;margin-bottom:6px;">TEX64 &mdash; 画面構造</div>
+          <div style="font-size:20px;font-weight:700;margin-bottom:6px;">ビルダー1画面&nbsp;+&nbsp;その上に開く操作だけで完結する</div>
+          <div style="font-size:13px;color:#7C6E92;margin-bottom:36px;">ページ遷移はほぼない。すべては1つのハブ画面の上で起きる</div>
+
+          <!-- flow row -->
+          <div style="display:flex;align-items:center;gap:22px;margin-bottom:44px;">
+            <div style="width:220px;flex:none;border:1.5px dashed rgba(255,255,255,.18);border-radius:12px;padding:18px 20px;">
+              <div style="font-size:13px;font-weight:600;color:#9484AC;margin-bottom:4px;">新規作成 / プロジェクト一覧</div>
+              <div style="font-size:11px;color:#5C4D72;">(今回のデザイン対象外)</div>
+            </div>
+            <div style="font-size:22px;color:#4A3D5E;flex:none;">&#8594;</div>
+            <div style="flex:1;border-radius:14px;padding:2px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);">
+              <div style="background:#150B22;border-radius:12px;padding:22px 26px;display:flex;gap:36px;align-items:center;">
+                <div>
+                  <div style="font-size:15px;font-weight:700;margin-bottom:6px;">ハブ画面 &mdash; ビルダー</div>
+                  <div style="font-size:11.5px;color:#7C6E92;">既存デザイン(1a〜3a)でカバー済み</div>
+                </div>
+                <div style="width:1px;height:36px;background:rgba(255,255,255,.1);flex:none;"></div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <div style="font-size:12px;color:#D9CEEA;">&#9679;&nbsp; 左: チャット(常設)</div>
+                  <div style="font-size:12px;color:#D9CEEA;">&#9679;&nbsp; 右: プレビュー / アウトライン / ファイル(タブ切替)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:13px;font-weight:700;color:#F4EEFB;margin-bottom:6px;">ハブ画面の上に開く操作</div>
+          <div style="font-size:11.5px;color:#5C4D72;margin-bottom:16px;">すべてインラインツールバー・サイドパネル・モーダルのいずれかで、別画面には遷移しない</div>
+
+          <div style="display:flex;flex-direction:column;">
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.06);">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">文章編集</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">インラインツールバー</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">段落・見出しをクリックして直接書き換え。選択すると書式ツールバーが出る。</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.06);">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">数式編集</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">記号パレット</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">数式の見た目のまま編集し、記号パレットで組み立てる。コードは書かない。</div>
+              <div style="flex:none;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);color:#fff;font-size:10.5px;font-weight:700;padding:4px 12px;border-radius:20px;white-space:nowrap;">次回詳細化</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.06);">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">画像挿入</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">インラインメニュー</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">ドラッグ&amp;ドロップまたはAI生成。キャプションと図番号は自動で振られる。</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.06);">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">引用文献検索</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">サイドパネル</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">方式は未確定(自動反映・候補選択・BibTeXアップロードを将来すべて両立させる予定)。</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.06);">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">バージョン履歴</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">サイドパネル</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">執筆の各段階を遡り、変更点を比較できる。</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.06);">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">テンプレート切替</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">モーダル</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">投稿先の体裁をワンクリックで変更。中身の文章はそのまま。</div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 4px;">
+              <div style="width:150px;flex:none;font-size:13px;font-weight:600;">共有・エクスポート</div>
+              <div style="width:130px;flex:none;background:rgba(255,255,255,.07);color:#B6A8C9;font-size:11px;padding:4px 10px;border-radius:6px;text-align:center;">モーダル</div>
+              <div style="flex:1;font-size:12px;color:#9484AC;">共有リンクの発行、PDF/提出用一式(zip)の書き出し。</div>
+            </div>
+
+          </div>
+
+          <div style="margin-top:28px;padding:16px 20px;border:1px solid rgba(255,93,200,.25);border-radius:10px;background:rgba(255,93,200,.05);">
+            <div style="font-size:12.5px;color:#D9CEEA;line-height:1.7;">前提: コンパイルは常にAIが完了させる。ユーザーがエラーや警告に対処する局面は存在しないため、エラー表示・警告UIは設計しない。</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#5a">5a</a>の数式編集を次のターンで詳細化して」・「引用文献パネルの方式を一緒に決めたい」・「バージョン履歴の見せ方も考えて」</p>
+</section>
+<section class="dv-turn" id="t4">
+  <div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">文書を直接編集する仕組み — テキスト・数式・画像(<a class="dv-oid" href="#3a">3a</a>の続き)</span></div>
+  <div class="dv-opts">
+
+    <!-- ============================= OPTION 4A ============================= -->
+    <div class="dv-opt" id="4a">
+      <div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>3種類の直接編集 — 文章・数式・画像(TeXコードは常に裏側)</div>
+      <div class="dv-card" style="width:1520px">
+        <div style="width:1520px;background:#0E081A;padding:40px;box-sizing:border-box;font-family:'Noto Sans JP',sans-serif;">
+
+          <div style="font-size:16px;font-weight:600;color:#F4EEFB;margin-bottom:4px;">TeXコードではなく、完成した文書そのものをクリックして編集します</div>
+          <div style="font-size:12.5px;color:#7C6E92;margin-bottom:28px;">レンダリングされた見た目の上で直接書き換え、裏側のTeXコードはAIが常に同期します</div>
+
+          <div style="display:flex;gap:30px;align-items:stretch;">
+
+            <!-- PANEL 1: TEXT -->
+            <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:24px;height:24px;border-radius:50%;background:#1B1029;border:1px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#F4EEFB;flex:none;">1</div>
+                <div style="font-size:14px;font-weight:600;color:#F4EEFB;">文章を直接編集</div>
+              </div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;flex:1;">
+                <div style="background:#FBF8F2;border-radius:4px;padding:20px 22px;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+                  <div style="font-size:13px;font-weight:700;margin-bottom:8px;">2.&nbsp; 関連手法</div>
+                  <div style="font-size:11.5px;line-height:1.95;color:#222;text-align:justify;">
+                    既存手法は再帰構造に基づくものが多く、<span style="background:rgba(255,93,200,.22);border-radius:2px;">計算コストが系列長に対して線形に増加する</span><span style="display:inline-block;width:1.5px;height:12px;background:#9B2FC9;vertical-align:-2px;"></span>という課題があった。
+                  </div>
+                </div>
+
+                <div style="width:14px;height:14px;background:#FFFFFF;transform:rotate(45deg);margin:-21px 0 0 28px;"></div>
+
+                <div style="display:flex;align-items:center;gap:2px;background:#FFFFFF;border-radius:9px;padding:6px;align-self:flex-start;box-shadow:0 10px 24px rgba(0,0,0,.35);">
+                  <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;color:#2a2a2a;">B</div>
+                  <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-style:italic;color:#2a2a2a;">I</div>
+                  <div style="width:1px;height:16px;background:#E4E0EA;margin:0 3px;"></div>
+                  <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#2a2a2a;">&rdquo;</div>
+                  <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11.5px;color:#2a2a2a;">&dagger;</div>
+                </div>
+
+                <div style="font-size:12px;line-height:1.8;color:#9484AC;">段落や見出しはクリックして直接書き換え可能。文章を選択すると書式ツールバーが現れます。</div>
+              </div>
+            </div>
+
+            <!-- PANEL 2: EQUATION -->
+            <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:24px;height:24px;border-radius:50%;background:#1B1029;border:1px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#F4EEFB;flex:none;">2</div>
+                <div style="font-size:14px;font-weight:600;color:#F4EEFB;">数式は見た目のまま編集</div>
+              </div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;flex:1;">
+                <div style="background:#FBF8F2;border-radius:4px;padding:26px 22px;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+                  <div style="text-align:center;font-size:13px;font-style:italic;">
+                    Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                    <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;">
+                      <span style="border-bottom:1px solid #1a1a1a;padding:0 4px 1px;">QK<sup>T</sup></span>
+                      <span style="padding:1px 4px 0;background:rgba(255,93,200,.22);border-radius:2px;">&radic;d<sub>k</sub><span style="display:inline-block;width:1.5px;height:10px;background:#9B2FC9;vertical-align:-1px;margin-left:1px;"></span></span>
+                    </span><span style="font-style:normal;">)</span>V
+                    <span style="float:right;font-style:normal;color:#6b6b6b;">(1)</span>
+                  </div>
+                </div>
+
+                <div style="width:14px;height:14px;background:#FFFFFF;transform:rotate(45deg);margin:-21px 0 0 28px;"></div>
+
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <div style="display:flex;align-items:center;gap:2px;background:#FFFFFF;border-radius:9px;padding:6px;align-self:flex-start;box-shadow:0 10px 24px rgba(0,0,0,.35);">
+                    <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#2a2a2a;">&radic;</div>
+                    <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#2a2a2a;">x&sup2;</div>
+                    <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#2a2a2a;">x<sub>n</sub></div>
+                    <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#2a2a2a;">&Sigma;</div>
+                    <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#2a2a2a;">&alpha;</div>
+                  </div>
+                  <div style="font-size:10.5px;color:#5C4D72;text-align:right;padding-right:2px;">LaTeX&#12477;&#12540;&#12473;&#12434;&#34920;&#31034;</div>
+                </div>
+
+                <div style="font-size:12px;line-height:1.8;color:#9484AC;">数式は記号として直接編集。フラクションや上付き、ギリシャ文字はパレットから選ぶだけで、コードを書く必要はありません。</div>
+              </div>
+            </div>
+
+            <!-- PANEL 3: IMAGE -->
+            <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:24px;height:24px;border-radius:50%;background:#1B1029;border:1px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#F4EEFB;flex:none;">3</div>
+                <div style="font-size:14px;font-weight:600;color:#F4EEFB;">画像は挿入するだけ</div>
+              </div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;flex:1;">
+                <div style="background:#FBF8F2;border-radius:4px;padding:20px 22px;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+                  <div style="width:100%;height:132px;border:1.5px dashed #C9B8E8;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:rgba(155,47,201,.04);">
+                    <div style="font-size:20px;color:#9B2FC9;line-height:1;">+</div>
+                    <div style="font-size:11.5px;color:#6b6b6b;">画像を挿入</div>
+                    <div style="font-size:9.5px;color:#a39c8f;">ドラッグ&amp;ドロップ&nbsp;/&nbsp;AIで生成</div>
+                  </div>
+                  <div style="text-align:center;font-size:10px;font-style:italic;color:#9a9286;margin-top:8px;">図 2&nbsp;&mdash;&nbsp;挿入後にキャプションが自動生成されます</div>
+                </div>
+
+                <div style="flex:1;"></div>
+
+                <div style="font-size:12px;line-height:1.8;color:#9484AC;">空の図版エリアに画像をドラッグ、またはAIで生成。図番号とキャプションは自動的に割り当てられます。</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#4a">4a</a>の数式パレットにもっと記号を追加して」・「表(テーブル)の直接編集も見せて」・「実際にクリックして遷移する操作フローをステップで見たい」</p>
+</section>
+<section class="dv-turn" id="t3">
+  <div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">収束案 — <a class="dv-oid" href="#1b">1b</a>をベースに、TeXを前面に出さず装飾を削減</span></div>
+  <div class="dv-opts">
+
+    <!-- ============================= OPTION 3A ============================= -->
+    <div class="dv-opt" id="3a">
+      <div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>アウトライン中心・装飾ゼロ・数式編集はシンプルなツールバーのみ</div>
+      <div class="dv-card" style="width:1600px">
+        <div style="width:1600px;height:900px;background:#150B22;display:flex;flex-direction:column;color:#F4EEFB;">
+
+          <!-- HEADER -->
+          <div style="height:64px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#110A1C;border-bottom:1px solid rgba(255,255,255,.08);">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(255,93,200,.4);">
+                <span style="font:700 16px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+              </div>
+              <span style="color:rgba(255,255,255,.25);font-size:16px;">/</span>
+              <div style="width:24px;height:24px;border-radius:6px;background:#2A1C3D;display:flex;align-items:center;justify-content:center;font-size:11px;color:#C9B8E8;font-weight:700;">A</div>
+              <div style="display:flex;flex-direction:column;line-height:1.25;">
+                <span style="font-size:13px;font-weight:600;color:#F4EEFB;">AttentionPaper</span>
+                <span style="font-size:10.5px;color:#7C6E92;">Personal Workspace</span>
+              </div>
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 4px;"></div>
+              <div style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#128340;</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;background:#1B1029;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:4px;">
+              <div style="padding:7px 18px;border-radius:7px;background:#2A1C3D;font-size:13px;font-weight:600;color:#F4EEFB;">プレビュー</div>
+              <div style="padding:7px 18px;border-radius:7px;font-size:13px;color:#9484AC;">アウトライン</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#E3D6FF;">Y</div>
+              <div style="width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#8943;</div>
+              <div style="padding:8px 16px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);font-size:12.5px;font-weight:700;color:#fff;">アップグレード</div>
+              <div style="padding:8px 18px;border-radius:9px;background:#2A1C3D;border:1px solid rgba(255,255,255,.1);font-size:12.5px;font-weight:600;color:#F4EEFB;">公開</div>
+            </div>
+          </div>
+
+          <!-- BODY -->
+          <div style="flex:1;display:flex;min-height:0;">
+
+            <!-- CHAT PANEL -->
+            <div style="width:380px;flex:none;display:flex;flex-direction:column;background:#1B1029;border-right:1px solid rgba(255,255,255,.08);padding:20px;gap:12px;overflow:hidden;">
+
+              <div style="align-self:flex-end;max-width:88%;background:#2A1C3D;border-radius:12px 12px 2px 12px;padding:12px 14px;">
+                <div style="font-size:13.5px;line-height:1.5;color:#F4EEFB;">深層学習の注意機構について論文を書いて</div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                <div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;">
+                  <span style="font:700 12px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+                </div>
+                <span style="font-size:12.5px;font-weight:600;color:#C9B8E8;">TeX64</span>
+              </div>
+
+              <div style="font-size:13px;line-height:1.7;color:#D9CEEA;">
+                論文の構成プランです。<br><br>
+                1.&nbsp;<b style="color:#F4EEFB;">タイトル・概要</b><br>
+                2.&nbsp;<b style="color:#F4EEFB;">本文</b>&nbsp;— 序論・手法・実験・結論<br>
+                3.&nbsp;<b style="color:#F4EEFB;">数式・図表</b>&nbsp;— 自動採番<br>
+                4.&nbsp;<b style="color:#F4EEFB;">参考文献</b>&nbsp;— 自動整形<br><br>
+                それでは執筆を始めます。
+              </div>
+
+              <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
+
+              <div style="font-size:12px;color:#F4EEFB;">論文ドラフトが完成しました。概要・本文・数式・図表・参考文献を含みます。</div>
+              <div style="font-size:10.5px;color:#7C6E92;">数秒前</div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:6px 14px;margin-top:6px;">
+                <div style="font-size:13px;font-weight:600;color:#F4EEFB;padding:8px 0;">次に何をしますか?</div>
+
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                  <div style="font-size:12.5px;color:#F4EEFB;">参考文献を整形する</div>
+                  <div style="font-size:11px;color:#7C6E92;margin-top:2px;">BibTeXをAPA形式に統一</div>
+                </div>
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                  <div style="font-size:12.5px;color:#F4EEFB;">図表に通し番号をつける</div>
+                  <div style="font-size:11px;color:#7C6E92;margin-top:2px;">本文中の参照も自動更新</div>
+                </div>
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                  <div style="font-size:12.5px;color:#F4EEFB;">結論を書き直す</div>
+                  <div style="font-size:11px;color:#7C6E92;margin-top:2px;">より簡潔なトーンに</div>
+                </div>
+              </div>
+
+              <div style="flex:1;"></div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;">
+                <div style="font-size:13px;color:#5C4D72;">何を執筆しますか?</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;color:#7C6E92;">
+                <span style="font-size:14px;">&#9881;</span>
+                <span style="font-size:15px;font-weight:600;">+</span>
+                <span style="font-size:11px;background:#2A1C3D;color:#D9CEEA;padding:4px 10px;border-radius:7px;">編集</span>
+                <span style="font-size:11px;color:#9484AC;">ディスカス</span>
+                <span style="flex:1;"></span>
+                <div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;">
+                  <div style="width:8px;height:12px;border:1.4px solid #9484AC;border-radius:4px;"></div>
+                  <div style="width:12px;height:5px;border:1.4px solid #9484AC;border-top:none;border-radius:0 0 6px 6px;"></div>
+                </div>
+                <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;color:#F4EEFB;font-size:12px;">&#8594;</div>
+              </div>
+            </div>
+
+            <!-- PREVIEW PANEL -->
+            <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#0E081A;">
+
+              <!-- toolbar -->
+              <div style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:#150B22;border-bottom:1px solid rgba(255,255,255,.07);">
+                <div style="display:flex;align-items:center;gap:2px;background:#1B1029;border-radius:8px;padding:3px;">
+                  <div style="padding:6px 14px;border-radius:6px;background:rgba(255,93,200,.16);color:#FF8FDA;font-size:12px;font-weight:600;">編集モード</div>
+                </div>
+                <div style="flex:1;display:flex;align-items:center;gap:10px;background:#1B1029;border-radius:8px;padding:6px 12px;max-width:360px;color:#B6A8C9;font-size:12px;">深層学習における注意機構の理論的解析</div>
+                <div style="display:flex;align-items:center;gap:10px;color:#9484AC;font-size:14px;">
+                  <span>&#8630;</span><span>&#8631;</span>
+                </div>
+                <div style="color:#9484AC;font-size:14px;">&#9974;</div>
+              </div>
+
+              <div style="flex:1;display:flex;min-height:0;">
+                <!-- outline sidebar -->
+                <div style="width:230px;flex:none;background:#150B22;border-right:1px solid rgba(255,255,255,.07);padding:20px 16px;display:flex;flex-direction:column;gap:3px;">
+                  <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#5C4D72;margin-bottom:8px;">アウトライン</div>
+
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">概要</div>
+                  <div style="padding:8px 10px;border-radius:7px;background:rgba(255,93,200,.14);font-size:12.5px;color:#F4EEFB;font-weight:600;">1.&nbsp; はじめに</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">2.&nbsp; 関連手法</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">3.&nbsp; 手法</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">4.&nbsp; 実験</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">5.&nbsp; 結論</div>
+                  <div style="padding:8px 10px;border-radius:7px;font-size:12.5px;color:#B6A8C9;">参考文献</div>
+
+                  <div style="flex:1;"></div>
+                  <div style="padding:9px 10px;font-size:12.5px;color:#7C6E92;border-top:1px solid rgba(255,255,255,.07);margin-top:8px;padding-top:16px;">+&nbsp; セクションを追加</div>
+                </div>
+
+                <!-- paper render -->
+                <div style="flex:1;display:flex;justify-content:center;padding:30px 0 0;overflow:hidden;background:radial-gradient(circle at 50% 0%, rgba(155,47,201,.08), transparent 60%);position:relative;">
+
+                  <div style="width:620px;height:760px;background:#FBF8F2;border-radius:4px;box-shadow:0 30px 70px rgba(0,0,0,.5);padding:52px 56px;overflow:hidden;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+                    <div style="font-size:22px;font-weight:700;line-height:1.4;text-align:center;margin-bottom:14px;">深層学習における注意機構の理論的解析</div>
+                    <div style="text-align:center;font-size:12px;color:#6b6b6b;margin-bottom:26px;">Personal Workspace &nbsp;&middot;&nbsp; 2026</div>
+
+                    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#9B2FC9;margin-bottom:6px;">概要</div>
+                    <div style="font-size:11.5px;line-height:1.85;color:#3a3a3a;font-style:italic;margin-bottom:22px;">
+                      本論文では Transformer における注意機構の数理的性質を整理し、計算量とスケーリング則の観点から既存手法を比較する。
+                    </div>
+
+                    <div style="font-size:14px;font-weight:700;margin-bottom:10px;">1.&nbsp; はじめに</div>
+                    <div style="font-size:11.5px;line-height:1.9;color:#222;text-align:justify;margin-bottom:16px;">
+                      自然言語処理における系列変換タスクは、長らく再帰構造に依存してきた。Vaswani らによって提案された Transformer は、再帰を排し注意機構のみで系列表現を構築する点で画期的であった。
+                    </div>
+
+                    <div style="position:relative;margin:0 -8px 20px;">
+                      <div style="border:1.5px solid #FF5DC8;border-radius:6px;padding:14px 12px;">
+                        <div style="text-align:center;font-size:12px;font-style:italic;">
+                          Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                          <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;">
+                            <span style="border-bottom:1px solid #1a1a1a;padding:0 4px 1px;">QK<sup>T</sup></span>
+                            <span style="padding:1px 4px 0;">&radic;d<sub>k</sub></span>
+                          </span><span style="font-style:normal;">)</span>V
+                          <span style="float:right;font-style:normal;color:#6b6b6b;">(1)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style="font-size:14px;font-weight:700;margin:18px 0 10px;">2.&nbsp; 関連手法</div>
+                    <div style="width:100%;height:110px;background:#EDE7DC;border:1px solid #d8d0c0;border-radius:2px;display:flex;align-items:center;justify-content:center;color:#9a9286;font-size:11px;margin-bottom:8px;">図版プレースホルダー</div>
+                    <div style="text-align:center;font-size:10.5px;color:#6b6b6b;">図 1&nbsp;&mdash;&nbsp; 既存手法のベンチマーク比較</div>
+                  </div>
+
+                  <!-- simplified equation toolbar -->
+                  <div style="position:absolute;top:287px;left:350px;display:flex;align-items:center;gap:2px;background:#FFFFFF;border-radius:10px;padding:6px;box-shadow:0 14px 30px rgba(0,0,0,.4);">
+                    <div style="width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3a3a3a;">&#8635;</div>
+                    <div style="padding:0 12px;height:30px;display:flex;align-items:center;border-radius:7px;background:#F3F0F7;font-size:12px;font-weight:600;color:#2a2a2a;">編集</div>
+                    <div style="width:1px;height:16px;background:#E4E0EA;margin:0 4px;"></div>
+                    <div style="padding:0 8px;height:30px;display:flex;align-items:center;font-size:11px;color:#9a94a3;">ソースを表示</div>
+                    <div style="width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#9a94a3;">&#10005;</div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#3a">3a</a>のトーンをもう少し明るく」・「アウトラインの見出しをドラッグで並べ替えたい」・「公開ボタンを押した後の共有画面も見たい」</p>
+</section>
+<section class="dv-turn" id="t2">
+  <div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">要素を直接編集 — <a class="dv-oid" href="#1b">1b</a>を拡張(数式も含む)</span></div>
+  <div class="dv-opts">
+
+    <!-- ============================= OPTION 2A ============================= -->
+    <div class="dv-opt" id="2a">
+      <div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>数式をクリック → 編集ツールバー + LaTeXソース表示</div>
+      <div class="dv-card" style="width:960px">
+        <div style="width:960px;height:640px;background:radial-gradient(circle at 60% 30%, rgba(155,47,201,.16), transparent 60%), #0E081A;position:relative;display:flex;align-items:center;justify-content:center;font-family:'Noto Sans JP',sans-serif;overflow:hidden;">
+
+          <!-- paper snippet -->
+          <div style="width:560px;background:#FBF8F2;border-radius:4px;box-shadow:0 30px 70px rgba(0,0,0,.5);padding:44px 46px;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+            <div style="font-size:12.5px;line-height:1.9;color:#222;text-align:justify;margin-bottom:22px;">
+              自然言語処理における系列変換タスクは、長らく再帰構造に依存してきた。本節では注意機構の基本形を導入し、次節以降で拡張を議論する。
+            </div>
+
+            <div style="position:relative;margin:0 -10px 22px;">
+              <div style="position:absolute;top:-30px;left:2px;font-size:9px;font-weight:700;color:#fff;background:#FF5DC8;padding:2px 7px;border-radius:4px;letter-spacing:.04em;">EQUATION</div>
+              <div style="border:2px solid #FF5DC8;border-radius:6px;padding:16px 14px;">
+                <div style="text-align:center;font-size:15px;font-style:italic;">
+                  Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                  <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 4px;">
+                    <span style="border-bottom:1.5px solid #1a1a1a;padding:0 5px 2px;">QK<sup>T</sup></span>
+                    <span style="padding:2px 5px 0;">&radic;d<sub>k</sub></span>
+                  </span><span style="font-style:normal;">)</span>V
+                  <span style="float:right;font-style:normal;color:#6b6b6b;font-size:13px;">(1)</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="font-size:12.5px;line-height:1.9;color:#222;text-align:justify;">
+              式 (1) において softmax はキーの次元 d<sub>k</sub> でスケーリングされ、勾配消失を防ぐ役割を持つ。
+            </div>
+          </div>
+
+          <!-- floating toolbar -->
+          <div style="position:absolute;top:126px;left:196px;display:flex;align-items:center;gap:6px;background:#FFFFFF;border-radius:12px;padding:7px;box-shadow:0 14px 30px rgba(0,0,0,.4);">
+            <div style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#3a3a3a;">&#8635;</div>
+            <div style="display:flex;align-items:center;gap:6px;padding:0 12px;height:34px;border-radius:8px;background:#F3F0F7;font-size:12.5px;font-weight:600;color:#2a2a2a;">&#128172; 数式を編集</div>
+            <div style="width:1px;height:20px;background:#E4E0EA;margin:0 2px;"></div>
+            <div style="width:36px;height:20px;border-radius:10px;background:#E4E0EA;display:flex;align-items:center;padding:2px;">
+              <div style="width:16px;height:16px;border-radius:50%;background:#9B2FC9;margin-left:auto;"></div>
+            </div>
+            <div style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#9B2FC9;">&Sigma;</div>
+            <div style="display:flex;align-items:center;gap:4px;padding:0 10px;height:34px;border-radius:8px;font-size:12.5px;color:#2a2a2a;">display &#9662;</div>
+            <div style="display:flex;align-items:center;gap:4px;padding:0 10px;height:34px;border-radius:8px;font-size:12.5px;color:#2a2a2a;">auto &#9662;</div>
+            <div style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3a3a3a;">&#9078;</div>
+            <div style="width:1px;height:20px;background:#E4E0EA;margin:0 2px;"></div>
+            <div style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-family:'JetBrains Mono',monospace;font-weight:700;color:#fff;background:#9B2FC9;">&lt;/&gt;</div>
+            <div style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#3a3a3a;">&#128465;</div>
+            <div style="width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#3a3a3a;">&#10005;</div>
+          </div>
+          <div style="position:absolute;top:340px;left:196px;display:flex;align-items:center;gap:4px;background:rgba(255,93,200,.16);border:1px solid rgba(255,93,200,.4);color:#FF8FDA;font-size:12px;font-weight:600;padding:6px 12px;border-radius:8px;">equation &#9662;</div>
+
+          <!-- LaTeX source popover -->
+          <div style="position:absolute;top:150px;right:26px;width:296px;background:#1B1029;border:1px solid rgba(255,93,200,.35);border-radius:12px;padding:16px;box-shadow:0 20px 50px rgba(0,0,0,.5);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <span style="font-size:12px;font-weight:700;color:#F4EEFB;">LaTeX&#12477;&#12540;&#12473;</span>
+              <span style="font-size:12px;color:#7C6E92;">&#10005;</span>
+            </div>
+            <div style="background:#0E081A;border-radius:8px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.8;">
+              <div><span style="color:#FF8FDA;">\begin</span><span style="color:#9484AC;">{equation}</span></div>
+              <div style="color:#D9CEEA;padding-left:10px;">\text{Attention}(Q,K,V)</div>
+              <div style="color:#D9CEEA;padding-left:10px;">&nbsp;&nbsp;= \text{softmax}\left(</div>
+              <div style="color:#D9CEEA;padding-left:20px;">\frac{QK^T}{\sqrt{d_k}}</div>
+              <div style="color:#D9CEEA;padding-left:10px;">&nbsp;&nbsp;\right)V</div>
+              <div><span style="color:#FF8FDA;">\end</span><span style="color:#9484AC;">{equation}</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;">
+              <span style="font-size:10.5px;color:#7C6E92;">編集すると即座に反映されます</span>
+              <div style="font-size:11px;font-weight:700;color:#fff;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);padding:6px 12px;border-radius:7px;">&#10003; 反映</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#2a">2a</a>と同じ編集を見出しや図版にも適用して」・「トグルで実際にレンダー&#8596;ソースが切り替わる様子も見せて」・「もっと多くの要素タイプを見たい」</p>
+</section>
+<section class="dv-turn" id="t1">
+  <div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">TeX64 ビルダー画面 — Base44構成をLaTeX執筆AI向けに再設計</span></div>
+  <div class="dv-opts">
+
+    <!-- ============================= OPTION 1A ============================= -->
+    <div class="dv-opt" id="1a">
+      <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>ビルド中 — 執筆プランとファイル生成</div>
+      <div class="dv-card" style="width:1600px">
+        <div style="width:1600px;height:900px;background:#150B22;display:flex;flex-direction:column;color:#F4EEFB;">
+
+          <!-- HEADER -->
+          <div style="height:64px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#110A1C;border-bottom:1px solid rgba(255,255,255,.08);">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(255,93,200,.4);">
+                <span style="font:700 16px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+              </div>
+              <span style="color:rgba(255,255,255,.25);font-size:16px;">/</span>
+              <div style="width:24px;height:24px;border-radius:6px;background:#2A1C3D;display:flex;align-items:center;justify-content:center;font-size:11px;color:#C9B8E8;font-weight:700;">A</div>
+              <div style="display:flex;flex-direction:column;line-height:1.25;">
+                <span style="font-size:13px;font-weight:600;color:#F4EEFB;">untitled</span>
+                <span style="font-size:10.5px;color:#7C6E92;">Personal Workspace</span>
+              </div>
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 4px;"></div>
+              <div style="width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:14px;">&#8635;</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;background:#1B1029;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:4px;">
+              <div style="display:flex;align-items:center;gap:6px;padding:7px 14px;">
+                <div style="width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#9484AC;">&#9664;</div>
+              </div>
+              <div style="padding:7px 16px;border-radius:7px;background:#2A1C3D;font-size:13px;font-weight:600;color:#F4EEFB;">プレビュー</div>
+              <div style="padding:7px 16px;border-radius:7px;font-size:13px;color:#9484AC;">ファイル</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#E3D6FF;">Y</div>
+              <div style="width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#8943;</div>
+              <div style="padding:8px 16px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);font-size:12.5px;font-weight:700;color:#fff;">アップグレード</div>
+              <div style="padding:8px 18px;border-radius:9px;background:#2A1C3D;border:1px solid rgba(255,255,255,.1);font-size:12.5px;font-weight:600;color:#F4EEFB;">公開</div>
+            </div>
+          </div>
+
+          <!-- BODY -->
+          <div style="flex:1;display:flex;min-height:0;">
+
+            <!-- CHAT PANEL -->
+            <div style="width:380px;flex:none;display:flex;flex-direction:column;background:#1B1029;border-right:1px solid rgba(255,255,255,.08);padding:20px;gap:14px;overflow:hidden;">
+
+              <div style="align-self:flex-end;max-width:88%;background:#2A1C3D;border-radius:12px 12px 2px 12px;padding:12px 14px;">
+                <div style="font-size:13.5px;line-height:1.5;color:#F4EEFB;">深層学習の注意機構について学術論文を書いて</div>
+              </div>
+              <div style="align-self:flex-end;font-size:10.5px;color:#7C6E92;margin-top:-8px;">数秒前</div>
+
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+                <div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;">
+                  <span style="font:700 12px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+                </div>
+                <span style="font-size:12.5px;font-weight:600;color:#C9B8E8;">TeX64</span>
+              </div>
+
+              <div style="font-size:13px;line-height:1.65;color:#D9CEEA;">
+                論文構成のプランです:<br><br>
+                <span style="font-size:14px;">&Sigma;</span> <b style="color:#F4EEFB;">学術論文ドラフト</b><br>
+                <b style="color:#F4EEFB;">主な構成</b><br>
+                1. <b style="color:#F4EEFB;">タイトル・概要</b> — タイトル/著者/アブストラクトを生成<br>
+                2. <b style="color:#F4EEFB;">本文セクション</b> — 序論・手法・実験・結論の4部構成<br>
+                3. <b style="color:#F4EEFB;">数式・図表</b> — 自動採番、キャプション付き<br>
+                4. <b style="color:#F4EEFB;">参考文献</b> — BibTeXで管理し本文に引用<br><br>
+                <b style="color:#F4EEFB;">スタイル</b><br>
+                ・セリフ体の学術フォーマット<br>
+                ・数式は章番号付きで自動採番<br>
+                ・二段組レイアウトに対応<br><br>
+                それでは執筆を始めます。
+              </div>
+
+              <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#150B22;border-radius:8px;">
+                <span style="color:#7C6E92;font-size:13px;">&#9696;</span>
+                <span style="font-size:12px;color:#9484AC;">書き込み中</span>
+                <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#B6A8C9;background:#2A1C3D;padding:2px 7px;border-radius:5px;">main.tex</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#150B22;border-radius:8px;opacity:.55;">
+                <span style="color:#7C6E92;font-size:13px;">&#9696;</span>
+                <span style="font-size:12px;color:#9484AC;">書き込み中</span>
+                <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#B6A8C9;background:#2A1C3D;padding:2px 7px;border-radius:5px;">sections/introduction.tex</span>
+              </div>
+              <div style="font-size:10.5px;color:#7C6E92;">数秒前</div>
+
+              <div style="flex:1;"></div>
+
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:14px;height:14px;border-radius:50%;border:2px solid #7C6E92;border-top-color:transparent;"></div>
+                <span style="font-size:12px;color:#9484AC;">コードを編集中…</span>
+              </div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;">
+                <div style="font-size:13px;color:#5C4D72;">何を執筆しますか?</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;color:#7C6E92;">
+                <span style="font-size:14px;">&#9881;</span>
+                <span style="font-size:14px;">&#65291;</span>
+                <span style="font-size:11px;background:#2A1C3D;color:#D9CEEA;padding:4px 9px;border-radius:7px;">&#10024; 編集</span>
+                <span style="font-size:11px;display:flex;align-items:center;gap:4px;color:#9484AC;">&#128172; ディスカス</span>
+                <span style="flex:1;"></span>
+                <span style="font-size:14px;">&#127908;</span>
+                <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;color:#F4EEFB;font-size:12px;">&#8594;</div>
+              </div>
+            </div>
+
+            <!-- PREVIEW PANEL (loading) -->
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(circle at 58% 38%, rgba(155,47,201,.30), transparent 58%), #150B22;position:relative;">
+              <div style="width:120px;height:120px;border-radius:30px;background:linear-gradient(135deg,#6B2AA0,#C23FD6);display:flex;align-items:center;justify-content:center;box-shadow:0 0 70px rgba(255,93,200,.45), 0 0 0 16px rgba(155,47,201,.10);">
+                <span style="font:700 56px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+              </div>
+              <div style="margin-top:36px;font-size:28px;font-weight:600;color:#F4EEFB;">論文 をビルド中<span style="color:#9484AC;">..</span></div>
+              <div style="margin-top:26px;width:280px;height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;">
+                <div style="width:62%;height:100%;background:linear-gradient(90deg,#8B2FCB,#FF5DC8);"></div>
+              </div>
+              <div style="margin-top:64px;font-size:13px;color:#7C6E92;">TeX64を最大限に活用しましょう</div>
+              <div style="margin-top:10px;font-size:14px;color:#C9B8E8;display:flex;align-items:center;gap:8px;">
+                <span>&#128208;</span> 数式番号は章ごとに自動採番されます
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================= OPTION 1B ============================= -->
+    <div class="dv-opt" id="1b">
+      <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>完成プレビュー — レンダリングされた論文ページ</div>
+      <div class="dv-card" style="width:1600px">
+        <div style="width:1600px;height:900px;background:#150B22;display:flex;flex-direction:column;color:#F4EEFB;">
+
+          <!-- HEADER -->
+          <div style="height:64px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#110A1C;border-bottom:1px solid rgba(255,255,255,.08);">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(255,93,200,.4);">
+                <span style="font:700 16px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+              </div>
+              <span style="color:rgba(255,255,255,.25);font-size:16px;">/</span>
+              <div style="width:24px;height:24px;border-radius:6px;background:#2A1C3D;display:flex;align-items:center;justify-content:center;font-size:11px;color:#C9B8E8;font-weight:700;">A</div>
+              <div style="display:flex;flex-direction:column;line-height:1.25;">
+                <span style="font-size:13px;font-weight:600;color:#F4EEFB;">AttentionPaper</span>
+                <span style="font-size:10.5px;color:#7C6E92;">Personal Workspace</span>
+              </div>
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 4px;"></div>
+              <div style="width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:14px;">&#8635;</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;background:#1B1029;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:4px;">
+              <div style="display:flex;align-items:center;gap:6px;padding:7px 14px;">
+                <div style="width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#9484AC;">&#9664;</div>
+              </div>
+              <div style="padding:7px 16px;border-radius:7px;background:#2A1C3D;font-size:13px;font-weight:600;color:#F4EEFB;">プレビュー</div>
+              <div style="padding:7px 16px;border-radius:7px;font-size:13px;color:#9484AC;">ファイル</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#E3D6FF;">Y</div>
+              <div style="width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#8943;</div>
+              <div style="padding:8px 16px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);font-size:12.5px;font-weight:700;color:#fff;">アップグレード</div>
+              <div style="padding:8px 18px;border-radius:9px;background:#2A1C3D;border:1px solid rgba(255,255,255,.1);font-size:12.5px;font-weight:600;color:#F4EEFB;">公開</div>
+            </div>
+          </div>
+
+          <!-- BODY -->
+          <div style="flex:1;display:flex;min-height:0;">
+
+            <!-- CHAT PANEL -->
+            <div style="width:380px;flex:none;display:flex;flex-direction:column;background:#1B1029;border-right:1px solid rgba(255,255,255,.08);padding:20px;gap:12px;overflow:hidden;">
+
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:13px;color:#9484AC;">&#128196;</span>
+                <span style="font-size:12px;color:#9484AC;">作成完了</span>
+                <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#B6A8C9;background:#2A1C3D;padding:2px 7px;border-radius:5px;">main.tex</span>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+                <div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;">
+                  <span style="font:700 12px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+                </div>
+                <span style="font-size:12.5px;font-weight:600;color:#C9B8E8;">TeX64</span>
+              </div>
+
+              <div style="font-size:13px;line-height:1.65;color:#D9CEEA;">
+                学術論文「深層学習における注意機構の理論的解析」が完成しました。アブストラクト、本文4セクション、数式12個、図表3点、参考文献18件を含むフルドラフトです。
+              </div>
+              <div style="font-size:10.5px;color:#7C6E92;">数秒前</div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px;margin-top:6px;">
+                <div style="font-size:13px;font-weight:600;color:#F4EEFB;margin-bottom:12px;">次に何をしますか?</div>
+
+                <div style="display:flex;gap:10px;margin-bottom:14px;">
+                  <div style="width:30px;height:30px;flex:none;border-radius:8px;background:rgba(155,47,201,.18);display:flex;align-items:center;justify-content:center;font-size:13px;">&#128218;</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">参考文献を整形</div>
+                    <div style="font-size:11px;color:#7C6E92;margin-top:2px;">BibTeXエントリをAPA形式に統一する</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;margin-bottom:14px;">
+                  <div style="width:30px;height:30px;flex:none;border-radius:8px;background:rgba(255,93,200,.16);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#FF8FDA;">&Sigma;</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">数式番号を整理</div>
+                    <div style="font-size:11px;color:#7C6E92;margin-top:2px;">通し番号から章番号付きに変更する</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;">
+                  <div style="width:30px;height:30px;flex:none;border-radius:8px;background:rgba(120,170,255,.14);display:flex;align-items:center;justify-content:center;font-size:13px;">&#128196;</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">図表一覧を生成</div>
+                    <div style="font-size:11px;color:#7C6E92;margin-top:2px;">List of Figures を自動挿入する</div>
+                  </div>
+                </div>
+
+                <div style="border-top:1px solid rgba(255,255,255,.08);margin:14px 0 10px;"></div>
+                <div style="font-size:11px;color:#5C4D72;text-align:center;">または下の入力欄に直接入力してください</div>
+              </div>
+
+              <div style="flex:1;"></div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;">
+                <div style="font-size:13px;color:#5C4D72;">何を執筆しますか?</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;color:#7C6E92;">
+                <span style="font-size:14px;">&#9881;</span>
+                <span style="font-size:14px;">&#65291;</span>
+                <span style="font-size:11px;background:#2A1C3D;color:#D9CEEA;padding:4px 9px;border-radius:7px;">&#10024; 編集</span>
+                <span style="font-size:11px;display:flex;align-items:center;gap:4px;color:#9484AC;">&#128172; ディスカス</span>
+                <span style="flex:1;"></span>
+                <span style="font-size:14px;">&#127908;</span>
+                <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;color:#F4EEFB;font-size:12px;">&#8594;</div>
+              </div>
+            </div>
+
+            <!-- PREVIEW PANEL -->
+            <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#0E081A;">
+
+              <!-- toolbar -->
+              <div style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:#150B22;border-bottom:1px solid rgba(255,255,255,.07);">
+                <div style="display:flex;align-items:center;gap:2px;">
+                  <div style="width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#9633;</div>
+                  <div style="width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#9638;</div>
+                  <div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;background:rgba(255,93,200,.16);color:#FF8FDA;font-size:12.5px;font-weight:600;">&#10024; 編集</div>
+                  <div style="width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#127912;</div>
+                </div>
+                <div style="width:1px;height:20px;background:rgba(255,255,255,.08);"></div>
+                <div style="flex:1;display:flex;align-items:center;gap:10px;background:#1B1029;border-radius:8px;padding:6px 12px;max-width:420px;">
+                  <span style="color:#7C6E92;font-size:12px;">&#8635;</span>
+                  <span style="font-size:12px;color:#B6A8C9;font-family:'JetBrains Mono',monospace;">/main</span>
+                  <span style="color:#7C6E92;font-size:10px;margin-left:auto;">&#9660;</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;color:#9484AC;font-size:13px;">
+                  <span>&#8634;</span><span>&#8635;</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;background:#1B1029;border-radius:7px;padding:6px 10px;color:#B6A8C9;font-size:12px;">&#128421; PDF</div>
+                <div style="color:#9484AC;font-size:13px;">&#9974;</div>
+              </div>
+
+              <div style="flex:1;display:flex;min-height:0;">
+                <!-- file tree sidebar -->
+                <div style="width:230px;flex:none;background:#150B22;border-right:1px solid rgba(255,255,255,.07);padding:18px 14px;display:flex;flex-direction:column;gap:2px;">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+                    <div style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;">
+                      <span style="font:700 13px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+                    </div>
+                    <span style="font-size:13.5px;font-weight:700;color:#F4EEFB;">AttentionPaper</span>
+                  </div>
+
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:7px;background:rgba(255,93,200,.14);">
+                    <span style="font-size:12px;color:#FF8FDA;">&#128196;</span>
+                    <span style="font-size:12.5px;color:#F4EEFB;font-weight:600;">main.tex</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 9px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128193;</span>
+                    <span style="font-size:12.5px;color:#B6A8C9;">sections</span>
+                    <span style="margin-left:auto;font-size:10px;color:#7C6E92;">&#9660;</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:7px 9px 7px 30px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128196;</span>
+                    <span style="font-size:12px;color:#9484AC;">introduction.tex</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:7px 9px 7px 30px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128196;</span>
+                    <span style="font-size:12px;color:#9484AC;">method.tex</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:7px 9px 7px 30px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128196;</span>
+                    <span style="font-size:12px;color:#9484AC;">results.tex</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:7px 9px 7px 30px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128196;</span>
+                    <span style="font-size:12px;color:#9484AC;">conclusion.tex</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 9px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128218;</span>
+                    <span style="font-size:12.5px;color:#B6A8C9;">references.bib</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 9px;">
+                    <span style="font-size:12px;color:#9484AC;">&#128193;</span>
+                    <span style="font-size:12.5px;color:#B6A8C9;">figures</span>
+                  </div>
+
+                  <div style="flex:1;"></div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 9px;border-top:1px solid rgba(255,255,255,.07);margin-top:8px;padding-top:14px;">
+                    <span style="font-size:12px;color:#9484AC;">&#9881;</span>
+                    <span style="font-size:12.5px;color:#9484AC;">コンパイル設定</span>
+                  </div>
+                </div>
+
+                <!-- paper render -->
+                <div style="flex:1;display:flex;justify-content:center;padding:30px 0 0;overflow:hidden;background:radial-gradient(circle at 50% 0%, rgba(155,47,201,.10), transparent 60%);position:relative;">
+                  <div style="position:absolute;top:26px;right:34px;display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);color:#fff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px;">&#65291; セクション追加</div>
+                  <div style="width:620px;height:760px;background:#FBF8F2;border-radius:4px;box-shadow:0 30px 70px rgba(0,0,0,.5);padding:52px 56px;overflow:hidden;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+                    <div style="display:inline-block;font-size:9px;font-weight:700;color:#9B2FC9;background:rgba(155,47,201,.12);padding:2px 6px;border-radius:4px;margin-bottom:8px;">H1</div>
+                    <div style="border:1.5px solid #FF5DC8;border-radius:4px;padding:8px 10px;margin:-9px -11px 14px;">
+                      <div style="font-size:22px;font-weight:700;line-height:1.4;text-align:center;">深層学習における注意機構の理論的解析</div>
+                    </div>
+                    <div style="text-align:center;font-size:12px;color:#6b6b6b;margin-bottom:26px;">Personal Workspace &nbsp;&middot;&nbsp; 2026</div>
+
+                    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#9B2FC9;margin-bottom:6px;">概要</div>
+                    <div style="font-size:11.5px;line-height:1.85;color:#3a3a3a;font-style:italic;margin-bottom:22px;">
+                      本論文では Transformer における注意機構の数理的性質を整理し、計算量とスケーリング則の観点から既存手法を比較する。実験的評価により、提案する正規化手法が長系列タスクにおいて安定性を改善することを示す。
+                    </div>
+
+                    <div style="font-size:14px;font-weight:700;margin-bottom:10px;">1.&nbsp; はじめに</div>
+                    <div style="font-size:11.5px;line-height:1.9;color:#222;text-align:justify;margin-bottom:16px;">
+                      自然言語処理における系列変換タスクは、長らく再帰構造に依存してきた。Vaswani らによって提案された Transformer は、再帰を排し注意機構のみで系列表現を構築する点で画期的であった。本研究ではこの注意機構の数理的構造を再検討する。
+                    </div>
+
+                    <div style="text-align:center;font-size:12px;font-style:italic;margin:20px 0;">
+                      Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                      <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 3px;">
+                        <span style="border-bottom:1px solid #1a1a1a;padding:0 4px 1px;">QK<sup>T</sup></span>
+                        <span style="padding:1px 4px 0;">&radic;d<sub>k</sub></span>
+                      </span><span style="font-style:normal;">)</span>V
+                      <span style="float:right;font-style:normal;color:#6b6b6b;">(1)</span>
+                    </div>
+
+                    <div style="font-size:14px;font-weight:700;margin:18px 0 10px;">2.&nbsp; 関連手法</div>
+                    <div style="width:100%;height:130px;background:#EDE7DC;border:1px solid #d8d0c0;border-radius:2px;display:flex;align-items:center;justify-content:center;color:#9a9286;font-size:11px;margin-bottom:8px;">図版プレースホルダー</div>
+                    <div style="text-align:center;font-size:10.5px;color:#6b6b6b;">図 1&nbsp;&mdash;&nbsp; 既存手法のベンチマーク比較</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================= OPTION 1C ============================= -->
+    <div class="dv-opt" id="1c">
+      <div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>ソース&times;プレビュー 分割表示</div>
+      <div class="dv-card" style="width:1600px">
+        <div style="width:1600px;height:900px;background:#150B22;display:flex;flex-direction:column;color:#F4EEFB;">
+
+          <!-- HEADER -->
+          <div style="height:64px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:#110A1C;border-bottom:1px solid rgba(255,255,255,.08);">
+            <div style="display:flex;align-items:center;gap:14px;">
+              <div style="width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(255,93,200,.4);">
+                <span style="font:700 16px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+              </div>
+              <span style="color:rgba(255,255,255,.25);font-size:16px;">/</span>
+              <div style="width:24px;height:24px;border-radius:6px;background:#2A1C3D;display:flex;align-items:center;justify-content:center;font-size:11px;color:#C9B8E8;font-weight:700;">A</div>
+              <div style="display:flex;flex-direction:column;line-height:1.25;">
+                <span style="font-size:13px;font-weight:600;color:#F4EEFB;">AttentionPaper</span>
+                <span style="font-size:10.5px;color:#7C6E92;">Personal Workspace</span>
+              </div>
+              <div style="width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 4px;"></div>
+              <div style="width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:14px;">&#8635;</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;background:#1B1029;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:4px;">
+              <div style="display:flex;align-items:center;gap:6px;padding:7px 14px;">
+                <div style="width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#9484AC;">&#9664;</div>
+              </div>
+              <div style="padding:7px 16px;border-radius:7px;background:#2A1C3D;font-size:13px;font-weight:600;color:#F4EEFB;">プレビュー</div>
+              <div style="padding:7px 16px;border-radius:7px;font-size:13px;color:#9484AC;">ファイル</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#E3D6FF;">Y</div>
+              <div style="width:26px;height:26px;border-radius:8px;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#9484AC;font-size:13px;">&#8943;</div>
+              <div style="padding:8px 16px;border-radius:9px;background:linear-gradient(135deg,#8B2FCB,#FF5DC8);font-size:12.5px;font-weight:700;color:#fff;">アップグレード</div>
+              <div style="padding:8px 18px;border-radius:9px;background:#2A1C3D;border:1px solid rgba(255,255,255,.1);font-size:12.5px;font-weight:600;color:#F4EEFB;">公開</div>
+            </div>
+          </div>
+
+          <!-- BODY -->
+          <div style="flex:1;display:flex;min-height:0;">
+
+            <!-- CHAT PANEL -->
+            <div style="width:380px;flex:none;display:flex;flex-direction:column;background:#1B1029;border-right:1px solid rgba(255,255,255,.08);padding:20px;gap:12px;overflow:hidden;">
+
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:13px;color:#9484AC;">&#128196;</span>
+                <span style="font-size:12px;color:#9484AC;">作成完了</span>
+                <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#B6A8C9;background:#2A1C3D;padding:2px 7px;border-radius:5px;">main.tex</span>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+                <div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#6B2AA0,#9B2FC9);display:flex;align-items:center;justify-content:center;">
+                  <span style="font:700 12px 'EB Garamond',serif;color:#fff;">&Sigma;</span>
+                </div>
+                <span style="font-size:12.5px;font-weight:600;color:#C9B8E8;">TeX64</span>
+              </div>
+
+              <div style="font-size:13px;line-height:1.65;color:#D9CEEA;">
+                ドラフトが完成しました。左にLaTeXソース、右にコンパイル結果を常時表示しています。コードを編集するとプレビューが即座に同期します。
+              </div>
+              <div style="font-size:10.5px;color:#7C6E92;">数秒前</div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px;margin-top:6px;">
+                <div style="font-size:13px;font-weight:600;color:#F4EEFB;margin-bottom:12px;">次に何をしますか?</div>
+
+                <div style="display:flex;gap:10px;margin-bottom:14px;">
+                  <div style="width:30px;height:30px;flex:none;border-radius:8px;background:rgba(155,47,201,.18);display:flex;align-items:center;justify-content:center;font-size:13px;">&#128270;</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">コマンドを一括置換</div>
+                    <div style="font-size:11px;color:#7C6E92;margin-top:2px;">\textbf を \bfseries に統一する</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;margin-bottom:14px;">
+                  <div style="width:30px;height:30px;flex:none;border-radius:8px;background:rgba(255,93,200,.16);display:flex;align-items:center;justify-content:center;font-size:13px;">&#9888;</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">コンパイルエラーを修正</div>
+                    <div style="font-size:11px;color:#7C6E92;margin-top:2px;">未定義の参照を自動検出して解決する</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;">
+                  <div style="width:30px;height:30px;flex:none;border-radius:8px;background:rgba(120,170,255,.14);display:flex;align-items:center;justify-content:center;font-size:13px;">&#127912;</div>
+                  <div>
+                    <div style="font-size:12.5px;font-weight:600;color:#F4EEFB;">テンプレートを変更</div>
+                    <div style="font-size:11px;color:#7C6E92;margin-top:2px;">学会指定のクラスファイルに切り替える</div>
+                  </div>
+                </div>
+
+                <div style="border-top:1px solid rgba(255,255,255,.08);margin:14px 0 10px;"></div>
+                <div style="font-size:11px;color:#5C4D72;text-align:center;">または下の入力欄に直接入力してください</div>
+              </div>
+
+              <div style="flex:1;"></div>
+
+              <div style="background:#150B22;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;">
+                <div style="font-size:13px;color:#5C4D72;">何を執筆しますか?</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;color:#7C6E92;">
+                <span style="font-size:14px;">&#9881;</span>
+                <span style="font-size:14px;">&#65291;</span>
+                <span style="font-size:11px;background:#2A1C3D;color:#D9CEEA;padding:4px 9px;border-radius:7px;">&#10024; 編集</span>
+                <span style="font-size:11px;display:flex;align-items:center;gap:4px;color:#9484AC;">&#128172; ディスカス</span>
+                <span style="flex:1;"></span>
+                <span style="font-size:14px;">&#127908;</span>
+                <div style="width:26px;height:26px;border-radius:50%;background:#3D2A5C;display:flex;align-items:center;justify-content:center;color:#F4EEFB;font-size:12px;">&#8594;</div>
+              </div>
+            </div>
+
+            <!-- PREVIEW PANEL split -->
+            <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#0E081A;">
+
+              <!-- toolbar -->
+              <div style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:#150B22;border-bottom:1px solid rgba(255,255,255,.07);">
+                <div style="display:flex;align-items:center;gap:2px;background:#1B1029;border-radius:8px;padding:3px;">
+                  <div style="padding:6px 12px;border-radius:6px;font-size:12px;color:#9484AC;">コード</div>
+                  <div style="padding:6px 12px;border-radius:6px;background:rgba(255,93,200,.16);color:#FF8FDA;font-size:12px;font-weight:600;">分割</div>
+                  <div style="padding:6px 12px;border-radius:6px;font-size:12px;color:#9484AC;">プレビュー</div>
+                </div>
+                <div style="width:1px;height:20px;background:rgba(255,255,255,.08);"></div>
+                <div style="flex:1;display:flex;align-items:center;gap:10px;background:#1B1029;border-radius:8px;padding:6px 12px;max-width:420px;">
+                  <span style="color:#7C6E92;font-size:12px;">&#8635;</span>
+                  <span style="font-size:12px;color:#B6A8C9;font-family:'JetBrains Mono',monospace;">/main</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;color:#9484AC;font-size:13px;">
+                  <span>&#8634;</span><span>&#8635;</span>
+                </div>
+                <div style="color:#9484AC;font-size:13px;">&#9974;</div>
+              </div>
+
+              <div style="flex:1;display:flex;min-height:0;">
+
+                <!-- code editor -->
+                <div style="width:50%;flex:none;background:#150B22;border-right:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column;">
+                  <div style="display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,.07);">
+                    <div style="padding:10px 16px;font-size:11.5px;font-family:'JetBrains Mono',monospace;color:#F4EEFB;background:#1B1029;border-right:1px solid rgba(255,255,255,.07);">main.tex</div>
+                    <div style="padding:10px 16px;font-size:11.5px;font-family:'JetBrains Mono',monospace;color:#7C6E92;">introduction.tex</div>
+                  </div>
+                  <div style="flex:1;padding:16px 0;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.9;">
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">1</span><span><span style="color:#FF8FDA;">\documentclass</span><span style="color:#9484AC;">[11pt]{article}</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">2</span><span><span style="color:#FF8FDA;">\usepackage</span><span style="color:#9484AC;">{amsmath, graphicx}</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">3</span><span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">4</span><span><span style="color:#FF8FDA;">\title</span><span style="color:#9484AC;">{</span><span style="color:#D9CEEA;">深層学習における注意機構の理論的解析</span><span style="color:#9484AC;">}</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">5</span><span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">6</span><span><span style="color:#FF8FDA;">\begin</span><span style="color:#9484AC;">{document}</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">7</span><span><span style="color:#FF8FDA;">\maketitle</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">8</span><span></span></div>
+                    <div style="display:flex;background:rgba(255,93,200,.07);"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">9</span><span><span style="color:#FF8FDA;">\section</span><span style="color:#9484AC;">{</span><span style="color:#D9CEEA;">はじめに</span><span style="color:#9484AC;">}</span></span></div>
+                    <div style="display:flex;background:rgba(255,93,200,.07);"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">10</span><span style="color:#D9CEEA;">自然言語処理における系列変換タスクは、長らく再帰構造に依存してきた。</span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">11</span><span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">12</span><span><span style="color:#FF8FDA;">\begin</span><span style="color:#9484AC;">{equation}</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">13</span><span style="color:#D9CEEA;padding-left:14px;">&nbsp;&nbsp;\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V</span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">14</span><span><span style="color:#FF8FDA;">\end</span><span style="color:#9484AC;">{equation}</span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">15</span><span></span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">16</span><span style="color:#6B6078;font-style:italic;">% TODO: 図1を挿入</span></div>
+                    <div style="display:flex;"><span style="width:34px;text-align:right;padding-right:14px;color:#4A3D5E;">17</span><span><span style="color:#FF8FDA;">\section</span><span style="color:#9484AC;">{</span><span style="color:#D9CEEA;">関連手法</span><span style="color:#9484AC;">}</span></span></div>
+                  </div>
+                </div>
+
+                <!-- live PDF preview -->
+                <div style="width:50%;flex:1;display:flex;justify-content:center;padding:24px 0 0;overflow:hidden;background:radial-gradient(circle at 50% 0%, rgba(155,47,201,.10), transparent 60%);">
+                  <div style="width:430px;height:780px;background:#FBF8F2;border-radius:4px;box-shadow:0 24px 60px rgba(0,0,0,.5);padding:34px 36px;overflow:hidden;font-family:'Noto Serif JP',serif;color:#1A1A1A;">
+                    <div style="font-size:16px;font-weight:700;line-height:1.4;text-align:center;margin-bottom:16px;">深層学習における注意機構の理論的解析</div>
+                    <div style="font-size:13px;font-weight:700;margin-bottom:8px;">1.&nbsp; はじめに</div>
+                    <div style="font-size:9.5px;line-height:1.85;color:#222;text-align:justify;margin-bottom:14px;">
+                      自然言語処理における系列変換タスクは、長らく再帰構造に依存してきた。
+                    </div>
+                    <div style="text-align:center;font-size:10px;font-style:italic;margin:16px 0;">
+                      Attention(Q, K, V) = softmax<span style="font-style:normal;">(</span>
+                      <span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 2px;">
+                        <span style="border-bottom:1px solid #1a1a1a;padding:0 3px 1px;font-size:9px;">QK<sup>T</sup></span>
+                        <span style="padding:1px 3px 0;font-size:9px;">&radic;d<sub>k</sub></span>
+                      </span><span style="font-style:normal;">)</span>V
+                      <span style="float:right;font-style:normal;color:#6b6b6b;font-size:9px;">(1)</span>
+                    </div>
+                    <div style="font-size:13px;font-weight:700;margin:14px 0 8px;">2.&nbsp; 関連手法</div>
+                    <div style="width:100%;height:74px;background:#EDE7DC;border:1px solid #d8d0c0;display:flex;align-items:center;justify-content:center;color:#9a9286;font-size:9.5px;">図版プレースホルダー</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">次に試す: 「<a href="#1b">1b</a>のサイドバーをファイルツリーごと展開して」・「<a href="#1c">1c</a>のコードに差分ハイライトを追加して」・「ライトテーマも見たい」</p>
+</section>
+
+</x-dc>
+</body>
+</html>
