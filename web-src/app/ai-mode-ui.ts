@@ -1,0 +1,119 @@
+import type { AiWebBridge, BridgeWindow } from "./types.js";
+
+// AI mode hosts the tex64-ai document agent (services/tex64-ai) in a
+// <webview>. The guest is the exact app that ships as the standalone web
+// service; electron/ai-web-preload.cjs injects window.tex64Native so the one
+// codebase can branch small native-vs-web differences itself.
+
+export const resolveAiEmbedUrl = (base: string): string => {
+  try {
+    const url = new URL(base);
+    url.searchParams.set("embed", "native");
+    return url.toString();
+  } catch {
+    return base;
+  }
+};
+
+type WebviewElement = HTMLElement & {
+  reload?: () => void;
+  loadURL?: (url: string) => void;
+};
+
+type WebviewIpcEvent = Event & { channel?: string; args?: unknown[] };
+type WebviewFailEvent = Event & {
+  errorCode?: number;
+  isMainFrame?: boolean;
+};
+
+export type AiModeApi = {
+  activate: () => void;
+};
+
+export const initAiModeUi = (): AiModeApi => {
+  const host = document.getElementById("ai-mode-webview-host");
+  const fallback = document.getElementById("ai-mode-fallback");
+  const status = document.getElementById("ai-mode-fallback-status");
+  const retryButton = document.getElementById("ai-mode-retry");
+  const browserButton = document.getElementById("ai-mode-open-browser");
+  const devHint = document.getElementById("ai-mode-dev-hint");
+  const bridge = (window as BridgeWindow).tex64AiWeb as AiWebBridge | undefined;
+
+  let webview: WebviewElement | null = null;
+  let currentUrl = "";
+  let creating = false;
+
+  const showFallback = (message: string) => {
+    if (status) status.textContent = message;
+    fallback?.classList.remove("is-hidden");
+  };
+  const hideFallback = () => fallback?.classList.add("is-hidden");
+
+  const createWebview = async () => {
+    if (webview || creating || !host) return;
+    creating = true;
+    showFallback("AIワークスペースに接続しています…");
+    const config = await bridge?.getConfig?.().catch(() => null);
+    creating = false;
+    if (!config?.ok || !config.url) {
+      showFallback("AIワークスペースの設定を取得できませんでした。");
+      return;
+    }
+    if (devHint) devHint.hidden = config.packaged !== false;
+    currentUrl = config.url;
+
+    const element = document.createElement("webview") as WebviewElement;
+    element.setAttribute("src", resolveAiEmbedUrl(config.url));
+    // Keep the agent's session cookie (its per-browser workspace) across app
+    // restarts.
+    element.setAttribute("partition", "persist:tex64-ai");
+    if (config.preloadFileUrl) {
+      element.setAttribute("preload", config.preloadFileUrl);
+    }
+    element.className = "ai-mode-webview";
+    // did-finish-load also fires after a failed navigation, so remember the
+    // failure until the next load attempt starts.
+    let lastLoadFailed = false;
+    element.addEventListener("did-start-loading", () => {
+      lastLoadFailed = false;
+    });
+    element.addEventListener("did-fail-load", (event: WebviewFailEvent) => {
+      // -3 = ERR_ABORTED (in-page navigations); not a connection failure.
+      if (event.isMainFrame === false || event.errorCode === -3) return;
+      lastLoadFailed = true;
+      showFallback(
+        "AIワークスペースに接続できませんでした。サーバーが起動しているか確認してください。"
+      );
+    });
+    element.addEventListener("did-finish-load", () => {
+      if (!lastLoadFailed) hideFallback();
+    });
+    element.addEventListener("ipc-message", (event: WebviewIpcEvent) => {
+      if (event.channel !== "tex64-ai-web") return;
+      const payload = event.args?.[0] as { type?: string; url?: string } | undefined;
+      if (payload?.type === "open-external" && typeof payload.url === "string") {
+        void bridge?.openExternal?.(payload.url);
+      }
+    });
+    host.appendChild(element);
+    webview = element;
+  };
+
+  retryButton?.addEventListener("click", () => {
+    if (webview) {
+      showFallback("AIワークスペースに再接続しています…");
+      webview.reload?.();
+    } else {
+      void createWebview();
+    }
+  });
+  browserButton?.addEventListener("click", () => {
+    if (currentUrl) void bridge?.openExternal?.(currentUrl);
+  });
+
+  return {
+    activate: () => {
+      void createWebview();
+    },
+  };
+};

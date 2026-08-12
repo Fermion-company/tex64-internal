@@ -104,9 +104,8 @@ export const createProSplitViewCoordinator = (deps) => {
 };
 export const initProModeUi = (deps) => {
     const root = document.getElementById("editor-groups");
-    const toggle = document.getElementById("pro-mode-toggle");
     const switcher = document.getElementById("pro-layout-switcher");
-    if (!(root instanceof HTMLElement) || !(toggle instanceof HTMLButtonElement))
+    if (!(root instanceof HTMLElement))
         return null;
     let state = parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY));
     const previewViewer = createViewer({
@@ -127,8 +126,6 @@ export const initProModeUi = (deps) => {
     const apply = () => {
         document.documentElement.dataset.proMode = state.enabled ? "true" : "false";
         root.dataset.proLayout = state.layout;
-        toggle.setAttribute("aria-checked", String(state.enabled));
-        toggle.classList.toggle("is-active", state.enabled);
         if (switcher instanceof HTMLElement)
             switcher.hidden = !state.enabled;
         const previewPane = document.getElementById("pro-preview-pane");
@@ -157,7 +154,6 @@ export const initProModeUi = (deps) => {
         persist();
         apply();
     };
-    toggle.addEventListener("click", () => update({ enabled: !state.enabled }));
     document.querySelectorAll("[data-pro-layout]").forEach((button) => {
         button.addEventListener("click", () => {
             const layout = button.dataset.proLayout;
@@ -279,5 +275,32 @@ export const initProModeUi = (deps) => {
         paneElement.addEventListener("pointercancel", () => root.classList.remove("is-pro-resizing"));
     });
     apply();
-    return { getState: () => state };
+    // Pro mode is owned by the top-bar mode switcher (app-mode.ts); this is the
+    // hook it drives. Enabling keeps whatever layout the user last used.
+    const setEnabled = (enabled) => {
+        if (state.enabled !== enabled)
+            update({ enabled });
+    };
+    // Workspace-tree image/PDF clicks land in the visible viewer pane while Pro
+    // mode is on (preview in layout 1, reference in layout 2) instead of
+    // replacing the source editor. Returns false when Pro is off so the caller
+    // falls back to the normal editor-viewer flow.
+    const tryShowViewerFile = (path, kind, data, mimeType) => {
+        if (!state.enabled)
+            return false;
+        const pane = state.layout === "preview-source" ? "preview" : "reference";
+        const viewer = pane === "preview" ? previewViewer : referenceViewer;
+        if (kind === "pdf")
+            viewer.showPdfViewer(path, data, mimeType);
+        else
+            viewer.showImageViewer(path, data, mimeType);
+        const title = document.getElementById(`pro-${pane}-title`);
+        if (title)
+            title.textContent = path.split("/").pop() || path;
+        if (state.collapsed[pane]) {
+            update({ collapsed: { ...state.collapsed, [pane]: false } });
+        }
+        return true;
+    };
+    return { getState: () => state, setEnabled, tryShowViewerFile };
 };

@@ -1212,3 +1212,13 @@ textarea {
     background: transparent !important;
   }
 }
+
+/* ---- Native embed (TeX64 desktop AI mode) ----
+   The desktop app injects window.tex64Native and stamps
+   <html data-platform="native">. The desktop top bar already carries the
+   TeX64 brand, so the embedded page drops its own lockup. Keep every
+   native-vs-web difference under this attribute. */
+
+[data-platform="native"] .brand-lockup {
+  display: none;
+}

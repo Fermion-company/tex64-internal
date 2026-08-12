@@ -86,6 +86,16 @@ export type EditorSessionDeps = {
     }) => void;
   };
   getMonacoApi: () => Record<string, unknown> | null;
+  // Pro mode routes workspace-tree viewer files (image/PDF) into its visible
+  // viewer pane; returns false when Pro mode is off (normal flow applies).
+  proViewer?: {
+    tryShowViewerFile: (
+      path: string,
+      kind: "image" | "pdf",
+      data?: string,
+      mimeType?: string
+    ) => boolean;
+  };
 };
 
 export type EditorSessionApi = {

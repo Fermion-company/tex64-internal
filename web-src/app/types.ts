@@ -357,6 +357,17 @@ export type AiCompletionBridge = {
 export type FilesBridge = {
   writeBase64?: (payload: { path: string; data: string }) => Promise<{ ok: boolean; path?: string; error?: string }>;
 };
+export type AiWebBridge = {
+  getConfig?: () => Promise<{
+    ok: boolean;
+    url?: string;
+    preloadFileUrl?: string;
+    packaged?: boolean;
+    localAppDir?: string | null;
+    error?: string;
+  }>;
+  openExternal?: (url: string) => Promise<{ ok: boolean; error?: string }>;
+};
 export type BridgeWindow = Window &
   typeof globalThis & {
     webkit?: WebkitBridge;
@@ -367,6 +378,7 @@ export type BridgeWindow = Window &
     tex64Fermion?: FermionBridge;
     tex64Ai?: AiCompletionBridge;
     tex64Files?: FilesBridge;
+    tex64AiWeb?: AiWebBridge;
     tex64Lsp?: LspBridge;
     tex64Spell?: SpellBridge;
     __tex64TestCaptureApi?: CaptureBridge;

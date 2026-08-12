@@ -48,7 +48,9 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
-import { initProModeUi } from "./app/pro-mode-ui.js";
+import { initProModeUi, parseProModeState, PRO_MODE_STORAGE_KEY } from "./app/pro-mode-ui.js";
+import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./app/app-mode.js";
+import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCaptureUi } from "./app/pro-capture-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
@@ -330,6 +332,10 @@ export const initMain = () => {
   let pendingBlockApply: PendingBlockApply | null = null;
   let updateFallback = (message: string) => {};
 
+  // Assigned after initProModeUi below; the editor session only consults it
+  // lazily when a viewer file opens, so the late binding is safe.
+  let proModeApi: ReturnType<typeof initProModeUi> = null;
+
   editorSession = initEditorSession(appContext, {
     getWorkspaceFiles,
     getRootFilePath,
@@ -367,8 +373,12 @@ export const initMain = () => {
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     getMonacoApi: appActions.getMonacoApi,
+    proViewer: {
+      tryShowViewerFile: (path, kind, data, mimeType) =>
+        proModeApi?.tryShowViewerFile(path, kind, data, mimeType) ?? false,
+    },
   });
-  initProModeUi({
+  proModeApi = initProModeUi({
     setSplitViewEnabled: editorSession.setSplitViewEnabled,
     getSplitViewEnabled: editorSession.getSplitViewEnabled,
   });
@@ -379,6 +389,17 @@ export const initMain = () => {
   initProCaptureUi({
     getActiveGroup: editorSession.getActiveGroup,
     getWorkspaceFiles,
+  });
+  const aiModeApi = initAiModeUi();
+  initAppModeUi({
+    initialMode: resolveInitialAppMode(
+      localStorage.getItem(APP_MODE_STORAGE_KEY),
+      parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled
+    ),
+    onModeChange: (mode) => {
+      proModeApi?.setEnabled(mode === "pro");
+      if (mode === "ai") aiModeApi.activate();
+    },
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 

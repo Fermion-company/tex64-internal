@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: http://127.0.0.1:*;"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*;"
     >
     <title>TeX64</title>
     <link rel="stylesheet" href="./theme.css">
@@ -97,12 +97,32 @@
           </button>
         </div>
         <div class="topbar-drag"></div>
+        <nav class="mode-switcher" id="mode-switcher" role="tablist" aria-label="App mode">
+          <button id="mode-tab-code" class="mode-tab" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" title="Code — LaTeXエディタ">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m8 8-4 4 4 4"></path>
+              <path d="m16 8 4 4-4 4"></path>
+            </svg>
+            <span>Code</span>
+          </button>
+          <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" title="AI — 文書エージェント">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"></path>
+            </svg>
+            <span>AI</span>
+          </button>
+          <button id="mode-tab-pro" class="mode-tab" type="button" role="tab" data-app-mode-tab="pro" aria-selected="false" title="Pro — 分割レイアウトと執筆ツール">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+              <path d="M11 5v14"></path>
+              <path d="M16.5 5v14"></path>
+            </svg>
+            <span>Pro</span>
+          </button>
+        </nav>
+        <div class="topbar-drag"></div>
         <div class="top-actions">
           <div class="pro-mode-controls" aria-label="Pro mode layout">
-            <button id="pro-mode-toggle" class="pro-mode-toggle" type="button" role="switch" aria-checked="false" title="Enable Pro mode">
-              <span class="pro-mode-toggle-track" aria-hidden="true"><span class="pro-mode-toggle-thumb"></span></span>
-              <span>Pro</span>
-            </button>
             <div id="pro-layout-switcher" class="pro-layout-switcher" aria-label="Pro layout" hidden>
               <button type="button" data-pro-layout="preview-source" aria-pressed="true" title="Preview | Source">①</button>
               <button type="button" data-pro-layout="source-reference-code" aria-pressed="false" title="Source | Reference | Code">②</button>
@@ -1245,7 +1265,7 @@
           <div class="editor-groups" id="editor-groups" data-split="false">
             <section class="pro-pane pro-preview-pane" id="pro-preview-pane" data-pro-pane="preview" aria-hidden="true">
               <header class="pro-pane-header">
-                <span>Preview</span>
+                <span id="pro-preview-title">Preview</span>
                 <span class="pro-pane-actions">
                   <span id="pro-preview-live-status" class="pro-live-status" aria-live="polite"></span>
                   <button id="pro-preview-live-toggle" type="button" aria-pressed="false" title="Toggle live preview">Live</button>
@@ -1311,7 +1331,7 @@
 
             <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-pro-pane="reference" aria-hidden="true">
               <header class="pro-pane-header">
-                <span>Reference</span>
+                <span id="pro-reference-title">Reference</span>
                 <span class="pro-pane-actions">
                   <button type="button" data-pro-capture="reference" title="Select region" aria-label="Select reference region">⌖ Select</button>
                   <button type="button" data-pro-open="reference" title="Open PDF or image">Open</button>
@@ -1417,6 +1437,24 @@
           </div>
         </section>
       </div>
+
+      <section class="ai-mode-view" id="ai-mode-view" aria-label="AI workspace">
+        <div class="ai-mode-webview-host" id="ai-mode-webview-host"></div>
+        <div class="ai-mode-fallback is-hidden" id="ai-mode-fallback">
+          <div class="ai-mode-fallback-card">
+            <h2>TeX64 AI</h2>
+            <p id="ai-mode-fallback-status">AIワークスペースに接続しています…</p>
+            <div class="ai-mode-fallback-actions">
+              <button id="ai-mode-retry" type="button">再接続</button>
+              <button id="ai-mode-open-browser" type="button">ブラウザで開く</button>
+            </div>
+            <p class="ai-mode-dev-hint" id="ai-mode-dev-hint" hidden>
+              開発環境: <code>cd services/tex64-ai &amp;&amp; npm run dev</code> でローカルサーバー
+              (<code>http://127.0.0.1:3100</code>) を起動してください。
+            </p>
+          </div>
+        </div>
+      </section>
 
       <div class="modal" id="create-modal" aria-hidden="true">
         <div

@@ -25,7 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         <script
           dangerouslySetInnerHTML={{
             __html:
-              '(function(){try{var t=localStorage.getItem("tex64-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()',
+              '(function(){try{var t=localStorage.getItem("tex64-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}try{if(window.tex64Native)document.documentElement.setAttribute("data-platform","native")}catch(e){}})()',
           }}
         />
       </head>

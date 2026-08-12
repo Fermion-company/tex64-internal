@@ -49,6 +49,8 @@ const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
 const { registerFermionEngineHandlers } = require("./handlers/fermion-engine.cjs");
+const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
+const { AiWebService } = require("./services/ai-web.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
@@ -260,6 +262,14 @@ const getTexizeService = () => {
   }
   return texizeService;
 };
+
+let aiWebService = null;
+const getAiWebService = () => {
+  if (!aiWebService) {
+    aiWebService = new AiWebService({ app, ensureUserSettings });
+  }
+  return aiWebService;
+};
 const getFermionEngineService = () => {
   if (!fermionEngineService) fermionEngineService = new FermionEngineService();
   return fermionEngineService;
@@ -317,6 +327,8 @@ const createMainWindow = () => {
       contextIsolation: true,
       nodeIntegration: false,
       preload: preloadPath,
+      // AI mode hosts the tex64-ai web app in a <webview> guest.
+      webviewTag: true,
     },
   };
   if (typeof savedBounds?.x === "number" && typeof savedBounds?.y === "number") {
@@ -1002,6 +1014,19 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
 registerFermionEngineHandlers({ ipcMain, getFermionEngineService });
+registerAiWebHandlers({ ipcMain, shell, getAiWebService });
+
+// AI-mode webview guests: window.open / target=_blank goes to the system
+// browser, never to a new in-app window.
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() !== "webview") return;
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: "deny" };
+  });
+});
 ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
   try {
     const relativePath = typeof payload?.path === "string" ? payload.path : "";

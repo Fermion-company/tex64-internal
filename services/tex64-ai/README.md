@@ -18,6 +18,15 @@ npm run dev
 `http://localhost:3100` で起動します。AI Gatewayの認証情報がないローカル環境では、決定的な代替処理で文書作成フローを確認できます。
 `npm run dev` だけがローカルWorkflow用の開発markerを設定します。本番起動scriptはこのmarkerを明示的に無効化し、`WORKFLOW_TARGET_WORLD=local` だけではローカルcompiler・保存先・代替生成へ切り替わりません。
 
+## ネイティブ埋め込み（TeX64 デスクトップの AI モード）
+
+このアプリは独立した Web サービスであると同時に、TeX64 デスクトップアプリの **AI モード**（トップバーの Code | AI | Pro 切り替え）に `<webview>` として埋め込まれます。単一のコードベースが両方の顔を持ちます。
+
+- デスクトップ側は `electron/ai-web-preload.cjs` が `window.tex64Native` を注入し、`<html data-platform="native">` が立ちます。
+- ネイティブ分岐は必ず [`src/lib/platform.ts`](./src/lib/platform.ts) と `[data-platform="native"]` CSS に集約してください。それ以外の場所に散らさないこと。
+- 接続先 URL は デスクトップ側の設定 `aiWeb.url`（`tex64-user-settings.json`）→ 環境変数 `TEX64_AI_WEB_URL` → 既定値（開発: `http://127.0.0.1:3100`、パッケージ版: `https://ai.tex64.com`）の順で解決されます。本番 URL が決まったら `electron/services/ai-web.cjs` の `DEFAULT_HOSTED_URL` を更新してください。
+- 開発時は `npm run dev` でこのサーバーを起動しておけば、デスクトップの AI モードがそのまま接続します。
+
 ## 構成
 
 - `src/domain/document`: 生成ソースを含まない文書モデル、検証、意味的な差分、決定的レンダラー

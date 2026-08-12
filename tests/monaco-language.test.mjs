@@ -5,7 +5,7 @@ import {
   EXPL3_COMMAND_PATTERN,
   EXPL3_VARIABLE_PATTERN,
   LATEX_MONARCH,
-} from "../web-src/app/monaco-language.ts";
+} from "../Resources/web/app/monaco-language.js";
 
 const matchesEntire = (pattern, value) => {
   const match = value.match(pattern);

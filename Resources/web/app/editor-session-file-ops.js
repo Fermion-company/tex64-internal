@@ -29,6 +29,17 @@ export const createEditorSessionFileOps = (ctx) => {
         }
     };
     const applyViewerFile = (group, path, kind, data, mimeType) => {
+        var _a;
+        // In Pro mode, viewer files picked from the tree go to the visible
+        // viewer pane instead of replacing the source editor. Files already open
+        // as a tab keep the normal tab flow (e.g. clicking their tab).
+        if (!group.openTabs.includes(path) &&
+            ((_a = deps.proViewer) === null || _a === void 0 ? void 0 : _a.tryShowViewerFile(path, kind, data, mimeType))) {
+            if (isActiveGroup(group)) {
+                deps.fileTree.setSelection(path, "file");
+            }
+            return;
+        }
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
         group.currentFileSavedContent = null;

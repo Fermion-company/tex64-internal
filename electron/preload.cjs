@@ -112,6 +112,11 @@ const filesApi = {
   writeBase64: async (payload) => ipcRenderer.invoke("tex64:files:write-base64", payload),
 };
 
+const aiWebApi = {
+  getConfig: async () => ipcRenderer.invoke("tex64:aiWeb:getConfig"),
+  openExternal: async (url) => ipcRenderer.invoke("tex64:aiWeb:openExternal", { url }),
+};
+
 // LSP bridge: the renderer-side client speaks JSON-RPC through this; main relays
 // it to/from texlab over stdio. `send` is one-way (the client matches replies by
 // id itself); inbound messages and lifecycle status arrive via the listeners.
@@ -315,6 +320,7 @@ contextBridge.exposeInMainWorld("tex64Texize", texizeApi);
 contextBridge.exposeInMainWorld("tex64Fermion", fermionApi);
 contextBridge.exposeInMainWorld("tex64Ai", aiApi);
 contextBridge.exposeInMainWorld("tex64Files", filesApi);
+contextBridge.exposeInMainWorld("tex64AiWeb", aiWebApi);
 contextBridge.exposeInMainWorld("tex64Lsp", lspApi);
 contextBridge.exposeInMainWorld("tex64Spell", spellApi);
 contextBridge.exposeInMainWorld("tex64Terminal", terminalApi);
