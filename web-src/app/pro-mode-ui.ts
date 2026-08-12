@@ -151,6 +151,8 @@ export const initProModeUi = (deps: ProModeDeps) => {
     if (switcher instanceof HTMLElement) switcher.hidden = !state.enabled;
     const canvasButton = document.getElementById("pro-canvas-open");
     if (canvasButton instanceof HTMLButtonElement) canvasButton.hidden = !state.enabled;
+    const galleryButton = document.getElementById("pro-canvas-gallery");
+    if (galleryButton instanceof HTMLButtonElement) galleryButton.hidden = !state.enabled;
     const previewPane = document.getElementById("pro-preview-pane");
     const referencePane = document.getElementById("pro-reference-pane");
     previewPane?.setAttribute(

@@ -64,3 +64,15 @@ export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scen
   const body = `${lines.slice(bodyStart, endLine + 1).join("\n")}\n`;
   return { scene, startLine, endLine, detached: fnv1a32(body) !== header[1].toLowerCase() };
 };
+
+export const listFigureBlocks = (lines: string[]): Array<{ scene: Scene; startLine: number; endLine: number; detached: boolean }> => {
+  const blocks: Array<{ scene: Scene; startLine: number; endLine: number; detached: boolean }> = [];
+  for (let line = 0; line < lines.length;) {
+    if (!/^%% tex64-figure v1\b/.test(lines[line])) { line++; continue; }
+    const decoded = decodeFigureBlockAt(lines, line);
+    if (!decoded) { line++; continue; }
+    blocks.push(decoded);
+    line = decoded.endLine + 1;
+  }
+  return blocks;
+};

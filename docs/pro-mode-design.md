@@ -169,6 +169,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - エディタ右クリックは monaco `addAction`（`tex64.pro-stash-add-selection`）
 4. **P4**: syntax highlight 強化（expl3・embedded Lua）/ 構造ジャンプメニュー（`pro-structure-ui.ts`、Cmd/Ctrl+Alt+O）— **完了 (2026-08-12)**
 5. **P5**: fermion-tex-engine ライブプレビュー統合 — **完了 (2026-08-12)**
+   - エンジンは `/Users/majinkuu/Desktop/fermion-tex-engine`（`node server.js`、POST /edit + SSE /events + 内蔵ビューア、`TEX64_FERMION_ENGINE_DIR` で上書き可）
+   - `electron/services/fermion-engine.cjs`（遅延spawn・空きポート選択・クラッシュ後再起動・quit時kill）+ `tex64:fermion:*` IPC
+   - `web-src/app/pro-live-preview.ts`: プレビューペインの Live トグル + 専用 iframe + 300ms デバウンス。push は main 側が毎回 `/doc` でサーバー実テキストを取得してから全文置換を送るため再接続でずれない
+   - CSP は `frame-src http://127.0.0.1:*` のみ追加（`connect-src` 不変、編集は IPC 経由）
 6. **C1–C4**: 作図キャンバス（機能 6 参照）— **全フェーズ完了 (2026-08-13)**。
 7. **D1–D3**: キャンバスのプロジェクト連動 — **完了 (2026-08-13)**。仕様:
    [pro-canvas-d-spec.md](pro-canvas-d-spec.md)。Doc トグル（root 文書のプリアンブルを
@@ -177,10 +181,11 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    非汚染）、二重罫（`double distance`）、X/Y/W/H 数値入力。root 検出は既存
    `WorkspaceManager.rootInfo()` を再利用し、`tex64:files:read-text`（2MiB 上限、
    `workspace.readFile` の既存ガードに委譲）を追加。
-   - エンジンは `/Users/majinkuu/Desktop/fermion-tex-engine`（`node server.js`、POST /edit + SSE /events + 内蔵ビューア、`TEX64_FERMION_ENGINE_DIR` で上書き可）
-   - `electron/services/fermion-engine.cjs`（遅延spawn・空きポート選択・クラッシュ後再起動・quit時kill）+ `tex64:fermion:*` IPC
-   - `web-src/app/pro-live-preview.ts`: プレビューペインの Live トグル + 専用 iframe + 300ms デバウンス。push は main 側が毎回 `/doc` でサーバー実テキストを取得してから全文置換を送るため再接続でずれない
-   - CSP は `frame-src http://127.0.0.1:*` のみ追加（`connect-src` 不変、編集は IPC 経由）
+8. **E0–E2**: 対称オーナメント配置 + 図ギャラリー — **完了 (2026-08-13)**。仕様:
+   [pro-canvas-e-spec.md](pro-canvas-e-spec.md)。対称シンボル化（鏡映ペア `tx=W, sx=-1`）、
+   四隅配置（シンボル bounds + inset から 4 変換を導出）、`%% tex64-figure` ブロックの
+   文書内ギャラリー（`gallery-ui.ts`、fermion 逐次サムネイル）。前提修正として
+   `renderPdf` をサービス内 Promise キューで直列化（Live コンパイルとサムネイルの競合防止）。
 
 ## 実装時の注意（CLAUDE.md より）
 

@@ -90,6 +90,7 @@ class FermionEngineService {
     this.backend = null;
     this.state = "stopped";
     this.lastError = null;
+    this.renderQueue = Promise.resolve();
   }
 
   isAvailable() { return this.existsSync(path.join(this.engineDir, this.serverScript)); }
@@ -179,10 +180,15 @@ class FermionEngineService {
     return { ok: true, url: this.url, backend: this.backend, report };
   }
 
-  async renderPdf({ source } = {}) {
-    const report = await this.replaceDocument(source, "fermion render requires source text");
-    const pdf = await requestBuffer(`${this.url}/pdf`, { timeoutMs: this.startTimeoutMs });
-    return { ok: true, report, pdfBase64: pdf.toString("base64") };
+  renderPdf({ source } = {}) {
+    const run = async () => {
+      const report = await this.replaceDocument(source, "fermion render requires source text");
+      const pdf = await requestBuffer(`${this.url}/pdf`, { timeoutMs: this.startTimeoutMs });
+      return { ok: true, report, pdfBase64: pdf.toString("base64") };
+    };
+    const result = this.renderQueue.then(run, run);
+    this.renderQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   stop() {

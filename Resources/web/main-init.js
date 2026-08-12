@@ -49,6 +49,7 @@ import { createIssuesProxy } from "./app/issues-proxy.js";
 import { initProModeUi } from "./app/pro-mode-ui.js";
 import { initProCaptureUi } from "./app/pro-capture-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
+import { initProCanvasGallery } from "./app/pro-canvas/gallery-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
 import { initProLivePreview } from "./app/pro-live-preview.js";
@@ -332,6 +333,7 @@ export const initMain = () => {
             getWorkspaceFiles,
             getRootFilePath,
         });
+        initProCanvasGallery({ getActiveGroup: editorSession.getActiveGroup });
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInSecondaryEditor = (path, line) => {
             if (!editorSession.getSplitViewEnabled()) {

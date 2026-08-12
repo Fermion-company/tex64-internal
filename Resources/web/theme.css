@@ -8727,3 +8727,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 .pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; resize: vertical; }
 .pro-canvas-code-popover button { margin-right: 6px; }
+.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); }
+.pro-canvas-gallery-list { display: grid; gap: 8px; overflow: auto; min-height: 0; }
+.pro-canvas-gallery-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 6px; }
+.pro-canvas-gallery-thumbnail { display: grid; place-items: center; width: 160px; min-height: 90px; overflow: hidden; color: var(--text-soft); background: white; }
+.pro-canvas-gallery-thumbnail img { display: block; max-width: 160px; max-height: 120px; }
+.pro-canvas-gallery-label { min-width: 0; }
+.pro-canvas-gallery-detached { padding: 2px 5px; border-radius: 999px; color: var(--danger, #dc2626); background: color-mix(in srgb, var(--danger, #dc2626) 12%, transparent); font-size: 10px; }

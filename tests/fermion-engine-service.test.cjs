@@ -90,3 +90,19 @@ test("FermionEngineService renderPdf returns the edit report and base64 PDF", as
   const result = await service.renderPdf({ source: "new canvas source" });
   assert.deepEqual(result, { ok: true, report: { source: "new canvas source", errors: [] }, pdfBase64: pdf.toString("base64") });
 });
+
+test("FermionEngineService serializes concurrent renderPdf transactions", async (t) => {
+  const events = [];
+  const server = http.createServer((_req, res) => {
+    events.push("pdf:start");
+    setTimeout(() => { events.push("pdf:end"); res.end("pdf"); }, 15);
+  });
+  try { await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); }); }
+  catch (error) { if (error?.code === "EPERM") return t.skip("loopback listeners are blocked by this sandbox"); throw error; }
+  t.after(() => server.close());
+  const service = new FermionEngineService({ engineDir: __dirname });
+  service.port = server.address().port;
+  service.replaceDocument = async (source) => { events.push(`edit:${source}`); return { source }; };
+  await Promise.all([service.renderPdf({ source: "first" }), service.renderPdf({ source: "second" })]);
+  assert.deepEqual(events, ["edit:first", "pdf:start", "pdf:end", "edit:second", "pdf:start", "pdf:end"]);
+});

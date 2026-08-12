@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyScene } from "../Resources/web/app/pro-canvas/scene.js";
-import { decodeFigureBlockAt, encodeFigureBlock, fnv1a32 } from "../Resources/web/app/pro-canvas/figure-codec.js";
+import { decodeFigureBlockAt, encodeFigureBlock, fnv1a32, listFigureBlocks } from "../Resources/web/app/pro-canvas/figure-codec.js";
 
 test("figure blocks round-trip their scene", () => {
   const scene = createEmptyScene();
@@ -50,4 +50,29 @@ test("broken base64 returns null", () => {
 
 test("fnv1a32 has the standard empty-string value", () => {
   assert.equal(fnv1a32(""), "811c9dc5");
+});
+
+test("listFigureBlocks finds two blocks separated by ordinary text", () => {
+  const first = createEmptyScene();
+  const second = createEmptyScene();
+  second.objects.push({ id: "r", type: "rect", from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, style: {} });
+  const lines = ["before", ...encodeFigureBlock(first).trimEnd().split("\n"), "between", ...encodeFigureBlock(second).trimEnd().split("\n"), "after"];
+  const blocks = listFigureBlocks(lines);
+  assert.equal(blocks.length, 2);
+  assert.deepEqual(blocks.map((block) => block.scene), [first, second]);
+  assert.ok(blocks[1].startLine > blocks[0].endLine);
+});
+
+test("listFigureBlocks skips a broken header and continues scanning", () => {
+  const valid = encodeFigureBlock(createEmptyScene()).trimEnd().split("\n");
+  const blocks = listFigureBlocks(["%% tex64-figure v1 broken", "ordinary", ...valid]);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].startLine, 2);
+});
+
+test("listFigureBlocks reports detached blocks", () => {
+  const lines = encodeFigureBlock(createEmptyScene()).trimEnd().split("\n");
+  const begin = lines.findIndex((line) => line.startsWith("\\begin{tikzpicture}"));
+  lines[begin] += " ";
+  assert.equal(listFigureBlocks(lines)[0]?.detached, true);
 });

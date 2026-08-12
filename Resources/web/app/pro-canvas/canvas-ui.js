@@ -3,7 +3,7 @@ import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capt
 import { encodeFigureBlock } from "./figure-codec.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } from "./scene.js";
-import { boundsAfterHandleDrag, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid } from "./canvas-math.js";
+import { boundsAfterHandleDrag, cornerInstanceTransforms, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
@@ -14,7 +14,7 @@ const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
 const DOC_STORAGE_KEY = "tex64.proCanvas.docPreamble";
 let pdfjsLibPromise = null;
-const loadPdfjs = async () => {
+export const loadPdfjs = async () => {
     if (!pdfjsLibPromise)
         pdfjsLibPromise = (async () => {
             const lib = await import(new URL("../../pdfjs/pdf.min.mjs", import.meta.url).href);
@@ -265,6 +265,24 @@ export const initProCanvasUi = (deps) => {
         const point = (event) => snapToGrid(screenToScene({ x: event.clientX, y: event.clientY }, view()), scene.grid.size, scene.grid.snap && !event.altKey);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
+        const symbolizeSelection = (object, symmetric) => {
+            const name = prompt("Symbol name (letters and digits)");
+            if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name) || (scene.symbols || []).some(s => s.name === name)) {
+                setStatus("有効で重複しないシンボル名を指定してください", true);
+                return;
+            }
+            snapshot();
+            removeById(scene.objects, object.id);
+            const symbol = { id: newObjectId(), name, objects: [object] };
+            (scene.symbols || (scene.symbols = [])).push(symbol);
+            const first = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} };
+            scene.objects.push(first);
+            if (symmetric)
+                scene.objects.push({ id: newObjectId(), type: "instance", symbol: symbol.id, transform: mirrorInstanceTransform(scene.width), style: {} });
+            selectedId = first.id;
+            render();
+            scheduleCompile();
+        };
         const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         const renderInspector = () => {
             var _a;
@@ -357,12 +375,15 @@ export const initProCanvasUi = (deps) => {
             const symbolize = document.createElement("button");
             symbolize.textContent = "選択をシンボル化";
             symbolize.disabled = !object || object.type === "instance" || object.type === "repeat";
-            symbolize.onclick = () => { if (!object)
-                return; const name = prompt("Symbol name (letters and digits)"); if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name) || (scene.symbols || []).some(s => s.name === name)) {
-                setStatus("有効で重複しないシンボル名を指定してください", true);
-                return;
-            } snapshot(); removeById(scene.objects, object.id); const symbol = { id: newObjectId(), name, objects: [object] }; (scene.symbols || (scene.symbols = [])).push(symbol); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); selectedId = instance.id; render(); };
+            symbolize.onclick = () => { if (object)
+                symbolizeSelection(object, false); };
             symbols.append(symbolize);
+            const symmetric = document.createElement("button");
+            symmetric.textContent = "選択を対称シンボル化";
+            symmetric.disabled = symbolize.disabled;
+            symmetric.onclick = () => { if (object)
+                symbolizeSelection(object, true); };
+            symbols.append(symmetric);
             for (const symbol of scene.symbols || []) {
                 const row = document.createElement("div");
                 row.className = "pro-canvas-symbol-row";
@@ -370,6 +391,13 @@ export const initProCanvasUi = (deps) => {
                 const place = document.createElement("button");
                 place.textContent = "配置";
                 place.onclick = () => { snapshot(); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); selectedId = instance.id; render(); };
+                const corners = document.createElement("button");
+                corners.textContent = "四隅に配置";
+                corners.onclick = () => { const raw = prompt("inset", "5"); if (raw === null)
+                    return; const inset = Number(raw); if (!Number.isFinite(inset)) {
+                    setStatus("inset は数値で指定してください", true);
+                    return;
+                } const identity = { id: "bounds", type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} }; const transforms = cornerInstanceTransforms(objectBounds(identity, scene), scene.width, scene.height, inset); snapshot(); const children = transforms.map(transform => ({ id: newObjectId(), type: "instance", symbol: symbol.id, transform, style: {} })); const group = { id: newObjectId(), type: "group", children, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); selectedId = group.id; render(); scheduleCompile(); };
                 const edit = document.createElement("button");
                 edit.textContent = "編集";
                 edit.onclick = () => { editingSymbolId = symbol.id; selectedId = null; invalidateCompiled(); setStatus(""); render(); };
@@ -388,7 +416,7 @@ export const initProCanvasUi = (deps) => {
                     setStatus("配置またはリピートから参照されているため削除できません", true);
                     return;
                 } snapshot(); scene.symbols = (_a = scene.symbols) === null || _a === void 0 ? void 0 : _a.filter(s => s.id !== symbol.id); render(); };
-                row.append(place, edit, along, remove);
+                row.append(place, corners, edit, along, remove);
                 symbols.append(row);
             }
         };

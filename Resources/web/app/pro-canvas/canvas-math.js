@@ -1,3 +1,16 @@
+export const mirrorInstanceTransform = (artboardWidth) => ({ tx: artboardWidth, ty: 0, rotate: 0, sx: -1, sy: 1 });
+export const cornerInstanceTransforms = (bounds, artboardWidth, artboardHeight, inset) => {
+    const left = inset - bounds.minX;
+    const right = artboardWidth - inset + bounds.minX;
+    const bottom = inset - bounds.minY;
+    const top = artboardHeight - inset + bounds.minY;
+    return [
+        { tx: left, ty: bottom, rotate: 0, sx: 1, sy: 1 },
+        { tx: right, ty: bottom, rotate: 0, sx: -1, sy: 1 },
+        { tx: left, ty: top, rotate: 0, sx: 1, sy: -1 },
+        { tx: right, ty: top, rotate: 0, sx: -1, sy: -1 },
+    ];
+};
 const scaleFor = (view) => Math.min(view.width / view.sceneWidth, view.height / view.sceneHeight) * view.zoom;
 export const sceneToScreen = (point, view) => {
     const scale = scaleFor(view);

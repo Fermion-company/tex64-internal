@@ -1,4 +1,4 @@
-import type { PathSeg, Vec } from "./scene.js";
+import type { PathSeg, Transform, Vec } from "./scene.js";
 
 export type CanvasViewport = {
   left: number; top: number; width: number; height: number;
@@ -8,6 +8,27 @@ export type CanvasViewport = {
 
 export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+export const mirrorInstanceTransform = (artboardWidth: number): Transform =>
+  ({ tx: artboardWidth, ty: 0, rotate: 0, sx: -1, sy: 1 });
+
+export const cornerInstanceTransforms = (
+  bounds: Bounds,
+  artboardWidth: number,
+  artboardHeight: number,
+  inset: number,
+): [Transform, Transform, Transform, Transform] => {
+  const left = inset - bounds.minX;
+  const right = artboardWidth - inset + bounds.minX;
+  const bottom = inset - bounds.minY;
+  const top = artboardHeight - inset + bounds.minY;
+  return [
+    { tx: left, ty: bottom, rotate: 0, sx: 1, sy: 1 },
+    { tx: right, ty: bottom, rotate: 0, sx: -1, sy: 1 },
+    { tx: left, ty: top, rotate: 0, sx: 1, sy: -1 },
+    { tx: right, ty: top, rotate: 0, sx: -1, sy: -1 },
+  ];
+};
 
 const scaleFor = (view: CanvasViewport) =>
   Math.min(view.width / view.sceneWidth, view.height / view.sceneHeight) * view.zoom;
