@@ -1,7 +1,7 @@
 import type { Scene } from "./scene.js";
 import { generateTikz } from "./tikz-generate.js";
 
-export const buildStandaloneDoc = (scene: Scene): string => {
+export const buildStandaloneDoc = (scene: Scene, options?: { preamble?: string }): string => {
   const generated = generateTikz(scene);
   const code = generated.code
     .split("\n")
@@ -11,5 +11,6 @@ export const buildStandaloneDoc = (scene: Scene): string => {
       : [line])
     .join("\n");
   const libraries = generated.requires.length ? `\\usetikzlibrary{${generated.requires.join(",")}}\n` : "";
-  return `\\documentclass[margin=0pt]{standalone}\n\\usepackage{tikz}\n${libraries}\\begin{document}\n${code}\n\\end{document}`;
+  const preamble = options?.preamble ? `${options.preamble}\n` : "";
+  return `\\documentclass[margin=0pt]{standalone}\n\\usepackage{tikz}\n${libraries}${preamble}\\begin{document}\n${code}\n\\end{document}`;
 };

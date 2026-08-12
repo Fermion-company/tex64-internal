@@ -1013,6 +1013,17 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
 registerFermionEngineHandlers({ ipcMain, getFermionEngineService, getCanvasFermionEngineService });
+ipcMain.handle("tex64:files:read-text", async (_event, payload) => {
+  try {
+    const relativePath = typeof payload?.path === "string" ? payload.path : "";
+    if (!relativePath) throw new Error("A workspace path is required.");
+    const data = await workspace.readFile(relativePath);
+    if (data.byteLength > 2 * 1024 * 1024) throw new Error("File exceeds the 2 MiB text limit.");
+    return { ok: true, text: data.toString("utf8") };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
 ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
   try {
     const relativePath = typeof payload?.path === "string" ? payload.path : "";

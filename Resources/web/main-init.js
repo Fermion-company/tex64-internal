@@ -330,6 +330,7 @@ export const initMain = () => {
         initProCanvasUi({
             getActiveGroup: editorSession.getActiveGroup,
             getWorkspaceFiles,
+            getRootFilePath,
         });
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInSecondaryEditor = (path, line) => {

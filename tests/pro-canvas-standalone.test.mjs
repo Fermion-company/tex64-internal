@@ -18,3 +18,12 @@ test("buildStandaloneDoc omits an empty tikz library declaration", () => {
   const doc=buildStandaloneDoc(createEmptyScene());
   assert.doesNotMatch(doc,/\\usetikzlibrary/);
 });
+
+test("buildStandaloneDoc inserts a preamble after TikZ setup", () => {
+  const scene=createEmptyScene();
+  scene.objects.push({id:"arrow",type:"path",start:{x:0,y:0},segments:[{type:"line",to:{x:1,y:1}}],closed:false,style:{props:{arrowEnd:"Stealth"}}});
+  const preamble="% project preamble\n\\tikzset{project/.style={thick}}";
+  const doc=buildStandaloneDoc(scene,{preamble});
+  assert.ok(doc.indexOf("\\usetikzlibrary{arrows.meta}") < doc.indexOf(preamble));
+  assert.ok(doc.indexOf(preamble) < doc.indexOf("\\begin{document}"));
+});

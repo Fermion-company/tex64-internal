@@ -8717,6 +8717,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-style label { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 5px; font-size: 12px; }
 .pro-canvas-style input[type="number"], .pro-canvas-style select { width: 92px; color: var(--text); background: var(--panel-strong); border: 1px solid var(--panel-border); }
 .pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
+.pro-canvas-project-heading { margin: 14px 0 6px; font-size: 11px; font-weight: 600; color: var(--text-soft); }
 .pro-canvas-status { margin-right: auto; color: var(--text-soft); }
 .pro-canvas-status.is-error { color: var(--danger, #dc2626); }
 .pro-canvas-code-popover {

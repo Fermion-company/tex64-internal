@@ -41,6 +41,7 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
     if (props.cap && props.cap !== "butt") keys.push(`line cap=${props.cap}`);
     if (props.join && props.join !== "miter") keys.push(`line join=${props.join}`);
     if (props.roundedCornersPt !== undefined && props.roundedCornersPt > 0) keys.push(`rounded corners=${numberText(props.roundedCornersPt)}pt`);
+    if (props.doubleDistancePt !== undefined && props.doubleDistancePt > 0) keys.push("double", `double distance=${numberText(props.doubleDistancePt)}pt`);
     return keys;
   };
 

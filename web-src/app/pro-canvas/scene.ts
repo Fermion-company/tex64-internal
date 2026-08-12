@@ -13,6 +13,7 @@ export type StyleProps = {
   cap?: "butt" | "round" | "rect";
   join?: "miter" | "round" | "bevel";
   roundedCornersPt?: number;
+  doubleDistancePt?: number;
 };
 
 export type ObjStyle = { ref?: string; props?: StyleProps };
@@ -49,7 +50,7 @@ export type Scene = {
 
 const DEFAULT_STYLE: Required<StyleProps> = {
   draw: "#000000", fill: null, lineWidthPt: 0.4, dash: "solid", opacity: 1,
-  arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0,
+  arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0,
 };
 
 let idCounter = 0;
@@ -89,7 +90,8 @@ const isStyleProps = (value: unknown): value is StyleProps => {
   if (value.arrowEnd !== undefined && !oneOf(value.arrowEnd, ["", "Stealth", "Latex", "Bar"] as const)) return false;
   if (value.cap !== undefined && !oneOf(value.cap, ["butt", "round", "rect"] as const)) return false;
   if (value.join !== undefined && !oneOf(value.join, ["miter", "round", "bevel"] as const)) return false;
-  return value.roundedCornersPt === undefined || (isNumber(value.roundedCornersPt) && value.roundedCornersPt >= 0);
+  if (value.roundedCornersPt !== undefined && (!isNumber(value.roundedCornersPt) || value.roundedCornersPt < 0)) return false;
+  return value.doubleDistancePt === undefined || (isNumber(value.doubleDistancePt) && value.doubleDistancePt >= 0);
 };
 
 const isObjStyle = (value: unknown): value is ObjStyle => isRecord(value)

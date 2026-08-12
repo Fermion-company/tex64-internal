@@ -356,6 +356,7 @@ export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
 };
 export type FilesBridge = {
+  readText?: (payload: { path: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
   writeBase64?: (payload: { path: string; data: string }) => Promise<{ ok: boolean; path?: string; error?: string }>;
 };
 export type BridgeWindow = Window &

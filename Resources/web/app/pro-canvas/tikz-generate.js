@@ -48,6 +48,8 @@ export const generateTikz = (scene) => {
             keys.push(`line join=${props.join}`);
         if (props.roundedCornersPt !== undefined && props.roundedCornersPt > 0)
             keys.push(`rounded corners=${numberText(props.roundedCornersPt)}pt`);
+        if (props.doubleDistancePt !== undefined && props.doubleDistancePt > 0)
+            keys.push("double", `double distance=${numberText(props.doubleDistancePt)}pt`);
         return keys;
     };
     const objectOptions = (style) => {

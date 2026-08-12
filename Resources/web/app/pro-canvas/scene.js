@@ -1,6 +1,6 @@
 const DEFAULT_STYLE = {
     draw: "#000000", fill: null, lineWidthPt: 0.4, dash: "solid", opacity: 1,
-    arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0,
+    arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0,
 };
 let idCounter = 0;
 export const createEmptyScene = () => ({
@@ -40,7 +40,9 @@ const isStyleProps = (value) => {
         return false;
     if (value.join !== undefined && !oneOf(value.join, ["miter", "round", "bevel"]))
         return false;
-    return value.roundedCornersPt === undefined || (isNumber(value.roundedCornersPt) && value.roundedCornersPt >= 0);
+    if (value.roundedCornersPt !== undefined && (!isNumber(value.roundedCornersPt) || value.roundedCornersPt < 0))
+        return false;
+    return value.doubleDistancePt === undefined || (isNumber(value.doubleDistancePt) && value.doubleDistancePt >= 0);
 };
 const isObjStyle = (value) => isRecord(value)
     && (value.ref === undefined || typeof value.ref === "string")

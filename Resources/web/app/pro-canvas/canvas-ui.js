@@ -8,9 +8,11 @@ import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
 import { importSvg } from "./svg-import.js";
+import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
+const DOC_STORAGE_KEY = "tex64.proCanvas.docPreamble";
 let pdfjsLibPromise = null;
 const loadPdfjs = async () => {
     if (!pdfjsLibPromise)
@@ -190,7 +192,7 @@ export const initProCanvasUi = (deps) => {
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
         overlay.innerHTML = `<div class="pro-canvas-toolbar" role="toolbar">
-      <span class="pro-canvas-tools"></span><button data-action="snap"></button><button data-action="live">Live</button><span class="pro-canvas-separator"></span>
+      <span class="pro-canvas-tools"></span><button data-action="snap"></button><button data-action="live">Live</button><button data-action="doc-preamble">Doc</button><span class="pro-canvas-separator"></span>
       <button data-action="zoom-out">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in">+</button>
       <span class="pro-canvas-separator"></span><button data-action="undo">Undo</button><button data-action="redo">Redo</button></div>
       <div class="pro-canvas-main"><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg></div><aside class="pro-canvas-inspector"><h3>Style</h3><div class="pro-canvas-style"></div><h3>Named styles</h3><div class="pro-canvas-named"></div><h3>Symbols</h3><div class="pro-canvas-symbols"></div></aside></div>
@@ -204,6 +206,8 @@ export const initProCanvasUi = (deps) => {
         [['select', '選択'], ['pen', 'ペン'], ['line', '直線'], ['rect', '矩形'], ['ellipse', '楕円'], ['node', 'ノード'], ['code', 'コード']].forEach(([id, label]) => { const b = document.createElement("button"); b.dataset.tool = id; b.textContent = label; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
+        let docPreamble = localStorage.getItem(DOC_STORAGE_KEY) === "true";
+        let preamble = null, preambleReason = "プリアンブルを読み込み中です", projectStyles = [];
         let compiledImage = null, compileTimer = null, compileSequence = 0;
         const invalidateCompiled = () => { compileSequence += 1; compiledImage = null; };
         const renderPdf = async (pdfBase64) => { var _a; const binary = atob(pdfBase64), data = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1)
@@ -221,14 +225,24 @@ export const initProCanvasUi = (deps) => {
             await ((_a = doc.destroy) === null || _a === void 0 ? void 0 : _a.call(doc));
         } };
         const compileNow = async () => { if (!live || editingSymbolId || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
-            return; const sequence = ++compileSequence; setStatus("コンパイル中…"); try {
-            const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene) });
-            if (sequence !== compileSequence)
+            return; const sequence = ++compileSequence; setStatus("コンパイル中…"); const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
+            throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー"); return renderPdf(result.pdfBase64); }; try {
+            let image;
+            try {
+                image = await run(docPreamble && Boolean(preamble));
+            }
+            catch (first) {
+                if (!docPreamble || !preamble)
+                    throw first;
+                const firstLine = first instanceof Error ? first.message.split(/\r?\n/)[0] : "コンパイルエラー";
+                image = await run(false);
+                if (sequence !== compileSequence)
+                    return;
+                compiledImage = image;
+                setStatus(`プリアンブル起因のエラーの可能性: ${firstLine}`);
+                render();
                 return;
-            const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report);
-            if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
-                throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー");
-            const image = await renderPdf(result.pdfBase64);
+            }
             if (sequence !== compileSequence)
                 return;
             compiledImage = image;
@@ -261,15 +275,30 @@ export const initProCanvasUi = (deps) => {
             host.replaceChildren();
             named.replaceChildren();
             symbols.replaceChildren();
-            if (!object || object.type === "group" || object.type === "code")
-                host.textContent = (object === null || object === void 0 ? void 0 : object.type) === "code" ? "Double-click to edit TikZ code" : "Select a drawable object";
+            if (object) {
+                const b = objectBounds(object, scene), values = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
+                ["X", "Y", "W", "H"].forEach((label, index) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = "number"; input.step = "0.1"; input.value = String(Number(values[index].toFixed(3))); input.onchange = () => { const value = Number(input.value); if (!Number.isFinite(value) || (index >= 2 && value < .01)) {
+                    input.value = String(Number(values[index].toFixed(3)));
+                    return;
+                } snapshot(); const before = objectBounds(object, scene); if (index < 2)
+                    moveObject(object, index === 0 ? value - before.minX : 0, index === 1 ? value - before.minY : 0);
+                else
+                    resizeObject(object, before, index === 2 ? { ...before, maxX: before.minX + value } : { ...before, maxY: before.minY + value }); render(); }; row.append(input); host.append(row); });
+            }
+            if (!object)
+                host.textContent = "Select a drawable object";
+            else if (object.type === "group" || object.type === "code") {
+                const note = document.createElement("div");
+                note.textContent = object.type === "code" ? "Double-click to edit TikZ code" : "Group geometry";
+                host.append(note);
+            }
             else {
                 const props = (_a = object.style).props || (_a.props = {});
                 const effective = resolveStyle(scene, object.style);
                 const color = (key, label) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = "color"; input.value = effective[key] || "#000000"; const none = document.createElement("input"); none.type = "checkbox"; none.checked = effective[key] === null; input.disabled = none.checked; input.onchange = () => { snapshot(); props[key] = input.value; render(); }; none.onchange = () => { snapshot(); props[key] = none.checked ? null : input.value; render(); }; row.append(input, none, document.createTextNode("なし")); host.append(row); };
                 color("draw", "線色");
                 color("fill", "塗り色");
-                const fields = [["線幅", "lineWidthPt", "number"], ["破線", "dash", "select", ["solid", "dashed", "dotted"]], ["不透明度", "opacity", "number"], ["始点矢印", "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], ["終点矢印", "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]], ["角丸", "roundedCornersPt", "number"]];
+                const fields = [["線幅", "lineWidthPt", "number"], ["二重罫", "doubleDistancePt", "number"], ["破線", "dash", "select", ["solid", "dashed", "dotted"]], ["不透明度", "opacity", "number"], ["始点矢印", "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], ["終点矢印", "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]], ["角丸", "roundedCornersPt", "number"]];
                 fields.forEach(([label, key, kind, options]) => { var _a; const row = document.createElement("label"); row.textContent = label; const input = kind === "select" ? document.createElement("select") : document.createElement("input"); if (input instanceof HTMLInputElement) {
                     input.type = "number";
                     input.step = key === "opacity" ? "0.1" : "0.1";
@@ -307,6 +336,17 @@ export const initProCanvasUi = (deps) => {
             add.onclick = () => { const name = prompt("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
                 return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" && object.type !== "code" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
             named.append(add);
+            if (projectStyles.length) {
+                const heading = document.createElement("div");
+                heading.className = "pro-canvas-project-heading";
+                heading.textContent = "Project styles";
+                named.append(heading);
+                projectStyles.forEach(name => { const row = document.createElement("div"); row.className = "pro-canvas-style-row"; row.textContent = name; const apply = document.createElement("button"); apply.textContent = "適用"; apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
+                    snapshot();
+                    object.style.ref = name;
+                    render();
+                } }; row.append(apply); named.append(row); });
+            }
             if (editingSymbolId) {
                 const done = document.createElement("button");
                 done.textContent = "シンボル編集終了";
@@ -424,7 +464,22 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_c = style.opacity) !== null && _c !== void 0 ? _c : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
                     el.textContent = object.latex;
                 }
-                parent.append(el);
+                const distance = style.doubleDistancePt || 0;
+                if (distance > 0 && object.type !== "node") {
+                    const fill = el.cloneNode(true);
+                    fill.setAttribute("stroke", "none");
+                    parent.append(fill);
+                    el.setAttribute("fill", "none");
+                    el.setAttribute("stroke-width", String(2 * (style.lineWidthPt || .4) + distance));
+                    parent.append(el);
+                    const inner = el.cloneNode(true);
+                    inner.removeAttribute("data-id");
+                    inner.setAttribute("stroke", "#ffffff");
+                    inner.setAttribute("stroke-width", String(distance));
+                    parent.append(inner);
+                }
+                else
+                    parent.append(el);
             };
             currentObjects().forEach(o => draw(o, objects));
             const object = selectedId ? walk(currentObjects(), selectedId) : null;
@@ -446,6 +501,11 @@ export const initProCanvasUi = (deps) => {
             liveButton.disabled = !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
             liveButton.classList.toggle("is-active", live);
             liveButton.setAttribute("aria-pressed", String(live));
+            const docButton = overlay.querySelector("[data-action=doc-preamble]");
+            docButton.disabled = !preamble;
+            docButton.title = preamble ? "" : preambleReason;
+            docButton.classList.toggle("is-active", docPreamble);
+            docButton.setAttribute("aria-pressed", String(docPreamble));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
@@ -709,6 +769,14 @@ export const initProCanvasUi = (deps) => {
                         render();
                     }
                     break;
+                case "doc-preamble":
+                    if (preamble) {
+                        docPreamble = !docPreamble;
+                        localStorage.setItem(DOC_STORAGE_KEY, String(docPreamble));
+                        render();
+                        scheduleCompile();
+                    }
+                    break;
                 case "snap":
                     snapshot();
                     scene.grid.snap = !scene.grid.snap;
@@ -795,9 +863,43 @@ export const initProCanvasUi = (deps) => {
         svg.addEventListener("pointermove", e => { if ((drag === null || drag === void 0 ? void 0 : drag.kind) !== "rotate" || !drag.id || !drag.bounds)
             return; const object = walk(currentObjects(), drag.id); if ((object === null || object === void 0 ? void 0 : object.type) !== "code")
             return; const p = point(e), b = drag.bounds, c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }, angle = (Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI; object.transform.rotate = angle; render(); });
+        const loadProjectContext = async () => {
+            var _a;
+            const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.readText, rootPath = deps.getRootFilePath(), sources = [];
+            if (!api) {
+                preambleReason = "ファイル読み込み機能が利用できません";
+                render();
+                return;
+            }
+            if (!rootPath)
+                preambleReason = "ルート文書が選択されていません";
+            else
+                try {
+                    const root = await api({ path: rootPath });
+                    if (!root.ok)
+                        throw new Error(root.error || "ルート文書を読み込めません");
+                    preamble = extractPreamble(root.text || "");
+                    if (preamble)
+                        sources.push(preamble);
+                    else
+                        preambleReason = "ルート文書からプリアンブルを取得できません";
+                }
+                catch (error) {
+                    preambleReason = error instanceof Error ? error.message : "プリアンブルを読み込めません";
+                }
+            const styFiles = deps.getWorkspaceFiles().filter(path => { const normalized = path.replace(/\\/g, "/").replace(/^\.\//, ""); return normalized.toLowerCase().endsWith(".sty") && normalized.split("/").length <= 2; }).slice(0, 20);
+            const reads = await Promise.all(styFiles.map(path => api({ path }).catch(() => ({ ok: false, text: undefined, error: undefined }))));
+            reads.forEach(result => { if (result.ok && result.text)
+                sources.push(result.text); });
+            projectStyles = scanTikzsetStyles(sources.join("\n"));
+            render();
+            if (docPreamble && preamble)
+                scheduleCompile();
+        };
         new ResizeObserver(render).observe(stage);
         render();
         scheduleCompile();
+        void loadProjectContext();
     };
     window.addEventListener("tex64:pro-canvas-open", ((event) => open(event.detail || {})));
     return { open, cancel: () => closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent() };

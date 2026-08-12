@@ -31,6 +31,8 @@ export const buildStyFile = (scene, packageName) => {
             out.push(`line join=${props.join}`);
         if (props.roundedCornersPt !== undefined && props.roundedCornersPt > 0)
             out.push(`rounded corners=${num(props.roundedCornersPt)}pt`);
+        if (props.doubleDistancePt !== undefined && props.doubleDistancePt > 0)
+            out.push("double", `double distance=${num(props.doubleDistancePt)}pt`);
         return out;
     };
     const options = (style) => style.ref ? [style.ref, ...keys(style.props || {}, true)] : keys(style.props || {});

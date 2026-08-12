@@ -1,5 +1,5 @@
 import { generateTikz } from "./tikz-generate.js";
-export const buildStandaloneDoc = (scene) => {
+export const buildStandaloneDoc = (scene, options) => {
     const generated = generateTikz(scene);
     const code = generated.code
         .split("\n")
@@ -9,5 +9,6 @@ export const buildStandaloneDoc = (scene) => {
         : [line])
         .join("\n");
     const libraries = generated.requires.length ? `\\usetikzlibrary{${generated.requires.join(",")}}\n` : "";
-    return `\\documentclass[margin=0pt]{standalone}\n\\usepackage{tikz}\n${libraries}\\begin{document}\n${code}\n\\end{document}`;
+    const preamble = (options === null || options === void 0 ? void 0 : options.preamble) ? `${options.preamble}\n` : "";
+    return `\\documentclass[margin=0pt]{standalone}\n\\usepackage{tikz}\n${libraries}${preamble}\\begin{document}\n${code}\n\\end{document}`;
 };
