@@ -27,7 +27,7 @@ const {
   applyProposal,
 } = require("./agent-proposal-runtime.cjs");
 const { executeToolCall } = require("./agent-tool-executor.cjs");
-const { runAgentConversation } = require("./openprism/run-loop.cjs");
+const { runAgentConversation, completeSingleChat } = require("./openprism/run-loop.cjs");
 
 class AgentService {
   constructor({
@@ -393,6 +393,10 @@ class AgentService {
 
   async run(payload) {
     return runAgentConversation(this, payload);
+  }
+
+  async completeOnce(payload) {
+    return completeSingleChat(this, payload);
   }
 }
 

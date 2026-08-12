@@ -48,6 +48,11 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
+import { initProModeUi } from "./app/pro-mode-ui.js";
+import { initProCaptureUi } from "./app/pro-capture-ui.js";
+import { initProStashUi } from "./app/pro-stash-ui.js";
+import { initProStructureUi } from "./app/pro-structure-ui.js";
+import { initProLivePreview } from "./app/pro-live-preview.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -362,6 +367,18 @@ export const initMain = () => {
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     getMonacoApi: appActions.getMonacoApi,
+  });
+  initProModeUi({
+    setSplitViewEnabled: editorSession.setSplitViewEnabled,
+    getSplitViewEnabled: editorSession.getSplitViewEnabled,
+  });
+  initProLivePreview({ getActiveGroup: editorSession.getActiveGroup });
+  initProStashUi({
+    getActiveGroup: editorSession.getActiveGroup,
+  });
+  initProCaptureUi({
+    getActiveGroup: editorSession.getActiveGroup,
+    getWorkspaceFiles,
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
@@ -702,6 +719,17 @@ export const initMain = () => {
     },
     onJumpToSection: (entry) => {
       openInSecondaryEditor(entry.path, entry.line);
+    },
+  });
+  initProStructureUi({
+    getActiveFileSnapshot: editorSession.getActiveFileSnapshot,
+    getIndexSections,
+    onJumpToSection: (entry) => {
+      editorSession.jumpToFileLine(
+        entry.path,
+        entry.line,
+        editorSession.getActiveEditorGroupKey()
+      );
     },
   });
   issuesUi = initIssuesUi(appContext, {

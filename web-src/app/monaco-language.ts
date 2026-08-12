@@ -17,7 +17,10 @@ type MonacoLanguageApi = {
   };
 };
 
-const LATEX_MONARCH = {
+export const EXPL3_COMMAND_PATTERN = /\\(?:[A-Za-z@][A-Za-z0-9@]*|__[A-Za-z0-9@]+)(?:_[A-Za-z0-9@]+)+:[NnTFpcexofDVvw]*(?![A-Za-z])/;
+export const EXPL3_VARIABLE_PATTERN = /\\[lgc]_(?:[A-Za-z0-9]+_)*[A-Za-z0-9]+_(?:tl|seq|int|dim|bool|str|clist|prop|fp|box|coffin|ior|iow|skip|muskip|token|regex|quark)\b/;
+
+export const LATEX_MONARCH = {
   defaultToken: "",
   tokenPostfix: ".tex",
   brackets: [
@@ -28,6 +31,24 @@ const LATEX_MONARCH = {
   tokenizer: {
     root: [
       [/%.*$/, "comment"],
+      [
+        /(\\begin)(\s*)(\{)(luacode\*?)(\})/,
+        [
+          "keyword",
+          "white",
+          "delimiter",
+          "type",
+          { token: "delimiter", next: "@luaCode", nextEmbedded: "lua" },
+        ],
+      ],
+      [
+        /(\\directlua)(\s*)(\{)/,
+        [
+          "keyword",
+          "white",
+          { token: "delimiter", next: "@directLua", nextEmbedded: "lua" },
+        ],
+      ],
       [
         /(\\(?:begin|end))(\s*)(\{)([^}]+)(\})/,
         ["keyword", "white", "delimiter", "type", "delimiter"],
@@ -61,6 +82,8 @@ const LATEX_MONARCH = {
         /(\\(?:input|include|includegraphics|graphicspath))(\s*)(\{)([^}]+)(\})/,
         ["keyword", "white", "delimiter", "string", "delimiter"],
       ],
+      [EXPL3_COMMAND_PATTERN, "support.function.expl3"],
+      [EXPL3_VARIABLE_PATTERN, "variable.expl3"],
       [/\\[a-zA-Z@]+/, "variable"],
       [/\\./, "variable"],
       [/#\d+/, "number"],
@@ -70,6 +93,30 @@ const LATEX_MONARCH = {
       [/[{}[\]()]/, "delimiter"],
       [/[&^_~]/, "operator"],
       [/\d+(\.\d+)?/, "number"],
+    ],
+    directLua: [
+      [/[^{}]+/, ""],
+      [/\{/, { token: "delimiter", next: "@directLuaNested" }],
+      [/\}/, { token: "delimiter", next: "@pop", nextEmbedded: "@pop" }],
+    ],
+    directLuaNested: [
+      [/[^{}]+/, ""],
+      [/\{/, { token: "delimiter", next: "@push" }],
+      [/\}/, { token: "delimiter", next: "@pop" }],
+    ],
+    luaCode: [
+      [
+        /(\\end)(\s*)(\{)(luacode\*?)(\})/,
+        [
+          "keyword",
+          "white",
+          "delimiter",
+          "type",
+          { token: "delimiter", next: "@pop", nextEmbedded: "@pop" },
+        ],
+      ],
+      [/[^\\]+/, ""],
+      [/\\/, ""],
     ],
   },
 };

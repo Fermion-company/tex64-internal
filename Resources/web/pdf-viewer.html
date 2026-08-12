@@ -15,13 +15,13 @@
   <body>
     <div class="pdf-app">
       <header class="pdf-toolbar">
-        <div class="pdf-toolbar-group">
+        <div class="pdf-toolbar-group pdf-toolbar-identity pdf-toolbar-secondary">
           <button class="pdf-btn ghost" id="pdf-sidebar-toggle" type="button" title="Sidebar">
             ☰
           </button>
           <span class="pdf-title" id="pdf-title">PDF Viewer</span>
         </div>
-        <div class="pdf-toolbar-group">
+        <div class="pdf-toolbar-group pdf-toolbar-controls">
           <button class="pdf-btn ghost" id="pdf-prev" type="button" title="Previous page">◀</button>
           <input class="pdf-page-input" id="pdf-page-input" type="number" min="1" value="1" aria-label="Page">
           <span class="pdf-page-count" id="pdf-page-count">/ 0</span>
@@ -29,19 +29,19 @@
           <button class="pdf-btn ghost" id="pdf-zoom-out" type="button" title="Zoom out">−</button>
           <span class="pdf-zoom-label" id="pdf-zoom-label">100%</span>
           <button class="pdf-btn ghost" id="pdf-zoom-in" type="button" title="Zoom in">＋</button>
-          <button class="pdf-btn ghost" id="pdf-fit-width" type="button" title="Fit width">Width</button>
-          <button class="pdf-btn ghost" id="pdf-fit-page" type="button" title="Fit page">Page</button>
-          <button class="pdf-btn ghost" id="pdf-rotate-left" type="button" title="Rotate left">⟲</button>
-          <button class="pdf-btn ghost" id="pdf-rotate-right" type="button" title="Rotate right">⟳</button>
-          <input class="pdf-search-input" id="pdf-search-input" type="text" placeholder="Search">
-          <button class="pdf-btn ghost" id="pdf-search-prev" type="button" title="Search previous">↑</button>
-          <button class="pdf-btn ghost" id="pdf-search-next" type="button" title="Search next">↓</button>
-          <button class="pdf-btn ghost" id="pdf-invert" type="button" title="Invert">Invert</button>
-          <button class="pdf-btn ghost" id="pdf-download" type="button" title="Download">DL</button>
-          <button class="pdf-btn ghost" id="pdf-print" type="button" title="Print">Print</button>
-          <button class="pdf-btn ghost" id="pdf-reload" type="button" title="Reload">Reload</button>
+          <button class="pdf-btn ghost pdf-fit-control" id="pdf-fit-width" type="button" title="Fit width" aria-label="Fit width">↔<span>Width</span></button>
+          <button class="pdf-btn ghost pdf-fit-control" id="pdf-fit-page" type="button" title="Fit page" aria-label="Fit page">▣<span>Page</span></button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-rotate-left" type="button" title="Rotate left">⟲</button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-rotate-right" type="button" title="Rotate right">⟳</button>
+          <input class="pdf-search-input pdf-toolbar-secondary" id="pdf-search-input" type="text" placeholder="Search">
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-search-prev" type="button" title="Search previous">↑</button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-search-next" type="button" title="Search next">↓</button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-invert" type="button" title="Invert">Invert</button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-download" type="button" title="Download">DL</button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-print" type="button" title="Print">Print</button>
+          <button class="pdf-btn ghost pdf-toolbar-secondary" id="pdf-reload" type="button" title="Reload">Reload</button>
         </div>
-        <div class="pdf-toolbar-group">
+        <div class="pdf-toolbar-group pdf-toolbar-secondary">
           <span class="pdf-status" id="pdf-status">Waiting</span>
         </div>
       </header>

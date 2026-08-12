@@ -28,6 +28,8 @@ const { EnvService } = require("./services/env.cjs");
 const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
+const { TexizeService } = require("./services/texize.cjs");
+const { FermionEngineService } = require("./services/fermion-engine.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
 const { TerminalService } = require("./services/terminal.cjs");
@@ -45,6 +47,8 @@ const {
 } = require("./services/billing-checkout.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
+const { registerTexizeHandlers } = require("./handlers/texize.cjs");
+const { registerFermionEngineHandlers } = require("./handlers/fermion-engine.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
@@ -228,6 +232,8 @@ const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
 let mathOcrService = null;
+let texizeService = null;
+let fermionEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
@@ -246,6 +252,17 @@ const getMathOcrService = () => {
     });
   }
   return mathOcrService;
+};
+
+const getTexizeService = () => {
+  if (!texizeService) {
+    texizeService = new TexizeService();
+  }
+  return texizeService;
+};
+const getFermionEngineService = () => {
+  if (!fermionEngineService) fermionEngineService = new FermionEngineService();
+  return fermionEngineService;
 };
 
 const getTexlabService = () => {
@@ -799,6 +816,12 @@ app.on("window-all-closed", () => {
   if (texlabService) {
     texlabService.shutdown();
   }
+  if (texizeService) {
+    texizeService.shutdown();
+  }
+  if (fermionEngineService) {
+    fermionEngineService.shutdown();
+  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
@@ -808,6 +831,12 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   if (texlabService) {
     texlabService.shutdown();
+  }
+  if (texizeService) {
+    texizeService.shutdown();
+  }
+  if (fermionEngineService) {
+    fermionEngineService.shutdown();
   }
 });
 
@@ -970,6 +999,22 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
   const service = getMathOcrService();
   return service.recognize(payload);
 });
+
+registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
+registerFermionEngineHandlers({ ipcMain, getFermionEngineService });
+ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
+  try {
+    const relativePath = typeof payload?.path === "string" ? payload.path : "";
+    const data = typeof payload?.data === "string" ? payload.data : "";
+    if (!relativePath || !data) throw new Error("A workspace path and image data are required.");
+    if (!workspace.getRootPath()) throw new Error("No workspace is selected.");
+    await workspace.writeBinaryFile(relativePath, Buffer.from(data, "base64"));
+    return { ok: true, path: relativePath };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+ipcMain.handle("tex64:ai:complete", async (_event, payload) => agentHandlers.handleStashComplete(payload));
 
 // LSP transport: the renderer owns the LSP client; main just relays JSON-RPC
 // to/from texlab over stdio. Outgoing messages are fire-and-forget; replies and
