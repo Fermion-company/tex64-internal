@@ -191,19 +191,22 @@ export const initProCanvasUi = (deps) => {
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
-        overlay.innerHTML = `<div class="pro-canvas-toolbar" role="toolbar">
-      <span class="pro-canvas-tools"></span><button data-action="snap"></button><button data-action="live">Live</button><button data-action="doc-preamble">Doc</button><span class="pro-canvas-separator"></span>
-      <button data-action="zoom-out">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in">+</button>
-      <span class="pro-canvas-separator"></span><button data-action="undo">Undo</button><button data-action="redo">Redo</button></div>
-      <div class="pro-canvas-main"><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg></div><aside class="pro-canvas-inspector"><h3>Style</h3><div class="pro-canvas-style"></div><h3>Named styles</h3><div class="pro-canvas-named"></div><h3>Symbols</h3><div class="pro-canvas-symbols"></div></aside></div>
-      <div class="pro-canvas-bottom"><span class="pro-canvas-status"></span><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button><button data-action="tikz">${detail.replaceRange ? "更新" : "TikZ を挿入"}</button>${detail.replaceRange ? "" : '<button data-action="png">画像として挿入 (PNG)</button>'}<button data-action="cancel">キャンセル</button></div>`;
+        overlay.innerHTML = `<div class="pro-canvas-toolbar pro-canvas-topbar" role="toolbar">
+      <strong class="pro-canvas-title">図キャンバス</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="縮小">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="拡大">+</button></span><span class="pro-canvas-topbar-spacer"></span>
+      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live">Live</button><button data-action="doc-preamble">Doc</button></span><span class="pro-canvas-separator"></span>
+      <button class="pro-canvas-icon-button" data-action="undo" title="元に戻す">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="やり直す">↻</button></div>
+      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div>
+      <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">画像として挿入 (PNG)</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ を更新" : "TikZ を挿入"}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
         const stage = overlay.querySelector(".pro-canvas-stage");
         const status = overlay.querySelector(".pro-canvas-status");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
-        [['select', '選択'], ['pen', 'ペン'], ['line', '直線'], ['rect', '矩形'], ['ellipse', '楕円'], ['node', 'ノード'], ['code', 'コード']].forEach(([id, label]) => { const b = document.createElement("button"); b.dataset.tool = id; b.textContent = label; toolHost.appendChild(b); });
+        const moreMenu = overlay.querySelector(".pro-canvas-more-menu"), moreButton = overlay.querySelector("[data-action=more]");
+        const closeMore = () => { moreMenu.hidden = true; moreButton.setAttribute("aria-expanded", "false"); };
+        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<line x1="3" y1="13" x2="11" y2="5"/><polyline points="9,3 13,7 11,9 7,5 9,3"/><line x1="3" y1="13" x2="7" y2="12"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>' };
+        [['select', '選択', 'V'], ['pen', 'ペン', 'P'], ['line', '直線', 'L'], ['rect', '矩形', 'R'], ['ellipse', '楕円', 'E'], ['node', 'ノード', 'T'], ['code', 'コード', 'C']].forEach(([id, label, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.title = `${label} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg>`; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
         let docPreamble = localStorage.getItem(DOC_STORAGE_KEY) === "true";
@@ -286,13 +289,19 @@ export const initProCanvasUi = (deps) => {
         const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         const renderInspector = () => {
             var _a;
+            var _b;
+            const geometry = overlay.querySelector(".pro-canvas-geometry");
             const host = overlay.querySelector(".pro-canvas-style");
             const named = overlay.querySelector(".pro-canvas-named");
             const symbols = overlay.querySelector(".pro-canvas-symbols");
             const object = selectedId ? walk(currentObjects(), selectedId) : null;
+            geometry.replaceChildren();
             host.replaceChildren();
             named.replaceChildren();
             symbols.replaceChildren();
+            (_a = overlay.querySelector(".pro-canvas-empty")) === null || _a === void 0 ? void 0 : _a.remove();
+            overlay.querySelector(".pro-canvas-geometry-section").hidden = !object;
+            overlay.querySelector(".pro-canvas-style-section").hidden = !object;
             if (object) {
                 const b = objectBounds(object, scene), values = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
                 ["X", "Y", "W", "H"].forEach((label, index) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = "number"; input.step = "0.1"; input.value = String(Number(values[index].toFixed(3))); input.onchange = () => { const value = Number(input.value); if (!Number.isFinite(value) || (index >= 2 && value < .01)) {
@@ -301,19 +310,23 @@ export const initProCanvasUi = (deps) => {
                 } snapshot(); const before = objectBounds(object, scene); if (index < 2)
                     moveObject(object, index === 0 ? value - before.minX : 0, index === 1 ? value - before.minY : 0);
                 else
-                    resizeObject(object, before, index === 2 ? { ...before, maxX: before.minX + value } : { ...before, maxY: before.minY + value }); render(); }; row.append(input); host.append(row); });
+                    resizeObject(object, before, index === 2 ? { ...before, maxX: before.minX + value } : { ...before, maxY: before.minY + value }); render(); }; row.append(input); geometry.append(row); });
             }
-            if (!object)
-                host.textContent = "Select a drawable object";
+            if (!object) {
+                const empty = document.createElement("p");
+                empty.className = "pro-canvas-empty";
+                empty.textContent = "オブジェクトを選択すると設定が表示されます";
+                named.before(empty);
+            }
             else if (object.type === "group" || object.type === "code") {
                 const note = document.createElement("div");
                 note.textContent = object.type === "code" ? "Double-click to edit TikZ code" : "Group geometry";
                 host.append(note);
             }
             else {
-                const props = (_a = object.style).props || (_a.props = {});
+                const props = (_b = object.style).props || (_b.props = {});
                 const effective = resolveStyle(scene, object.style);
-                const color = (key, label) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = "color"; input.value = effective[key] || "#000000"; const none = document.createElement("input"); none.type = "checkbox"; none.checked = effective[key] === null; input.disabled = none.checked; input.onchange = () => { snapshot(); props[key] = input.value; render(); }; none.onchange = () => { snapshot(); props[key] = none.checked ? null : input.value; render(); }; row.append(input, none, document.createTextNode("なし")); host.append(row); };
+                const color = (key, label) => { const row = document.createElement("label"); row.className = "pro-canvas-swatch"; const input = document.createElement("input"); input.type = "color"; input.value = effective[key] || "#000000"; const none = document.createElement("input"); none.type = "checkbox"; none.title = "なし"; none.checked = effective[key] === null; input.disabled = none.checked; input.onchange = () => { snapshot(); props[key] = input.value; render(); }; none.onchange = () => { snapshot(); props[key] = none.checked ? null : input.value; render(); }; const caption = document.createElement("span"); caption.textContent = label; row.append(input, none, caption); host.append(row); };
                 color("draw", "線色");
                 color("fill", "塗り色");
                 const fields = [["線幅", "lineWidthPt", "number"], ["二重罫", "doubleDistancePt", "number"], ["破線", "dash", "select", ["solid", "dashed", "dotted"]], ["不透明度", "opacity", "number"], ["始点矢印", "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], ["終点矢印", "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]], ["角丸", "roundedCornersPt", "number"]];
@@ -344,26 +357,28 @@ export const initProCanvasUi = (deps) => {
                     host.append(alignRow);
                 }
             }
-            scene.styles.forEach((style) => { const row = document.createElement("div"); row.className = "pro-canvas-style-row"; row.textContent = style.name; const apply = document.createElement("button"); apply.textContent = "適用"; apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
+            scene.styles.forEach((style) => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip"; apply.textContent = style.name; apply.classList.toggle("is-active", (object === null || object === void 0 ? void 0 : object.type) !== "group" && (object === null || object === void 0 ? void 0 : object.type) !== "code" && (object === null || object === void 0 ? void 0 : object.style.ref) === style.name); apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
                 snapshot();
                 object.style.ref = style.name;
                 render();
-            } }; row.append(apply); named.append(row); });
+            } }; named.append(apply); });
             const add = document.createElement("button");
-            add.textContent = "＋ 新規";
+            add.className = "pro-canvas-chip pro-canvas-chip-add";
+            add.textContent = "＋";
+            add.title = "新規スタイル";
             add.onclick = () => { const name = prompt("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
                 return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" && object.type !== "code" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
             named.append(add);
             if (projectStyles.length) {
                 const heading = document.createElement("div");
                 heading.className = "pro-canvas-project-heading";
-                heading.textContent = "Project styles";
+                heading.textContent = "Project";
                 named.append(heading);
-                projectStyles.forEach(name => { const row = document.createElement("div"); row.className = "pro-canvas-style-row"; row.textContent = name; const apply = document.createElement("button"); apply.textContent = "適用"; apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
+                projectStyles.forEach(name => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip pro-canvas-project-chip"; apply.textContent = name; apply.title = "プロジェクト定義"; apply.classList.toggle("is-active", (object === null || object === void 0 ? void 0 : object.type) !== "group" && (object === null || object === void 0 ? void 0 : object.type) !== "code" && (object === null || object === void 0 ? void 0 : object.style.ref) === name); apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
                     snapshot();
                     object.style.ref = name;
                     render();
-                } }; row.append(apply); named.append(row); });
+                } }; named.append(apply); });
             }
             if (editingSymbolId) {
                 const done = document.createElement("button");
@@ -419,6 +434,12 @@ export const initProCanvasUi = (deps) => {
                 row.append(place, corners, edit, along, remove);
                 symbols.append(row);
             }
+            const symbolLabels = { "配置": ["⊕", "配置"], "四隅に配置": ["⛶", "四隅"], "選択パスに沿って配置": ["∿", "パスに沿って"], "編集": ["✎", "編集"], "削除": ["×", "削除"] };
+            symbols.querySelectorAll(".pro-canvas-symbol-row button").forEach(button => { const replacement = symbolLabels[button.textContent || ""]; if (replacement) {
+                button.textContent = replacement[0];
+                button.title = replacement[1];
+                button.setAttribute("aria-label", replacement[1]);
+            } });
         };
         const render = () => {
             var _a;
@@ -579,7 +600,7 @@ export const initProCanvasUi = (deps) => {
                 snapshot();
                 const latex = (_b = prompt("LaTeX", "")) !== null && _b !== void 0 ? _b : "";
                 if (latex)
-                    currentObjects().push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: { props: { draw: "#000000" } } });
+                    currentObjects().push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: {} });
                 render();
                 return;
             }
@@ -595,7 +616,7 @@ export const initProCanvasUi = (deps) => {
             if (tool === "pen") {
                 if (!pen) {
                     snapshot();
-                    pen = { id: newObjectId(), type: "path", start: p, segments: [], closed: false, style: { props: { draw: "#000000" } } };
+                    pen = { id: newObjectId(), type: "path", start: p, segments: [], closed: false, style: {} };
                     currentObjects().push(pen);
                 }
                 else if (Math.hypot(p.x - pen.start.x, p.y - pen.start.y) < scene.grid.size * .4) {
@@ -612,7 +633,7 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             snapshot();
-            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { draw: "#000000" } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { draw: "#000000" } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { draw: "#000000" } } };
+            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: {} } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: {} } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: {} };
             currentObjects().push(object);
             selectedId = object.id;
             drag = { kind: "draw", start: p, before: cloneScene(scene), id: object.id };
@@ -675,7 +696,7 @@ export const initProCanvasUi = (deps) => {
             undo.pop();
         } drag = null; penDrag = null; if (svg.hasPointerCapture(e.pointerId))
             svg.releasePointerCapture(e.pointerId); render(); scheduleCompile(); });
-        const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
+        const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
             clearTimeout(compileTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
@@ -736,16 +757,37 @@ export const initProCanvasUi = (deps) => {
                 }
             }
         } };
+        const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
+            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code" }[e.key.toLowerCase()]; if (next) {
+            tool = next;
+            e.preventDefault();
+            render();
+        } };
         const onKeyUp = (e) => { e.stopPropagation(); if (e.key === " ")
             space = false; };
+        window.addEventListener("keydown", onToolKey, true);
         window.addEventListener("keydown", onKey, true);
         window.addEventListener("keyup", onKeyUp, true);
-        const replaceOrInsert = () => { var _a, _b, _c, _d; const editor = deps.getActiveGroup().editor; const block = encodeFigureBlock(scene); if (!detail.replaceRange) {
-            insertAtEditorCursor(editor, block, "pro-canvas");
+        const replaceOrInsert = () => {
+            var _a, _b, _c, _d, _e, _f, _g;
+            const editor = deps.getActiveGroup().editor;
+            const block = encodeFigureBlock(scene);
+            if (!detail.replaceRange) {
+                // %% ヘッダ行が行頭に来ないとブロックが壊れるため、行中カーソルでは改行してから挿入する。
+                const column = (_c = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.column) !== null && _c !== void 0 ? _c : 1;
+                insertAtEditorCursor(editor, column > 1 ? `\n${block}` : block, "pro-canvas");
+                close();
+                return;
+            }
+            const Range = (_d = window.monaco) === null || _d === void 0 ? void 0 : _d.Range;
+            if (!(editor === null || editor === void 0 ? void 0 : editor.executeEdits) || !Range)
+                throw new Error("No active text editor is available.");
+            (_e = editor.pushUndoStop) === null || _e === void 0 ? void 0 : _e.call(editor);
+            editor.executeEdits("pro-canvas", [{ range: new Range(detail.replaceRange.startLine, 1, detail.replaceRange.endLine + 1, 1), text: block, forceMoveMarkers: true }]);
+            (_f = editor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(editor);
+            (_g = editor.focus) === null || _g === void 0 ? void 0 : _g.call(editor);
             close();
-            return;
-        } const Range = (_a = window.monaco) === null || _a === void 0 ? void 0 : _a.Range; if (!(editor === null || editor === void 0 ? void 0 : editor.executeEdits) || !Range)
-            throw new Error("No active text editor is available."); (_b = editor.pushUndoStop) === null || _b === void 0 ? void 0 : _b.call(editor); editor.executeEdits("pro-canvas", [{ range: new Range(detail.replaceRange.startLine, 1, detail.replaceRange.endLine + 1, 1), text: block, forceMoveMarkers: true }]); (_c = editor.pushUndoStop) === null || _c === void 0 ? void 0 : _c.call(editor); (_d = editor.focus) === null || _d === void 0 ? void 0 : _d.call(editor); close(); };
+        };
         const exportSty = async () => { var _a; let name = (prompt("ファイル名", "figures.sty") || "").trim(); if (!name)
             return; if (!name.toLowerCase().endsWith(".sty"))
             name += ".sty"; name = name.replace(/^.*[\\/]/, ""); const packageName = name.slice(0, -4); if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(packageName))
@@ -776,13 +818,18 @@ export const initProCanvasUi = (deps) => {
         finally {
             URL.revokeObjectURL(url);
         } };
-        overlay.addEventListener("click", async (e) => { const button = e.target.closest("button"); if (!button)
+        overlay.addEventListener("click", async (e) => { const button = e.target.closest("button"); if (!e.target.closest(".pro-canvas-more"))
+            closeMore(); if (!button)
             return; if (button.dataset.tool) {
             tool = button.dataset.tool;
             render();
             return;
         } try {
             switch (button.dataset.action) {
+                case "more":
+                    moreMenu.hidden = !moreMenu.hidden;
+                    moreButton.setAttribute("aria-expanded", String(!moreMenu.hidden));
+                    break;
                 case "cancel":
                     close();
                     break;
@@ -831,6 +878,7 @@ export const initProCanvasUi = (deps) => {
                     break;
                 case "sty":
                     await exportSty();
+                    closeMore();
                     break;
                 case "tikz":
                     replaceOrInsert();
