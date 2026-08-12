@@ -3,8 +3,35 @@ import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capt
 import { encodeFigureBlock } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, newObjectId, resolveStyle } from "./scene.js";
 import { boundsAfterHandleDrag, resizeHandlePoint, resizePoint, screenToScene, snapToGrid } from "./canvas-math.js";
+import { buildStandaloneDoc } from "./standalone.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
+let pdfjsLibPromise = null;
+const loadPdfjs = async () => {
+    if (!pdfjsLibPromise)
+        pdfjsLibPromise = (async () => {
+            const lib = await import(new URL("../../pdfjs/pdf.min.mjs", import.meta.url).href);
+            try {
+                lib.GlobalWorkerOptions.workerSrc = new URL("../../pdfjs/pdf.worker.min.mjs", import.meta.url).href;
+            }
+            catch { }
+            return lib;
+        })();
+    return pdfjsLibPromise;
+};
+const pdfOptions = (data) => ({ data, cMapUrl: new URL("../../pdfjs/cmaps/", import.meta.url).href, cMapPacked: true, standardFontDataUrl: new URL("../../pdfjs/standard_fonts/", import.meta.url).href, wasmUrl: new URL("../../pdfjs/wasm/", import.meta.url).href, useSystemFonts: true, disableFontFace: false });
+const firstReportError = (report) => {
+    var _a, _b, _c, _d;
+    if (!report || typeof report !== "object")
+        return null;
+    const value = report, candidate = (_c = (_b = (_a = value.errors) !== null && _a !== void 0 ? _a : value.diagnostics) !== null && _b !== void 0 ? _b : value.error) !== null && _c !== void 0 ? _c : value.log;
+    if (Array.isArray(candidate) && candidate.length) {
+        const first = candidate[0];
+        return String(typeof first === "object" && first ? (_d = first.message) !== null && _d !== void 0 ? _d : JSON.stringify(first) : first).split(/\r?\n/)[0];
+    }
+    return typeof candidate === "string" && candidate.trim() ? candidate.trim().split(/\r?\n/)[0] : null;
+};
 const allPoints = (object) => {
     if (object.type === "rect")
         return [object.from, object.to];
@@ -136,7 +163,7 @@ export const initProCanvasUi = (deps) => {
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
         overlay.innerHTML = `<div class="pro-canvas-toolbar" role="toolbar">
-      <span class="pro-canvas-tools"></span><button data-action="snap"></button><span class="pro-canvas-separator"></span>
+      <span class="pro-canvas-tools"></span><button data-action="snap"></button><button data-action="live">Live</button><span class="pro-canvas-separator"></span>
       <button data-action="zoom-out">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in">+</button>
       <span class="pro-canvas-separator"></span><button data-action="undo">Undo</button><button data-action="redo">Redo</button></div>
       <div class="pro-canvas-main"><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg></div><aside class="pro-canvas-inspector"><h3>Style</h3><div class="pro-canvas-style"></div><h3>Named styles</h3><div class="pro-canvas-named"></div></aside></div>
@@ -148,8 +175,51 @@ export const initProCanvasUi = (deps) => {
         const status = overlay.querySelector(".pro-canvas-status");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         [['select', '選択'], ['pen', 'ペン'], ['line', '直線'], ['rect', '矩形'], ['ellipse', '楕円'], ['node', 'ノード']].forEach(([id, label]) => { const b = document.createElement("button"); b.dataset.tool = id; b.textContent = label; toolHost.appendChild(b); });
+        const fermion = window.tex64Fermion;
+        let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
+        let compiledImage = null, compileTimer = null, compileSequence = 0;
+        const invalidateCompiled = () => { compileSequence += 1; compiledImage = null; };
+        const renderPdf = async (pdfBase64) => { var _a; const binary = atob(pdfBase64), data = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1)
+            data[i] = binary.charCodeAt(i); const lib = await loadPdfjs(); const doc = await lib.getDocument(pdfOptions(data)).promise; try {
+            const page = await doc.getPage(1), base = page.getViewport({ scale: 1 }), rect = svg.getBoundingClientRect(), artScale = Math.min(rect.width / scene.width, rect.height / scene.height) * zoom, viewport = page.getViewport({ scale: Math.max(.1, scene.width * artScale * 2 / base.width) }), canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.ceil(viewport.width));
+            canvas.height = Math.max(1, Math.ceil(viewport.height));
+            const context = canvas.getContext("2d");
+            if (!context)
+                throw new Error("Canvas is unavailable.");
+            await page.render({ canvasContext: context, viewport }).promise;
+            return canvas.toDataURL("image/png");
+        }
+        finally {
+            await ((_a = doc.destroy) === null || _a === void 0 ? void 0 : _a.call(doc));
+        } };
+        const compileNow = async () => { if (!live || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
+            return; const sequence = ++compileSequence; setStatus("コンパイル中…"); try {
+            const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene) });
+            if (sequence !== compileSequence)
+                return;
+            const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report);
+            if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
+                throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー");
+            const image = await renderPdf(result.pdfBase64);
+            if (sequence !== compileSequence)
+                return;
+            compiledImage = image;
+            setStatus("");
+            render();
+        }
+        catch (error) {
+            if (sequence !== compileSequence)
+                return;
+            compiledImage = null;
+            setStatus(error instanceof Error ? error.message.split(/\r?\n/)[0] : "コンパイルエラー", true);
+            render();
+        } };
+        const scheduleCompile = () => { invalidateCompiled(); if (compileTimer)
+            clearTimeout(compileTimer); if (live)
+            compileTimer = setTimeout(() => { compileTimer = null; void compileNow(); }, 600); };
         const snapshot = () => { undo.push(cloneScene(scene)); if (undo.length > 80)
-            undo.shift(); redo = []; };
+            undo.shift(); redo = []; queueMicrotask(scheduleCompile); };
         const view = () => { const r = svg.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, sceneWidth: scene.width, sceneHeight: scene.height, zoom, panX, panY }; };
         const point = (event) => snapToGrid(screenToScene({ x: event.clientX, y: event.clientY }, view()), scene.grid.size, scene.grid.snap && !event.altKey);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
@@ -202,6 +272,10 @@ export const initProCanvasUi = (deps) => {
             for (let y = 0; y <= scene.height; y += scene.grid.size)
                 guides.append(svgEl("line", { x1: 0, y1: y, x2: scene.width, y2: y }));
             guides.append(svgEl("rect", { x: 0, y: 0, width: scene.width, height: scene.height, class: "pro-canvas-boundary" }));
+            if (compiledImage)
+                root.append(svgEl("image", { href: compiledImage, x: 0, y: -scene.height, width: scene.width, height: scene.height, transform: "scale(1,-1)", class: "pro-canvas-live-image", "pointer-events": "none" }));
+            const objects = svgEl("g", { class: "pro-canvas-objects", opacity: compiledImage ? 0 : 1, "pointer-events": "all" });
+            root.append(objects);
             const draw = (object, parent) => {
                 var _a, _b;
                 if (object.type === "group") {
@@ -231,7 +305,7 @@ export const initProCanvasUi = (deps) => {
                 }
                 parent.append(el);
             };
-            scene.objects.forEach(o => draw(o, root));
+            scene.objects.forEach(o => draw(o, objects));
             const object = selectedId ? walk(scene.objects, selectedId) : null;
             if (object) {
                 const b = objectBounds(object);
@@ -247,6 +321,10 @@ export const initProCanvasUi = (deps) => {
             const snap = overlay.querySelector("[data-action=snap]");
             snap.textContent = `Snap ${scene.grid.snap ? "on" : "off"}`;
             snap.classList.toggle("is-active", scene.grid.snap);
+            const liveButton = overlay.querySelector("[data-action=live]");
+            liveButton.disabled = !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
+            liveButton.classList.toggle("is-active", live);
+            liveButton.setAttribute("aria-pressed", String(live));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
@@ -257,6 +335,8 @@ export const initProCanvasUi = (deps) => {
         let pen = null;
         svg.addEventListener("pointerdown", e => {
             var _a, _b;
+            invalidateCompiled();
+            render();
             const target = e.target;
             if (space) {
                 drag = { kind: "pan", start: { x: panX, y: panY }, before: cloneScene(scene), lastClient: { x: e.clientX, y: e.clientY } };
@@ -375,14 +455,15 @@ export const initProCanvasUi = (deps) => {
             selectedId = null;
             undo.pop();
         } drag = null; penDrag = null; if (svg.hasPointerCapture(e.pointerId))
-            svg.releasePointerCapture(e.pointerId); render(); });
-        const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keyup", onKeyUp, true); overlay.remove(); if (closeCurrent === close)
+            svg.releasePointerCapture(e.pointerId); render(); scheduleCompile(); });
+        const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
+            clearTimeout(compileTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
         const undoOnce = () => { const prev = undo.pop(); if (!prev)
-            return; redo.push(cloneScene(scene)); scene = prev; selectedId = null; render(); };
+            return; redo.push(cloneScene(scene)); scene = prev; selectedId = null; render(); scheduleCompile(); };
         const redoOnce = () => { const next = redo.pop(); if (!next)
-            return; undo.push(cloneScene(scene)); scene = next; selectedId = null; render(); };
+            return; undo.push(cloneScene(scene)); scene = next; selectedId = null; render(); scheduleCompile(); };
         const onKey = (e) => { e.stopPropagation(); if (e.key === " ") {
             space = true;
             e.preventDefault();
@@ -474,6 +555,17 @@ export const initProCanvasUi = (deps) => {
                 case "cancel":
                     close();
                     break;
+                case "live":
+                    live = !live;
+                    localStorage.setItem(LIVE_STORAGE_KEY, String(live));
+                    if (live)
+                        scheduleCompile();
+                    else {
+                        invalidateCompiled();
+                        setStatus("");
+                        render();
+                    }
+                    break;
                 case "snap":
                     snapshot();
                     scene.grid.snap = !scene.grid.snap;
@@ -512,6 +604,7 @@ export const initProCanvasUi = (deps) => {
         } });
         new ResizeObserver(render).observe(stage);
         render();
+        scheduleCompile();
     };
     window.addEventListener("tex64:pro-canvas-open", ((event) => open(event.detail || {})));
     return { open, cancel: () => closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent() };

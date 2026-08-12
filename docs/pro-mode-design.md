@@ -131,7 +131,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    `web-src/app/pro-canvas/{scene,tikz-generate,figure-codec,canvas-math,canvas-ui}.ts` +
    `tests/pro-canvas-*.test.mjs`。ノードの MathLive 入力（C1 では生 LaTeX テキスト入力）と
    レイヤ UI は C2 以降に送った。
-2. **C2**: fermion 実コンパイル差し替え（操作中は近似、確定時に実レンダリング）。
+2. **C2**: fermion 実コンパイル差し替え（操作中は近似、確定時に実レンダリング）—
+   **完了 (2026-08-13)**。仕様: [pro-canvas-c2-spec.md](pro-canvas-c2-spec.md)。キャンバス専用の
+   第2 fermion インスタンス + `tex64:fermion:canvas-render` IPC + Live トグル。実エンジンで
+   E2E 確認済み（100mm 角 standalone が 283.46bp 角 PDF になることを実走検証）。
 3. **C3**: シンボル/`\pic`・鏡映/回転インスタンス・パスに沿ってリピート・.sty エクスポート。
 4. **C4**: コードオブジェクト・AI 経路（スケッチ/画像 → Axiom/texize → シーンまたは
    コードオブジェクト）・SVG インポート。
