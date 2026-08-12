@@ -83,6 +83,59 @@ monaco の言語定義（`web-src/app/monaco-language.ts`）を強化する。�
 常駐インクリメンタル LuaLaTeX ランタイムを electron service としてホストし、編集に追従する
 ライブプレビューをレイアウト①のプレビューペインに出す。最終確認は従来の latexmk ビルド。
 
+### 6. 作図キャンバス（ベクタ描画 → TikZ / 画像挿入）
+
+Illustrator 的なベクタ描画キャンバスを Pro モードに追加する。対象はガチのブックデザイナー
+（sty を直接書く層）。装飾枠・コーナーオーナメント・二重罫・繰り返しボーダー等の装丁系描画が
+主戦場。**汎用の描画表現力を持ちつつ、生成 TikZ は「プロが手書きしたのと同じ構造」を保つ**。
+
+#### 設計判断（2026-08-13 決定）
+
+- **正本は独自シーン JSON**。TikZ / 画像はそこから生成する（TikZ の逆パースはしない）。
+- **挿入は 2 モード**: TikZ コード挿入（既定）と、コンパイル済み PDF を assets に保存して
+  `\includegraphics`（既存 P2 画像化フローを流用）。
+- **round-trip はコメント埋め込み**（quiver 方式）: 生成 tikzpicture の先頭に
+  `%% tex64-figure: <base64 シーン JSON>` + シーン外コードのハッシュを埋め、そこから再編集。
+  コメント以降が手編集されていたら detached 扱いで警告（マージはしない）。
+- **キャンバス描画はハイブリッド**: ドラッグ等の操作中は自前 SVG 近似、操作確定・アイドル時に
+  fermion-tex-engine で実コンパイルした見た目（プロジェクトのプリアンブル反映可）に差し替える。
+  TikZ レンダラは自作しない。
+- **スコープは制約しない**。座標スープ回避は語彙制限ではなく、下記の「構造を持った生成」で行う。
+
+#### 綺麗な TikZ を保つための生成規則
+
+- **シンボル（コンポーネント）**: オーナメント類は 1 回定義 → 変換付きインスタンス配置。
+  TikZ では `\pic` 定義 + `\begin{scope}[...]` 変換に 1:1 対応。四隅の角飾りは座標を 4 回
+  吐かず `xscale=-1` / `rotate` の鏡映・回転インスタンスで表現する。
+- **パスに沿ってリピート** ツール（繰り返しボーダー用）: `\foreach` または
+  `decorations.markings` に落とす。要素を N 回展開しない。
+- 名前付きスタイルは先頭の `\tikzset` に集約。塗り/グラデは `\shade`（axis/radial）・
+  patterns ライブラリのサブセットへマップ。
+- フリーハンドベジェは `.. controls ..` のまま許容。オブジェクト単位でグループ化し
+  コメントを付す。座標は精度を丸める（既定 3 桁）。
+- **コードオブジェクト**: シーンモデルで表現できない任意の TikZ 断片をキャンバスに
+  オブジェクトとして配置できる（fermion で描画、移動・変換のみ可、中身は不透明）。
+  表現力の穴を塞ぐ恒久的な逃げ道。
+
+#### ブックデザイナー向けの追加出力
+
+- **.sty へのエクスポート**: シンボル/図を `\pic` 定義や `\NewDocumentCommand` として
+  スタイルファイルに書き出せる（オーナメントライブラリを視覚的に構築 → sty で再利用）。
+
+#### 実装フェーズ（C 系列）
+
+1. **C1**: シーンモデル + キャンバス基盤（選択/変換・ペン・図形・テキストノード・
+   名前付きスタイル）+ TikZ 生成 + コメント埋め込み round-trip + 画像化挿入。キャンバスは
+   自前 SVG 近似のみ — **完了 (2026-08-13)**。詳細仕様は
+   [pro-canvas-c1-spec.md](pro-canvas-c1-spec.md)。実装:
+   `web-src/app/pro-canvas/{scene,tikz-generate,figure-codec,canvas-math,canvas-ui}.ts` +
+   `tests/pro-canvas-*.test.mjs`。ノードの MathLive 入力（C1 では生 LaTeX テキスト入力）と
+   レイヤ UI は C2 以降に送った。
+2. **C2**: fermion 実コンパイル差し替え（操作中は近似、確定時に実レンダリング）。
+3. **C3**: シンボル/`\pic`・鏡映/回転インスタンス・パスに沿ってリピート・.sty エクスポート。
+4. **C4**: コードオブジェクト・AI 経路（スケッチ/画像 → Axiom/texize → シーンまたは
+   コードオブジェクト）・SVG インポート。
+
 ## texize ブリッジ
 
 - 新規 `electron/services/texize.cjs`: texize のローカルインストール
@@ -108,6 +161,7 @@ monaco の言語定義（`web-src/app/monaco-language.ts`）を強化する。�
    - エディタ右クリックは monaco `addAction`（`tex64.pro-stash-add-selection`）
 4. **P4**: syntax highlight 強化（expl3・embedded Lua）/ 構造ジャンプメニュー（`pro-structure-ui.ts`、Cmd/Ctrl+Alt+O）— **完了 (2026-08-12)**
 5. **P5**: fermion-tex-engine ライブプレビュー統合 — **完了 (2026-08-12)**
+6. **C1**: 作図キャンバス基盤（機能 6 参照）— **完了 (2026-08-13)**。C2–C4 は未着手。
    - エンジンは `/Users/majinkuu/Desktop/fermion-tex-engine`（`node server.js`、POST /edit + SSE /events + 内蔵ビューア、`TEX64_FERMION_ENGINE_DIR` で上書き可）
    - `electron/services/fermion-engine.cjs`（遅延spawn・空きポート選択・クラッシュ後再起動・quit時kill）+ `tex64:fermion:*` IPC
    - `web-src/app/pro-live-preview.ts`: プレビューペインの Live トグル + 専用 iframe + 300ms デバウンス。push は main 側が毎回 `/doc` でサーバー実テキストを取得してから全文置換を送るため再接続でずれない

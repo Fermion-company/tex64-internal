@@ -8665,3 +8665,57 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   border-color: rgba(37, 99, 235, 0.24);
   background: rgba(37, 99, 235, 0.1);
 }
+
+.pro-canvas-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+.pro-canvas-toolbar,
+.pro-canvas-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border-color: var(--panel-border);
+  background: var(--panel-strong);
+}
+
+.pro-canvas-toolbar { border-bottom: 1px solid var(--panel-border); }
+.pro-canvas-bottom { justify-content: flex-end; border-top: 1px solid var(--panel-border); }
+.pro-canvas-tools { display: flex; gap: 4px; }
+.pro-canvas-separator { width: 1px; height: 24px; margin: 0 4px; background: var(--panel-border); }
+.pro-canvas-toolbar button,
+.pro-canvas-bottom button,
+.pro-canvas-inspector button {
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  background: var(--panel);
+  padding: 5px 9px;
+}
+.pro-canvas-toolbar button.is-active,
+.pro-canvas-bottom button[data-action="tikz"] { color: white; border-color: var(--accent); background: var(--accent); }
+.pro-canvas-main { display: grid; grid-template-columns: minmax(0, 1fr) 250px; min-height: 0; }
+.pro-canvas-stage { min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
+.pro-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; }
+.pro-canvas-guides .pro-canvas-paper { fill: #ffffff; }
+.pro-canvas-guides line { stroke: rgba(100, 116, 139, 0.28); stroke-width: .15; vector-effect: non-scaling-stroke; }
+.pro-canvas-guides .pro-canvas-boundary { fill: transparent; stroke: var(--text-soft); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-selection rect { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.pro-canvas-handle, .pro-canvas-rotate { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-node { font: 4px sans-serif; fill: #111827; }
+.pro-canvas-inspector { overflow: auto; padding: 12px; border-left: 1px solid var(--panel-border); background: var(--panel-strong); }
+.pro-canvas-inspector h3 { margin: 4px 0 10px; font-size: 12px; color: var(--text-soft); }
+.pro-canvas-style { display: grid; gap: 8px; margin-bottom: 18px; }
+.pro-canvas-style label { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 5px; font-size: 12px; }
+.pro-canvas-style input[type="number"], .pro-canvas-style select { width: 92px; color: var(--text); background: var(--panel-strong); border: 1px solid var(--panel-border); }
+.pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
+.pro-canvas-status { margin-right: auto; color: var(--text-soft); }
+.pro-canvas-status.is-error { color: var(--danger, #dc2626); }
