@@ -10,6 +10,8 @@ import { stripTikzWrapper } from "./code-import.js";
 import { importSvg } from "./svg-import.js";
 import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
+// TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
+const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
 const DOC_STORAGE_KEY = "tex64.proCanvas.docPreamble";
@@ -359,7 +361,7 @@ export const initProCanvasUi = (deps) => {
             }
             scene.styles.forEach((style) => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip"; apply.textContent = style.name; apply.classList.toggle("is-active", (object === null || object === void 0 ? void 0 : object.type) !== "group" && (object === null || object === void 0 ? void 0 : object.type) !== "code" && (object === null || object === void 0 ? void 0 : object.style.ref) === style.name); apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
                 snapshot();
-                object.style.ref = style.name;
+                object.style = { ref: style.name };
                 render();
             } }; named.append(apply); });
             const add = document.createElement("button");
@@ -376,7 +378,7 @@ export const initProCanvasUi = (deps) => {
                 named.append(heading);
                 projectStyles.forEach(name => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip pro-canvas-project-chip"; apply.textContent = name; apply.title = "プロジェクト定義"; apply.classList.toggle("is-active", (object === null || object === void 0 ? void 0 : object.type) !== "group" && (object === null || object === void 0 ? void 0 : object.type) !== "code" && (object === null || object === void 0 ? void 0 : object.style.ref) === name); apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
                     snapshot();
-                    object.style.ref = name;
+                    object.style = { ref: name };
                     render();
                 } }; named.append(apply); });
             }
@@ -463,7 +465,7 @@ export const initProCanvasUi = (deps) => {
             const objects = svgEl("g", { class: "pro-canvas-objects", opacity: compiledImage ? 0 : 1, "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
-                var _a, _b, _c;
+                var _a, _b, _c, _d;
                 if (object.type === "group" || object.type === "instance") {
                     const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
                     if (interactive)
@@ -496,7 +498,9 @@ export const initProCanvasUi = (deps) => {
                     return;
                 }
                 const style = resolveStyle(scene, object.style);
-                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": style.lineWidthPt || .4, opacity: (_b = style.opacity) !== null && _b !== void 0 ? _b : 1, "stroke-dasharray": style.dash === "dashed" ? "3 2" : style.dash === "dotted" ? "1 2" : "" };
+                const ptu = (_b = PT_IN_UNIT[scene.unit]) !== null && _b !== void 0 ? _b : 1;
+                const lw = (style.lineWidthPt || .4) * ptu;
+                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": lw, opacity: (_c = style.opacity) !== null && _c !== void 0 ? _c : 1, "stroke-dasharray": style.dash === "dashed" ? `${lw * 4} ${lw * 3}` : style.dash === "dotted" ? `${lw} ${lw * 2.5}` : "" };
                 let el;
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
@@ -510,7 +514,7 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_c = style.opacity) !== null && _c !== void 0 ? _c : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
+                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_d = style.opacity) !== null && _d !== void 0 ? _d : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
                     el.textContent = object.latex;
                 }
                 const distance = style.doubleDistancePt || 0;
@@ -519,16 +523,27 @@ export const initProCanvasUi = (deps) => {
                     fill.setAttribute("stroke", "none");
                     parent.append(fill);
                     el.setAttribute("fill", "none");
-                    el.setAttribute("stroke-width", String(2 * (style.lineWidthPt || .4) + distance));
+                    el.setAttribute("stroke-width", String((2 * (style.lineWidthPt || .4) + distance) * ptu));
                     parent.append(el);
                     const inner = el.cloneNode(true);
                     inner.removeAttribute("data-id");
                     inner.setAttribute("stroke", "#ffffff");
-                    inner.setAttribute("stroke-width", String(distance));
+                    inner.setAttribute("stroke-width", String(distance * ptu));
                     parent.append(inner);
                 }
                 else
                     parent.append(el);
+                // 細線でも掴めるよう、透明の太ストロークでヒット領域を確保する。
+                if (interactive && object.type !== "node") {
+                    const hit = el.cloneNode(true);
+                    hit.setAttribute("class", "pro-canvas-hit");
+                    hit.setAttribute("fill", "none");
+                    hit.setAttribute("stroke", "rgba(0,0,0,0.001)");
+                    hit.setAttribute("stroke-width", String(Math.max(lw * 2.5, 1.4 * 2.845 * ptu)));
+                    hit.setAttribute("stroke-dasharray", "");
+                    hit.setAttribute("pointer-events", "stroke");
+                    parent.append(hit);
+                }
             };
             currentObjects().forEach(o => draw(o, objects));
             const object = selectedId ? walk(currentObjects(), selectedId) : null;
@@ -616,7 +631,7 @@ export const initProCanvasUi = (deps) => {
             if (tool === "pen") {
                 if (!pen) {
                     snapshot();
-                    pen = { id: newObjectId(), type: "path", start: p, segments: [], closed: false, style: {} };
+                    pen = { id: newObjectId(), type: "path", start: p, segments: [], closed: false, style: { props: { lineWidthPt: 1 } } };
                     currentObjects().push(pen);
                 }
                 else if (Math.hypot(p.x - pen.start.x, p.y - pen.start.y) < scene.grid.size * .4) {
@@ -633,7 +648,7 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             snapshot();
-            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: {} } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: {} } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: {} };
+            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { lineWidthPt: 1 } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { lineWidthPt: 1 } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { lineWidthPt: 1 } } };
             currentObjects().push(object);
             selectedId = object.id;
             drag = { kind: "draw", start: p, before: cloneScene(scene), id: object.id };
