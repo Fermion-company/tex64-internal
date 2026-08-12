@@ -1,6 +1,16 @@
 import type { Metadata, Viewport } from "next";
+import { Noto_Serif_JP } from "next/font/google";
 import type { ReactNode } from "react";
+import "katex/dist/katex.min.css";
 import "./globals.css";
+
+const paperSerif = Noto_Serif_JP({
+  weight: ["400", "500", "700"],
+  subsets: ["latin"],
+  variable: "--font-noto-serif",
+  display: "swap",
+  preload: false,
+});
 
 export const metadata: Metadata = {
   title: "TeX64",
@@ -11,16 +21,16 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  colorScheme: "light dark",
+  colorScheme: "dark light",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#130d1d" },
+    { media: "(prefers-color-scheme: dark)", color: "#110A1C" },
   ],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="ja" data-theme="light" suppressHydrationWarning>
+    <html lang="ja" data-theme="dark" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -29,7 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           }}
         />
       </head>
-      <body>{children}</body>
+      <body className={paperSerif.variable}>{children}</body>
     </html>
   );
 }

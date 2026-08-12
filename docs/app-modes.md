@@ -33,7 +33,7 @@ AI モードは機能を移植したのではなく、**独立 Web アプリを�
 
 - ホスト: `web-src/app/ai-mode-ui.ts` が `<webview partition="persist:tex64-ai">` を遅延生成。
 - URL 解決: `electron/services/ai-web.cjs` — 設定 `aiWeb.url` → 環境変数 `TEX64_AI_WEB_URL` →
-  既定値（開発: `http://127.0.0.1:3100` / パッケージ版: `https://ai.tex64.com`）。
+  既定値（開発: `http://localhost:3100` / パッケージ版: `https://ai.tex64.com`）。
   本番デプロイ URL が確定したら `DEFAULT_HOSTED_URL` を更新すること。
 - ネイティブ分岐: `electron/ai-web-preload.cjs` が `window.tex64Native` を注入し、
   ページ側は `<html data-platform="native">` と `src/lib/platform.ts` だけで分岐する。

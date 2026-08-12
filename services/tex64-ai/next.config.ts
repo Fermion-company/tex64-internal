@@ -21,6 +21,10 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ["pg"],
+  // The desktop AI mode (and local tooling) reaches the dev server via
+  // 127.0.0.1 while `next dev` binds localhost; allow that origin for dev
+  // assets. Production is unaffected.
+  allowedDevOrigins: ["127.0.0.1"],
   turbopack: {
     root: fileURLToPath(new URL(".", import.meta.url)),
   },

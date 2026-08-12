@@ -44,6 +44,14 @@ import type {
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 type MobileView = "conversation" | "document";
+type CanvasView = "preview" | "outline";
+
+const KIND_LABELS: Record<string, string> = {
+  proposal: "提案書",
+  report: "報告書",
+  paper: "論文",
+  memo: "メモ",
+};
 
 type PendingSave = {
   id: string;
@@ -68,6 +76,7 @@ export function DocumentWorkspace() {
   const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null);
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("conversation");
+  const [canvasView, setCanvasView] = useState<CanvasView>("outline");
   const [documentLoading, setDocumentLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -613,37 +622,64 @@ export function DocumentWorkspace() {
   return (
     <div className="workspace-shell">
       <header className="app-topbar">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">
-            <Sigma size={17} strokeWidth={2.3} />
-          </span>
-          <strong>TeX64</strong>
+        <div className="topbar-left">
+          <div className="brand-lockup">
+            <span className="brand-mark" aria-hidden="true">
+              <Sigma size={16} strokeWidth={2.4} />
+            </span>
+            <span className="brand-separator" aria-hidden="true">
+              /
+            </span>
+          </div>
+          <div className="document-switcher">
+            <button
+              type="button"
+              className="document-switcher-button"
+              aria-expanded={documentMenuOpen}
+              onClick={() => setDocumentMenuOpen((open) => !open)}
+            >
+              <span className="document-switcher-titles">
+                <strong>{activeDocument?.title ?? "新しい文書"}</strong>
+                <small>
+                  {activeDocument
+                    ? (KIND_LABELS[activeDocument.kind] ?? "文書")
+                    : "TeX64"}
+                </small>
+              </span>
+              {documents.length ? <ChevronDown aria-hidden="true" size={14} /> : null}
+            </button>
+            {documentMenuOpen && documents.length ? (
+              <div className="document-menu" aria-label="文書を選ぶ">
+                {documents.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={activeDocument?.id === item.id ? "page" : undefined}
+                    onClick={() => void openDocument(item.id)}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <div className="document-switcher">
+        <div className="view-segment" role="group" aria-label="表示切り替え">
           <button
             type="button"
-            className="document-switcher-button"
-            aria-expanded={documentMenuOpen}
-            onClick={() => setDocumentMenuOpen((open) => !open)}
+            aria-pressed={canvasView === "preview"}
+            onClick={() => setCanvasView("preview")}
           >
-            <span>{activeDocument?.title ?? "新しい文書"}</span>
-            {documents.length ? <ChevronDown aria-hidden="true" size={14} /> : null}
+            プレビュー
           </button>
-          {documentMenuOpen && documents.length ? (
-            <div className="document-menu" aria-label="文書を選ぶ">
-              {documents.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-current={activeDocument?.id === item.id ? "page" : undefined}
-                  onClick={() => void openDocument(item.id)}
-                >
-                  {item.title}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <button
+            type="button"
+            aria-pressed={canvasView === "outline"}
+            onClick={() => setCanvasView("outline")}
+          >
+            アウトライン
+          </button>
         </div>
 
         <div className="topbar-actions">
@@ -722,6 +758,7 @@ export function DocumentWorkspace() {
             <DocumentCanvas
               document={activeDocument}
               saveState={saveState}
+              outlineVisible={canvasView === "outline"}
               requestPending={
                 submitting ||
                 conversationRun?.status === "queued" ||

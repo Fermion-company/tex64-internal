@@ -54,6 +54,24 @@ describe("mutation request boundary", () => {
     expect(() => assertSameOrigin(crossOrigin)).toThrow(InvalidOriginError);
   });
 
+  it("treats loopback host aliases as one origin outside production", () => {
+    const aliased = new Request("http://localhost:3100/api/documents", {
+      method: "POST",
+      headers: { Origin: "http://127.0.0.1:3100", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(() => assertSameOrigin(aliased)).not.toThrow();
+
+    const portMismatch = new Request("http://localhost:3100/api/documents", {
+      method: "POST",
+      headers: { Origin: "http://127.0.0.1:4000", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(() => assertSameOrigin(portMismatch)).toThrow(InvalidOriginError);
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(() => assertSameOrigin(aliased.clone())).toThrow(InvalidOriginError);
+    vi.unstubAllEnvs();
+  });
+
   it("rejects production mutations when browser origin metadata is absent", () => {
     vi.stubEnv("NODE_ENV", "production");
     expect(() =>

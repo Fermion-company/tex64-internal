@@ -1,5 +1,6 @@
 "use client";
 
+import katex from "katex";
 import {
   Check,
   CircleAlert,
@@ -8,7 +9,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type {
   DocumentBlock,
   DocumentChanges,
@@ -21,6 +22,7 @@ export type SaveState = "idle" | "saving" | "saved" | "error";
 interface DocumentCanvasProps {
   document: DocumentDetail;
   saveState: SaveState;
+  outlineVisible: boolean;
   requestPending: boolean;
   onChange: (patch: DocumentChanges) => void;
   onAskAgent: (prompt: string) => void;
@@ -29,10 +31,12 @@ interface DocumentCanvasProps {
 export function DocumentCanvas({
   document,
   saveState,
+  outlineVisible,
   requestPending,
   onChange,
   onAskAgent,
 }: DocumentCanvasProps) {
+  const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const headingNumbers = useMemo(() => {
     const numbers = new Map<string, number>();
     let number = 0;
@@ -44,6 +48,35 @@ export function DocumentCanvas({
     });
     return numbers;
   }, [document.blocks]);
+  const equationNumbers = useMemo(() => {
+    const numbers = new Map<string, number>();
+    let number = 0;
+    document.blocks.forEach((block) => {
+      if (block.type === "equation") {
+        number += 1;
+        numbers.set(block.id, number);
+      }
+    });
+    return numbers;
+  }, [document.blocks]);
+  const outlineItems = useMemo(
+    () =>
+      document.blocks
+        .filter((block) => block.type === "heading")
+        .map((block) => ({
+          id: block.id,
+          text: block.text,
+          number: headingNumbers.get(block.id) ?? null,
+        })),
+    [document.blocks, headingNumbers],
+  );
+
+  const scrollToBlock = (id: string) => {
+    setActiveOutlineId(id);
+    window.document
+      .getElementById(`block-${id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   const updateBlock = (id: string, nextBlock: DocumentBlock) => {
     onChange({
       blocks: document.blocks.map((block) => (block.id === id ? nextBlock : block)),
@@ -57,6 +90,12 @@ export function DocumentCanvas({
   return (
     <section className="document-canvas" aria-label="文書">
       <header className="canvas-toolbar">
+        <span
+          className={`canvas-mode-pill${requestPending ? " is-working" : ""}`}
+          role="status"
+        >
+          {requestPending ? "生成中" : "編集モード"}
+        </span>
         <strong className="canvas-document-title">{document.title}</strong>
         <div className={`save-indicator save-${saveState}`} aria-live="polite">
           {saveState === "saving" ? <span className="button-spinner" /> : null}
@@ -81,6 +120,28 @@ export function DocumentCanvas({
       </header>
 
       <div className="document-stage">
+        {outlineVisible ? (
+          <nav className="outline-rail" aria-label="アウトライン">
+            <span className="outline-label">アウトライン</span>
+            <div className="outline-items">
+              {outlineItems.length ? (
+                outlineItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={activeOutlineId === item.id ? "is-active" : undefined}
+                    onClick={() => scrollToBlock(item.id)}
+                  >
+                    {item.number ? `${item.number}. ` : ""}
+                    {item.text || "無題の見出し"}
+                  </button>
+                ))
+              ) : (
+                <span className="outline-empty">見出しはまだありません</span>
+              )}
+            </div>
+          </nav>
+        ) : null}
         <div className="paper-viewport">
           <article className="paper-sheet" aria-label={document.title}>
             <label className="paper-title-field">
@@ -108,6 +169,7 @@ export function DocumentCanvas({
                   key={block.id}
                   block={block}
                   headingNumber={headingNumbers.get(block.id)}
+                  equationNumber={equationNumbers.get(block.id)}
                   onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
                   onRemove={() => removeBlock(block.id)}
                   onAskAgent={() => onAskAgent(blockPrompt(block))}
@@ -133,6 +195,7 @@ function blockPrompt(block: DocumentBlock): string {
 interface BlockEditorProps {
   block: DocumentBlock;
   headingNumber?: number;
+  equationNumber?: number;
   onChange: (block: DocumentBlock) => void;
   onRemove: () => void;
   onAskAgent: () => void;
@@ -143,6 +206,7 @@ interface BlockEditorProps {
 function BlockEditor({
   block,
   headingNumber,
+  equationNumber,
   onChange,
   onRemove,
   onAskAgent,
@@ -230,26 +294,94 @@ function BlockEditor({
       ) : null}
 
       {block.type === "equation" ? (
-        <div className="block-equation-fields">
-          <label>
-            <span className="sr-only">関係式</span>
-            <input
-              value={block.expression}
-              readOnly={readOnly}
-              onChange={(event) => onChange({ ...block, expression: event.target.value })}
-            />
-          </label>
-          <label>
-            <span className="sr-only">関係式の説明</span>
-            <input
-              value={block.caption ?? ""}
-              readOnly={readOnly}
-              onChange={(event) => onChange({ ...block, caption: event.target.value })}
-              placeholder="説明"
-            />
-          </label>
-        </div>
+        <EquationBlock
+          expression={block.expression}
+          caption={block.caption ?? ""}
+          number={equationNumber}
+          readOnly={readOnly}
+          onExpressionChange={(expression) => onChange({ ...block, expression })}
+          onCaptionChange={(caption) => onChange({ ...block, caption })}
+        />
       ) : null}
+    </div>
+  );
+}
+
+function EquationBlock({
+  expression,
+  caption,
+  number,
+  readOnly,
+  onExpressionChange,
+  onCaptionChange,
+}: {
+  expression: string;
+  caption: string;
+  number?: number;
+  readOnly: boolean;
+  onExpressionChange: (expression: string) => void;
+  onCaptionChange: (caption: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const rendered = useMemo(() => {
+    if (!expression.trim()) return null;
+    try {
+      return katex.renderToString(expression, {
+        displayMode: true,
+        throwOnError: false,
+        strict: "ignore",
+      });
+    } catch {
+      return null;
+    }
+  }, [expression]);
+  const showEditor = editing || !rendered;
+
+  return (
+    <div className="block-equation-fields">
+      {rendered && !showEditor ? (
+        <button
+          type="button"
+          className="equation-render"
+          title={readOnly ? undefined : "クリックして数式を編集"}
+          disabled={readOnly}
+          onClick={() => setEditing(true)}
+        >
+          <span dangerouslySetInnerHTML={{ __html: rendered }} />
+          {number ? (
+            <span className="equation-number" aria-hidden="true">
+              ({number})
+            </span>
+          ) : null}
+        </button>
+      ) : (
+        <label className="equation-source">
+          <span className="sr-only">関係式</span>
+          <input
+            value={expression}
+            readOnly={readOnly}
+            autoFocus={editing}
+            placeholder="E = mc^2"
+            onChange={(event) => onExpressionChange(event.target.value)}
+            onBlur={() => setEditing(false)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === "Escape") {
+                event.preventDefault();
+                setEditing(false);
+              }
+            }}
+          />
+        </label>
+      )}
+      <label className="equation-caption">
+        <span className="sr-only">関係式の説明</span>
+        <input
+          value={caption}
+          readOnly={readOnly}
+          onChange={(event) => onCaptionChange(event.target.value)}
+          placeholder="説明"
+        />
+      </label>
     </div>
   );
 }

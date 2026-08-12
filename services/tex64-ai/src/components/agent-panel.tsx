@@ -22,10 +22,23 @@ interface AgentPanelProps {
   onSubmit: (prompt: string) => void;
 }
 
-const QUICK_ACTIONS = ["短くする", "論点を補う", "語調を整える"].map((label) => ({
-  label,
-  prompt: label,
-}));
+const QUICK_ACTIONS: Array<{ label: string; description: string; prompt: string }> = [
+  {
+    label: "短くする",
+    description: "要点を保ったまま全体を引き締める",
+    prompt: "短くする",
+  },
+  {
+    label: "論点を補う",
+    description: "足りない観点を探して書き足す",
+    prompt: "論点を補う",
+  },
+  {
+    label: "語調を整える",
+    description: "文体を統一して読みやすくする",
+    prompt: "語調を整える",
+  },
+];
 
 export function AgentPanel({
   document,
@@ -113,7 +126,8 @@ export function AgentPanel({
 
       <div className="agent-composer-wrap">
         {quickActions.length ? (
-          <div className="quick-agent-actions" aria-label="書き換えの候補">
+          <div className="suggestion-card" aria-label="書き換えの候補">
+            <span className="suggestion-heading">次に何をしますか?</span>
             {quickActions.map((action) => (
               <button
                 key={action.label}
@@ -121,7 +135,8 @@ export function AgentPanel({
                 disabled={submitting || isWorking}
                 onClick={() => submit(action.prompt)}
               >
-                {action.label}
+                <span className="suggestion-title">{action.label}</span>
+                <span className="suggestion-desc">{action.description}</span>
               </button>
             ))}
           </div>

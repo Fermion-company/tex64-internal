@@ -9,7 +9,9 @@ const { pathToFileURL } = require("url");
 //   1. user settings `aiWeb.url` (tex64-user-settings.json)
 //   2. env TEX64_AI_WEB_URL
 //   3. packaged builds: the hosted deployment; dev: the local Next dev server.
-const DEFAULT_DEV_URL = "http://127.0.0.1:3100";
+// next dev binds localhost; using the same name keeps the app's Origin
+// header aligned with the server's own origin for mutation requests.
+const DEFAULT_DEV_URL = "http://localhost:3100";
 const DEFAULT_HOSTED_URL = "https://ai.tex64.com";
 const LOCAL_APP_DIR = path.join("services", "tex64-ai");
 

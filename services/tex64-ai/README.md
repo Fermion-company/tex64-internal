@@ -24,7 +24,7 @@ npm run dev
 
 - デスクトップ側は `electron/ai-web-preload.cjs` が `window.tex64Native` を注入し、`<html data-platform="native">` が立ちます。
 - ネイティブ分岐は必ず [`src/lib/platform.ts`](./src/lib/platform.ts) と `[data-platform="native"]` CSS に集約してください。それ以外の場所に散らさないこと。
-- 接続先 URL は デスクトップ側の設定 `aiWeb.url`（`tex64-user-settings.json`）→ 環境変数 `TEX64_AI_WEB_URL` → 既定値（開発: `http://127.0.0.1:3100`、パッケージ版: `https://ai.tex64.com`）の順で解決されます。本番 URL が決まったら `electron/services/ai-web.cjs` の `DEFAULT_HOSTED_URL` を更新してください。
+- 接続先 URL は デスクトップ側の設定 `aiWeb.url`（`tex64-user-settings.json`）→ 環境変数 `TEX64_AI_WEB_URL` → 既定値（開発: `http://localhost:3100`、パッケージ版: `https://ai.tex64.com`）の順で解決されます。本番 URL が決まったら `electron/services/ai-web.cjs` の `DEFAULT_HOSTED_URL` を更新してください。
 - 開発時は `npm run dev` でこのサーバーを起動しておけば、デスクトップの AI モードがそのまま接続します。
 
 ## 構成
