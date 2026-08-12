@@ -6,6 +6,41 @@ const DEFAULT_STATE = {
     ratios: [0.34, 0.33, 0.33],
     collapsed: { preview: false, source: false, reference: false, code: true },
 };
+export const PRO_PANE_MIN_PX = 96;
+export const calculateProSplitterDrag = (layout, boundary, pointerRatio, ratios, minRatio) => {
+    const ratio = Math.min(Math.max(pointerRatio, 0), 1);
+    const minimum = Math.min(Math.max(minRatio, 0), 1 / 3);
+    const current = clampProRatios(ratios, 0);
+    if (layout === "preview-source") {
+        if (ratio < minimum)
+            return { ratios: current, collapse: "preview" };
+        if (1 - ratio < minimum)
+            return { ratios: current, collapse: "source" };
+        const tail = Math.max(current[1] + current[2], 0.001);
+        return { ratios: [ratio, (1 - ratio) * current[1] / tail, (1 - ratio) * current[2] / tail], collapse: null };
+    }
+    if (boundary === 0) {
+        if (ratio < minimum)
+            return { ratios: current, collapse: "source" };
+        if (1 - current[2] - ratio < minimum)
+            return { ratios: current, collapse: "reference" };
+        return { ratios: clampProRatios([ratio, Math.max(1 - ratio - current[2], 0), current[2]], 0), collapse: null };
+    }
+    if (1 - ratio < minimum)
+        return { ratios: current, collapse: "code" };
+    if (ratio - current[0] < minimum)
+        return { ratios: current, collapse: "reference" };
+    return { ratios: clampProRatios([current[0], ratio - current[0], 1 - ratio], 0), collapse: null };
+};
+export const proShortcutPane = (key, layout) => {
+    if (key === "1")
+        return layout === "preview-source" ? "preview" : "reference";
+    if (key === "2")
+        return "source";
+    if (key === "3")
+        return "code";
+    return null;
+};
 export const clampProRatios = (ratios, minRatio = 0.12) => {
     const safe = [0, 1, 2].map((index) => {
         const value = Number(ratios[index]);
@@ -136,6 +171,16 @@ export const initProModeUi = (deps) => {
             update({ collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] } });
         });
     });
+    document.addEventListener("keydown", (event) => {
+        if (!state.enabled || !(event.metaKey || event.ctrlKey) || !event.altKey || event.shiftKey)
+            return;
+        const pane = proShortcutPane(event.key, state.layout);
+        if (!pane || (pane === "code" && state.layout !== "source-reference-code"))
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        update({ collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] } });
+    }, true);
     const bindFileInput = (kind, viewer) => {
         const input = document.getElementById(`pro-${kind}-file`);
         const open = root.querySelector(`[data-pro-open="${kind}"]`);
@@ -181,16 +226,11 @@ export const initProModeUi = (deps) => {
                 return;
             const rect = root.getBoundingClientRect();
             const ratio = (event.clientX - rect.left) / Math.max(rect.width, 1);
-            const next = [...state.ratios];
-            if (state.layout === "preview-source" || boundary === 0) {
-                next[0] = ratio;
-                next[1] = Math.max(1 - ratio - next[2], 0.01);
-            }
-            else {
-                next[1] = ratio - next[0];
-                next[2] = 1 - ratio;
-            }
-            state = { ...state, ratios: clampProRatios(next) };
+            const result = calculateProSplitterDrag(state.layout, boundary, ratio, state.ratios, PRO_PANE_MIN_PX / Math.max(rect.width, 1));
+            const visible = state.layout === "preview-source" ? ["preview", "source"] : ["source", "reference", "code"];
+            const collapsed = { ...state.collapsed };
+            visible.forEach((pane) => { collapsed[pane] = pane === result.collapse; });
+            state = { ...state, ratios: result.ratios, collapsed };
             apply();
         });
         const stop = () => {
@@ -202,9 +242,42 @@ export const initProModeUi = (deps) => {
         };
         splitter.addEventListener("pointerup", stop);
         splitter.addEventListener("pointercancel", stop);
+        splitter.addEventListener("dblclick", (event) => {
+            if (!state.enabled)
+                return;
+            event.preventDefault();
+            update({ ratios: [...DEFAULT_STATE.ratios], collapsed: { ...state.collapsed, preview: false, source: false, reference: false, code: state.layout === "source-reference-code" ? false : state.collapsed.code } });
+        });
     };
     setupSplitter("pro-splitter-primary", 0);
     setupSplitter("pro-splitter-secondary", 1);
+    root.querySelectorAll("[data-pro-pane], [data-editor-group]").forEach((paneElement) => {
+        const pane = paneElement.dataset.proPane || (paneElement.dataset.editorGroup === "primary" ? "source" : paneElement.dataset.editorGroup === "secondary" ? "code" : "");
+        if (!pane)
+            return;
+        let startX = 0;
+        paneElement.addEventListener("pointerdown", (event) => {
+            if (!state.enabled || !state.collapsed[pane])
+                return;
+            startX = event.clientX;
+            paneElement.setPointerCapture(event.pointerId);
+            root.classList.add("is-pro-resizing");
+        });
+        paneElement.addEventListener("pointermove", (event) => {
+            if (!state.collapsed[pane] || !paneElement.hasPointerCapture(event.pointerId) || Math.abs(event.clientX - startX) < 8)
+                return;
+            update({ collapsed: { ...state.collapsed, [pane]: false } });
+        });
+        paneElement.addEventListener("pointerup", (event) => {
+            if (!paneElement.hasPointerCapture(event.pointerId))
+                return;
+            paneElement.releasePointerCapture(event.pointerId);
+            root.classList.remove("is-pro-resizing");
+            if (Math.abs(event.clientX - startX) < 8)
+                update({ collapsed: { ...state.collapsed, [pane]: false } });
+        });
+        paneElement.addEventListener("pointercancel", () => root.classList.remove("is-pro-resizing"));
+    });
     apply();
     return { getState: () => state };
 };

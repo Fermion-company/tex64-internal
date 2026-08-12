@@ -1,10 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  calculateProSplitterDrag,
   clampProRatios,
   createProSplitViewCoordinator,
   parseProModeState,
+  proShortcutPane,
 } from "../Resources/web/app/pro-mode-ui.js";
+
+test("splitter drag collapses panes below the minimum and freely restores ratios", () => {
+  assert.equal(calculateProSplitterDrag("preview-source", 0, 0.05, [.34, .33, .33], .1).collapse, "preview");
+  assert.equal(calculateProSplitterDrag("preview-source", 0, 0.95, [.34, .33, .33], .1).collapse, "source");
+  const open = calculateProSplitterDrag("preview-source", 0, .42, [.34, .33, .33], .1);
+  assert.equal(open.collapse, null);
+  assert.ok(Math.abs(open.ratios[0] - .42) < 1e-9);
+  assert.equal(calculateProSplitterDrag("source-reference-code", 1, .95, [.34, .33, .33], .1).collapse, "code");
+});
+
+test("Pro pane shortcuts map without using the structure-menu shortcut", () => {
+  assert.equal(proShortcutPane("1", "preview-source"), "preview");
+  assert.equal(proShortcutPane("1", "source-reference-code"), "reference");
+  assert.equal(proShortcutPane("2", "preview-source"), "source");
+  assert.equal(proShortcutPane("3", "source-reference-code"), "code");
+  assert.equal(proShortcutPane("o", "preview-source"), null);
+});
 
 test("Pro pane ratios are normalized and clamped", () => {
   const ratios = clampProRatios([0.98, 0.01, 0.01], 0.12);

@@ -2,10 +2,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildStashEditPrompt,
+  clampStashWidth,
   enforceStashCapacity,
+  parseProStashUiState,
   parseStashEditResponse,
+  reorderStashItems,
   runStashAiEdit,
+  snapStashSide,
 } from "../Resources/web/app/pro-stash-ui.js";
+
+test("stash reorder is immutable and moves an item to the drop index", () => {
+  const source = ["a", "b", "c"];
+  assert.deepEqual(reorderStashItems(source, 0, 2), ["b", "c", "a"]);
+  assert.deepEqual(source, ["a", "b", "c"]);
+});
+
+test("stash snapping and persisted width stay within viewport bounds", () => {
+  assert.equal(snapStashSide(199, 800), "left");
+  assert.equal(snapStashSide(600, 800), "right");
+  assert.equal(clampStashWidth(100, 800), 260);
+  assert.equal(clampStashWidth(900, 800), 560);
+  assert.deepEqual(parseProStashUiState('{"side":"left","width":420,"collapsed":true}', 800), { side: "left", width: 420, collapsed: true });
+});
 
 const textItem = (id, content, createdAt = 1) => ({ id, kind: "text", content, createdAt });
 

@@ -1,3 +1,4 @@
+export const ensureTrailingNewline = (text) => text.endsWith("\n") ? text : `${text}\n`;
 export const insertAtEditorCursor = (editor, text, source = "pro-stash") => {
     var _a, _b, _c, _d, _e;
     const position = (_a = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor);
@@ -7,7 +8,7 @@ export const insertAtEditorCursor = (editor, text, source = "pro-stash") => {
     (_c = editor.pushUndoStop) === null || _c === void 0 ? void 0 : _c.call(editor);
     editor.executeEdits(source, [{
             range: new Range(position.lineNumber, position.column, position.lineNumber, position.column),
-            text,
+            text: ensureTrailingNewline(text),
             forceMoveMarkers: true,
         }]);
     (_d = editor.pushUndoStop) === null || _d === void 0 ? void 0 : _d.call(editor);

@@ -1000,7 +1000,7 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
   return service.recognize(payload);
 });
 
-registerTexizeHandlers({ ipcMain, getTexizeService });
+registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
 registerFermionEngineHandlers({ ipcMain, getFermionEngineService });
 ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
   try {

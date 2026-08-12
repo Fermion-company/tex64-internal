@@ -30,7 +30,7 @@ body {
 }
 
 body.is-embedded .pdf-app {
-  grid-template-rows: 1fr;
+  grid-template-rows: auto 1fr;
 }
 
 .pdf-body {
@@ -181,6 +181,31 @@ body.is-embedded #pdf-thumbnails {
 }
 
 body.is-embedded .pdf-toolbar {
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 5px 6px;
+  overflow: hidden;
+}
+
+body.is-embedded .pdf-toolbar-secondary {
+  display: none;
+}
+
+body.is-embedded .pdf-toolbar-controls {
+  gap: 4px;
+  min-width: 0;
+}
+
+body.is-embedded .pdf-btn {
+  min-width: 28px;
+  padding: 4px 6px;
+}
+
+body.is-embedded .pdf-page-input {
+  width: 42px;
+}
+
+body.is-embedded .pdf-fit-control span {
   display: none;
 }
 
@@ -190,6 +215,42 @@ body.is-embedded .pdf-toolbar {
   gap: 8px;
   color: var(--text-soft);
   font-size: 12px;
+}
+
+.pdf-fit-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 760px) {
+  body:not(.is-embedded) .pdf-toolbar-secondary {
+    display: none;
+  }
+
+  .pdf-toolbar {
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 6px;
+    overflow: hidden;
+  }
+
+  .pdf-toolbar-controls {
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .pdf-fit-control span {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .pdf-page-input,
+  .pdf-page-count,
+  .pdf-zoom-label {
+    display: none;
+  }
 }
 
 .pdf-title {

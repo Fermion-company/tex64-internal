@@ -1,4 +1,5 @@
 import { insertAtEditorCursor } from "./pro-editor-insert.js";
+import { calculateAutoScrollDelta, documentRectToViewportRect, viewportPointToDocumentPoint, } from "./pdf-capture-math.js";
 export const normalizeCaptureRect = (startX, startY, endX, endY) => ({
     x: Math.min(startX, endX),
     y: Math.min(startY, endY),
@@ -48,10 +49,10 @@ export const initProCaptureUi = (deps) => {
     const insertText = (text) => {
         insertAtEditorCursor(deps.getActiveGroup().editor, text, "pro-capture");
     };
-    const capturePdf = (iframe, rect) => new Promise((resolve, reject) => {
+    const capturePdf = (iframe, rect, coordinateSpace = "viewport") => new Promise((resolve, reject) => {
         var _a;
         const requestId = `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const timer = window.setTimeout(() => { window.removeEventListener("message", receive); reject(new Error("PDF capture timed out.")); }, 10000);
+        const timer = window.setTimeout(() => { window.removeEventListener("message", receive); reject(new Error("PDF capture timed out.")); }, coordinateSpace === "document" ? 60000 : 10000);
         const receive = (event) => {
             var _a;
             if (event.source !== iframe.contentWindow || ((_a = event.data) === null || _a === void 0 ? void 0 : _a.source) !== "tex64-pdf")
@@ -67,7 +68,7 @@ export const initProCaptureUi = (deps) => {
                 reject(new Error(payload.error || "The PDF region could not be captured."));
         };
         window.addEventListener("message", receive);
-        (_a = iframe.contentWindow) === null || _a === void 0 ? void 0 : _a.postMessage({ source: "tex64-pdf", payload: { type: "capture-region", requestId, payload: rect } }, "*");
+        (_a = iframe.contentWindow) === null || _a === void 0 ? void 0 : _a.postMessage({ source: "tex64-pdf", payload: { type: "capture-region", requestId, coordinateSpace, payload: rect } }, "*");
     });
     const captureImage = (image, rect, bodyRect) => {
         var _a;
@@ -85,6 +86,7 @@ export const initProCaptureUi = (deps) => {
         return canvas.toDataURL("image/png");
     };
     const begin = (kind) => {
+        var _a;
         cleanup === null || cleanup === void 0 ? void 0 : cleanup();
         const pane = document.getElementById(`pro-${kind}-pane`);
         const body = pane === null || pane === void 0 ? void 0 : pane.querySelector(".pro-pane-body");
@@ -93,32 +95,120 @@ export const initProCaptureUi = (deps) => {
         const overlay = document.createElement("div");
         overlay.className = "pro-capture-overlay";
         overlay.tabIndex = 0;
-        overlay.innerHTML = '<div class="pro-capture-hint">Drag to select · Esc to cancel</div>';
+        overlay.innerHTML = '<div class="pro-capture-hint">Drag to select · PDF: 下端で自動スクロール · Esc to cancel</div>';
         body.appendChild(overlay);
         overlay.focus();
         let start = null;
+        let pointer = null;
         let rect = null;
+        let pdfRect = null;
+        let pdfViewport = null;
+        let pdfIframe = null;
+        let pdfStartIsDocument = false;
+        let autoScrollFrame = 0;
         let box = null;
-        const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); if (cleanup === close)
-            cleanup = null; };
+        const viewer = document.getElementById(`pro-${kind}-viewer`);
+        if ((viewer === null || viewer === void 0 ? void 0 : viewer.dataset.view) === "pdf") {
+            pdfIframe = document.getElementById(`pro-${kind}-pdf`);
+            (_a = pdfIframe.contentWindow) === null || _a === void 0 ? void 0 : _a.postMessage({ source: "tex64-pdf", payload: { type: "capture-scroll-state" } }, "*");
+        }
+        const close = () => {
+            cancelAnimationFrame(autoScrollFrame);
+            overlay.remove();
+            document.removeEventListener("keydown", onKey);
+            window.removeEventListener("message", onPdfMessage);
+            if (cleanup === close)
+                cleanup = null;
+        };
         const onKey = (event) => { if (event.key === "Escape")
             close(); };
+        const drawPdfSelection = () => {
+            if (!box || !pdfRect || !pdfViewport || !pdfIframe)
+                return;
+            const iframeBounds = pdfIframe.getBoundingClientRect();
+            const overlayBounds = overlay.getBoundingClientRect();
+            const shown = documentRectToViewportRect(pdfRect, pdfViewport);
+            Object.assign(box.style, {
+                left: `${iframeBounds.left - overlayBounds.left + shown.x}px`,
+                top: `${iframeBounds.top - overlayBounds.top + shown.y}px`,
+                width: `${shown.width}px`, height: `${shown.height}px`,
+            });
+        };
+        const onPdfMessage = (event) => {
+            var _a;
+            if (!pdfIframe || event.source !== pdfIframe.contentWindow || ((_a = event.data) === null || _a === void 0 ? void 0 : _a.source) !== "tex64-pdf")
+                return;
+            const payload = event.data.payload;
+            if ((payload === null || payload === void 0 ? void 0 : payload.type) !== "capture-scroll-state-result")
+                return;
+            pdfViewport = payload.viewport;
+            if (start && pointer) {
+                const iframeBounds = pdfIframe.getBoundingClientRect();
+                if (!pdfStartIsDocument) {
+                    start = viewportPointToDocumentPoint(start, pdfViewport);
+                    pdfStartIsDocument = true;
+                }
+                const docPoint = viewportPointToDocumentPoint({ x: pointer.x - iframeBounds.left, y: pointer.y - iframeBounds.top }, pdfViewport);
+                pdfRect = normalizeCaptureRect(start.x, start.y, docPoint.x, docPoint.y);
+                rect = pdfRect;
+            }
+            drawPdfSelection();
+        };
+        window.addEventListener("message", onPdfMessage);
         document.addEventListener("keydown", onKey);
         cleanup = close;
         overlay.addEventListener("pointerdown", (event) => {
+            var _a;
             if (event.target.closest(".pro-capture-menu, .pro-capture-confirm"))
                 return;
             const bounds = overlay.getBoundingClientRect();
-            start = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+            pointer = { x: event.clientX, y: event.clientY };
+            if (pdfIframe && pdfViewport) {
+                const iframeBounds = pdfIframe.getBoundingClientRect();
+                start = viewportPointToDocumentPoint({ x: event.clientX - iframeBounds.left, y: event.clientY - iframeBounds.top }, pdfViewport);
+                pdfStartIsDocument = true;
+            }
+            else if (pdfIframe) {
+                const iframeBounds = pdfIframe.getBoundingClientRect();
+                start = { x: event.clientX - iframeBounds.left, y: event.clientY - iframeBounds.top };
+                pdfStartIsDocument = false;
+                (_a = pdfIframe.contentWindow) === null || _a === void 0 ? void 0 : _a.postMessage({ source: "tex64-pdf", payload: { type: "capture-scroll-state" } }, "*");
+            }
+            else {
+                start = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+            }
             box === null || box === void 0 ? void 0 : box.remove();
             box = document.createElement("div");
             box.className = "pro-capture-selection";
             overlay.appendChild(box);
             overlay.setPointerCapture(event.pointerId);
+            if (pdfIframe) {
+                const tick = () => {
+                    var _a;
+                    if (!start || !pointer || !pdfIframe || !pdfViewport)
+                        return;
+                    const iframeBounds = pdfIframe.getBoundingClientRect();
+                    const localY = pointer.y - iframeBounds.top;
+                    const delta = calculateAutoScrollDelta(localY, pdfViewport.top, pdfViewport.height);
+                    if (delta)
+                        (_a = pdfIframe.contentWindow) === null || _a === void 0 ? void 0 : _a.postMessage({ source: "tex64-pdf", payload: { type: "capture-scroll-by", deltaY: delta } }, "*");
+                    autoScrollFrame = requestAnimationFrame(tick);
+                };
+                autoScrollFrame = requestAnimationFrame(tick);
+            }
         });
         overlay.addEventListener("pointermove", (event) => {
             if (!start || !box)
                 return;
+            pointer = { x: event.clientX, y: event.clientY };
+            if (pdfIframe && pdfViewport && pdfStartIsDocument) {
+                const iframeBounds = pdfIframe.getBoundingClientRect();
+                const docPoint = viewportPointToDocumentPoint({ x: event.clientX - iframeBounds.left, y: event.clientY - iframeBounds.top }, pdfViewport);
+                pdfRect = normalizeCaptureRect(start.x, start.y, docPoint.x, docPoint.y);
+                rect = pdfRect;
+                drawPdfSelection();
+                return;
+            }
             const bounds = overlay.getBoundingClientRect();
             rect = normalizeCaptureRect(start.x, start.y, event.clientX - bounds.left, event.clientY - bounds.top);
             Object.assign(box.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
@@ -127,14 +217,22 @@ export const initProCaptureUi = (deps) => {
             var _a;
             if (!start || !rect || rect.width < 4 || rect.height < 4) {
                 start = null;
+                pointer = null;
+                cancelAnimationFrame(autoScrollFrame);
+                if (overlay.hasPointerCapture(event.pointerId))
+                    overlay.releasePointerCapture(event.pointerId);
                 return;
             }
             start = null;
+            pointer = null;
+            cancelAnimationFrame(autoScrollFrame);
             overlay.releasePointerCapture(event.pointerId);
             const menu = document.createElement("div");
             menu.className = "pro-capture-menu";
             menu.innerHTML = `<button data-action="tex">TeX化</button><span class="pro-capture-translate"><select aria-label="Translation language"><option>Japanese</option><option>English</option><option value="custom">Other…</option></select><input hidden placeholder="Language" /></span><button data-action="translate">翻訳して挿入</button><label><input type="checkbox" data-figure /> figure</label><button data-action="image">画像化して挿入</button><button data-action="stash">スタッシュへ</button><button data-action="copy">コピー(PNG)</button><span class="pro-capture-status"></span>`;
-            Object.assign(menu.style, { left: `${Math.min(rect.x, Math.max(4, overlay.clientWidth - 300))}px`, top: `${Math.min(rect.y + rect.height + 6, Math.max(4, overlay.clientHeight - 120))}px` });
+            const boxLeft = Number.parseFloat((box === null || box === void 0 ? void 0 : box.style.left) || String(rect.x));
+            const boxTop = Number.parseFloat((box === null || box === void 0 ? void 0 : box.style.top) || String(rect.y));
+            Object.assign(menu.style, { left: `${Math.max(4, Math.min(boxLeft, overlay.clientWidth - 300))}px`, top: `${Math.max(4, Math.min(boxTop + Math.min(rect.height, overlay.clientHeight) + 6, overlay.clientHeight - 120))}px` });
             (_a = overlay.querySelector(".pro-capture-menu")) === null || _a === void 0 ? void 0 : _a.remove();
             overlay.appendChild(menu);
             const select = menu.querySelector("select");
@@ -143,13 +241,14 @@ export const initProCaptureUi = (deps) => {
                 custom.focus(); });
             const status = menu.querySelector(".pro-capture-status");
             const getPng = async () => {
-                const viewer = document.getElementById(`pro-${kind}-viewer`);
                 const bodyRect = body.getBoundingClientRect();
                 if ((viewer === null || viewer === void 0 ? void 0 : viewer.dataset.view) === "image")
                     return captureImage(document.getElementById(`pro-${kind}-image`), rect, bodyRect);
                 if ((viewer === null || viewer === void 0 ? void 0 : viewer.dataset.view) === "pdf") {
                     const iframe = document.getElementById(`pro-${kind}-pdf`);
                     const iframeRect = iframe.getBoundingClientRect();
+                    if (pdfRect)
+                        return capturePdf(iframe, pdfRect, "document");
                     return capturePdf(iframe, { x: rect.x - (iframeRect.left - bodyRect.left), y: rect.y - (iframeRect.top - bodyRect.top), width: rect.width, height: rect.height });
                 }
                 throw new Error("Open an image or PDF before selecting a region.");

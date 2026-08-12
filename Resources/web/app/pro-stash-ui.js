@@ -1,7 +1,27 @@
 import { uiText } from "./i18n.js";
 import { insertAtEditorCursor } from "./pro-editor-insert.js";
 export const PRO_STASH_STORAGE_KEY = "tex64.proStash.v1";
+export const PRO_STASH_UI_STORAGE_KEY = "tex64.proStashUi.v1";
 export const PRO_STASH_MAX_BYTES = 8 * 1024 * 1024;
+export const reorderStashItems = (items, from, to) => {
+    const next = [...items];
+    if (from < 0 || from >= next.length || to < 0 || to >= next.length || from === to)
+        return next;
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return next;
+};
+export const snapStashSide = (clientX, viewportWidth) => clientX < viewportWidth / 2 ? "left" : "right";
+export const clampStashWidth = (width, viewportWidth, min = 260, max = 560) => Math.round(Math.min(Math.max(width, min), Math.min(max, Math.max(min, viewportWidth - 32))));
+export const parseProStashUiState = (raw, viewportWidth = 1024) => {
+    try {
+        const value = JSON.parse(raw || "{}");
+        return { side: value.side === "left" ? "left" : "right", width: clampStashWidth(Number(value.width) || 340, viewportWidth), collapsed: value.collapsed === true };
+    }
+    catch {
+        return { side: "right", width: 340, collapsed: false };
+    }
+};
 export const buildStashEditPrompt = (items, instruction) => ({
     system: 'あなたはLaTeX編集アシスタント。番号付き断片群にユーザー指示を適用し、結果を番号付きで返す。削除指定は出力から除外。JSON で {"items": [{"n": 番号, "text": "..."}]} のみ返す。',
     user: `${items.map((item, index) => `[${index + 1}]\n${item.content}`).join("\n\n")}\n\nユーザー指示:\n${instruction.trim()}`,
@@ -56,7 +76,7 @@ export const initProStashUi = (deps) => {
     const bridge = window;
     let items = [];
     let result = null;
-    let collapsed = false;
+    let uiState = parseProStashUiState(localStorage.getItem(PRO_STASH_UI_STORAGE_KEY), window.innerWidth);
     try {
         const saved = JSON.parse(localStorage.getItem(PRO_STASH_STORAGE_KEY) || "[]");
         if (Array.isArray(saved))
@@ -65,11 +85,19 @@ export const initProStashUi = (deps) => {
     catch { /* ignore corrupt storage */ }
     const root = document.createElement("aside");
     root.className = "pro-stash";
-    root.innerHTML = `<header><button data-stash-toggle aria-expanded="true">▾</button><strong>${uiText("Stash", "スタッシュ")}</strong><span data-stash-count></span><button data-stash-clear>${uiText("Clear", "全クリア")}</button></header><div class="pro-stash-body"><div class="pro-stash-list"></div><button data-stash-selection>＋ ${uiText("Selection", "選択範囲")}</button><textarea data-stash-instruction rows="3" placeholder="${uiText("Swap 1 and 2, shorten 5, remove 6", "1と2を入れ替え、5はもっと短く、6は丸々カット")}"></textarea><div class="pro-stash-actions"><button data-stash-ai>${uiText("AI edit", "AI編集")}</button><span data-stash-status></span></div><div class="pro-stash-output" hidden><button data-stash-apply>${uiText("Apply", "適用")}</button><button data-stash-discard>${uiText("Discard", "破棄")}</button><button data-stash-insert>${uiText("Insert all at cursor", "全部をカーソル位置に挿入")}</button><button data-stash-copy>${uiText("Copy", "コピー")}</button></div></div>`;
+    root.innerHTML = `<div class="pro-stash-resizer" aria-hidden="true"></div><header><button data-stash-toggle aria-expanded="true">▾</button><strong>${uiText("Stash", "スタッシュ")}</strong><span data-stash-count></span><button data-stash-clear>${uiText("Clear", "全クリア")}</button></header><div class="pro-stash-body"><div class="pro-stash-list"></div><div class="pro-stash-dropzone">${uiText("Drop selected text here", "選択テキストをここへドロップ")}</div><button data-stash-selection>＋ ${uiText("Selection", "選択範囲")}</button><textarea data-stash-instruction rows="3" placeholder="${uiText("Swap 1 and 2, shorten 5, remove 6", "1と2を入れ替え、5はもっと短く、6は丸々カット")}"></textarea><div class="pro-stash-actions"><button data-stash-ai>${uiText("AI edit", "AI編集")}</button><span data-stash-status></span></div><div class="pro-stash-output" hidden><button data-stash-apply>${uiText("Apply", "適用")}</button><button data-stash-discard>${uiText("Discard", "破棄")}</button><button data-stash-insert>${uiText("Insert all at cursor", "全部をカーソル位置に挿入")}</button><button data-stash-copy>${uiText("Copy", "コピー")}</button></div></div>`;
     document.body.appendChild(root);
     const list = root.querySelector(".pro-stash-list");
     const status = root.querySelector("[data-stash-status]");
     const output = root.querySelector(".pro-stash-output");
+    const persistUi = () => localStorage.setItem(PRO_STASH_UI_STORAGE_KEY, JSON.stringify(uiState));
+    const applyUi = () => {
+        var _a;
+        root.dataset.side = uiState.side;
+        root.style.width = `${uiState.width}px`;
+        root.classList.toggle("is-collapsed", uiState.collapsed);
+        (_a = root.querySelector("[data-stash-toggle]")) === null || _a === void 0 ? void 0 : _a.setAttribute("aria-expanded", String(!uiState.collapsed));
+    };
     const persist = () => localStorage.setItem(PRO_STASH_STORAGE_KEY, JSON.stringify(items));
     const render = () => {
         const shown = result !== null && result !== void 0 ? result : items;
@@ -80,6 +108,8 @@ export const initProStashUi = (deps) => {
             const row = document.createElement("article");
             row.className = "pro-stash-item";
             row.tabIndex = 0;
+            row.draggable = result === null;
+            row.dataset.stashIndex = String(index);
             const badge = document.createElement("b");
             badge.textContent = String(index + 1);
             const preview = item.kind === "image" ? document.createElement("img") : document.createElement("pre");
@@ -98,6 +128,19 @@ export const initProStashUi = (deps) => {
             });
             row.append(badge, preview);
             if (!result) {
+                row.addEventListener("dragstart", (event) => { var _a; (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.setData("application/x-tex64-stash-index", String(index)); row.classList.add("is-dragging"); });
+                row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
+                row.addEventListener("dragover", (event) => { var _a; if ((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.types.includes("application/x-tex64-stash-index")) {
+                    event.preventDefault();
+                    row.classList.add("is-drag-over");
+                } });
+                row.addEventListener("dragleave", () => row.classList.remove("is-drag-over"));
+                row.addEventListener("drop", (event) => { var _a; const from = Number((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("application/x-tex64-stash-index")); if (Number.isInteger(from)) {
+                    event.preventDefault();
+                    items = reorderStashItems(items, from, index);
+                    persist();
+                    render();
+                } });
                 const controls = document.createElement("span");
                 controls.className = "pro-stash-item-actions";
                 [["↑", -1], ["↓", 1]].forEach(([label, delta]) => { const button = document.createElement("button"); button.textContent = String(label); button.disabled = index + Number(delta) < 0 || index + Number(delta) >= items.length; button.onclick = () => { const next = index + Number(delta); [items[index], items[next]] = [items[next], items[index]]; persist(); render(); }; controls.appendChild(button); });
@@ -127,7 +170,7 @@ export const initProStashUi = (deps) => {
         if (detail)
             add(detail.kind, detail.content);
     });
-    (_a = root.querySelector("[data-stash-toggle]")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => { var _a; collapsed = !collapsed; root.classList.toggle("is-collapsed", collapsed); (_a = root.querySelector("[data-stash-toggle]")) === null || _a === void 0 ? void 0 : _a.setAttribute("aria-expanded", String(!collapsed)); });
+    (_a = root.querySelector("[data-stash-toggle]")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => { uiState = { ...uiState, collapsed: !uiState.collapsed }; applyUi(); persistUi(); });
     (_b = root.querySelector("[data-stash-clear]")) === null || _b === void 0 ? void 0 : _b.addEventListener("click", () => { items = []; result = null; persist(); render(); });
     (_c = root.querySelector("[data-stash-selection]")) === null || _c === void 0 ? void 0 : _c.addEventListener("click", () => {
         var _a, _b, _c, _d;
@@ -180,6 +223,53 @@ export const initProStashUi = (deps) => {
         status.textContent = error instanceof Error ? error.message : String(error);
     } });
     (_h = root.querySelector("[data-stash-copy]")) === null || _h === void 0 ? void 0 : _h.addEventListener("click", async () => { await navigator.clipboard.writeText(resultText()); status.textContent = uiText("Copied.", "コピーしました。"); });
+    const header = root.querySelector("header");
+    let headerStartX = 0;
+    header.addEventListener("pointerdown", (event) => {
+        if (event.target.closest("button"))
+            return;
+        headerStartX = event.clientX;
+        header.setPointerCapture(event.pointerId);
+        root.classList.add("is-positioning");
+    });
+    header.addEventListener("pointerup", (event) => {
+        if (!header.hasPointerCapture(event.pointerId))
+            return;
+        header.releasePointerCapture(event.pointerId);
+        root.classList.remove("is-positioning");
+        if (Math.abs(event.clientX - headerStartX) >= 8)
+            uiState = { ...uiState, side: snapStashSide(event.clientX, window.innerWidth) };
+        else if (uiState.collapsed)
+            uiState = { ...uiState, collapsed: false };
+        applyUi();
+        persistUi();
+    });
+    header.addEventListener("pointercancel", () => root.classList.remove("is-positioning"));
+    const resizer = root.querySelector(".pro-stash-resizer");
+    let resizeStartX = 0;
+    let resizeStartWidth = 0;
+    resizer.addEventListener("pointerdown", (event) => { resizeStartX = event.clientX; resizeStartWidth = root.getBoundingClientRect().width; resizer.setPointerCapture(event.pointerId); root.classList.add("is-resizing"); });
+    resizer.addEventListener("pointermove", (event) => {
+        if (!resizer.hasPointerCapture(event.pointerId))
+            return;
+        uiState = { ...uiState, width: clampStashWidth(resizeStartWidth + resizeStartX - event.clientX, window.innerWidth) };
+        applyUi();
+    });
+    const stopResize = (event) => { if (!resizer.hasPointerCapture(event.pointerId))
+        return; resizer.releasePointerCapture(event.pointerId); root.classList.remove("is-resizing"); persistUi(); };
+    resizer.addEventListener("pointerup", stopResize);
+    resizer.addEventListener("pointercancel", stopResize);
+    const dropzone = root.querySelector(".pro-stash-dropzone");
+    dropzone.addEventListener("dragover", (event) => { var _a; if ((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.types.includes("text/plain")) {
+        event.preventDefault();
+        dropzone.classList.add("is-drag-over");
+    } });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("is-drag-over"));
+    dropzone.addEventListener("drop", (event) => { var _a; const text = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("text/plain").trim(); dropzone.classList.remove("is-drag-over"); if (text) {
+        event.preventDefault();
+        add("text", text);
+    } });
+    applyUi();
     render();
     return { add };
 };
