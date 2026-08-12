@@ -1,0 +1,88 @@
+const basicColors = { "000000": "black", "ffffff": "white", "ff0000": "red", "00ff00": "green", "0000ff": "blue", "00ffff": "cyan", "ff00ff": "magenta", "ffff00": "yellow" };
+const num = (value) => { const n = Math.round((value + Number.EPSILON) * 1000) / 1000; return Object.is(n, -0) ? "0" : String(n); };
+const point = (p) => `(${num(p.x)},${num(p.y)})`;
+export const buildStyFile = (scene, packageName) => {
+    const colors = new Map();
+    let arrows = false;
+    const color = (value) => { const hex = value.slice(1).toLowerCase(); if (basicColors[hex])
+        return basicColors[hex]; const name = `t64${hex.toUpperCase()}`; colors.set(hex, name); return name; };
+    const keys = (props, explicit = false) => {
+        const out = [];
+        if (props.draw !== undefined && props.draw !== null && (explicit || props.draw.toLowerCase() !== "#000000"))
+            out.push(`draw=${color(props.draw)}`);
+        if (props.draw === null && explicit)
+            out.push("draw=none");
+        if (props.fill !== undefined && props.fill !== null)
+            out.push(`fill=${color(props.fill)}`);
+        if (props.lineWidthPt !== undefined && props.lineWidthPt !== .4)
+            out.push(`line width=${num(props.lineWidthPt)}pt`);
+        if (props.dash && props.dash !== "solid")
+            out.push(props.dash);
+        if (props.opacity !== undefined && props.opacity < 1)
+            out.push(`opacity=${num(props.opacity)}`);
+        const start = props.arrowStart || "", end = props.arrowEnd || "";
+        if (start || end) {
+            arrows = true;
+            out.push(`${start ? `{${start}}` : ""}-${end ? `{${end}}` : ""}`);
+        }
+        if (props.cap && props.cap !== "butt")
+            out.push(`line cap=${props.cap}`);
+        if (props.join && props.join !== "miter")
+            out.push(`line join=${props.join}`);
+        if (props.roundedCornersPt !== undefined && props.roundedCornersPt > 0)
+            out.push(`rounded corners=${num(props.roundedCornersPt)}pt`);
+        return out;
+    };
+    const options = (style) => style.ref ? [style.ref, ...keys(style.props || {}, true)] : keys(style.props || {});
+    const withOptions = (name, opts) => `\\${name}${opts.length ? `[${opts.join(", ")}]` : ""}`;
+    const emit = (object, depth) => {
+        var _a;
+        const indent = "  ".repeat(depth);
+        if (object.type === "group") {
+            const t = object.transform, transform = [];
+            if (t.tx || t.ty)
+                transform.push(`shift={(${num(t.tx)},${num(t.ty)})}`);
+            if (t.rotate)
+                transform.push(`rotate=${num(t.rotate)}`);
+            if (t.sx !== 1 || t.sy !== 1) {
+                if (t.sx === t.sy)
+                    transform.push(`scale=${num(t.sx)}`);
+                else {
+                    if (t.sx !== 1)
+                        transform.push(`xscale=${num(t.sx)}`);
+                    if (t.sy !== 1)
+                        transform.push(`yscale=${num(t.sy)}`);
+                }
+            }
+            if (!transform.length)
+                return object.children.flatMap(child => emit(child, depth));
+            return [`${indent}\\begin{scope}[${transform.join(", ")}]`, ...object.children.flatMap(child => emit(child, depth + 1)), `${indent}\\end{scope}`];
+        }
+        if (object.type === "instance" || object.type === "repeat")
+            return [];
+        const opts = options(object.style);
+        if (object.type === "node") {
+            if (object.anchor !== "center")
+                opts.unshift(`anchor=${object.anchor}`);
+            return [`${indent}${withOptions("node", opts)} at ${point(object.at)} {${object.latex}};`];
+        }
+        const effective = { draw: "#000000", fill: null, ...(object.style.ref ? (_a = scene.styles.find(s => s.name === object.style.ref)) === null || _a === void 0 ? void 0 : _a.props : {}), ...(object.style.props || {}) };
+        const command = effective.fill !== null ? (effective.draw === null ? "fill" : "filldraw") : "draw";
+        const prefix = `${indent}${withOptions(command, opts)} `;
+        if (object.type === "rect")
+            return [`${prefix}${point(object.from)} rectangle ${point(object.to)};`];
+        if (object.type === "ellipse")
+            return [`${prefix}${point(object.center)} ${object.rx === object.ry ? `circle [radius=${num(object.rx)}]` : `ellipse [x radius=${num(object.rx)}, y radius=${num(object.ry)}]`};`];
+        const parts = [point(object.start), ...object.segments.map(seg => seg.type === "line" ? `-- ${point(seg.to)}` : `.. controls ${point(seg.c1)} and ${point(seg.c2)} .. ${point(seg.to)}`)];
+        if (object.closed)
+            parts.push("-- cycle");
+        return [`${prefix}${parts.join(" ")};`];
+    };
+    const entries = [];
+    for (const style of scene.styles)
+        entries.push(`${style.name}/.style={${keys(style.props, true).join(", ")}}`);
+    for (const symbol of scene.symbols || [])
+        entries.push(`${symbol.name}/.pic={\n${symbol.objects.flatMap(object => emit(object, 2)).join("\n")}\n  }`);
+    const definitions = [...colors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
+    return [`\\NeedsTeXFormat{LaTeX2e}`, `\\ProvidesPackage{${packageName}}[2026/08/13 TeX64 figure symbols]`, `\\RequirePackage{tikz}`, ...(arrows ? [`\\usetikzlibrary{arrows.meta}`] : []), ...definitions, `\\tikzset{`, entries.map((entry, index) => `  ${entry}${index < entries.length - 1 ? "," : ""}`).join("\n"), `}`, `\\endinput`, ""].join("\n");
+};

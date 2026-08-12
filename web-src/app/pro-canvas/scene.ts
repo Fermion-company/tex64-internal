@@ -29,7 +29,11 @@ export type SceneObject =
   | { id: string; type: "rect"; from: Vec; to: Vec; style: ObjStyle }
   | { id: string; type: "ellipse"; center: Vec; rx: number; ry: number; style: ObjStyle }
   | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; style: ObjStyle }
-  | { id: string; type: "group"; children: SceneObject[]; transform: Transform };
+  | { id: string; type: "group"; children: SceneObject[]; transform: Transform }
+  | { id: string; type: "instance"; symbol: string; transform: Transform; style: ObjStyle }
+  | { id: string; type: "repeat"; symbol: string; path: { start: Vec; segments: PathSeg[] }; count: number; align: boolean; style: ObjStyle };
+
+export type SymbolDef = { id: string; name: string; objects: SceneObject[] };
 
 export type Scene = {
   v: 1;
@@ -39,6 +43,7 @@ export type Scene = {
   grid: { size: number; snap: boolean };
   styles: Array<{ name: string; props: StyleProps }>;
   objects: SceneObject[];
+  symbols?: SymbolDef[];
 };
 
 const DEFAULT_STYLE: Required<StyleProps> = {
@@ -92,22 +97,31 @@ const isObjStyle = (value: unknown): value is ObjStyle => isRecord(value)
 
 const anchors: readonly NodeAnchor[] = ["center", "north", "south", "east", "west", "north east", "north west", "south east", "south west"];
 
+const isTransform = (value: unknown): value is Transform => isRecord(value)
+  && isNumber(value.tx) && isNumber(value.ty) && isNumber(value.rotate) && isNumber(value.sx) && isNumber(value.sy);
+const isPathSegments = (value: unknown): value is PathSeg[] => Array.isArray(value)
+  && value.every((seg) => isRecord(seg) && (seg.type === "line" ? isVec(seg.to)
+    : seg.type === "cubic" && isVec(seg.c1) && isVec(seg.c2) && isVec(seg.to)));
+
 const isSceneObject = (value: unknown): value is SceneObject => {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.type !== "string") return false;
   if (value.type === "group") {
-    const t = value.transform;
-    return Array.isArray(value.children) && value.children.every(isSceneObject) && isRecord(t)
-      && isNumber(t.tx) && isNumber(t.ty) && isNumber(t.rotate) && isNumber(t.sx) && isNumber(t.sy);
+    return Array.isArray(value.children) && value.children.every(isSceneObject) && isTransform(value.transform);
   }
   if (!isObjStyle(value.style)) return false;
+  if (value.type === "instance") return typeof value.symbol === "string" && isTransform(value.transform);
+  if (value.type === "repeat") return typeof value.symbol === "string" && isRecord(value.path)
+    && isVec(value.path.start) && isPathSegments(value.path.segments)
+    && Number.isInteger(value.count) && (value.count as number) > 0 && typeof value.align === "boolean";
   if (value.type === "rect") return isVec(value.from) && isVec(value.to);
   if (value.type === "ellipse") return isVec(value.center) && isNumber(value.rx) && value.rx >= 0 && isNumber(value.ry) && value.ry >= 0;
   if (value.type === "node") return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors);
-  if (value.type === "path") return isVec(value.start) && typeof value.closed === "boolean" && Array.isArray(value.segments)
-    && value.segments.every((seg) => isRecord(seg) && (seg.type === "line" ? isVec(seg.to)
-      : seg.type === "cubic" && isVec(seg.c1) && isVec(seg.c2) && isVec(seg.to)));
+  if (value.type === "path") return isVec(value.start) && typeof value.closed === "boolean" && isPathSegments(value.segments);
   return false;
 };
+
+const symbolObjectAllowed = (object: SceneObject): boolean => object.type !== "instance" && object.type !== "repeat"
+  && (object.type !== "group" || object.children.every(symbolObjectAllowed));
 
 export const validateScene = (value: unknown): Scene | null => {
   if (!isRecord(value) || value.v !== 1 || !oneOf(value.unit, ["mm", "cm", "pt"] as const)
@@ -115,6 +129,12 @@ export const validateScene = (value: unknown): Scene | null => {
     || !isRecord(value.grid) || !isNumber(value.grid.size) || value.grid.size <= 0 || typeof value.grid.snap !== "boolean"
     || !Array.isArray(value.styles) || !value.styles.every((style) => isRecord(style)
       && typeof style.name === "string" && /^[A-Za-z]+$/.test(style.name) && isStyleProps(style.props))
-    || !Array.isArray(value.objects) || !value.objects.every(isSceneObject)) return null;
+    || !Array.isArray(value.objects) || !value.objects.every(isSceneObject)
+    || (value.symbols !== undefined && (!Array.isArray(value.symbols) || !value.symbols.every((symbol) => isRecord(symbol)
+      && typeof symbol.id === "string" && typeof symbol.name === "string" && /^[A-Za-z][A-Za-z0-9]*$/.test(symbol.name)
+      && Array.isArray(symbol.objects) && symbol.objects.every((object) => isSceneObject(object) && symbolObjectAllowed(object)))))) return null;
   return value as unknown as Scene;
 };
+
+export const findSymbol = (scene: Scene, id: string): SymbolDef | undefined =>
+  (scene.symbols || []).find((symbol) => symbol.id === id);

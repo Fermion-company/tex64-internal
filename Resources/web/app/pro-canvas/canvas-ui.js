@@ -1,9 +1,11 @@
 import { insertAtEditorCursor } from "../pro-editor-insert.js";
 import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capture-ui.js";
 import { encodeFigureBlock } from "./figure-codec.js";
-import { cloneScene, createEmptyScene, newObjectId, resolveStyle } from "./scene.js";
-import { boundsAfterHandleDrag, resizeHandlePoint, resizePoint, screenToScene, snapToGrid } from "./canvas-math.js";
+import { base64EncodeUtf8 } from "./figure-codec.js";
+import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } from "./scene.js";
+import { boundsAfterHandleDrag, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
+import { buildStyFile } from "./sty-export.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
@@ -32,7 +34,8 @@ const firstReportError = (report) => {
     }
     return typeof candidate === "string" && candidate.trim() ? candidate.trim().split(/\r?\n/)[0] : null;
 };
-const allPoints = (object) => {
+const allPoints = (object, scene) => {
+    var _a;
     if (object.type === "rect")
         return [object.from, object.to];
     if (object.type === "ellipse")
@@ -41,16 +44,19 @@ const allPoints = (object) => {
         return [object.at];
     if (object.type === "path")
         return [object.start, ...object.segments.flatMap((seg) => seg.type === "line" ? [seg.to] : [seg.c1, seg.c2, seg.to])];
+    if (object.type === "repeat")
+        return samplePathPoints(object.path, object.count).map((sample) => sample.point);
+    const children = object.type === "group" ? object.children : ((_a = findSymbol(scene, object.symbol)) === null || _a === void 0 ? void 0 : _a.objects) || [];
     const t = object.transform;
     const rad = t.rotate * Math.PI / 180;
-    return object.children.flatMap(allPoints).map((p) => {
+    return children.flatMap((child) => allPoints(child, scene)).map((p) => {
         const x = p.x * t.sx, y = p.y * t.sy;
         return { x: t.tx + x * Math.cos(rad) - y * Math.sin(rad), y: t.ty + x * Math.sin(rad) + y * Math.cos(rad) };
     });
 };
-const objectBounds = (object) => {
+const objectBounds = (object, scene) => {
     var _a, _b;
-    const points = allPoints(object);
+    const points = allPoints(object, scene);
     const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
     const x = (_a = xs[0]) !== null && _a !== void 0 ? _a : 0, y = (_b = ys[0]) !== null && _b !== void 0 ? _b : 0;
     return { minX: Math.min(...xs, x), minY: Math.min(...ys, y), maxX: Math.max(...xs, x), maxY: Math.max(...ys, y) };
@@ -109,6 +115,13 @@ const moveObject = (object, dx, dy) => {
             move(s.c2);
         } });
     }
+    else if (object.type === "repeat") {
+        move(object.path.start);
+        object.path.segments.forEach((s) => { move(s.to); if (s.type === "cubic") {
+            move(s.c1);
+            move(s.c2);
+        } });
+    }
     else {
         object.transform.tx += dx;
         object.transform.ty += dy;
@@ -134,6 +147,14 @@ const resizeObject = (object, before, after) => {
             set(s.c2);
         } });
     }
+    else if (object.type === "repeat") {
+        const setPath = (p) => Object.assign(p, resizePoint(p, before, after));
+        setPath(object.path.start);
+        object.path.segments.forEach(s => { setPath(s.to); if (s.type === "cubic") {
+            setPath(s.c1);
+            setPath(s.c2);
+        } });
+    }
     else {
         object.transform.tx += after.minX - before.minX;
         object.transform.ty += after.minY - before.minY;
@@ -157,7 +178,7 @@ export const initProCanvasUi = (deps) => {
     const open = (detail = {}) => {
         closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent();
         let scene = cloneScene(detail.scene || createEmptyScene());
-        let selectedId = null, tool = "select", zoom = 1, panX = 0, panY = 0, space = false;
+        let selectedId = null, editingSymbolId = null, tool = "select", zoom = 1, panX = 0, panY = 0, space = false;
         let undo = [], redo = [];
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
@@ -166,8 +187,8 @@ export const initProCanvasUi = (deps) => {
       <span class="pro-canvas-tools"></span><button data-action="snap"></button><button data-action="live">Live</button><span class="pro-canvas-separator"></span>
       <button data-action="zoom-out">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in">+</button>
       <span class="pro-canvas-separator"></span><button data-action="undo">Undo</button><button data-action="redo">Redo</button></div>
-      <div class="pro-canvas-main"><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg></div><aside class="pro-canvas-inspector"><h3>Style</h3><div class="pro-canvas-style"></div><h3>Named styles</h3><div class="pro-canvas-named"></div></aside></div>
-      <div class="pro-canvas-bottom"><span class="pro-canvas-status"></span><button data-action="tikz">${detail.replaceRange ? "更新" : "TikZ を挿入"}</button>${detail.replaceRange ? "" : '<button data-action="png">画像として挿入 (PNG)</button>'}<button data-action="cancel">キャンセル</button></div>`;
+      <div class="pro-canvas-main"><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg></div><aside class="pro-canvas-inspector"><h3>Style</h3><div class="pro-canvas-style"></div><h3>Named styles</h3><div class="pro-canvas-named"></div><h3>Symbols</h3><div class="pro-canvas-symbols"></div></aside></div>
+      <div class="pro-canvas-bottom"><span class="pro-canvas-status"></span><button data-action="sty">.sty へ書き出し</button><button data-action="tikz">${detail.replaceRange ? "更新" : "TikZ を挿入"}</button>${detail.replaceRange ? "" : '<button data-action="png">画像として挿入 (PNG)</button>'}<button data-action="cancel">キャンセル</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
@@ -193,7 +214,7 @@ export const initProCanvasUi = (deps) => {
         finally {
             await ((_a = doc.destroy) === null || _a === void 0 ? void 0 : _a.call(doc));
         } };
-        const compileNow = async () => { if (!live || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
+        const compileNow = async () => { if (!live || editingSymbolId || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
             return; const sequence = ++compileSequence; setStatus("コンパイル中…"); try {
             const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene) });
             if (sequence !== compileSequence)
@@ -216,20 +237,23 @@ export const initProCanvasUi = (deps) => {
             render();
         } };
         const scheduleCompile = () => { invalidateCompiled(); if (compileTimer)
-            clearTimeout(compileTimer); if (live)
+            clearTimeout(compileTimer); if (live && !editingSymbolId)
             compileTimer = setTimeout(() => { compileTimer = null; void compileNow(); }, 600); };
         const snapshot = () => { undo.push(cloneScene(scene)); if (undo.length > 80)
             undo.shift(); redo = []; queueMicrotask(scheduleCompile); };
         const view = () => { const r = svg.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, sceneWidth: scene.width, sceneHeight: scene.height, zoom, panX, panY }; };
         const point = (event) => snapToGrid(screenToScene({ x: event.clientX, y: event.clientY }, view()), scene.grid.size, scene.grid.snap && !event.altKey);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
+        const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
         const renderInspector = () => {
             var _a;
             const host = overlay.querySelector(".pro-canvas-style");
             const named = overlay.querySelector(".pro-canvas-named");
-            const object = selectedId ? walk(scene.objects, selectedId) : null;
+            const symbols = overlay.querySelector(".pro-canvas-symbols");
+            const object = selectedId ? walk(currentObjects(), selectedId) : null;
             host.replaceChildren();
             named.replaceChildren();
+            symbols.replaceChildren();
             if (!object || object.type === "group")
                 host.textContent = "Select a drawable object";
             else {
@@ -244,6 +268,27 @@ export const initProCanvasUi = (deps) => {
                     input.step = key === "opacity" ? "0.1" : "0.1";
                 } if (input instanceof HTMLSelectElement)
                     options.forEach(v => { const o = document.createElement("option"); o.value = v; o.textContent = v || "なし"; input.append(o); }); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => { snapshot(); props[key] = kind === "number" ? Number(input.value) : input.value; render(); }; row.append(input); host.append(row); });
+                if (object.type === "instance") {
+                    [["左右反転", "sx"], ["上下反転", "sy"]].forEach(([label, key]) => { const button = document.createElement("button"); button.textContent = label; button.onclick = () => { snapshot(); object.transform[key] *= -1; render(); }; host.append(button); });
+                }
+                if (object.type === "repeat") {
+                    const count = document.createElement("input");
+                    count.type = "number";
+                    count.min = "1";
+                    count.value = String(object.count);
+                    count.onchange = () => { snapshot(); object.count = Math.max(1, Math.floor(Number(count.value) || 1)); render(); };
+                    const countRow = document.createElement("label");
+                    countRow.textContent = "個数";
+                    countRow.append(count);
+                    host.append(countRow);
+                    const align = document.createElement("input");
+                    align.type = "checkbox";
+                    align.checked = object.align;
+                    align.onchange = () => { snapshot(); object.align = align.checked; render(); };
+                    const alignRow = document.createElement("label");
+                    alignRow.append(align, document.createTextNode(" パス方向に揃える"));
+                    host.append(alignRow);
+                }
             }
             scene.styles.forEach((style) => { const row = document.createElement("div"); row.className = "pro-canvas-style-row"; row.textContent = style.name; const apply = document.createElement("button"); apply.textContent = "適用"; apply.disabled = !object || object.type === "group"; apply.onclick = () => { if (object && object.type !== "group") {
                 snapshot();
@@ -255,6 +300,50 @@ export const initProCanvasUi = (deps) => {
             add.onclick = () => { const name = prompt("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
                 return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
             named.append(add);
+            if (editingSymbolId) {
+                const done = document.createElement("button");
+                done.textContent = "シンボル編集終了";
+                done.onclick = () => { editingSymbolId = null; selectedId = null; render(); scheduleCompile(); };
+                symbols.append(done);
+                return;
+            }
+            const symbolize = document.createElement("button");
+            symbolize.textContent = "選択をシンボル化";
+            symbolize.disabled = !object || object.type === "instance" || object.type === "repeat";
+            symbolize.onclick = () => { if (!object)
+                return; const name = prompt("Symbol name (letters and digits)"); if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name) || (scene.symbols || []).some(s => s.name === name)) {
+                setStatus("有効で重複しないシンボル名を指定してください", true);
+                return;
+            } snapshot(); removeById(scene.objects, object.id); const symbol = { id: newObjectId(), name, objects: [object] }; (scene.symbols || (scene.symbols = [])).push(symbol); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); selectedId = instance.id; render(); };
+            symbols.append(symbolize);
+            for (const symbol of scene.symbols || []) {
+                const row = document.createElement("div");
+                row.className = "pro-canvas-symbol-row";
+                row.append(document.createTextNode(symbol.name));
+                const place = document.createElement("button");
+                place.textContent = "配置";
+                place.onclick = () => { snapshot(); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); selectedId = instance.id; render(); };
+                const edit = document.createElement("button");
+                edit.textContent = "編集";
+                edit.onclick = () => { editingSymbolId = symbol.id; selectedId = null; invalidateCompiled(); setStatus(""); render(); };
+                const along = document.createElement("button");
+                along.textContent = "選択パスに沿って配置";
+                along.disabled = (object === null || object === void 0 ? void 0 : object.type) !== "path";
+                along.onclick = () => { if ((object === null || object === void 0 ? void 0 : object.type) !== "path")
+                    return; const raw = prompt("配置数", "5"); if (raw === null)
+                    return; snapshot(); const repeat = { id: newObjectId(), type: "repeat", symbol: symbol.id, path: { start: { ...object.start }, segments: JSON.parse(JSON.stringify(object.segments)) }, count: Math.max(1, Math.floor(Number(raw) || 1)), align: true, style: {} }; scene.objects.push(repeat); selectedId = repeat.id; render(); };
+                const remove = document.createElement("button");
+                remove.textContent = "削除";
+                remove.onclick = () => { var _a; const referenced = scene.objects.some(o => { let hit = false; const visit = (items) => items.forEach(item => { if ((item.type === "instance" || item.type === "repeat") && item.symbol === symbol.id)
+                    hit = true;
+                else if (item.type === "group")
+                    visit(item.children); }); visit([o]); return hit; }); if (referenced) {
+                    setStatus("配置またはリピートから参照されているため削除できません", true);
+                    return;
+                } snapshot(); scene.symbols = (_a = scene.symbols) === null || _a === void 0 ? void 0 : _a.filter(s => s.id !== symbol.id); render(); };
+                row.append(place, edit, along, remove);
+                symbols.append(row);
+            }
         };
         const render = () => {
             svg.replaceChildren();
@@ -276,17 +365,30 @@ export const initProCanvasUi = (deps) => {
                 root.append(svgEl("image", { href: compiledImage, x: 0, y: -scene.height, width: scene.width, height: scene.height, transform: "scale(1,-1)", class: "pro-canvas-live-image", "pointer-events": "none" }));
             const objects = svgEl("g", { class: "pro-canvas-objects", opacity: compiledImage ? 0 : 1, "pointer-events": "all" });
             root.append(objects);
-            const draw = (object, parent) => {
-                var _a, _b;
-                if (object.type === "group") {
-                    const g = svgEl("g", { transform: `translate(${object.transform.tx} ${object.transform.ty}) rotate(${object.transform.rotate}) scale(${object.transform.sx} ${object.transform.sy})` });
-                    g.dataset.id = object.id;
+            const draw = (object, parent, interactive = true) => {
+                var _a, _b, _c;
+                if (object.type === "group" || object.type === "instance") {
+                    const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
+                    if (interactive)
+                        g.dataset.id = object.id;
                     parent.append(g);
-                    object.children.forEach(c => draw(c, g));
+                    const children = object.type === "group" ? object.children : ((_a = findSymbol(scene, object.symbol)) === null || _a === void 0 ? void 0 : _a.objects) || [];
+                    children.forEach(c => draw(c, g, false));
+                    return;
+                }
+                if (object.type === "repeat") {
+                    const symbol = findSymbol(scene, object.symbol);
+                    if (!symbol)
+                        return;
+                    const container = svgEl("g");
+                    if (interactive)
+                        container.dataset.id = object.id;
+                    parent.append(container);
+                    samplePathPoints(object.path, object.count).forEach(sample => { const g = svgEl("g", { transform: `translate(${sample.point.x} ${sample.point.y}) rotate(${object.align ? sample.angleDeg : 0})` }); container.append(g); symbol.objects.forEach(c => draw(c, g, false)); });
                     return;
                 }
                 const style = resolveStyle(scene, object.style);
-                const attrs = { "data-id": object.id, fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": style.lineWidthPt || .4, opacity: (_a = style.opacity) !== null && _a !== void 0 ? _a : 1, "stroke-dasharray": style.dash === "dashed" ? "3 2" : style.dash === "dotted" ? "1 2" : "" };
+                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": style.lineWidthPt || .4, opacity: (_b = style.opacity) !== null && _b !== void 0 ? _b : 1, "stroke-dasharray": style.dash === "dashed" ? "3 2" : style.dash === "dotted" ? "1 2" : "" };
                 let el;
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
@@ -300,15 +402,15 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    el = svgEl("text", { "data-id": object.id, opacity: (_b = style.opacity) !== null && _b !== void 0 ? _b : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
+                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_c = style.opacity) !== null && _c !== void 0 ? _c : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
                     el.textContent = object.latex;
                 }
                 parent.append(el);
             };
-            scene.objects.forEach(o => draw(o, objects));
-            const object = selectedId ? walk(scene.objects, selectedId) : null;
+            currentObjects().forEach(o => draw(o, objects));
+            const object = selectedId ? walk(currentObjects(), selectedId) : null;
             if (object) {
-                const b = objectBounds(object);
+                const b = objectBounds(object, scene);
                 const select = svgEl("g", { class: "pro-canvas-selection" });
                 select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01) }));
                 handles.forEach(h => { const p = resizeHandlePoint(b, h); const c = svgEl("circle", { cx: p.x, cy: p.y, r: 4 / scale, class: "pro-canvas-handle" }); c.dataset.handle = h; select.append(c); });
@@ -348,16 +450,16 @@ export const initProCanvasUi = (deps) => {
             const id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
             if (tool === "select") {
                 if (handle && selectedId) {
-                    const o = walk(scene.objects, selectedId);
-                    drag = { kind: "resize", start: p, before: cloneScene(scene), id: selectedId, handle, bounds: objectBounds(o) };
+                    const o = walk(currentObjects(), selectedId);
+                    drag = { kind: "resize", start: p, before: cloneScene(scene), id: selectedId, handle, bounds: objectBounds(o, scene) };
                 }
                 else if (target.dataset.rotate && selectedId) {
-                    drag = { kind: "rotate", start: p, before: cloneScene(scene), id: selectedId, bounds: objectBounds(walk(scene.objects, selectedId)) };
+                    drag = { kind: "rotate", start: p, before: cloneScene(scene), id: selectedId, bounds: objectBounds(walk(currentObjects(), selectedId), scene) };
                 }
                 else if (id) {
                     selectedId = id;
-                    const object = walk(scene.objects, id);
-                    drag = { kind: e.shiftKey ? "rotate" : "move", start: p, before: cloneScene(scene), id, bounds: objectBounds(object) };
+                    const object = walk(currentObjects(), id);
+                    drag = { kind: e.shiftKey ? "rotate" : "move", start: p, before: cloneScene(scene), id, bounds: objectBounds(object, scene) };
                 }
                 else
                     selectedId = null;
@@ -369,7 +471,7 @@ export const initProCanvasUi = (deps) => {
                 snapshot();
                 const latex = (_b = prompt("LaTeX", "")) !== null && _b !== void 0 ? _b : "";
                 if (latex)
-                    scene.objects.push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: { props: { draw: "#000000" } } });
+                    currentObjects().push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: { props: { draw: "#000000" } } });
                 render();
                 return;
             }
@@ -377,7 +479,7 @@ export const initProCanvasUi = (deps) => {
                 if (!pen) {
                     snapshot();
                     pen = { id: newObjectId(), type: "path", start: p, segments: [], closed: false, style: { props: { draw: "#000000" } } };
-                    scene.objects.push(pen);
+                    currentObjects().push(pen);
                 }
                 else if (Math.hypot(p.x - pen.start.x, p.y - pen.start.y) < scene.grid.size * .4) {
                     pen.closed = true;
@@ -394,7 +496,7 @@ export const initProCanvasUi = (deps) => {
             }
             snapshot();
             const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { draw: "#000000" } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { draw: "#000000" } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { draw: "#000000" } } };
-            scene.objects.push(object);
+            currentObjects().push(object);
             selectedId = object.id;
             drag = { kind: "draw", start: p, before: cloneScene(scene), id: object.id };
             svg.setPointerCapture(e.pointerId);
@@ -413,7 +515,7 @@ export const initProCanvasUi = (deps) => {
             render();
             return;
         } const p = point(e); if (p.x !== drag.start.x || p.y !== drag.start.y)
-            drag.moved = true; scene = cloneScene(drag.before); const o = drag.id ? walk(scene.objects, drag.id) : null; if (!o)
+            drag.moved = true; scene = cloneScene(drag.before); const o = drag.id ? walk(currentObjects(), drag.id) : null; if (!o)
             return; if (drag.kind === "move")
             moveObject(o, p.x - drag.start.x, p.y - drag.start.y);
         else if (drag.kind === "resize" && drag.bounds && drag.handle)
@@ -422,17 +524,17 @@ export const initProCanvasUi = (deps) => {
             const b = drag.bounds;
             const c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
             const angle = (Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI;
-            if (o.type === "group")
+            if (o.type === "group" || o.type === "instance")
                 rotateTransformAround(o.transform, c, angle);
             else if (o.type === "rect" || o.type === "ellipse") {
                 const wrapper = { id: `rot-${o.id}`, type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
                 rotateTransformAround(wrapper.transform, c, angle);
-                replaceById(scene.objects, o.id, wrapper);
+                replaceById(currentObjects(), o.id, wrapper);
                 selectedId = wrapper.id;
             }
             else {
                 const rad = angle * Math.PI / 180;
-                allPoints(o).forEach(q => { const x = q.x - c.x, y = q.y - c.y; q.x = c.x + x * Math.cos(rad) - y * Math.sin(rad); q.y = c.y + x * Math.sin(rad) + y * Math.cos(rad); });
+                allPoints(o, scene).forEach(q => { const x = q.x - c.x, y = q.y - c.y; q.x = c.x + x * Math.cos(rad) - y * Math.sin(rad); q.y = c.y + x * Math.sin(rad) + y * Math.cos(rad); });
             }
         }
         else if (drag.kind === "draw") {
@@ -451,7 +553,7 @@ export const initProCanvasUi = (deps) => {
             redo = [];
         }
         else if (drag && drag.kind === "draw" && !drag.moved && drag.id) {
-            removeById(scene.objects, drag.id);
+            removeById(currentObjects(), drag.id);
             selectedId = null;
             undo.pop();
         } drag = null; penDrag = null; if (svg.hasPointerCapture(e.pointerId))
@@ -472,6 +574,11 @@ export const initProCanvasUi = (deps) => {
                 pen = null;
                 render();
             }
+            else if (editingSymbolId) {
+                editingSymbolId = null;
+                selectedId = null;
+                render();
+            }
             else
                 close();
         } if (e.key === "Enter" && pen) {
@@ -479,7 +586,7 @@ export const initProCanvasUi = (deps) => {
             render();
         } if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
             snapshot();
-            removeById(scene.objects, selectedId);
+            removeById(currentObjects(), selectedId);
             selectedId = null;
             render();
             e.preventDefault();
@@ -488,24 +595,25 @@ export const initProCanvasUi = (deps) => {
             e.shiftKey ? redoOnce() : undoOnce();
         } if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
             e.preventDefault();
+            const objects = currentObjects();
             if (e.shiftKey && selectedId) {
-                const g = walk(scene.objects, selectedId);
+                const g = walk(objects, selectedId);
                 if ((g === null || g === void 0 ? void 0 : g.type) === "group") {
                     snapshot();
-                    const i = scene.objects.indexOf(g);
+                    const i = objects.indexOf(g);
                     if (i >= 0)
-                        scene.objects.splice(i, 1, ...g.children);
+                        objects.splice(i, 1, ...g.children);
                     selectedId = null;
                     render();
                 }
             }
             else if (selectedId) {
-                const o = walk(scene.objects, selectedId);
+                const o = walk(objects, selectedId);
                 if (o) {
                     snapshot();
-                    removeById(scene.objects, selectedId);
+                    removeById(objects, selectedId);
                     const group = { id: newObjectId(), type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
-                    scene.objects.push(group);
+                    objects.push(group);
                     selectedId = group.id;
                     render();
                 }
@@ -521,6 +629,12 @@ export const initProCanvasUi = (deps) => {
             return;
         } const Range = (_a = window.monaco) === null || _a === void 0 ? void 0 : _a.Range; if (!(editor === null || editor === void 0 ? void 0 : editor.executeEdits) || !Range)
             throw new Error("No active text editor is available."); (_b = editor.pushUndoStop) === null || _b === void 0 ? void 0 : _b.call(editor); editor.executeEdits("pro-canvas", [{ range: new Range(detail.replaceRange.startLine, 1, detail.replaceRange.endLine + 1, 1), text: block, forceMoveMarkers: true }]); (_c = editor.pushUndoStop) === null || _c === void 0 ? void 0 : _c.call(editor); (_d = editor.focus) === null || _d === void 0 ? void 0 : _d.call(editor); close(); };
+        const exportSty = async () => { var _a; let name = (prompt("ファイル名", "figures.sty") || "").trim(); if (!name)
+            return; if (!name.toLowerCase().endsWith(".sty"))
+            name += ".sty"; name = name.replace(/^.*[\\/]/, ""); const packageName = name.slice(0, -4); if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(packageName))
+            throw new Error("有効なファイル名を指定してください"); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
+            throw new Error("File writing is not available."); const result = await api({ path: name, data: base64EncodeUtf8(buildStyFile(scene, packageName)) }); if (!result.ok)
+            throw new Error(result.error || "The style file could not be saved."); setStatus(`\\usepackage{${packageName}} で使えます`); };
         const exportPng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); const unit = scene.unit === "mm" ? 3.78 : scene.unit === "cm" ? 37.8 : 1.333; const width = Math.max(1, Math.round(scene.width * unit * 2)), height = Math.max(1, Math.round(scene.height * unit * 2)); clone.setAttribute("width", String(width)); clone.setAttribute("height", String(height)); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }); const url = URL.createObjectURL(blob); try {
             const image = new Image();
             await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG export failed.")); image.src = url; });
@@ -589,6 +703,9 @@ export const initProCanvasUi = (deps) => {
                     break;
                 case "redo":
                     redoOnce();
+                    break;
+                case "sty":
+                    await exportSty();
                     break;
                 case "tikz":
                     replaceOrInsert();

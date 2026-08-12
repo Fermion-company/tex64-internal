@@ -1,4 +1,4 @@
-import type { Vec } from "./scene.js";
+import type { PathSeg, Vec } from "./scene.js";
 
 export type CanvasViewport = {
   left: number; top: number; width: number; height: number;
@@ -55,4 +55,34 @@ export const boundsAfterHandleDrag = (bounds: Bounds, handle: ResizeHandle, poin
   if (handle.includes("s")) minY = Math.min(point.y, maxY - minSize);
   if (handle.includes("n")) maxY = Math.max(point.y, minY + minSize);
   return { minX, minY, maxX, maxY };
+};
+
+export const samplePathPoints = (path: { start: Vec; segments: PathSeg[] }, count: number): Array<{ point: Vec; angleDeg: number }> => {
+  if (!Number.isFinite(count) || count <= 0) return [];
+  const wanted = Math.max(1, Math.floor(count));
+  const samples: Vec[] = [{ ...path.start }];
+  let from = path.start;
+  for (const segment of path.segments) {
+    if (segment.type === "line") samples.push({ ...segment.to });
+    else for (let i = 1; i <= 32; i++) {
+      const t = i / 32, u = 1 - t;
+      samples.push({
+        x: u * u * u * from.x + 3 * u * u * t * segment.c1.x + 3 * u * t * t * segment.c2.x + t * t * t * segment.to.x,
+        y: u * u * u * from.y + 3 * u * u * t * segment.c1.y + 3 * u * t * t * segment.c2.y + t * t * t * segment.to.y,
+      });
+    }
+    from = segment.to;
+  }
+  const lengths = [0];
+  for (let i = 1; i < samples.length; i++) lengths.push(lengths[i - 1] + Math.hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y));
+  const total = lengths[lengths.length - 1];
+  if (total === 0 || samples.length === 1) return Array.from({ length: wanted }, () => ({ point: { ...path.start }, angleDeg: 0 }));
+  return Array.from({ length: wanted }, (_, index) => {
+    const distance = wanted === 1 ? 0 : total * index / (wanted - 1);
+    let hi = 1;
+    while (hi < lengths.length - 1 && lengths[hi] < distance) hi++;
+    const lo = hi - 1, span = lengths[hi] - lengths[lo], ratio = span ? (distance - lengths[lo]) / span : 0;
+    const a = samples[lo], b = samples[hi];
+    return { point: { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio }, angleDeg: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI };
+  });
 };

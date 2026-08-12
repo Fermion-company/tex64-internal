@@ -11,6 +11,14 @@ test("figure blocks round-trip their scene", () => {
   assert.equal(decodeFigureBlockAt(lines, 0)?.detached, false);
 });
 
+test("figure blocks round-trip symbols and instances", () => {
+  const scene = createEmptyScene();
+  scene.symbols = [{ id: "s", name: "ornament", objects: [{ id: "r", type: "rect", from: { x: 0, y: 0 }, to: { x: 2, y: 3 }, style: {} }] }];
+  scene.objects.push({ id: "i", type: "instance", symbol: "s", transform: { tx: 5, ty: 6, rotate: 0, sx: 1, sy: 1 }, style: {} });
+  const lines = encodeFigureBlock(scene).trimEnd().split("\n");
+  assert.deepEqual(decodeFigureBlockAt(lines, lines.length - 1)?.scene, scene);
+});
+
 test("editing a body line marks the block detached", () => {
   const lines = encodeFigureBlock(createEmptyScene()).trimEnd().split("\n");
   const begin = lines.findIndex((line) => line.startsWith("\\begin{tikzpicture}"));

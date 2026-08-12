@@ -135,7 +135,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    **完了 (2026-08-13)**。仕様: [pro-canvas-c2-spec.md](pro-canvas-c2-spec.md)。キャンバス専用の
    第2 fermion インスタンス + `tex64:fermion:canvas-render` IPC + Live トグル。実エンジンで
    E2E 確認済み（100mm 角 standalone が 283.46bp 角 PDF になることを実走検証）。
-3. **C3**: シンボル/`\pic`・鏡映/回転インスタンス・パスに沿ってリピート・.sty エクスポート。
+3. **C3**: シンボル/`\pic`・鏡映/回転インスタンス・パスに沿ってリピート・.sty エクスポート —
+   **完了 (2026-08-13)**。仕様: [pro-canvas-c3-spec.md](pro-canvas-c3-spec.md)。リピートは
+   弧長等間隔サンプリング（`samplePathPoints`）を `\foreach \p/\a` に展開。実エンジンで
+   pic/foreach 生成コードのコンパイルを実走確認済み。
 4. **C4**: コードオブジェクト・AI 経路（スケッチ/画像 → Axiom/texize → シーンまたは
    コードオブジェクト）・SVG インポート。
 
