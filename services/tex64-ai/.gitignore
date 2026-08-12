@@ -1,0 +1,7 @@
+/.swc
+/.next
+/node_modules
+/.data
+/.artifacts
+/.well-known
+/*.tsbuildinfo
