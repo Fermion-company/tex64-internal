@@ -1,3 +1,14 @@
+export const zoomAtPoint = (view, cursorOffset, newZoom) => {
+    const ratio = newZoom / view.zoom;
+    return {
+        panX: cursorOffset.x - (cursorOffset.x - view.panX) * ratio,
+        panY: cursorOffset.y - (cursorOffset.y - view.panY) * ratio,
+    };
+};
+export const marqueeHits = (rect, objects) => objects
+    .filter(({ bounds }) => bounds.maxX >= rect.minX && bounds.minX <= rect.maxX
+    && bounds.maxY >= rect.minY && bounds.minY <= rect.maxY)
+    .map(({ id }) => id);
 export const mirrorInstanceTransform = (artboardWidth) => ({ tx: artboardWidth, ty: 0, rotate: 0, sx: -1, sy: 1 });
 export const cornerInstanceTransforms = (bounds, artboardWidth, artboardHeight, inset) => {
     const left = inset - bounds.minX;

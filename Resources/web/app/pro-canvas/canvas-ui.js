@@ -3,7 +3,7 @@ import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capt
 import { encodeFigureBlock } from "./figure-codec.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } from "./scene.js";
-import { boundsAfterHandleDrag, cornerInstanceTransforms, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid } from "./canvas-math.js";
+import { boundsAfterHandleDrag, cornerInstanceTransforms, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid, zoomAtPoint } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
@@ -188,7 +188,8 @@ export const initProCanvasUi = (deps) => {
     const open = (detail = {}) => {
         closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent();
         let scene = cloneScene(detail.scene || createEmptyScene());
-        let selectedId = null, editingSymbolId = null, tool = "select", zoom = 1, panX = 0, panY = 0, space = false;
+        const selection = { ids: new Set(), primaryId: null };
+        let editingSymbolId = null, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
         let undo = [], redo = [];
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
@@ -264,12 +265,35 @@ export const initProCanvasUi = (deps) => {
         const scheduleCompile = () => { invalidateCompiled(); if (compileTimer)
             clearTimeout(compileTimer); if (live && !editingSymbolId)
             compileTimer = setTimeout(() => { compileTimer = null; void compileNow(); }, 600); };
-        const snapshot = () => { undo.push(cloneScene(scene)); if (undo.length > 80)
-            undo.shift(); redo = []; queueMicrotask(scheduleCompile); };
+        const snapshot = (compile = true) => { undo.push(cloneScene(scene)); if (undo.length > 80)
+            undo.shift(); redo = []; if (compile)
+            queueMicrotask(scheduleCompile); };
         const view = () => { const r = svg.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, sceneWidth: scene.width, sceneHeight: scene.height, zoom, panX, panY }; };
-        const point = (event) => snapToGrid(screenToScene({ x: event.clientX, y: event.clientY }, view()), scene.grid.size, scene.grid.snap && !event.altKey);
+        const rawPoint = (event) => screenToScene({ x: event.clientX, y: event.clientY }, view());
+        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, scene.grid.snap && !event.altKey);
+        const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
+        const replaceSelection = (id) => { selection.ids = new Set([id]); selection.primaryId = id; };
+        const toggleSelection = (id) => { var _a; if (selection.ids.has(id)) {
+            selection.ids.delete(id);
+            if (selection.primaryId === id) {
+                const ids = [...selection.ids];
+                selection.primaryId = (_a = ids[ids.length - 1]) !== null && _a !== void 0 ? _a : null;
+            }
+        }
+        else {
+            selection.ids.add(id);
+            selection.primaryId = id;
+        } };
+        const clearSelection = () => { selection.ids.clear(); selection.primaryId = null; };
+        const selectedIdOne = () => selection.ids.size === 1 ? selection.primaryId : null;
+        const topLevelSelectedObjects = () => currentObjects().filter(object => selection.ids.has(object.id));
+        const selectionBounds = () => { const selected = topLevelSelectedObjects(); if (!selected.length)
+            return null; const bounds = selected.map(object => objectBounds(object, scene)); return { minX: Math.min(...bounds.map(b => b.minX)), minY: Math.min(...bounds.map(b => b.minY)), maxX: Math.max(...bounds.map(b => b.maxX)), maxY: Math.max(...bounds.map(b => b.maxY)) }; };
+        const replaceSelectedId = (oldId, newId) => { if (!selection.ids.delete(oldId))
+            return; selection.ids.add(newId); if (selection.primaryId === oldId)
+            selection.primaryId = newId; };
         const symbolizeSelection = (object, symmetric) => {
             const name = prompt("Symbol name (letters and digits)");
             if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name) || (scene.symbols || []).some(s => s.name === name)) {
@@ -284,7 +308,7 @@ export const initProCanvasUi = (deps) => {
             scene.objects.push(first);
             if (symmetric)
                 scene.objects.push({ id: newObjectId(), type: "instance", symbol: symbol.id, transform: mirrorInstanceTransform(scene.width), style: {} });
-            selectedId = first.id;
+            replaceSelection(first.id);
             render();
             scheduleCompile();
         };
@@ -296,7 +320,8 @@ export const initProCanvasUi = (deps) => {
             const host = overlay.querySelector(".pro-canvas-style");
             const named = overlay.querySelector(".pro-canvas-named");
             const symbols = overlay.querySelector(".pro-canvas-symbols");
-            const object = selectedId ? walk(currentObjects(), selectedId) : null;
+            const oneId = selectedIdOne(), object = oneId ? walk(currentObjects(), oneId) : null;
+            const styleObjects = topLevelSelectedObjects().filter((item) => item.type !== "group" && item.type !== "code");
             geometry.replaceChildren();
             host.replaceChildren();
             named.replaceChildren();
@@ -317,7 +342,7 @@ export const initProCanvasUi = (deps) => {
             if (!object) {
                 const empty = document.createElement("p");
                 empty.className = "pro-canvas-empty";
-                empty.textContent = "オブジェクトを選択すると設定が表示されます";
+                empty.textContent = selection.ids.size ? `${selection.ids.size} 個を選択中` : "オブジェクトを選択すると設定が表示されます";
                 named.before(empty);
             }
             else if (object.type === "group" || object.type === "code") {
@@ -359,9 +384,9 @@ export const initProCanvasUi = (deps) => {
                     host.append(alignRow);
                 }
             }
-            scene.styles.forEach((style) => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip"; apply.textContent = style.name; apply.classList.toggle("is-active", (object === null || object === void 0 ? void 0 : object.type) !== "group" && (object === null || object === void 0 ? void 0 : object.type) !== "code" && (object === null || object === void 0 ? void 0 : object.style.ref) === style.name); apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
+            scene.styles.forEach((style) => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip"; apply.textContent = style.name; apply.classList.toggle("is-active", styleObjects.length > 0 && styleObjects.every(item => item.style.ref === style.name)); apply.disabled = !styleObjects.length; apply.onclick = () => { if (styleObjects.length) {
                 snapshot();
-                object.style = { ref: style.name };
+                styleObjects.forEach(item => item.style = { ref: style.name });
                 render();
             } }; named.append(apply); });
             const add = document.createElement("button");
@@ -376,16 +401,16 @@ export const initProCanvasUi = (deps) => {
                 heading.className = "pro-canvas-project-heading";
                 heading.textContent = "Project";
                 named.append(heading);
-                projectStyles.forEach(name => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip pro-canvas-project-chip"; apply.textContent = name; apply.title = "プロジェクト定義"; apply.classList.toggle("is-active", (object === null || object === void 0 ? void 0 : object.type) !== "group" && (object === null || object === void 0 ? void 0 : object.type) !== "code" && (object === null || object === void 0 ? void 0 : object.style.ref) === name); apply.disabled = !object || object.type === "group" || object.type === "code"; apply.onclick = () => { if (object && object.type !== "group" && object.type !== "code") {
+                projectStyles.forEach(name => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip pro-canvas-project-chip"; apply.textContent = name; apply.title = "プロジェクト定義"; apply.classList.toggle("is-active", styleObjects.length > 0 && styleObjects.every(item => item.style.ref === name)); apply.disabled = !styleObjects.length; apply.onclick = () => { if (styleObjects.length) {
                     snapshot();
-                    object.style = { ref: name };
+                    styleObjects.forEach(item => item.style = { ref: name });
                     render();
                 } }; named.append(apply); });
             }
             if (editingSymbolId) {
                 const done = document.createElement("button");
                 done.textContent = "シンボル編集終了";
-                done.onclick = () => { editingSymbolId = null; selectedId = null; render(); scheduleCompile(); };
+                done.onclick = () => { editingSymbolId = null; clearSelection(); render(); scheduleCompile(); };
                 symbols.append(done);
                 return;
             }
@@ -407,23 +432,23 @@ export const initProCanvasUi = (deps) => {
                 row.append(document.createTextNode(symbol.name));
                 const place = document.createElement("button");
                 place.textContent = "配置";
-                place.onclick = () => { snapshot(); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); selectedId = instance.id; render(); };
+                place.onclick = () => { snapshot(); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); replaceSelection(instance.id); render(); };
                 const corners = document.createElement("button");
                 corners.textContent = "四隅に配置";
                 corners.onclick = () => { const raw = prompt("inset", "5"); if (raw === null)
                     return; const inset = Number(raw); if (!Number.isFinite(inset)) {
                     setStatus("inset は数値で指定してください", true);
                     return;
-                } const identity = { id: "bounds", type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} }; const transforms = cornerInstanceTransforms(objectBounds(identity, scene), scene.width, scene.height, inset); snapshot(); const children = transforms.map(transform => ({ id: newObjectId(), type: "instance", symbol: symbol.id, transform, style: {} })); const group = { id: newObjectId(), type: "group", children, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); selectedId = group.id; render(); scheduleCompile(); };
+                } const identity = { id: "bounds", type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} }; const transforms = cornerInstanceTransforms(objectBounds(identity, scene), scene.width, scene.height, inset); snapshot(); const children = transforms.map(transform => ({ id: newObjectId(), type: "instance", symbol: symbol.id, transform, style: {} })); const group = { id: newObjectId(), type: "group", children, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); replaceSelection(group.id); render(); scheduleCompile(); };
                 const edit = document.createElement("button");
                 edit.textContent = "編集";
-                edit.onclick = () => { editingSymbolId = symbol.id; selectedId = null; invalidateCompiled(); setStatus(""); render(); };
+                edit.onclick = () => { editingSymbolId = symbol.id; clearSelection(); invalidateCompiled(); setStatus(""); render(); };
                 const along = document.createElement("button");
                 along.textContent = "選択パスに沿って配置";
                 along.disabled = (object === null || object === void 0 ? void 0 : object.type) !== "path";
                 along.onclick = () => { if ((object === null || object === void 0 ? void 0 : object.type) !== "path")
                     return; const raw = prompt("配置数", "5"); if (raw === null)
-                    return; snapshot(); const repeat = { id: newObjectId(), type: "repeat", symbol: symbol.id, path: { start: { ...object.start }, segments: JSON.parse(JSON.stringify(object.segments)) }, count: Math.max(1, Math.floor(Number(raw) || 1)), align: true, style: {} }; scene.objects.push(repeat); selectedId = repeat.id; render(); };
+                    return; snapshot(); const repeat = { id: newObjectId(), type: "repeat", symbol: symbol.id, path: { start: { ...object.start }, segments: JSON.parse(JSON.stringify(object.segments)) }, count: Math.max(1, Math.floor(Number(raw) || 1)), align: true, style: {} }; scene.objects.push(repeat); replaceSelection(repeat.id); render(); };
                 const remove = document.createElement("button");
                 remove.textContent = "削除";
                 remove.onclick = () => { var _a; const referenced = scene.objects.some(o => { let hit = false; const visit = (items) => items.forEach(item => { if ((item.type === "instance" || item.type === "repeat") && item.symbol === symbol.id)
@@ -546,16 +571,33 @@ export const initProCanvasUi = (deps) => {
                 }
             };
             currentObjects().forEach(o => draw(o, objects));
-            const object = selectedId ? walk(currentObjects(), selectedId) : null;
-            if (object) {
-                const b = objectBounds(object, scene);
+            if (hoveredId && !drag) {
+                const hovered = currentObjects().find(item => item.id === hoveredId);
+                if (hovered) {
+                    const b = objectBounds(hovered, scene);
+                    root.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-hover" }));
+                }
+            }
+            const selected = topLevelSelectedObjects();
+            if (selected.length) {
                 const select = svgEl("g", { class: "pro-canvas-selection" });
-                select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01) }));
-                handles.forEach(h => { const p = resizeHandlePoint(b, h); const c = svgEl("circle", { cx: p.x, cy: p.y, r: 4 / scale, class: "pro-canvas-handle" }); c.dataset.handle = h; select.append(c); });
-                const rotate = svgEl("circle", { cx: (b.minX + b.maxX) / 2, cy: b.maxY + 18 / scale, r: 4 / scale, class: "pro-canvas-rotate" });
-                rotate.dataset.rotate = "true";
-                select.append(rotate);
+                selected.forEach(item => { const b = objectBounds(item, scene); select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" })); });
+                const b = selectionBounds();
+                if (selected.length > 1)
+                    select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
+                else {
+                    handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
+                    const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
+                    select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
+                    const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
+                    rotate.dataset.rotate = "true";
+                    select.append(rotate);
+                }
                 root.append(select);
+            }
+            if ((drag === null || drag === void 0 ? void 0 : drag.kind) === "marquee" && drag.current) {
+                const b = { minX: Math.min(drag.start.x, drag.current.x), minY: Math.min(drag.start.y, drag.current.y), maxX: Math.max(drag.start.x, drag.current.x), maxY: Math.max(drag.start.y, drag.current.y) };
+                root.append(svgEl("rect", { x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY, class: "pro-canvas-marquee" }));
             }
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
             const snap = overlay.querySelector("[data-action=snap]");
@@ -580,55 +622,68 @@ export const initProCanvasUi = (deps) => {
         let penDrag = null;
         let pen = null;
         svg.addEventListener("pointerdown", e => {
-            var _a, _b;
-            invalidateCompiled();
-            render();
-            const target = e.target;
+            var _a, _b, _c;
+            const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
-                drag = { kind: "pan", start: { x: panX, y: panY }, before: cloneScene(scene), lastClient: { x: e.clientX, y: e.clientY } };
+                drag = { kind: "pan", start: { x: panX, y: panY }, startClient: client, before: cloneScene(scene), lastClient: client };
+                hoveredId = null;
                 svg.setPointerCapture(e.pointerId);
+                render();
                 return;
             }
-            const p = point(e);
-            const handle = target.dataset.handle;
-            const id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+            const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
             if (tool === "select") {
-                if (handle && selectedId) {
-                    const o = walk(currentObjects(), selectedId);
-                    drag = { kind: "resize", start: p, before: cloneScene(scene), id: selectedId, handle, bounds: objectBounds(o, scene) };
+                const oneId = selectedIdOne();
+                if (handle && oneId) {
+                    const o = currentObjects().find(item => item.id === oneId);
+                    drag = { kind: "resize", start: raw, startClient: client, before: cloneScene(scene), id: oneId, handle, bounds: objectBounds(o, scene) };
                 }
-                else if (target.dataset.rotate && selectedId) {
-                    drag = { kind: "rotate", start: p, before: cloneScene(scene), id: selectedId, bounds: objectBounds(walk(currentObjects(), selectedId), scene) };
+                else if (target.dataset.rotate && oneId) {
+                    const o = currentObjects().find(item => item.id === oneId);
+                    drag = { kind: "rotate", start: raw, startClient: client, before: cloneScene(scene), id: oneId, bounds: objectBounds(o, scene), wrapperId: newObjectId() };
                 }
                 else if (id) {
-                    selectedId = id;
-                    const object = walk(currentObjects(), id);
-                    drag = { kind: e.shiftKey ? "rotate" : "move", start: p, before: cloneScene(scene), id, bounds: objectBounds(object, scene) };
+                    if (e.shiftKey) {
+                        toggleSelection(id);
+                        hoveredId = null;
+                        render();
+                        return;
+                    }
+                    if (!selection.ids.has(id))
+                        replaceSelection(id);
+                    drag = { kind: "move", start: raw, startClient: client, before: cloneScene(scene), ids: [...selection.ids], bounds: (_b = selectionBounds()) !== null && _b !== void 0 ? _b : undefined };
                 }
-                else
-                    selectedId = null;
+                else {
+                    clearSelection();
+                    drag = { kind: "marquee", start: raw, startClient: client, before: cloneScene(scene), current: raw };
+                }
+                hoveredId = null;
                 render();
                 svg.setPointerCapture(e.pointerId);
                 return;
             }
             if (tool === "node") {
-                snapshot();
-                const latex = (_b = prompt("LaTeX", "")) !== null && _b !== void 0 ? _b : "";
-                if (latex)
+                const latex = (_c = prompt("LaTeX", "")) !== null && _c !== void 0 ? _c : "";
+                if (latex) {
+                    snapshot();
+                    invalidateCompiled();
                     currentObjects().push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: {} });
+                }
                 render();
                 return;
             }
             if (tool === "code") {
                 snapshot();
+                invalidateCompiled();
                 const object = { id: newObjectId(), type: "code", tikz: "", transform: { tx: p.x, ty: p.y, rotate: 0, sx: 1, sy: 1 } };
                 currentObjects().push(object);
-                selectedId = object.id;
+                replaceSelection(object.id);
                 render();
                 editCode(object);
                 return;
             }
             if (tool === "pen") {
+                invalidateCompiled();
                 if (!pen) {
                     snapshot();
                     pen = { id: newObjectId(), type: "path", start: p, segments: [], closed: false, style: { props: { lineWidthPt: 1 } } };
@@ -637,152 +692,249 @@ export const initProCanvasUi = (deps) => {
                 else if (Math.hypot(p.x - pen.start.x, p.y - pen.start.y) < scene.grid.size * .4) {
                     pen.closed = true;
                     pen = null;
+                    scheduleCompile();
                 }
                 else {
                     const previous = pen.segments.length ? pen.segments[pen.segments.length - 1].to : pen.start;
                     pen.segments.push({ type: "line", to: p });
                     penDrag = { path: pen, index: pen.segments.length - 1, end: { ...p }, previous: { ...previous } };
                     svg.setPointerCapture(e.pointerId);
+                    scheduleCompile();
                 }
                 render();
                 return;
             }
-            snapshot();
+            snapshot(false);
+            invalidateCompiled();
             const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { lineWidthPt: 1 } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { lineWidthPt: 1 } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { lineWidthPt: 1 } } };
             currentObjects().push(object);
-            selectedId = object.id;
-            drag = { kind: "draw", start: p, before: cloneScene(scene), id: object.id };
+            replaceSelection(object.id);
+            drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
             svg.setPointerCapture(e.pointerId);
             render();
         });
-        svg.addEventListener("pointermove", e => { if (penDrag) {
-            const p = point(e);
+        svg.addEventListener("pointermove", e => { var _a, _b, _c, _d; if (penDrag) {
+            const p = snappedPoint(e);
             if (Math.hypot(p.x - penDrag.end.x, p.y - penDrag.end.y) > .1)
                 penDrag.path.segments[penDrag.index] = { type: "cubic", c1: { ...penDrag.previous }, c2: { x: 2 * penDrag.end.x - p.x, y: 2 * penDrag.end.y - p.y }, to: { ...penDrag.end } };
             render();
             return;
-        } if (!drag)
-            return; if (drag.kind === "pan" && drag.lastClient) {
+        } if (!drag) {
+            const target = e.target, nextHoveredId = (_b = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id) !== null && _b !== void 0 ? _b : null, handle = target.dataset.handle;
+            svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : nextHoveredId ? "move" : "default";
+            if (nextHoveredId !== hoveredId) {
+                hoveredId = nextHoveredId;
+                render();
+            }
+            return;
+        } if (drag.kind === "pan" && drag.lastClient) {
             panX = drag.start.x + e.clientX - drag.lastClient.x;
             panY = drag.start.y + e.clientY - drag.lastClient.y;
             render();
             return;
-        } const p = point(e); if (p.x !== drag.start.x || p.y !== drag.start.y)
-            drag.moved = true; scene = cloneScene(drag.before); const o = drag.id ? walk(currentObjects(), drag.id) : null; if (!o)
-            return; if (drag.kind === "move")
-            moveObject(o, p.x - drag.start.x, p.y - drag.start.y);
-        else if (drag.kind === "resize" && drag.bounds && drag.handle)
-            resizeObject(o, drag.bounds, boundsAfterHandleDrag(drag.bounds, drag.handle, p));
-        else if (drag.kind === "rotate") {
-            const b = drag.bounds;
-            const c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
-            const angle = (Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI;
-            if (o.type === "group" || o.type === "instance")
-                rotateTransformAround(o.transform, c, angle);
-            else if (o.type === "rect" || o.type === "ellipse") {
-                const wrapper = { id: `rot-${o.id}`, type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
-                rotateTransformAround(wrapper.transform, c, angle);
-                replaceById(currentObjects(), o.id, wrapper);
-                selectedId = wrapper.id;
+        } const raw = rawPoint(e), crossedThreshold = !drag.moved && Math.hypot(e.clientX - drag.startClient.x, e.clientY - drag.startClient.y) >= 4; if (crossedThreshold) {
+            drag.moved = true;
+            if (["move", "resize", "rotate"].includes(drag.kind))
+                invalidateCompiled();
+        } if (drag.kind === "marquee") {
+            drag.current = raw;
+            if (drag.moved) {
+                const rect = { minX: Math.min(drag.start.x, raw.x), minY: Math.min(drag.start.y, raw.y), maxX: Math.max(drag.start.x, raw.x), maxY: Math.max(drag.start.y, raw.y) };
+                selection.ids = new Set(marqueeHits(rect, currentObjects().map(item => ({ id: item.id, bounds: objectBounds(item, scene) }))));
+                const ids = [...selection.ids];
+                selection.primaryId = (_c = ids[ids.length - 1]) !== null && _c !== void 0 ? _c : null;
             }
-            else {
-                const rad = angle * Math.PI / 180;
-                allPoints(o, scene).forEach(q => { const x = q.x - c.x, y = q.y - c.y; q.x = c.x + x * Math.cos(rad) - y * Math.sin(rad); q.y = c.y + x * Math.sin(rad) + y * Math.cos(rad); });
+            render();
+            return;
+        } scene = cloneScene(drag.before); const delta = snappedDelta(drag.start, raw, e), origin = (_d = drag.anchor) !== null && _d !== void 0 ? _d : drag.start, p = { x: origin.x + delta.x, y: origin.y + delta.y }; if (drag.kind === "move") {
+            for (const id of drag.ids || []) {
+                const object = currentObjects().find(item => item.id === id);
+                if (object)
+                    moveObject(object, delta.x, delta.y);
             }
         }
-        else if (drag.kind === "draw") {
-            if (o.type === "rect")
-                o.to = p;
-            else if (o.type === "ellipse") {
-                o.center = { x: (drag.start.x + p.x) / 2, y: (drag.start.y + p.y) / 2 };
-                o.rx = Math.abs(p.x - drag.start.x) / 2;
-                o.ry = Math.abs(p.y - drag.start.y) / 2;
+        else {
+            const o = drag.id ? currentObjects().find(item => item.id === drag.id) : null;
+            if (!o)
+                return;
+            if (drag.kind === "resize" && drag.bounds && drag.handle)
+                resizeObject(o, drag.bounds, boundsAfterHandleDrag(drag.bounds, drag.handle, p));
+            else if (drag.kind === "rotate") {
+                const b = drag.bounds, c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }, angle = (Math.atan2(raw.y - c.y, raw.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI;
+                if (o.type === "group" || o.type === "instance" || o.type === "code")
+                    rotateTransformAround(o.transform, c, angle);
+                else if (o.type === "rect" || o.type === "ellipse") {
+                    const wrapper = { id: drag.wrapperId, type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
+                    rotateTransformAround(wrapper.transform, c, angle);
+                    replaceById(currentObjects(), o.id, wrapper);
+                    replaceSelectedId(o.id, wrapper.id);
+                }
+                else {
+                    const rad = angle * Math.PI / 180, points = o.type === "repeat" ? [o.path.start, ...o.path.segments.flatMap(segment => segment.type === "line" ? [segment.to] : [segment.c1, segment.c2, segment.to])] : allPoints(o, scene);
+                    points.forEach(q => { const x = q.x - c.x, y = q.y - c.y; q.x = c.x + x * Math.cos(rad) - y * Math.sin(rad); q.y = c.y + x * Math.sin(rad) + y * Math.cos(rad); });
+                }
             }
-            else if (o.type === "path")
-                o.segments[0] = { type: "line", to: p };
+            else if (drag.kind === "draw") {
+                if (o.type === "rect")
+                    o.to = p;
+                else if (o.type === "ellipse") {
+                    o.center = { x: (origin.x + p.x) / 2, y: (origin.y + p.y) / 2 };
+                    o.rx = Math.abs(p.x - origin.x) / 2;
+                    o.ry = Math.abs(p.y - origin.y) / 2;
+                }
+                else if (o.type === "path")
+                    o.segments[0] = { type: "line", to: p };
+            }
         } render(); });
-        svg.addEventListener("pointerup", e => { if (drag && drag.moved && ["move", "resize", "rotate"].includes(drag.kind)) {
-            undo.push(drag.before);
+        svg.addEventListener("pointerup", e => { const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate"].includes(completed.kind)), drewObject = Boolean((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.moved && completed.id); if (changed) {
+            undo.push(completed.before);
             redo = [];
         }
-        else if (drag && drag.kind === "draw" && !drag.moved && drag.id) {
-            removeById(currentObjects(), drag.id);
-            selectedId = null;
+        else if (completed && !completed.moved && ["move", "resize", "rotate"].includes(completed.kind)) {
+            scene = completed.before;
+        }
+        else if ((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && !completed.moved && completed.id) {
+            removeById(currentObjects(), completed.id);
+            clearSelection();
             undo.pop();
         } drag = null; penDrag = null; if (svg.hasPointerCapture(e.pointerId))
-            svg.releasePointerCapture(e.pointerId); render(); scheduleCompile(); });
+            svg.releasePointerCapture(e.pointerId); render(); if (changed || drewObject)
+            scheduleCompile(); });
+        svg.addEventListener("pointerleave", () => { if (!drag && hoveredId) {
+            hoveredId = null;
+            svg.style.cursor = "default";
+            render();
+        } });
         const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
             clearTimeout(compileTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
         const undoOnce = () => { const prev = undo.pop(); if (!prev)
-            return; redo.push(cloneScene(scene)); scene = prev; selectedId = null; render(); scheduleCompile(); };
+            return; redo.push(cloneScene(scene)); scene = prev; clearSelection(); render(); scheduleCompile(); };
         const redoOnce = () => { const next = redo.pop(); if (!next)
-            return; undo.push(cloneScene(scene)); scene = next; selectedId = null; render(); scheduleCompile(); };
-        const onKey = (e) => { e.stopPropagation(); if (e.key === " ") {
-            space = true;
-            e.preventDefault();
-        } if (e.key === "Escape") {
-            if (pen) {
+            return; undo.push(cloneScene(scene)); scene = next; clearSelection(); render(); scheduleCompile(); };
+        const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
+            item.children.forEach(renew); }; renew(copy); return copy; };
+        const onKey = (e) => {
+            var _a, _b;
+            const target = e.target;
+            if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]"))
+                return;
+            e.stopPropagation();
+            const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
+            if (e.key === "Escape") {
+                e.preventDefault();
+                if (pen) {
+                    pen = null;
+                    render();
+                    return;
+                }
+                if (editingSymbolId) {
+                    editingSymbolId = null;
+                    clearSelection();
+                    render();
+                    scheduleCompile();
+                    return;
+                }
+                if (selection.ids.size) {
+                    clearSelection();
+                    render();
+                }
+                return;
+            }
+            if (e.key === " ") {
+                space = true;
+                e.preventDefault();
+                return;
+            }
+            if (e.key === "Enter" && pen) {
                 pen = null;
                 render();
+                return;
             }
-            else if (editingSymbolId) {
-                editingSymbolId = null;
-                selectedId = null;
+            if ((e.key === "Delete" || e.key === "Backspace") && selection.ids.size) {
+                snapshot();
+                const ids = [...selection.ids];
+                ids.forEach(id => removeById(currentObjects(), id));
+                clearSelection();
                 render();
+                e.preventDefault();
+                return;
             }
-            else
-                close();
-        } if (e.key === "Enter" && pen) {
-            pen = null;
-            render();
-        } if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
-            snapshot();
-            removeById(currentObjects(), selectedId);
-            selectedId = null;
-            render();
-            e.preventDefault();
-        } if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-            e.preventDefault();
-            e.shiftKey ? redoOnce() : undoOnce();
-        } if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
-            e.preventDefault();
-            const objects = currentObjects();
-            if (e.shiftKey && selectedId) {
-                const g = walk(objects, selectedId);
-                if ((g === null || g === void 0 ? void 0 : g.type) === "group") {
-                    snapshot();
-                    const i = objects.indexOf(g);
-                    if (i >= 0)
-                        objects.splice(i, 1, ...g.children);
-                    selectedId = null;
-                    render();
+            if (command && key === "z") {
+                e.preventDefault();
+                e.shiftKey ? redoOnce() : undoOnce();
+                return;
+            }
+            if (command && key === "d" && selection.ids.size) {
+                e.preventDefault();
+                snapshot();
+                const copies = topLevelSelectedObjects().map(cloneWithNewIds), offset = scene.grid.size;
+                copies.forEach(copy => moveObject(copy, offset, offset));
+                currentObjects().push(...copies);
+                selection.ids = new Set(copies.map(copy => copy.id));
+                selection.primaryId = (_b = (_a = copies[copies.length - 1]) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : null;
+                render();
+                return;
+            }
+            if (command && key === "g") {
+                e.preventDefault();
+                const objects = currentObjects(), oneId = selectedIdOne();
+                if (e.shiftKey && oneId) {
+                    const group = objects.find(item => item.id === oneId);
+                    if ((group === null || group === void 0 ? void 0 : group.type) === "group") {
+                        snapshot();
+                        const index = objects.indexOf(group);
+                        objects.splice(index, 1, ...group.children);
+                        clearSelection();
+                        render();
+                    }
                 }
-            }
-            else if (selectedId) {
-                const o = walk(objects, selectedId);
-                if (o) {
-                    snapshot();
-                    removeById(objects, selectedId);
-                    const group = { id: newObjectId(), type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
-                    objects.push(group);
-                    selectedId = group.id;
-                    render();
+                else {
+                    const selected = topLevelSelectedObjects();
+                    if (selected.length) {
+                        snapshot();
+                        const indices = selected.map(item => objects.indexOf(item)).filter(index => index >= 0), index = Math.min(...indices);
+                        selected.forEach(item => removeById(objects, item.id));
+                        const group = { id: newObjectId(), type: "group", children: selected, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
+                        objects.splice(index, 0, group);
+                        replaceSelection(group.id);
+                        render();
+                    }
                 }
+                return;
             }
-        } };
+            if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) && selection.ids.size) {
+                e.preventDefault();
+                const amount = e.shiftKey ? scene.grid.size : 1, dx = e.key === "ArrowLeft" ? -amount : e.key === "ArrowRight" ? amount : 0, dy = e.key === "ArrowDown" ? -amount : e.key === "ArrowUp" ? amount : 0;
+                snapshot();
+                topLevelSelectedObjects().forEach(object => moveObject(object, dx, dy));
+                render();
+                return;
+            }
+        };
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
             return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code" }[e.key.toLowerCase()]; if (next) {
             tool = next;
             e.preventDefault();
             render();
         } };
-        const onKeyUp = (e) => { e.stopPropagation(); if (e.key === " ")
+        const onKeyUp = (e) => { const target = e.target; if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]"))
+            return; e.stopPropagation(); if (e.key === " ")
             space = false; };
         window.addEventListener("keydown", onToolKey, true);
         window.addEventListener("keydown", onKey, true);
         window.addEventListener("keyup", onKeyUp, true);
+        svg.addEventListener("wheel", e => { e.preventDefault(); if (e.ctrlKey || e.metaKey) {
+            const rect = svg.getBoundingClientRect(), oldZoom = zoom, newZoom = Math.max(.25, Math.min(4, zoom * Math.exp(-e.deltaY * .002))), cursor = { x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) }, next = zoomAtPoint({ panX, panY, zoom: oldZoom }, cursor, newZoom);
+            zoom = newZoom;
+            panX = next.panX;
+            panY = next.panY;
+        }
+        else {
+            panX -= e.deltaX;
+            panY -= e.deltaY;
+        } render(); }, { passive: false });
         const replaceOrInsert = () => {
             var _a, _b, _c, _d, _e, _f, _g;
             const editor = deps.getActiveGroup().editor;
@@ -809,7 +961,7 @@ export const initProCanvasUi = (deps) => {
             throw new Error("有効なファイル名を指定してください"); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
             throw new Error("File writing is not available."); const result = await api({ path: name, data: base64EncodeUtf8(buildStyFile(scene, packageName)) }); if (!result.ok)
             throw new Error(result.error || "The style file could not be saved."); setStatus(`\\usepackage{${packageName}} で使えます`); };
-        const exportPng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); const unit = scene.unit === "mm" ? 3.78 : scene.unit === "cm" ? 37.8 : 1.333; const width = Math.max(1, Math.round(scene.width * unit * 2)), height = Math.max(1, Math.round(scene.height * unit * 2)); clone.setAttribute("width", String(width)); clone.setAttribute("height", String(height)); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }); const url = URL.createObjectURL(blob); try {
+        const exportPng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-hover,.pro-canvas-marquee").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); const unit = scene.unit === "mm" ? 3.78 : scene.unit === "cm" ? 37.8 : 1.333; const width = Math.max(1, Math.round(scene.width * unit * 2)), height = Math.max(1, Math.round(scene.height * unit * 2)); clone.setAttribute("width", String(width)); clone.setAttribute("height", String(height)); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }); const url = URL.createObjectURL(blob); try {
             const image = new Image();
             await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG export failed.")); image.src = url; });
             const canvas = document.createElement("canvas");
@@ -909,7 +1061,7 @@ export const initProCanvasUi = (deps) => {
         } });
         const pickFile = (accept) => new Promise(resolve => { const input = document.createElement("input"); input.type = "file"; input.accept = accept; input.onchange = () => { var _a; return resolve(((_a = input.files) === null || _a === void 0 ? void 0 : _a[0]) || null); }; input.click(); });
         const readDataUrl = (file) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error || new Error("File reading failed.")); reader.readAsDataURL(file); });
-        const approximatePng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-live-image").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); clone.setAttribute("width", "1200"); clone.setAttribute("height", String(Math.max(1, 1200 * scene.height / scene.width))); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }), url = URL.createObjectURL(blob); try {
+        const approximatePng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-hover,.pro-canvas-marquee,.pro-canvas-live-image").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); clone.setAttribute("width", "1200"); clone.setAttribute("height", String(Math.max(1, 1200 * scene.height / scene.width))); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }), url = URL.createObjectURL(blob); try {
             const image = new Image();
             await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG rasterization failed.")); image.src = url; });
             const canvas = document.createElement("canvas");
@@ -921,10 +1073,10 @@ export const initProCanvasUi = (deps) => {
         finally {
             URL.revokeObjectURL(url);
         } };
-        const showAiPreview = (tikz) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 10; area.value = stripTikzWrapper(tikz); const place = document.createElement("button"); place.textContent = "コードオブジェクトとして配置"; place.onclick = () => { snapshot(); const object = { id: newObjectId(), type: "code", tikz: stripTikzWrapper(area.value), transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(object); selectedId = object.id; pop.remove(); render(); scheduleCompile(); }; pop.append(area, place); overlay.append(pop); area.focus(); };
+        const showAiPreview = (tikz) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 10; area.value = stripTikzWrapper(tikz); const place = document.createElement("button"); place.textContent = "コードオブジェクトとして配置"; place.onclick = () => { snapshot(); const object = { id: newObjectId(), type: "code", tikz: stripTikzWrapper(area.value), transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(object); replaceSelection(object.id); pop.remove(); render(); scheduleCompile(); }; pop.append(area, place); overlay.append(pop); area.focus(); };
         const importSvgFile = async () => { const file = await pickFile(".svg,image/svg+xml"); if (!file)
             return; const result = importSvg(await file.text(), scene.width * .8); if (!result)
-            throw new Error("SVG を読み込めませんでした"); snapshot(); const group = { id: newObjectId(), type: "group", children: result.objects, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); selectedId = group.id; setStatus(result.warnings.length ? `${result.warnings.length} 件の警告: ${result.warnings[0]}` : ""); render(); scheduleCompile(); };
+            throw new Error("SVG を読み込めませんでした"); snapshot(); const group = { id: newObjectId(), type: "group", children: result.objects, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); replaceSelection(group.id); setStatus(result.warnings.length ? `${result.warnings.length} 件の警告: ${result.warnings[0]}` : ""); render(); scheduleCompile(); };
         const importAi = async () => { var _a; const snippet = (_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet; if (!snippet)
             return; let imageBase64; if (confirm("OK: 画像ファイルを選ぶ / キャンセル: 今のキャンバスを下絵にする")) {
             const file = await pickFile("image/*");
@@ -946,14 +1098,11 @@ export const initProCanvasUi = (deps) => {
         } });
         svg.addEventListener("dblclick", e => { var _a; if (tool !== "select")
             return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = id ? walk(currentObjects(), id) : null; if ((object === null || object === void 0 ? void 0 : object.type) === "code") {
-            selectedId = object.id;
+            replaceSelection(object.id);
             render();
             editCode(object);
             e.preventDefault();
         } });
-        svg.addEventListener("pointermove", e => { if ((drag === null || drag === void 0 ? void 0 : drag.kind) !== "rotate" || !drag.id || !drag.bounds)
-            return; const object = walk(currentObjects(), drag.id); if ((object === null || object === void 0 ? void 0 : object.type) !== "code")
-            return; const p = point(e), b = drag.bounds, c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }, angle = (Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI; object.transform.rotate = angle; render(); });
         const loadProjectContext = async () => {
             var _a;
             const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.readText, rootPath = deps.getRootFilePath(), sources = [];

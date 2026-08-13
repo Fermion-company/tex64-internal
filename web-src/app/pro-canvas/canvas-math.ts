@@ -9,6 +9,26 @@ export type CanvasViewport = {
 export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
+export const zoomAtPoint = (
+  view: { panX: number; panY: number; zoom: number },
+  cursorOffset: Vec,
+  newZoom: number,
+): { panX: number; panY: number } => {
+  const ratio = newZoom / view.zoom;
+  return {
+    panX: cursorOffset.x - (cursorOffset.x - view.panX) * ratio,
+    panY: cursorOffset.y - (cursorOffset.y - view.panY) * ratio,
+  };
+};
+
+export const marqueeHits = (
+  rect: Bounds,
+  objects: Array<{ id: string; bounds: Bounds }>,
+): string[] => objects
+  .filter(({ bounds }) => bounds.maxX >= rect.minX && bounds.minX <= rect.maxX
+    && bounds.maxY >= rect.minY && bounds.minY <= rect.maxY)
+  .map(({ id }) => id);
+
 export const mirrorInstanceTransform = (artboardWidth: number): Transform =>
   ({ tx: artboardWidth, ty: 0, rotate: 0, sx: -1, sy: 1 });
 

@@ -8718,11 +8718,21 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
 .pro-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; }
-.pro-canvas-guides .pro-canvas-paper { fill: #ffffff; }
+.pro-canvas-guides .pro-canvas-paper { fill: #ffffff; filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .16)) drop-shadow(0 8px 18px rgba(15, 23, 42, .1)); }
 .pro-canvas-guides line { stroke: rgba(100, 116, 139, 0.28); stroke-width: .15; vector-effect: non-scaling-stroke; }
 .pro-canvas-guides .pro-canvas-boundary { fill: transparent; stroke: var(--text-soft); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.pro-canvas-selection rect { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
-.pro-canvas-handle, .pro-canvas-rotate { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-hover { fill: none; stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-selection-outline, .pro-canvas-selection-bounds { fill: none; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-selection-outline { opacity: .78; }
+.pro-canvas-selection-bounds { opacity: 1; }
+.pro-canvas-handle, .pro-canvas-rotate { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-handle-nw, .pro-canvas-handle-se { cursor: nwse-resize; }
+.pro-canvas-handle-ne, .pro-canvas-handle-sw { cursor: nesw-resize; }
+.pro-canvas-handle-n, .pro-canvas-handle-s { cursor: ns-resize; }
+.pro-canvas-handle-e, .pro-canvas-handle-w { cursor: ew-resize; }
+.pro-canvas-rotate { cursor: grab; }
+.pro-canvas-rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-marquee { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-node { font: 4px sans-serif; fill: #111827; }
 .pro-canvas-inspector { overflow: auto; padding: 16px; border-left: 1px solid var(--panel-border); background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; }
 .pro-canvas-inspector section { margin-bottom: 16px; }
