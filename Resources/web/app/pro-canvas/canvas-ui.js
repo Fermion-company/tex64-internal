@@ -459,10 +459,14 @@ export const initProCanvasUi = (deps) => {
                         mf.menuItems = [];
                     }
                     catch { }
-                    const injectMfStyle = () => { const sr = mf.shadowRoot; if (!sr || sr.querySelector("style[data-tex64-plot]"))
+                    const injectMfStyle = () => { try {
+                        mf.menuItems = [];
+                    }
+                    catch { } const sr = mf.shadowRoot; if (!sr || sr.querySelector("style[data-tex64-plot]"))
                         return; const st = document.createElement("style"); st.setAttribute("data-tex64-plot", ""); st.textContent = ".ML__content{overflow:visible!important;min-width:0!important;flex:1 1 auto!important}.ML__virtual-keyboard-toggle,button[part=virtual-keyboard-toggle],.ML__menu-toggle,button[part=menu-toggle]{display:none!important}"; sr.appendChild(st); };
                     injectMfStyle();
                     requestAnimationFrame(injectMfStyle);
+                    mf.addEventListener("contextmenu", e => { e.preventDefault(); e.stopPropagation(); }, true);
                     mf.addEventListener("keydown", e => { var _a; if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey)
                         return; e.preventDefault(); e.stopImmediatePropagation(); try {
                         const m = mf;
