@@ -8725,6 +8725,16 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-selection-outline, .pro-canvas-selection-bounds { fill: none; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-selection-outline { opacity: .78; }
 .pro-canvas-selection-bounds { opacity: 1; }
+.pro-canvas-smart-guides { pointer-events: none; }
+.pro-canvas-smart-guides line { stroke: #ff36b0; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-pen-feedback { pointer-events: none; }
+.pro-canvas-pen-anchor { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.pro-canvas-pen-anchor.is-close { fill: var(--accent-soft); }
+.pro-canvas-pen-ghost { stroke: var(--accent); stroke-opacity: .4; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-size-chip { position: fixed; z-index: 3; pointer-events: none; padding: 4px 7px; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel-strong); color: var(--text); box-shadow: var(--shadow-sm); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pro-canvas-command-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
+.pro-canvas-command-grid button { min-width: 0; height: 28px; padding: 4px; }
+.pro-canvas-command-grid svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.25; }
 .pro-canvas-handle, .pro-canvas-rotate { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-handle-nw, .pro-canvas-handle-se { cursor: nwse-resize; }
 .pro-canvas-handle-ne, .pro-canvas-handle-sw { cursor: nesw-resize; }

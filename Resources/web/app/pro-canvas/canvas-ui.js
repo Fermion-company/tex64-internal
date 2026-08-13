@@ -3,7 +3,7 @@ import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capt
 import { encodeFigureBlock } from "./figure-codec.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } from "./scene.js";
-import { boundsAfterHandleDrag, cornerInstanceTransforms, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapToGrid, zoomAtPoint } from "./canvas-math.js";
+import { alignDeltas, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapBoundsToLines, snapToGrid, zoomAtPoint } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
@@ -198,13 +198,14 @@ export const initProCanvasUi = (deps) => {
       <strong class="pro-canvas-title">図キャンバス</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="縮小">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="拡大">+</button></span><span class="pro-canvas-topbar-spacer"></span>
       <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live">Live</button><button data-action="doc-preamble">Doc</button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="元に戻す">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="やり直す">↻</button></div>
-      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div>
+      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
       <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">画像として挿入 (PNG)</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ を更新" : "TikZ を挿入"}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
         const stage = overlay.querySelector(".pro-canvas-stage");
         const status = overlay.querySelector(".pro-canvas-status");
+        const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const moreMenu = overlay.querySelector(".pro-canvas-more-menu"), moreButton = overlay.querySelector("[data-action=more]");
         const closeMore = () => { moreMenu.hidden = true; moreButton.setAttribute("aria-expanded", "false"); };
@@ -291,6 +292,20 @@ export const initProCanvasUi = (deps) => {
         const topLevelSelectedObjects = () => currentObjects().filter(object => selection.ids.has(object.id));
         const selectionBounds = () => { const selected = topLevelSelectedObjects(); if (!selected.length)
             return null; const bounds = selected.map(object => objectBounds(object, scene)); return { minX: Math.min(...bounds.map(b => b.minX)), minY: Math.min(...bounds.map(b => b.minY)), maxX: Math.max(...bounds.map(b => b.maxX)), maxY: Math.max(...bounds.map(b => b.maxY)) }; };
+        const changeOrder = (mode) => { const objects = currentObjects(), selected = objects.filter(o => selection.ids.has(o.id)); if (!selected.length)
+            return; snapshot(); if (mode === "front" || mode === "back") {
+            const rest = objects.filter(o => !selection.ids.has(o.id));
+            objects.splice(0, objects.length, ...(mode === "front" ? [...rest, ...selected] : [...selected, ...rest]));
+        }
+        else if (mode === "forward") {
+            for (let i = objects.length - 2; i >= 0; i--)
+                if (selection.ids.has(objects[i].id) && !selection.ids.has(objects[i + 1].id))
+                    [objects[i], objects[i + 1]] = [objects[i + 1], objects[i]];
+        }
+        else
+            for (let i = 1; i < objects.length; i++)
+                if (selection.ids.has(objects[i].id) && !selection.ids.has(objects[i - 1].id))
+                    [objects[i], objects[i - 1]] = [objects[i - 1], objects[i]]; render(); };
         const replaceSelectedId = (oldId, newId) => { if (!selection.ids.delete(oldId))
             return; selection.ids.add(newId); if (selection.primaryId === oldId)
             selection.primaryId = newId; };
@@ -327,7 +342,7 @@ export const initProCanvasUi = (deps) => {
             named.replaceChildren();
             symbols.replaceChildren();
             (_a = overlay.querySelector(".pro-canvas-empty")) === null || _a === void 0 ? void 0 : _a.remove();
-            overlay.querySelector(".pro-canvas-geometry-section").hidden = !object;
+            overlay.querySelector(".pro-canvas-geometry-section").hidden = !selection.ids.size;
             overlay.querySelector(".pro-canvas-style-section").hidden = !object;
             if (object) {
                 const b = objectBounds(object, scene), values = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
@@ -338,6 +353,21 @@ export const initProCanvasUi = (deps) => {
                     moveObject(object, index === 0 ? value - before.minX : 0, index === 1 ? value - before.minY : 0);
                 else
                     resizeObject(object, before, index === 2 ? { ...before, maxX: before.minX + value } : { ...before, maxY: before.minY + value }); render(); }; row.append(input); geometry.append(row); });
+            }
+            const selected = topLevelSelectedObjects();
+            if (selected.length > 1) {
+                const bar = document.createElement("div");
+                bar.className = "pro-canvas-command-grid";
+                const modes = [[['left', '左揃え'], ['centerX', '左右中央']], [['right', '右揃え'], ['top', '上揃え']], [['centerY', '上下中央'], ['bottom', '下揃え']], [['distributeX', '横等間隔'], ['distributeY', '縦等間隔']]], icons = { left: '<line x1="3" y1="2" x2="3" y2="14"/><line x1="3" y1="5" x2="12" y2="5"/><line x1="3" y1="11" x2="9" y2="11"/>', centerX: '<line x1="8" y1="2" x2="8" y2="14"/><line x1="3" y1="5" x2="13" y2="5"/><line x1="5" y1="11" x2="11" y2="11"/>', right: '<line x1="13" y1="2" x2="13" y2="14"/><line x1="4" y1="5" x2="13" y2="5"/><line x1="7" y1="11" x2="13" y2="11"/>', top: '<line x1="2" y1="3" x2="14" y2="3"/><line x1="5" y1="3" x2="5" y2="12"/><line x1="11" y1="3" x2="11" y2="9"/>', centerY: '<line x1="2" y1="8" x2="14" y2="8"/><line x1="5" y1="3" x2="5" y2="13"/><line x1="11" y1="5" x2="11" y2="11"/>', bottom: '<line x1="2" y1="13" x2="14" y2="13"/><line x1="5" y1="4" x2="5" y2="13"/><line x1="11" y1="7" x2="11" y2="13"/>', distributeX: '<rect x="2" y="3" width="2" height="10"/><rect x="7" y="3" width="2" height="10"/><rect x="12" y="3" width="2" height="10"/>', distributeY: '<rect x="3" y="2" width="10" height="2"/><rect x="3" y="7" width="10" height="2"/><rect x="3" y="12" width="10" height="2"/>' };
+                modes.flat().forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.align = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.disabled = mode.startsWith("distribute") && selected.length < 3; button.onclick = () => { snapshot(); const bs = selected.map(o => objectBounds(o, scene)), deltas = mode === "distributeX" || mode === "distributeY" ? distributeDeltas(bs, mode === "distributeX" ? "x" : "y") : alignDeltas(bs, mode); selected.forEach((o, i) => moveObject(o, deltas[i].x, deltas[i].y)); render(); }; bar.append(button); });
+                geometry.append(bar);
+            }
+            if (selected.length) {
+                const order = document.createElement("div");
+                order.className = "pro-canvas-command-grid";
+                const icons = { front: '<rect x="3" y="5" width="8" height="8"/><rect x="6" y="2" width="7" height="7" style="fill:currentColor"/>', forward: '<rect x="3" y="5" width="8" height="8"/><rect x="6" y="2" width="7" height="7" style="fill:currentColor;fill-opacity:.55"/>', backward: '<rect x="6" y="2" width="7" height="7"/><rect x="3" y="5" width="8" height="8" style="fill:currentColor;fill-opacity:.55"/>', back: '<rect x="6" y="2" width="7" height="7"/><rect x="3" y="5" width="8" height="8" style="fill:currentColor"/>' };
+                [['front', '最前面'], ['forward', '前面へ'], ['backward', '背面へ'], ['back', '最背面']].forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.order = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.onclick = () => changeOrder(mode); order.append(button); });
+                geometry.append(order);
             }
             if (!object) {
                 const empty = document.createElement("p");
@@ -571,6 +601,23 @@ export const initProCanvasUi = (deps) => {
                 }
             };
             currentObjects().forEach(o => draw(o, objects));
+            if (drag === null || drag === void 0 ? void 0 : drag.guides) {
+                const smart = svgEl("g", { class: "pro-canvas-smart-guides pro-canvas-selection" });
+                if (drag.guides.x !== undefined)
+                    smart.append(svgEl("line", { x1: drag.guides.x, y1: 0, x2: drag.guides.x, y2: scene.height }));
+                if (drag.guides.y !== undefined)
+                    smart.append(svgEl("line", { x1: 0, y1: drag.guides.y, x2: scene.width, y2: drag.guides.y }));
+                root.append(smart);
+            }
+            if (pen) {
+                const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), points = [pen.start, ...pen.segments.map(s => s.to)], close = penCursor && Math.hypot(penCursor.x - pen.start.x, penCursor.y - pen.start.y) < scene.grid.size * .4;
+                points.forEach((point, index) => penLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: (index === 0 && close ? 4.5 : 3) / scale, class: `pro-canvas-pen-anchor${index === 0 && close ? " is-close" : ""}` })));
+                if (penCursor) {
+                    const last = points[points.length - 1];
+                    penLayer.append(svgEl("line", { x1: last.x, y1: last.y, x2: penCursor.x, y2: penCursor.y, class: "pro-canvas-pen-ghost" }));
+                }
+                root.append(penLayer);
+            }
             if (hoveredId && !drag) {
                 const hovered = currentObjects().find(item => item.id === hoveredId);
                 if (hovered) {
@@ -613,6 +660,7 @@ export const initProCanvasUi = (deps) => {
             docButton.classList.toggle("is-active", docPreamble);
             docButton.setAttribute("aria-pressed", String(docPreamble));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
+            overlay.querySelector("[data-action=zoom-reset]").title = "クリック: 100% / Shift+クリック: 選択にフィット";
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
             overlay.querySelector("[data-action=ai-import]").disabled = !((_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet);
@@ -620,7 +668,9 @@ export const initProCanvasUi = (deps) => {
         };
         let drag = null;
         let penDrag = null;
-        let pen = null;
+        let pen = null, penCursor = null;
+        const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
+            drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
             var _a, _b, _c;
             const target = e.target, client = { x: e.clientX, y: e.clientY };
@@ -657,6 +707,7 @@ export const initProCanvasUi = (deps) => {
                     clearSelection();
                     drag = { kind: "marquee", start: raw, startClient: client, before: cloneScene(scene), current: raw };
                 }
+                cacheDragLines();
                 hoveredId = null;
                 render();
                 svg.setPointerCapture(e.pointerId);
@@ -710,6 +761,7 @@ export const initProCanvasUi = (deps) => {
             currentObjects().push(object);
             replaceSelection(object.id);
             drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
+            cacheDragLines();
             svg.setPointerCapture(e.pointerId);
             render();
         });
@@ -902,6 +954,11 @@ export const initProCanvasUi = (deps) => {
                         render();
                     }
                 }
+                return;
+            }
+            if (command && (e.key === "]" || e.key === "[") && selection.ids.size) {
+                e.preventDefault();
+                changeOrder(e.key === "]" ? (e.shiftKey ? "front" : "forward") : (e.shiftKey ? "back" : "backward"));
                 return;
             }
             if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) && selection.ids.size) {
@@ -1136,6 +1193,70 @@ export const initProCanvasUi = (deps) => {
             if (docPreamble && preamble)
                 scheduleCompile();
         };
+        svg.addEventListener("pointermove", e => { var _a; if (!drag || !["move", "resize", "draw"].includes(drag.kind) || !drag.moved)
+            return; drag.client = { x: e.clientX, y: e.clientY }; const object = drag.id ? currentObjects().find(o => o.id === drag.id) : null, origin = (_a = drag.anchor) !== null && _a !== void 0 ? _a : drag.start; let bounds = drag.kind === "move" ? selectionBounds() : object ? objectBounds(object, scene) : null; if (e.shiftKey && drag.kind === "draw" && object) {
+            const raw = rawPoint(e), dx = raw.x - origin.x, dy = raw.y - origin.y;
+            if (object.type === "path") {
+                const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI / 4, length = Math.hypot(dx, dy);
+                object.segments[0] = { type: "line", to: { x: origin.x + Math.cos(angle) * length, y: origin.y + Math.sin(angle) * length } };
+            }
+            else {
+                const side = Math.max(Math.abs(dx), Math.abs(dy)), p = { x: origin.x + (dx < 0 ? -side : side), y: origin.y + (dy < 0 ? -side : side) };
+                if (object.type === "rect")
+                    object.to = p;
+                else if (object.type === "ellipse") {
+                    object.center = { x: (origin.x + p.x) / 2, y: (origin.y + p.y) / 2 };
+                    object.rx = object.ry = side / 2;
+                }
+            }
+            bounds = objectBounds(object, scene);
+        }
+        else if (e.shiftKey && drag.kind === "resize" && object && drag.bounds && drag.handle && drag.handle.length === 2) {
+            const b = drag.bounds, ratio = (b.maxX - b.minX) / Math.max(b.maxY - b.minY, .01), candidate = objectBounds(object, scene), width = candidate.maxX - candidate.minX, height = candidate.maxY - candidate.minY;
+            if (width / Math.max(height, .01) > ratio) {
+                const wanted = width / ratio;
+                if (drag.handle.includes("n"))
+                    candidate.maxY = candidate.minY + wanted;
+                else
+                    candidate.minY = candidate.maxY - wanted;
+            }
+            else {
+                const wanted = height * ratio;
+                if (drag.handle.includes("e"))
+                    candidate.maxX = candidate.minX + wanted;
+                else
+                    candidate.minX = candidate.maxX - wanted;
+            }
+            resizeObject(object, objectBounds(object, scene), candidate);
+            bounds = candidate;
+        } drag.guides = {}; if (bounds && drag.lines && !e.altKey) {
+            const hit = snapBoundsToLines(bounds, drag.lines, 5 / (Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom));
+            drag.guides = hit.guides;
+            if (hit.dx || hit.dy) {
+                if (drag.kind === "move")
+                    for (const id of drag.ids || []) {
+                        const selected = currentObjects().find(o => o.id === id);
+                        if (selected)
+                            moveObject(selected, hit.dx, hit.dy);
+                    }
+                else if (object)
+                    moveObject(object, hit.dx, hit.dy);
+                bounds = { minX: bounds.minX + hit.dx, minY: bounds.minY + hit.dy, maxX: bounds.maxX + hit.dx, maxY: bounds.maxY + hit.dy };
+            }
+        } if (bounds) {
+            sizeChip.hidden = false;
+            sizeChip.style.left = `${Math.min(innerWidth - 130, e.clientX + 12)}px`;
+            sizeChip.style.top = `${Math.min(innerHeight - 36, e.clientY + 12)}px`;
+            sizeChip.textContent = drag.kind === "move" ? `${bounds.minX.toFixed(1)}, ${bounds.minY.toFixed(1)} ${scene.unit}` : `${(bounds.maxX - bounds.minX).toFixed(1)} × ${(bounds.maxY - bounds.minY).toFixed(1)} ${scene.unit}`;
+        } render(); });
+        svg.addEventListener("pointerup", () => { sizeChip.hidden = true; });
+        overlay.querySelector("[data-action=zoom-reset]").addEventListener("click", e => { if (!e.shiftKey)
+            return; e.stopImmediatePropagation(); const bounds = selectionBounds(); if (!bounds) {
+            zoom = 1;
+            panX = panY = 0;
+            render();
+            return;
+        } const width = Math.max(bounds.maxX - bounds.minX, .01), height = Math.max(bounds.maxY - bounds.minY, .01), base = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height); zoom = Math.max(.25, Math.min(4, .7 * Math.min(stage.clientWidth / (width * base), stage.clientHeight / (height * base)))); const scale = base * zoom; panX = (scene.width / 2 - (bounds.minX + bounds.maxX) / 2) * scale; panY = ((bounds.minY + bounds.maxY) / 2 - scene.height / 2) * scale; render(); });
         new ResizeObserver(render).observe(stage);
         render();
         scheduleCompile();

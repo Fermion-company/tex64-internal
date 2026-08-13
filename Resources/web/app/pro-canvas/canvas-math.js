@@ -40,6 +40,59 @@ export const snapToGrid = (point, size, enabled = true) => {
         return { ...point };
     return { x: Math.round(point.x / size) * size, y: Math.round(point.y / size) * size };
 };
+export const collectSnapLines = (others, artboard) => {
+    const lines = { x: [], y: [] };
+    for (const bounds of others) {
+        lines.x.push({ value: bounds.minX, kind: "min" }, { value: (bounds.minX + bounds.maxX) / 2, kind: "center" }, { value: bounds.maxX, kind: "max" });
+        lines.y.push({ value: bounds.minY, kind: "min" }, { value: (bounds.minY + bounds.maxY) / 2, kind: "center" }, { value: bounds.maxY, kind: "max" });
+    }
+    lines.x.push({ value: 0, kind: "min" }, { value: artboard.width / 2, kind: "center" }, { value: artboard.width, kind: "max" });
+    lines.y.push({ value: 0, kind: "min" }, { value: artboard.height / 2, kind: "center" }, { value: artboard.height, kind: "max" });
+    return lines;
+};
+export const snapBoundsToLines = (bounds, lines, threshold) => {
+    const best = (values, candidates) => {
+        let winner = null;
+        for (const value of values)
+            for (const candidate of candidates) {
+                const delta = candidate.value - value.value;
+                if (Math.abs(delta) > threshold)
+                    continue;
+                const center = value.kind === "center" && candidate.kind === "center";
+                if (!winner || Math.abs(delta) < Math.abs(winner.delta) || (Math.abs(delta) === Math.abs(winner.delta) && center && !winner.center))
+                    winner = { delta, guide: candidate.value, center };
+            }
+        return winner ? { delta: winner.delta, guide: winner.guide } : { delta: 0 };
+    };
+    const x = best([{ value: bounds.minX, kind: "min" }, { value: (bounds.minX + bounds.maxX) / 2, kind: "center" }, { value: bounds.maxX, kind: "max" }], lines.x);
+    const y = best([{ value: bounds.minY, kind: "min" }, { value: (bounds.minY + bounds.maxY) / 2, kind: "center" }, { value: bounds.maxY, kind: "max" }], lines.y);
+    return { dx: x.delta, dy: y.delta, guides: { ...(x.guide === undefined ? {} : { x: x.guide }), ...(y.guide === undefined ? {} : { y: y.guide }) } };
+};
+export const alignDeltas = (bounds, mode) => {
+    if (!bounds.length)
+        return [];
+    const aggregate = { minX: Math.min(...bounds.map(b => b.minX)), minY: Math.min(...bounds.map(b => b.minY)), maxX: Math.max(...bounds.map(b => b.maxX)), maxY: Math.max(...bounds.map(b => b.maxY)) };
+    return bounds.map(b => ({
+        x: mode === "left" ? aggregate.minX - b.minX : mode === "centerX" ? (aggregate.minX + aggregate.maxX - b.minX - b.maxX) / 2 : mode === "right" ? aggregate.maxX - b.maxX : 0,
+        y: mode === "bottom" ? aggregate.minY - b.minY : mode === "centerY" ? (aggregate.minY + aggregate.maxY - b.minY - b.maxY) / 2 : mode === "top" ? aggregate.maxY - b.maxY : 0,
+    }));
+};
+export const distributeDeltas = (bounds, axis) => {
+    const result = bounds.map(() => ({ x: 0, y: 0 }));
+    if (bounds.length < 3)
+        return result;
+    const min = axis === "x" ? "minX" : "minY", max = axis === "x" ? "maxX" : "maxY";
+    const ordered = bounds.map((bounds, index) => ({ bounds, index })).sort((a, b) => a.bounds[min] - b.bounds[min]);
+    const occupied = ordered.reduce((sum, item) => sum + item.bounds[max] - item.bounds[min], 0);
+    const gap = (ordered[ordered.length - 1].bounds[max] - ordered[0].bounds[min] - occupied) / (ordered.length - 1);
+    let cursor = ordered[0].bounds[min];
+    for (const item of ordered) {
+        const delta = cursor - item.bounds[min];
+        result[item.index][axis] = delta;
+        cursor += item.bounds[max] - item.bounds[min] + gap;
+    }
+    return result;
+};
 export const resizeHandlePoint = (bounds, handle) => {
     const midX = (bounds.minX + bounds.maxX) / 2;
     const midY = (bounds.minY + bounds.maxY) / 2;
