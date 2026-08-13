@@ -1,3 +1,4 @@
+import { sceneHasPlot } from "./scene.js";
 const basicColors = { "000000": "black", "ffffff": "white", "ff0000": "red", "00ff00": "green", "0000ff": "blue", "00ffff": "cyan", "ff00ff": "magenta", "ffff00": "yellow" };
 const num = (value) => { const n = Math.round((value + Number.EPSILON) * 1000) / 1000; return Object.is(n, -0) ? "0" : String(n); };
 const point = (p) => `(${num(p.x)},${num(p.y)})`;
@@ -83,6 +84,34 @@ export const buildStyFile = (scene, packageName) => {
         }
         if (object.type === "instance" || object.type === "repeat")
             return [];
+        if (object.type === "plot") {
+            const axis = object.axis, opts = [`at={${point(object.at)}}`, `anchor=south west`, `width=${num(object.width)}${scene.unit}`, `height=${num(object.height)}${scene.unit}`, `xmin=${num(axis.xmin)}`, `xmax=${num(axis.xmax)}`];
+            if (axis.ymin !== null)
+                opts.push(`ymin=${num(axis.ymin)}`);
+            if (axis.ymax !== null)
+                opts.push(`ymax=${num(axis.ymax)}`);
+            if (axis.axisLines !== "box")
+                opts.push(`axis lines=${axis.axisLines}`);
+            if (axis.grid !== "none")
+                opts.push(`grid=${axis.grid}`);
+            if (axis.xlabel)
+                opts.push(`xlabel={${axis.xlabel}}`);
+            if (axis.ylabel)
+                opts.push(`ylabel={${axis.ylabel}}`);
+            if (axis.title)
+                opts.push(`title={${axis.title}}`);
+            const lines = [`${indent}\\begin{axis}[${opts.join(", ")}]`];
+            for (const series of object.series) {
+                const domain = series.domain || { min: axis.xmin, max: axis.xmax }, plot = [`domain=${num(domain.min)}:${num(domain.max)}`, `samples=${Math.max(1, Math.floor(series.samples))}`, color(series.color)];
+                if (series.thick)
+                    plot.push("thick");
+                lines.push(`${indent}  \\addplot[${plot.join(", ")}] {${series.expr}};`);
+                if (series.legend)
+                    lines.push(`${indent}  \\addlegendentry{${series.legend}}`);
+            }
+            lines.push(`${indent}\\end{axis}`);
+            return lines;
+        }
         const opts = options(object.style);
         if (object.type === "node") {
             if (object.anchor !== "center")
@@ -107,5 +136,5 @@ export const buildStyFile = (scene, packageName) => {
     for (const symbol of scene.symbols || [])
         entries.push(`${symbol.name}/.pic={\n${symbol.objects.flatMap(object => emit(object, 2)).join("\n")}\n  }`);
     const definitions = [...colors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
-    return [`\\NeedsTeXFormat{LaTeX2e}`, `\\ProvidesPackage{${packageName}}[2026/08/13 TeX64 figure symbols]`, `\\RequirePackage{tikz}`, ...(arrows ? [`\\usetikzlibrary{arrows.meta}`] : []), ...definitions, `\\tikzset{`, entries.map((entry, index) => `  ${entry}${index < entries.length - 1 ? "," : ""}`).join("\n"), `}`, `\\endinput`, ""].join("\n");
+    return [`\\NeedsTeXFormat{LaTeX2e}`, `\\ProvidesPackage{${packageName}}[2026/08/13 TeX64 figure symbols]`, `\\RequirePackage{tikz}`, ...(sceneHasPlot(scene) ? [`\\RequirePackage{pgfplots}`, `\\pgfplotsset{compat=1.18}`] : []), ...(arrows ? [`\\usetikzlibrary{arrows.meta}`] : []), ...definitions, `\\tikzset{`, entries.map((entry, index) => `  ${entry}${index < entries.length - 1 ? "," : ""}`).join("\n"), `}`, `\\endinput`, ""].join("\n");
 };

@@ -9,6 +9,7 @@ import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
 import { importSvg } from "./svg-import.js";
 import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
+import { autoRange, compileExpr, niceTicks, samplePlot } from "./plot-math.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
@@ -40,6 +41,8 @@ const firstReportError = (report) => {
     }
     return typeof candidate === "string" && candidate.trim() ? candidate.trim().split(/\r?\n/)[0] : null;
 };
+const pathOutlineD = (item) => { let d = `M ${item.start.x} ${item.start.y}`; item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; }); return item.closed ? d + " Z" : d; };
+const isStraightLine = (item) => item.type === "path" && !item.closed && item.segments.length === 1 && item.segments[0].type === "line";
 const allPoints = (object, scene) => {
     var _a;
     if (object.type === "code") {
@@ -48,6 +51,8 @@ const allPoints = (object, scene) => {
     }
     if (object.type === "rect")
         return [object.from, object.to];
+    if (object.type === "plot")
+        return [object.at, { x: object.at.x + object.width, y: object.at.y + object.height }];
     if (object.type === "ellipse")
         return [{ x: object.center.x - object.rx, y: object.center.y - object.ry }, { x: object.center.x + object.rx, y: object.center.y + object.ry }];
     if (object.type === "node")
@@ -114,6 +119,8 @@ const moveObject = (object, dx, dy) => {
         move(object.from);
         move(object.to);
     }
+    else if (object.type === "plot")
+        move(object.at);
     else if (object.type === "ellipse")
         move(object.center);
     else if (object.type === "node")
@@ -142,6 +149,11 @@ const resizeObject = (object, before, after) => {
     if (object.type === "rect") {
         set(object.from);
         set(object.to);
+    }
+    else if (object.type === "plot") {
+        object.at = { x: after.minX, y: after.minY };
+        object.width = Math.max(.01, after.maxX - after.minX);
+        object.height = Math.max(.01, after.maxY - after.minY);
     }
     else if (object.type === "ellipse") {
         object.center = resizePoint(object.center, before, after);
@@ -213,8 +225,8 @@ export const initProCanvasUi = (deps) => {
         const requestText = (label, initial = "") => new Promise(resolve => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover pro-canvas-text-popover"; const title = document.createElement("label"); title.textContent = label; const input = document.createElement("input"); input.value = initial; const accept = document.createElement("button"); accept.textContent = "OK"; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; let done = false; const finish = (value) => { if (done)
             return; done = true; pop.remove(); resolve(value); }; accept.onclick = () => finish(input.value); cancel.onclick = () => finish(null); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
             return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
-        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<line x1="3" y1="13" x2="11" y2="5"/><polyline points="9,3 13,7 11,9 7,5 9,3"/><line x1="3" y1="13" x2="7" y2="12"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>' };
-        [['select', '選択', 'V'], ['pen', 'ペン', 'P'], ['line', '直線', 'L'], ['rect', '矩形', 'R'], ['ellipse', '楕円', 'E'], ['node', 'ノード', 'T'], ['code', 'コード', 'C']].forEach(([id, label, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.title = `${label} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg>`; toolHost.appendChild(b); });
+        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<line x1="3" y1="13" x2="11" y2="5"/><polyline points="9,3 13,7 11,9 7,5 9,3"/><line x1="3" y1="13" x2="7" y2="12"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
+        [['select', '選択', 'V'], ['pen', 'ペン', 'P'], ['line', '直線', 'L'], ['rect', '矩形', 'R'], ['ellipse', '楕円', 'E'], ['node', 'ノード', 'T'], ['code', 'コード', 'C'], ['plot', 'グラフ', 'G']].forEach(([id, label, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.title = `${label} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg>`; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
         let docPreamble = localStorage.getItem(DOC_STORAGE_KEY) === "true";
@@ -415,6 +427,39 @@ export const initProCanvasUi = (deps) => {
                 empty.textContent = selection.ids.size ? `${selection.ids.size} 個を選択中` : "オブジェクトを選択すると設定が表示されます";
                 named.before(empty);
             }
+            else if (object.type === "plot") {
+                const heading = (text) => { const h = document.createElement("h4"); h.textContent = text; host.append(h); }, field = (label, value, type, change) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = type; input.value = value; if (type === "number")
+                    input.step = "any"; input.onchange = () => { snapshot(); change(input.value); render(); }; row.append(input); host.append(row); return input; }, select = (label, value, options, change) => { const row = document.createElement("label"), input = document.createElement("select"); row.textContent = label; options.forEach(([key, text]) => { const option = document.createElement("option"); option.value = key; option.textContent = text; input.append(option); }); input.value = value; input.onchange = () => { snapshot(); change(input.value); render(); }; row.append(input); host.append(row); };
+                heading("軸");
+                field("xmin", String(object.axis.xmin), "number", value => { const n = Number(value); if (Number.isFinite(n))
+                    object.axis.xmin = n; });
+                field("xmax", String(object.axis.xmax), "number", value => { const n = Number(value); if (Number.isFinite(n))
+                    object.axis.xmax = n; });
+                field("ymin", object.axis.ymin === null ? "" : String(object.axis.ymin), "number", value => { const n = Number(value); object.axis.ymin = value.trim() === "" ? null : Number.isFinite(n) ? n : object.axis.ymin; });
+                field("ymax", object.axis.ymax === null ? "" : String(object.axis.ymax), "number", value => { const n = Number(value); object.axis.ymax = value.trim() === "" ? null : Number.isFinite(n) ? n : object.axis.ymax; });
+                select("軸線", object.axis.axisLines, [["box", "枠"], ["middle", "中央"], ["left", "左下"]], value => object.axis.axisLines = value);
+                select("グリッド", object.axis.grid, [["none", "なし"], ["major", "主"], ["both", "主+副"]], value => object.axis.grid = value);
+                field("xlabel", object.axis.xlabel, "text", value => object.axis.xlabel = value);
+                field("ylabel", object.axis.ylabel, "text", value => object.axis.ylabel = value);
+                field("title", object.axis.title, "text", value => object.axis.title = value);
+                heading("系列");
+                object.series.forEach((series, index) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-series"; const input = (type, value, title, change) => { const el = document.createElement("input"); el.type = type; el.value = value; el.title = title; if (type === "number")
+                    el.step = "any"; el.onchange = () => { snapshot(); change(el.value); render(); }; row.append(el); }; input("text", series.expr, "式", value => series.expr = value); input("number", series.domain === null ? "" : String(series.domain.min), "domain min", value => { var _a, _b; const n = Number(value); if (value.trim() === "") {
+                    if (series.domain)
+                        series.domain = null;
+                }
+                else if (Number.isFinite(n))
+                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : object.axis.xmax }; }); input("number", series.domain === null ? "" : String(series.domain.max), "domain max", value => { var _a, _b; const n = Number(value); if (value.trim() === "") {
+                    if (series.domain)
+                        series.domain = null;
+                }
+                else if (Number.isFinite(n))
+                    series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : object.axis.xmin, max: n }; }); input("color", series.color, "色", value => series.color = value); input("number", String(series.samples), "samples", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))); input("text", series.legend, "legend", value => series.legend = value); const thick = document.createElement("input"); thick.type = "checkbox"; thick.checked = series.thick; thick.title = "太線"; thick.onchange = () => { snapshot(); series.thick = thick.checked; render(); }; row.append(thick); const remove = document.createElement("button"); remove.textContent = "削除"; remove.disabled = object.series.length <= 1; remove.onclick = () => { snapshot(); object.series.splice(index, 1); render(); }; row.append(remove); host.append(row); });
+                const addSeries = document.createElement("button");
+                addSeries.textContent = "＋系列を追加";
+                addSeries.onclick = () => { snapshot(); object.series.push({ expr: "x", domain: null, samples: 100, color: "#000000", thick: true, legend: "" }); render(); };
+                host.append(addSeries);
+            }
             else if (object.type === "group" || object.type === "code") {
                 const note = document.createElement("div");
                 note.textContent = object.type === "code" ? "Double-click to edit TikZ code" : "Group geometry";
@@ -560,7 +605,7 @@ export const initProCanvasUi = (deps) => {
             const objects = svgEl("g", { class: "pro-canvas-objects", opacity: compiledImage ? 0 : 1, "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
-                var _a, _b, _c, _d;
+                var _a, _b, _c, _d, _e, _f;
                 if (object.type === "group" || object.type === "instance") {
                     const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
                     if (interactive)
@@ -595,10 +640,46 @@ export const initProCanvasUi = (deps) => {
                     parent.append(g);
                     return;
                 }
+                if (object.type === "plot") {
+                    const g = svgEl("g", interactive ? { "data-id": object.id } : {}), a = object.axis, xmin = a.xmin, xmax = a.xmax, compiled = object.series.map(series => ({ series, fn: compileExpr(series.expr) })), sampled = compiled.map(({ series, fn }) => { const domain = series.domain || { min: xmin, max: xmax }; return fn ? samplePlot(fn, domain.min, domain.max, series.samples) : []; }), auto = autoRange(sampled.flat(2).map(point => point.y)), ymin = (_b = a.ymin) !== null && _b !== void 0 ? _b : auto.min, ymax = (_c = a.ymax) !== null && _c !== void 0 ? _c : auto.max, mapX = (x) => object.at.x + (x - xmin) / Math.max(xmax - xmin, 1e-9) * object.width, mapY = (y) => object.at.y + (y - ymin) / Math.max(ymax - ymin, 1e-9) * object.height, xt = niceTicks(xmin, xmax), yt = niceTicks(ymin, ymax), neutral = "#64748b", clipId = `pro-canvas-plot-${object.id}`;
+                    parent.append(g);
+                    const defs = svgEl("defs"), clip = svgEl("clipPath", { id: clipId });
+                    clip.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height }));
+                    defs.append(clip);
+                    g.append(defs);
+                    if (a.grid !== "none") {
+                        xt.forEach(value => g.append(svgEl("line", { x1: mapX(value), y1: object.at.y, x2: mapX(value), y2: object.at.y + object.height, stroke: neutral, "stroke-opacity": .18, "stroke-width": .5, "vector-effect": "non-scaling-stroke" })));
+                        yt.forEach(value => g.append(svgEl("line", { x1: object.at.x, y1: mapY(value), x2: object.at.x + object.width, y2: mapY(value), stroke: neutral, "stroke-opacity": .18, "stroke-width": .5, "vector-effect": "non-scaling-stroke" })));
+                    }
+                    const axisX = a.axisLines === "middle" ? mapX(Math.max(xmin, Math.min(xmax, 0))) : object.at.x, axisY = a.axisLines === "middle" ? mapY(Math.max(ymin, Math.min(ymax, 0))) : object.at.y;
+                    if (a.axisLines === "box")
+                        g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "none", stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
+                    else {
+                        g.append(svgEl("line", { x1: object.at.x, y1: axisY, x2: object.at.x + object.width, y2: axisY, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
+                        g.append(svgEl("line", { x1: axisX, y1: object.at.y, x2: axisX, y2: object.at.y + object.height, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
+                    }
+                    const text = (value, x, y, anchor = "middle") => { const el = svgEl("text", { x, y: -y, transform: "scale(1,-1)", "text-anchor": anchor, fill: neutral, "font-size": 2.6 }); el.textContent = value; g.append(el); };
+                    xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - 1, x2: mapX(value), y2: axisY + 1, stroke: neutral, "stroke-width": .6 })); text(String(Number(value.toPrecision(5))), mapX(value), axisY - 1.6); });
+                    yt.forEach(value => { g.append(svgEl("line", { x1: axisX - 1, y1: mapY(value), x2: axisX + 1, y2: mapY(value), stroke: neutral, "stroke-width": .6 })); text(String(Number(value.toPrecision(5))), axisX - 1.5, mapY(value) - .8, "end"); });
+                    sampled.forEach((pieces, index) => pieces.forEach(piece => g.append(svgEl("polyline", { points: piece.map(point => `${mapX(point.x)},${mapY(point.y)}`).join(" "), fill: "none", stroke: object.series[index].color, "stroke-width": object.series[index].thick ? 1.2 : .7, "vector-effect": "non-scaling-stroke", "clip-path": `url(#${clipId})` }))));
+                    if (compiled.some(entry => !entry.fn)) {
+                        const error = svgEl("text", { x: object.at.x + object.width / 2, y: -(object.at.y + object.height / 2), transform: "scale(1,-1)", "text-anchor": "middle", fill: "#dc2626", "font-size": 3 });
+                        error.textContent = "式エラー";
+                        g.append(error);
+                    }
+                    if (a.title)
+                        text(a.title, object.at.x + object.width / 2, object.at.y + object.height - 1);
+                    if (a.xlabel)
+                        text(a.xlabel, object.at.x + object.width / 2, object.at.y - 4);
+                    if (a.ylabel)
+                        text(a.ylabel, object.at.x - 4, object.at.y + object.height / 2);
+                    g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "rgba(0,0,0,0.001)", stroke: "none", "pointer-events": "all", ...(interactive ? { "data-id": object.id } : {}) }));
+                    return;
+                }
                 const style = resolveStyle(scene, object.style);
-                const ptu = (_b = PT_IN_UNIT[scene.unit]) !== null && _b !== void 0 ? _b : 1;
+                const ptu = (_d = PT_IN_UNIT[scene.unit]) !== null && _d !== void 0 ? _d : 1;
                 const lw = (style.lineWidthPt || .4) * ptu;
-                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": lw, opacity: (_c = style.opacity) !== null && _c !== void 0 ? _c : 1, "stroke-dasharray": style.dash === "dashed" ? `${lw * 4} ${lw * 3}` : style.dash === "dotted" ? `${lw} ${lw * 2.5}` : "" };
+                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": lw, opacity: (_e = style.opacity) !== null && _e !== void 0 ? _e : 1, "stroke-dasharray": style.dash === "dashed" ? `${lw * 4} ${lw * 3}` : style.dash === "dotted" ? `${lw} ${lw * 2.5}` : "" };
                 let el;
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
@@ -612,7 +693,7 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_d = style.opacity) !== null && _d !== void 0 ? _d : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
+                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
                     el.textContent = object.latex;
                 }
                 const distance = style.doubleDistancePt || 0;
@@ -664,20 +745,19 @@ export const initProCanvasUi = (deps) => {
             if (hoveredId && !drag) {
                 const hovered = currentObjects().find(item => item.id === hoveredId);
                 if (hovered) {
-                    const b = objectBounds(hovered, scene);
-                    root.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-hover" }));
+                    if (hovered.type === "path")
+                        root.append(svgEl("path", { d: pathOutlineD(hovered), class: "pro-canvas-hover" }));
+                    else {
+                        const b = objectBounds(hovered, scene);
+                        root.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-hover" }));
+                    }
                 }
             }
             const selected = topLevelSelectedObjects();
             if (selected.length) {
                 const select = svgEl("g", { class: "pro-canvas-selection" });
-                selected.forEach(item => { if (anchorEdit && item.type === "path") {
-                    let d = `M ${item.start.x} ${item.start.y}`;
-                    item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; });
-                    if (item.closed)
-                        d += " Z";
-                    select.append(svgEl("path", { d, class: "pro-canvas-selection-outline" }));
-                }
+                selected.forEach(item => { if (item.type === "path")
+                    select.append(svgEl("path", { d: pathOutlineD(item), class: "pro-canvas-selection-outline", fill: "none" }));
                 else {
                     const b = objectBounds(item, scene);
                     select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" }));
@@ -686,13 +766,18 @@ export const initProCanvasUi = (deps) => {
                 if (!anchorEdit) {
                     if (selected.length > 1)
                         select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
+                    else if (isStraightLine(selected[0])) {
+                        [selected[0].start, selected[0].segments[0].to].forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: "pro-canvas-anchor" }); handle.dataset.anchorIndex = String(index); handle.dataset.pathId = selected[0].id; select.append(handle); });
+                    }
                     else if (selected[0].type !== "node") {
                         handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
-                        const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
-                        select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
-                        const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
-                        rotate.dataset.rotate = "true";
-                        select.append(rotate);
+                        if (selected[0].type !== "plot") {
+                            const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
+                            select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
+                            const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
+                            rotate.dataset.rotate = "true";
+                            select.append(rotate);
+                        }
                     }
                 }
                 root.append(select);
@@ -739,6 +824,11 @@ export const initProCanvasUi = (deps) => {
         let drag = null;
         let lastClick = null;
         let penDrag = null;
+        svg.addEventListener("pointerup", () => { if ((drag === null || drag === void 0 ? void 0 : drag.kind) !== "draw" || !drag.id || !drag.moved)
+            return; const object = currentObjects().find(item => item.id === drag.id); if ((object === null || object === void 0 ? void 0 : object.type) === "plot") {
+            object.width = Math.max(5, object.width);
+            object.height = Math.max(5, object.height);
+        } });
         let pen = null, penCursor = null;
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
@@ -753,6 +843,17 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+            if (tool === "select" && target.dataset.pathId && target.dataset.anchorIndex !== undefined) {
+                const path = walk(currentObjects(), target.dataset.pathId), anchorIndex = Number(target.dataset.anchorIndex);
+                if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
+                    return;
+                selectedAnchorIndex = anchorIndex;
+                drag = { kind: "anchor", start: raw, startClient: client, before: cloneScene(scene), id: path.id, anchorIndex };
+                hoveredId = null;
+                svg.setPointerCapture(e.pointerId);
+                render();
+                return;
+            }
             if (tool === "select") {
                 const anchorIndex = target.dataset.anchorIndex === undefined ? undefined : Number(target.dataset.anchorIndex), controlSegment = target.dataset.controlSegment === undefined ? undefined : Number(target.dataset.controlSegment), controlKey = target.dataset.controlKey;
                 if (anchorEdit && (anchorIndex !== undefined || controlSegment !== undefined)) {
@@ -846,6 +947,18 @@ export const initProCanvasUi = (deps) => {
                     svg.setPointerCapture(e.pointerId);
                     scheduleCompile();
                 }
+                render();
+                return;
+            }
+            if (tool === "plot") {
+                snapshot(false);
+                invalidateCompiled();
+                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "none", xlabel: "", ylabel: "", title: "" }, series: [{ expr: "x^2", domain: null, samples: 100, color: "#000000", thick: true, legend: "" }], style: {} };
+                currentObjects().push(object);
+                replaceSelection(object.id);
+                drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
+                cacheDragLines();
+                svg.setPointerCapture(e.pointerId);
                 render();
                 return;
             }
@@ -955,6 +1068,11 @@ export const initProCanvasUi = (deps) => {
                 }
                 else if (o.type === "path")
                     o.segments[0] = { type: "line", to: p };
+                else if (o.type === "plot") {
+                    o.at = { x: Math.min(origin.x, p.x), y: Math.min(origin.y, p.y) };
+                    o.width = Math.max(.01, Math.abs(p.x - origin.x));
+                    o.height = Math.max(.01, Math.abs(p.y - origin.y));
+                }
             }
         } render(); });
         svg.addEventListener("pointerup", e => {
@@ -1120,7 +1238,7 @@ export const initProCanvasUi = (deps) => {
             }
         };
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
-            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code" }[e.key.toLowerCase()]; if (next) {
+            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code", g: "plot" }[e.key.toLowerCase()]; if (next) {
             tool = next;
             e.preventDefault();
             render();

@@ -8689,6 +8689,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .pro-canvas-toolbar { border-bottom: 1px solid var(--panel-border); }
+.pro-canvas-topbar { padding-left: 84px; -webkit-app-region: drag; }
+.pro-canvas-topbar button { -webkit-app-region: no-drag; }
 .pro-canvas-title { white-space: nowrap; font-size: 13px; }
 .pro-canvas-topbar-spacer, .pro-canvas-footer-spacer { flex: 1; }
 .pro-canvas-bottom { border-top: 1px solid var(--panel-border); }
@@ -8758,7 +8760,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-inspector h3 { margin: 0 0 8px; color: var(--text-soft); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
 .pro-canvas-geometry, .pro-canvas-style { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .pro-canvas-geometry label, .pro-canvas-style label { display: grid; gap: 4px; color: var(--text-soft); font-size: 10px; }
-.pro-canvas-geometry input, .pro-canvas-style input[type="number"], .pro-canvas-style select { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 5px; }
+.pro-canvas-geometry input, .pro-canvas-style input[type="number"], .pro-canvas-style input[type="text"], .pro-canvas-style input[type="color"], .pro-canvas-style select { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 5px; }
+.pro-canvas-style h4, .pro-canvas-plot-series { grid-column: 1 / -1; }
+.pro-canvas-style h4 { margin: 4px 0 0; color: var(--text-soft); font-size: 11px; }
+.pro-canvas-plot-series { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, .7fr)); gap: 4px; padding-top: 7px; border-top: 1px solid var(--panel-border); }
+.pro-canvas-plot-series input, .pro-canvas-plot-series button { min-width: 0; }
 .pro-canvas-swatch { position: relative; }
 .pro-canvas-swatch input[type="color"] { width: 100%; height: 32px; padding: 2px; border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel); }
 .pro-canvas-swatch input[type="checkbox"] { position: absolute; top: -3px; right: -3px; width: 14px; height: 14px; }

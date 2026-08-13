@@ -69,6 +69,16 @@ const isSceneObject = (value) => {
         return typeof value.symbol === "string" && isRecord(value.path)
             && isVec(value.path.start) && isPathSegments(value.path.segments)
             && Number.isInteger(value.count) && value.count > 0 && typeof value.align === "boolean";
+    if (value.type === "plot")
+        return isVec(value.at) && isNumber(value.width) && value.width > 0 && isNumber(value.height) && value.height > 0
+            && isRecord(value.axis) && isNumber(value.axis.xmin) && isNumber(value.axis.xmax)
+            && (value.axis.ymin === null || isNumber(value.axis.ymin)) && (value.axis.ymax === null || isNumber(value.axis.ymax))
+            && oneOf(value.axis.axisLines, ["box", "middle", "left"]) && oneOf(value.axis.grid, ["none", "major", "both"])
+            && typeof value.axis.xlabel === "string" && typeof value.axis.ylabel === "string" && typeof value.axis.title === "string"
+            && Array.isArray(value.series) && value.series.every(series => isRecord(series) && typeof series.expr === "string"
+            && (series.domain === null || (isRecord(series.domain) && isNumber(series.domain.min) && isNumber(series.domain.max)))
+            && Number.isInteger(series.samples) && series.samples > 0 && typeof series.color === "string" && /^#[0-9a-fA-F]{6}$/.test(series.color)
+            && typeof series.thick === "boolean" && typeof series.legend === "string");
     if (value.type === "rect")
         return isVec(value.from) && isVec(value.to);
     if (value.type === "ellipse")
@@ -95,3 +105,7 @@ export const validateScene = (value) => {
     return value;
 };
 export const findSymbol = (scene, id) => (scene.symbols || []).find((symbol) => symbol.id === id);
+export const sceneHasPlot = (scene) => {
+    const has = (objects) => objects.some(object => object.type === "plot" || (object.type === "group" && has(object.children)));
+    return has(scene.objects) || (scene.symbols || []).some(symbol => has(symbol.objects));
+};

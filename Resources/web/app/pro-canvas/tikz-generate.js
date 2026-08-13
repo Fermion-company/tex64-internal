@@ -1,4 +1,4 @@
-import { resolveStyle } from "./scene.js";
+import { resolveStyle, sceneHasPlot } from "./scene.js";
 import { findSymbol } from "./scene.js";
 import { samplePathPoints } from "./canvas-math.js";
 const basicColors = {
@@ -128,6 +128,34 @@ export const generateTikz = (scene) => {
             const list = samples.map((sample) => point(sample.point)).join(", ");
             return [`${indent}\\foreach \\p in {${list}}`, `${indent}  ${withOptions("pic", [...style, "shift={(\\p)}"])} {${symbol.name}};`];
         }
+        if (object.type === "plot") {
+            const axis = object.axis, opts = [`at={${point(object.at)}}`, `anchor=south west`, `width=${numberText(object.width)}${scene.unit}`, `height=${numberText(object.height)}${scene.unit}`, `xmin=${numberText(axis.xmin)}`, `xmax=${numberText(axis.xmax)}`];
+            if (axis.ymin !== null)
+                opts.push(`ymin=${numberText(axis.ymin)}`);
+            if (axis.ymax !== null)
+                opts.push(`ymax=${numberText(axis.ymax)}`);
+            if (axis.axisLines !== "box")
+                opts.push(`axis lines=${axis.axisLines}`);
+            if (axis.grid !== "none")
+                opts.push(`grid=${axis.grid}`);
+            if (axis.xlabel)
+                opts.push(`xlabel={${axis.xlabel}}`);
+            if (axis.ylabel)
+                opts.push(`ylabel={${axis.ylabel}}`);
+            if (axis.title)
+                opts.push(`title={${axis.title}}`);
+            const lines = [`${indent}\\begin{axis}[${opts.join(", ")}]`];
+            for (const series of object.series) {
+                const domain = series.domain || { min: axis.xmin, max: axis.xmax }, plot = [`domain=${numberText(domain.min)}:${numberText(domain.max)}`, `samples=${Math.max(1, Math.floor(series.samples))}`, colorName(series.color)];
+                if (series.thick)
+                    plot.push("thick");
+                lines.push(`${indent}  \\addplot[${plot.join(", ")}] {${series.expr}};`);
+                if (series.legend)
+                    lines.push(`${indent}  \\addlegendentry{${series.legend}}`);
+            }
+            lines.push(`${indent}\\end{axis}`);
+            return lines;
+        }
         const options = objectOptions(object.style);
         if (object.type === "node") {
             if (object.anchor !== "center")
@@ -182,6 +210,6 @@ export const generateTikz = (scene) => {
     const begin = `\\begin{tikzpicture}${pictureOptions.length ? `[${pictureOptions.join(", ")}]` : ""}`;
     const requires = arrowsUsed ? ["arrows.meta"] : [];
     const definitions = [...customColors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
-    const comment = requires.length ? [`% requires \\usetikzlibrary{${requires.join(",")}}`] : [];
+    const comment = [...(sceneHasPlot(scene) ? ["% requires: \\usepackage{pgfplots} \\pgfplotsset{compat=1.18}"] : []), ...(requires.length ? [`% requires \\usetikzlibrary{${requires.join(",")}}`] : [])];
     return { code: [...definitions, ...comment, begin, ...body, "\\end{tikzpicture}"].join("\n"), requires };
 };

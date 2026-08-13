@@ -195,8 +195,17 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    四隅配置（シンボル bounds + inset から 4 変換を導出）、`%% tex64-figure` ブロックの
    文書内ギャラリー（`gallery-ui.ts`、fermion 逐次サムネイル）。前提修正として
    `renderPdf` をサービス内 Promise キューで直列化（Live コンパイルとサムネイルの競合防止）。
-
-## 実装時の注意（CLAUDE.md より）
+10. **H1–H2**: chrome 修正 + 直線選択 + pgfplots グラフツール — **完了 (2026-08-13)**。仕様:
+   [pro-canvas-h-spec.md](pro-canvas-h-spec.md)。H1a: topbar に hiddenInset 信号機ぶんの
+   `padding-left: 84px` + `-webkit-app-region: drag`。H1b: パスの選択/ホバーは bbox でなく
+   パス形状アウトライン、2 点直線は端点ハンドル直接ドラッグ（リサイズ 8 ハンドル・回転を抑止、
+   anchorEdit なしで `kind:"anchor"` ドラッグ再利用）。H2: `plot` オブジェクト（pgfplots
+   axis を 1 オブジェクトとして配置、G キー）。式は `plot-math.ts` の自前再帰下降パーサ
+   （eval 不使用、trig は pgfplots 準拠の度単位）でキャンバス近似描画し、書き出しは
+   `\begin{axis}` + `\addplot`。plot を含むシーンは standalone/.sty に pgfplots を自動追加、
+   図ブロック先頭に `% requires:` コメント。ymin/ymax 空欄 = 自動レンジ。プロットの
+   ドラッグ配置は draw 分岐（`scene=cloneScene(drag.before)` 巻き戻し）内で処理する
+   （別リスナーでのシーン変更は毎ムーブ捨てられるため不可 — 監査で修正済み）。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
