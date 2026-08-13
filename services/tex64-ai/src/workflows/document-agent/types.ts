@@ -16,6 +16,7 @@ export type DocumentAgentWorkflowInput = {
   baseRevision: number;
   replyToRunId: string | null;
   decision: RunDecision | null;
+  targetNodeId?: string | null;
 };
 
 export type ClarificationContinuation = {

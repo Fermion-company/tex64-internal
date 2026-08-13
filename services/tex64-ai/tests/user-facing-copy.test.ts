@@ -249,6 +249,8 @@ describe.sequential("user-facing question boundary", () => {
       resultRevision: null,
       artifactRelease: null,
       errorMessage: `apply_document_patch runId=${QUESTION_RUN_ID}`,
+      resultNote: null,
+      targetNodeId: null,
       stateVersion: 1,
       createdAt: NOW,
       updatedAt: NOW,

@@ -130,7 +130,7 @@ export function agentRunRateLimitInput(input: {
 export function documentMutationRateLimitInput(input: {
   request: Request;
   userId: string;
-  action: "create" | "patch";
+  action: "create" | "patch" | "compile" | "restore";
   reservationKey?: string;
   environment?: RuntimeEnvironment;
 }): { policies: RateLimitPolicy[]; reservationKey?: string } {
@@ -139,12 +139,17 @@ export function documentMutationRateLimitInput(input: {
   const configuration =
     input.action === "create"
       ? { identity: 30, network: 60, global: 1_000, windowMs: HOUR_MS }
-      : {
-          identity: 120,
-          network: 240,
-          global: 5_000,
-          windowMs: 60 * 1_000,
-        };
+      : input.action === "compile"
+        ? // On-demand typesetting is far heavier than a JSON patch.
+          { identity: 30, network: 60, global: 600, windowMs: HOUR_MS }
+        : input.action === "restore"
+          ? { identity: 60, network: 120, global: 1_000, windowMs: HOUR_MS }
+          : {
+              identity: 120,
+              network: 240,
+              global: 5_000,
+              windowMs: 60 * 1_000,
+            };
   const action = `document:${input.action}`;
   return {
     policies: [

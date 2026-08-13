@@ -2,6 +2,7 @@ import type {
   ArtifactReleaseBinding,
   StoredAgentRun,
   StoredArtifact,
+  StoredDocument,
 } from "@/server/persistence/types";
 
 import { CURRENT_ARTIFACT_QUALITY_VERSION } from "./verification";
@@ -77,6 +78,29 @@ export function runReleasesArtifact(
       run.artifactRelease.revision === run.resultRevision &&
       artifactMatchesRelease(artifact, run.artifactRelease),
   );
+}
+
+/**
+ * Owner-only draft visibility, deliberately separate from the release
+ * predicate above: an artifact the owner compiled on demand (manual edits,
+ * restore) is viewable by that owner while it belongs to the document's
+ * CURRENT revision, even though no completed run has released it. Released
+ * artifacts stay viewable regardless of the current revision.
+ */
+export function artifactViewableByOwner(input: {
+  document: Pick<StoredDocument, "currentRevision"> | null;
+  completedRun: StoredAgentRun | null;
+  artifact: StoredArtifact | null;
+  sha256: string;
+}): boolean {
+  const artifact = input.artifact;
+  if (!artifact || artifact.sha256 !== input.sha256) return false;
+  // Read fields before the predicate call: its `artifact is StoredArtifact`
+  // narrowing would otherwise collapse the false branch to `never`.
+  const isCurrentRevision = Boolean(
+    input.document && artifact.revision === input.document.currentRevision,
+  );
+  return runReleasesArtifact(input.completedRun, artifact) || isCurrentRevision;
 }
 
 function artifactCanBeReleased(

@@ -95,31 +95,30 @@
               <rect class="topbar-layout-fill" x="3" y="5" width="6" height="14" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
+          <nav class="mode-switcher" id="mode-switcher" role="tablist" aria-label="App mode">
+            <button id="mode-tab-code" class="mode-tab" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" title="Code — LaTeXエディタ">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m8 8-4 4 4 4"></path>
+                <path d="m16 8 4 4-4 4"></path>
+              </svg>
+              <span>Code</span>
+            </button>
+            <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" title="AI — 文書エージェント">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"></path>
+              </svg>
+              <span>AI</span>
+            </button>
+            <button id="mode-tab-pro" class="mode-tab" type="button" role="tab" data-app-mode-tab="pro" aria-selected="false" title="Pro — 分割レイアウトと執筆ツール">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                <path d="M11 5v14"></path>
+                <path d="M16.5 5v14"></path>
+              </svg>
+              <span>Pro</span>
+            </button>
+          </nav>
         </div>
-        <div class="topbar-drag"></div>
-        <nav class="mode-switcher" id="mode-switcher" role="tablist" aria-label="App mode">
-          <button id="mode-tab-code" class="mode-tab" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" title="Code — LaTeXエディタ">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m8 8-4 4 4 4"></path>
-              <path d="m16 8 4 4-4 4"></path>
-            </svg>
-            <span>Code</span>
-          </button>
-          <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" title="AI — 文書エージェント">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"></path>
-            </svg>
-            <span>AI</span>
-          </button>
-          <button id="mode-tab-pro" class="mode-tab" type="button" role="tab" data-app-mode-tab="pro" aria-selected="false" title="Pro — 分割レイアウトと執筆ツール">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-              <path d="M11 5v14"></path>
-              <path d="M16.5 5v14"></path>
-            </svg>
-            <span>Pro</span>
-          </button>
-        </nav>
         <div class="topbar-drag"></div>
         <div class="top-actions">
           <div class="pro-mode-controls" aria-label="Pro mode layout">

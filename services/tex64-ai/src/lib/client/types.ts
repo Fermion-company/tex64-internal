@@ -77,6 +77,8 @@ export type DocumentBlock =
 
 export interface DocumentVersion {
   id: string;
+  /** Revision number this version snapshots; restore targets this. */
+  revision: number;
   label: string;
   createdAt: string;
   source: "agent" | "manual";
@@ -100,6 +102,18 @@ export interface AgentRun {
   inputKind?: "approval" | "clarification" | null;
 }
 
+/**
+ * One semantic progress step of a run, in occurrence order. Labels are the
+ * fixed user-facing copy; repair rounds repeat a stage with attempt >= 1.
+ */
+export interface RunProgressEvent {
+  stage: RunStage;
+  label: string;
+  sequence: number;
+  occurredAt: string;
+  attempt?: number;
+}
+
 export interface DocumentSummary {
   id: string;
   title: string;
@@ -109,12 +123,44 @@ export interface DocumentSummary {
   preview: string;
 }
 
+/**
+ * One selectable element of the typeset document, in reading order. Covers
+ * rich nodes (figures, tables, theorems…) that the block editor cannot
+ * represent; labels use the same numbering as the canvas.
+ */
+export interface DocumentElement {
+  id: string;
+  kind:
+    | "section"
+    | "heading"
+    | "paragraph"
+    | "list"
+    | "equation"
+    | "quote"
+    | "figure"
+    | "table"
+    | "theorem"
+    | "proof"
+    | "algorithm"
+    | "code"
+    | "appendix"
+    | "bibliography";
+  label: string;
+  /** True when the block canvas can edit this element directly. */
+  editable: boolean;
+}
+
 export interface DocumentDetail extends DocumentSummary {
   revision: number;
   artifactUrl?: string;
+  /** Inline PDF for the current revision (released or the owner's draft). */
+  previewUrl?: string;
+  /** Element-region map for previewUrl; absent when no map was produced. */
+  regionsUrl?: string;
   eyebrow?: string;
   author?: string;
   blocks: DocumentBlock[];
+  elements: DocumentElement[];
   versions: DocumentVersion[];
   runs: AgentRun[];
 }
@@ -139,6 +185,8 @@ export interface StartRunInput {
   prompt?: string;
   replyToRunId?: string;
   decision?: "approve" | "reject";
+  /** Document element (block id) this request is scoped to. */
+  targetNodeId?: string;
 }
 
 export type ClientError = "conflict" | "unavailable" | "invalid_response";

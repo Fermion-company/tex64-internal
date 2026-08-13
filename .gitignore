@@ -87,3 +87,4 @@ playwright-report/
 /test-sample-hover/**/*.lot
 /test-sample-hover/**/*.pdf
 !/test-sample-hover/assets/pdfs/sample.pdf
+.worktrees/

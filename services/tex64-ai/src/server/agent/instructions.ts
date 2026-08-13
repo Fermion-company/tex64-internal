@@ -31,7 +31,8 @@ export const DOCUMENT_AGENT_SYSTEM_INSTRUCTIONS = `あなたはTeX64の文書作
 
 応答
 ・作業中はユーザーの目的に沿った意味的な進捗だけを示します。
-・完了時は、何ができたかを簡潔に伝えます。実装手順や内部処理の説明は不要です。`;
+・完了時は、何ができたかを簡潔に伝えます。実装手順や内部処理の説明は不要です。
+・最後の出力は、そのままチャットに表示される締めのメッセージです。何をどう仕上げたかを1〜3文の日本語で伝え、tool名、ID、TeXコマンド、内部用語を含めてはいけません。`;
 
 export function createDocumentAgentInstructions(options?: {
   additionalRules?: readonly string[];

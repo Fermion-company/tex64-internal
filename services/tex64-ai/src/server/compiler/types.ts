@@ -18,6 +18,11 @@ export type CompileResult = {
   durationMs: number;
   pageCount: number;
   diagnostics: CompileDiagnostic[];
+  /**
+   * Raw SyncTeX output (.synctex.gz bytes) for the PDF element map.
+   * Best-effort: absent when the engine produced none; never fails a compile.
+   */
+  synctex?: Uint8Array;
 };
 
 export interface DocumentCompiler {

@@ -260,7 +260,7 @@ async function assess(input: {
 }
 
 describe.sequential("typed document brief workflow", () => {
-  it("asks adaptive questions and never writes before final confirmation", async () => {
+  it("asks for the subject once, then self-confirms with delegated defaults", async () => {
     const first = await assess({
       index: 0,
       prompt: "論文を書いて",
@@ -273,54 +273,14 @@ describe.sequential("typed document brief workflow", () => {
       currentRevision: 1,
     });
 
+    // Build-first intake: the subject answer resolves everything else by
+    // delegation and the brief confirms itself — no interrogation rounds.
     const second = await assess({
       index: 1,
       prompt: "Transformerの注意機構についてです",
       replyToRunId: first.workflow.runId,
     });
     expect(second.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("研究問い"),
-    });
-
-    const third = await assess({
-      index: 2,
-      prompt:
-        "対象読者は機械学習を学ぶ学部生です。目的は注意機構の仕組みを理解することです。読み手に主要な式の意味を説明できるようにします。",
-      replyToRunId: second.workflow.runId,
-    });
-    expect(third.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("方法・データ・結果・限界"),
-    });
-
-    const fourth = await assess({
-      index: 3,
-      prompt:
-        "含める内容は背景、仕組み、計算例、応用です。含めない内容は実装コードです。技術的な深さで8ページ、日本語。構成は要旨、背景、理論、計算例、考察、結論です。",
-      replyToRunId: third.workflow.runId,
-    });
-    expect(fourth.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("推奨設定"),
-    });
-
-    const fifth = await assess({
-      index: 4,
-      prompt: "残りは推奨設定にお任せします",
-      replyToRunId: fourth.workflow.runId,
-    });
-    expect(fifth.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("この条件で執筆を進めますか"),
-    });
-
-    const sixth = await assess({
-      index: 5,
-      prompt: "この条件で進めてください",
-      replyToRunId: fifth.workflow.runId,
-    });
-    expect(sixth.assessment).toMatchObject({
       status: "ready",
       legacyDocument: false,
     });
@@ -342,7 +302,7 @@ describe.sequential("typed document brief workflow", () => {
     );
     expect(stored?.session.brief.figures.policy.status).toBe("delegated");
     const plan = await createDocumentPlanStep({
-      workflow: sixth.workflow,
+      workflow: second.workflow,
       runtime: { provider: "deterministic_fallback", model: null },
     });
     expect(plan.sections.map((section) => section.title)).toEqual(
@@ -440,12 +400,14 @@ describe.sequential("typed document brief workflow", () => {
     );
     expect(activeBefore?.sourceRunId).toBe(first.workflow.runId);
 
+    // A fresh reply still lands: it answers the surviving question, and the
+    // build-first intake then completes with delegated defaults.
     const recovered = await assess({
       index: 2,
       prompt: "Transformerの注意機構についてです",
       replyToRunId: first.workflow.runId,
     });
-    expect(recovered.assessment.status).toBe("needs_input");
+    expect(recovered.assessment.status).toBe("ready");
     await expect(
       repository.getRun(USER_ID, first.workflow.runId),
     ).resolves.toMatchObject({ status: "cancelled" });
@@ -453,13 +415,13 @@ describe.sequential("typed document brief workflow", () => {
       USER_ID,
       DOCUMENT_ID,
     );
-    const activeAfter = afterRecovery?.session.questions.find(
-      (question) => question.id === afterRecovery.session.activeQuestionId,
-    );
     expect(afterRecovery?.session.lastProcessedRunId).toBe(
       recovered.workflow.runId,
     );
-    expect(activeAfter?.sourceRunId).toBe(recovered.workflow.runId);
+    expect(afterRecovery?.session.activeQuestionId).toBeNull();
+    expect(afterRecovery?.session.confirmedBriefVersion).toBe(
+      afterRecovery?.session.briefVersion,
+    );
   });
 
   it("accepts only a reply to the persisted active question", async () => {
@@ -490,16 +452,15 @@ describe.sequential("typed document brief workflow", () => {
     ["引用形式をIEEEへ変更", "sources.citationStyle", "ieee"],
     ["主題を量子計算に変えて全面改稿", "goal.subject", "量子計算"],
   ] as const)(
-    "reopens confirmation when a standalone request changes a confirmed requirement: %s",
+    "absorbs a standalone change to a confirmed requirement and re-confirms: %s",
     async (prompt, path, expectedValue) => {
       await seedConfirmedPaperSession();
       const before = await repository.getDocumentAgentSession(USER_ID, DOCUMENT_ID);
       const result = await assess({ index: 0, prompt });
 
-      expect(result.assessment).toMatchObject({
-        status: "needs_input",
-        question: expect.stringContaining("この条件で執筆を進めますか"),
-      });
+      // Build-first: the change lands in the brief and confirmation renews
+      // automatically instead of pausing for another approval round.
+      expect(result.assessment).toMatchObject({ status: "ready" });
       const stored = await repository.getDocumentAgentSession(
         USER_ID,
         DOCUMENT_ID,
@@ -507,7 +468,9 @@ describe.sequential("typed document brief workflow", () => {
       expect(stored?.session.briefVersion).toBe(
         (before?.session.briefVersion ?? 0) + 1,
       );
-      expect(stored?.session.confirmedBriefVersion).toBeNull();
+      expect(stored?.session.confirmedBriefVersion).toBe(
+        stored?.session.briefVersion,
+      );
       const actualValue =
         path === "scope.targetLength"
           ? stored?.session.brief.scope.targetLength.value
@@ -545,21 +508,21 @@ describe.sequential("typed document brief workflow", () => {
       repository.getDocument(USER_ID, DOCUMENT_ID),
     ).resolves.toMatchObject({ currentRevision: 1 });
 
+    // Answering the reopened figure question completes intake directly.
     const switched = await assess({
       index: 1,
       prompt: "内容に合う図を作る",
       replyToRunId: first.workflow.runId,
     });
-    expect(switched.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("この条件で執筆を進めますか"),
-    });
+    expect(switched.assessment).toMatchObject({ status: "ready" });
     const stored = await repository.getDocumentAgentSession(
       USER_ID,
       DOCUMENT_ID,
     );
     expect(stored?.session.brief.figures.policy.value).toBe("agent_proposes");
-    expect(stored?.session.confirmedBriefVersion).toBeNull();
+    expect(stored?.session.confirmedBriefVersion).toBe(
+      stored?.session.briefVersion,
+    );
     await expect(
       repository.getDocument(USER_ID, DOCUMENT_ID),
     ).resolves.toMatchObject({ currentRevision: 1 });
@@ -587,23 +550,26 @@ describe.sequential("typed document brief workflow", () => {
     ).resolves.toMatchObject({ currentRevision: 2 });
   });
 
-  it("elicits and confirms a legacy full rewrite before changing its revision", async () => {
+  it("runs a legacy full rewrite as a conversational edit without intake", async () => {
     await seedLegacyDocument();
 
+    // Content-bearing documents no longer re-enter intake for new prompts:
+    // the agent handles the rewrite directly and asks at most one question
+    // itself (request_input) when something essential is missing.
     const result = await assess({
       index: 0,
       prompt: "主題を量子計算へ変え、10ページのIEEE論文として全面改稿して",
     });
 
-    expect(result.assessment.status).toBe("needs_input");
-    const stored = await repository.getDocumentAgentSession(
-      USER_ID,
-      DOCUMENT_ID,
-    );
-    expect(stored?.session.confirmedBriefVersion).toBeNull();
-    expect(stored?.session.brief.goal.subject.value).toContain("量子計算");
-    expect(stored?.session.brief.scope.targetLength.value).toContain("10ページ");
-    expect(stored?.session.brief.sources.citationStyle.value).toBe("ieee");
+    expect(result.assessment).toEqual({
+      status: "ready",
+      brief: null,
+      briefVersion: null,
+      legacyDocument: true,
+    });
+    await expect(
+      repository.getDocumentAgentSession(USER_ID, DOCUMENT_ID),
+    ).resolves.toBeNull();
     await expect(
       repository.getDocument(USER_ID, DOCUMENT_ID),
     ).resolves.toMatchObject({ currentRevision: 2 });

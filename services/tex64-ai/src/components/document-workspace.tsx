@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Plus, Sigma, SunMoon } from "lucide-react";
+import { ChevronDown, History, Plus, RefreshCw, Sigma, SunMoon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -10,13 +10,21 @@ import {
   useState,
 } from "react";
 import { AgentPanel } from "@/components/agent-panel";
-import { DocumentCanvas, type SaveState } from "@/components/document-canvas";
-import { NewDocumentPanel } from "@/components/new-document-panel";
 import {
+  BlockEditor,
+  DocumentCanvas,
+  type SaveState,
+} from "@/components/document-canvas";
+import { NewDocumentPanel } from "@/components/new-document-panel";
+import { PdfPreview, type PdfElementRegion, type PdfRegionRect } from "@/components/pdf-preview";
+import {
+  compileDocument,
   createDocument,
   getDocument,
   listDocuments,
+  listRunEvents,
   patchDocument,
+  restoreDocument,
   startRun,
 } from "@/lib/client/api";
 import {
@@ -35,15 +43,18 @@ import { startSequentialPolling } from "@/lib/client/sequential-polling";
 import type {
   AgentRun,
   CreateDocumentInput,
+  DocumentBlock,
   DocumentChanges,
   DocumentDetail,
   DocumentPatch,
   DocumentSummary,
+  RunProgressEvent,
   StartRunInput,
 } from "@/lib/client/types";
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 type MobileView = "conversation" | "document";
+/** "preview" = 紙面 (compiled PDF), "outline" = 構成 (block canvas + rail). */
 type CanvasView = "preview" | "outline";
 
 const KIND_LABELS: Record<string, string> = {
@@ -83,6 +94,20 @@ export function DocumentWorkspace() {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [connectionError, setConnectionError] = useState(false);
   const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [regionNodes, setRegionNodes] = useState<{
+    url: string;
+    nodes: { id: string; rects: PdfRegionRect[] }[];
+  } | null>(null);
+  const [manualViewChoice, setManualViewChoice] = useState<Record<string, CanvasView>>({});
+  const [compiling, setCompiling] = useState(false);
+  const [compileFailed, setCompileFailed] = useState(false);
+  const [progressEvents, setProgressEvents] = useState<RunProgressEvent[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const compileInFlightRef = useRef(false);
+  const lastFailedCompileRef = useRef<string | null>(null);
+  const flushOutstandingSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const completedRunRef = useRef<string | null>(null);
   const runSubmissionRef = useRef(false);
@@ -101,6 +126,56 @@ export function DocumentWorkspace() {
     () => selectConversationRun(activeDocument?.runs ?? [], activeRun),
     [activeDocument?.runs, activeRun],
   );
+  const agentWorking =
+    conversationRun?.status === "queued" || conversationRun?.status === "running";
+  const selectedElement = useMemo(
+    () =>
+      activeDocument?.elements.find(
+        (element) => element.id === selectedElementId,
+      ) ?? null,
+    [activeDocument?.elements, selectedElementId],
+  );
+  const pdfRegions = useMemo<PdfElementRegion[] | null>(() => {
+    if (!regionNodes || !activeDocument) return null;
+    if (regionNodes.url !== activeDocument.regionsUrl) return null;
+    const labelById = new Map(
+      activeDocument.elements.map((element) => [element.id, element.label]),
+    );
+    const joined = regionNodes.nodes.flatMap((node) => {
+      const label = labelById.get(node.id);
+      return label ? [{ id: node.id, label, rects: node.rects }] : [];
+    });
+    return joined.length > 0 ? joined : null;
+  }, [activeDocument, regionNodes]);
+  const selectedBlock = useMemo<DocumentBlock | null>(
+    () =>
+      activeDocument?.blocks.find((block) => block.id === selectedElementId) ??
+      null,
+    [activeDocument?.blocks, selectedElementId],
+  );
+  const { selectedHeadingNumber, selectedEquationNumber } = useMemo(() => {
+    let headingNumber: number | undefined;
+    let equationNumber: number | undefined;
+    if (activeDocument && selectedBlock) {
+      let headings = 0;
+      let equations = 0;
+      for (const block of activeDocument.blocks) {
+        if (block.type === "heading" && block.level === 1) headings += 1;
+        if (block.type === "equation") equations += 1;
+        if (block.id === selectedBlock.id) {
+          if (block.type === "heading" && block.level === 1) {
+            headingNumber = headings;
+          }
+          if (block.type === "equation") equationNumber = equations;
+          break;
+        }
+      }
+    }
+    return {
+      selectedHeadingNumber: headingNumber,
+      selectedEquationNumber: equationNumber,
+    };
+  }, [activeDocument, selectedBlock]);
 
   const updateStoredDocument = useCallback((document: DocumentDetail, activate = false) => {
     latestDocumentsRef.current[document.id] = document;
@@ -131,6 +206,181 @@ export function DocumentWorkspace() {
       document.documentElement.dataset.theme = saved;
     }
   }, []);
+
+  // Element-region map for the PDF overlay. Keyed on the immutable per-PDF
+  // URL so the 2-second document polling never refetches it; state carries
+  // its own key so switching PDFs needs no synchronous reset.
+  const regionsUrl = activeDocument?.regionsUrl ?? null;
+  useEffect(() => {
+    if (!regionsUrl) return;
+    let cancelled = false;
+    void fetch(regionsUrl, { headers: { Accept: "application/json" } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: unknown) => {
+        if (cancelled) return;
+        const nodes =
+          payload &&
+          typeof payload === "object" &&
+          "regions" in payload &&
+          payload.regions &&
+          typeof payload.regions === "object" &&
+          "nodes" in payload.regions &&
+          Array.isArray(payload.regions.nodes)
+            ? (payload.regions.nodes as { id: string; rects: PdfRegionRect[] }[])
+            : null;
+        setRegionNodes(nodes ? { url: regionsUrl, nodes } : null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegionNodes(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [regionsUrl]);
+
+  // 紙面 (PDF) is the default surface once a document has typeset output;
+  // documents without one open on 構成 so first-time generation stays visible.
+  // Once in 紙面, losing previewUrl (a manual edit staled the artifact) never
+  // bounces the view back — the stale paper stays visible while recompiling.
+  // State adjustments happen during render (not in effects) per house rules.
+  const activeDocumentId = activeDocument?.id ?? null;
+  const hasPreview = Boolean(activeDocument?.previewUrl);
+  const autoViewKey = activeDocumentId
+    ? `${activeDocumentId}:${hasPreview ? "paper" : "structure"}`
+    : null;
+  const [appliedAutoViewKey, setAppliedAutoViewKey] = useState<string | null>(null);
+  if (autoViewKey !== appliedAutoViewKey) {
+    const previousKey = appliedAutoViewKey;
+    setAppliedAutoViewKey(autoViewKey);
+    if (activeDocumentId) {
+      const documentChanged = !previousKey?.startsWith(`${activeDocumentId}:`);
+      const chosen = manualViewChoice[activeDocumentId];
+      if (documentChanged) {
+        setCanvasView(chosen ?? (hasPreview ? "preview" : "outline"));
+      } else if (hasPreview && !chosen) {
+        setCanvasView("preview");
+      }
+    }
+  }
+
+  // Keep the last typeset PDF on screen while a newer revision compiles.
+  const [lastPreview, setLastPreview] = useState<{
+    documentId: string;
+    url: string;
+  } | null>(null);
+  if (
+    activeDocument?.previewUrl &&
+    (lastPreview?.documentId !== activeDocument.id ||
+      lastPreview.url !== activeDocument.previewUrl)
+  ) {
+    setLastPreview({ documentId: activeDocument.id, url: activeDocument.previewUrl });
+  }
+  const displayPdfUrl = activeDocument
+    ? (activeDocument.previewUrl ??
+      (lastPreview?.documentId === activeDocument.id ? lastPreview.url : null))
+    : null;
+  const previewStale = Boolean(displayPdfUrl && !activeDocument?.previewUrl);
+
+  // Selections and one-off run telemetry do not survive document switches.
+  const [selectionDocumentId, setSelectionDocumentId] =
+    useState<string | null>(activeDocumentId);
+  if (selectionDocumentId !== activeDocumentId) {
+    setSelectionDocumentId(activeDocumentId);
+    setSelectedElementId(null);
+    setHistoryOpen(false);
+    setCompileFailed(false);
+  }
+  const conversationRunId = conversationRun?.id ?? null;
+  const [progressRunId, setProgressRunId] = useState<string | null>(conversationRunId);
+  if (progressRunId !== conversationRunId) {
+    setProgressRunId(conversationRunId);
+    setProgressEvents([]);
+  }
+
+  const runCompile = useCallback(
+    async (documentId: string, revision: number) => {
+      if (compileInFlightRef.current) return;
+      compileInFlightRef.current = true;
+      setCompiling(true);
+      const requestEpoch = localMutationEpochRef.current[documentId] ?? 0;
+      try {
+        const result = await compileDocument(documentId);
+        if (selectedDocumentRef.current !== documentId) return;
+        if (result.ok) {
+          setCompileFailed(false);
+          if (
+            canApplyRemoteDocument(documentId, requestEpoch, result.data.revision)
+          ) {
+            updateStoredDocument(result.data);
+          }
+        } else {
+          // Key the failure to the revision this request compiled so a newer
+          // revision still auto-compiles.
+          lastFailedCompileRef.current = `${documentId}:${revision}`;
+          setCompileFailed(true);
+        }
+      } finally {
+        compileInFlightRef.current = false;
+        setCompiling(false);
+      }
+    },
+    [canApplyRemoteDocument, updateStoredDocument],
+  );
+
+  // Keep the paper alive: after manual edits (or a restore) settle, the
+  // current revision recompiles automatically. A failed revision does not
+  // retry until it changes; the banner offers a manual retry instead.
+  const activeRevision = activeDocument?.revision ?? null;
+  const documentHasContent = Boolean(
+    activeDocument &&
+      (activeDocument.blocks.length > 0 || activeDocument.elements.length > 0),
+  );
+  useEffect(() => {
+    if (!activeDocumentId || activeRevision === null) return;
+    if (hasPreview || !documentHasContent) return;
+    if (saveState !== "saved" || submitting || agentWorking || compiling) return;
+    if (
+      lastFailedCompileRef.current === `${activeDocumentId}:${activeRevision}`
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void runCompile(activeDocumentId, activeRevision);
+    }, 1_200);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeDocumentId,
+    activeRevision,
+    hasPreview,
+    documentHasContent,
+    saveState,
+    submitting,
+    agentWorking,
+    compiling,
+    runCompile,
+  ]);
+
+  const restoreVersion = useCallback(
+    async (revision: number) => {
+      if (!activeDocumentId || restoring) return;
+      setRestoring(true);
+      try {
+        const saved = await flushOutstandingSaveRef.current?.();
+        if (saved === false) return;
+        const result = await restoreDocument(activeDocumentId, revision);
+        if (result.ok && selectedDocumentRef.current === activeDocumentId) {
+          localMutationEpochRef.current[activeDocumentId] =
+            (localMutationEpochRef.current[activeDocumentId] ?? 0) + 1;
+          lastFailedCompileRef.current = null;
+          updateStoredDocument(result.data, true);
+          setHistoryOpen(false);
+        }
+      } finally {
+        setRestoring(false);
+      }
+    },
+    [activeDocumentId, restoring, updateStoredDocument],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -288,6 +538,9 @@ export function DocumentWorkspace() {
       persist: persistPatch,
     });
   }, [cancelSave, flushSave, persistPatch]);
+  useEffect(() => {
+    flushOutstandingSaveRef.current = flushOutstandingSave;
+  }, [flushOutstandingSave]);
 
   const handleDocumentChange = useCallback(
     (patch: DocumentChanges) => {
@@ -326,6 +579,29 @@ export function DocumentWorkspace() {
       scheduleSave(pendingSaveRef.current);
     },
     [activeDocument, scheduleSave, updateStoredDocument],
+  );
+
+  const updateBlockById = useCallback(
+    (id: string, next: DocumentBlock) => {
+      const current = activeDocument;
+      if (!current) return;
+      handleDocumentChange({
+        blocks: current.blocks.map((block) => (block.id === id ? next : block)),
+      });
+    },
+    [activeDocument, handleDocumentChange],
+  );
+
+  const removeBlockById = useCallback(
+    (id: string) => {
+      const current = activeDocument;
+      if (!current) return;
+      handleDocumentChange({
+        blocks: current.blocks.filter((block) => block.id !== id),
+      });
+      setSelectedElementId(null);
+    },
+    [activeDocument, handleDocumentChange],
   );
 
   const openDocument = useCallback(
@@ -504,14 +780,23 @@ export function DocumentWorkspace() {
         return;
       }
       const reply = createRunReplyInput(conversationRun, prompt);
+      // Element selection scopes fresh requests only; clarification answers
+      // and approval decisions keep their original scope. selectedElement is
+      // resolved against the CURRENT document, so a selection whose element
+      // was deleted in the meantime scopes nothing.
+      const input: StartRunInput =
+        !reply.replyToRunId && selectedElement
+          ? { ...reply, targetNodeId: selectedElement.id }
+          : reply;
+      setSelectedElementId(null);
       void beginRun(
         activeDocument,
         prompt,
-        reply,
+        input,
         failedRunRequestKeyRef.current !== null,
       );
     },
-    [activeDocument, beginRun, conversationRun, submitting],
+    [activeDocument, beginRun, conversationRun, selectedElement, submitting],
   );
 
   useEffect(() => {
@@ -526,8 +811,13 @@ export function DocumentWorkspace() {
     let cancelled = false;
     const stopPolling = startSequentialPolling(async () => {
       const requestEpoch = localMutationEpochRef.current[activeRun.documentId] ?? 0;
-      const result = await getDocument(activeRun.documentId);
-      if (cancelled || !result.ok) return;
+      const [result, events] = await Promise.all([
+        getDocument(activeRun.documentId),
+        listRunEvents(activeRun.documentId, activeRun.id),
+      ]);
+      if (cancelled) return;
+      if (events.ok) setProgressEvents(events.data);
+      if (!result.ok) return;
 
       if (
         canApplyRemoteDocument(
@@ -596,6 +886,8 @@ export function DocumentWorkspace() {
       }
       if (event.key === "Escape") {
         setDocumentMenuOpen(false);
+        setHistoryOpen(false);
+        setSelectedElementId(null);
         setMobileView("document");
       }
     };
@@ -669,20 +961,98 @@ export function DocumentWorkspace() {
           <button
             type="button"
             aria-pressed={canvasView === "preview"}
-            onClick={() => setCanvasView("preview")}
+            onClick={() => {
+              if (activeDocument) {
+                setManualViewChoice((current) => ({
+                  ...current,
+                  [activeDocument.id]: "preview",
+                }));
+              }
+              setCanvasView("preview");
+            }}
           >
-            プレビュー
+            紙面
           </button>
           <button
             type="button"
             aria-pressed={canvasView === "outline"}
-            onClick={() => setCanvasView("outline")}
+            onClick={() => {
+              if (activeDocument) {
+                setManualViewChoice((current) => ({
+                  ...current,
+                  [activeDocument.id]: "outline",
+                }));
+              }
+              setCanvasView("outline");
+            }}
           >
-            アウトライン
+            構成
           </button>
         </div>
 
         <div className="topbar-actions">
+          {activeDocument && documentHasContent ? (
+            <button
+              type="button"
+              className="topbar-icon-button"
+              aria-label="紙面を更新"
+              title="紙面を更新"
+              disabled={compiling || agentWorking}
+              onClick={() => {
+                lastFailedCompileRef.current = null;
+                setCompileFailed(false);
+                if (activeDocument) {
+                  void runCompile(activeDocument.id, activeDocument.revision);
+                }
+              }}
+            >
+              <RefreshCw size={16} className={compiling ? "is-spinning" : undefined} />
+            </button>
+          ) : null}
+          {activeDocument && activeDocument.versions.length > 0 ? (
+            <div className="history-anchor">
+              <button
+                type="button"
+                className="topbar-icon-button"
+                aria-label="変更履歴"
+                title="変更履歴"
+                aria-expanded={historyOpen}
+                onClick={() => setHistoryOpen((open) => !open)}
+              >
+                <History size={16} />
+              </button>
+              {historyOpen ? (
+                <div className="history-panel" aria-label="変更履歴">
+                  <span className="history-title">変更履歴</span>
+                  <div className="history-items">
+                    {activeDocument.versions.map((version) => (
+                      <div className="history-item" key={version.id}>
+                        <div className="history-item-main">
+                          <strong>{version.label}</strong>
+                          <small>
+                            {formatHistoryTimestamp(version.createdAt)}
+                            {" ・ "}
+                            {version.source === "agent" ? "AI" : "手動"}
+                          </small>
+                        </div>
+                        {version.revision < activeDocument.revision ? (
+                          <button
+                            type="button"
+                            disabled={restoring || agentWorking}
+                            onClick={() => void restoreVersion(version.revision)}
+                          >
+                            この状態に戻す
+                          </button>
+                        ) : (
+                          <span className="history-current">現在</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <button
             type="button"
             className="topbar-icon-button"
@@ -735,9 +1105,12 @@ export function DocumentWorkspace() {
             <AgentPanel
               document={activeDocument}
               activeRun={conversationRun}
+              progressEvents={progressEvents}
+              selectedElement={selectedElement}
               composerRef={composerRef}
               submitting={submitting}
               onSubmit={submitWritingRequest}
+              onClearSelection={() => setSelectedElementId(null)}
             />
           ) : (
             <NewDocumentPanel
@@ -755,18 +1128,118 @@ export function DocumentWorkspace() {
           {documentLoading ? (
             <DocumentSkeleton />
           ) : activeDocument ? (
-            <DocumentCanvas
-              document={activeDocument}
-              saveState={saveState}
-              outlineVisible={canvasView === "outline"}
-              requestPending={
-                submitting ||
-                conversationRun?.status === "queued" ||
-                conversationRun?.status === "running"
-              }
-              onChange={handleDocumentChange}
-              onAskAgent={submitWritingRequest}
-            />
+            canvasView === "preview" ? (
+              <section className="paper-surface" aria-label="紙面">
+                <PdfPreview
+                  pdfUrl={displayPdfUrl}
+                  regions={pdfRegions}
+                  selectedId={selectedElementId}
+                  refreshing={
+                    compiling ||
+                    previewStale ||
+                    (agentWorking && displayPdfUrl !== null)
+                  }
+                  interactive
+                  onSelect={(id) => setSelectedElementId(id)}
+                  emptyHint={
+                    agentWorking
+                      ? "紙面を準備しています…"
+                      : documentHasContent
+                        ? "紙面を組み立てています…"
+                        : "まだ紙面がありません。左の欄から執筆を依頼してください。"
+                  }
+                />
+                {compileFailed ? (
+                  <div className="compile-banner" role="alert">
+                    <span>紙面を更新できませんでした。</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        lastFailedCompileRef.current = null;
+                        setCompileFailed(false);
+                        void runCompile(activeDocument.id, activeDocument.revision);
+                      }}
+                    >
+                      再試行
+                    </button>
+                    <button
+                      type="button"
+                      disabled={submitting || agentWorking}
+                      onClick={() => {
+                        setCompileFailed(false);
+                        submitWritingRequest(
+                          "文書を紙面として組み立てられない原因を調べて修正してください。",
+                        );
+                      }}
+                    >
+                      AIに修正を頼む
+                    </button>
+                  </div>
+                ) : null}
+                {selectedElement ? (
+                  <div className="element-card" aria-label="選択中の要素">
+                    <div className="element-card-head">
+                      <strong>{selectedElement.label}</strong>
+                      <button
+                        type="button"
+                        aria-label="選択を解除"
+                        onClick={() => setSelectedElementId(null)}
+                      >
+                        閉じる
+                      </button>
+                    </div>
+                    {selectedBlock ? (
+                      <div className="element-card-editor">
+                        <BlockEditor
+                          block={selectedBlock}
+                          headingNumber={selectedHeadingNumber}
+                          equationNumber={selectedEquationNumber}
+                          onChange={(next) => updateBlockById(selectedBlock.id, next)}
+                          onRemove={() => removeBlockById(selectedBlock.id)}
+                          onAskAgent={() => {
+                            setMobileView("conversation");
+                            window.requestAnimationFrame(() =>
+                              composerRef.current?.focus(),
+                            );
+                          }}
+                          requestPending={agentWorking || submitting || restoring}
+                          readOnly={agentWorking || submitting || restoring}
+                        />
+                      </div>
+                    ) : (
+                      <div className="element-card-hint">
+                        <p>この要素は左の欄からAIに依頼して編集します。</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMobileView("conversation");
+                            window.requestAnimationFrame(() =>
+                              composerRef.current?.focus(),
+                            );
+                          }}
+                        >
+                          依頼を書く
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </section>
+            ) : (
+              <DocumentCanvas
+                document={activeDocument}
+                saveState={saveState}
+                outlineVisible
+                requestPending={submitting || agentWorking || restoring}
+                selectedId={selectedElementId}
+                onChange={handleDocumentChange}
+                onSelectElement={(id) => {
+                  setSelectedElementId(id);
+                  setMobileView("conversation");
+                  window.requestAnimationFrame(() => composerRef.current?.focus());
+                }}
+              />
+            )
           ) : (
             <div className="empty-document-view" aria-hidden="true" />
           )}
@@ -774,6 +1247,17 @@ export function DocumentWorkspace() {
       </div>
     </div>
   );
+}
+
+function formatHistoryTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function toSummary(document: DocumentDetail): DocumentSummary {

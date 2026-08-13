@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DocumentPatchSchema,
+  DocumentSchema,
   SAMPLE_DOCUMENT,
   SAMPLE_DOCUMENT_IDS,
 } from "@/domain/document";
@@ -114,8 +115,10 @@ describe.sequential("legacy exact-edit tool boundary", () => {
     expect(JSON.stringify(paragraph)).not.toContain("TeXコード");
   });
 
-  it("does not let an AI tool call use the exact-edit prompt to insert unrelated content", async () => {
-    const adversarial = DocumentPatchSchema.parse({
+  it("lets a conversational edit run apply edits beyond the literal prompt scope", async () => {
+    // Content-bearing documents accept conversational edit runs (content_edit)
+    // so iteration is no longer limited to the scoped-legacy contract.
+    const broadened = DocumentPatchSchema.parse({
       ...exactReplacementPatch(),
       id: randomUUID(),
       operations: [
@@ -127,7 +130,7 @@ describe.sequential("legacy exact-edit tool boundary", () => {
             content: [
               {
                 type: "text",
-                text: "要求と無関係な本文です。",
+                text: "補足の本文です。",
                 marks: [],
               },
             ],
@@ -139,17 +142,80 @@ describe.sequential("legacy exact-edit tool boundary", () => {
 
     await expect(
       applyDocumentPatchToolStep(
-        { patch: adversarial, summary: "本文を更新" },
+        { patch: broadened, summary: "本文を更新" },
         context(),
         {
-          toolCallId: "call-adversarial-insert",
+          toolCallId: "call-content-edit-insert",
           messages: [{ role: "user", content: PROMPT }],
         },
+      ),
+    ).resolves.toMatchObject({ ok: true, revision: 2 });
+  });
+
+  it("still rejects mutations for a sessionless document without content", async () => {
+    const emptyDocumentId = "40000000-0000-4000-8000-000000000099";
+    const emptyRunId = "10000000-0000-4000-8000-000000000099";
+    await repository.createDocument(
+      USER_ID,
+      DocumentSchema.parse({
+        schemaVersion: 1,
+        id: emptyDocumentId,
+        metadata: {
+          title: "空の文書",
+          language: "ja",
+          documentType: "report",
+          authors: [],
+          keywords: [],
+          createdAt: "2026-08-08T00:00:00.000Z",
+          updatedAt: "2026-08-08T00:00:00.000Z",
+        },
+        root: [],
+        nodes: [],
+      }),
+    );
+    await repository.createRun({
+      id: emptyRunId,
+      userId: USER_ID,
+      documentId: emptyDocumentId,
+      prompt: "本文を書いて",
+      idempotencyKey: "empty-document-edit",
+      baseRevision: 1,
+    });
+    await repository.activateRunForWorkflow(
+      USER_ID,
+      emptyRunId,
+      "workflow-empty-document-edit",
+    );
+
+    const insert = DocumentPatchSchema.parse({
+      id: randomUUID(),
+      documentId: emptyDocumentId,
+      baseRevision: 1,
+      createdAt: new Date().toISOString(),
+      operations: [
+        {
+          op: "insert",
+          node: {
+            id: randomUUID(),
+            type: "paragraph",
+            content: [
+              { type: "text", text: "勝手に始める本文です。", marks: [] },
+            ],
+          },
+          position: { kind: "root", index: 0 },
+        },
+      ],
+    });
+
+    await expect(
+      applyDocumentPatchToolStep(
+        { patch: insert, summary: "本文を更新" },
+        { documentId: emptyDocumentId, runId: emptyRunId, actorId: USER_ID },
       ),
     ).rejects.toThrow("文書の条件がまだ確定していません");
 
     await expect(
-      repository.getDocument(USER_ID, SAMPLE_DOCUMENT.id),
+      repository.getDocument(USER_ID, emptyDocumentId),
     ).resolves.toMatchObject({ currentRevision: 1 });
   });
 });

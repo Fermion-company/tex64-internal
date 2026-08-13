@@ -80,6 +80,11 @@ export type StoredAgentRun = {
   prompt: string;
   replyToRunId: string | null;
   decision: RunDecision | null;
+  /**
+   * Document node this run's request is scoped to (PDF/element selection).
+   * Advisory context for the agent prompt; never shown in user-facing copy.
+   */
+  targetNodeId: string | null;
   idempotencyKey: string;
   workflowRunId: string | null;
   status: AgentRunStatus;
@@ -92,6 +97,11 @@ export type StoredAgentRun = {
    */
   artifactRelease: ArtifactReleaseBinding | null;
   errorMessage: string | null;
+  /**
+   * Sanitized closing message from the agent for a completed run. Null for
+   * runs completed before this field existed and for non-completed runs.
+   */
+  resultNote: string | null;
   stateVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -165,6 +175,7 @@ export type CreateRunInput = Pick<
 > & {
   replyToRunId?: string | null;
   decision?: RunDecision | null;
+  targetNodeId?: string | null;
 };
 
 export type ListPageRequest = {
@@ -225,7 +236,10 @@ export type PendingDocumentDecisionResult =
     };
 
 export type UpdateRunInput = Partial<
-  Pick<StoredAgentRun, "workflowRunId" | "status" | "stage" | "resultRevision" | "errorMessage">
+  Pick<
+    StoredAgentRun,
+    "workflowRunId" | "status" | "stage" | "resultRevision" | "errorMessage" | "resultNote"
+  >
 > & {
   /**
    * Optional compare-and-swap token. Callers that read a run before updating it
@@ -255,6 +269,8 @@ export type CompleteRunForCurrentRevisionInput = {
   artifact: ArtifactReleaseBinding;
   eventKey: string;
   eventMessage: string;
+  /** Already-sanitized closing message to store on the completed run. */
+  resultNote?: string | null;
 };
 
 export type CompleteRunForCurrentRevisionResult = {

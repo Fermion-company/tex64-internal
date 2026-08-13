@@ -38,13 +38,15 @@ const UPDATE_FIELDS = [
   "stage",
   "resultRevision",
   "errorMessage",
+  "resultNote",
 ] as const;
 
 export function assertRunReplayMatches(existing: StoredAgentRun, input: CreateRunInput): void {
   if (
     existing.prompt !== input.prompt ||
     existing.replyToRunId !== (input.replyToRunId ?? null) ||
-    existing.decision !== (input.decision ?? null)
+    existing.decision !== (input.decision ?? null) ||
+    existing.targetNodeId !== (input.targetNodeId ?? null)
   ) {
     throw new IdempotencyConflictError("agent_run", input.idempotencyKey);
   }
@@ -195,19 +197,25 @@ function assertRunTransition(current: StoredAgentRun, candidate: StoredAgentRun)
     (candidate.status === "queued" &&
       candidate.stage === "understanding" &&
       candidate.resultRevision === null &&
-      candidate.errorMessage === null) ||
+      candidate.errorMessage === null &&
+      candidate.resultNote === null) ||
     (candidate.status === "running" &&
       ACTIVE_STAGES.has(candidate.stage) &&
-      candidate.errorMessage === null) ||
+      candidate.errorMessage === null &&
+      candidate.resultNote === null) ||
     (candidate.status === "waiting_approval" &&
       candidate.stage === "needs_input" &&
+      candidate.resultNote === null &&
       (candidate.errorMessage === null ||
         (candidate.errorMessage.trim().length > 0 &&
           candidate.errorMessage.length <= 500))) ||
     (candidate.status === "completed" &&
       candidate.stage === "ready" &&
       candidate.resultRevision !== null &&
-      candidate.errorMessage === null) ||
+      candidate.errorMessage === null &&
+      (candidate.resultNote === null ||
+        (candidate.resultNote.trim().length > 0 &&
+          candidate.resultNote.length <= 1_000))) ||
     (candidate.status === "failed" &&
       candidate.stage === "failed" &&
       Boolean(candidate.errorMessage?.trim())) ||

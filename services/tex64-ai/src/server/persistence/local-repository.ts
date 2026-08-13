@@ -434,12 +434,14 @@ export class LocalDocumentRepository implements DocumentRepository {
         ...input,
         replyToRunId: input.replyToRunId ?? null,
         decision: input.decision ?? null,
+        targetNodeId: input.targetNodeId ?? null,
         workflowRunId: null,
         status: "queued",
         stage: "understanding",
         resultRevision: null,
         artifactRelease: null,
         errorMessage: null,
+        resultNote: null,
         stateVersion: 0,
         createdAt: now,
         updatedAt: now,
@@ -1187,6 +1189,7 @@ export class LocalDocumentRepository implements DocumentRepository {
               stage: "ready",
               resultRevision: input.revision,
               errorMessage: null,
+              resultNote: input.resultNote ?? null,
             },
             new Date().toISOString(),
           ),
@@ -1533,6 +1536,8 @@ function normalizeLegacyStore(data: LocalStoreData): void {
     run.replyToRunId ??= null;
     run.decision ??= null;
     run.artifactRelease ??= null;
+    run.resultNote ??= null;
+    run.targetNodeId ??= null;
   }
   for (const artifact of Object.values(data.artifacts)) {
     artifact.pageCount ??= null;

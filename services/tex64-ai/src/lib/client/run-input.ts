@@ -102,5 +102,6 @@ export function runRequestIdentity(
     input.prompt ?? null,
     input.replyToRunId ?? null,
     input.decision ?? null,
+    input.targetNodeId ?? null,
   ]);
 }

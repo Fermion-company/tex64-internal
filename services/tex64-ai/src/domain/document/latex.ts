@@ -786,9 +786,66 @@ function renderChildren(
   const rendered: string[] = [];
   for (const childId of childIds) {
     const child = context.nodeById.get(childId);
-    if (child) rendered.push(renderNode(child, context, sectionDepth));
+    if (child) {
+      rendered.push(
+        wrapWithRegionMarkers(child, renderNode(child, context, sectionDepth)),
+      );
+    }
   }
   return rendered;
+}
+
+/**
+ * Region markers for the PDF element map. escapeLatexText turns every user
+ * "%" into "\%", so these full-line comments are the only raw comments in the
+ * generated source; they are layout-neutral in every context the renderer
+ * emits (no verbatim catcode regimes exist). Placed strictly OUTSIDE the
+ * node's chunk so the blank-line paragraph joins are preserved. A future
+ * .tex export must strip these lines. Empty chunks stay unmarked so
+ * `.filter(Boolean)` keeps dropping them.
+ */
+const REGION_MARKER_BEGIN = "%%T64B:";
+const REGION_MARKER_END = "%%T64E:";
+
+function wrapWithRegionMarkers(node: DocumentNode, chunk: string): string {
+  if (!chunk) return chunk;
+  return `${REGION_MARKER_BEGIN}${node.id}\n${chunk}\n${REGION_MARKER_END}${node.id}`;
+}
+
+/**
+ * Recovers each node's 1-based line range from generated LaTeX for the
+ * SyncTeX region map. A range starts after its begin marker and extends
+ * through the end marker plus one FOLLOWING BLANK line: TeX attributes a
+ * paragraph's closing records to the line where \par fired, which for our
+ * layout is that blank separator — without it, one-line paragraphs collect
+ * zero in-range votes and vanish from the map. The blank line between two
+ * nodes uniquely follows the earlier node's end marker, so ranges stay
+ * disjoint across siblings and nested exactly as nodes nest
+ * (innermost-wins downstream).
+ */
+export function extractNodeLineRanges(
+  latex: string,
+): Array<{ id: string; start: number; end: number }> {
+  const ranges: Array<{ id: string; start: number; end: number }> = [];
+  const stack: Array<{ id: string; start: number }> = [];
+  const lines = latex.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (line.startsWith(REGION_MARKER_BEGIN)) {
+      stack.push({ id: line.slice(REGION_MARKER_BEGIN.length), start: index + 2 });
+    } else if (line.startsWith(REGION_MARKER_END)) {
+      const id = line.slice(REGION_MARKER_END.length);
+      const open = stack.pop();
+      if (!open || open.id !== id) return [];
+      const followedByBlank = lines[index + 1] === "";
+      ranges.push({
+        id,
+        start: open.start,
+        end: index + 1 + (followedByBlank ? 1 : 0),
+      });
+    }
+  }
+  return stack.length > 0 ? [] : ranges;
 }
 
 const SECTION_COMMANDS = ["section", "subsection", "subsubsection", "paragraph", "subparagraph"];
@@ -1511,7 +1568,7 @@ export function renderDocumentToLatex(input: DocumentModel): string {
   const body = document.root
     .map((nodeId) => nodeById.get(nodeId))
     .filter((node): node is DocumentNode => Boolean(node))
-    .map((node) => renderNode(node, context, 0))
+    .map((node) => wrapWithRegionMarkers(node, renderNode(node, context, 0)))
     .filter(Boolean)
     .join("\n\n");
 

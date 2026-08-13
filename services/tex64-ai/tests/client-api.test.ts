@@ -113,6 +113,7 @@ describe("real client API boundary", () => {
       preview: "",
       revision: 1,
       blocks: [],
+      elements: [],
       versions: [],
       runs: [],
     };

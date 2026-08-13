@@ -230,6 +230,21 @@ export function documentAgentExecutionEvidence(input: {
 }
 
 /**
+ * The agent's last text output is its closing message to the user. Steps that
+ * ended in tool calls have empty text, so scan backwards for the final
+ * non-empty text segment.
+ */
+export function finalAssistantText(
+  steps: readonly { text?: string }[],
+): string | null {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const text = steps[index]?.text?.trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+/**
  * Only an explicit, supported inspection request may complete without a new
  * revision. General proofreading, fact checking, and research are not covered
  * by the structural/reference validator and therefore fail closed.
@@ -256,6 +271,7 @@ export function buildInitialAgentPrompt(input: {
     brief: DocumentBrief;
   } | null;
   documentPlan?: DocumentPlan | null;
+  targetNodeId?: string | null;
 }): string {
   const request = input.promptContext.history
     ? {
@@ -316,6 +332,11 @@ export function buildInitialAgentPrompt(input: {
       : []),
     `対象文書ID: ${input.documentId}`,
     `現在の版: ${input.currentRevision}`,
+    ...(input.targetNodeId
+      ? [
+          `ユーザーは文書内の特定の要素（nodeId: ${input.targetNodeId}）を選択してこの依頼をしています。read_documentで該当ノードを確認し、依頼が明示的に他の箇所へ言及しない限り、変更はこの要素とその直接の文脈に限定してください。`,
+        ]
+      : []),
     "最初に現在の文書を読み、要件票から章ごとの目的、必要な根拠、数式と図表の役割を計画してから、必要な意味的パッチを適用し、完成条件、最新版の構造、参照関係の確認まで進めてください。",
     "執筆中に要件票では解決できない重大な矛盾や根拠不足が新たに判明した場合だけrequest_inputで具体的な質問を一つ行い、その後はこの実行を終了してください。",
     "確認済みでない重要条件を推測してはいけません。ユーザー固有の事実、実験結果、出典、提出条件は必ず質問してください。",

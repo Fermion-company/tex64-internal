@@ -271,6 +271,8 @@ function storedRun(
     resultRevision: null,
     artifactRelease: null,
     errorMessage: null,
+    resultNote: null,
+    targetNodeId: null,
     stateVersion: 1,
     createdAt: NOW,
     updatedAt: NOW,

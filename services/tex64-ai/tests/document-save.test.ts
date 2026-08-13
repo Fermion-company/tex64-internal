@@ -24,6 +24,7 @@ function detail(
     preview: "preview",
     revision,
     blocks,
+    elements: [],
     versions: [],
     runs: [],
   };

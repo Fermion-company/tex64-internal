@@ -36,6 +36,7 @@ vi.mock("@/server/compiler", async () => {
 });
 
 import { SAMPLE_DOCUMENT, SAMPLE_DOCUMENT_IDS } from "@/domain/document";
+import { CURRENT_ARTIFACT_QUALITY_VERSION } from "@/server/artifacts";
 import type { DocumentRepository, StoredArtifact } from "@/server/persistence";
 import { LocalDocumentRepository } from "@/server/persistence/local-repository";
 import { validateRenderCompileAndStoreStep } from "@/workflows/document-agent/steps";
@@ -132,7 +133,7 @@ function artifact(overrides: Partial<StoredArtifact> = {}): StoredArtifact {
     byteSize: 999,
     compileDurationMs: 10,
     pageCount: 1,
-    qualityVersion: 2,
+    qualityVersion: CURRENT_ARTIFACT_QUALITY_VERSION,
     createdAt: "2026-08-07T00:00:00.000Z",
     ...overrides,
   };
@@ -263,7 +264,7 @@ describe.sequential("workflow artifact verification", () => {
     ).resolves.toMatchObject({
       storageKey: "quality-checked-object.pdf",
       pageCount: 1,
-      qualityVersion: 2,
+      qualityVersion: CURRENT_ARTIFACT_QUALITY_VERSION,
     });
   });
 

@@ -699,6 +699,7 @@ body.has-launcher .app {
 .topbar-left {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   padding-left: 78px;
   -webkit-app-region: no-drag;
 }
@@ -816,7 +817,12 @@ body.has-launcher .app {
 /* Editor-only top-bar controls make no sense while the AI workspace fills
    the window. The mode switcher and update button stay. !important because
    some of these buttons (e.g. SyncTeX) are shown/hidden via inline styles. */
-:root[data-app-mode="ai"] #toggle-sidebar-button,
+/* The sidebar toggle sits to the LEFT of the mode switcher; keep its box so
+   the switcher never shifts when modes change (visibility, not display). */
+:root[data-app-mode="ai"] #toggle-sidebar-button {
+  visibility: hidden;
+}
+
 :root[data-app-mode="ai"] #toggle-bottom-panel-button,
 :root[data-app-mode="ai"] #editor-split-button,
 :root[data-app-mode="ai"] #save-button,

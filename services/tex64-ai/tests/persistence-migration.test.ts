@@ -25,6 +25,10 @@ const artifactReleaseMigrationUrl = new URL(
   "../src/server/persistence/migrations/0009_artifact_release_binding.sql",
   import.meta.url,
 );
+const runResultNoteMigrationUrl = new URL(
+  "../src/server/persistence/migrations/0010_run_result_note.sql",
+  import.meta.url,
+);
 const repositoryUrl = new URL(
   "../src/server/persistence/postgres-repository.ts",
   import.meta.url,
@@ -39,6 +43,7 @@ describe("PostgreSQL persistence boundary", () => {
       workflowLaunchLeasesMigration,
       artifactQualityMigration,
       artifactReleaseMigration,
+      runResultNoteMigration,
       repository,
     ] = await Promise.all([
       readFile(migrationUrl, "utf8"),
@@ -47,6 +52,7 @@ describe("PostgreSQL persistence boundary", () => {
       readFile(workflowLaunchLeasesMigrationUrl, "utf8"),
       readFile(artifactQualityMigrationUrl, "utf8"),
       readFile(artifactReleaseMigrationUrl, "utf8"),
+      readFile(runResultNoteMigrationUrl, "utf8"),
       readFile(repositoryUrl, "utf8"),
     ]);
 
@@ -87,6 +93,15 @@ describe("PostgreSQL persistence boundary", () => {
     );
     expect(artifactReleaseMigration).toContain(
       "tex64_agent_runs_artifact_release_check",
+    );
+    expect(runResultNoteMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS result_note text",
+    );
+    expect(runResultNoteMigration).toContain(
+      "tex64_agent_runs_result_note_check",
+    );
+    expect(runResultNoteMigration).toContain(
+      "ADD COLUMN IF NOT EXISTS target_node_id uuid",
     );
     expect(pendingActionsMigration).toContain("reply_to_run_id uuid");
     expect(pendingActionsMigration).toContain("decision IN ('approve', 'reject')");

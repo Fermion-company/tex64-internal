@@ -850,6 +850,56 @@ export function applyExplicitDelegation(input: {
   return DocumentAgentSessionSchema.parse(session);
 }
 
+/**
+ * Build-first intake: once the writing subject is provided, every remaining
+ * requirement is delegated with its concrete default and the brief confirms
+ * itself — the user goes from prompt to draft without an interrogation.
+ * Returns null when the normal one-question flow should run instead: no
+ * subject yet, a question already pending, an undelegatable gap, or a
+ * user-provided figures mode the runtime cannot execute.
+ */
+export function autopilotDocumentBrief(input: {
+  session: DocumentAgentSession;
+  runId: string;
+  now: string;
+}): DocumentAgentSession | null {
+  const original = DocumentAgentSessionSchema.parse(input.session);
+  if (original.activeQuestionId) return null;
+  if (original.confirmedBriefVersion === original.briefVersion) return null;
+  if (original.brief.goal.subject.status !== "provided") return null;
+
+  const session = structuredClone(original);
+  const coverage = evaluateBriefCoverage(session.brief);
+  if (!coverage.complete) {
+    if (coverage.gaps.some((gap) => !gap.canDelegate)) return null;
+    if (
+      coverage.gaps.some((gap) => gap.group === "visuals") &&
+      session.brief.figures.policy.value === "provided_only"
+    ) {
+      // The user explicitly chose supplied figures; do not silently override.
+      return null;
+    }
+    const before = JSON.stringify(session.brief);
+    for (const gap of coverage.gaps) {
+      delegateGroup(session.brief, gap.group, input.runId, input.now);
+    }
+    if (JSON.stringify(session.brief) !== before) {
+      session.briefVersion += 1;
+      session.confirmedBriefVersion = null;
+      session.brief.updatedAt = input.now;
+    }
+    if (!evaluateBriefCoverage(session.brief).complete) return null;
+    session.stateVersion += 1;
+    session.updatedAt = input.now;
+  }
+
+  return confirmDocumentBrief({
+    session: DocumentAgentSessionSchema.parse(session),
+    confirmedByRunId: input.runId,
+    now: input.now,
+  });
+}
+
 function resolveQuestion(
   session: DocumentAgentSession,
   questionId: string | undefined,

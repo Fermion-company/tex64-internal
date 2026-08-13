@@ -141,6 +141,7 @@ type RunRow = QueryResultRow & {
   prompt: string;
   reply_to_run_id: string | null;
   decision: StoredAgentRun["decision"];
+  target_node_id: string | null;
   idempotency_key: string;
   workflow_run_id: string | null;
   status: AgentRunStatus;
@@ -154,6 +155,7 @@ type RunRow = QueryResultRow & {
   result_artifact_page_count: number | null;
   result_artifact_quality_version: number | null;
   error_message: string | null;
+  result_note: string | null;
   state_version: number;
   created_at: Date | string;
   updated_at: Date | string;
@@ -704,8 +706,8 @@ export class PostgresDocumentRepository implements DocumentRepository {
       const inserted = await client.query<RunRow>(
         `INSERT INTO public.tex64_agent_runs
           (id, user_id, document_id, prompt, reply_to_run_id, decision,
-           idempotency_key, base_revision)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           target_node_id, idempotency_key, base_revision)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT DO NOTHING
          RETURNING *`,
         [
@@ -715,6 +717,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
           input.prompt,
           input.replyToRunId ?? null,
           input.decision ?? null,
+          input.targetNodeId ?? null,
           input.idempotencyKey,
           input.baseRevision,
         ],
@@ -925,9 +928,10 @@ export class PostgresDocumentRepository implements DocumentRepository {
              stage = $5,
              result_revision = $6,
              error_message = $7,
-             state_version = $8,
-             updated_at = $9
-         WHERE id = $1 AND user_id = $2 AND state_version = $10
+             result_note = $8,
+             state_version = $9,
+             updated_at = $10
+         WHERE id = $1 AND user_id = $2 AND state_version = $11
          RETURNING *`,
         [
           runId,
@@ -937,6 +941,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
           prepared.stage,
           prepared.resultRevision,
           prepared.errorMessage,
+          prepared.resultNote,
           prepared.stateVersion,
           prepared.updatedAt,
           current.stateVersion,
@@ -1573,6 +1578,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
               stage: "ready",
               resultRevision: input.revision,
               errorMessage: null,
+              resultNote: input.resultNote ?? null,
             },
             new Date().toISOString(),
           ),
@@ -2203,15 +2209,16 @@ async function updateRunRecord(
          stage = $5,
          result_revision = $6,
          error_message = $7,
-         state_version = $8,
-         updated_at = $9,
-         result_artifact_revision = $10,
-         result_artifact_storage_key = $11,
-         result_artifact_sha256 = $12,
-         result_artifact_byte_size = $13,
-         result_artifact_page_count = $14,
-         result_artifact_quality_version = $15
-     WHERE id = $1 AND user_id = $2 AND state_version = $16
+         result_note = $8,
+         state_version = $9,
+         updated_at = $10,
+         result_artifact_revision = $11,
+         result_artifact_storage_key = $12,
+         result_artifact_sha256 = $13,
+         result_artifact_byte_size = $14,
+         result_artifact_page_count = $15,
+         result_artifact_quality_version = $16
+     WHERE id = $1 AND user_id = $2 AND state_version = $17
      RETURNING *`,
     [
       current.id,
@@ -2221,6 +2228,7 @@ async function updateRunRecord(
       prepared.stage,
       prepared.resultRevision,
       prepared.errorMessage,
+      prepared.resultNote,
       prepared.stateVersion,
       prepared.updatedAt,
       prepared.artifactRelease?.revision ?? null,
@@ -2582,6 +2590,7 @@ function toRun(row: RunRow): StoredAgentRun {
     prompt: row.prompt,
     replyToRunId: row.reply_to_run_id,
     decision: row.decision,
+    targetNodeId: row.target_node_id ?? null,
     idempotencyKey: row.idempotency_key,
     workflowRunId: row.workflow_run_id,
     status: row.status,
@@ -2605,6 +2614,7 @@ function toRun(row: RunRow): StoredAgentRun {
           }
         : null,
     errorMessage: row.error_message,
+    resultNote: row.result_note ?? null,
     stateVersion: row.state_version,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),

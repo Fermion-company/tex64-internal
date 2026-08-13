@@ -4,8 +4,12 @@ import { MAX_PDF_ARTIFACT_BYTES } from "@/server/compiler/safety";
 
 import type { ArtifactStore, PdfBody } from "./types";
 
-/** Increment whenever reuse requires a stricter PDF inspection contract. */
-export const CURRENT_ARTIFACT_QUALITY_VERSION = 2;
+/**
+ * Increment whenever reuse requires a stricter PDF inspection contract.
+ * v3: compiles emit the SyncTeX-derived element-region map; older artifacts
+ * must recompile once so the map exists for the PDF preview.
+ */
+export const CURRENT_ARTIFACT_QUALITY_VERSION = 3;
 
 export type ExpectedPdfArtifact = {
   storageKey: string;

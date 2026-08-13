@@ -8,7 +8,7 @@ import type {
 export type DocumentMutationReadiness =
   | {
       allowed: true;
-      reason: "confirmed_brief" | "scoped_legacy_edit";
+      reason: "confirmed_brief" | "scoped_legacy_edit" | "content_edit";
     }
   | {
       allowed: false;
@@ -18,6 +18,24 @@ export type DocumentMutationReadiness =
         | "brief_changed"
         | "wrong_phase";
     };
+
+/**
+ * A conversational edit run: a fresh prompt (not a clarification answer or an
+ * approval decision) against a document that already has content. Derivable
+ * from persisted run/document state alone so durable tool steps can recompute
+ * it identically on replay.
+ */
+export function isContentEditRun(input: {
+  replyToRunId: string | null;
+  decision: unknown;
+  documentHasContent: boolean;
+}): boolean {
+  return (
+    input.decision === null &&
+    input.replyToRunId === null &&
+    input.documentHasContent
+  );
+}
 
 const CONTRACT_CHANGING_EDIT_PATTERN =
   /(?:全面|全体|全編|書き直|改稿|主題|テーマ|ページ(?:数)?|文字数|構成|章立て|節構成|出典|引用|参考文献|図表|グラフ|チャート|文体|口調|語調|テンプレート|フォーマット|数式|式変形|証明|読者|対象者|目的|範囲|要約|翻訳|追加|削除)/u;
@@ -257,15 +275,22 @@ export function patchMatchesScopedLegacyEdit(input: {
  * Server-side boundary for document mutation. The model cannot prompt its way
  * around this decision: a new document remains immutable until the current
  * brief has been explicitly confirmed and the workflow enters drafting.
+ * A document that already has content additionally accepts conversational
+ * edit runs (content_edit) — mid-intake sessions stay locked because their
+ * brief versions do not match yet.
  */
 export function documentMutationReadiness(input: {
   session: DocumentAgentSession | null;
   documentHasContent: boolean;
   scopedLegacyEdit?: boolean;
+  contentEditRun?: boolean;
 }): DocumentMutationReadiness {
   if (!input.session) {
     if (input.documentHasContent && input.scopedLegacyEdit === true) {
       return { allowed: true, reason: "scoped_legacy_edit" };
+    }
+    if (input.documentHasContent && input.contentEditRun === true) {
+      return { allowed: true, reason: "content_edit" };
     }
     return { allowed: false, reason: "missing_brief" };
   }
@@ -279,6 +304,9 @@ export function documentMutationReadiness(input: {
     input.session.phase !== "drafting" &&
     input.session.phase !== "reviewing"
   ) {
+    if (input.documentHasContent && input.contentEditRun === true) {
+      return { allowed: true, reason: "content_edit" };
+    }
     return { allowed: false, reason: "wrong_phase" };
   }
   return { allowed: true, reason: "confirmed_brief" };

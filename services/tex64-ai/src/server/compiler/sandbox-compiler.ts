@@ -11,6 +11,7 @@ import { CompileFailure, type CompileRequest, type CompileResult, type DocumentC
 
 const COMPILE_TIMEOUT_MS = 45_000;
 const MAX_LOG_BYTES = 2 * 1024 * 1024;
+const MAX_SYNCTEX_BYTES = 16 * 1024 * 1024;
 const SANDBOX_ROOT = "/vercel/sandbox";
 
 export class VercelSandboxCompiler implements DocumentCompiler {
@@ -60,6 +61,7 @@ export class VercelSandboxCompiler implements DocumentCompiler {
             "-interaction=nonstopmode",
             "-halt-on-error",
             "-file-line-error",
+            "-synctex=1",
             `-output-directory=${SANDBOX_ROOT}`,
             "main.tex",
           ],
@@ -149,6 +151,16 @@ export class VercelSandboxCompiler implements DocumentCompiler {
       }
       assertValidPdfArtifact(pdf);
 
+      // Best-effort: the element map degrades to none when SyncTeX is absent
+      // or implausibly large (same 16 MiB bound as the local compiler).
+      const synctexRead = await sandbox
+        .readFileToBuffer({ path: `${SANDBOX_ROOT}/main.synctex.gz` })
+        .catch(() => undefined);
+      const synctex =
+        synctexRead && synctexRead.byteLength <= MAX_SYNCTEX_BYTES
+          ? synctexRead
+          : undefined;
+
       return {
         pdf,
         engine: "vercel-sandbox",
@@ -157,6 +169,7 @@ export class VercelSandboxCompiler implements DocumentCompiler {
         diagnostics: finalDiagnostics.filter(
           (item) => item.severity === "warning",
         ),
+        ...(synctex ? { synctex } : {}),
       };
     } finally {
       await sandbox.stop().catch(() => undefined);

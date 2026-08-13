@@ -79,3 +79,22 @@ export function normalizeUserFacingQuestion(
   }
   return normalized;
 }
+
+/**
+ * Sanitizes the agent's closing message for chat display. Fail-closed: any
+ * hint of internal detail drops the note entirely (callers fall back to the
+ * fixed completion copy).
+ */
+export function normalizeUserFacingResultNote(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const normalized = value.normalize("NFC").replace(/\r\n?/gu, "\n").trim();
+  if (
+    normalized.length === 0 ||
+    normalized.length > 1_000 ||
+    containsUnsafeUserFacingCopy(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+}

@@ -15,6 +15,7 @@ export type DocumentWorkflowInput = {
   baseRevision: number;
   replyToRunId: string | null;
   decision: RunDecision | null;
+  targetNodeId: string | null;
 };
 
 export type DocumentWorkflowStarter = (
@@ -38,6 +39,7 @@ export async function createAndStartDocumentRun(input: {
   baseRevision: number;
   replyToRunId?: string | null;
   decision?: RunDecision | null;
+  targetNodeId?: string | null;
   startWorkflow: DocumentWorkflowStarter;
 }): Promise<StoredAgentRun> {
   const run = await input.repository.createRun({
@@ -49,6 +51,7 @@ export async function createAndStartDocumentRun(input: {
     baseRevision: input.baseRevision,
     replyToRunId: input.replyToRunId ?? null,
     decision: input.decision ?? null,
+    targetNodeId: input.targetNodeId ?? null,
   });
 
   if (
@@ -77,6 +80,7 @@ export async function createAndStartDocumentRun(input: {
       baseRevision: run.baseRevision,
       replyToRunId: run.replyToRunId,
       decision: run.decision,
+      targetNodeId: run.targetNodeId,
     });
     workflowRunId = workflowRun.runId;
   } catch {

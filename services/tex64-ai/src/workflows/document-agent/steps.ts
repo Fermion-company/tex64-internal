@@ -8,6 +8,7 @@ import {
   StoredDocumentAgentSessionSchema,
   advanceElicitation,
   applyBriefExtraction,
+  autopilotDocumentBrief,
   createDocumentAgentSession,
   resolveSafeCustomTemplatePreset,
   type DocumentBrief,
@@ -15,14 +16,11 @@ import {
   type ElicitationQuestion,
 } from "@/domain/brief";
 import {
-  DocumentValidationError,
   DocumentCitationStyleSchema,
   DocumentLayoutSchema,
   DocumentWritingStyleSchema,
   applyDocumentPatch,
-  assertDocumentFiguresRenderable,
   normalizeDocumentLanguage,
-  renderDocumentToLatex,
   safeValidateDocument,
   validateDocument,
   type DocumentModel,
@@ -41,20 +39,14 @@ import {
   createReviewPlanProjection,
   evaluateDeterministicAcceptance,
 } from "@/domain/review";
-import {
-  CURRENT_ARTIFACT_QUALITY_VERSION,
-  artifactReleaseBinding,
-  getArtifactStore,
-  runReleasesArtifact,
-  storedPdfMatchesMetadata,
-} from "@/server/artifacts";
+import { runReleasesArtifact } from "@/server/artifacts";
 import {
   DocumentToolContextSchema,
   SEMANTIC_PROGRESS_LABELS,
   buildClarifiedDocumentPrompt,
   deterministicUuid,
   documentMutationReadiness,
-  isStronglyScopedLegacyEdit,
+  isContentEditRun,
   parseStronglyScopedLegacyEdit,
   patchMatchesScopedLegacyEdit,
   extractBriefRequirements,
@@ -71,14 +63,8 @@ import {
   type DocumentToolExecution,
   type DocumentToolHandlers,
 } from "@/server/agent";
-import {
-  blockingPdfVisualFindings,
-  CompileFailure,
-  evaluateRenderedPageTarget,
-  getDocumentCompiler,
-  parsePageTarget,
-  reviewPdfVisualQuality,
-} from "@/server/compiler";
+import { parsePageTarget } from "@/server/compiler";
+import { compileDocumentRevision } from "@/server/compiler/compile-document-revision";
 import {
   AgentRunNotFoundError,
   DocumentNotFoundError,
@@ -114,7 +100,10 @@ import {
   validateResearchLedgerAgainstContext,
   type ResearchLedgerContext,
 } from "@/server/research";
-import { normalizeUserFacingQuestion } from "@/lib/user-facing-copy";
+import {
+  normalizeUserFacingQuestion,
+  normalizeUserFacingResultNote,
+} from "@/lib/user-facing-copy";
 
 import {
   hasSemanticEvent,
@@ -173,6 +162,7 @@ const WorkflowInputSchema = z
     baseRevision: z.number().int().nonnegative(),
     replyToRunId: z.string().uuid().nullable().default(null),
     decision: z.enum(["approve", "reject"]).nullable().default(null),
+    targetNodeId: z.string().uuid().nullable().default(null),
   })
   .strict()
   .superRefine((input, context) => {
@@ -584,7 +574,8 @@ export async function loadDocumentRunStep(
     run.prompt !== input.prompt ||
     run.baseRevision !== input.baseRevision ||
     run.replyToRunId !== input.replyToRunId ||
-    run.decision !== input.decision
+    run.decision !== input.decision ||
+    run.targetNodeId !== input.targetNodeId
   ) {
     throw new FatalError("文書作成リクエストを確認できません。");
   }
@@ -817,11 +808,19 @@ export async function assessDocumentBriefStep(inputValue: {
     if (replay) return replay;
   }
 
+  // Conversational edit path: a fresh prompt against a document that already
+  // has content skips intake entirely and runs the agent directly (Base44-style
+  // iteration). Without a stored session this also covers ANSWERS to questions
+  // an edit run itself raised — a sessionless reply has no intake to return to
+  // and must stay an edit run. With a session, replies continue their original
+  // flow below, and mid-intake sessions (brief not yet confirmed at its
+  // current version) still go through elicitation.
   if (
-    !stored &&
-    input.replyToRunId === null &&
     document.document.root.length > 0 &&
-    isStronglyScopedLegacyEdit(input.prompt)
+    (!stored
+      ? true
+      : input.replyToRunId === null &&
+        stored.session.confirmedBriefVersion === stored.session.briefVersion)
   ) {
     return DocumentBriefAssessmentSchema.parse({
       status: "ready",
@@ -901,6 +900,15 @@ export async function assessDocumentBriefStep(inputValue: {
       ...(activeQuestion ? { questionId: activeQuestion.id } : {}),
     });
   }
+
+  // Build-first: with the subject in hand, remaining requirements delegate to
+  // their defaults and the brief self-confirms so writing starts immediately.
+  const autopilot = autopilotDocumentBrief({
+    session,
+    runId: input.runId,
+    now,
+  });
+  if (autopilot) session = autopilot;
 
   const advanced = advanceElicitation({
     session,
@@ -1277,6 +1285,12 @@ async function applyPatchDurably(
     session: storedSession?.session ?? null,
     documentHasContent: document.document.root.length > 0,
     scopedLegacyEdit,
+    // Recomputed from the persisted run so tool-step replays agree.
+    contentEditRun: isContentEditRun({
+      replyToRunId: run.replyToRunId,
+      decision: run.decision,
+      documentHasContent: document.document.root.length > 0,
+    }),
   });
   if (!mutationReadiness.allowed) {
     throw new FatalError(
@@ -1986,15 +2000,19 @@ export async function validateRenderCompileAndStoreStep(inputValue: {
   const input = parseWorkflowInput(inputValue.workflow);
   const revisionNumber = z.number().int().positive().parse(inputValue.revision);
   const repository = getDocumentRepository();
-  const artifactStore = getArtifactStore();
   const [run, storedSession] = await Promise.all([
     requireRun(repository, input.userId, input.runId),
     repository.getDocumentAgentSession(input.userId, input.documentId),
   ]);
   assertRunScope(run, input.documentId);
+  // The brief's page target binds runs the brief flow itself processed
+  // (session.lastProcessedRunId advances for those). Conversational edit runs
+  // never touch the session, and shrinking or growing the document on request
+  // must not fight a page target confirmed for the original commission.
   let targetLength: string | null = null;
   if (
     storedSession &&
+    storedSession.session.lastProcessedRunId === input.runId &&
     storedSession.session.confirmedBriefVersion ===
       storedSession.session.briefVersion &&
     (storedSession.session.brief.scope.targetLength.status === "provided" ||
@@ -2003,176 +2021,14 @@ export async function validateRenderCompileAndStoreStep(inputValue: {
     targetLength = storedSession.session.brief.scope.targetLength.value;
   }
 
-  const existingArtifact = await repository.getArtifact(
-    input.userId,
-    input.documentId,
-    revisionNumber,
-  );
-  const revision = await repository.getRevision(
-    input.userId,
-    input.documentId,
-    revisionNumber,
-  );
-  if (!revision) throw new DocumentNotFoundError();
-
-  try {
-    const document = validateDocument(revision.document);
-    assertDocumentFiguresRenderable(document);
-    if (
-      existingArtifact &&
-      existingArtifact.pageCount !== null &&
-      existingArtifact.qualityVersion === CURRENT_ARTIFACT_QUALITY_VERSION &&
-      (await storedPdfMatchesMetadata(artifactStore, existingArtifact))
-    ) {
-      const pageFailure = renderedPageTargetFailure({
-        targetLength,
-        pageCount: existingArtifact.pageCount,
-        revision: revisionNumber,
-      });
-      if (pageFailure) return pageFailure;
-      return {
-        ok: true,
-        revision: revisionNumber,
-        artifact: {
-          revision: revisionNumber,
-          sha256: existingArtifact.sha256,
-          byteSize: existingArtifact.byteSize,
-        },
-        release: artifactReleaseBinding(existingArtifact),
-        pageCount: existingArtifact.pageCount,
-        warningCount: 0,
-        reused: true,
-      };
-    }
-    const latex = renderDocumentToLatex(document);
-    const compiled = await getDocumentCompiler().compile({
-      userId: input.userId,
-      documentId: input.documentId,
-      revision: revisionNumber,
-      latex,
-    });
-    const pageFailure = renderedPageTargetFailure({
-      targetLength,
-      pageCount: compiled.pageCount,
-      revision: revisionNumber,
-    });
-    if (pageFailure) return pageFailure;
-    const runtime = selectAgentRuntime(process.env);
-    if (runtime.provider === "ai_gateway") {
-      const visualReview = await reviewPdfVisualQuality({
-        pdf: compiled.pdf,
-        pageCount: compiled.pageCount,
-        runtime,
-      });
-      const blockingFindings = blockingPdfVisualFindings(visualReview);
-      if (blockingFindings.length > 0) {
-        return {
-          ok: false,
-          revision: revisionNumber,
-          code: "visual_quality_failed",
-          issueCount: blockingFindings.length,
-          visualFindings: blockingFindings.map((finding) => ({
-            category: finding.category,
-            page: finding.page,
-            detail: finding.detail,
-          })),
-        };
-      }
-    }
-    const saved = await artifactStore.savePdf({
-      userId: input.userId,
-      documentId: input.documentId,
-      revision: revisionNumber,
-      pdf: compiled.pdf,
-    });
-
-    const storedArtifact = {
-      userId: input.userId,
-      documentId: input.documentId,
-      revision: revisionNumber,
-      storageKey: saved.storageKey,
-      sha256: saved.sha256,
-      byteSize: saved.byteSize,
-      compileDurationMs: compiled.durationMs,
-      pageCount: compiled.pageCount,
-      qualityVersion: CURRENT_ARTIFACT_QUALITY_VERSION,
-      createdAt: new Date().toISOString(),
-    };
-    if (existingArtifact) {
-      await repository.replaceArtifact(existingArtifact, storedArtifact);
-    } else {
-      await repository.saveArtifact(storedArtifact);
-    }
-
-    return {
-      ok: true,
-      revision: revisionNumber,
-      artifact: {
-        revision: revisionNumber,
-        sha256: saved.sha256,
-        byteSize: saved.byteSize,
-      },
-      release: artifactReleaseBinding(storedArtifact),
-      pageCount: compiled.pageCount,
-      warningCount: compiled.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === "warning",
-      ).length,
-      reused: false,
-    };
-  } catch (error) {
-    if (error instanceof DocumentValidationError) {
-      return {
-        ok: false,
-        revision: revisionNumber,
-        code: "document_validation_failed",
-        issueCount: error.issues.length,
-      };
-    }
-    if (error instanceof CompileFailure) {
-      return {
-        ok: false,
-        revision: revisionNumber,
-        code: "typesetting_failed",
-        issueCount: error.diagnostics.length,
-      };
-    }
-    throw error;
-  }
-}
-
-function renderedPageTargetFailure(input: {
-  targetLength: string | null;
-  pageCount: number;
-  revision: number;
-}): Extract<CompileAndStoreResult, { ok: false }> | null {
-  const evaluation = evaluateRenderedPageTarget(
-    input.targetLength,
-    input.pageCount,
-  );
-  if (evaluation.status === "not_applicable" || evaluation.status === "passed") {
-    return null;
-  }
-  if (evaluation.status === "unsupported") {
-    return {
-      ok: false,
-      revision: input.revision,
-      code: "page_target_unsupported",
-      issueCount: 1,
-    };
-  }
-  return {
-    ok: false,
-    revision: input.revision,
-    code: "page_target_mismatch",
-    issueCount: 1,
-    pageTarget: {
-      observed: evaluation.observed,
-      minimum: evaluation.target.minimum,
-      ...(evaluation.target.maximum === undefined
-        ? {}
-        : { maximum: evaluation.target.maximum }),
-    },
-  };
+  const runtime = selectAgentRuntime(process.env);
+  return compileDocumentRevision({
+    userId: input.userId,
+    documentId: input.documentId,
+    revision: revisionNumber,
+    targetLength,
+    visualReviewRuntime: runtime.provider === "ai_gateway" ? runtime : null,
+  });
 }
 
 export async function completeDocumentRunStep(inputValue: {
@@ -2180,11 +2036,15 @@ export async function completeDocumentRunStep(inputValue: {
   revision: number;
   artifact: ArtifactReleaseBinding;
   eventKey: string;
+  resultNote?: string | null;
 }): Promise<DocumentAgentArtifactSummary> {
   "use step";
 
   const input = parseWorkflowInput(inputValue.workflow);
   const revision = z.number().int().positive().parse(inputValue.revision);
+  // Sanitized where produced, and re-sanitized here so the stored note is
+  // safe regardless of the caller.
+  const resultNote = normalizeUserFacingResultNote(inputValue.resultNote);
   const completed = await getDocumentRepository().completeRunForCurrentRevision({
     userId: input.userId,
     documentId: input.documentId,
@@ -2193,6 +2053,7 @@ export async function completeDocumentRunStep(inputValue: {
     artifact: inputValue.artifact,
     eventKey: inputValue.eventKey,
     eventMessage: SEMANTIC_PROGRESS_LABELS.ready,
+    resultNote,
   });
 
   return {

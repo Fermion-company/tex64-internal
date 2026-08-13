@@ -40,6 +40,7 @@ const StartRunSchema = z
       .optional(),
     replyToRunId: z.string().uuid().optional(),
     decision: z.enum(["approve", "reject"]).optional(),
+    targetNodeId: z.string().uuid().optional(),
     idempotencyKey: IdempotencyKeySchema.optional(),
   })
   .strict()
@@ -56,6 +57,13 @@ const StartRunSchema = z
         code: "custom",
         path: ["prompt"],
         message: "A writing request or answer is required.",
+      });
+    }
+    if (input.targetNodeId && input.decision) {
+      context.addIssue({
+        code: "custom",
+        path: ["targetNodeId"],
+        message: "A decision cannot scope a document element.",
       });
     }
   });
@@ -117,6 +125,7 @@ export async function POST(
       baseRevision: document.currentRevision,
       replyToRunId: input.replyToRunId ?? null,
       decision: input.decision ?? null,
+      targetNodeId: input.targetNodeId ?? null,
     });
     const limit = await takeRateLimits(
       agentRunRateLimitInput({
@@ -138,6 +147,7 @@ export async function POST(
       baseRevision: document.currentRevision,
       replyToRunId: input.replyToRunId ?? null,
       decision: input.decision ?? null,
+      targetNodeId: input.targetNodeId ?? null,
       startWorkflow: async (workflowInput) => {
         const workflowRun = await start(runDocumentAgentWorkflow, [workflowInput]);
         return { runId: workflowRun.runId };

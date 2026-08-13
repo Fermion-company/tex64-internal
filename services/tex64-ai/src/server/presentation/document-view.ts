@@ -17,11 +17,16 @@ import type {
   AgentRun,
   DocumentBlock,
   DocumentDetail,
+  DocumentElement,
   DocumentKind,
   DocumentSummary,
   DocumentVersion,
+  RunProgressEvent,
 } from "@/lib/client/types";
-import { normalizeUserFacingQuestion } from "@/lib/user-facing-copy";
+import {
+  containsUnsafeUserFacingCopy,
+  normalizeUserFacingQuestion,
+} from "@/lib/user-facing-copy";
 import type {
   DocumentRepository,
   StoredAgentRun,
@@ -29,6 +34,7 @@ import type {
   StoredDocument,
   StoredDocumentListItem,
   StoredRevisionListItem,
+  StoredRunEvent,
 } from "@/server/persistence";
 import { runReleasesArtifact } from "@/server/artifacts/release";
 
@@ -142,6 +148,13 @@ export function toDocumentDetail(input: {
   const releasedArtifact = runReleasesArtifact(completedRun, artifact)
     ? artifact
     : null;
+  // The inline preview also covers the owner's draft compiles (manual edits,
+  // restores): any current-revision artifact is viewable by its owner.
+  const currentArtifact =
+    artifact && artifact.revision === stored.currentRevision ? artifact : null;
+  const artifactBase = currentArtifact
+    ? `/api/documents/${encodeURIComponent(stored.id)}/artifacts/${currentArtifact.revision}/${currentArtifact.sha256}`
+    : null;
   return {
     ...toDocumentSummary(
       stored,
@@ -151,11 +164,18 @@ export function toDocumentDetail(input: {
     eyebrow: stored.document.metadata.subtitle,
     author: stored.document.metadata.authors[0]?.name,
     blocks: documentToBlocks(stored.document),
+    elements: documentToElements(stored.document),
     versions: revisions.map(toVersion),
     runs: presentedRuns ?? runs.map(toAgentRun),
     ...(releasedArtifact?.revision === stored.currentRevision
       ? {
           artifactUrl: `/api/documents/${encodeURIComponent(stored.id)}/artifacts/${releasedArtifact.revision}/${releasedArtifact.sha256}`,
+        }
+      : {}),
+    ...(artifactBase
+      ? {
+          previewUrl: `${artifactBase}/preview`,
+          regionsUrl: `${artifactBase}/regions`,
         }
       : {}),
   };
@@ -389,6 +409,138 @@ function newNodeFromBlock(block: DocumentBlock): DocumentNode {
         numbered: true,
       };
   }
+}
+
+/**
+ * Reading-order inventory of selectable elements for the PDF overlay and
+ * outline. Numbering matches the block canvas: root sections and equations
+ * count sequentially in traversal order; figures/tables get their own
+ * counters. Nodes that never typeset standalone (citations, footnotes,
+ * page breaks) are omitted.
+ */
+export function documentToElements(document: DocumentModel): DocumentElement[] {
+  const nodeById = new Map(document.nodes.map((node) => [node.id, node]));
+  const elements: DocumentElement[] = [];
+  let sectionNumber = 0;
+  let equationNumber = 0;
+  let figureNumber = 0;
+  let tableNumber = 0;
+  const visit = (node: DocumentNode): void => {
+    switch (node.type) {
+      case "section": {
+        sectionNumber += 1;
+        elements.push({
+          id: node.id,
+          kind: "section",
+          label: `第${sectionNumber}節`,
+          editable: true,
+        });
+        for (const childId of node.children) {
+          const child = nodeById.get(childId);
+          if (child) visit(child);
+        }
+        break;
+      }
+      case "heading":
+        elements.push({ id: node.id, kind: "heading", label: "小見出し", editable: true });
+        break;
+      case "paragraph":
+        elements.push({ id: node.id, kind: "paragraph", label: "段落", editable: true });
+        break;
+      case "list":
+        elements.push({ id: node.id, kind: "list", label: "箇条書き", editable: true });
+        break;
+      case "equation": {
+        equationNumber += 1;
+        elements.push({
+          id: node.id,
+          kind: "equation",
+          label: `数式 (${equationNumber})`,
+          editable: true,
+        });
+        break;
+      }
+      case "callout":
+        elements.push({ id: node.id, kind: "quote", label: "引用", editable: true });
+        break;
+      case "figure": {
+        figureNumber += 1;
+        elements.push({
+          id: node.id,
+          kind: "figure",
+          label: `図${figureNumber}`,
+          editable: false,
+        });
+        break;
+      }
+      case "table": {
+        tableNumber += 1;
+        elements.push({
+          id: node.id,
+          kind: "table",
+          label: `表${tableNumber}`,
+          editable: false,
+        });
+        break;
+      }
+      case "theorem": {
+        const label = {
+          definition: "定義",
+          lemma: "補題",
+          theorem: "定理",
+          corollary: "系",
+        }[node.theoremKind];
+        elements.push({ id: node.id, kind: "theorem", label, editable: false });
+        for (const childId of node.children) {
+          const child = nodeById.get(childId);
+          if (child) visit(child);
+        }
+        break;
+      }
+      case "proof":
+        elements.push({ id: node.id, kind: "proof", label: "証明", editable: false });
+        for (const childId of node.children) {
+          const child = nodeById.get(childId);
+          if (child) visit(child);
+        }
+        break;
+      case "algorithm":
+        elements.push({
+          id: node.id,
+          kind: "algorithm",
+          label: "アルゴリズム",
+          editable: false,
+        });
+        break;
+      case "codeBlock":
+        elements.push({ id: node.id, kind: "code", label: "コード", editable: false });
+        break;
+      case "appendix":
+        elements.push({ id: node.id, kind: "appendix", label: "付録", editable: false });
+        for (const childId of node.children) {
+          const child = nodeById.get(childId);
+          if (child) visit(child);
+        }
+        break;
+      case "bibliography":
+        elements.push({
+          id: node.id,
+          kind: "bibliography",
+          label: "参考文献",
+          editable: false,
+        });
+        break;
+      case "citation":
+      case "footnote":
+      case "pageBreak":
+        break;
+    }
+  };
+  for (const nodeId of document.root) {
+    const node = nodeById.get(nodeId);
+    if (node) visit(node);
+  }
+  return elements;
 }
 
 function documentToBlocks(document: DocumentModel): DocumentBlock[] {
@@ -697,9 +849,21 @@ function documentPreview(document: DocumentModel): string {
 }
 
 function toVersion(revision: StoredRevisionListItem): DocumentVersion {
+  // Revision summaries written by the agent are model-authored text; the
+  // history panel renders them verbatim, so unsafe copy falls back.
+  const summary = revision.summary.trim();
+  const label =
+    summary.length > 0 &&
+    summary.length <= 200 &&
+    !containsUnsafeUserFacingCopy(summary)
+      ? summary
+      : revision.actor === "agent"
+        ? "AIによる更新"
+        : "手動編集";
   return {
     id: `${revision.documentId}:${revision.revision}`,
-    label: revision.summary,
+    revision: revision.revision,
+    label,
     createdAt: revision.createdAt,
     source: revision.actor === "agent" ? "agent" : "manual",
   };
@@ -729,9 +893,10 @@ export function toAgentRun(run: StoredAgentRun): AgentRun {
     updatedAt: run.updatedAt,
     resultNote:
       run.status === "completed"
-        ? run.resultRevision === run.baseRevision
-          ? "文書を確認しました"
-          : "文書を更新しました"
+        ? (run.resultNote ??
+          (run.resultRevision === run.baseRevision
+            ? "文書を確認しました"
+            : "文書を更新しました"))
         : needsInput
           ? userFacingNeedsInputNote(run, "clarification")
         : run.status === "failed"
@@ -760,6 +925,31 @@ export async function presentAgentRun(
         : userFacingNeedsInputNote(run, inputKind),
     inputKind,
   };
+}
+
+/**
+ * Project stored run events onto the client contract. Only the semantic
+ * stage, its fixed label, ordering, and the repair-attempt counter survive;
+ * internal detail (event keys, failure codes, issue counts) stays server-side.
+ */
+export function presentRunEvents(
+  events: readonly StoredRunEvent[],
+): RunProgressEvent[] {
+  return events.map((event) => {
+    const attempt =
+      typeof event.detail?.attempt === "number" &&
+      Number.isInteger(event.detail.attempt) &&
+      event.detail.attempt > 0
+        ? event.detail.attempt
+        : undefined;
+    return {
+      stage: event.stage,
+      label: event.message,
+      sequence: event.sequence,
+      occurredAt: event.createdAt,
+      ...(attempt === undefined ? {} : { attempt }),
+    };
+  });
 }
 
 export async function presentAgentRuns(

@@ -5,9 +5,17 @@ import {
   MAX_PDF_ARTIFACT_BYTES,
   assertValidPdfArtifact,
 } from "@/server/compiler/safety";
-import type { ArtifactStore, PdfBody, SavePdfInput, SavedPdf } from "./types";
+import type {
+  ArtifactRegionsRef,
+  ArtifactStore,
+  PdfBody,
+  SavePdfInput,
+  SavedPdf,
+  SaveRegionsInput,
+} from "./types";
 
 const SAFE_SEGMENT = /^[0-9a-z-]+$/i;
+export const MAX_REGIONS_ARTIFACT_BYTES = 4 * 1024 * 1024;
 
 export class LocalArtifactStore implements ArtifactStore {
   readonly root: string;
@@ -59,6 +67,55 @@ export class LocalArtifactStore implements ArtifactStore {
       if (isMissingFile(error)) return null;
       throw error;
     }
+  }
+
+  async saveRegions(input: SaveRegionsInput): Promise<void> {
+    const destination = this.resolveRegionsPath(input);
+    const body = Buffer.from(input.regionsJson, "utf8");
+    if (body.byteLength > MAX_REGIONS_ARTIFACT_BYTES) {
+      throw new Error("Region map exceeds the artifact size limit.");
+    }
+    await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    const temporary = `${destination}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, body, { mode: 0o600, flag: "wx" });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+
+  async readRegions(ref: ArtifactRegionsRef): Promise<string | null> {
+    try {
+      const filePath = this.resolveRegionsPath(ref);
+      const metadata = await stat(filePath);
+      if (!metadata.isFile() || metadata.size > MAX_REGIONS_ARTIFACT_BYTES) {
+        throw new Error("Invalid local region map file.");
+      }
+      return await readFile(filePath, "utf8");
+    } catch (error) {
+      if (isMissingFile(error)) return null;
+      throw error;
+    }
+  }
+
+  private resolveRegionsPath(ref: ArtifactRegionsRef): string {
+    assertSegment(ref.userId);
+    assertSegment(ref.documentId);
+    if (!Number.isSafeInteger(ref.revision) || ref.revision < 1) {
+      throw new Error("Invalid artifact revision.");
+    }
+    if (!/^[0-9a-f]{64}$/.test(ref.pdfSha256)) {
+      throw new Error("Invalid artifact digest.");
+    }
+    const resolved = path.resolve(
+      this.root,
+      ref.userId,
+      ref.documentId,
+      `${ref.revision}-${ref.pdfSha256}.regions.json`,
+    );
+    if (!resolved.startsWith(`${this.root}${path.sep}`)) throw new Error("Artifact path escaped its root.");
+    return resolved;
   }
 
   private resolveKey(storageKey: string): string {

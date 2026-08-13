@@ -18,6 +18,8 @@ function storeWith(read: () => Promise<PdfBody | null>): ArtifactStore {
       byteSize: PDF.byteLength,
       sha256: SHA256,
     }),
+    saveRegions: async () => undefined,
+    readRegions: async () => null,
   };
 }
 

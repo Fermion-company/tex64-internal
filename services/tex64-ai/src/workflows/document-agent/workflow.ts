@@ -19,12 +19,14 @@ import {
   buildInitialAgentPrompt,
   buildRepairAgentPrompt,
   documentAgentExecutionEvidence,
+  finalAssistantText,
   needsIndependentReviewAfterCompilation,
   nextContentReviewAction,
   nextCompileFailureAction,
   safeWorkflowFailureCode,
   semanticEventKey,
 } from "./helpers";
+import { normalizeUserFacingResultNote } from "@/lib/user-facing-copy";
 import { buildReviewRepairInstructions } from "@/server/agent/review-repair-instructions";
 import {
   applyDocumentPatchToolStep,
@@ -213,6 +215,30 @@ function assertCompletedAgentExecution(
   return evidence;
 }
 
+/**
+ * A conversational edit run that answered a question without changing the
+ * document has nothing to structurally re-check; it still must have read the
+ * document and finished naturally.
+ */
+function assertAnswerOnlyAgentExecution(
+  evidence: ReturnType<typeof inspectAgentExecution>,
+) {
+  if (!evidence.readObserved) {
+    throw new Error("Document agent did not inspect the current document.");
+  }
+  if (evidence.reachedStepLimit) {
+    throw new Error("Document agent reached the safe execution limit.");
+  }
+  if (evidence.tokenBudgetReached && !evidence.completedNaturally) {
+    throw new Error("Document agent reached its safe token budget.");
+  }
+  if (!evidence.completedNaturally) {
+    throw new Error("Document agent did not finish its work naturally.");
+  }
+
+  return evidence;
+}
+
 function remainingAgentTokenBudget(consumedTokens: number): number {
   const remaining = MAX_AGENT_TOTAL_TOKENS_PER_RUN - consumedTokens;
   if (remaining < 1) {
@@ -312,6 +338,9 @@ export async function runDocumentAgentWorkflow(
 
     const runtime = await resolveAgentRuntimeStep();
     let consumedAgentTokens = 0;
+    // The most recent agent closing message becomes the completed run's chat
+    // reply. Repair rounds overwrite it so the note matches the final state.
+    let closingNote: string | null = null;
 
     const promptContext =
       decision.status === "not_requested"
@@ -408,6 +437,7 @@ export async function runDocumentAgentWorkflow(
                 }
               : null,
           documentPlan,
+          targetNodeId: input.targetNodeId ?? null,
         }),
       });
 
@@ -415,6 +445,9 @@ export async function runDocumentAgentWorkflow(
       revision = current.revision;
       const evidence = inspectAgentExecution(agentResult, initialTokenBudget);
       consumedAgentTokens += evidence.totalTokens;
+      closingNote =
+        normalizeUserFacingResultNote(finalAssistantText(agentResult.steps)) ??
+        closingNote;
 
       if (current.needsInput) {
         return {
@@ -428,25 +461,37 @@ export async function runDocumentAgentWorkflow(
         };
       }
 
-      assertCompletedAgentExecution(evidence);
+      const conversationalEditRun =
+        briefAssessment?.status === "ready" && briefAssessment.brief === null;
       if (!current.changed) {
+        // Conversational edit runs may legitimately answer without editing;
+        // everything else still needs an explicit no-change contract.
+        if (conversationalEditRun) {
+          assertAnswerOnlyAgentExecution(evidence);
+        } else {
+          assertCompletedAgentExecution(evidence);
+        }
         const effectivePrompt =
           promptContext?.effectivePrompt ?? input.prompt;
         if (
           revision < 1 ||
-          !allowsUnchangedDocumentCompletion(effectivePrompt)
+          (!conversationalEditRun &&
+            !allowsUnchangedDocumentCompletion(effectivePrompt))
         ) {
           throw new Error(
             "Document agent completed without an applicable document change.",
           );
         }
-      } else if (
-        !evidence.patchObserved &&
-        !(current.hasContent && evidence.formatObserved)
-      ) {
-        throw new Error(
-          "Document revision changed without an observed document patch.",
-        );
+      } else {
+        assertCompletedAgentExecution(evidence);
+        if (
+          !evidence.patchObserved &&
+          !(current.hasContent && evidence.formatObserved)
+        ) {
+          throw new Error(
+            "Document revision changed without an observed document patch.",
+          );
+        }
       }
     } else if (decision.status === "not_requested") {
       const fallback = await applyFallbackPlan(
@@ -593,6 +638,9 @@ export async function runDocumentAgentWorkflow(
         revision = repaired.revision;
         const evidence = inspectAgentExecution(reviewRepair, reviewTokenBudget);
         consumedAgentTokens += evidence.totalTokens;
+        closingNote =
+          normalizeUserFacingResultNote(finalAssistantText(reviewRepair.steps)) ??
+          closingNote;
         if (repaired.needsInput) {
           return {
             status: "needs_input",
@@ -711,6 +759,9 @@ export async function runDocumentAgentWorkflow(
         repairTokenBudget,
       );
       consumedAgentTokens += repairEvidence.totalTokens;
+      closingNote =
+        normalizeUserFacingResultNote(finalAssistantText(repairResult.steps)) ??
+        closingNote;
       if (repaired.needsInput) {
         return {
           status: "needs_input",
@@ -789,6 +840,7 @@ export async function runDocumentAgentWorkflow(
       revision: compileResult.revision,
       artifact: compileResult.release,
       eventKey: semanticEventKey(input.runId, "ready"),
+      resultNote: closingNote,
     });
 
     return {

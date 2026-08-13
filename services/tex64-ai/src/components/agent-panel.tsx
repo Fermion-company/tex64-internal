@@ -1,12 +1,21 @@
 "use client";
 
-import { ArrowUp, LoaderCircle, Sigma } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  LoaderCircle,
+  Sigma,
+  X,
+} from "lucide-react";
 import type { RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  RUN_PROGRESS_STAGES,
   RUN_STAGE_LABELS,
   type AgentRun,
   type DocumentDetail,
+  type DocumentElement,
+  type RunProgressEvent,
 } from "@/lib/client/types";
 import {
   isRunAwaitingInput,
@@ -17,35 +26,26 @@ import {
 interface AgentPanelProps {
   document: DocumentDetail | null;
   activeRun: AgentRun | null;
+  progressEvents: RunProgressEvent[];
+  selectedElement: DocumentElement | null;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   submitting: boolean;
   onSubmit: (prompt: string) => void;
+  onClearSelection: () => void;
 }
 
-const QUICK_ACTIONS: Array<{ label: string; description: string; prompt: string }> = [
-  {
-    label: "短くする",
-    description: "要点を保ったまま全体を引き締める",
-    prompt: "短くする",
-  },
-  {
-    label: "論点を補う",
-    description: "足りない観点を探して書き足す",
-    prompt: "論点を補う",
-  },
-  {
-    label: "語調を整える",
-    description: "文体を統一して読みやすくする",
-    prompt: "語調を整える",
-  },
-];
+/** After this long without a new progress step, be honest about the wait. */
+const SLOW_RUN_AFTER_MS = 240_000;
 
 export function AgentPanel({
   document,
   activeRun,
+  progressEvents,
+  selectedElement,
   composerRef,
   submitting,
   onSubmit,
+  onClearSelection,
 }: AgentPanelProps) {
   const [prompt, setPrompt] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -64,12 +64,11 @@ export function AgentPanel({
   const needsInput = conversationRun ? isRunAwaitingInput(conversationRun) : false;
   const isWorking =
     conversationRun?.status === "running" || conversationRun?.status === "queued";
-  const quickActions = needsInput ? [] : QUICK_ACTIONS;
 
   useEffect(() => {
     const container = scrollRef.current;
     if (container) container.scrollTop = container.scrollHeight;
-  }, [conversationRun?.id, conversationRun?.stage, conversationRun?.status, runs.length]);
+  }, [conversationRun?.id, conversationRun?.stage, conversationRun?.status, runs.length, progressEvents.length]);
 
   const submit = (value = prompt) => {
     const trimmed = value.trim();
@@ -116,29 +115,24 @@ export function AgentPanel({
           );
         })}
 
-        {isWorking ? (
-          <div className="writing-status" role="status" aria-live="polite">
-            <LoaderCircle aria-hidden="true" size={15} />
-            <span>{RUN_STAGE_LABELS[conversationRun.stage]}</span>
-          </div>
+        {isWorking && conversationRun ? (
+          <RunTimeline run={conversationRun} events={progressEvents} />
         ) : null}
       </div>
 
       <div className="agent-composer-wrap">
-        {quickActions.length ? (
-          <div className="suggestion-card" aria-label="書き換えの候補">
-            <span className="suggestion-heading">次に何をしますか?</span>
-            {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                disabled={submitting || isWorking}
-                onClick={() => submit(action.prompt)}
-              >
-                <span className="suggestion-title">{action.label}</span>
-                <span className="suggestion-desc">{action.description}</span>
-              </button>
-            ))}
+        {selectedElement ? (
+          <div className="selection-chip" role="status">
+            <span className="selection-chip-label">
+              選択中: {selectedElement.label}
+            </span>
+            <button
+              type="button"
+              aria-label="選択を解除"
+              onClick={onClearSelection}
+            >
+              <X aria-hidden="true" size={13} />
+            </button>
           </div>
         ) : null}
         <div className="agent-composer">
@@ -147,7 +141,13 @@ export function AgentPanel({
             rows={3}
             value={prompt}
             disabled={!document || submitting || isWorking}
-            placeholder={needsInput ? "回答を入力" : "何を執筆しますか？"}
+            placeholder={
+              needsInput
+                ? "回答を入力"
+                : selectedElement
+                  ? `${selectedElement.label}をどう変えますか？`
+                  : "何を執筆しますか？"
+            }
             aria-label={needsInput ? "確認への回答" : "書きたい内容"}
             aria-describedby={needsInput ? "writing-question" : undefined}
             onChange={(event) => setPrompt(event.target.value)}
@@ -174,6 +174,82 @@ export function AgentPanel({
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Live checklist of the run's stages (Base44-style task list). Stages come
+ * from the recorded progress events; repair rounds re-enter earlier stages
+ * and surface as「手直ししています (n回目)」.
+ */
+function RunTimeline({
+  run,
+  events,
+}: {
+  run: AgentRun;
+  events: RunProgressEvent[];
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const reached = useMemo(() => {
+    const map = new Map<string, RunProgressEvent>();
+    for (const event of events) map.set(event.stage, event);
+    return map;
+  }, [events]);
+  const currentStage = events.at(-1)?.stage ?? run.stage;
+  const currentAttempt = events.at(-1)?.attempt;
+  const lastMovementAt = events.at(-1)?.occurredAt ?? run.updatedAt;
+  const slow = now - Date.parse(lastMovementAt) > SLOW_RUN_AFTER_MS;
+
+  const currentIndex = RUN_PROGRESS_STAGES.findIndex(
+    (stage) => stage === currentStage,
+  );
+
+  return (
+    <div className="writing-status" role="status" aria-live="polite">
+      <ol className="run-timeline">
+        {RUN_PROGRESS_STAGES.filter((stage) => stage !== "ready").map(
+          (stage, index) => {
+            const done =
+              currentIndex > index ||
+              run.status === "completed" ||
+              (reached.has(stage) && stage !== currentStage);
+            const active = stage === currentStage;
+            if (!done && !active) {
+              return (
+                <li key={stage} className="is-upcoming">
+                  <span className="run-timeline-dot" aria-hidden="true" />
+                  <span>{RUN_STAGE_LABELS[stage]}</span>
+                </li>
+              );
+            }
+            return (
+              <li key={stage} className={active ? "is-active" : "is-done"}>
+                {active ? (
+                  <LoaderCircle aria-hidden="true" size={13} />
+                ) : (
+                  <Check aria-hidden="true" size={13} />
+                )}
+                <span>
+                  {active && currentAttempt !== undefined && currentAttempt > 0
+                    ? `手直ししています (${currentAttempt}回目)`
+                    : RUN_STAGE_LABELS[stage]}
+                </span>
+              </li>
+            );
+          },
+        )}
+      </ol>
+      {slow ? (
+        <p className="run-timeline-slow">
+          時間がかかっています。このまま完了までお待ちください。別の文書の閲覧や編集はいつでもできます。
+        </p>
+      ) : null}
+    </div>
   );
 }
 

@@ -99,11 +99,20 @@ function citationStyleDocument(
 
 describe("deterministic LaTeX renderer", () => {
   it("preserves the established output for legacy documents byte for byte", () => {
-    const digest = createHash("sha256")
-      .update(renderDocumentToLatex(SAMPLE_DOCUMENT))
-      .digest("hex");
-    expect(digest).toBe(
+    const rendered = renderDocumentToLatex(SAMPLE_DOCUMENT);
+    // Region markers are the ONLY addition on top of the legacy output:
+    // stripping the marker lines must reproduce the historical bytes exactly.
+    const stripped = rendered
+      .split("\n")
+      .filter(
+        (line) => !line.startsWith("%%T64B:") && !line.startsWith("%%T64E:"),
+      )
+      .join("\n");
+    expect(createHash("sha256").update(stripped).digest("hex")).toBe(
       "09dd8c9241997fa8cb93985bd5409b280328ad1c5127bc4c01c0c6273f5beaba",
+    );
+    expect(createHash("sha256").update(rendered).digest("hex")).toBe(
+      "9ce0885ea3f761aa6760bf34f8578a6beb423f6e9879d0b5314e8dcdb1e339b7",
     );
   });
 

@@ -3,7 +3,15 @@ import {
   MAX_PDF_ARTIFACT_BYTES,
   assertValidPdfArtifact,
 } from "@/server/compiler/safety";
-import type { ArtifactStore, PdfBody, SavePdfInput, SavedPdf } from "./types";
+import { MAX_REGIONS_ARTIFACT_BYTES } from "./local-artifact-store";
+import type {
+  ArtifactRegionsRef,
+  ArtifactStore,
+  PdfBody,
+  SavePdfInput,
+  SavedPdf,
+  SaveRegionsInput,
+} from "./types";
 
 const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -85,6 +93,68 @@ export class BlobArtifactStore implements ArtifactStore {
       etag: blob.blob.etag,
     };
   }
+
+  // Regions are derived deterministically from one exact PDF, so overwriting
+  // with a recomputed map is idempotent by construction.
+  async saveRegions(input: SaveRegionsInput): Promise<void> {
+    const { put } = await import("@vercel/blob");
+    const body = Buffer.from(input.regionsJson, "utf8");
+    if (body.byteLength > MAX_REGIONS_ARTIFACT_BYTES) {
+      throw new Error("Region map exceeds the artifact size limit.");
+    }
+    const storageKey = regionsBlobKey(input);
+    const blob = await put(storageKey, body, {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "application/json",
+      cacheControlMaxAge: 60 * 60 * 24 * 365,
+    });
+    if (blob.pathname !== storageKey) {
+      throw new Error("Blob region map pathname was changed unexpectedly.");
+    }
+  }
+
+  async readRegions(ref: ArtifactRegionsRef): Promise<string | null> {
+    const { get } = await import("@vercel/blob");
+    const storageKey = regionsBlobKey(ref);
+    const blob = await get(storageKey, { access: "private", useCache: false });
+    if (!blob || blob.statusCode === 304 || !blob.stream || blob.blob.size === null) return null;
+    if (blob.blob.size > MAX_REGIONS_ARTIFACT_BYTES) {
+      throw new Error("Invalid blob region map metadata.");
+    }
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    const reader = blob.stream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > MAX_REGIONS_ARTIFACT_BYTES) {
+          await reader.cancel();
+          throw new Error("Blob region map exceeded its size limit.");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  }
+}
+
+function regionsBlobKey(ref: ArtifactRegionsRef): string {
+  if (!UUID_SEGMENT.test(ref.userId) || !UUID_SEGMENT.test(ref.documentId)) {
+    throw new Error("Invalid artifact identifier.");
+  }
+  if (!Number.isSafeInteger(ref.revision) || ref.revision < 1) {
+    throw new Error("Invalid artifact revision.");
+  }
+  if (!/^[0-9a-f]{64}$/.test(ref.pdfSha256)) {
+    throw new Error("Invalid artifact digest.");
+  }
+  return `documents/${ref.userId}/${ref.documentId}/${ref.revision}-${ref.pdfSha256}.regions.json`;
 }
 
 export async function readVerifiedBlobPdf(input: {

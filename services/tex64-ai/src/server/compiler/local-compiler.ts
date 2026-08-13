@@ -44,6 +44,7 @@ export class LocalLatexCompiler implements DocumentCompiler {
               "-interaction=nonstopmode",
               "-halt-on-error",
               "-file-line-error",
+              "-synctex=1",
               `-output-directory=${workDir}`,
               "main.tex",
             ],
@@ -92,6 +93,9 @@ export class LocalLatexCompiler implements DocumentCompiler {
         cachePath,
         configPath,
       });
+      const synctex = await readOptionalSynctex(
+        path.join(workDir, "main.synctex.gz"),
+      );
       return {
         pdf,
         engine: "local-lualatex",
@@ -100,6 +104,7 @@ export class LocalLatexCompiler implements DocumentCompiler {
         diagnostics: finalDiagnostics.filter(
           (item) => item.severity === "warning",
         ),
+        ...(synctex ? { synctex } : {}),
       };
     } finally {
       await rm(workDir, { recursive: true, force: true });
@@ -238,6 +243,20 @@ async function readGeneratedPdf(pdfPath: string): Promise<Buffer> {
         message: "完成した文書を取得できませんでした。",
       },
     ]);
+  }
+}
+
+const MAX_SYNCTEX_BYTES = 16 * 1024 * 1024;
+
+async function readOptionalSynctex(
+  synctexPath: string,
+): Promise<Uint8Array | undefined> {
+  try {
+    const metadata = await stat(synctexPath);
+    if (!metadata.isFile() || metadata.size > MAX_SYNCTEX_BYTES) return undefined;
+    return await readFile(synctexPath);
+  } catch {
+    return undefined;
   }
 }
 
