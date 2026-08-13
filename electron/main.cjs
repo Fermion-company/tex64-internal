@@ -236,6 +236,7 @@ const envService = new EnvService();
 let mathOcrService = null;
 let texizeService = null;
 let fermionEngineService = null;
+let canvasFermionEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
@@ -273,6 +274,10 @@ const getAiWebService = () => {
 const getFermionEngineService = () => {
   if (!fermionEngineService) fermionEngineService = new FermionEngineService();
   return fermionEngineService;
+};
+const getCanvasFermionEngineService = () => {
+  if (!canvasFermionEngineService) canvasFermionEngineService = new FermionEngineService();
+  return canvasFermionEngineService;
 };
 
 const getTexlabService = () => {
@@ -834,6 +839,9 @@ app.on("window-all-closed", () => {
   if (fermionEngineService) {
     fermionEngineService.shutdown();
   }
+  if (canvasFermionEngineService) {
+    canvasFermionEngineService.shutdown();
+  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
@@ -849,6 +857,9 @@ app.on("before-quit", () => {
   }
   if (fermionEngineService) {
     fermionEngineService.shutdown();
+  }
+  if (canvasFermionEngineService) {
+    canvasFermionEngineService.shutdown();
   }
 });
 
@@ -1013,7 +1024,7 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
-registerFermionEngineHandlers({ ipcMain, getFermionEngineService });
+registerFermionEngineHandlers({ ipcMain, getFermionEngineService, getCanvasFermionEngineService });
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 
 // AI-mode webview guests: window.open / target=_blank goes to the system
@@ -1026,6 +1037,17 @@ app.on("web-contents-created", (_event, contents) => {
     }
     return { action: "deny" };
   });
+});
+ipcMain.handle("tex64:files:read-text", async (_event, payload) => {
+  try {
+    const relativePath = typeof payload?.path === "string" ? payload.path : "";
+    if (!relativePath) throw new Error("A workspace path is required.");
+    const data = await workspace.readFile(relativePath);
+    if (data.byteLength > 2 * 1024 * 1024) throw new Error("File exceeds the 2 MiB text limit.");
+    return { ok: true, text: data.toString("utf8") };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
 });
 ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
   try {

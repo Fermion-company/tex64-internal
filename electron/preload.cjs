@@ -103,12 +103,14 @@ const fermionApi = {
   status: async () => ipcRenderer.invoke("tex64:fermion:status"),
   stop: async () => ipcRenderer.invoke("tex64:fermion:stop"),
   push: async (payload) => ipcRenderer.invoke("tex64:fermion:push", payload),
+  canvasRender: async (payload) => ipcRenderer.invoke("tex64:fermion:canvas-render", payload),
 };
 const aiApi = {
   complete: async (payload) => ipcRenderer.invoke("tex64:ai:complete", payload),
 };
 
 const filesApi = {
+  readText: async (payload) => ipcRenderer.invoke("tex64:files:read-text", payload),
   writeBase64: async (payload) => ipcRenderer.invoke("tex64:files:write-base64", payload),
 };
 

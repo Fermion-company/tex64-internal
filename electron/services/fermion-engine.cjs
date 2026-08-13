@@ -33,6 +33,24 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
     req.end();
   });
 
+const requestBuffer = (url, { timeoutMs = 5_000 } = {}) =>
+  new Promise((resolve, reject) => {
+    const req = http.request(url, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        if (res.statusCode !== 200) {
+          return reject(new Error(`fermion request failed (${res.statusCode}): ${buffer.toString("utf8")}`));
+        }
+        resolve(buffer);
+      });
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error("fermion request timed out")));
+    req.on("error", reject);
+    req.end();
+  });
+
 const isPortAvailable = (port) => new Promise((resolve) => {
   const server = net.createServer();
   server.unref();
@@ -72,6 +90,7 @@ class FermionEngineService {
     this.backend = null;
     this.state = "stopped";
     this.lastError = null;
+    this.renderQueue = Promise.resolve();
   }
 
   isAvailable() { return this.existsSync(path.join(this.engineDir, this.serverScript)); }
@@ -144,17 +163,32 @@ class FermionEngineService {
     this.lastError = error?.message || null;
   }
 
-  async push({ source } = {}) {
-    if (typeof source !== "string") throw new Error("fermion push requires source text");
+  async replaceDocument(source, errorMessage) {
+    if (typeof source !== "string") throw new Error(errorMessage);
     await this.start();
     const doc = await requestJson(`${this.url}/doc`);
     const current = typeof doc.source === "string" ? doc.source : "";
-    const report = await requestJson(`${this.url}/edit`, {
+    return requestJson(`${this.url}/edit`, {
       method: "POST",
       body: { start: 0, end: current.length, text: source },
       timeoutMs: this.startTimeoutMs,
     });
+  }
+
+  async push({ source } = {}) {
+    const report = await this.replaceDocument(source, "fermion push requires source text");
     return { ok: true, url: this.url, backend: this.backend, report };
+  }
+
+  renderPdf({ source } = {}) {
+    const run = async () => {
+      const report = await this.replaceDocument(source, "fermion render requires source text");
+      const pdf = await requestBuffer(`${this.url}/pdf`, { timeoutMs: this.startTimeoutMs });
+      return { ok: true, report, pdfBase64: pdf.toString("base64") };
+    };
+    const result = this.renderQueue.then(run, run);
+    this.renderQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   stop() {
@@ -170,4 +204,4 @@ class FermionEngineService {
   shutdown() { return this.stop(); }
 }
 
-module.exports = { FermionEngineService, DEFAULT_FERMION_ENGINE_DIR, DEFAULT_PORT, findAvailablePort };
+module.exports = { FermionEngineService, DEFAULT_FERMION_ENGINE_DIR, DEFAULT_PORT, findAvailablePort, requestBuffer };

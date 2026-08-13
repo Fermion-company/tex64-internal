@@ -350,11 +350,13 @@ export type FermionBridge = {
   status?: () => Promise<unknown>;
   stop?: () => Promise<{ ok: boolean; error?: string }>;
   push?: (payload: { source: string; edit?: { start: number; end: number; text: string } }) => Promise<{ ok: boolean; url?: string; backend?: string; error?: string }>;
+  canvasRender?: (payload: { source: string }) => Promise<{ ok: boolean; report?: unknown; pdfBase64?: string; error?: string }>;
 };
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
 };
 export type FilesBridge = {
+  readText?: (payload: { path: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
   writeBase64?: (payload: { path: string; data: string }) => Promise<{ ok: boolean; path?: string; error?: string }>;
 };
 export type AiWebBridge = {

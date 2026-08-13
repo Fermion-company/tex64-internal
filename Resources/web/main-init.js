@@ -50,6 +50,8 @@ import { initProModeUi, parseProModeState, PRO_MODE_STORAGE_KEY } from "./app/pr
 import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./app/app-mode.js";
 import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCaptureUi } from "./app/pro-capture-ui.js";
+import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
+import { initProCanvasGallery } from "./app/pro-canvas/gallery-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
 import { initProLivePreview } from "./app/pro-live-preview.js";
@@ -334,6 +336,12 @@ export const initMain = () => {
             getActiveGroup: editorSession.getActiveGroup,
             getWorkspaceFiles,
         });
+        initProCanvasUi({
+            getActiveGroup: editorSession.getActiveGroup,
+            getWorkspaceFiles,
+            getRootFilePath,
+        });
+        initProCanvasGallery({ getActiveGroup: editorSession.getActiveGroup });
         const aiModeApi = initAiModeUi();
         initAppModeUi({
             initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY), parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled),

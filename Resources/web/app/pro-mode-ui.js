@@ -128,6 +128,12 @@ export const initProModeUi = (deps) => {
         root.dataset.proLayout = state.layout;
         if (switcher instanceof HTMLElement)
             switcher.hidden = !state.enabled;
+        const canvasButton = document.getElementById("pro-canvas-open");
+        if (canvasButton instanceof HTMLButtonElement)
+            canvasButton.hidden = !state.enabled;
+        const galleryButton = document.getElementById("pro-canvas-gallery");
+        if (galleryButton instanceof HTMLButtonElement)
+            galleryButton.hidden = !state.enabled;
         const previewPane = document.getElementById("pro-preview-pane");
         const referencePane = document.getElementById("pro-reference-pane");
         previewPane === null || previewPane === void 0 ? void 0 : previewPane.setAttribute("aria-hidden", String(!state.enabled || state.layout !== "preview-source"));

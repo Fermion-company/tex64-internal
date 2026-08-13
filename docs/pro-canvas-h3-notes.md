@@ -1,0 +1,1 @@
+- Point: The visually hidden color input could make the color chip mouse-only if the label has no accessible name. Alternative: keep the chip as a focusable, titled label with an explicit `aria-label`, while hiding only the native input. Implemented: accessible labeled color chips with keyboard focus styling.

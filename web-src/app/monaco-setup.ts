@@ -15,6 +15,7 @@ import { attachEditorErgonomics } from "./editor-ergonomics.js";
 import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
 import type { SpellBridge } from "./types.js";
+import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -446,6 +447,26 @@ export const initMonacoSetup = (
             }
             window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", {
               detail: { kind: "text", content },
+            }));
+          },
+        });
+
+        (editor as any).addAction?.({
+          id: "tex64.pro-canvas-edit",
+          label: "Edit figure in canvas / 図をキャンバスで編集",
+          contextMenuGroupId: "9_ai",
+          contextMenuOrder: 3,
+          run: () => {
+            const model = (editor as any).getModel?.();
+            const position = editor.getPosition?.();
+            const lines = model?.getValue?.().split(/\r?\n/);
+            const decoded = lines && position ? decodeFigureBlockAt(lines, position.lineNumber - 1) : null;
+            if (decoded?.detached && !window.confirm("この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？")) return;
+            window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", {
+              detail: decoded ? {
+                scene: decoded.scene,
+                replaceRange: { startLine: decoded.startLine + 1, endLine: decoded.endLine + 1 },
+              } : {},
             }));
           },
         });

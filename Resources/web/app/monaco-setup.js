@@ -8,6 +8,7 @@ import { editorSettings } from "./editor-settings/editor-settings-store.js";
 import { attachEditorErgonomics } from "./editor-ergonomics.js";
 import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
+import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const hoverState = { registered: false };
@@ -111,7 +112,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -273,11 +274,32 @@ export const initMonacoSetup = (context, deps) => {
                     }));
                 },
             });
+            (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
+                id: "tex64.pro-canvas-edit",
+                label: "Edit figure in canvas / 図をキャンバスで編集",
+                contextMenuGroupId: "9_ai",
+                contextMenuOrder: 3,
+                run: () => {
+                    var _a, _b, _c, _d;
+                    const model = (_b = (_a = editor).getModel) === null || _b === void 0 ? void 0 : _b.call(_a);
+                    const position = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
+                    const lines = (_d = model === null || model === void 0 ? void 0 : model.getValue) === null || _d === void 0 ? void 0 : _d.call(model).split(/\r?\n/);
+                    const decoded = lines && position ? decodeFigureBlockAt(lines, position.lineNumber - 1) : null;
+                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm("この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？"))
+                        return;
+                    window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", {
+                        detail: decoded ? {
+                            scene: decoded.scene,
+                            replaceRange: { startLine: decoded.startLine + 1, endLine: decoded.endLine + 1 },
+                        } : {},
+                    }));
+                },
+            });
             // Spell: "Add to dictionary" for the word under the cursor (context menu
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
+                (_t = (_s = editor).addAction) === null || _t === void 0 ? void 0 : _t.call(_s, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",
