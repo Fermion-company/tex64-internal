@@ -181,7 +181,16 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    非汚染）、二重罫（`double distance`）、X/Y/W/H 数値入力。root 検出は既存
    `WorkspaceManager.rootInfo()` を再利用し、`tex64:files:read-text`（2MiB 上限、
    `workspace.readFile` の既存ガードに委譲）を追加。
-8. **E0–E2**: 対称オーナメント配置 + 図ギャラリー — **完了 (2026-08-13)**。仕様:
+8. **G1–G3**: mathcha 系 UX 全面改修 — **完了 (2026-08-13)**。仕様:
+   [pro-canvas-g1-spec.md](pro-canvas-g1-spec.md) /
+   [pro-canvas-g2-spec.md](pro-canvas-g2-spec.md) /
+   [pro-canvas-g3-spec.md](pro-canvas-g3-spec.md)。Codex と設計討議→実装→監査→差し戻しの
+   ループで実施。選択モデル {ids, primaryId}・マーキー・複数移動/複製/ナッジ/整列/分配・
+   重なり順・カーソル固定ホイールズーム・ホバー/Illustrator 級クローム・スマートガイド・
+   寸法チップ・Shift 制約・ペンプレビュー・インラインノード編集（prompt 全廃）・
+   パスアンカー編集。native dblclick は再描画で不安定なため pointerup ベースの自前
+   ダブルクリック検出を採用。Esc はキャンバスを閉じない。
+9. **E0–E2**: 対称オーナメント配置 + 図ギャラリー — **完了 (2026-08-13)**。仕様:
    [pro-canvas-e-spec.md](pro-canvas-e-spec.md)。対称シンボル化（鏡映ペア `tx=W, sx=-1`）、
    四隅配置（シンボル bounds + inset から 4 変換を導出）、`%% tex64-figure` ブロックの
    文書内ギャラリー（`gallery-ui.ts`、fermion 逐次サムネイル）。前提修正として

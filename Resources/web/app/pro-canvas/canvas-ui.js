@@ -3,7 +3,7 @@ import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capt
 import { encodeFigureBlock } from "./figure-codec.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } from "./scene.js";
-import { alignDeltas, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, screenToScene, snapBoundsToLines, snapToGrid, zoomAtPoint } from "./canvas-math.js";
+import { alignDeltas, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
@@ -189,7 +189,8 @@ export const initProCanvasUi = (deps) => {
         closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent();
         let scene = cloneScene(detail.scene || createEmptyScene());
         const selection = { ids: new Set(), primaryId: null };
-        let editingSymbolId = null, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
+        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
+        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null;
         let undo = [], redo = [];
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
@@ -209,6 +210,9 @@ export const initProCanvasUi = (deps) => {
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const moreMenu = overlay.querySelector(".pro-canvas-more-menu"), moreButton = overlay.querySelector("[data-action=more]");
         const closeMore = () => { moreMenu.hidden = true; moreButton.setAttribute("aria-expanded", "false"); };
+        const requestText = (label, initial = "") => new Promise(resolve => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover pro-canvas-text-popover"; const title = document.createElement("label"); title.textContent = label; const input = document.createElement("input"); input.value = initial; const accept = document.createElement("button"); accept.textContent = "OK"; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; let done = false; const finish = (value) => { if (done)
+            return; done = true; pop.remove(); resolve(value); }; accept.onclick = () => finish(input.value); cancel.onclick = () => finish(null); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
+            return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<line x1="3" y1="13" x2="11" y2="5"/><polyline points="9,3 13,7 11,9 7,5 9,3"/><line x1="3" y1="13" x2="7" y2="12"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>' };
         [['select', '選択', 'V'], ['pen', 'ペン', 'P'], ['line', '直線', 'L'], ['rect', '矩形', 'R'], ['ellipse', '楕円', 'E'], ['node', 'ノード', 'T'], ['code', 'コード', 'C']].forEach(([id, label, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.title = `${label} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg>`; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
@@ -289,6 +293,42 @@ export const initProCanvasUi = (deps) => {
         } };
         const clearSelection = () => { selection.ids.clear(); selection.primaryId = null; };
         const selectedIdOne = () => selection.ids.size === 1 ? selection.primaryId : null;
+        const nodeById = (id) => id ? walk(currentObjects(), id) : null;
+        const positionNodeEditor = () => { if (!editingNodeId || !nodeEditor)
+            return; const object = nodeById(editingNodeId); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
+            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom; nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.fontSize = `${Math.max(12, 4 * scale)}px`; };
+        const finishNodeEdit = (commit) => { if (!editingNodeId || !nodeEditor)
+            return; const id = editingNodeId, input = nodeEditor, object = nodeById(id), value = input.value; editingNodeId = null; nodeEditor = null; input.remove(); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
+            return; if (!commit) {
+            if (nodeEditorNew) {
+                scene = nodeEditorBefore || scene;
+                clearSelection();
+                render();
+            }
+            return;
+        } if (nodeEditorNew && !value.trim()) {
+            scene = nodeEditorBefore || scene;
+            clearSelection();
+            render();
+            return;
+        } if (value !== nodeEditorOriginal) {
+            if (nodeEditorNew && nodeEditorBefore) {
+                undo.push(nodeEditorBefore);
+                redo = [];
+            }
+            else
+                snapshot(false);
+            object.latex = value;
+            render();
+            scheduleCompile();
+        }
+        else
+            render(); };
+        const beginNodeEdit = (object, isNew = false, before = null) => { if (editingNodeId)
+            finishNodeEdit(true); anchorEdit = null; editingNodeId = object.id; nodeEditorOriginal = object.latex; nodeEditorNew = isNew; nodeEditorBefore = before; replaceSelection(object.id); const input = document.createElement("input"); input.className = "pro-canvas-inline-editor"; input.dataset.role = "node-editor"; input.dataset.objectId = object.id; input.value = object.latex; let finished = false; const finish = (commit) => { if (finished)
+            return; finished = true; finishNodeEdit(commit); }; input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
+            return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
+            return; positionNodeEditor(); input.focus(); input.select(); }); };
         const topLevelSelectedObjects = () => currentObjects().filter(object => selection.ids.has(object.id));
         const selectionBounds = () => { const selected = topLevelSelectedObjects(); if (!selected.length)
             return null; const bounds = selected.map(object => objectBounds(object, scene)); return { minX: Math.min(...bounds.map(b => b.minX)), minY: Math.min(...bounds.map(b => b.minY)), maxX: Math.max(...bounds.map(b => b.maxX)), maxY: Math.max(...bounds.map(b => b.maxY)) }; };
@@ -309,8 +349,8 @@ export const initProCanvasUi = (deps) => {
         const replaceSelectedId = (oldId, newId) => { if (!selection.ids.delete(oldId))
             return; selection.ids.add(newId); if (selection.primaryId === oldId)
             selection.primaryId = newId; };
-        const symbolizeSelection = (object, symmetric) => {
-            const name = prompt("Symbol name (letters and digits)");
+        const symbolizeSelection = async (object, symmetric) => {
+            const name = await requestText("Symbol name (letters and digits)");
             if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name) || (scene.symbols || []).some(s => s.name === name)) {
                 setStatus("有効で重複しないシンボル名を指定してください", true);
                 return;
@@ -423,7 +463,7 @@ export const initProCanvasUi = (deps) => {
             add.className = "pro-canvas-chip pro-canvas-chip-add";
             add.textContent = "＋";
             add.title = "新規スタイル";
-            add.onclick = () => { const name = prompt("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
+            add.onclick = async () => { const name = await requestText("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
                 return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" && object.type !== "code" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
             named.append(add);
             if (projectStyles.length) {
@@ -465,7 +505,7 @@ export const initProCanvasUi = (deps) => {
                 place.onclick = () => { snapshot(); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); replaceSelection(instance.id); render(); };
                 const corners = document.createElement("button");
                 corners.textContent = "四隅に配置";
-                corners.onclick = () => { const raw = prompt("inset", "5"); if (raw === null)
+                corners.onclick = async () => { const raw = await requestText("inset", "5"); if (raw === null)
                     return; const inset = Number(raw); if (!Number.isFinite(inset)) {
                     setStatus("inset は数値で指定してください", true);
                     return;
@@ -476,8 +516,8 @@ export const initProCanvasUi = (deps) => {
                 const along = document.createElement("button");
                 along.textContent = "選択パスに沿って配置";
                 along.disabled = (object === null || object === void 0 ? void 0 : object.type) !== "path";
-                along.onclick = () => { if ((object === null || object === void 0 ? void 0 : object.type) !== "path")
-                    return; const raw = prompt("配置数", "5"); if (raw === null)
+                along.onclick = async () => { if ((object === null || object === void 0 ? void 0 : object.type) !== "path")
+                    return; const raw = await requestText("配置数", "5"); if (raw === null)
                     return; snapshot(); const repeat = { id: newObjectId(), type: "repeat", symbol: symbol.id, path: { start: { ...object.start }, segments: JSON.parse(JSON.stringify(object.segments)) }, count: Math.max(1, Math.floor(Number(raw) || 1)), align: true, style: {} }; scene.objects.push(repeat); replaceSelection(repeat.id); render(); };
                 const remove = document.createElement("button");
                 remove.textContent = "削除";
@@ -499,7 +539,7 @@ export const initProCanvasUi = (deps) => {
             } });
         };
         const render = () => {
-            var _a;
+            var _a, _b;
             svg.replaceChildren();
             const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom;
             const visibleW = stage.clientWidth / scale, visibleH = stage.clientHeight / scale;
@@ -549,6 +589,9 @@ export const initProCanvasUi = (deps) => {
                     const label = svgEl("text", { x: 0, y: 1, transform: "scale(1,-1)", "text-anchor": "middle", class: "pro-canvas-node" });
                     label.textContent = "</>";
                     g.append(label);
+                    const preview = svgEl("text", { x: 0, y: -2, transform: "scale(1,-1)", "text-anchor": "middle", class: "pro-canvas-code-preview" });
+                    preview.textContent = object.tikz.replace(/\s+/g, " ").trim().slice(0, 20);
+                    g.append(preview);
                     parent.append(g);
                     return;
                 }
@@ -628,19 +671,45 @@ export const initProCanvasUi = (deps) => {
             const selected = topLevelSelectedObjects();
             if (selected.length) {
                 const select = svgEl("g", { class: "pro-canvas-selection" });
-                selected.forEach(item => { const b = objectBounds(item, scene); select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" })); });
-                const b = selectionBounds();
-                if (selected.length > 1)
-                    select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
+                selected.forEach(item => { if (anchorEdit && item.type === "path") {
+                    let d = `M ${item.start.x} ${item.start.y}`;
+                    item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; });
+                    if (item.closed)
+                        d += " Z";
+                    select.append(svgEl("path", { d, class: "pro-canvas-selection-outline" }));
+                }
                 else {
-                    handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
-                    const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
-                    select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
-                    const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
-                    rotate.dataset.rotate = "true";
-                    select.append(rotate);
+                    const b = objectBounds(item, scene);
+                    select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" }));
+                } });
+                const b = selectionBounds();
+                if (!anchorEdit) {
+                    if (selected.length > 1)
+                        select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
+                    else if (selected[0].type !== "node") {
+                        handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
+                        const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
+                        select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
+                        const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
+                        rotate.dataset.rotate = "true";
+                        select.append(rotate);
+                    }
                 }
                 root.append(select);
+            }
+            if (anchorEdit) {
+                const object = walk(currentObjects(), anchorEdit.pathId);
+                if ((object === null || object === void 0 ? void 0 : object.type) === "path") {
+                    const layer = svgEl("g", { class: "pro-canvas-anchor-layer pro-canvas-selection" }), points = [object.start, ...object.segments.map(segment => segment.to)], anchor = (_a = points[selectedAnchorIndex]) !== null && _a !== void 0 ? _a : object.start;
+                    const addControl = (segmentIndex, key) => { const segment = object.segments[segmentIndex]; if ((segment === null || segment === void 0 ? void 0 : segment.type) !== "cubic")
+                        return; const point = segment[key]; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: "pro-canvas-anchor-tether" })); const control = svgEl("circle", { cx: point.x, cy: point.y, r: 3 / scale, class: "pro-canvas-anchor-control" }); control.dataset.controlSegment = String(segmentIndex); control.dataset.controlKey = key; layer.append(control); };
+                    if (selectedAnchorIndex > 0)
+                        addControl(selectedAnchorIndex - 1, "c2");
+                    if (selectedAnchorIndex < object.segments.length)
+                        addControl(selectedAnchorIndex, "c1");
+                    points.forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}` }); handle.dataset.anchorIndex = String(index); layer.append(handle); });
+                    root.append(layer);
+                }
             }
             if ((drag === null || drag === void 0 ? void 0 : drag.kind) === "marquee" && drag.current) {
                 const b = { minX: Math.min(drag.start.x, drag.current.x), minY: Math.min(drag.start.y, drag.current.y), maxX: Math.max(drag.start.x, drag.current.x), maxY: Math.max(drag.start.y, drag.current.y) };
@@ -663,16 +732,18 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=zoom-reset]").title = "クリック: 100% / Shift+クリック: 選択にフィット";
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
-            overlay.querySelector("[data-action=ai-import]").disabled = !((_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet);
+            overlay.querySelector("[data-action=ai-import]").disabled = !((_b = window.tex64Texize) === null || _b === void 0 ? void 0 : _b.snippet);
             renderInspector();
+            positionNodeEditor();
         };
         let drag = null;
+        let lastClick = null;
         let penDrag = null;
         let pen = null, penCursor = null;
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
-            var _a, _b, _c;
+            var _a, _b;
             const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
                 drag = { kind: "pan", start: { x: panX, y: panY }, startClient: client, before: cloneScene(scene), lastClient: client };
@@ -683,6 +754,32 @@ export const initProCanvasUi = (deps) => {
             }
             const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
             if (tool === "select") {
+                const anchorIndex = target.dataset.anchorIndex === undefined ? undefined : Number(target.dataset.anchorIndex), controlSegment = target.dataset.controlSegment === undefined ? undefined : Number(target.dataset.controlSegment), controlKey = target.dataset.controlKey;
+                if (anchorEdit && (anchorIndex !== undefined || controlSegment !== undefined)) {
+                    const path = walk(currentObjects(), anchorEdit.pathId);
+                    if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
+                        return;
+                    if (anchorIndex !== undefined) {
+                        selectedAnchorIndex = anchorIndex;
+                        if (e.altKey && anchorIndex > 0) {
+                            snapshot(false);
+                            toggleSegmentKind(path, anchorIndex);
+                            render();
+                            scheduleCompile();
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                    drag = { kind: "anchor", start: raw, startClient: client, before: cloneScene(scene), id: path.id, anchorIndex, controlSegment, controlKey };
+                    hoveredId = null;
+                    svg.setPointerCapture(e.pointerId);
+                    render();
+                    return;
+                }
+                if (anchorEdit && id !== anchorEdit.pathId)
+                    anchorEdit = null;
+                else if (anchorEdit && !id)
+                    anchorEdit = null;
                 const oneId = selectedIdOne();
                 if (handle && oneId) {
                     const o = currentObjects().find(item => item.id === oneId);
@@ -714,13 +811,10 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             if (tool === "node") {
-                const latex = (_c = prompt("LaTeX", "")) !== null && _c !== void 0 ? _c : "";
-                if (latex) {
-                    snapshot();
-                    invalidateCompiled();
-                    currentObjects().push({ id: newObjectId(), type: "node", at: p, latex, anchor: "center", style: {} });
-                }
-                render();
+                const before = cloneScene(scene), object = { id: newObjectId(), type: "node", at: p, latex: "", anchor: "center", style: {} };
+                invalidateCompiled();
+                currentObjects().push(object);
+                beginNodeEdit(object, true, before);
                 return;
             }
             if (tool === "code") {
@@ -786,7 +880,7 @@ export const initProCanvasUi = (deps) => {
             return;
         } const raw = rawPoint(e), crossedThreshold = !drag.moved && Math.hypot(e.clientX - drag.startClient.x, e.clientY - drag.startClient.y) >= 4; if (crossedThreshold) {
             drag.moved = true;
-            if (["move", "resize", "rotate"].includes(drag.kind))
+            if (["move", "resize", "rotate", "anchor"].includes(drag.kind))
                 invalidateCompiled();
         } if (drag.kind === "marquee") {
             drag.current = raw;
@@ -798,7 +892,32 @@ export const initProCanvasUi = (deps) => {
             }
             render();
             return;
-        } scene = cloneScene(drag.before); const delta = snappedDelta(drag.start, raw, e), origin = (_d = drag.anchor) !== null && _d !== void 0 ? _d : drag.start, p = { x: origin.x + delta.x, y: origin.y + delta.y }; if (drag.kind === "move") {
+        } scene = cloneScene(drag.before); if (drag.kind === "anchor") {
+            const path = drag.id ? walk(currentObjects(), drag.id) : null;
+            if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
+                return;
+            if (drag.controlSegment !== undefined && drag.controlKey) {
+                const segment = path.segments[drag.controlSegment];
+                if ((segment === null || segment === void 0 ? void 0 : segment.type) === "cubic")
+                    Object.assign(segment[drag.controlKey], raw);
+            }
+            else if (drag.anchorIndex !== undefined) {
+                const points = [path.start, ...path.segments.map(segment => segment.to)], point = points[drag.anchorIndex], target = snapToGrid(raw, scene.grid.size, scene.grid.snap), dx = target.x - point.x, dy = target.y - point.y;
+                point.x = target.x;
+                point.y = target.y;
+                const incoming = path.segments[drag.anchorIndex - 1], outgoing = path.segments[drag.anchorIndex];
+                if ((incoming === null || incoming === void 0 ? void 0 : incoming.type) === "cubic") {
+                    incoming.c2.x += dx;
+                    incoming.c2.y += dy;
+                }
+                if ((outgoing === null || outgoing === void 0 ? void 0 : outgoing.type) === "cubic") {
+                    outgoing.c1.x += dx;
+                    outgoing.c1.y += dy;
+                }
+            }
+            render();
+            return;
+        } const delta = snappedDelta(drag.start, raw, e), origin = (_d = drag.anchor) !== null && _d !== void 0 ? _d : drag.start, p = { x: origin.x + delta.x, y: origin.y + delta.y }; if (drag.kind === "move") {
             for (const id of drag.ids || []) {
                 const object = currentObjects().find(item => item.id === id);
                 if (object)
@@ -838,20 +957,43 @@ export const initProCanvasUi = (deps) => {
                     o.segments[0] = { type: "line", to: p };
             }
         } render(); });
-        svg.addEventListener("pointerup", e => { const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate"].includes(completed.kind)), drewObject = Boolean((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.moved && completed.id); if (changed) {
-            undo.push(completed.before);
-            redo = [];
-        }
-        else if (completed && !completed.moved && ["move", "resize", "rotate"].includes(completed.kind)) {
-            scene = completed.before;
-        }
-        else if ((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && !completed.moved && completed.id) {
-            removeById(currentObjects(), completed.id);
-            clearSelection();
-            undo.pop();
-        } drag = null; penDrag = null; if (svg.hasPointerCapture(e.pointerId))
-            svg.releasePointerCapture(e.pointerId); render(); if (changed || drewObject)
-            scheduleCompile(); });
+        svg.addEventListener("pointerup", e => {
+            var _a, _b;
+            const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor"].includes(completed.kind)), drewObject = Boolean((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.moved && completed.id);
+            if (changed) {
+                undo.push(completed.before);
+                redo = [];
+            }
+            else if (completed && !completed.moved && ["move", "resize", "rotate", "anchor"].includes(completed.kind)) {
+                scene = completed.before;
+            }
+            else if ((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && !completed.moved && completed.id) {
+                removeById(currentObjects(), completed.id);
+                clearSelection();
+                undo.pop();
+            }
+            drag = null;
+            penDrag = null;
+            if (svg.hasPointerCapture(e.pointerId))
+                svg.releasePointerCapture(e.pointerId);
+            render();
+            if (changed || drewObject)
+                scheduleCompile();
+            // render() が DOM を差し替えるため native dblclick は当てにならない。クリック2連打を自前検出する。
+            if (tool === "select" && completed && !completed.moved) {
+                const now = performance.now();
+                if (lastClick && now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6) {
+                    lastClick = null;
+                    const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+                    const object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null);
+                    activateForEdit(object);
+                }
+                else
+                    lastClick = { t: now, x: e.clientX, y: e.clientY };
+            }
+            else
+                lastClick = null;
+        });
         svg.addEventListener("pointerleave", () => { if (!drag && hoveredId) {
             hoveredId = null;
             svg.style.cursor = "default";
@@ -869,6 +1011,8 @@ export const initProCanvasUi = (deps) => {
             item.children.forEach(renew); }; renew(copy); return copy; };
         const onKey = (e) => {
             var _a, _b;
+            if (editingNodeId)
+                return;
             const target = e.target;
             if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]"))
                 return;
@@ -876,6 +1020,11 @@ export const initProCanvasUi = (deps) => {
             const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
             if (e.key === "Escape") {
                 e.preventDefault();
+                if (anchorEdit) {
+                    anchorEdit = null;
+                    render();
+                    return;
+                }
                 if (pen) {
                     pen = null;
                     render();
@@ -1012,7 +1161,7 @@ export const initProCanvasUi = (deps) => {
             (_g = editor.focus) === null || _g === void 0 ? void 0 : _g.call(editor);
             close();
         };
-        const exportSty = async () => { var _a; let name = (prompt("ファイル名", "figures.sty") || "").trim(); if (!name)
+        const exportSty = async () => { var _a; let name = (await requestText("ファイル名", "figures.sty") || "").trim(); if (!name)
             return; if (!name.toLowerCase().endsWith(".sty"))
             name += ".sty"; name = name.replace(/^.*[\\/]/, ""); const packageName = name.slice(0, -4); if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(packageName))
             throw new Error("有効なファイル名を指定してください"); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
@@ -1153,11 +1302,28 @@ export const initProCanvasUi = (deps) => {
         catch (error) {
             setStatus(error instanceof Error ? error.message : String(error), true);
         } });
-        svg.addEventListener("dblclick", e => { var _a; if (tool !== "select")
-            return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = id ? walk(currentObjects(), id) : null; if ((object === null || object === void 0 ? void 0 : object.type) === "code") {
+        const activateForEdit = (object) => { if (!object)
+            return; if (object.type === "node") {
+            if (editingNodeId !== object.id)
+                beginNodeEdit(object);
+            return;
+        } if (object.type === "path") {
+            replaceSelection(object.id);
+            if ((anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.pathId) !== object.id) {
+                anchorEdit = { pathId: object.id };
+                selectedAnchorIndex = 0;
+            }
+            render();
+            return;
+        } if (object.type === "code") {
+            anchorEdit = null;
             replaceSelection(object.id);
             render();
             editCode(object);
+        } };
+        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select")
+            return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null); if (object) {
+            activateForEdit(object);
             e.preventDefault();
         } });
         const loadProjectContext = async () => {

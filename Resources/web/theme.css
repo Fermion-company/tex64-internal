@@ -8715,6 +8715,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-zoom button:last-child, .pro-canvas-segments button:last-child { border-right: 0; }
 .pro-canvas-icon-button { width: 30px; height: 30px; padding: 0 !important; font-size: 17px; }
 .pro-canvas-toolbar button:disabled { opacity: .35; }
+.pro-canvas-inspector button:disabled { opacity: .4; }
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
 .pro-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; }
@@ -8731,6 +8732,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-pen-anchor { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .pro-canvas-pen-anchor.is-close { fill: var(--accent-soft); }
 .pro-canvas-pen-ghost { stroke: var(--accent); stroke-opacity: .4; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-anchor-layer { pointer-events: all; }
+.pro-canvas-anchor { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
+.pro-canvas-anchor.is-selected { stroke-width: 2; }
+.pro-canvas-anchor-control { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
+.pro-canvas-anchor-tether { stroke: var(--accent); stroke-width: 1; stroke-opacity: .65; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-size-chip { position: fixed; z-index: 3; pointer-events: none; padding: 4px 7px; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel-strong); color: var(--text); box-shadow: var(--shadow-sm); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pro-canvas-command-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
 .pro-canvas-command-grid button { min-width: 0; height: 28px; padding: 4px; }
@@ -8743,7 +8749,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-rotate { cursor: grab; }
 .pro-canvas-rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-marquee { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
-.pro-canvas-node { font: 4px sans-serif; fill: #111827; }
+.pro-canvas-node { font: 4px Georgia, 'Times New Roman', serif; fill: #111827; }
+.pro-canvas-code-preview { font: 2.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--text-soft); }
+.pro-canvas-inline-editor { position: fixed; z-index: 5; min-width: 80px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: Georgia, 'Times New Roman', serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
 .pro-canvas-inspector { overflow: auto; padding: 16px; border-left: 1px solid var(--panel-border); background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; }
 .pro-canvas-inspector section { margin-bottom: 16px; }
 .pro-canvas-inspector section[hidden] { display: none; }
@@ -8782,6 +8790,7 @@ body:has(.pro-canvas-overlay) .pro-stash { display: none !important; }
 }
 .pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; resize: vertical; }
 .pro-canvas-code-popover button { margin-right: 6px; }
+.pro-canvas-text-popover label, .pro-canvas-text-popover input { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 .pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); }
 .pro-canvas-gallery-list { display: grid; gap: 8px; overflow: auto; min-height: 0; }
 .pro-canvas-gallery-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 6px; }

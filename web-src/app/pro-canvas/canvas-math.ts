@@ -158,6 +158,27 @@ export const boundsAfterHandleDrag = (bounds: Bounds, handle: ResizeHandle, poin
   return { minX, minY, maxX, maxY };
 };
 
+export const toggleSegmentKind = (
+  path: { start: Vec; segments: PathSeg[] },
+  anchorIndex: number,
+): void => {
+  if (anchorIndex <= 0 || anchorIndex > path.segments.length) return;
+  const index = anchorIndex - 1;
+  const segment = path.segments[index];
+  if (segment.type === "cubic") {
+    path.segments[index] = { type: "line", to: { ...segment.to } };
+    return;
+  }
+  const from = index === 0 ? path.start : path.segments[index - 1].to;
+  const to = segment.to;
+  path.segments[index] = {
+    type: "cubic",
+    c1: { x: from.x + (to.x - from.x) / 3, y: from.y + (to.y - from.y) / 3 },
+    c2: { x: from.x + (to.x - from.x) * 2 / 3, y: from.y + (to.y - from.y) * 2 / 3 },
+    to: { ...to },
+  };
+};
+
 export const samplePathPoints = (path: { start: Vec; segments: PathSeg[] }, count: number): Array<{ point: Vec; angleDeg: number }> => {
   if (!Number.isFinite(count) || count <= 0) return [];
   const wanted = Math.max(1, Math.floor(count));
