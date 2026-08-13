@@ -16,7 +16,7 @@ const point = (value: Vec): string => `(${numberText(value.x)},${numberText(valu
 
 export const generateTikz = (scene: Scene): { code: string; requires: string[] } => {
   const customColors = new Map<string, string>();
-  let arrowsUsed = false;
+  let arrowsUsed = false, patternsUsed = false;
   const colorName = (color: string): string => {
     const hex = color.slice(1).toLowerCase();
     if (basicColors[hex]) return basicColors[hex];
@@ -29,7 +29,10 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
     const keys: string[] = [];
     if (props.draw !== undefined && props.draw !== null && (explicitDraw || props.draw.toLowerCase() !== "#000000")) keys.push(`draw=${colorName(props.draw)}`);
     if (props.draw === null && explicitDraw) keys.push("draw=none");
-    if (props.fill !== undefined && props.fill !== null) keys.push(`fill=${colorName(props.fill)}`);
+    if (!props.shading && props.fill !== undefined && props.fill !== null) keys.push(props.pattern ? `preaction={fill=${colorName(props.fill)}}` : `fill=${colorName(props.fill)}`);
+    if (props.shading?.kind === "axis") { keys.push("shade", `top color=${colorName(props.shading.top)}`, `bottom color=${colorName(props.shading.bottom)}`); if (props.shading.angle) keys.push(`shading angle=${numberText(props.shading.angle)}`); }
+    else if (props.shading?.kind === "radial") keys.push("shade", `inner color=${colorName(props.shading.inner)}`, `outer color=${colorName(props.shading.outer)}`);
+    else if (props.pattern) { patternsUsed = true; keys.push(`pattern=${props.pattern.name}`); if (props.pattern.color) keys.push(`pattern color=${colorName(props.pattern.color)}`); }
     if (props.lineWidthPt !== undefined && props.lineWidthPt !== 0.4) keys.push(`line width=${numberText(props.lineWidthPt)}pt`);
     if (props.dash && props.dash !== "solid") keys.push(props.dash);
     if (props.opacity !== undefined && props.opacity < 1) keys.push(`opacity=${numberText(props.opacity)}`);
@@ -52,8 +55,9 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
   };
   const command = (object: Extract<SceneObject, { type: "path" | "rect" | "ellipse" | "node" }>): string => {
     const effective = resolveStyle(scene, object.style);
-    if (effective.fill !== null && effective.draw === null) return "fill";
-    if (effective.fill !== null && effective.draw !== null) return "filldraw";
+    if (effective.shading) return effective.draw === null ? "shade" : "draw";
+    if ((effective.fill !== null || effective.pattern) && effective.draw === null) return "fill";
+    if ((effective.fill !== null || effective.pattern) && effective.draw !== null) return "filldraw";
     return "draw";
   };
   const withOptions = (name: string, options: string[]): string => `\\${name}${options.length ? `[${options.join(", ")}]` : ""}`;
@@ -152,7 +156,7 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
   }
   const body = scene.objects.flatMap((object) => emitObject(object, 1));
   const begin = `\\begin{tikzpicture}${pictureOptions.length ? `[${pictureOptions.join(", ")}]` : ""}`;
-  const requires = arrowsUsed ? ["arrows.meta"] : [];
+  const requires = [...(arrowsUsed ? ["arrows.meta"] : []), ...(patternsUsed ? ["patterns"] : [])];
   const definitions = [...customColors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
   const comment = [...(sceneHasPlot(scene)?["% requires: \\usepackage{pgfplots} \\pgfplotsset{compat=1.18}"]:[]),...(requires.length ? [`% requires \\usetikzlibrary{${requires.join(",")}}`] : [])];
   return { code: [...definitions, ...comment, begin, ...body, "\\end{tikzpicture}"].join("\n"), requires };

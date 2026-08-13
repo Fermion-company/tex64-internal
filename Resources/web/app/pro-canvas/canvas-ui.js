@@ -699,23 +699,53 @@ export const initProCanvasUi = (deps) => {
             render();
             scheduleCompile();
         };
-        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        let colorPop = null;
+        const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
+        const presets = ["#000000", "#ffffff", "#6b7280", "#dc2626", "#ea580c", "#eab308", "#16a34a", "#2563eb", "#4f46e5", "#9333ea", "#ec4899", "#92400e", "#0891b2", "#65a30d", "#64748b", "#1e3a8a"], recentKey = "tex64.proCanvas.recentColors.v1", recent = () => { try {
+            return JSON.parse(localStorage.getItem(recentKey) || "[]").filter((v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)).slice(0, 8);
+        }
+        catch {
+            return [];
+        } }, remember = (v) => localStorage.setItem(recentKey, JSON.stringify([v, ...recent().filter(c => c.toLowerCase() !== v.toLowerCase())].slice(0, 8)));
+        const colorWell = (label, get, set, allowNone) => { const wrap = document.createElement("label"), button = document.createElement("button"); wrap.className = "pro-canvas-color-field"; wrap.append(document.createTextNode(label)); button.type = "button"; button.className = "pro-canvas-color-well"; button.title = label; button.dataset.noI18n = ""; button.setAttribute("aria-label", label); const value = get(); if (value)
+            button.style.background = value;
+        else
+            button.classList.add("is-none"); button.onclick = e => { e.stopPropagation(); closeColorPop(); const pop = document.createElement("div"); pop.className = "pro-canvas-color-pop"; pop.addEventListener("pointerdown", ev => ev.stopPropagation()); pop.addEventListener("keydown", ev => { if (ev.key === "Escape") {
+            ev.stopPropagation();
+            closeColorPop();
+        } }); const choose = (v) => { snapshot(false); if (v)
+            remember(v); set(v); render(); scheduleCompile(); }, grid = document.createElement("div"); grid.className = "pro-canvas-color-grid"; [...presets, ...recent().filter(c => !presets.includes(c))].forEach(c => { const b = document.createElement("button"); b.type = "button"; b.title = c; b.dataset.noI18n = ""; b.style.background = c; b.onclick = () => choose(c); grid.append(b); }); pop.append(grid); const picker = document.createElement("input"); picker.type = "color"; picker.value = value || "#000000"; picker.title = "カラーピッカー"; picker.dataset.noI18n = ""; let pickerPushed = false; picker.oninput = () => { if (!pickerPushed) {
+            snapshot(false);
+            pickerPushed = true;
+        } set(picker.value); render(); scheduleCompile(); }; picker.onchange = () => { pickerPushed = false; remember(picker.value); }; pop.append(picker); if (allowNone) {
+            const none = document.createElement("button");
+            none.type = "button";
+            none.textContent = "なし";
+            none.onclick = () => choose(null);
+            pop.append(none);
+        } overlay.append(pop); colorPop = pop; const r = button.getBoundingClientRect(); pop.style.left = `${Math.min(innerWidth - 220, r.left)}px`; pop.style.top = `${r.bottom + 4}px`; }; wrap.append(button); return wrap; };
+        overlay.addEventListener("pointerdown", e => { if (colorPop && !colorPop.contains(e.target) && !e.target.closest(".pro-canvas-color-well"))
+            closeColorPop(); });
         const renderInspector = () => {
-            var _a;
-            var _b;
+            var _a, _b;
             const geometry = overlay.querySelector(".pro-canvas-geometry");
             const host = overlay.querySelector(".pro-canvas-style");
             const named = overlay.querySelector(".pro-canvas-named");
             const symbols = overlay.querySelector(".pro-canvas-symbols");
-            const oneId = selectedIdOne(), object = oneId ? walk(currentObjects(), oneId) : null;
-            const styleObjects = topLevelSelectedObjects().filter((item) => item.type !== "group" && item.type !== "code");
+            const oneId = selectedIdOne(), object = oneId ? walk(currentObjects(), oneId) : null, styleObjects = [], collect = (item) => { if (item.type === "group")
+                item.children.forEach(collect);
+            else if (item.type !== "code" && item.type !== "plot")
+                styleObjects.push(item); };
+            topLevelSelectedObjects().forEach(collect);
+            const targets = styleObjects;
             geometry.replaceChildren();
             host.replaceChildren();
             named.replaceChildren();
             symbols.replaceChildren();
             (_a = overlay.querySelector(".pro-canvas-empty")) === null || _a === void 0 ? void 0 : _a.remove();
             overlay.querySelector(".pro-canvas-geometry-section").hidden = !selection.ids.size;
-            overlay.querySelector(".pro-canvas-style-section").hidden = !object;
+            overlay.querySelector(".pro-canvas-style-section").hidden = !targets.length && !object;
             if (object) {
                 const b = objectBounds(object, scene), values = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
                 ["X", "Y", "W", "H"].forEach((label, index) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = "number"; input.step = "0.1"; input.value = String(Number(values[index].toFixed(3))); input.onchange = () => { const value = Number(input.value); if (!Number.isFinite(value) || (index >= 2 && value < .01)) {
@@ -741,56 +771,115 @@ export const initProCanvasUi = (deps) => {
                 [['front', '最前面'], ['forward', '前面へ'], ['backward', '背面へ'], ['back', '最背面']].forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.order = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.onclick = () => changeOrder(mode); order.append(button); });
                 geometry.append(order);
             }
-            if (!object) {
+            if (!object && !targets.length) {
                 const empty = document.createElement("p");
                 empty.className = "pro-canvas-empty";
                 empty.textContent = selection.ids.size ? `${selection.ids.size} 個を選択中` : "オブジェクトを選択すると設定が表示されます";
                 named.before(empty);
             }
-            else if (object.type === "plot") {
+            else if (!targets.length && (object === null || object === void 0 ? void 0 : object.type) === "plot") {
                 const hint = document.createElement("p");
                 hint.className = "pro-canvas-empty";
                 hint.textContent = "ダブルクリックでグラフを編集";
                 host.append(hint);
             }
-            else if (object.type === "group" || object.type === "code") {
+            else if (!targets.length && (object === null || object === void 0 ? void 0 : object.type) === "code") {
                 const note = document.createElement("div");
-                note.textContent = object.type === "code" ? "Double-click to edit TikZ code" : "Group geometry";
+                note.textContent = "Double-click to edit TikZ code";
                 host.append(note);
             }
-            else {
-                const props = (_b = object.style).props || (_b.props = {});
-                const effective = resolveStyle(scene, object.style);
-                const color = (key, label) => { const row = document.createElement("label"); row.className = "pro-canvas-swatch"; const input = document.createElement("input"); input.type = "color"; input.value = effective[key] || "#000000"; const none = document.createElement("input"); none.type = "checkbox"; none.title = "なし"; none.checked = effective[key] === null; input.disabled = none.checked; input.onchange = () => { snapshot(); props[key] = input.value; render(); }; none.onchange = () => { snapshot(); props[key] = none.checked ? null : input.value; render(); }; const caption = document.createElement("span"); caption.textContent = label; row.append(input, none, caption); host.append(row); };
-                color("draw", "線色");
-                color("fill", "塗り色");
-                const fields = [["線幅", "lineWidthPt", "number"], ["二重罫", "doubleDistancePt", "number"], ["破線", "dash", "select", ["solid", "dashed", "dotted"]], ["不透明度", "opacity", "number"], ["始点矢印", "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], ["終点矢印", "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]], ["角丸", "roundedCornersPt", "number"]];
-                fields.forEach(([label, key, kind, options]) => { var _a; const row = document.createElement("label"); row.textContent = label; const input = kind === "select" ? document.createElement("select") : document.createElement("input"); if (input instanceof HTMLInputElement) {
+            else if (targets.length) {
+                const effective = resolveStyle(scene, targets[0].style), apply = (key, value, only = targets) => { snapshot(false); only.forEach(target => target.style.props = { ...(target.style.props || {}), [key]: value }); render(); scheduleCompile(); }, seg = (value, items, set) => { const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text, icon]) => { const b = document.createElement("button"); b.type = "button"; b.title = text; b.dataset.noI18n = ""; b.classList.toggle("is-active", key === value); if (icon)
+                    b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icon}</svg>`;
+                else
+                    b.textContent = text; b.onclick = () => set(key); group.append(b); }); return group; };
+                if (targets.length > 1) {
+                    const badge = document.createElement("span");
+                    badge.className = "pro-canvas-style-badge";
+                    badge.textContent = `${targets.length} 個に適用`;
+                    host.append(badge);
+                }
+                const line = document.createElement("div");
+                line.className = "pro-canvas-style-line";
+                line.append(colorWell("線", () => { var _a; return (_a = effective.draw) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).draw = v; }), true));
+                const width = document.createElement("input");
+                width.type = "number";
+                width.min = "0";
+                width.step = "0.2";
+                width.value = String((_b = effective.lineWidthPt) !== null && _b !== void 0 ? _b : .4);
+                width.title = "線幅";
+                width.dataset.noI18n = "";
+                width.onchange = () => apply("lineWidthPt", Math.max(0, Number(width.value) || 0));
+                line.append(width, seg(effective.dash || "solid", [["solid", "実線", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["dashed", "破線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="4 2"/>'], ["dotted", "点線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="1 2"/>']], v => apply("dash", v)));
+                host.append(line);
+                const paths = targets.filter((t) => t.type === "path");
+                if (paths.length) {
+                    const first = resolveStyle(scene, paths[0].style), shape = first.arrowStart || first.arrowEnd || "Stealth", arrowRow = document.createElement("div");
+                    arrowRow.className = "pro-canvas-style-row";
+                    const state = first.arrowStart && first.arrowEnd ? "both" : first.arrowStart ? "start" : first.arrowEnd ? "end" : "none", arrowIcon = '<line x1="2" y1="8" x2="14" y2="8"/><path d="M11 5l3 3-3 3"/>';
+                    arrowRow.append(document.createTextNode("矢印"), seg(state, [["none", "—", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["end", "→", arrowIcon], ["start", "←", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3"/>'], ["both", "↔", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3M11 5l3 3-3 3"/>']], v => { snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); props.arrowStart = v === "start" || v === "both" ? shape : ""; props.arrowEnd = v === "end" || v === "both" ? shape : ""; }); render(); scheduleCompile(); }));
+                    const select = document.createElement("select");
+                    ["Stealth", "Latex", "Bar"].forEach(v => select.add(new Option(v, v)));
+                    select.value = shape;
+                    select.onchange = () => { snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); if (props.arrowStart)
+                        props.arrowStart = select.value; if (props.arrowEnd)
+                        props.arrowEnd = select.value; }); render(); scheduleCompile(); };
+                    arrowRow.append(select);
+                    host.append(arrowRow);
+                }
+                const mode = effective.shading ? "gradient" : effective.pattern ? "pattern" : effective.fill ? "solid" : "none", fillSeg = document.createElement("div");
+                fillSeg.className = "pro-canvas-fill-seg";
+                fillSeg.append(document.createTextNode("塗り"), seg(mode, [["none", "なし"], ["solid", "単色"], ["pattern", "編みかけ"], ["gradient", "グラデ"]], v => { snapshot(false); targets.forEach(t => { var _a; const p = (_a = t.style).props || (_a.props = {}); if (v === "none") {
+                    p.fill = null;
+                    p.pattern = null;
+                    p.shading = null;
+                }
+                else if (v === "solid") {
+                    p.pattern = null;
+                    p.shading = null;
+                    if (!p.fill)
+                        p.fill = "#dbeafe";
+                }
+                else if (v === "pattern") {
+                    p.shading = null;
+                    p.pattern || (p.pattern = { name: "north east lines" });
+                }
+                else {
+                    p.pattern = null;
+                    p.shading || (p.shading = { kind: "axis", top: "#93c5fd", bottom: "#1d4ed8" });
+                } }); render(); scheduleCompile(); }));
+                host.append(fillSeg);
+                if (mode === "solid")
+                    host.append(colorWell("色", () => { var _a; return (_a = effective.fill) !== null && _a !== void 0 ? _a : "#dbeafe"; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).fill = v; }), false));
+                else if (mode === "pattern") {
+                    const names = ["horizontal lines", "vertical lines", "north east lines", "north west lines", "grid", "crosshatch", "dots", "crosshatch dots"], grid = document.createElement("div");
+                    grid.className = "pro-canvas-pattern-grid";
+                    names.forEach(name => { var _a; const b = document.createElement("button"); b.type = "button"; b.title = name; b.dataset.noI18n = ""; b.classList.toggle("is-active", ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.name) === name); const patIcons = { "horizontal lines": '<path d="M0 6h34M0 13h34M0 20h34"/>', "vertical lines": '<path d="M8 0v26M17 0v26M26 0v26"/>', "north east lines": '<path d="M0 26L26 0M10 26L34 2M0 16L16 0"/>', "north west lines": '<path d="M0 0L26 26M10 0L34 24M0 10L16 26"/>', grid: '<path d="M0 8h34M0 18h34M10 0v26M22 0v26"/>', crosshatch: '<path d="M0 5h34M0 13h34M0 21h34M7 0v26M16 0v26M25 0v26"/>', dots: '<circle cx="7" cy="7" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="7" r="1.7" fill="currentColor" stroke="none"/><circle cx="31" cy="7" r="1.7" fill="currentColor" stroke="none"/><circle cx="13" cy="17" r="1.7" fill="currentColor" stroke="none"/><circle cx="25" cy="17" r="1.7" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="1.7" fill="currentColor" stroke="none"/>', "crosshatch dots": '<circle cx="5" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="13" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="21" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="29" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="17" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="25" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="5" cy="21" r="1.2" fill="currentColor" stroke="none"/><circle cx="13" cy="21" r="1.2" fill="currentColor" stroke="none"/><circle cx="21" cy="21" r="1.2" fill="currentColor" stroke="none"/><circle cx="29" cy="21" r="1.2" fill="currentColor" stroke="none"/>' }; b.innerHTML = `<svg viewBox="0 0 34 26">${patIcons[name]}</svg>`; b.onclick = () => apply("pattern", { ...(effective.pattern || {}), name }); grid.append(b); });
+                    host.append(grid, colorWell("パターン色", () => { var _a; return ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.color) || effective.draw || "#000000"; }, v => { var _a; return apply("pattern", { name: ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.name) || "north east lines", ...(v ? { color: v } : {}) }); }, false), colorWell("下地色", () => { var _a; return (_a = effective.fill) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).fill = v; }), true));
+                }
+                else if (mode === "gradient" && effective.shading) {
+                    const s = effective.shading, grad = document.createElement("div");
+                    grad.className = "pro-canvas-gradient-controls";
+                    grad.append(seg(s.kind, [['axis', '線形'], ['radial', '放射']], v => apply("shading", v === "axis" ? { kind: "axis", top: s.kind === "axis" ? s.top : s.inner, bottom: s.kind === "axis" ? s.bottom : s.outer } : { kind: "radial", inner: s.kind === "radial" ? s.inner : s.top, outer: s.kind === "radial" ? s.outer : s.bottom })));
+                    if (s.kind === "axis") {
+                        grad.append(colorWell("上", () => s.top, v => v && apply("shading", { ...s, top: v }), false), colorWell("下", () => s.bottom, v => v && apply("shading", { ...s, bottom: v }), false), seg(String(s.angle || 0), [["0", "0°"], ["45", "45°"], ["90", "90°"], ["135", "135°"]], v => apply("shading", { ...s, angle: Number(v) })));
+                    }
+                    else
+                        grad.append(colorWell("内", () => s.inner, v => v && apply("shading", { ...s, inner: v }), false), colorWell("外", () => s.outer, v => v && apply("shading", { ...s, outer: v }), false));
+                    host.append(grad);
+                }
+                const details = document.createElement("details"), summary = document.createElement("summary");
+                summary.textContent = "詳細";
+                details.append(summary);
+                const fields = [["不透明度", "opacity", "number"], ["角丸", "roundedCornersPt", "number"], ["二重罫", "doubleDistancePt", "number"], ["cap", "cap", "select", ["butt", "round", "rect"]], ["join", "join", "select", ["miter", "round", "bevel"]], ["始点矢印", "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], ["終点矢印", "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]]];
+                fields.forEach(([label, key, kind, options]) => { var _a; const row = document.createElement("label"), input = kind === "select" ? document.createElement("select") : document.createElement("input"); row.textContent = label; if (input instanceof HTMLInputElement) {
                     input.type = "number";
                     input.step = key === "opacity" ? "0.1" : "0.1";
-                } if (input instanceof HTMLSelectElement)
-                    options.forEach(v => { const o = document.createElement("option"); o.value = v; o.textContent = v || "なし"; input.append(o); }); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => { snapshot(); props[key] = kind === "number" ? Number(input.value) : input.value; render(); }; row.append(input); host.append(row); });
-                if (object.type === "instance") {
-                    [["左右反転", "sx"], ["上下反転", "sy"]].forEach(([label, key]) => { const button = document.createElement("button"); button.textContent = label; button.onclick = () => { snapshot(); object.transform[key] *= -1; render(); }; host.append(button); });
+                    input.min = "0";
                 }
-                if (object.type === "repeat") {
-                    const count = document.createElement("input");
-                    count.type = "number";
-                    count.min = "1";
-                    count.value = String(object.count);
-                    count.onchange = () => { snapshot(); object.count = Math.max(1, Math.floor(Number(count.value) || 1)); render(); };
-                    const countRow = document.createElement("label");
-                    countRow.textContent = "個数";
-                    countRow.append(count);
-                    host.append(countRow);
-                    const align = document.createElement("input");
-                    align.type = "checkbox";
-                    align.checked = object.align;
-                    align.onchange = () => { snapshot(); object.align = align.checked; render(); };
-                    const alignRow = document.createElement("label");
-                    alignRow.append(align, document.createTextNode(" パス方向に揃える"));
-                    host.append(alignRow);
-                }
+                else
+                    options.forEach(v => input.add(new Option(v || "なし", v))); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => apply(key, kind === "number" ? Number(input.value) : input.value); row.append(input); details.append(row); });
+                host.append(details);
             }
             scene.styles.forEach((style) => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip"; apply.textContent = style.name; apply.classList.toggle("is-active", styleObjects.length > 0 && styleObjects.every(item => item.style.ref === style.name)); apply.disabled = !styleObjects.length; apply.onclick = () => { if (styleObjects.length) {
                 snapshot();
@@ -895,6 +984,43 @@ export const initProCanvasUi = (deps) => {
             guides.append(svgEl("rect", { x: 0, y: 0, width: scene.width, height: scene.height, class: "pro-canvas-boundary" }));
             if (compiledImage)
                 root.append(svgEl("image", { href: compiledImage, x: 0, y: -scene.height, width: scene.width, height: scene.height, transform: "scale(1,-1)", class: "pro-canvas-live-image", "pointer-events": "none" }));
+            const paintDefs = svgEl("defs"), paintIds = new Set();
+            root.append(paintDefs);
+            const safeColor = (value) => value.replace(/[^0-9a-z]/gi, "").toLowerCase(), paint = (style) => { if (style.shading) {
+                const s = style.shading, id = `pcgrad-${s.kind}-${safeColor(s.kind === "axis" ? s.top : s.inner)}-${safeColor(s.kind === "axis" ? s.bottom : s.outer)}${s.kind === "axis" ? `-${s.angle || 0}` : ""}`;
+                if (!paintIds.has(id)) {
+                    paintIds.add(id);
+                    if (s.kind === "axis") {
+                        const g = svgEl("linearGradient", { id, x1: "0%", y1: "0%", x2: "0%", y2: "100%", gradientTransform: `rotate(${s.angle || 0} .5 .5)` });
+                        g.append(svgEl("stop", { offset: "0%", "stop-color": s.bottom }), svgEl("stop", { offset: "100%", "stop-color": s.top }));
+                        paintDefs.append(g);
+                    }
+                    else {
+                        const g = svgEl("radialGradient", { id });
+                        g.append(svgEl("stop", { offset: "0%", "stop-color": s.inner }), svgEl("stop", { offset: "100%", "stop-color": s.outer }));
+                        paintDefs.append(g);
+                    }
+                }
+                return { base: `url(#${id})`, pattern: null };
+            } if (style.pattern) {
+                const color = style.pattern.color || style.draw || "#000000", id = `pcpat-${style.pattern.name.replace(/\s+/g, "-")}-${safeColor(color)}`;
+                if (!paintIds.has(id)) {
+                    paintIds.add(id);
+                    const p = svgEl("pattern", { id, width: 1.6, height: 1.6, patternUnits: "userSpaceOnUse", ...(style.pattern.name.includes("north east") ? { patternTransform: "rotate(45)" } : style.pattern.name.includes("north west") ? { patternTransform: "rotate(-45)" } : {}) }), line = (x1, y1, x2, y2) => p.append(svgEl("line", { x1, y1, x2, y2, stroke: color, "stroke-width": .15 }));
+                    if (style.pattern.name === "dots")
+                        p.append(svgEl("circle", { cx: .8, cy: .8, r: .18, fill: color }));
+                    if (style.pattern.name === "crosshatch dots") {
+                        p.append(svgEl("circle", { cx: .4, cy: .4, r: .15, fill: color }));
+                        p.append(svgEl("circle", { cx: 1.2, cy: 1.2, r: .15, fill: color }));
+                    }
+                    if (["horizontal lines", "grid", "crosshatch", "north east lines", "north west lines"].includes(style.pattern.name))
+                        line(0, .8, 1.6, .8);
+                    if (["vertical lines", "grid", "crosshatch"].includes(style.pattern.name))
+                        line(.8, 0, .8, 1.6);
+                    paintDefs.append(p);
+                }
+                return { base: style.fill || "none", pattern: `url(#${id})` };
+            } return { base: style.fill || "none", pattern: null }; };
             const objects = svgEl("g", { class: "pro-canvas-objects", opacity: compiledImage ? 0 : 1, "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
@@ -994,10 +1120,10 @@ export const initProCanvasUi = (deps) => {
                     g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "rgba(0,0,0,0.001)", stroke: (plotEdit === null || plotEdit === void 0 ? void 0 : plotEdit.id) === object.id ? "var(--accent)" : "none", "stroke-width": 1, "vector-effect": "non-scaling-stroke", "pointer-events": "all", ...(interactive ? { "data-id": object.id } : {}) }));
                     return;
                 }
-                const style = resolveStyle(scene, object.style);
+                const style = resolveStyle(scene, object.style), fills = paint(style);
                 const ptu = (_d = PT_IN_UNIT[scene.unit]) !== null && _d !== void 0 ? _d : 1;
                 const lw = (style.lineWidthPt || .4) * ptu;
-                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: style.fill || "none", stroke: style.draw || "none", "stroke-width": lw, opacity: (_e = style.opacity) !== null && _e !== void 0 ? _e : 1, "stroke-dasharray": style.dash === "dashed" ? `${lw * 4} ${lw * 3}` : style.dash === "dotted" ? `${lw} ${lw * 2.5}` : "" };
+                const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: fills.base, stroke: style.draw || "none", "stroke-width": lw, opacity: (_e = style.opacity) !== null && _e !== void 0 ? _e : 1, "stroke-dasharray": style.dash === "dashed" ? `${lw * 4} ${lw * 3}` : style.dash === "dotted" ? `${lw} ${lw * 2.5}` : "" };
                 let el;
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
@@ -1030,6 +1156,27 @@ export const initProCanvasUi = (deps) => {
                 }
                 else
                     parent.append(el);
+                if (fills.pattern && object.type !== "node") {
+                    const patternEl = el.cloneNode(true);
+                    patternEl.removeAttribute("data-id");
+                    patternEl.setAttribute("fill", fills.pattern);
+                    patternEl.setAttribute("stroke", "none");
+                    patternEl.setAttribute("pointer-events", "none");
+                    parent.append(patternEl);
+                }
+                if (object.type === "path" && object.segments.length) {
+                    const arrow = (kind, tip, vector) => { var _a; let length = Math.hypot(vector.x, vector.y); if (length < 1e-9)
+                        return; const ux = vector.x / length, uy = vector.y / length, px = -uy, py = ux; if (kind === "Bar") {
+                        const half = (3 * lw + 1 * ptu) / 2;
+                        parent.append(svgEl("line", { x1: tip.x + px * half, y1: tip.y + py * half, x2: tip.x - px * half, y2: tip.y - py * half, stroke: style.draw || "#000000", "stroke-width": lw }));
+                        return;
+                    } const al = kind === "Latex" ? 4 * lw + 1.2 * ptu : 4.5 * lw + 1.5 * ptu, aw = (kind === "Latex" ? 3.6 * lw + 1.2 * ptu : 3 * lw + 1 * ptu) / 2, bx = tip.x - ux * al, by = tip.y - uy * al, points = kind === "Stealth" ? `${tip.x},${tip.y} ${bx + px * aw},${by + py * aw} ${bx + ux * al * .3},${by + uy * al * .3} ${bx - px * aw},${by - py * aw}` : `${tip.x},${tip.y} ${bx + px * aw},${by + py * aw} ${bx - px * aw},${by - py * aw}`; parent.append(svgEl("polygon", { points, fill: style.draw || "#000000", opacity: (_a = style.opacity) !== null && _a !== void 0 ? _a : 1, "pointer-events": "none" })); };
+                    const first = object.segments[0], last = object.segments[object.segments.length - 1], beforeLast = object.segments.length > 1 ? object.segments[object.segments.length - 2].to : object.start;
+                    if (style.arrowStart)
+                        arrow(style.arrowStart, object.start, first.type === "cubic" ? { x: object.start.x - first.c1.x, y: object.start.y - first.c1.y } : { x: object.start.x - first.to.x, y: object.start.y - first.to.y });
+                    if (style.arrowEnd)
+                        arrow(style.arrowEnd, last.to, last.type === "cubic" ? { x: last.to.x - last.c2.x, y: last.to.y - last.c2.y } : { x: last.to.x - beforeLast.x, y: last.to.y - beforeLast.y });
+                }
                 // 細線でも掴めるよう、透明の太ストロークでヒット領域を確保する。
                 if (interactive && object.type !== "node") {
                     const hit = el.cloneNode(true);
@@ -1538,6 +1685,10 @@ export const initProCanvasUi = (deps) => {
             const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
             if (e.key === "Escape") {
                 e.preventDefault();
+                if (colorPop) {
+                    closeColorPop();
+                    return;
+                }
                 if (plotEdit) {
                     stopPlotEdit();
                     return;

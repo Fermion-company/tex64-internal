@@ -1,6 +1,6 @@
 const DEFAULT_STYLE = {
     draw: "#000000", fill: null, lineWidthPt: 0.4, dash: "solid", opacity: 1,
-    arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0,
+    arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0, pattern: null, shading: null,
 };
 let idCounter = 0;
 export const createEmptyScene = () => ({
@@ -42,6 +42,22 @@ const isStyleProps = (value) => {
         return false;
     if (value.roundedCornersPt !== undefined && (!isNumber(value.roundedCornersPt) || value.roundedCornersPt < 0))
         return false;
+    if (value.pattern !== undefined && value.pattern !== null && (!isRecord(value.pattern) || !oneOf(value.pattern.name, ["horizontal lines", "vertical lines", "north east lines", "north west lines", "grid", "crosshatch", "dots", "crosshatch dots"]) || value.pattern.color !== undefined && typeof value.pattern.color !== "string"))
+        return false;
+    if (value.shading !== undefined && value.shading !== null) {
+        if (!isRecord(value.shading))
+            return false;
+        if (value.shading.kind === "axis") {
+            if (typeof value.shading.top !== "string" || typeof value.shading.bottom !== "string" || value.shading.angle !== undefined && !isNumber(value.shading.angle) || "inner" in value.shading || "outer" in value.shading)
+                return false;
+        }
+        else if (value.shading.kind === "radial") {
+            if (typeof value.shading.inner !== "string" || typeof value.shading.outer !== "string" || "top" in value.shading || "bottom" in value.shading || "angle" in value.shading)
+                return false;
+        }
+        else
+            return false;
+    }
     return value.doubleDistancePt === undefined || (isNumber(value.doubleDistancePt) && value.doubleDistancePt >= 0);
 };
 const isObjStyle = (value) => isRecord(value)

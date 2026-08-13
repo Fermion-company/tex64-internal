@@ -5,17 +5,31 @@ const num = (value) => { const n = Math.round((value + Number.EPSILON) * 1000) /
 const point = (p) => `(${num(p.x)},${num(p.y)})`;
 export const buildStyFile = (scene, packageName) => {
     const colors = new Map();
-    let arrows = false;
+    let arrows = false, patterns = false;
     const color = (value) => { const hex = value.slice(1).toLowerCase(); if (basicColors[hex])
         return basicColors[hex]; const name = `t64${hex.toUpperCase()}`; colors.set(hex, name); return name; };
     const keys = (props, explicit = false) => {
+        var _a, _b;
         const out = [];
         if (props.draw !== undefined && props.draw !== null && (explicit || props.draw.toLowerCase() !== "#000000"))
             out.push(`draw=${color(props.draw)}`);
         if (props.draw === null && explicit)
             out.push("draw=none");
-        if (props.fill !== undefined && props.fill !== null)
-            out.push(`fill=${color(props.fill)}`);
+        if (!props.shading && props.fill !== undefined && props.fill !== null)
+            out.push(props.pattern ? `preaction={fill=${color(props.fill)}}` : `fill=${color(props.fill)}`);
+        if (((_a = props.shading) === null || _a === void 0 ? void 0 : _a.kind) === "axis") {
+            out.push("shade", `top color=${color(props.shading.top)}`, `bottom color=${color(props.shading.bottom)}`);
+            if (props.shading.angle)
+                out.push(`shading angle=${num(props.shading.angle)}`);
+        }
+        else if (((_b = props.shading) === null || _b === void 0 ? void 0 : _b.kind) === "radial")
+            out.push("shade", `inner color=${color(props.shading.inner)}`, `outer color=${color(props.shading.outer)}`);
+        else if (props.pattern) {
+            patterns = true;
+            out.push(`pattern=${props.pattern.name}`);
+            if (props.pattern.color)
+                out.push(`pattern color=${color(props.pattern.color)}`);
+        }
         if (props.lineWidthPt !== undefined && props.lineWidthPt !== .4)
             out.push(`line width=${num(props.lineWidthPt)}pt`);
         if (props.dash && props.dash !== "solid")
@@ -137,8 +151,8 @@ export const buildStyFile = (scene, packageName) => {
                 opts.unshift(`anchor=${object.anchor}`);
             return [`${indent}${withOptions("node", opts)} at ${point(object.at)} {${object.latex}};`];
         }
-        const effective = { draw: "#000000", fill: null, ...(object.style.ref ? (_a = scene.styles.find(s => s.name === object.style.ref)) === null || _a === void 0 ? void 0 : _a.props : {}), ...(object.style.props || {}) };
-        const command = effective.fill !== null ? (effective.draw === null ? "fill" : "filldraw") : "draw";
+        const effective = { draw: "#000000", fill: null, pattern: null, shading: null, ...(object.style.ref ? (_a = scene.styles.find(s => s.name === object.style.ref)) === null || _a === void 0 ? void 0 : _a.props : {}), ...(object.style.props || {}) };
+        const command = effective.shading ? (effective.draw === null ? "shade" : "draw") : (effective.fill !== null || effective.pattern) ? (effective.draw === null ? "fill" : "filldraw") : "draw";
         const prefix = `${indent}${withOptions(command, opts)} `;
         if (object.type === "rect")
             return [`${prefix}${point(object.from)} rectangle ${point(object.to)};`];
@@ -155,5 +169,6 @@ export const buildStyFile = (scene, packageName) => {
     for (const symbol of scene.symbols || [])
         entries.push(`${symbol.name}/.pic={\n${symbol.objects.flatMap(object => emit(object, 2)).join("\n")}\n  }`);
     const definitions = [...colors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
-    return [`\\NeedsTeXFormat{LaTeX2e}`, `\\ProvidesPackage{${packageName}}[2026/08/13 TeX64 figure symbols]`, `\\RequirePackage{tikz}`, ...(sceneHasPlot(scene) ? [`\\RequirePackage{pgfplots}`, `\\pgfplotsset{compat=1.18}`] : []), ...(arrows ? [`\\usetikzlibrary{arrows.meta}`] : []), ...definitions, `\\tikzset{`, entries.map((entry, index) => `  ${entry}${index < entries.length - 1 ? "," : ""}`).join("\n"), `}`, `\\endinput`, ""].join("\n");
+    const libraries = [...(arrows ? ["arrows.meta"] : []), ...(patterns ? ["patterns"] : [])];
+    return [`\\NeedsTeXFormat{LaTeX2e}`, `\\ProvidesPackage{${packageName}}[2026/08/13 TeX64 figure symbols]`, `\\RequirePackage{tikz}`, ...(sceneHasPlot(scene) ? [`\\RequirePackage{pgfplots}`, `\\pgfplotsset{compat=1.18}`] : []), ...(libraries.length ? [`\\usetikzlibrary{${libraries.join(",")}}`] : []), ...definitions, `\\tikzset{`, entries.map((entry, index) => `  ${entry}${index < entries.length - 1 ? "," : ""}`).join("\n"), `}`, `\\endinput`, ""].join("\n");
 };
