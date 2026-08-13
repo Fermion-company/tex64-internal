@@ -223,6 +223,26 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
      即時確定（時系列が壊れないように）。
    - カード系列行の淡色化クラスは `is-muted`（グローバル `.is-hidden{display:none!important}` と
      衝突するため `is-hidden` は使わない）。
+12. **H4**: 数式 WYSIWYG 入力・系列種別・凡例・ナイス吸着 — **完了 (2026-08-14)**。仕様:
+   [pro-canvas-h4-spec.md](pro-canvas-h4-spec.md)。Codex 実装 → Opus 実走監査（Round 3）→ 修正。
+   `plot-math` を AST 化（`parseExpr`/`compileAst`/`astToPgf`、`compileExpr` の署名・度単位
+   セマンティクスは不変）。`plot-latex.ts` が MathLive LaTeX ⇄ pgfplots 式を AST 経由で双方向変換
+   （`\sin(u)` ⇄ `sin(deg(u))`、逆三角は `rad(asin(u))`、変換不能は null → テキストモード固定）。
+   系列種別 fn/媒介変数/極座標/点列（極座標は媒介変数形に展開、点列は `coordinates`+only marks）。
+   カードの式入力は `<math-field>`（⌨ トグルで生テキストと切替）。凡例のキャンバスプレビュー、
+   ホイール終了時のナイス吸着（格子 = 目盛りステップ/10）、`axis equal` チェックボックス。
+   学び・ガード:
+   - **カード内 math-field は shadowRoot への style 注入が必須**（blocks/mathlive.ts と同じ）:
+     仮想キーボード/メニューボタンを消し、`.ML__content{overflow:visible}` で分数クリップ回避。
+     `::part()` だけでは `.ML__content` に届かない。`menuItems=[]` でコンテキストメニュー無効化、
+     ダーク配色は `--caret-color`/`--selection-*` で指定。
+   - `/` キーは capture 段で横取りし `extendSelectionBackward` → `\frac{#@}{#?}` 挿入
+     （bubble 段だと MathLive 内部処理と二重発火する）。
+   - **fn 系列はパース不能でも raw パススルー**（pgfplots の上位構文を制限しない。
+     媒介/極座標は変数リネームが必要なため skip + コメント）。
+   - 凡例・軸ラベル・タイトルは出力時に `%#&` をエスケープし、`^ _` を含む非 `$...$` は
+     数式ラップ（`y=x^2` が Missing $ でビルドを落とすのを防ぐ）。
+   - 動的 title を持つボタン（⌨ トグル）にも `data-no-i18n`（i18n は title 属性も凍結する）。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。

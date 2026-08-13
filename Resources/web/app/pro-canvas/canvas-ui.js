@@ -9,7 +9,8 @@ import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
 import { importSvg } from "./svg-import.js";
 import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
-import { PLOT_PALETTE, autoRange, compileExpr, niceTicks, panRange, samplePlot, zoomRange } from "./plot-math.js";
+import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
+import { exprToLatex, latexToExpr } from "./plot-latex.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
@@ -43,6 +44,35 @@ const firstReportError = (report) => {
 };
 const pathOutlineD = (item) => { let d = `M ${item.start.x} ${item.start.y}`; item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; }); return item.closed ? d + " Z" : d; };
 const isStraightLine = (item) => item.type === "path" && !item.closed && item.segments.length === 1 && item.segments[0].type === "line";
+const plotKind = (series) => series.kind || "fn";
+const previewSeries = (series, xmin, xmax) => { const kind = plotKind(series); if (kind === "points") {
+    const src = (series.points || "").trim();
+    if (!src)
+        return { pieces: [], valid: true };
+    const points = parsePoints(series.points || "");
+    return { pieces: points.map(point => [point]), valid: points.length > 0 };
+} const first = compileExpr(series.expr), second = kind === "parametric" ? compileExpr(series.expr2 || "") : null, domain = series.domain || (kind === "fn" ? { min: xmin, max: xmax } : { min: 0, max: 2 * Math.PI }); if (!first || (kind === "parametric" && !second))
+    return { pieces: [], valid: false }; if (kind === "fn")
+    return { pieces: samplePlot(first, domain.min, domain.max, series.samples), valid: true }; if (kind === "parametric")
+    return { pieces: sampleParametric(first, second, domain.min, domain.max, series.samples), valid: true }; return { pieces: sampleParametric(t => first(t) * Math.cos(t), t => first(t) * Math.sin(t), domain.min, domain.max, series.samples), valid: true }; };
+const ensurePlotMathLive = () => { var _a; const global = window.MathLive, ctor = (_a = global === null || global === void 0 ? void 0 : global.MathfieldElement) !== null && _a !== void 0 ? _a : window.MathfieldElement, keyboard = window.mathVirtualKeyboard; try {
+    if (ctor) {
+        ctor.soundsDirectory = null;
+        ctor.keypressSound = null;
+        ctor.plonkSound = null;
+        ctor.keypressVibration = false;
+    }
+    if (keyboard) {
+        keyboard.keypressSound = null;
+        keyboard.plonkSound = null;
+        keyboard.keypressVibration = false;
+    }
+}
+catch { } if (!customElements.get("math-field") && (global === null || global === void 0 ? void 0 : global.MathfieldElement))
+    try {
+        customElements.define("math-field", global.MathfieldElement);
+    }
+    catch { } return Boolean(customElements.get("math-field")); };
 const allPoints = (object, scene) => {
     var _a;
     if (object.type === "code") {
@@ -204,7 +234,7 @@ export const initProCanvasUi = (deps) => {
         let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
         let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
-        const plotPreviewCache = new Map();
+        const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set();
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
@@ -366,39 +396,261 @@ export const initProCanvasUi = (deps) => {
             plotCard.style.left = `${plotCardPos.x}px`;
             plotCard.style.top = `${plotCardPos.y}px`;
             return;
-        } const bl = sceneToScreen(object.at, view()), tr = sceneToScreen({ x: object.at.x + object.width, y: object.at.y + object.height }, view()), left = Math.min(bl.x, tr.x), right = Math.max(bl.x, tr.x), top = Math.min(bl.y, tr.y), bottom = Math.max(bl.y, tr.y), w = 260, gap = 10; let x = right + gap, y = top; if (x + w > innerWidth - 8)
+        } const bl = sceneToScreen(object.at, view()), tr = sceneToScreen({ x: object.at.x + object.width, y: object.at.y + object.height }, view()), left = Math.min(bl.x, tr.x), right = Math.max(bl.x, tr.x), top = Math.min(bl.y, tr.y), bottom = Math.max(bl.y, tr.y), w = 320, gap = 10; let x = right + gap, y = top; if (x + w > innerWidth - 8)
             x = left - w - gap; if (x < 8) {
             x = Math.max(8, Math.min(innerWidth - w - 8, left));
             y = bottom + gap;
         } plotCard.style.left = `${x}px`; plotCard.style.top = `${Math.max(8, Math.min(innerHeight - plotCard.offsetHeight - 8, y))}px`; };
-        const buildPlotCard = (object, focusIndex = -1) => { plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove(); const card = document.createElement("div"); card.className = "pro-canvas-plot-card"; card.addEventListener("pointerdown", e => e.stopPropagation()); card.addEventListener("click", e => e.stopPropagation()); card.addEventListener("keydown", e => { var _a, _b; if (e.key !== "Escape")
-            return; e.preventDefault(); e.stopPropagation(); (_b = (_a = e.target).blur) === null || _b === void 0 ? void 0 : _b.call(_a); stopPlotEdit(); }); const header = document.createElement("div"); header.className = "pro-canvas-plot-card-header"; const headTitle = document.createElement("strong"); headTitle.textContent = "グラフを編集"; const headClose = document.createElement("button"); headClose.type = "button"; headClose.textContent = "✕"; headClose.title = "閉じる"; headClose.setAttribute("aria-label", "閉じる"); headClose.onclick = () => stopPlotEdit(); header.append(headTitle, headClose); header.addEventListener("pointerdown", e => { if (e.target.closest("button"))
-            return; e.preventDefault(); const rect = card.getBoundingClientRect(), sx = e.clientX, sy = e.clientY, bx = rect.left, by = rect.top; const move = (ev) => { plotCardPos = { x: bx + ev.clientX - sx, y: by + ev.clientY - sy }; card.style.left = `${plotCardPos.x}px`; card.style.top = `${plotCardPos.y}px`; }; const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); }); card.append(header); const field = (label, value, type, apply) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = type; input.value = value; input.title = label; if (type === "number")
-            input.step = "any"; liveField(input, () => apply(input.value)); row.append(input); return { row, input }; }; object.series.forEach((series, index) => { const wrap = document.createElement("div"); wrap.className = `pro-canvas-plot-card-series${series.visible === false ? " is-muted" : ""}`; const main = document.createElement("div"); main.className = "pro-canvas-plot-card-main"; const chip = document.createElement("label"); chip.className = "pro-canvas-color-chip"; chip.title = `関数 ${index + 1} の色`; chip.setAttribute("aria-label", chip.title); chip.style.background = series.color; chip.tabIndex = 0; const color = document.createElement("input"); color.type = "color"; color.value = series.color; liveField(color, () => { series.color = color.value; chip.style.background = color.value; }); chip.append(color); const expr = document.createElement("input"); expr.type = "text"; expr.className = "pro-canvas-plot-expr"; expr.placeholder = "例: sin(deg(x))"; expr.title = `関数 ${index + 1} の式`; expr.value = series.expr; liveField(expr, () => { series.expr = expr.value; const bad = !compileExpr(series.expr); expr.classList.toggle("is-error", bad); error.hidden = !bad; }); const eye = document.createElement("button"); eye.type = "button"; eye.className = "pro-canvas-eye"; eye.title = "表示/非表示"; eye.setAttribute("aria-label", eye.title); eye.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M1.5 9s2.7-4 7.5-4 7.5 4 7.5 4-2.7 4-7.5 4-7.5-4-7.5-4Z"/><circle cx="9" cy="9" r="2"/></svg>'; eye.onclick = () => { snapshot(false); series.visible = series.visible === false; wrap.classList.toggle("is-muted", series.visible === false); debouncePlotCompile(); render(); }; const more = document.createElement("button"); more.type = "button"; more.textContent = "⋯"; more.title = "系列の詳細"; const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "×"; remove.title = "関数を削除"; remove.disabled = object.series.length <= 1; remove.onclick = () => { snapshot(false); object.series.splice(index, 1); plotCardSignature = ""; debouncePlotCompile(); render(); }; main.append(chip, expr, eye, more, remove); const error = document.createElement("div"); error.className = "pro-canvas-plot-error"; error.textContent = "式を解釈できません"; error.hidden = Boolean(compileExpr(series.expr)); expr.classList.toggle("is-error", !error.hidden); const details = document.createElement("div"); details.className = "pro-canvas-plot-details"; details.hidden = true; const dmin = field("定義域 最小", series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
-            series.domain = null;
-        else if (Number.isFinite(n))
-            series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : object.axis.xmax }; }), dmax = field("定義域 最大", series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
-            series.domain = null;
-        else if (Number.isFinite(n))
-            series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : object.axis.xmin, max: n }; }), samples = field("分割数", String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field("凡例", series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input"); thick.textContent = "太線"; thickInput.type = "checkbox"; thickInput.checked = series.thick; liveField(thickInput, () => series.thick = thickInput.checked); thick.append(thickInput); details.append(dmin.row, dmax.row, samples.row, legend.row, thick); more.onclick = () => { details.hidden = !details.hidden; }; wrap.append(main, error, details); card.append(wrap); if (index === focusIndex)
-            requestAnimationFrame(() => { expr.focus(); expr.select(); }); }); const add = document.createElement("button"); add.type = "button"; add.className = "pro-canvas-plot-add"; add.textContent = "＋ 関数を追加"; add.onclick = () => { snapshot(false); object.series.push({ expr: "x", domain: null, samples: 100, color: PLOT_PALETTE[object.series.length % PLOT_PALETTE.length], thick: true, legend: "", visible: true }); plotCardSignature = ""; debouncePlotCompile(); render(); requestAnimationFrame(() => buildPlotCard(object, object.series.length - 1)); }; card.append(add); const range = document.createElement("div"); range.className = "pro-canvas-plot-range"; const xmin = field("x:", String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
-            object.axis.xmin = n; }), xmax = field("〜", String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
-            object.axis.xmax = n; }), auto = document.createElement("label"), autoInput = document.createElement("input"); auto.textContent = "y 自動"; autoInput.type = "checkbox"; autoInput.checked = object.axis.ymin === null || object.axis.ymax === null; autoInput.onchange = () => { snapshot(false); if (autoInput.checked) {
-            object.axis.ymin = object.axis.ymax = null;
-        }
-        else {
-            object.axis.ymin = -5;
-            object.axis.ymax = 5;
-        } plotCardSignature = ""; debouncePlotCompile(); render(); }; auto.append(autoInput); const ymin = field("y:", object.axis.ymin === null ? "" : String(Number(object.axis.ymin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
-            object.axis.ymin = n; }), ymax = field("〜", object.axis.ymax === null ? "" : String(Number(object.axis.ymax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
-            object.axis.ymax = n; }); [xmin, xmax, ymin, ymax].forEach(f => f.input.dataset.noI18n = ""); xmin.input.dataset.plotRange = "xmin"; xmax.input.dataset.plotRange = "xmax"; ymin.input.dataset.plotRange = "ymin"; ymax.input.dataset.plotRange = "ymax"; ymin.input.disabled = ymax.input.disabled = autoInput.checked; if (autoInput.checked) {
-            const values = object.series.filter(s => s.visible !== false).flatMap(s => { const fn = compileExpr(s.expr), d = s.domain || { min: object.axis.xmin, max: object.axis.xmax }; return fn ? samplePlot(fn, d.min, d.max, s.samples).flat().map(p => p.y) : []; }), r = autoRange(values);
-            ymin.input.placeholder = String(Number(r.min.toPrecision(4)));
-            ymax.input.placeholder = String(Number(r.max.toPrecision(4)));
-        } range.append(xmin.row, xmax.row, ymin.row, ymax.row, auto); card.append(range); const hint = document.createElement("p"); hint.textContent = "プロット上: スクロールでズーム / ドラッグで移動"; card.append(hint); const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); }; segments("軸線", object.axis.axisLines, [["box", "枠"], ["middle", "中央"], ["left", "左下"]], v => object.axis.axisLines = v); segments("グリッド", object.axis.grid, [["none", "なし"], ["major", "主"], ["both", "主+副"]], v => object.axis.grid = v); const disclosure = document.createElement("details"), summary = document.createElement("summary"); summary.textContent = "詳細"; disclosure.append(summary); for (const [label, key] of [["x ラベル", "xlabel"], ["y ラベル", "ylabel"], ["タイトル", "title"]]) {
-            const f = field(label, object.axis[key], "text", v => object.axis[key] = v);
-            disclosure.append(f.row);
-        } card.append(disclosure); overlay.append(card); plotCard = card; plotCardSignature = `${object.id}:${object.series.length}:${autoInput.checked}:${object.axis.axisLines}:${object.axis.grid}`; requestAnimationFrame(positionPlotCard); };
+        const buildPlotCard = (object, focusIndex = -1) => {
+            plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove();
+            const hasMathLive = ensurePlotMathLive(), card = document.createElement("div");
+            card.className = "pro-canvas-plot-card";
+            card.addEventListener("pointerdown", e => e.stopPropagation());
+            card.addEventListener("click", e => e.stopPropagation());
+            card.addEventListener("keydown", e => { var _a, _b; if (e.key !== "Escape")
+                return; e.preventDefault(); e.stopPropagation(); (_b = (_a = e.target).blur) === null || _b === void 0 ? void 0 : _b.call(_a); stopPlotEdit(); });
+            const header = document.createElement("div");
+            header.className = "pro-canvas-plot-card-header";
+            const headTitle = document.createElement("strong");
+            headTitle.textContent = "グラフを編集";
+            const headClose = document.createElement("button");
+            headClose.type = "button";
+            headClose.textContent = "✕";
+            headClose.title = "閉じる";
+            headClose.setAttribute("aria-label", "閉じる");
+            headClose.onclick = () => stopPlotEdit();
+            header.append(headTitle, headClose);
+            header.addEventListener("pointerdown", e => { if (e.target.closest("button"))
+                return; e.preventDefault(); const rect = card.getBoundingClientRect(), sx = e.clientX, sy = e.clientY, bx = rect.left, by = rect.top; const move = (ev) => { plotCardPos = { x: bx + ev.clientX - sx, y: by + ev.clientY - sy }; card.style.left = `${plotCardPos.x}px`; card.style.top = `${plotCardPos.y}px`; }; const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); });
+            card.append(header);
+            const field = (label, value, type, apply) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = type; input.value = value; input.title = label; if (type === "number")
+                input.step = "any"; liveField(input, () => apply(input.value)); row.append(input); return { row, input }; };
+            object.series.forEach((series, index) => {
+                const kind = plotKind(series), wrap = document.createElement("div");
+                wrap.className = `pro-canvas-plot-card-series${series.visible === false ? " is-muted" : ""}`;
+                const main = document.createElement("div");
+                main.className = "pro-canvas-plot-card-main";
+                const chip = document.createElement("label");
+                chip.className = "pro-canvas-color-chip";
+                chip.title = `系列 ${index + 1} の色`;
+                chip.setAttribute("aria-label", chip.title);
+                chip.style.background = series.color;
+                chip.tabIndex = 0;
+                const color = document.createElement("input");
+                color.type = "color";
+                color.value = series.color;
+                liveField(color, () => { series.color = color.value; chip.style.background = color.value; });
+                chip.append(color);
+                const expressions = document.createElement("div");
+                expressions.className = "pro-canvas-plot-expressions";
+                const editors = [], valid = () => previewSeries(series, object.axis.xmin, object.axis.xmax).valid, refreshError = () => { const bad = !valid(); editors.forEach(editor => editor.classList.toggle("is-error", bad)); error.hidden = !bad; };
+                const addExpr = (labelText, key, placeholder) => { const label = document.createElement("label"), caption = document.createElement("span"), value = series[key] || "", varName = kind === "fn" ? "x" : "t", modeKey = `${object.id}:${index}:${key}`, latex = exprToLatex(value, varName), useMath = hasMathLive && latex !== null && !plotTextModes.has(modeKey), toggle = document.createElement("button"); caption.textContent = labelText; toggle.type = "button"; toggle.className = "pro-canvas-plot-input-toggle"; toggle.dataset.noI18n = ""; toggle.textContent = "⌨"; toggle.disabled = !hasMathLive || latex === null; toggle.title = !hasMathLive ? "数式入力を利用できません" : latex === null ? "この式は数式入力に変換できません" : useMath ? "テキストで編集" : "数式で編集"; toggle.setAttribute("aria-label", toggle.title); toggle.onclick = () => { if (toggle.disabled)
+                    return; if (useMath)
+                    plotTextModes.add(modeKey);
+                else
+                    plotTextModes.delete(modeKey); plotCardSignature = ""; render(); }; let editor; if (useMath) {
+                    const mf = document.createElement("math-field");
+                    mf.className = "pro-canvas-plot-expr";
+                    mf.dataset.noI18n = "";
+                    mf.title = `系列 ${index + 1} ${labelText}`;
+                    mf.setAttribute("math-virtual-keyboard-policy", "manual");
+                    mf.setAttribute("placeholder", placeholder);
+                    try {
+                        mf.menuItems = [];
+                    }
+                    catch { }
+                    const injectMfStyle = () => { const sr = mf.shadowRoot; if (!sr || sr.querySelector("style[data-tex64-plot]"))
+                        return; const st = document.createElement("style"); st.setAttribute("data-tex64-plot", ""); st.textContent = ".ML__content{overflow:visible!important;min-width:0!important;flex:1 1 auto!important}.ML__virtual-keyboard-toggle,button[part=virtual-keyboard-toggle],.ML__menu-toggle,button[part=menu-toggle]{display:none!important}"; sr.appendChild(st); };
+                    injectMfStyle();
+                    requestAnimationFrame(injectMfStyle);
+                    mf.addEventListener("keydown", e => { var _a; if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey)
+                        return; e.preventDefault(); e.stopImmediatePropagation(); try {
+                        const m = mf;
+                        if ((_a = m.selectionIsCollapsed) !== null && _a !== void 0 ? _a : true)
+                            m.executeCommand("extendSelectionBackward");
+                        m.executeCommand(["insert", "\\frac{#@}{#?}"]);
+                    }
+                    catch {
+                        try {
+                            mf.insert("\\frac{#@}{#?}");
+                        }
+                        catch { }
+                    } }, true);
+                    mf.value = latex;
+                    mf.addEventListener("keydown", e => { if (e.key !== "Escape")
+                        return; e.preventDefault(); e.stopPropagation(); stopPlotEdit(); });
+                    liveField(mf, () => { var _a, _b; let raw = mf.value; try {
+                        raw = (_b = (_a = mf.getValue) === null || _a === void 0 ? void 0 : _a.call(mf, "latex")) !== null && _b !== void 0 ? _b : raw;
+                    }
+                    catch { } const next = latexToExpr(raw, varName), bad = next === null; mf.classList.toggle("is-error", bad); error.hidden = !bad; if (next !== null)
+                        series[key] = next; });
+                    editor = mf;
+                }
+                else {
+                    const input = document.createElement("input");
+                    input.type = "text";
+                    input.className = "pro-canvas-plot-expr";
+                    input.placeholder = placeholder;
+                    input.dataset.noI18n = "";
+                    input.title = `系列 ${index + 1} ${labelText}`;
+                    input.value = value;
+                    liveField(input, () => { series[key] = input.value; const nextLatex = exprToLatex(input.value, varName); toggle.disabled = !hasMathLive || nextLatex === null; toggle.title = !hasMathLive ? "数式入力を利用できません" : nextLatex === null ? "この式は数式入力に変換できません" : "数式で編集"; toggle.setAttribute("aria-label", toggle.title); refreshError(); });
+                    editor = input;
+                } label.append(caption, editor, toggle); expressions.append(label); editors.push(editor); };
+                if (kind === "points") {
+                    const area = document.createElement("textarea");
+                    area.className = "pro-canvas-plot-points";
+                    area.rows = 3;
+                    area.placeholder = "0,0\n1,1";
+                    area.dataset.noI18n = "";
+                    area.title = `系列 ${index + 1} の点列`;
+                    area.value = series.points || "";
+                    liveField(area, () => { series.points = area.value; refreshError(); });
+                    expressions.append(area);
+                    editors.push(area);
+                }
+                else if (kind === "parametric") {
+                    addExpr("x(t)", "expr", "例: cos(deg(t))");
+                    addExpr("y(t)", "expr2", "例: sin(deg(t))");
+                }
+                else if (kind === "polar")
+                    addExpr("r(θ)", "expr", "例: 1+cos(deg(t))");
+                else
+                    addExpr("f(x)", "expr", "例: sin(deg(x))");
+                const eye = document.createElement("button");
+                eye.type = "button";
+                eye.className = "pro-canvas-eye";
+                eye.title = "表示/非表示";
+                eye.setAttribute("aria-label", eye.title);
+                eye.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M1.5 9s2.7-4 7.5-4 7.5 4 7.5 4-2.7 4-7.5 4-7.5-4-7.5-4Z"/><circle cx="9" cy="9" r="2"/></svg>';
+                eye.onclick = () => { snapshot(false); series.visible = series.visible === false; wrap.classList.toggle("is-muted", series.visible === false); debouncePlotCompile(); render(); };
+                const more = document.createElement("button");
+                more.type = "button";
+                more.textContent = "⋯";
+                more.title = "系列の詳細";
+                const remove = document.createElement("button");
+                remove.type = "button";
+                remove.textContent = "×";
+                remove.title = "系列を削除";
+                remove.disabled = object.series.length <= 1;
+                remove.onclick = () => { snapshot(false); object.series.splice(index, 1); plotCardSignature = ""; debouncePlotCompile(); render(); };
+                main.append(chip, expressions, eye, more, remove);
+                const error = document.createElement("div");
+                error.className = "pro-canvas-plot-error";
+                error.textContent = kind === "points" ? "点列を解釈できません" : "式を解釈できません";
+                error.hidden = valid();
+                editors.forEach(editor => editor.classList.toggle("is-error", !error.hidden));
+                const detailsKey = `${object.id}:${index}`, details = document.createElement("div");
+                details.className = "pro-canvas-plot-details";
+                details.hidden = !plotDetailsOpen.has(detailsKey);
+                const kindLabel = document.createElement("label"), kindSelect = document.createElement("select");
+                kindLabel.textContent = "種類";
+                for (const [value, text] of [["fn", "関数 y=f(x)"], ["parametric", "媒介変数"], ["polar", "極座標 r(θ)"], ["points", "点列"]]) {
+                    const option = document.createElement("option");
+                    option.value = value;
+                    option.textContent = text;
+                    kindSelect.append(option);
+                }
+                kindSelect.value = kind;
+                kindSelect.onchange = () => { snapshot(false); series.kind = kindSelect.value; const nextVar = series.kind === "fn" ? "x" : "t"; ["expr", "expr2"].forEach(key => { const src = series[key]; if (!src)
+                    return; const ast = parseExpr(src); if (ast)
+                    series[key] = astToPgf(ast, nextVar); }); if (series.kind === "parametric" && series.expr2 === undefined)
+                    series.expr2 = "sin(deg(t))"; if (series.kind === "points" && series.points === undefined)
+                    series.points = ""; plotDetailsOpen.add(detailsKey); plotCardSignature = ""; debouncePlotCompile(); render(); };
+                kindLabel.append(kindSelect);
+                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field("定義域 最小", series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+                    series.domain = null;
+                else if (Number.isFinite(n))
+                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field("定義域 最大", series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+                    series.domain = null;
+                else if (Number.isFinite(n))
+                    series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : defaults.min, max: n }; }), samples = field("分割数", String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field("凡例", series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input");
+                dmin.input.placeholder = String(Number(defaults.min.toPrecision(4)));
+                dmax.input.placeholder = String(Number(defaults.max.toPrecision(4)));
+                dmin.input.dataset.noI18n = "";
+                dmax.input.dataset.noI18n = "";
+                thick.textContent = "太線";
+                thickInput.type = "checkbox";
+                thickInput.checked = series.thick;
+                liveField(thickInput, () => series.thick = thickInput.checked);
+                thick.append(thickInput);
+                if (kind === "points")
+                    dmin.row.hidden = dmax.row.hidden = samples.row.hidden = true;
+                details.append(kindLabel, dmin.row, dmax.row, samples.row, legend.row, thick);
+                more.onclick = () => { details.hidden = !details.hidden; if (details.hidden)
+                    plotDetailsOpen.delete(detailsKey);
+                else
+                    plotDetailsOpen.add(detailsKey); };
+                wrap.append(main, error, details);
+                card.append(wrap);
+                if (index === focusIndex)
+                    requestAnimationFrame(() => { const editor = editors[0]; editor === null || editor === void 0 ? void 0 : editor.focus(); editor instanceof HTMLInputElement && editor.select(); });
+            });
+            const add = document.createElement("button");
+            add.type = "button";
+            add.className = "pro-canvas-plot-add";
+            add.textContent = "＋ 系列を追加";
+            add.onclick = () => { snapshot(false); object.series.push({ kind: "fn", expr: "x", domain: null, samples: 100, color: PLOT_PALETTE[object.series.length % PLOT_PALETTE.length], thick: true, legend: "", visible: true }); plotCardSignature = ""; debouncePlotCompile(); render(); requestAnimationFrame(() => buildPlotCard(object, object.series.length - 1)); };
+            card.append(add);
+            const range = document.createElement("div");
+            range.className = "pro-canvas-plot-range";
+            const xmin = field("x:", String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
+                object.axis.xmin = n; }), xmax = field("〜", String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
+                object.axis.xmax = n; }), auto = document.createElement("label"), autoInput = document.createElement("input");
+            auto.textContent = "y 自動";
+            autoInput.type = "checkbox";
+            autoInput.checked = object.axis.ymin === null || object.axis.ymax === null;
+            autoInput.onchange = () => { snapshot(false); if (autoInput.checked) {
+                object.axis.ymin = object.axis.ymax = null;
+            }
+            else {
+                object.axis.ymin = -5;
+                object.axis.ymax = 5;
+            } plotCardSignature = ""; debouncePlotCompile(); render(); };
+            auto.append(autoInput);
+            const ymin = field("y:", object.axis.ymin === null ? "" : String(Number(object.axis.ymin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
+                object.axis.ymin = n; }), ymax = field("〜", object.axis.ymax === null ? "" : String(Number(object.axis.ymax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
+                object.axis.ymax = n; });
+            [xmin, xmax, ymin, ymax].forEach(f => f.input.dataset.noI18n = "");
+            xmin.input.dataset.plotRange = "xmin";
+            xmax.input.dataset.plotRange = "xmax";
+            ymin.input.dataset.plotRange = "ymin";
+            ymax.input.dataset.plotRange = "ymax";
+            ymin.input.disabled = ymax.input.disabled = autoInput.checked;
+            if (autoInput.checked) {
+                const values = object.series.filter(s => s.visible !== false).flatMap(s => previewSeries(s, object.axis.xmin, object.axis.xmax).pieces.flat().map(p => p.y)), r = autoRange(values);
+                ymin.input.placeholder = String(Number(r.min.toPrecision(4)));
+                ymax.input.placeholder = String(Number(r.max.toPrecision(4)));
+            }
+            range.append(xmin.row, xmax.row, ymin.row, ymax.row, auto);
+            card.append(range);
+            const hint = document.createElement("p");
+            hint.textContent = "プロット上: スクロールでズーム / ドラッグで移動";
+            card.append(hint);
+            const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); };
+            segments("軸線", object.axis.axisLines, [["box", "枠"], ["middle", "中央"], ["left", "左下"]], v => object.axis.axisLines = v);
+            segments("グリッド", object.axis.grid, [["none", "なし"], ["major", "主"], ["both", "主+副"]], v => object.axis.grid = v);
+            const eqRow = document.createElement("label");
+            eqRow.className = "pro-canvas-plot-equal";
+            const eqInput = document.createElement("input");
+            eqInput.type = "checkbox";
+            eqInput.checked = Boolean(object.axis.equal);
+            eqInput.onchange = () => { snapshot(false); object.axis.equal = eqInput.checked || undefined; debouncePlotCompile(); render(); };
+            eqRow.append(eqInput, document.createTextNode(" 等尺 (axis equal)"));
+            card.append(eqRow);
+            const disclosure = document.createElement("details"), summary = document.createElement("summary");
+            summary.textContent = "詳細";
+            disclosure.append(summary);
+            for (const [label, key] of [["x ラベル", "xlabel"], ["y ラベル", "ylabel"], ["タイトル", "title"]]) {
+                const f = field(label, object.axis[key], "text", v => object.axis[key] = v);
+                disclosure.append(f.row);
+            }
+            card.append(disclosure);
+            overlay.append(card);
+            plotCard = card;
+            plotCardSignature = `${object.id}:${object.series.length}:${object.series.map(plotKind).join(",")}:${autoInput.checked}:${object.axis.axisLines}:${object.axis.grid}`;
+            requestAnimationFrame(positionPlotCard);
+        };
         const topLevelSelectedObjects = () => currentObjects().filter(object => selection.ids.has(object.id));
         const selectionBounds = () => { const selected = topLevelSelectedObjects(); if (!selected.length)
             return null; const bounds = selected.map(object => objectBounds(object, scene)); return { minX: Math.min(...bounds.map(b => b.minX)), minY: Math.min(...bounds.map(b => b.minY)), maxX: Math.max(...bounds.map(b => b.maxX)), maxY: Math.max(...bounds.map(b => b.maxY)) }; };
@@ -672,9 +924,9 @@ export const initProCanvasUi = (deps) => {
                     return;
                 }
                 if (object.type === "plot") {
-                    const g = svgEl("g", interactive ? { "data-id": object.id } : {}), a = object.axis, xmin = a.xmin, xmax = a.xmax, compiled = object.series.filter(series => series.visible !== false).map(series => ({ series, fn: compileExpr(series.expr) })), cache = plotPreviewCache.get(object.id), sampled = compiled.map(({ series, fn }, i) => { const domain = series.domain || { min: xmin, max: xmax }; return fn ? samplePlot(fn, domain.min, domain.max, series.samples) : (cache === null || cache === void 0 ? void 0 : cache.pieces[i]) || []; }), finiteYs = sampled.flat(2).map(point => point.y).filter(Number.isFinite), auto = finiteYs.length ? autoRange(finiteYs) : cache ? { min: cache.ymin, max: cache.ymax } : autoRange([]), ymin = (_b = a.ymin) !== null && _b !== void 0 ? _b : auto.min, ymax = (_c = a.ymax) !== null && _c !== void 0 ? _c : auto.max, mapX = (x) => object.at.x + (x - xmin) / Math.max(xmax - xmin, 1e-9) * object.width, mapY = (y) => object.at.y + (y - ymin) / Math.max(ymax - ymin, 1e-9) * object.height, xt = niceTicks(xmin, xmax), yt = niceTicks(ymin, ymax), neutral = "#64748b", clipId = `pro-canvas-plot-${object.id}`;
+                    const g = svgEl("g", interactive ? { "data-id": object.id } : {}), a = object.axis, xmin = a.xmin, xmax = a.xmax, compiled = object.series.filter(series => series.visible !== false).map(series => ({ series, preview: previewSeries(series, xmin, xmax) })), cache = plotPreviewCache.get(object.id), sampled = compiled.map(({ series, preview }, i) => preview.valid ? preview.pieces : plotKind(series) === "points" ? [] : (cache === null || cache === void 0 ? void 0 : cache.pieces[i]) || []), finiteYs = sampled.flat(2).map(point => point.y).filter(Number.isFinite), auto = finiteYs.length ? autoRange(finiteYs) : cache ? { min: cache.ymin, max: cache.ymax } : autoRange([]), ymin0 = (_b = a.ymin) !== null && _b !== void 0 ? _b : auto.min, ymax0 = (_c = a.ymax) !== null && _c !== void 0 ? _c : auto.max, eq = a.equal ? (() => { const ux = object.width / Math.max(xmax - xmin, 1e-9), uy = object.height / Math.max(ymax0 - ymin0, 1e-9), u = Math.min(ux, uy), xc = (xmin + xmax) / 2, yc = (ymin0 + ymax0) / 2, hw = object.width / u / 2, hh = object.height / u / 2; return { xmin: xc - hw, xmax: xc + hw, ymin: yc - hh, ymax: yc + hh }; })() : { xmin, xmax, ymin: ymin0, ymax: ymax0 }, ymin = eq.ymin, ymax = eq.ymax, mapX = (x) => object.at.x + (x - eq.xmin) / Math.max(eq.xmax - eq.xmin, 1e-9) * object.width, mapY = (y) => object.at.y + (y - ymin) / Math.max(ymax - ymin, 1e-9) * object.height, xt = niceTicks(eq.xmin, eq.xmax), yt = niceTicks(ymin, ymax), neutral = "#64748b", clipId = `pro-canvas-plot-${object.id}`;
                     parent.append(g);
-                    if (compiled.every(entry => entry.fn))
+                    if (compiled.every(entry => entry.preview.valid))
                         plotPreviewCache.set(object.id, { ymin, ymax, pieces: sampled });
                     const defs = svgEl("defs"), clip = svgEl("clipPath", { id: clipId });
                     clip.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height }));
@@ -684,7 +936,7 @@ export const initProCanvasUi = (deps) => {
                         xt.forEach(value => g.append(svgEl("line", { x1: mapX(value), y1: object.at.y, x2: mapX(value), y2: object.at.y + object.height, stroke: neutral, "stroke-opacity": .18, "stroke-width": .5, "vector-effect": "non-scaling-stroke" })));
                         yt.forEach(value => g.append(svgEl("line", { x1: object.at.x, y1: mapY(value), x2: object.at.x + object.width, y2: mapY(value), stroke: neutral, "stroke-opacity": .18, "stroke-width": .5, "vector-effect": "non-scaling-stroke" })));
                     }
-                    const axisX = a.axisLines === "middle" ? mapX(Math.max(xmin, Math.min(xmax, 0))) : object.at.x, axisY = a.axisLines === "middle" ? mapY(Math.max(ymin, Math.min(ymax, 0))) : object.at.y;
+                    const axisX = a.axisLines === "middle" ? mapX(Math.max(eq.xmin, Math.min(eq.xmax, 0))) : object.at.x, axisY = a.axisLines === "middle" ? mapY(Math.max(ymin, Math.min(ymax, 0))) : object.at.y;
                     if (a.axisLines === "box")
                         g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "none", stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                     else {
@@ -702,10 +954,23 @@ export const initProCanvasUi = (deps) => {
                         text(String(Number(value.toPrecision(4))), mapX(value), (a.axisLines === "middle" ? axisY : object.at.y) - lo); });
                     yt.forEach(value => { g.append(svgEl("line", { x1: axisX - tl, y1: mapY(value), x2: axisX + tl, y2: mapY(value), stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
                         text(String(Number(value.toPrecision(4))), (a.axisLines === "middle" ? axisX : object.at.x) - 4 / scale, mapY(value) - 3 / scale, "end"); });
-                    if (a.axisLines === "middle" && xmin <= 0 && xmax >= 0 && ymin <= 0 && ymax >= 0)
+                    if (a.axisLines === "middle" && eq.xmin <= 0 && eq.xmax >= 0 && ymin <= 0 && ymax >= 0)
                         text("0", axisX - 3 / scale, axisY - lo, "end");
-                    sampled.forEach((pieces, index) => pieces.forEach(piece => g.append(svgEl("polyline", { points: piece.map(point => `${mapX(point.x)},${mapY(point.y)}`).join(" "), fill: "none", stroke: compiled[index].series.color, "stroke-width": compiled[index].series.thick ? 1.2 : .7, "stroke-opacity": compiled[index].fn ? 1 : .35, "vector-effect": "non-scaling-stroke", "clip-path": `url(#${clipId})` }))));
-                    if (compiled.some(entry => !entry.fn)) {
+                    const legendLayer = svgEl("g"), legendEntries = compiled.filter(entry => entry.series.legend);
+                    if (legendEntries.length) {
+                        const pad = 4 / scale, rowHeight = 12 / scale, boxWidth = Math.max(...legendEntries.map(entry => [...entry.series.legend].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 10.5 : 5.5), 0) / scale + 24 / scale)), boxHeight = legendEntries.length * rowHeight + 2 * pad, left = object.at.x + object.width - boxWidth - pad, bottom = object.at.y + object.height - boxHeight - pad;
+                        legendLayer.append(svgEl("rect", { x: left, y: bottom, width: boxWidth, height: boxHeight, fill: "#ffffff", "fill-opacity": .85, stroke: neutral, "stroke-width": .5, "vector-effect": "non-scaling-stroke" }));
+                        legendEntries.forEach((entry, index) => { const y = bottom + boxHeight - pad - rowHeight * (index + .5), x = left + pad; if (plotKind(entry.series) === "points")
+                            legendLayer.append(svgEl("circle", { cx: x + 5 / scale, cy: y, r: 2 / scale, fill: entry.series.color }));
+                        else
+                            legendLayer.append(svgEl("line", { x1: x, y1: y, x2: x + 10 / scale, y2: y, stroke: entry.series.color, "stroke-width": entry.series.thick ? 1.2 : .7, "vector-effect": "non-scaling-stroke" })); const label = svgEl("text", { x: x + 14 / scale, y: -(y - 3 / scale), transform: "scale(1,-1)", "text-anchor": "start", fill: "#334155", "font-size": 9 / scale }); label.textContent = entry.series.legend; legendLayer.append(label); });
+                    }
+                    sampled.forEach((pieces, index) => { const entry = compiled[index]; if (plotKind(entry.series) === "points")
+                        pieces.flat().forEach(point => g.append(svgEl("circle", { cx: mapX(point.x), cy: mapY(point.y), r: 2 / scale, fill: entry.series.color, "fill-opacity": entry.preview.valid ? 1 : .35, "clip-path": `url(#${clipId})` })));
+                    else
+                        pieces.forEach(piece => g.append(svgEl("polyline", { points: piece.map(point => `${mapX(point.x)},${mapY(point.y)}`).join(" "), fill: "none", stroke: entry.series.color, "stroke-width": entry.series.thick ? 1.2 : .7, "stroke-opacity": entry.preview.valid ? 1 : .35, "vector-effect": "non-scaling-stroke", "clip-path": `url(#${clipId})` }))); });
+                    g.append(legendLayer);
+                    if (compiled.some(entry => !entry.preview.valid)) {
                         const error = svgEl("text", { x: object.at.x + 6 / scale, y: -(object.at.y + object.height - 14 / scale), transform: "scale(1,-1)", "text-anchor": "start", fill: "#dc2626", "font-size": 11 / scale });
                         error.textContent = "式エラー";
                         g.append(error);
@@ -865,7 +1130,7 @@ export const initProCanvasUi = (deps) => {
             positionNodeEditor();
             const edited = plotObject();
             if (edited) {
-                const signature = `${edited.id}:${edited.series.length}:${edited.axis.ymin === null || edited.axis.ymax === null}:${edited.axis.axisLines}:${edited.axis.grid}`;
+                const signature = `${edited.id}:${edited.series.length}:${edited.series.map(plotKind).join(",")}:${edited.axis.ymin === null || edited.axis.ymax === null}:${edited.axis.axisLines}:${edited.axis.grid}`;
                 if (!plotCard || signature !== plotCardSignature)
                     buildPlotCard(edited);
                 else {
@@ -1025,7 +1290,7 @@ export const initProCanvasUi = (deps) => {
             if (tool === "plot") {
                 snapshot(false);
                 invalidateCompiled();
-                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "major", xlabel: "", ylabel: "", title: "" }, series: [{ expr: "x^2", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
+                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "major", xlabel: "", ylabel: "", title: "" }, series: [{ kind: "fn", expr: "x^2", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
                 currentObjects().push(object);
                 replaceSelection(object.id);
                 drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
@@ -1228,10 +1493,10 @@ export const initProCanvasUi = (deps) => {
             clearTimeout(wheelUndoTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
-        const undoOnce = () => { const prev = undo.pop(); if (!prev)
+        const undoOnce = () => { flushWheelUndo(); const prev = undo.pop(); if (!prev)
             return; redo.push(cloneScene(scene)); scene = prev; clearSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
             replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
-        const redoOnce = () => { const next = redo.pop(); if (!next)
+        const redoOnce = () => { flushWheelUndo(); const next = redo.pop(); if (!next)
             return; undo.push(cloneScene(scene)); scene = next; clearSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
             replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
@@ -1241,7 +1506,7 @@ export const initProCanvasUi = (deps) => {
             if (editingNodeId)
                 return;
             const target = e.target;
-            if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]"))
+            if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]"))
                 return;
             e.stopPropagation();
             const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
@@ -1350,13 +1615,13 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
         };
-        const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
+        const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
             return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code", g: "plot" }[e.key.toLowerCase()]; if (next) {
             tool = next;
             e.preventDefault();
             render();
         } };
-        const onKeyUp = (e) => { const target = e.target; if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,[contenteditable=true]"))
+        const onKeyUp = (e) => { const target = e.target; if (target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]"))
             return; e.stopPropagation(); if (e.key === " ")
             space = false; };
         window.addEventListener("keydown", onToolKey, true);
@@ -1378,11 +1643,15 @@ export const initProCanvasUi = (deps) => {
             render();
             if (wheelUndoTimer)
                 clearTimeout(wheelUndoTimer);
-            wheelUndoTimer = setTimeout(() => { if (wheelBefore) {
+            wheelUndoTimer = setTimeout(() => { const snappedX = snapRangeToNice(object.axis.xmin, object.axis.xmax); object.axis.xmin = snappedX.min; object.axis.xmax = snappedX.max; if (object.axis.ymin !== null && object.axis.ymax !== null) {
+                const snappedY = snapRangeToNice(object.axis.ymin, object.axis.ymax);
+                object.axis.ymin = snappedY.min;
+                object.axis.ymax = snappedY.max;
+            } if (wheelBefore) {
                 undo.push(wheelBefore);
                 redo = [];
                 wheelBefore = null;
-            } wheelUndoTimer = null; render(); }, 600);
+            } wheelUndoTimer = null; debouncePlotCompile(); render(); }, 600);
             return;
         } e.preventDefault(); if (e.ctrlKey || e.metaKey) {
             const rect = svg.getBoundingClientRect(), oldZoom = zoom, newZoom = Math.max(.25, Math.min(4, zoom * Math.exp(-e.deltaY * .002))), cursor = { x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) }, next = zoomAtPoint({ panX, panY, zoom: oldZoom }, cursor, newZoom);

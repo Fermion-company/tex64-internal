@@ -1,6 +1,7 @@
 import { resolveStyle, sceneHasPlot } from "./scene.js";
 import { findSymbol } from "./scene.js";
 import { samplePathPoints } from "./canvas-math.js";
+import { astToPgf, parseExpr, parsePoints } from "./plot-math.js";
 const basicColors = {
     "000000": "black", "ffffff": "white", "ff0000": "red", "00ff00": "green",
     "0000ff": "blue", "00ffff": "cyan", "ff00ff": "magenta", "ffff00": "yellow",
@@ -138,22 +139,38 @@ export const generateTikz = (scene) => {
                 opts.push(`axis lines=${axis.axisLines}`);
             if (axis.grid !== "none")
                 opts.push(`grid=${axis.grid}`);
+            if (axis.equal)
+                opts.push("axis equal");
+            const lab = (s) => { const t = s.trim(), esc = s.replace(/([%#&])/g, "\\$1"); return /^\$[^$]*\$$/.test(t) || !/[\^_]/.test(t) ? esc : `$${esc}$`; };
             if (axis.xlabel)
-                opts.push(`xlabel={${axis.xlabel}}`);
+                opts.push(`xlabel={${lab(axis.xlabel)}}`);
             if (axis.ylabel)
-                opts.push(`ylabel={${axis.ylabel}}`);
+                opts.push(`ylabel={${lab(axis.ylabel)}}`);
             if (axis.title)
-                opts.push(`title={${axis.title}}`);
+                opts.push(`title={${lab(axis.title)}}`);
             const lines = [`${indent}\\begin{axis}[${opts.join(", ")}]`];
             for (const series of object.series) {
                 if (series.visible === false)
                     continue;
-                const domain = series.domain || { min: axis.xmin, max: axis.xmax }, plot = [`domain=${numberText(domain.min)}:${numberText(domain.max)}`, `samples=${Math.max(1, Math.floor(series.samples))}`, colorName(series.color)];
+                const kind = series.kind || "fn", a = parseExpr(series.expr), b = kind === "parametric" ? parseExpr(series.expr2 || "") : null, points = kind === "points" ? parsePoints(series.points || "") : [], domain = series.domain || (kind === "fn" ? { min: axis.xmin, max: axis.xmax } : { min: 0, max: 6.28319 });
+                if ((kind === "parametric" && (!a || !b)) || (kind === "polar" && !a) || (kind === "points" && !points.length)) {
+                    lines.push(`${indent}  % skipped invalid series`);
+                    continue;
+                }
+                const plot = [colorName(series.color)];
                 if (series.thick)
                     plot.push("thick");
-                lines.push(`${indent}  \\addplot[${plot.join(", ")}] {${series.expr}};`);
+                if (kind === "points") {
+                    plot.unshift("only marks", "mark=*", "mark size=1.6pt");
+                    lines.push(`${indent}  \\addplot[${plot.join(", ")}] coordinates {${points.map(point).join(" ")}};`);
+                }
+                else {
+                    plot.unshift(`domain=${numberText(domain.min)}:${numberText(domain.max)}`, `samples=${Math.max(1, Math.floor(series.samples))}`);
+                    const body = kind === "fn" ? `{${a ? astToPgf(a, "x") : series.expr}}` : (() => { const first = astToPgf(a, "x"); return kind === "parametric" ? `({${first}},{${astToPgf(b, "x")}})` : `({(${first})*cos(deg(x))},{(${first})*sin(deg(x))})`; })();
+                    lines.push(`${indent}  \\addplot[${plot.join(", ")}] ${body};`);
+                }
                 if (series.legend)
-                    lines.push(`${indent}  \\addlegendentry{${series.legend}}`);
+                    lines.push(`${indent}  \\addlegendentry{${lab(series.legend)}}`);
             }
             lines.push(`${indent}\\end{axis}`);
             return lines;
