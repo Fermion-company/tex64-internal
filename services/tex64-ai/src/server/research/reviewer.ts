@@ -15,6 +15,7 @@ import {
   type FrozenResearchSource,
   type ResearchEvidenceDraft,
 } from "./schema";
+import { agentLanguageModel, agentOutputJson, agentProviderOptions, structuredAgentModel } from "@/server/agent/language-model";
 
 const RESEARCH_REVIEW_INSTRUCTIONS = `あなたは執筆担当とは独立した根拠確認担当です。
 承認済み計画にある全ての主張を、固定された文書本文と資料抜粋だけで一件ずつ判定してください。
@@ -93,7 +94,8 @@ export async function reviewResearchEvidenceIndependently(input: {
   }
 
   const result = await generateText({
-    model: input.runtime.model,
+    model: agentLanguageModel(structuredAgentModel(input.runtime.model)),
+    providerOptions: agentProviderOptions(),
     system: RESEARCH_REVIEW_INSTRUCTIONS,
     output: Output.object({ schema: ResearchEvidenceDraftSchema }),
     maxOutputTokens: 20_000,
@@ -112,6 +114,6 @@ export async function reviewResearchEvidenceIndependently(input: {
   return {
     reviewRunId,
     frozenSources,
-    draft: ResearchEvidenceDraftSchema.parse(result.output),
+    draft: ResearchEvidenceDraftSchema.parse(agentOutputJson(result)),
   };
 }

@@ -109,7 +109,11 @@ describe("document agent approval policy", () => {
     expect(prepareDocumentAgentStep({ stepNumber: 0 })).toEqual({
       toolChoice: { type: "tool", toolName: "read_document" },
     });
-    expect(prepareDocumentAgentStep({ stepNumber: 1 })).toBeUndefined();
+    // The step iterator carries toolChoice overrides forward, so every
+    // later step must reset it or the read force becomes permanent.
+    expect(prepareDocumentAgentStep({ stepNumber: 1 })).toEqual({
+      toolChoice: "auto",
+    });
   });
 
   it("prevents runtime overrides of the fixed source-search limits", () => {

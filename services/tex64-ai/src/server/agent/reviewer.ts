@@ -13,6 +13,7 @@ import {
   createReviewPlanDigest,
   createReviewPlanProjection,
   criterionAnchorBindsExcerpt,
+  deriveCriterionAnchor,
   nodeContainsExactExcerpt,
   validateIndependentReviewResult,
   type IndependentReviewResult,
@@ -30,6 +31,7 @@ import {
 } from "@/server/research/schema";
 
 import type { BriefExtractionRuntime } from "./brief-extractor";
+import { agentLanguageModel, agentOutputJson, agentProviderOptions, structuredAgentModel } from "./language-model";
 
 const ReviewFindingDraftSchema = z
   .strictObject({
@@ -274,7 +276,8 @@ export async function reviewDocumentIndependently(input: {
   }
 
   const result = await generateText({
-    model: input.runtime.model,
+    model: agentLanguageModel(structuredAgentModel(input.runtime.model)),
+    providerOptions: agentProviderOptions(),
     system: REVIEW_INSTRUCTIONS,
     output: Output.object({ schema: ReviewDraftSchema }),
     maxOutputTokens: 10_000,
@@ -290,7 +293,7 @@ export async function reviewDocumentIndependently(input: {
       allowedCriterionIds: [...criterionIds],
     }),
   });
-  const draft = ReviewDraftSchema.parse(result.output);
+  const draft = ReviewDraftSchema.parse(agentOutputJson(result));
   const criterionDrafts = new Map<
     string,
     (typeof draft.criterionAssessments)[number]
@@ -318,17 +321,29 @@ export async function reviewDocumentIndependently(input: {
           `Review criterion assessment excerpt did not match node ${evidence.nodeId}.`,
         );
       }
-      if (
-        assessment.outcome === "satisfied" &&
-        !criterionAnchorBindsExcerpt({
-          statement: criteria.find((item) => item.id === assessment.criterionId)?.statement ?? "",
-          excerpt: evidence.excerpt,
-          anchor: evidence.criterionAnchor,
-        })
-      ) {
-        throw new Error(
-          `Review criterion assessment evidence was unrelated to criterion ${assessment.criterionId}.`,
-        );
+      if (assessment.outcome === "satisfied") {
+        const statement =
+          criteria.find((item) => item.id === assessment.criterionId)
+            ?.statement ?? "";
+        // The model's own anchor is accepted when valid; otherwise the
+        // binding is re-derived from the texts, since whether a shared
+        // lexical span exists is a property of statement and excerpt, not
+        // of the model's ability to echo it.
+        const bound =
+          criterionAnchorBindsExcerpt({
+            statement,
+            excerpt: evidence.excerpt,
+            anchor: evidence.criterionAnchor,
+          }) ||
+          deriveCriterionAnchor({
+            statement,
+            excerpt: evidence.excerpt,
+          }) !== null;
+        if (!bound) {
+          throw new Error(
+            `Review criterion assessment evidence was unrelated to criterion ${assessment.criterionId}.`,
+          );
+        }
       }
     }
     criterionDrafts.set(assessment.criterionId, assessment);

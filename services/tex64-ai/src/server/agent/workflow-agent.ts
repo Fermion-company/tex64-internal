@@ -10,6 +10,10 @@ import {
 } from "./document-tools";
 import { createDocumentAgentInstructions } from "./instructions";
 import {
+  agentProviderOptions,
+  usesDirectOpenAiTransport,
+} from "./language-model";
+import {
   isAgentTokenBudget,
   MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
   MAX_AGENT_TOTAL_TOKENS_PER_RUN,
@@ -25,6 +29,17 @@ export const ACTIVE_DOCUMENT_TOOLS = [
   "check_document",
   "request_input",
 ] as const;
+
+/**
+ * search_sources is an AI Gateway provider tool (Perplexity executes inside
+ * the gateway); without gateway credentials a call would fail the whole run,
+ * so the tool disappears from the active set instead.
+ */
+function availableDocumentTools(): (typeof ACTIVE_DOCUMENT_TOOLS)[number][] {
+  return usesDirectOpenAiTransport()
+    ? [...ACTIVE_DOCUMENT_TOOLS].filter((tool) => tool !== "search_sources")
+    : [...ACTIVE_DOCUMENT_TOOLS];
+}
 
 export interface CreateDocumentWorkflowAgentOptions {
   model: LanguageModel;
@@ -42,8 +57,9 @@ export function prepareDocumentAgentStep(input: {
   stepNumber: number;
   steps?: readonly { toolCalls: readonly { toolName: string }[] }[];
 }) {
+  const baseTools = availableDocumentTools();
   const sourceCalls = summarizeSourceToolCalls(input.steps ?? []);
-  const activeTools = ACTIVE_DOCUMENT_TOOLS.filter(
+  const activeTools = baseTools.filter(
     (toolName) =>
       !(toolName === "search_sources" && sourceCalls.searchLimitReached) &&
       !(toolName === "resolve_source" && sourceCalls.resolveLimitReached),
@@ -57,7 +73,11 @@ export function prepareDocumentAgentStep(input: {
       ...(limitsChangedTools ? { activeTools } : {}),
     } as const;
   }
-  return limitsChangedTools ? { activeTools } : undefined;
+  // The step iterator carries the previous prepareStep's toolChoice forward,
+  // so the step-0 read_document force must be reset explicitly — otherwise
+  // every later step is also forced into read_document and the agent can
+  // only loop on reads until it hits its execution limit.
+  return { toolChoice: "auto" as const, ...(limitsChangedTools ? { activeTools } : {}) };
 }
 
 /**
@@ -71,15 +91,25 @@ export function createDocumentWorkflowAgent(
     approvalMode: options.approvalMode,
   });
 
+  const activeTools = availableDocumentTools();
+  const additionalRules = activeTools.includes("search_sources")
+    ? options.additionalInstructions
+    : [
+        ...(options.additionalInstructions ?? []),
+        "この環境ではsearch_sourcesは利用できません。代わりに、主題の主要文献としてあなたが確実に知っているURL・DOI（arXivの原論文など）を自分で挙げ、必ずresolve_sourceで取得・確認します。引用してよいのはcitationReadyがtrueになった出典だけで、確認に失敗した候補は別のURL・DOIを試します。ユーザーがURL・DOIを示した場合はそれを最優先で確認します。候補を挙げられない場合に限り、出典なしで進めるかrequest_inputで質問します。",
+      ];
+
   return new WorkflowAgent({
     id: "tex64-document-agent",
     model: options.model,
     instructions: createDocumentAgentInstructions({
-      additionalRules: options.additionalInstructions,
+      additionalRules,
     }),
     tools,
     toolsContext: createDocumentToolsContext(options.context),
-    activeTools: [...ACTIVE_DOCUMENT_TOOLS],
+    activeTools,
+    // Non-strict tool/output schemas on the direct-OpenAI transport.
+    providerOptions: agentProviderOptions(),
     maxOutputTokens:
       options.maxOutputTokens ?? MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
     prepareStep: prepareDocumentAgentStep,

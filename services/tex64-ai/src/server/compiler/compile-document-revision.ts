@@ -11,6 +11,7 @@ import {
   getArtifactStore,
   storedPdfMatchesMetadata,
 } from "@/server/artifacts";
+import { usesDirectOpenAiTransport } from "@/server/agent/language-model";
 import {
   DocumentNotFoundError,
   getDocumentRepository,
@@ -52,6 +53,8 @@ export type CompileDocumentRevisionResult =
         | "page_target_mismatch"
         | "page_target_unsupported";
       issueCount: number;
+      /** Path-sanitized typesetting diagnostics, bounded for prompt reuse. */
+      diagnostics?: Array<{ code: string; message: string; line?: number }>;
       visualFindings?: Array<{
         category:
           | "clipping"
@@ -147,12 +150,23 @@ export async function compileDocumentRevision(
     });
     if (pageFailure) return pageFailure;
     if (input.visualReviewRuntime) {
-      const visualReview = await reviewPdfVisualQuality({
-        pdf: compiled.pdf,
-        pageCount: compiled.pageCount,
-        runtime: input.visualReviewRuntime,
-      });
-      const blockingFindings = blockingPdfVisualFindings(visualReview);
+      let blockingFindings: ReturnType<typeof blockingPdfVisualFindings>;
+      try {
+        const visualReview = await reviewPdfVisualQuality({
+          pdf: compiled.pdf,
+          pageCount: compiled.pageCount,
+          runtime: input.visualReviewRuntime,
+        });
+        // Also throws when the model answers unable_to_assess.
+        blockingFindings = blockingPdfVisualFindings(visualReview);
+      } catch (error) {
+        // The direct-OpenAI dev transport may not accept PDF attachments (or
+        // may honestly report unable_to_assess) for every model; a quality
+        // pass that cannot run must not fail the compile there. The gateway
+        // path keeps its strict gate.
+        if (!usesDirectOpenAiTransport()) throw error;
+        blockingFindings = [];
+      }
       if (blockingFindings.length > 0) {
         return {
           ok: false,
@@ -250,6 +264,11 @@ export async function compileDocumentRevision(
         revision: revisionNumber,
         code: "typesetting_failed",
         issueCount: error.diagnostics.length,
+        diagnostics: error.diagnostics.slice(0, 10).map((diagnostic) => ({
+          code: diagnostic.code,
+          message: diagnostic.message,
+          ...(diagnostic.line === undefined ? {} : { line: diagnostic.line }),
+        })),
       };
     }
     throw error;

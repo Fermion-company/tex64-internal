@@ -1,12 +1,21 @@
 import type { StopCondition, ToolSet } from "ai";
 
-export const MAX_AGENT_OUTPUT_TOKENS_PER_STEP = 16_000;
-export const MAX_AGENT_TOTAL_TOKENS_PER_RUN = 120_000;
+// One structured section patch (headings, paragraphs, aligned derivations)
+// regularly runs past 16k tokens of JSON; a mid-call cut truncates the tool
+// call and kills the run, so the cap leaves real headroom.
+export const MAX_AGENT_OUTPUT_TOKENS_PER_STEP = 32_000;
+// A runaway-loop safety valve, not a billing control (billing quotas are
+// enforced server-side). Writing a full multi-section paper in one run —
+// each tool step re-reading the document model — legitimately passes 120k.
+export const MAX_AGENT_TOTAL_TOKENS_PER_RUN = 400_000;
 
 export type AgentTokenUsage = {
   totalTokens: number | undefined;
   inputTokens: number | undefined;
   outputTokens: number | undefined;
+  inputTokenDetails?: {
+    cacheReadTokens?: number | undefined;
+  };
 };
 
 export type AgentTokenUsageStep = {
@@ -26,14 +35,21 @@ function validTokenCount(value: number | undefined): value is number {
 
 function measuredStepTokens(step: AgentTokenUsageStep): number | null {
   if (!step.usage) return null;
+  // Cached prompt reads re-bill the whole shared prefix on every step; the
+  // safety valve measures fresh work, so they do not count against it.
+  const cacheReadTokens = step.usage.inputTokenDetails?.cacheReadTokens;
+  const discount = validTokenCount(cacheReadTokens) ? cacheReadTokens : 0;
   if (validTokenCount(step.usage.totalTokens)) {
-    return step.usage.totalTokens;
+    return Math.max(0, step.usage.totalTokens - discount);
   }
   if (
     validTokenCount(step.usage.inputTokens) &&
     validTokenCount(step.usage.outputTokens)
   ) {
-    return step.usage.inputTokens + step.usage.outputTokens;
+    return Math.max(
+      0,
+      step.usage.inputTokens + step.usage.outputTokens - discount,
+    );
   }
   return null;
 }

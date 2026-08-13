@@ -14,15 +14,17 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "postinstall": "patch-package"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^4.0.44",
-    "@ai-sdk/react": "^4.0.59",
-    "@ai-sdk/workflow": "^1.0.56",
+    "@ai-sdk/gateway": "^4.0.51",
+    "@ai-sdk/openai": "^4.0.41",
+    "@ai-sdk/react": "^4.0.67",
+    "@ai-sdk/workflow": "^1.0.64",
     "@vercel/blob": "^2.7.0",
     "@vercel/sandbox": "^2.9.2",
-    "ai": "^7.0.56",
+    "ai": "^7.0.64",
     "clsx": "^2.1.1",
     "katex": "^0.18.1",
     "lucide-react": "^1.29.0",
@@ -43,6 +45,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.0",
+    "patch-package": "^8.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },

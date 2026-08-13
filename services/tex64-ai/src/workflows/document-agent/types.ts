@@ -151,6 +151,8 @@ export type CompileAndStoreResult =
         | "page_target_mismatch"
         | "page_target_unsupported";
       issueCount: number;
+      /** Path-sanitized typesetting diagnostics for the repair prompt. */
+      diagnostics?: Array<{ code: string; message: string; line?: number }>;
       visualFindings?: Array<{
         category:
           | "clipping"

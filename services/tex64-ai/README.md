@@ -65,6 +65,7 @@ TEX64_GLOBAL_RUNS_PER_HOUR=<サービス全体の1時間あたり上限>
 ```
 
 Vercel上ではAI Gateway、Blob、Sandboxの認証に実行時OIDCを利用するため、OIDC tokenを環境変数へ保存する必要はありません。Vercel外では `AI_GATEWAY_API_KEY`、`BLOB_READ_WRITE_TOKEN`、`VERCEL_TOKEN`、`VERCEL_TEAM_ID`、`VERCEL_PROJECT_ID` を設定し、信頼するリバースプロキシが必ず上書きするIP header名を `TEX64_TRUSTED_CLIENT_IP_HEADER` に設定してください。
+ローカル開発では、gateway認証を設定せずに `OPENAI_API_KEY` を置くと、同じ `openai/...` のモデルIDをOpenAI APIへ直接送る直結トランスポートに切り替わります（gateway専用機能の `search_sources` とPDF視覚レビューは明示的に縮退）。`TEX64_AI_STRUCTURED_MODEL` を設定すると、条件抽出・執筆計画などの構造化呼び出しだけを別モデルで実行できます。
 匿名アクセスを本番で有効にするには `TEX64_ALLOW_ANONYMOUS_PRODUCTION=true` が必要です。ブラウザcookieは本人確認ではないため、公開前はVercel Deployment Protectionなどで利用者を限定してください。実行枠はPostgres上でidentity・network・service全体の3段階を原子的に消費し、同じ実行キーの再送では再消費しません。`TEX64_IDENTITY_RUNS_PER_HOUR` と `TEX64_NETWORK_RUNS_PER_HOUR` は省略時に安全な既定値を使いますが、service全体の `TEX64_GLOBAL_RUNS_PER_HOUR` は必須です。
 決定的な代替処理はローカル開発専用です。本番でモデル名またはAI Gatewayの認証が欠けている場合は、品質を偽装するテンプレート処理へ切り替えず、その実行を安全に失敗させます。
 

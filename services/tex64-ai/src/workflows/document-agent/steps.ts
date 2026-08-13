@@ -18,6 +18,8 @@ import {
 import {
   DocumentCitationStyleSchema,
   DocumentLayoutSchema,
+  DocumentPatchSchema,
+  DocumentValidationError,
   DocumentWritingStyleSchema,
   applyDocumentPatch,
   normalizeDocumentLanguage,
@@ -86,9 +88,11 @@ import {
   SourceProvenanceError,
   SourceResolutionError,
   authorizedSourceLocator,
+  canonicalizeSourceLocator,
   citationSourceIdsForPatch,
   normalizeCitationPatchWithSources,
   resolveSource,
+  type CanonicalizedSourceLocator,
 } from "@/server/sources";
 import {
   ResearchEvidenceDraftSchema,
@@ -104,6 +108,9 @@ import {
   normalizeUserFacingQuestion,
   normalizeUserFacingResultNote,
 } from "@/lib/user-facing-copy";
+
+import { usesDirectOpenAiTransport } from "@/server/agent/language-model";
+import { normalizeModelDocumentPatch } from "@/server/agent/normalize-model-patch";
 
 import {
   hasSemanticEvent,
@@ -548,9 +555,11 @@ export async function resolveAgentRuntimeStep(): Promise<AgentRuntimeSelection> 
   return selectAgentRuntime({
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
     VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     TEX64_AI_MODEL: process.env.TEX64_AI_MODEL,
     NODE_ENV: process.env.NODE_ENV,
     WORKFLOW_TARGET_WORLD: process.env.WORKFLOW_TARGET_WORLD,
+    TEX64_LOCAL_DEVELOPMENT: process.env.TEX64_LOCAL_DEVELOPMENT,
     VERCEL: process.env.VERCEL,
     VERCEL_ENV: process.env.VERCEL_ENV,
     VERCEL_DEPLOYMENT_ID: process.env.VERCEL_DEPLOYMENT_ID,
@@ -1204,6 +1213,43 @@ export async function readDocumentToolStep(
   return validateDocument(revision.document);
 }
 
+const DIRECT_TRANSPORT_SCHOLARLY_HOSTS = new Set([
+  "arxiv.org",
+  "www.arxiv.org",
+  "export.arxiv.org",
+  "doi.org",
+  "dx.doi.org",
+  "www.doi.org",
+]);
+
+/**
+ * Without the provider-executed search tool, the direct transport has no
+ * authorization evidence for sources the model proposes from its own
+ * knowledge. Instead of blocking autonomous sourcing entirely, the fetch
+ * surface narrows to canonical DOI locators and arXiv HTTPS URLs: untrusted
+ * content can steer fetches only within these public archives, arbitrary
+ * hosts stay closed, and the resolver's IP policy still applies to every
+ * request.
+ */
+function directTransportScholarlyLocator(
+  locator: string,
+): CanonicalizedSourceLocator | null {
+  if (!usesDirectOpenAiTransport()) return null;
+  let canonical: CanonicalizedSourceLocator;
+  try {
+    canonical = canonicalizeSourceLocator(locator);
+  } catch {
+    return null;
+  }
+  if (canonical.kind === "doi") return canonical;
+  try {
+    const host = new URL(canonical.canonicalLocator).hostname.toLowerCase();
+    return DIRECT_TRANSPORT_SCHOLARLY_HOSTS.has(host) ? canonical : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveSourceToolStep(
   input: ResolveSourceInput,
   contextValue: DocumentToolContext,
@@ -1227,7 +1273,11 @@ export async function resolveSourceToolStep(
     });
   } catch (error) {
     if (!(error instanceof SourceAuthorizationError)) throw error;
-    throw new FatalError("この資料は確認対象として指定されていません。");
+    const fallback = directTransportScholarlyLocator(input.locator);
+    if (!fallback) {
+      throw new FatalError("この資料は確認対象として指定されていません。");
+    }
+    authorized = fallback;
   }
 
   const existing = await repository.getSourceRecordByLocator(
@@ -1297,7 +1347,23 @@ async function applyPatchDurably(
       "文書の条件がまだ確定していません。必要な確認に回答してから続けてください。",
     );
   }
-  let patch: DocumentPatch = input.patch;
+  // The workflow boundary serializes tool schemas without their zod
+  // validators, so the raw model output lands here unparsed. Normalize
+  // model-invented slug ids into stable UUIDs, then make zod the gate and
+  // return its findings as a repairable tool error instead of a dead end.
+  const parsedPatch = DocumentPatchSchema.safeParse(
+    normalizeModelDocumentPatch(context.documentId, input.patch),
+  );
+  if (!parsedPatch.success) {
+    const details = parsedPatch.error.issues
+      .slice(0, 6)
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join(" / ");
+    throw new FatalError(
+      `文書パッチが契約に合いません。修正して再送してください: ${details}`,
+    );
+  }
+  let patch: DocumentPatch = parsedPatch.data;
 
   if (patch.documentId !== context.documentId) {
     throw new FatalError("この文書には変更を適用できません。");
@@ -1382,7 +1448,23 @@ async function applyPatchDurably(
     );
   }
 
-  const next = applyDocumentPatch(baseRevision, patch);
+  let next: DocumentRevision;
+  try {
+    next = applyDocumentPatch(baseRevision, patch);
+  } catch (error) {
+    // The bare "Document validation failed" is unrepairable for the model;
+    // surface the concrete issues so the next patch attempt can fix them.
+    if (error instanceof DocumentValidationError) {
+      const details = error.issues
+        .slice(0, 6)
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join(" / ");
+      throw new FatalError(
+        `適用後の文書が検証に失敗しました。修正して再送してください: ${details}`,
+      );
+    }
+    throw error;
+  }
   try {
     await repository.commitDocument({
       userId: context.actorId,

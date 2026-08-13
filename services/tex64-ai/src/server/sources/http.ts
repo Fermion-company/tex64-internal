@@ -141,11 +141,29 @@ function headerValue(headers: IncomingHttpHeaders, name: string): string | undef
 export function buildPinnedRequestOptions(input: PinnedFetchInput): RequestOptions {
   const originalHostname = normalizedHostname(input.url);
   const hostHeader = input.url.port ? `${input.url.hostname}:${input.url.port}` : input.url.hostname;
+  // Node 22's family autoselection (Happy Eyeballs) calls lookup with
+  // {all: true} and expects an address ARRAY; the legacy signature expects
+  // (address, family). Serving only one convention makes every request fail
+  // with "Invalid IP address: undefined" on the other.
   const lookup = (
     _hostname: string,
-    _options: unknown,
-    callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void,
-  ) => callback(null, input.address, input.family);
+    options: unknown,
+    callback: (
+      error: NodeJS.ErrnoException | null,
+      address: string | { address: string; family: number }[],
+      family?: number,
+    ) => void,
+  ) => {
+    const wantsAll =
+      typeof options === "object" &&
+      options !== null &&
+      (options as { all?: boolean }).all === true;
+    if (wantsAll) {
+      callback(null, [{ address: input.address, family: input.family }]);
+    } else {
+      callback(null, input.address, input.family);
+    }
+  };
 
   return {
     protocol: "https:",

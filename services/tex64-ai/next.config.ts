@@ -20,7 +20,18 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["pg"],
+  serverExternalPackages: [
+    "pg",
+    // Bundling the AI SDK duplicates its module instances across bundle
+    // worlds (route/flow/step); Node resolution keeps them shared where the
+    // workflow plugin permits. (The plugin re-bundles the packages that
+    // carry workflow serialization classes and warns about them here.)
+    "ai",
+    "@ai-sdk/openai",
+    "@ai-sdk/gateway",
+    "@ai-sdk/provider",
+    "@ai-sdk/provider-utils",
+  ],
   // The desktop AI mode (and local tooling) reaches the dev server via
   // 127.0.0.1 while `next dev` binds localhost; allow that origin for dev
   // assets. Production is unaffected.

@@ -5,6 +5,7 @@ import type { AgentRuntimeSelection } from "@/workflows/document-agent/types";
 
 import { MAX_PDF_ARTIFACT_BYTES } from "./safety";
 import { MAX_PAGE_TARGET } from "./page-target";
+import { agentLanguageModel, agentOutputJson, agentProviderOptions, structuredAgentModel } from "@/server/agent/language-model";
 
 const MAX_VISUAL_REVIEW_PAGES = MAX_PAGE_TARGET;
 const MAX_VISUAL_REVIEW_FINDINGS = 40;
@@ -130,7 +131,8 @@ export async function reviewPdfVisualQuality(input: {
   }
 
   const result = await generateText({
-    model: input.runtime.model,
+    model: agentLanguageModel(structuredAgentModel(input.runtime.model)),
+    providerOptions: agentProviderOptions(),
     system: VISUAL_REVIEW_INSTRUCTIONS,
     output: Output.object({ schema: PdfVisualReviewDraftSchema }),
     maxOutputTokens: 5_000,
@@ -153,7 +155,7 @@ export async function reviewPdfVisualQuality(input: {
       },
     ],
   });
-  const review = PdfVisualReviewDraftSchema.parse(result.output);
+  const review = PdfVisualReviewDraftSchema.parse(agentOutputJson(result));
   if (
     review.reviewedPages.length !== input.pageCount ||
     review.reviewedPages.some((page, index) => page !== index + 1)

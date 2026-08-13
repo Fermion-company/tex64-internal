@@ -1,6 +1,8 @@
 import { gateway } from "@ai-sdk/gateway";
-import { tool, type ModelMessage } from "ai";
+import { jsonSchema, tool, type ModelMessage } from "ai";
 import { z } from "zod";
+
+import { DOCUMENT_PATCH_REFERENCE } from "./document-patch-reference";
 
 import {
   DocumentColumnCountSchema,
@@ -16,6 +18,7 @@ import {
   toolLoopDocumentApproval,
   workflowNeedsApproval,
 } from "./policy";
+import { serializableToolSchema } from "./language-model";
 
 const gatewayTools = gateway.tools;
 
@@ -75,6 +78,80 @@ export const ApplyDocumentPatchInputSchema = z
     summary: z.string().min(1).max(500),
   })
   .strict();
+
+/**
+ * Model-facing schema for apply_document_patch. The zod-derived JSON Schema
+ * inlines the recursive node/math AST into ~130KB (~110k tokens) — resent
+ * on every agent step, it dominates the run's token budget and empirically
+ * pushes smaller writer models into degenerate read loops. The model gets
+ * this compact grammar plus DOCUMENT_PATCH_REFERENCE in the description;
+ * ApplyDocumentPatchInputSchema stays the execution-time validation gate,
+ * and zod errors return as repairable tool errors.
+ */
+const ApplyDocumentPatchModelInputSchema = jsonSchema<
+  z.infer<typeof ApplyDocumentPatchInputSchema>
+>(
+  {
+    type: "object",
+    additionalProperties: false,
+    required: ["patch", "summary"],
+    properties: {
+      patch: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "id",
+          "documentId",
+          "baseRevision",
+          "createdAt",
+          "operations",
+        ],
+        properties: {
+          id: { type: "string", description: "新しいUUID" },
+          documentId: { type: "string" },
+          baseRevision: {
+            type: "integer",
+            minimum: 0,
+            description: "read_documentで読んだ最新revision",
+          },
+          createdAt: { type: "string", description: "ISO 8601" },
+          operations: {
+            type: "array",
+            minItems: 1,
+            maxItems: 1000,
+            items: {
+              type: "object",
+              description:
+                "insert/update/move/delete/setMetadata。形はツール説明のリファレンスに従う",
+              required: ["op"],
+              properties: {
+                op: {
+                  type: "string",
+                  enum: ["insert", "update", "move", "delete", "setMetadata"],
+                },
+              },
+              additionalProperties: true,
+            },
+          },
+        },
+      },
+      summary: {
+        type: "string",
+        minLength: 1,
+        maxLength: 500,
+        description: "この編集の一文要約",
+      },
+    },
+  },
+  {
+    validate: (value) => {
+      const parsed = ApplyDocumentPatchInputSchema.safeParse(value);
+      return parsed.success
+        ? { success: true, value: parsed.data }
+        : { success: false, error: parsed.error };
+    },
+  },
+);
 
 export const CheckDocumentInputSchema = z
   .object({
@@ -370,7 +447,7 @@ export function createDocumentTools(
     read_document: tool({
       description:
         "現在の構造化文書を読み取る。生成ソースや内部ファイルは返さない。",
-      inputSchema: ReadDocumentInputSchema,
+      inputSchema: serializableToolSchema(ReadDocumentInputSchema),
       outputSchema: DocumentSchema,
       contextSchema: DocumentToolContextSchema,
       execute: (input, { context }) => handlers.readDocument(input, context),
@@ -381,7 +458,7 @@ export function createDocumentTools(
     resolve_source: tool({
       description:
         "検索候補またはユーザーが示したHTTPS URL・DOIを安全に取得し、引用可能性と正規化済み書誌情報を返す。検索snippetだけでは引用できないため、引用前に必ず実行する。",
-      inputSchema: ResolveSourceInputSchema,
+      inputSchema: serializableToolSchema(ResolveSourceInputSchema),
       outputSchema: ResolveSourceResultSchema,
       contextSchema: DocumentToolContextSchema,
       execute: (input, { context, toolCallId, messages }) =>
@@ -390,8 +467,9 @@ export function createDocumentTools(
 
     apply_document_patch: tool({
       description:
-        "安定IDを保持した意味的な文書パッチを適用する。TeXや生成ファイルは扱わない。",
-      inputSchema: ApplyDocumentPatchInputSchema,
+        "安定IDを保持した意味的な文書パッチを適用する。TeXや生成ファイルは扱わない。\n\n" +
+        DOCUMENT_PATCH_REFERENCE,
+      inputSchema: ApplyDocumentPatchModelInputSchema,
       outputSchema: DocumentMutationResultSchema,
       contextSchema: DocumentToolContextSchema,
       needsApproval: usesWorkflowSuspension
@@ -409,7 +487,7 @@ export function createDocumentTools(
     check_document: tool({
       description:
         "文書モデルの構造、参照先の存在、引用と参考文献のID対応を検証する。文章の品質、主張の事実性、出典内容、紙面の見た目は検証しない。",
-      inputSchema: CheckDocumentInputSchema,
+      inputSchema: serializableToolSchema(CheckDocumentInputSchema),
       outputSchema: DocumentCheckResultSchema,
       contextSchema: DocumentToolContextSchema,
       execute: (input, { context }) => handlers.checkDocument(input, context),
@@ -418,7 +496,7 @@ export function createDocumentTools(
     format_document: tool({
       description:
         "文書全体の体裁を、標準・学術・ビジネス・コンパクトの安全なプリセット、用紙、段組、引用形式へ整える。内容や生成ソースは変更しない。",
-      inputSchema: FormatDocumentInputSchema,
+      inputSchema: serializableToolSchema(FormatDocumentInputSchema),
       outputSchema: DocumentMutationResultSchema,
       contextSchema: DocumentToolContextSchema,
       execute: (input, { context, toolCallId, messages }) =>
@@ -428,7 +506,7 @@ export function createDocumentTools(
     request_input: tool({
       description:
         "回答によって文書の内容が大きく変わる場合に限り、作業を止めて最重要の質問を一つだけ尋ねる。",
-      inputSchema: RequestInputInputSchema,
+      inputSchema: serializableToolSchema(RequestInputInputSchema),
       outputSchema: z.object({ ok: z.literal(true) }).strict(),
       contextSchema: DocumentToolContextSchema,
       execute: (input, { context, toolCallId, messages }) =>
@@ -437,7 +515,7 @@ export function createDocumentTools(
 
     delete_document: tool({
       description: "現在の文書全体を削除する。必ずユーザー承認を受ける。",
-      inputSchema: DeleteDocumentInputSchema,
+      inputSchema: serializableToolSchema(DeleteDocumentInputSchema),
       outputSchema: z.object({ ok: z.literal(true) }).strict(),
       contextSchema: DocumentToolContextSchema,
       needsApproval: usesWorkflowSuspension,
@@ -447,7 +525,7 @@ export function createDocumentTools(
 
     publish_document: tool({
       description: "確定した文書版を公開する。必ずユーザー承認を受ける。",
-      inputSchema: PublishDocumentInputSchema,
+      inputSchema: serializableToolSchema(PublishDocumentInputSchema),
       outputSchema: PublicationResultSchema,
       contextSchema: DocumentToolContextSchema,
       needsApproval: usesWorkflowSuspension,
@@ -458,7 +536,7 @@ export function createDocumentTools(
     run_expensive_task: tool({
       description:
         "深い調査、全文改稿、全ページ視覚検査など高コスト処理を行う。必ずユーザー承認を受ける。",
-      inputSchema: RunExpensiveTaskInputSchema,
+      inputSchema: serializableToolSchema(RunExpensiveTaskInputSchema),
       outputSchema: ExpensiveTaskResultSchema,
       contextSchema: DocumentToolContextSchema,
       needsApproval: usesWorkflowSuspension,

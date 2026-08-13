@@ -10,6 +10,7 @@ import {
   type RequirementGroup,
   type RequirementPath,
 } from "@/domain/brief";
+import { agentLanguageModel, agentOutputJson, agentProviderOptions, structuredAgentModel } from "./language-model";
 
 export type BriefExtractionRuntime =
   | { provider: "ai_gateway"; model: string }
@@ -893,7 +894,8 @@ export async function extractBriefRequirements(input: {
 
   try {
     const result = await generateText({
-      model: input.runtime.model,
+      model: agentLanguageModel(structuredAgentModel(input.runtime.model)),
+    providerOptions: agentProviderOptions(),
       system: EXTRACTION_INSTRUCTIONS,
       output: Output.object({ schema: BriefExtractionSchema }),
       maxOutputTokens: 4_000,
@@ -912,7 +914,7 @@ export async function extractBriefRequirements(input: {
       }),
     });
     return mergeEvidenceBackedExtraction(
-      BriefExtractionSchema.parse(result.output),
+      BriefExtractionSchema.parse(agentOutputJson(result)),
       fallback,
     );
   } catch {

@@ -10,6 +10,7 @@ export {
 export { createReviewPlanProjection } from "./plan-projection";
 export {
   criterionAnchorBindsExcerpt,
+  deriveCriterionAnchor,
   nodeContainsExactExcerpt,
   reviewableNodeFragments,
 } from "./node-evidence";

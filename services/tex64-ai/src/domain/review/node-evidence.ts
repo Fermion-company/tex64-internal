@@ -171,3 +171,28 @@ export function criterionAnchorBindsExcerpt(input: {
     occursOnWordBoundaries(input.excerpt, anchor)
   );
 }
+
+/**
+ * Derives a valid criterion anchor from the texts themselves: the first
+ * word-like span of the statement that also occurs on word boundaries in
+ * the excerpt and passes exactly the criterionAnchorBindsExcerpt rules.
+ * Whether such a span exists is a property of the two texts, so requiring
+ * the model to echo one adds failure modes without adding evidence; this
+ * keeps the binding semantics while removing the echo burden.
+ */
+export function deriveCriterionAnchor(input: {
+  statement: string;
+  excerpt: string;
+}): string | null {
+  const seen = new Set<string>();
+  for (const segment of WORD_SEGMENTER.segment(input.statement)) {
+    if (segment.isWordLike !== true) continue;
+    const candidate = segment.segment;
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (criterionAnchorBindsExcerpt({ ...input, anchor: candidate })) {
+      return candidate;
+    }
+  }
+  return null;
+}

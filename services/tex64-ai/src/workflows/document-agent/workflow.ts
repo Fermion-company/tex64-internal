@@ -60,6 +60,7 @@ import type {
   DocumentAgentWorkflowInput,
   DocumentAgentWorkflowResult,
 } from "./types";
+import { agentLanguageModel } from "@/server/agent/language-model";
 
 const durableToolHandlers = {
   readDocument: readDocumentToolStep,
@@ -141,7 +142,7 @@ function createDurableAgent(
   totalTokenBudget: number,
 ) {
   return createDocumentWorkflowAgent({
-    model: runtime.model,
+    model: agentLanguageModel(runtime.model),
     handlers: durableToolHandlers,
     context: documentToolContext(input),
     maxSteps: MAX_AGENT_STEPS,
@@ -742,6 +743,9 @@ export async function runDocumentAgentWorkflow(
           failure: {
             code: compileResult.code,
             issueCount: compileResult.issueCount,
+            ...(compileResult.diagnostics
+              ? { diagnostics: compileResult.diagnostics }
+              : {}),
             ...(compileResult.pageTarget
               ? { pageTarget: compileResult.pageTarget }
               : {}),
