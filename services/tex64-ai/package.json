@@ -1,0 +1,60 @@
+{
+  "name": "@tex64/agent-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "dev": "TEX64_LOCAL_DEVELOPMENT=true next dev --port 3100",
+    "build": "TEX64_LOCAL_DEVELOPMENT=false next build --webpack",
+    "start": "TEX64_LOCAL_DEVELOPMENT=false next start --port 3100",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "@ai-sdk/gateway": "^4.0.51",
+    "@ai-sdk/openai": "^4.0.41",
+    "@ai-sdk/react": "^4.0.67",
+    "@ai-sdk/workflow": "^1.0.64",
+    "@vercel/blob": "^2.7.0",
+    "@vercel/sandbox": "^2.9.2",
+    "ai": "^7.0.64",
+    "clsx": "^2.1.1",
+    "katex": "^0.18.1",
+    "lucide-react": "^1.29.0",
+    "next": "^16.3.0",
+    "pdfjs-dist": "^6.2.108",
+    "pg": "^8.22.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "workflow": "^4.8.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.8",
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.20.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
+    "patch-package": "^8.0.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "@workflow/world-local": {
+      "undici": "7.29.0"
+    },
+    "@workflow/world-vercel": {
+      "undici": "7.29.0"
+    }
+  }
+}

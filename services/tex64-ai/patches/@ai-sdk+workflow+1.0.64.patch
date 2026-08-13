@@ -1,0 +1,13 @@
+diff --git a/node_modules/@ai-sdk/workflow/dist/index.js b/node_modules/@ai-sdk/workflow/dist/index.js
+index 423b80d..5eec3c0 100644
+--- a/node_modules/@ai-sdk/workflow/dist/index.js
++++ b/node_modules/@ai-sdk/workflow/dist/index.js
+@@ -165,7 +165,7 @@ function resolveSerializableTools(tools) {
+ // src/do-stream-step.ts
+ async function doStreamStep(conversationPrompt, modelInit, writable, serializedTools, options) {
+   "use step";
+-  const model = typeof modelInit === "string" ? gateway.languageModel(modelInit) : modelInit;
++  const model = typeof modelInit === "string" ? ((globalThis.AI_SDK_DEFAULT_PROVIDER ?? gateway).languageModel(modelInit)) : modelInit;
+   const tools = serializedTools ? resolveSerializableTools(serializedTools) : void 0;
+   const output = (options == null ? void 0 : options.responseFormat) == null ? void 0 : {
+     name: "workflow",

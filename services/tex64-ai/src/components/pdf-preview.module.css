@@ -1,0 +1,296 @@
+/* PDF preview: slim token-only chrome over a scrollable page stack.
+   Colors come exclusively from the design tokens in globals.css, so light
+   and dark themes are both covered. */
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--workspace);
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+/* --- toolbar ------------------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.toolButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.toolButton:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.toolButton:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.zoomReadout {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.fitButton {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fitButton:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.fitButton:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fitButtonActive,
+.fitButtonActive:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-faint);
+}
+
+.pageIndicator {
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- stage / scroller --------------------------------------------------- */
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.scroller {
+  height: 100%;
+  overflow: auto;
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+  transition: opacity 160ms ease;
+}
+
+.pagesDimmed {
+  opacity: 0.55;
+}
+
+.page {
+  position: relative;
+  flex: none;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 28px rgba(24, 14, 36, 0.14);
+}
+
+.pageCanvas {
+  display: block;
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  color: var(--ink-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* --- region overlay ------------------------------------------------------ */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.overlayDisabled {
+  pointer-events: none;
+}
+
+.region {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+}
+
+.regionHovered {
+  background: var(--accent-faint);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.regionSelected,
+.regionSelected.regionHovered {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.region:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.regionLabel {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+
+.regionHovered .regionLabel {
+  opacity: 1;
+  transform: none;
+}
+
+/* --- refresh pill / error banner ---------------------------------------- */
+
+.refreshPill {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--shadow-menu);
+  color: var(--ink-soft);
+  font-size: 12px;
+  animation: pillIn 180ms ease;
+}
+
+.refreshDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pillIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.errorBanner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-menu);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.errorBanner > svg {
+  flex: none;
+  color: var(--danger);
+}
+
+.retryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.retryButton:hover {
+  background: var(--accent-faint);
+}
