@@ -588,7 +588,13 @@ export const initProCanvasUi = (deps) => {
                 wrap.append(main, error, details);
                 card.append(wrap);
                 if (index === focusIndex)
-                    requestAnimationFrame(() => { const editor = editors[0]; editor === null || editor === void 0 ? void 0 : editor.focus(); editor instanceof HTMLInputElement && editor.select(); });
+                    requestAnimationFrame(() => { var _a; const editor = editors[0]; editor === null || editor === void 0 ? void 0 : editor.focus(); if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement)
+                        editor.select();
+                    else
+                        try {
+                            (_a = editor === null || editor === void 0 ? void 0 : editor.executeCommand) === null || _a === void 0 ? void 0 : _a.call(editor, "selectAll");
+                        }
+                        catch { } });
             });
             const add = document.createElement("button");
             add.type = "button";
@@ -1451,7 +1457,14 @@ export const initProCanvasUi = (deps) => {
         } });
         svg.addEventListener("pointerup", e => {
             var _a, _b;
-            const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor"].includes(completed.kind)), drewObject = Boolean((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.moved && completed.id);
+            const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor"].includes(completed.kind));
+            const drawn = (completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.id ? currentObjects().find(item => item.id === completed.id) : null, plotDrawn = (drawn === null || drawn === void 0 ? void 0 : drawn.type) === "plot" ? drawn : null;
+            if (plotDrawn && !completed.moved) {
+                plotDrawn.width = 60;
+                plotDrawn.height = 45;
+                plotDrawn.at = { x: plotDrawn.at.x - 30, y: plotDrawn.at.y - 22.5 };
+            } // plot はクリックのみでも既定サイズで配置（他ツールの「未ドラッグ=キャンセル」を適用しない）
+            const drewObject = Boolean(drawn && (completed.moved || plotDrawn));
             if (changed) {
                 undo.push(completed.before);
                 redo = [];
@@ -1459,7 +1472,7 @@ export const initProCanvasUi = (deps) => {
             else if (completed && !completed.moved && ["move", "resize", "rotate", "anchor"].includes(completed.kind)) {
                 scene = completed.before;
             }
-            else if ((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && !completed.moved && completed.id) {
+            else if ((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && !completed.moved && completed.id && !plotDrawn) {
                 removeById(currentObjects(), completed.id);
                 clearSelection();
                 undo.pop();
@@ -1468,9 +1481,18 @@ export const initProCanvasUi = (deps) => {
             penDrag = null;
             if (svg.hasPointerCapture(e.pointerId))
                 svg.releasePointerCapture(e.pointerId);
+            if (plotDrawn) {
+                tool = "select";
+                anchorEdit = null;
+                plotEdit = { id: plotDrawn.id };
+                replaceSelection(plotDrawn.id);
+                plotCardSignature = "";
+            } // 配置直後に編集カードを開く（mathcha 同様）。ツールは select へ戻す
             render();
             if (changed || drewObject)
                 scheduleCompile();
+            if (plotDrawn)
+                requestAnimationFrame(() => buildPlotCard(plotDrawn, 0));
             // render() が DOM を差し替えるため native dblclick は当てにならない。クリック2連打を自前検出する。
             if (tool === "select" && completed && !completed.moved) {
                 const now = performance.now();
