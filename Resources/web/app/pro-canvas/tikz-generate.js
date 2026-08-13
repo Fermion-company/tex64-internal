@@ -129,7 +129,7 @@ export const generateTikz = (scene) => {
             return [`${indent}\\foreach \\p in {${list}}`, `${indent}  ${withOptions("pic", [...style, "shift={(\\p)}"])} {${symbol.name}};`];
         }
         if (object.type === "plot") {
-            const axis = object.axis, opts = [`at={${point(object.at)}}`, `anchor=south west`, `width=${numberText(object.width)}${scene.unit}`, `height=${numberText(object.height)}${scene.unit}`, `xmin=${numberText(axis.xmin)}`, `xmax=${numberText(axis.xmax)}`];
+            const axis = object.axis, opts = [`at={(${numberText(object.at.x)}${scene.unit},${numberText(object.at.y)}${scene.unit})}`, `anchor=south west`, `width=${numberText(object.width)}${scene.unit}`, `height=${numberText(object.height)}${scene.unit}`, "scale only axis", `xmin=${numberText(axis.xmin)}`, `xmax=${numberText(axis.xmax)}`];
             if (axis.ymin !== null)
                 opts.push(`ymin=${numberText(axis.ymin)}`);
             if (axis.ymax !== null)
@@ -146,6 +146,8 @@ export const generateTikz = (scene) => {
                 opts.push(`title={${axis.title}}`);
             const lines = [`${indent}\\begin{axis}[${opts.join(", ")}]`];
             for (const series of object.series) {
+                if (series.visible === false)
+                    continue;
                 const domain = series.domain || { min: axis.xmin, max: axis.xmax }, plot = [`domain=${numberText(domain.min)}:${numberText(domain.max)}`, `samples=${Math.max(1, Math.floor(series.samples))}`, colorName(series.color)];
                 if (series.thick)
                     plot.push("thick");

@@ -206,6 +206,23 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    図ブロック先頭に `% requires:` コメント。ymin/ymax 空欄 = 自動レンジ。プロットの
    ドラッグ配置は draw 分岐（`scene=cloneScene(drag.before)` 巻き戻し）内で処理する
    （別リスナーでのシーン変更は毎ムーブ捨てられるため不可 — 監査で修正済み）。
+11. **H3**: グラフ UX の mathcha 型全面改修 — **完了 (2026-08-13)**。仕様:
+   [pro-canvas-h3-spec.md](pro-canvas-h3-spec.md)。Codex 実装 → Opus 5 サブエージェントの実走監査
+   （辛口批評）→ 修正、の 2 周ループで確定。プロットをダブルクリックで編集モード:
+   浮遊カード（関数リスト = 色チップ/式ライブ入力/目トグル/⋯詳細、＋関数追加はパレット自動配色、
+   範囲行 + y 自動、軸線/グリッドセグメント、ヘッダドラッグ移動・✕/Esc で閉じる）。
+   プロット上のホイール = 数学窓ズーム（カーソル基準、`zoomRange`）、ドラッグ = パン（`panRange`、
+   メイン pointermove の `plot-pan` 分岐）。学び・ガード:
+   - **i18n の MutationObserver は placeholder を初見値で凍結・書き戻す**。動的な数値 placeholder を
+     持つ入力には `data-no-i18n` を付けること（範囲入力で実害が出た）。
+   - pgfplots の `at={(x,y)}` は**単位必須**（`at={(10mm,10mm)}`）。単位なしだと picture の
+     `x=1mm,y=1mm` が効かず原点付近に落ちる。`scale only axis` + `anchor=south west` で
+     プレビューと軸枠が mm 単位で一致（参照矩形コンパイルで検証済み）。
+   - 式が打鍵途中で不正な間は直前の有効曲線を淡色保持しレンジを維持（`plotPreviewCache`）。
+   - ライブ編集の undo は「初回 input で即 push」+ ホイール undo は pointerdown/入力開始で
+     即時確定（時系列が壊れないように）。
+   - カード系列行の淡色化クラスは `is-muted`（グローバル `.is-hidden{display:none!important}` と
+     衝突するため `is-hidden` は使わない）。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。

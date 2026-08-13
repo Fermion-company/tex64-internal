@@ -78,7 +78,7 @@ const isSceneObject = (value) => {
             && Array.isArray(value.series) && value.series.every(series => isRecord(series) && typeof series.expr === "string"
             && (series.domain === null || (isRecord(series.domain) && isNumber(series.domain.min) && isNumber(series.domain.max)))
             && Number.isInteger(series.samples) && series.samples > 0 && typeof series.color === "string" && /^#[0-9a-fA-F]{6}$/.test(series.color)
-            && typeof series.thick === "boolean" && typeof series.legend === "string");
+            && typeof series.thick === "boolean" && typeof series.legend === "string" && (series.visible === undefined || typeof series.visible === "boolean"));
     if (value.type === "rect")
         return isVec(value.from) && isVec(value.to);
     if (value.type === "ellipse")

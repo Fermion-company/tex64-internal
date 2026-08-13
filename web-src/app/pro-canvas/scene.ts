@@ -32,7 +32,7 @@ export type SceneObject =
   | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; style: ObjStyle }
   | { id: string; type: "plot"; at: Vec; width: number; height: number;
       axis: { xmin: number; xmax: number; ymin: number | null; ymax: number | null; axisLines: "box" | "middle" | "left"; grid: "none" | "major" | "both"; xlabel: string; ylabel: string; title: string };
-      series: Array<{ expr: string; domain: { min: number; max: number } | null; samples: number; color: string; thick: boolean; legend: string }>; style: ObjStyle }
+      series: Array<{ expr: string; domain: { min: number; max: number } | null; samples: number; color: string; thick: boolean; legend: string; visible?: boolean }>; style: ObjStyle }
   | { id: string; type: "group"; children: SceneObject[]; transform: Transform }
   | { id: string; type: "code"; tikz: string; transform: Transform }
   | { id: string; type: "instance"; symbol: string; transform: Transform; style: ObjStyle }
@@ -128,7 +128,7 @@ const isSceneObject = (value: unknown): value is SceneObject => {
     && Array.isArray(value.series) && value.series.every(series=>isRecord(series) && typeof series.expr === "string"
       && (series.domain === null || (isRecord(series.domain) && isNumber(series.domain.min) && isNumber(series.domain.max)))
       && Number.isInteger(series.samples) && (series.samples as number) > 0 && typeof series.color === "string" && /^#[0-9a-fA-F]{6}$/.test(series.color)
-      && typeof series.thick === "boolean" && typeof series.legend === "string");
+      && typeof series.thick === "boolean" && typeof series.legend === "string" && (series.visible===undefined||typeof series.visible==="boolean"));
   if (value.type === "rect") return isVec(value.from) && isVec(value.to);
   if (value.type === "ellipse") return isVec(value.center) && isNumber(value.rx) && value.rx >= 0 && isNumber(value.ry) && value.ry >= 0;
   if (value.type === "node") return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors);

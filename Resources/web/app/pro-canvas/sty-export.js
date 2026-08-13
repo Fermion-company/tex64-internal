@@ -85,7 +85,7 @@ export const buildStyFile = (scene, packageName) => {
         if (object.type === "instance" || object.type === "repeat")
             return [];
         if (object.type === "plot") {
-            const axis = object.axis, opts = [`at={${point(object.at)}}`, `anchor=south west`, `width=${num(object.width)}${scene.unit}`, `height=${num(object.height)}${scene.unit}`, `xmin=${num(axis.xmin)}`, `xmax=${num(axis.xmax)}`];
+            const axis = object.axis, opts = [`at={(${num(object.at.x)}${scene.unit},${num(object.at.y)}${scene.unit})}`, `anchor=south west`, `width=${num(object.width)}${scene.unit}`, `height=${num(object.height)}${scene.unit}`, "scale only axis", `xmin=${num(axis.xmin)}`, `xmax=${num(axis.xmax)}`];
             if (axis.ymin !== null)
                 opts.push(`ymin=${num(axis.ymin)}`);
             if (axis.ymax !== null)
@@ -102,6 +102,8 @@ export const buildStyFile = (scene, packageName) => {
                 opts.push(`title={${axis.title}}`);
             const lines = [`${indent}\\begin{axis}[${opts.join(", ")}]`];
             for (const series of object.series) {
+                if (series.visible === false)
+                    continue;
                 const domain = series.domain || { min: axis.xmin, max: axis.xmax }, plot = [`domain=${num(domain.min)}:${num(domain.max)}`, `samples=${Math.max(1, Math.floor(series.samples))}`, color(series.color)];
                 if (series.thick)
                     plot.push("thick");

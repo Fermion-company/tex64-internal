@@ -8754,6 +8754,35 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-node { font: 4px Georgia, 'Times New Roman', serif; fill: #111827; }
 .pro-canvas-code-preview { font: 2.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--text-soft); }
 .pro-canvas-inline-editor { position: fixed; z-index: 5; min-width: 80px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: Georgia, 'Times New Roman', serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
+.pro-canvas-plot-card { position: fixed; z-index: 5; box-sizing: border-box; width: 260px; max-height: calc(100vh - 16px); overflow: auto; padding: 10px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; word-break: keep-all; }
+.pro-canvas-plot-card-header { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 6px; cursor: grab; }
+.pro-canvas-plot-card-header strong { font-size: 11px; letter-spacing: .04em; color: var(--text-soft); }
+.pro-canvas-plot-card-header button { width: 20px; height: 20px; padding: 0; border: 0 !important; background: transparent !important; color: var(--text-soft); }
+.pro-canvas-plot-card-header button:hover { color: var(--text); }
+.pro-canvas-plot-card button, .pro-canvas-plot-card input { box-sizing: border-box; min-width: 0; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); }
+.pro-canvas-plot-card-series { padding: 6px 0; border-bottom: 1px solid var(--panel-border); }
+.pro-canvas-plot-card-series.is-muted { opacity: .48; }
+.pro-canvas-plot-card-main { display: grid; grid-template-columns: 18px minmax(0,1fr) 25px 25px 25px; align-items: center; gap: 4px; }
+.pro-canvas-color-chip { position: relative; width: 16px; height: 16px; border: 2px solid var(--panel-strong); border-radius: 50%; box-shadow: 0 0 0 1px var(--panel-border); cursor: pointer; }
+.pro-canvas-color-chip:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pro-canvas-color-chip input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pro-canvas-plot-expr { width: 100%; padding: 5px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.pro-canvas-plot-expr.is-error { border-color: #dc2626; }
+.pro-canvas-plot-error { margin: 3px 0 0 22px; color: #dc2626; }
+.pro-canvas-eye svg { width: 14px; height: 14px; fill: none; stroke: currentColor; }
+.pro-canvas-plot-details { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 7px 0 2px 22px; }
+.pro-canvas-plot-details[hidden] { display: none; }
+.pro-canvas-plot-details label, .pro-canvas-plot-range label, .pro-canvas-plot-card details label { display: grid; gap: 2px; color: var(--text-soft); }
+.pro-canvas-plot-details input, .pro-canvas-plot-range input, .pro-canvas-plot-card details input { width: 100%; padding: 4px; }
+.pro-canvas-plot-add { width: 100%; margin: 7px 0; padding: 6px; }
+.pro-canvas-plot-range { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.pro-canvas-plot-range label:last-child { display: flex; grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 5px; white-space: nowrap; }
+.pro-canvas-plot-card p { margin: 7px 0; color: var(--text-soft); }
+.pro-canvas-plot-segment-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 6px 0; }
+.pro-canvas-plot-card .pro-canvas-segments button { padding: 3px 6px; font-size: 10px; }
+.pro-canvas-plot-card .pro-canvas-segments button.is-active { color: white; background: var(--accent); }
+.pro-canvas-plot-card details { margin-top: 8px; }
+.pro-canvas-plot-card summary { cursor: pointer; }
 .pro-canvas-inspector { overflow: auto; padding: 16px; border-left: 1px solid var(--panel-border); background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; }
 .pro-canvas-inspector section { margin-bottom: 16px; }
 .pro-canvas-inspector section[hidden] { display: none; }

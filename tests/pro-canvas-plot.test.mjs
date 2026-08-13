@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { autoRange, compileExpr, niceTicks, samplePlot } from "../Resources/web/app/pro-canvas/plot-math.js";
+import { PLOT_PALETTE, autoRange, compileExpr, niceTicks, panRange, samplePlot, zoomRange } from "../Resources/web/app/pro-canvas/plot-math.js";
 import { createEmptyScene, validateScene } from "../Resources/web/app/pro-canvas/scene.js";
 import { generateTikz } from "../Resources/web/app/pro-canvas/tikz-generate.js";
 import { buildStandaloneDoc } from "../Resources/web/app/pro-canvas/standalone.js";
+import { buildStyFile } from "../Resources/web/app/pro-canvas/sty-export.js";
 
 const plot=()=>({id:"plot",type:"plot",at:{x:10,y:15},width:60,height:40,axis:{xmin:-5,xmax:5,ymin:null,ymax:null,axisLines:"middle",grid:"none",xlabel:"",ylabel:"",title:""},series:[{expr:"x^2",domain:null,samples:100,color:"#000000",thick:true,legend:""}],style:{}});
 
@@ -12,3 +13,5 @@ test("plot sampling splits discontinuities and range helpers are stable",()=>{co
 test("plot TikZ emits pgfplots axis, series, legend, and requirement",()=>{const scene=createEmptyScene(),object=plot();object.series[0].legend="quadratic";scene.objects.push(object);const code=generateTikz(scene).code;assert.match(code,/^% requires: \\usepackage\{pgfplots\} \\pgfplotsset\{compat=1\.18\}/);assert.match(code,/\\begin\{axis\}\[/);assert.match(code,/domain=-5:5/);assert.match(code,/samples=100/);assert.match(code,/\{x\^2\};/);assert.match(code,/\\addlegendentry\{quadratic\}/);assert.match(code,/\\end\{axis\}/);assert.doesNotMatch(code,/ymin=/);});
 test("standalone documents include pgfplots only for plot scenes",()=>{const scene=createEmptyScene();scene.objects.push(plot());assert.match(buildStandaloneDoc(scene),/\\usepackage\{pgfplots\}/);assert.doesNotMatch(buildStandaloneDoc(createEmptyScene()),/\\usepackage\{pgfplots\}/);});
 test("plot scene validation accepts valid plots and rejects malformed geometry or series",()=>{const scene=createEmptyScene();scene.objects.push(plot());assert.ok(validateScene(scene));const badWidth=structuredClone(scene);badWidth.objects[0].width=-1;assert.equal(validateScene(badWidth),null);const badSeries=structuredClone(scene);badSeries.objects[0].series={};assert.equal(validateScene(badSeries),null);});
+test("plot range gestures preserve focus and clamp width",()=>{assert.deepEqual(zoomRange(0,10,.5,.5),{min:2.5,max:7.5});assert.deepEqual(zoomRange(0,10,0,2),{min:0,max:20});assert.ok(Math.abs((zoomRange(0,10,.5,1e-20).max-zoomRange(0,10,.5,1e-20).min)-1e-6)<1e-12);assert.equal(zoomRange(0,10,.5,1e20).max-zoomRange(0,10,.5,1e20).min,1e9);assert.deepEqual(panRange(0,10,.1),{min:1,max:11});assert.equal(PLOT_PALETTE.length,6);});
+test("hidden plot series validate but are omitted from TikZ and sty",()=>{const scene=createEmptyScene(),object=plot();object.series[0].visible=false;scene.objects.push(object);scene.symbols=[{id:"symbol",name:"PlotSymbol",objects:[structuredClone(object)]}];assert.ok(validateScene(scene));for(const output of [generateTikz(scene).code,buildStyFile(scene,"plots")]){assert.match(output,/\\begin\{axis\}/);assert.doesNotMatch(output,/x\^2/);}object.series[0].visible=true;assert.ok(validateScene(scene));delete object.series[0].visible;assert.ok(validateScene(scene));object.series[0].visible="yes";assert.equal(validateScene(scene),null);});

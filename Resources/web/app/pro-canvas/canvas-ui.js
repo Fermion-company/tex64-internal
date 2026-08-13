@@ -9,7 +9,7 @@ import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
 import { importSvg } from "./svg-import.js";
 import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
-import { autoRange, compileExpr, niceTicks, samplePlot } from "./plot-math.js";
+import { PLOT_PALETTE, autoRange, compileExpr, niceTicks, panRange, samplePlot, zoomRange } from "./plot-math.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
@@ -201,9 +201,10 @@ export const initProCanvasUi = (deps) => {
         closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent();
         let scene = cloneScene(detail.scene || createEmptyScene());
         const selection = { ids: new Set(), primaryId: null };
-        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
-        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null;
+        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
+        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
+        const plotPreviewCache = new Map();
         const overlay = document.createElement("div");
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
@@ -341,6 +342,63 @@ export const initProCanvasUi = (deps) => {
             return; finished = true; finishNodeEdit(commit); }; input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
             return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
             return; positionNodeEditor(); input.focus(); input.select(); }); };
+        const stopPlotEdit = () => { if (!plotEdit)
+            return; flushWheelUndo(); plotEdit = null; plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove(); plotCard = null; plotCardPos = null; plotCardSignature = ""; scheduleCompile(); render(); };
+        const plotObject = () => { const object = plotEdit ? nodeById(plotEdit.id) : null; return (object === null || object === void 0 ? void 0 : object.type) === "plot" ? object : null; };
+        const debouncePlotCompile = () => { invalidateCompiled(); if (plotCompileTimer)
+            clearTimeout(plotCompileTimer); plotCompileTimer = setTimeout(() => { plotCompileTimer = null; scheduleCompile(); }, 400); };
+        const flushWheelUndo = () => { if (wheelUndoTimer) {
+            clearTimeout(wheelUndoTimer);
+            wheelUndoTimer = null;
+        } if (wheelBefore) {
+            undo.push(wheelBefore);
+            redo = [];
+            wheelBefore = null;
+        } };
+        const liveField = (input, apply) => { let before = null, pushed = false; input.addEventListener("focus", () => { before = cloneScene(scene); pushed = false; }); input.addEventListener("input", () => { if (!pushed && before) {
+            flushWheelUndo();
+            undo.push(before);
+            redo = [];
+            pushed = true;
+        } apply(); debouncePlotCompile(); render(); }); const commit = () => { before = null; pushed = false; }; input.addEventListener("change", commit); input.addEventListener("blur", commit); };
+        const positionPlotCard = () => { const object = plotObject(); if (!object || !plotCard)
+            return; if (plotCardPos) {
+            plotCard.style.left = `${plotCardPos.x}px`;
+            plotCard.style.top = `${plotCardPos.y}px`;
+            return;
+        } const bl = sceneToScreen(object.at, view()), tr = sceneToScreen({ x: object.at.x + object.width, y: object.at.y + object.height }, view()), left = Math.min(bl.x, tr.x), right = Math.max(bl.x, tr.x), top = Math.min(bl.y, tr.y), bottom = Math.max(bl.y, tr.y), w = 260, gap = 10; let x = right + gap, y = top; if (x + w > innerWidth - 8)
+            x = left - w - gap; if (x < 8) {
+            x = Math.max(8, Math.min(innerWidth - w - 8, left));
+            y = bottom + gap;
+        } plotCard.style.left = `${x}px`; plotCard.style.top = `${Math.max(8, Math.min(innerHeight - plotCard.offsetHeight - 8, y))}px`; };
+        const buildPlotCard = (object, focusIndex = -1) => { plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove(); const card = document.createElement("div"); card.className = "pro-canvas-plot-card"; card.addEventListener("pointerdown", e => e.stopPropagation()); card.addEventListener("click", e => e.stopPropagation()); card.addEventListener("keydown", e => { var _a, _b; if (e.key !== "Escape")
+            return; e.preventDefault(); e.stopPropagation(); (_b = (_a = e.target).blur) === null || _b === void 0 ? void 0 : _b.call(_a); stopPlotEdit(); }); const header = document.createElement("div"); header.className = "pro-canvas-plot-card-header"; const headTitle = document.createElement("strong"); headTitle.textContent = "グラフを編集"; const headClose = document.createElement("button"); headClose.type = "button"; headClose.textContent = "✕"; headClose.title = "閉じる"; headClose.setAttribute("aria-label", "閉じる"); headClose.onclick = () => stopPlotEdit(); header.append(headTitle, headClose); header.addEventListener("pointerdown", e => { if (e.target.closest("button"))
+            return; e.preventDefault(); const rect = card.getBoundingClientRect(), sx = e.clientX, sy = e.clientY, bx = rect.left, by = rect.top; const move = (ev) => { plotCardPos = { x: bx + ev.clientX - sx, y: by + ev.clientY - sy }; card.style.left = `${plotCardPos.x}px`; card.style.top = `${plotCardPos.y}px`; }; const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); }); card.append(header); const field = (label, value, type, apply) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = type; input.value = value; input.title = label; if (type === "number")
+            input.step = "any"; liveField(input, () => apply(input.value)); row.append(input); return { row, input }; }; object.series.forEach((series, index) => { const wrap = document.createElement("div"); wrap.className = `pro-canvas-plot-card-series${series.visible === false ? " is-muted" : ""}`; const main = document.createElement("div"); main.className = "pro-canvas-plot-card-main"; const chip = document.createElement("label"); chip.className = "pro-canvas-color-chip"; chip.title = `関数 ${index + 1} の色`; chip.setAttribute("aria-label", chip.title); chip.style.background = series.color; chip.tabIndex = 0; const color = document.createElement("input"); color.type = "color"; color.value = series.color; liveField(color, () => { series.color = color.value; chip.style.background = color.value; }); chip.append(color); const expr = document.createElement("input"); expr.type = "text"; expr.className = "pro-canvas-plot-expr"; expr.placeholder = "例: sin(deg(x))"; expr.title = `関数 ${index + 1} の式`; expr.value = series.expr; liveField(expr, () => { series.expr = expr.value; const bad = !compileExpr(series.expr); expr.classList.toggle("is-error", bad); error.hidden = !bad; }); const eye = document.createElement("button"); eye.type = "button"; eye.className = "pro-canvas-eye"; eye.title = "表示/非表示"; eye.setAttribute("aria-label", eye.title); eye.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M1.5 9s2.7-4 7.5-4 7.5 4 7.5 4-2.7 4-7.5 4-7.5-4-7.5-4Z"/><circle cx="9" cy="9" r="2"/></svg>'; eye.onclick = () => { snapshot(false); series.visible = series.visible === false; wrap.classList.toggle("is-muted", series.visible === false); debouncePlotCompile(); render(); }; const more = document.createElement("button"); more.type = "button"; more.textContent = "⋯"; more.title = "系列の詳細"; const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "×"; remove.title = "関数を削除"; remove.disabled = object.series.length <= 1; remove.onclick = () => { snapshot(false); object.series.splice(index, 1); plotCardSignature = ""; debouncePlotCompile(); render(); }; main.append(chip, expr, eye, more, remove); const error = document.createElement("div"); error.className = "pro-canvas-plot-error"; error.textContent = "式を解釈できません"; error.hidden = Boolean(compileExpr(series.expr)); expr.classList.toggle("is-error", !error.hidden); const details = document.createElement("div"); details.className = "pro-canvas-plot-details"; details.hidden = true; const dmin = field("定義域 最小", series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+            series.domain = null;
+        else if (Number.isFinite(n))
+            series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : object.axis.xmax }; }), dmax = field("定義域 最大", series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+            series.domain = null;
+        else if (Number.isFinite(n))
+            series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : object.axis.xmin, max: n }; }), samples = field("分割数", String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field("凡例", series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input"); thick.textContent = "太線"; thickInput.type = "checkbox"; thickInput.checked = series.thick; liveField(thickInput, () => series.thick = thickInput.checked); thick.append(thickInput); details.append(dmin.row, dmax.row, samples.row, legend.row, thick); more.onclick = () => { details.hidden = !details.hidden; }; wrap.append(main, error, details); card.append(wrap); if (index === focusIndex)
+            requestAnimationFrame(() => { expr.focus(); expr.select(); }); }); const add = document.createElement("button"); add.type = "button"; add.className = "pro-canvas-plot-add"; add.textContent = "＋ 関数を追加"; add.onclick = () => { snapshot(false); object.series.push({ expr: "x", domain: null, samples: 100, color: PLOT_PALETTE[object.series.length % PLOT_PALETTE.length], thick: true, legend: "", visible: true }); plotCardSignature = ""; debouncePlotCompile(); render(); requestAnimationFrame(() => buildPlotCard(object, object.series.length - 1)); }; card.append(add); const range = document.createElement("div"); range.className = "pro-canvas-plot-range"; const xmin = field("x:", String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
+            object.axis.xmin = n; }), xmax = field("〜", String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
+            object.axis.xmax = n; }), auto = document.createElement("label"), autoInput = document.createElement("input"); auto.textContent = "y 自動"; autoInput.type = "checkbox"; autoInput.checked = object.axis.ymin === null || object.axis.ymax === null; autoInput.onchange = () => { snapshot(false); if (autoInput.checked) {
+            object.axis.ymin = object.axis.ymax = null;
+        }
+        else {
+            object.axis.ymin = -5;
+            object.axis.ymax = 5;
+        } plotCardSignature = ""; debouncePlotCompile(); render(); }; auto.append(autoInput); const ymin = field("y:", object.axis.ymin === null ? "" : String(Number(object.axis.ymin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
+            object.axis.ymin = n; }), ymax = field("〜", object.axis.ymax === null ? "" : String(Number(object.axis.ymax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
+            object.axis.ymax = n; }); [xmin, xmax, ymin, ymax].forEach(f => f.input.dataset.noI18n = ""); xmin.input.dataset.plotRange = "xmin"; xmax.input.dataset.plotRange = "xmax"; ymin.input.dataset.plotRange = "ymin"; ymax.input.dataset.plotRange = "ymax"; ymin.input.disabled = ymax.input.disabled = autoInput.checked; if (autoInput.checked) {
+            const values = object.series.filter(s => s.visible !== false).flatMap(s => { const fn = compileExpr(s.expr), d = s.domain || { min: object.axis.xmin, max: object.axis.xmax }; return fn ? samplePlot(fn, d.min, d.max, s.samples).flat().map(p => p.y) : []; }), r = autoRange(values);
+            ymin.input.placeholder = String(Number(r.min.toPrecision(4)));
+            ymax.input.placeholder = String(Number(r.max.toPrecision(4)));
+        } range.append(xmin.row, xmax.row, ymin.row, ymax.row, auto); card.append(range); const hint = document.createElement("p"); hint.textContent = "プロット上: スクロールでズーム / ドラッグで移動"; card.append(hint); const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); }; segments("軸線", object.axis.axisLines, [["box", "枠"], ["middle", "中央"], ["left", "左下"]], v => object.axis.axisLines = v); segments("グリッド", object.axis.grid, [["none", "なし"], ["major", "主"], ["both", "主+副"]], v => object.axis.grid = v); const disclosure = document.createElement("details"), summary = document.createElement("summary"); summary.textContent = "詳細"; disclosure.append(summary); for (const [label, key] of [["x ラベル", "xlabel"], ["y ラベル", "ylabel"], ["タイトル", "title"]]) {
+            const f = field(label, object.axis[key], "text", v => object.axis[key] = v);
+            disclosure.append(f.row);
+        } card.append(disclosure); overlay.append(card); plotCard = card; plotCardSignature = `${object.id}:${object.series.length}:${autoInput.checked}:${object.axis.axisLines}:${object.axis.grid}`; requestAnimationFrame(positionPlotCard); };
         const topLevelSelectedObjects = () => currentObjects().filter(object => selection.ids.has(object.id));
         const selectionBounds = () => { const selected = topLevelSelectedObjects(); if (!selected.length)
             return null; const bounds = selected.map(object => objectBounds(object, scene)); return { minX: Math.min(...bounds.map(b => b.minX)), minY: Math.min(...bounds.map(b => b.minY)), maxX: Math.max(...bounds.map(b => b.maxX)), maxY: Math.max(...bounds.map(b => b.maxY)) }; };
@@ -428,37 +486,10 @@ export const initProCanvasUi = (deps) => {
                 named.before(empty);
             }
             else if (object.type === "plot") {
-                const heading = (text) => { const h = document.createElement("h4"); h.textContent = text; host.append(h); }, field = (label, value, type, change) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = type; input.value = value; if (type === "number")
-                    input.step = "any"; input.onchange = () => { snapshot(); change(input.value); render(); }; row.append(input); host.append(row); return input; }, select = (label, value, options, change) => { const row = document.createElement("label"), input = document.createElement("select"); row.textContent = label; options.forEach(([key, text]) => { const option = document.createElement("option"); option.value = key; option.textContent = text; input.append(option); }); input.value = value; input.onchange = () => { snapshot(); change(input.value); render(); }; row.append(input); host.append(row); };
-                heading("軸");
-                field("xmin", String(object.axis.xmin), "number", value => { const n = Number(value); if (Number.isFinite(n))
-                    object.axis.xmin = n; });
-                field("xmax", String(object.axis.xmax), "number", value => { const n = Number(value); if (Number.isFinite(n))
-                    object.axis.xmax = n; });
-                field("ymin", object.axis.ymin === null ? "" : String(object.axis.ymin), "number", value => { const n = Number(value); object.axis.ymin = value.trim() === "" ? null : Number.isFinite(n) ? n : object.axis.ymin; });
-                field("ymax", object.axis.ymax === null ? "" : String(object.axis.ymax), "number", value => { const n = Number(value); object.axis.ymax = value.trim() === "" ? null : Number.isFinite(n) ? n : object.axis.ymax; });
-                select("軸線", object.axis.axisLines, [["box", "枠"], ["middle", "中央"], ["left", "左下"]], value => object.axis.axisLines = value);
-                select("グリッド", object.axis.grid, [["none", "なし"], ["major", "主"], ["both", "主+副"]], value => object.axis.grid = value);
-                field("xlabel", object.axis.xlabel, "text", value => object.axis.xlabel = value);
-                field("ylabel", object.axis.ylabel, "text", value => object.axis.ylabel = value);
-                field("title", object.axis.title, "text", value => object.axis.title = value);
-                heading("系列");
-                object.series.forEach((series, index) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-series"; const input = (type, value, title, change) => { const el = document.createElement("input"); el.type = type; el.value = value; el.title = title; if (type === "number")
-                    el.step = "any"; el.onchange = () => { snapshot(); change(el.value); render(); }; row.append(el); }; input("text", series.expr, "式", value => series.expr = value); input("number", series.domain === null ? "" : String(series.domain.min), "domain min", value => { var _a, _b; const n = Number(value); if (value.trim() === "") {
-                    if (series.domain)
-                        series.domain = null;
-                }
-                else if (Number.isFinite(n))
-                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : object.axis.xmax }; }); input("number", series.domain === null ? "" : String(series.domain.max), "domain max", value => { var _a, _b; const n = Number(value); if (value.trim() === "") {
-                    if (series.domain)
-                        series.domain = null;
-                }
-                else if (Number.isFinite(n))
-                    series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : object.axis.xmin, max: n }; }); input("color", series.color, "色", value => series.color = value); input("number", String(series.samples), "samples", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))); input("text", series.legend, "legend", value => series.legend = value); const thick = document.createElement("input"); thick.type = "checkbox"; thick.checked = series.thick; thick.title = "太線"; thick.onchange = () => { snapshot(); series.thick = thick.checked; render(); }; row.append(thick); const remove = document.createElement("button"); remove.textContent = "削除"; remove.disabled = object.series.length <= 1; remove.onclick = () => { snapshot(); object.series.splice(index, 1); render(); }; row.append(remove); host.append(row); });
-                const addSeries = document.createElement("button");
-                addSeries.textContent = "＋系列を追加";
-                addSeries.onclick = () => { snapshot(); object.series.push({ expr: "x", domain: null, samples: 100, color: "#000000", thick: true, legend: "" }); render(); };
-                host.append(addSeries);
+                const hint = document.createElement("p");
+                hint.className = "pro-canvas-empty";
+                hint.textContent = "ダブルクリックでグラフを編集";
+                host.append(hint);
             }
             else if (object.type === "group" || object.type === "code") {
                 const note = document.createElement("div");
@@ -641,8 +672,10 @@ export const initProCanvasUi = (deps) => {
                     return;
                 }
                 if (object.type === "plot") {
-                    const g = svgEl("g", interactive ? { "data-id": object.id } : {}), a = object.axis, xmin = a.xmin, xmax = a.xmax, compiled = object.series.map(series => ({ series, fn: compileExpr(series.expr) })), sampled = compiled.map(({ series, fn }) => { const domain = series.domain || { min: xmin, max: xmax }; return fn ? samplePlot(fn, domain.min, domain.max, series.samples) : []; }), auto = autoRange(sampled.flat(2).map(point => point.y)), ymin = (_b = a.ymin) !== null && _b !== void 0 ? _b : auto.min, ymax = (_c = a.ymax) !== null && _c !== void 0 ? _c : auto.max, mapX = (x) => object.at.x + (x - xmin) / Math.max(xmax - xmin, 1e-9) * object.width, mapY = (y) => object.at.y + (y - ymin) / Math.max(ymax - ymin, 1e-9) * object.height, xt = niceTicks(xmin, xmax), yt = niceTicks(ymin, ymax), neutral = "#64748b", clipId = `pro-canvas-plot-${object.id}`;
+                    const g = svgEl("g", interactive ? { "data-id": object.id } : {}), a = object.axis, xmin = a.xmin, xmax = a.xmax, compiled = object.series.filter(series => series.visible !== false).map(series => ({ series, fn: compileExpr(series.expr) })), cache = plotPreviewCache.get(object.id), sampled = compiled.map(({ series, fn }, i) => { const domain = series.domain || { min: xmin, max: xmax }; return fn ? samplePlot(fn, domain.min, domain.max, series.samples) : (cache === null || cache === void 0 ? void 0 : cache.pieces[i]) || []; }), finiteYs = sampled.flat(2).map(point => point.y).filter(Number.isFinite), auto = finiteYs.length ? autoRange(finiteYs) : cache ? { min: cache.ymin, max: cache.ymax } : autoRange([]), ymin = (_b = a.ymin) !== null && _b !== void 0 ? _b : auto.min, ymax = (_c = a.ymax) !== null && _c !== void 0 ? _c : auto.max, mapX = (x) => object.at.x + (x - xmin) / Math.max(xmax - xmin, 1e-9) * object.width, mapY = (y) => object.at.y + (y - ymin) / Math.max(ymax - ymin, 1e-9) * object.height, xt = niceTicks(xmin, xmax), yt = niceTicks(ymin, ymax), neutral = "#64748b", clipId = `pro-canvas-plot-${object.id}`;
                     parent.append(g);
+                    if (compiled.every(entry => entry.fn))
+                        plotPreviewCache.set(object.id, { ymin, ymax, pieces: sampled });
                     const defs = svgEl("defs"), clip = svgEl("clipPath", { id: clipId });
                     clip.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height }));
                     defs.append(clip);
@@ -658,22 +691,32 @@ export const initProCanvasUi = (deps) => {
                         g.append(svgEl("line", { x1: object.at.x, y1: axisY, x2: object.at.x + object.width, y2: axisY, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                         g.append(svgEl("line", { x1: axisX, y1: object.at.y, x2: axisX, y2: object.at.y + object.height, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                     }
-                    const text = (value, x, y, anchor = "middle") => { const el = svgEl("text", { x, y: -y, transform: "scale(1,-1)", "text-anchor": anchor, fill: neutral, "font-size": 2.6 }); el.textContent = value; g.append(el); };
-                    xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - 1, x2: mapX(value), y2: axisY + 1, stroke: neutral, "stroke-width": .6 })); text(String(Number(value.toPrecision(5))), mapX(value), axisY - 1.6); });
-                    yt.forEach(value => { g.append(svgEl("line", { x1: axisX - 1, y1: mapY(value), x2: axisX + 1, y2: mapY(value), stroke: neutral, "stroke-width": .6 })); text(String(Number(value.toPrecision(5))), axisX - 1.5, mapY(value) - .8, "end"); });
-                    sampled.forEach((pieces, index) => pieces.forEach(piece => g.append(svgEl("polyline", { points: piece.map(point => `${mapX(point.x)},${mapY(point.y)}`).join(" "), fill: "none", stroke: object.series[index].color, "stroke-width": object.series[index].thick ? 1.2 : .7, "vector-effect": "non-scaling-stroke", "clip-path": `url(#${clipId})` }))));
+                    if (a.axisLines === "middle") {
+                        const al = 6 / scale, aw = 1.8 / scale;
+                        g.append(svgEl("polygon", { points: `${object.at.x + object.width},${axisY} ${object.at.x + object.width - al},${axisY - aw} ${object.at.x + object.width - al},${axisY + aw}`, fill: neutral }));
+                        g.append(svgEl("polygon", { points: `${axisX},${object.at.y + object.height} ${axisX - aw},${object.at.y + object.height - al} ${axisX + aw},${object.at.y + object.height - al}`, fill: neutral }));
+                    }
+                    const text = (value, x, y, anchor = "middle") => { const el = svgEl("text", { x, y: -y, transform: "scale(1,-1)", "text-anchor": anchor, fill: neutral, "font-size": 9.5 / scale }); el.textContent = value; g.append(el); };
+                    const tl = 2.5 / scale, lo = 12 / scale;
+                    xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - tl, x2: mapX(value), y2: axisY + tl, stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
+                        text(String(Number(value.toPrecision(4))), mapX(value), (a.axisLines === "middle" ? axisY : object.at.y) - lo); });
+                    yt.forEach(value => { g.append(svgEl("line", { x1: axisX - tl, y1: mapY(value), x2: axisX + tl, y2: mapY(value), stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
+                        text(String(Number(value.toPrecision(4))), (a.axisLines === "middle" ? axisX : object.at.x) - 4 / scale, mapY(value) - 3 / scale, "end"); });
+                    if (a.axisLines === "middle" && xmin <= 0 && xmax >= 0 && ymin <= 0 && ymax >= 0)
+                        text("0", axisX - 3 / scale, axisY - lo, "end");
+                    sampled.forEach((pieces, index) => pieces.forEach(piece => g.append(svgEl("polyline", { points: piece.map(point => `${mapX(point.x)},${mapY(point.y)}`).join(" "), fill: "none", stroke: compiled[index].series.color, "stroke-width": compiled[index].series.thick ? 1.2 : .7, "stroke-opacity": compiled[index].fn ? 1 : .35, "vector-effect": "non-scaling-stroke", "clip-path": `url(#${clipId})` }))));
                     if (compiled.some(entry => !entry.fn)) {
-                        const error = svgEl("text", { x: object.at.x + object.width / 2, y: -(object.at.y + object.height / 2), transform: "scale(1,-1)", "text-anchor": "middle", fill: "#dc2626", "font-size": 3 });
+                        const error = svgEl("text", { x: object.at.x + 6 / scale, y: -(object.at.y + object.height - 14 / scale), transform: "scale(1,-1)", "text-anchor": "start", fill: "#dc2626", "font-size": 11 / scale });
                         error.textContent = "式エラー";
                         g.append(error);
                     }
                     if (a.title)
-                        text(a.title, object.at.x + object.width / 2, object.at.y + object.height - 1);
+                        text(a.title, object.at.x + object.width / 2, object.at.y + object.height + 8 / scale);
                     if (a.xlabel)
-                        text(a.xlabel, object.at.x + object.width / 2, object.at.y - 4);
+                        text(a.xlabel, object.at.x + object.width / 2, object.at.y - 26 / scale);
                     if (a.ylabel)
-                        text(a.ylabel, object.at.x - 4, object.at.y + object.height / 2);
-                    g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "rgba(0,0,0,0.001)", stroke: "none", "pointer-events": "all", ...(interactive ? { "data-id": object.id } : {}) }));
+                        text(a.ylabel, object.at.x - 8 / scale, object.at.y + object.height / 2, "end");
+                    g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "rgba(0,0,0,0.001)", stroke: (plotEdit === null || plotEdit === void 0 ? void 0 : plotEdit.id) === object.id ? "var(--accent)" : "none", "stroke-width": 1, "vector-effect": "non-scaling-stroke", "pointer-events": "all", ...(interactive ? { "data-id": object.id } : {}) }));
                     return;
                 }
                 const style = resolveStyle(scene, object.style);
@@ -820,6 +863,26 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=ai-import]").disabled = !((_b = window.tex64Texize) === null || _b === void 0 ? void 0 : _b.snippet);
             renderInspector();
             positionNodeEditor();
+            const edited = plotObject();
+            if (edited) {
+                const signature = `${edited.id}:${edited.series.length}:${edited.axis.ymin === null || edited.axis.ymax === null}:${edited.axis.axisLines}:${edited.axis.grid}`;
+                if (!plotCard || signature !== plotCardSignature)
+                    buildPlotCard(edited);
+                else {
+                    plotCard.querySelectorAll("input[data-plot-range]").forEach(el => { const input = el; if (document.activeElement === input)
+                        return; const key = input.dataset.plotRange; const value = edited.axis[key]; input.value = value === null ? "" : String(Number(value.toPrecision(4))); if (value === null) {
+                        const cached = plotPreviewCache.get(edited.id);
+                        if (cached)
+                            input.placeholder = String(Number((key === "ymin" ? cached.ymin : cached.ymax).toPrecision(4)));
+                    } });
+                    requestAnimationFrame(positionPlotCard);
+                }
+            }
+            else if (plotCard) {
+                plotCard.remove();
+                plotCard = null;
+                plotCardSignature = "";
+            }
         };
         let drag = null;
         let lastClick = null;
@@ -834,6 +897,7 @@ export const initProCanvasUi = (deps) => {
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
             var _a, _b;
+            flushWheelUndo();
             const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
                 drag = { kind: "pan", start: { x: panX, y: panY }, startClient: client, before: cloneScene(scene), lastClient: client };
@@ -843,6 +907,14 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+            if (plotEdit && id === plotEdit.id && !handle) {
+                drag = { kind: "plot-pan", start: raw, startClient: client, before: cloneScene(scene), id };
+                svg.setPointerCapture(e.pointerId);
+                render();
+                return;
+            }
+            if (plotEdit && id !== plotEdit.id && !handle && !target.dataset.rotate)
+                stopPlotEdit();
             if (tool === "select" && target.dataset.pathId && target.dataset.anchorIndex !== undefined) {
                 const path = walk(currentObjects(), target.dataset.pathId), anchorIndex = Number(target.dataset.anchorIndex);
                 if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
@@ -953,7 +1025,7 @@ export const initProCanvasUi = (deps) => {
             if (tool === "plot") {
                 snapshot(false);
                 invalidateCompiled();
-                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "none", xlabel: "", ylabel: "", title: "" }, series: [{ expr: "x^2", domain: null, samples: 100, color: "#000000", thick: true, legend: "" }], style: {} };
+                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "major", xlabel: "", ylabel: "", title: "" }, series: [{ expr: "x^2", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
                 currentObjects().push(object);
                 replaceSelection(object.id);
                 drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
@@ -972,109 +1044,142 @@ export const initProCanvasUi = (deps) => {
             svg.setPointerCapture(e.pointerId);
             render();
         });
-        svg.addEventListener("pointermove", e => { var _a, _b, _c, _d; if (penDrag) {
-            const p = snappedPoint(e);
-            if (Math.hypot(p.x - penDrag.end.x, p.y - penDrag.end.y) > .1)
-                penDrag.path.segments[penDrag.index] = { type: "cubic", c1: { ...penDrag.previous }, c2: { x: 2 * penDrag.end.x - p.x, y: 2 * penDrag.end.y - p.y }, to: { ...penDrag.end } };
-            render();
-            return;
-        } if (!drag) {
-            const target = e.target, nextHoveredId = (_b = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id) !== null && _b !== void 0 ? _b : null, handle = target.dataset.handle;
-            svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : nextHoveredId ? "move" : "default";
-            if (nextHoveredId !== hoveredId) {
-                hoveredId = nextHoveredId;
+        svg.addEventListener("pointermove", e => {
+            var _a, _b, _c, _d;
+            if (penDrag) {
+                const p = snappedPoint(e);
+                if (Math.hypot(p.x - penDrag.end.x, p.y - penDrag.end.y) > .1)
+                    penDrag.path.segments[penDrag.index] = { type: "cubic", c1: { ...penDrag.previous }, c2: { x: 2 * penDrag.end.x - p.x, y: 2 * penDrag.end.y - p.y }, to: { ...penDrag.end } };
                 render();
-            }
-            return;
-        } if (drag.kind === "pan" && drag.lastClient) {
-            panX = drag.start.x + e.clientX - drag.lastClient.x;
-            panY = drag.start.y + e.clientY - drag.lastClient.y;
-            render();
-            return;
-        } const raw = rawPoint(e), crossedThreshold = !drag.moved && Math.hypot(e.clientX - drag.startClient.x, e.clientY - drag.startClient.y) >= 4; if (crossedThreshold) {
-            drag.moved = true;
-            if (["move", "resize", "rotate", "anchor"].includes(drag.kind))
-                invalidateCompiled();
-        } if (drag.kind === "marquee") {
-            drag.current = raw;
-            if (drag.moved) {
-                const rect = { minX: Math.min(drag.start.x, raw.x), minY: Math.min(drag.start.y, raw.y), maxX: Math.max(drag.start.x, raw.x), maxY: Math.max(drag.start.y, raw.y) };
-                selection.ids = new Set(marqueeHits(rect, currentObjects().map(item => ({ id: item.id, bounds: objectBounds(item, scene) }))));
-                const ids = [...selection.ids];
-                selection.primaryId = (_c = ids[ids.length - 1]) !== null && _c !== void 0 ? _c : null;
-            }
-            render();
-            return;
-        } scene = cloneScene(drag.before); if (drag.kind === "anchor") {
-            const path = drag.id ? walk(currentObjects(), drag.id) : null;
-            if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
                 return;
-            if (drag.controlSegment !== undefined && drag.controlKey) {
-                const segment = path.segments[drag.controlSegment];
-                if ((segment === null || segment === void 0 ? void 0 : segment.type) === "cubic")
-                    Object.assign(segment[drag.controlKey], raw);
             }
-            else if (drag.anchorIndex !== undefined) {
-                const points = [path.start, ...path.segments.map(segment => segment.to)], point = points[drag.anchorIndex], target = snapToGrid(raw, scene.grid.size, scene.grid.snap), dx = target.x - point.x, dy = target.y - point.y;
-                point.x = target.x;
-                point.y = target.y;
-                const incoming = path.segments[drag.anchorIndex - 1], outgoing = path.segments[drag.anchorIndex];
-                if ((incoming === null || incoming === void 0 ? void 0 : incoming.type) === "cubic") {
-                    incoming.c2.x += dx;
-                    incoming.c2.y += dy;
+            if (!drag) {
+                const target = e.target, nextHoveredId = (_b = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id) !== null && _b !== void 0 ? _b : null, handle = target.dataset.handle;
+                svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : nextHoveredId ? "move" : "default";
+                if (nextHoveredId !== hoveredId) {
+                    hoveredId = nextHoveredId;
+                    render();
                 }
-                if ((outgoing === null || outgoing === void 0 ? void 0 : outgoing.type) === "cubic") {
-                    outgoing.c1.x += dx;
-                    outgoing.c1.y += dy;
+                return;
+            }
+            if (drag.kind === "pan" && drag.lastClient) {
+                panX = drag.start.x + e.clientX - drag.lastClient.x;
+                panY = drag.start.y + e.clientY - drag.lastClient.y;
+                render();
+                return;
+            }
+            const raw = rawPoint(e), crossedThreshold = !drag.moved && Math.hypot(e.clientX - drag.startClient.x, e.clientY - drag.startClient.y) >= 4;
+            if (crossedThreshold) {
+                drag.moved = true;
+                if (["move", "resize", "rotate", "anchor", "plot-pan"].includes(drag.kind))
+                    invalidateCompiled();
+            }
+            if (drag.kind === "marquee") {
+                drag.current = raw;
+                if (drag.moved) {
+                    const rect = { minX: Math.min(drag.start.x, raw.x), minY: Math.min(drag.start.y, raw.y), maxX: Math.max(drag.start.x, raw.x), maxY: Math.max(drag.start.y, raw.y) };
+                    selection.ids = new Set(marqueeHits(rect, currentObjects().map(item => ({ id: item.id, bounds: objectBounds(item, scene) }))));
+                    const ids = [...selection.ids];
+                    selection.primaryId = (_c = ids[ids.length - 1]) !== null && _c !== void 0 ? _c : null;
+                }
+                render();
+                return;
+            }
+            scene = cloneScene(drag.before);
+            if (drag.kind === "plot-pan") {
+                const object = drag.id ? walk(currentObjects(), drag.id) : null;
+                if ((object === null || object === void 0 ? void 0 : object.type) !== "plot")
+                    return;
+                const bl = sceneToScreen(object.at, view()), tr = sceneToScreen({ x: object.at.x + object.width, y: object.at.y + object.height }, view()), width = Math.max(1, Math.abs(tr.x - bl.x)), height = Math.max(1, Math.abs(tr.y - bl.y)), xr = panRange(object.axis.xmin, object.axis.xmax, -(e.clientX - drag.startClient.x) / width);
+                object.axis.xmin = xr.min;
+                object.axis.xmax = xr.max;
+                if (object.axis.ymin !== null && object.axis.ymax !== null) {
+                    const yr = panRange(object.axis.ymin, object.axis.ymax, (e.clientY - drag.startClient.y) / height);
+                    object.axis.ymin = yr.min;
+                    object.axis.ymax = yr.max;
+                }
+                render();
+                return;
+            }
+            if (drag.kind === "anchor") {
+                const path = drag.id ? walk(currentObjects(), drag.id) : null;
+                if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
+                    return;
+                if (drag.controlSegment !== undefined && drag.controlKey) {
+                    const segment = path.segments[drag.controlSegment];
+                    if ((segment === null || segment === void 0 ? void 0 : segment.type) === "cubic")
+                        Object.assign(segment[drag.controlKey], raw);
+                }
+                else if (drag.anchorIndex !== undefined) {
+                    const points = [path.start, ...path.segments.map(segment => segment.to)], point = points[drag.anchorIndex], target = snapToGrid(raw, scene.grid.size, scene.grid.snap), dx = target.x - point.x, dy = target.y - point.y;
+                    point.x = target.x;
+                    point.y = target.y;
+                    const incoming = path.segments[drag.anchorIndex - 1], outgoing = path.segments[drag.anchorIndex];
+                    if ((incoming === null || incoming === void 0 ? void 0 : incoming.type) === "cubic") {
+                        incoming.c2.x += dx;
+                        incoming.c2.y += dy;
+                    }
+                    if ((outgoing === null || outgoing === void 0 ? void 0 : outgoing.type) === "cubic") {
+                        outgoing.c1.x += dx;
+                        outgoing.c1.y += dy;
+                    }
+                }
+                render();
+                return;
+            }
+            const delta = snappedDelta(drag.start, raw, e), origin = (_d = drag.anchor) !== null && _d !== void 0 ? _d : drag.start, p = { x: origin.x + delta.x, y: origin.y + delta.y };
+            if (drag.kind === "move") {
+                for (const id of drag.ids || []) {
+                    const object = currentObjects().find(item => item.id === id);
+                    if (object)
+                        moveObject(object, delta.x, delta.y);
+                }
+            }
+            else {
+                const o = drag.id ? currentObjects().find(item => item.id === drag.id) : null;
+                if (!o)
+                    return;
+                if (drag.kind === "resize" && drag.bounds && drag.handle)
+                    resizeObject(o, drag.bounds, boundsAfterHandleDrag(drag.bounds, drag.handle, p));
+                else if (drag.kind === "rotate") {
+                    const b = drag.bounds, c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }, angle = (Math.atan2(raw.y - c.y, raw.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI;
+                    if (o.type === "group" || o.type === "instance" || o.type === "code")
+                        rotateTransformAround(o.transform, c, angle);
+                    else if (o.type === "rect" || o.type === "ellipse") {
+                        const wrapper = { id: drag.wrapperId, type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
+                        rotateTransformAround(wrapper.transform, c, angle);
+                        replaceById(currentObjects(), o.id, wrapper);
+                        replaceSelectedId(o.id, wrapper.id);
+                    }
+                    else {
+                        const rad = angle * Math.PI / 180, points = o.type === "repeat" ? [o.path.start, ...o.path.segments.flatMap(segment => segment.type === "line" ? [segment.to] : [segment.c1, segment.c2, segment.to])] : allPoints(o, scene);
+                        points.forEach(q => { const x = q.x - c.x, y = q.y - c.y; q.x = c.x + x * Math.cos(rad) - y * Math.sin(rad); q.y = c.y + x * Math.sin(rad) + y * Math.cos(rad); });
+                    }
+                }
+                else if (drag.kind === "draw") {
+                    if (o.type === "rect")
+                        o.to = p;
+                    else if (o.type === "ellipse") {
+                        o.center = { x: (origin.x + p.x) / 2, y: (origin.y + p.y) / 2 };
+                        o.rx = Math.abs(p.x - origin.x) / 2;
+                        o.ry = Math.abs(p.y - origin.y) / 2;
+                    }
+                    else if (o.type === "path")
+                        o.segments[0] = { type: "line", to: p };
+                    else if (o.type === "plot") {
+                        o.at = { x: Math.min(origin.x, p.x), y: Math.min(origin.y, p.y) };
+                        o.width = Math.max(.01, Math.abs(p.x - origin.x));
+                        o.height = Math.max(.01, Math.abs(p.y - origin.y));
+                    }
                 }
             }
             render();
-            return;
-        } const delta = snappedDelta(drag.start, raw, e), origin = (_d = drag.anchor) !== null && _d !== void 0 ? _d : drag.start, p = { x: origin.x + delta.x, y: origin.y + delta.y }; if (drag.kind === "move") {
-            for (const id of drag.ids || []) {
-                const object = currentObjects().find(item => item.id === id);
-                if (object)
-                    moveObject(object, delta.x, delta.y);
-            }
-        }
-        else {
-            const o = drag.id ? currentObjects().find(item => item.id === drag.id) : null;
-            if (!o)
-                return;
-            if (drag.kind === "resize" && drag.bounds && drag.handle)
-                resizeObject(o, drag.bounds, boundsAfterHandleDrag(drag.bounds, drag.handle, p));
-            else if (drag.kind === "rotate") {
-                const b = drag.bounds, c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 }, angle = (Math.atan2(raw.y - c.y, raw.x - c.x) - Math.atan2(drag.start.y - c.y, drag.start.x - c.x)) * 180 / Math.PI;
-                if (o.type === "group" || o.type === "instance" || o.type === "code")
-                    rotateTransformAround(o.transform, c, angle);
-                else if (o.type === "rect" || o.type === "ellipse") {
-                    const wrapper = { id: drag.wrapperId, type: "group", children: [o], transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } };
-                    rotateTransformAround(wrapper.transform, c, angle);
-                    replaceById(currentObjects(), o.id, wrapper);
-                    replaceSelectedId(o.id, wrapper.id);
-                }
-                else {
-                    const rad = angle * Math.PI / 180, points = o.type === "repeat" ? [o.path.start, ...o.path.segments.flatMap(segment => segment.type === "line" ? [segment.to] : [segment.c1, segment.c2, segment.to])] : allPoints(o, scene);
-                    points.forEach(q => { const x = q.x - c.x, y = q.y - c.y; q.x = c.x + x * Math.cos(rad) - y * Math.sin(rad); q.y = c.y + x * Math.sin(rad) + y * Math.cos(rad); });
-                }
-            }
-            else if (drag.kind === "draw") {
-                if (o.type === "rect")
-                    o.to = p;
-                else if (o.type === "ellipse") {
-                    o.center = { x: (origin.x + p.x) / 2, y: (origin.y + p.y) / 2 };
-                    o.rx = Math.abs(p.x - origin.x) / 2;
-                    o.ry = Math.abs(p.y - origin.y) / 2;
-                }
-                else if (o.type === "path")
-                    o.segments[0] = { type: "line", to: p };
-                else if (o.type === "plot") {
-                    o.at = { x: Math.min(origin.x, p.x), y: Math.min(origin.y, p.y) };
-                    o.width = Math.max(.01, Math.abs(p.x - origin.x));
-                    o.height = Math.max(.01, Math.abs(p.y - origin.y));
-                }
-            }
-        } render(); });
+        });
+        svg.addEventListener("pointerup", () => { if ((drag === null || drag === void 0 ? void 0 : drag.kind) === "plot-pan" && drag.moved) {
+            undo.push(drag.before);
+            redo = [];
+            scheduleCompile();
+        } });
         svg.addEventListener("pointerup", e => {
             var _a, _b;
             const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor"].includes(completed.kind)), drewObject = Boolean((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.moved && completed.id);
@@ -1118,13 +1223,17 @@ export const initProCanvasUi = (deps) => {
             render();
         } });
         const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
-            clearTimeout(compileTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
+            clearTimeout(compileTimer); if (plotCompileTimer)
+            clearTimeout(plotCompileTimer); if (wheelUndoTimer)
+            clearTimeout(wheelUndoTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
         const undoOnce = () => { const prev = undo.pop(); if (!prev)
-            return; redo.push(cloneScene(scene)); scene = prev; clearSelection(); render(); scheduleCompile(); };
+            return; redo.push(cloneScene(scene)); scene = prev; clearSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
+            replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
         const redoOnce = () => { const next = redo.pop(); if (!next)
-            return; undo.push(cloneScene(scene)); scene = next; clearSelection(); render(); scheduleCompile(); };
+            return; undo.push(cloneScene(scene)); scene = next; clearSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
+            replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
             item.children.forEach(renew); }; renew(copy); return copy; };
         const onKey = (e) => {
@@ -1138,6 +1247,10 @@ export const initProCanvasUi = (deps) => {
             const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
             if (e.key === "Escape") {
                 e.preventDefault();
+                if (plotEdit) {
+                    stopPlotEdit();
+                    return;
+                }
                 if (anchorEdit) {
                     anchorEdit = null;
                     render();
@@ -1249,7 +1362,29 @@ export const initProCanvasUi = (deps) => {
         window.addEventListener("keydown", onToolKey, true);
         window.addEventListener("keydown", onKey, true);
         window.addEventListener("keyup", onKeyUp, true);
-        svg.addEventListener("wheel", e => { e.preventDefault(); if (e.ctrlKey || e.metaKey) {
+        svg.addEventListener("wheel", e => { const object = plotObject(), point = screenToScene({ x: e.clientX, y: e.clientY }, view()); if (object && point.x >= object.at.x && point.x <= object.at.x + object.width && point.y >= object.at.y && point.y <= object.at.y + object.height) {
+            e.preventDefault();
+            if (!wheelBefore)
+                wheelBefore = cloneScene(scene);
+            const tx = (point.x - object.at.x) / object.width, ty = (point.y - object.at.y) / object.height, factor = Math.exp(e.deltaY * .002), xr = zoomRange(object.axis.xmin, object.axis.xmax, tx, factor);
+            object.axis.xmin = xr.min;
+            object.axis.xmax = xr.max;
+            if (object.axis.ymin !== null && object.axis.ymax !== null) {
+                const yr = zoomRange(object.axis.ymin, object.axis.ymax, ty, factor);
+                object.axis.ymin = yr.min;
+                object.axis.ymax = yr.max;
+            }
+            debouncePlotCompile();
+            render();
+            if (wheelUndoTimer)
+                clearTimeout(wheelUndoTimer);
+            wheelUndoTimer = setTimeout(() => { if (wheelBefore) {
+                undo.push(wheelBefore);
+                redo = [];
+                wheelBefore = null;
+            } wheelUndoTimer = null; render(); }, 600);
+            return;
+        } e.preventDefault(); if (e.ctrlKey || e.metaKey) {
             const rect = svg.getBoundingClientRect(), oldZoom = zoom, newZoom = Math.max(.25, Math.min(4, zoom * Math.exp(-e.deltaY * .002))), cursor = { x: e.clientX - (rect.left + rect.width / 2), y: e.clientY - (rect.top + rect.height / 2) }, next = zoomAtPoint({ panX, panY, zoom: oldZoom }, cursor, newZoom);
             zoom = newZoom;
             panX = next.panX;
@@ -1424,6 +1559,12 @@ export const initProCanvasUi = (deps) => {
             return; if (object.type === "node") {
             if (editingNodeId !== object.id)
                 beginNodeEdit(object);
+            return;
+        } if (object.type === "plot") {
+            anchorEdit = null;
+            plotEdit = { id: object.id };
+            replaceSelection(object.id);
+            render();
             return;
         } if (object.type === "path") {
             replaceSelection(object.id);
