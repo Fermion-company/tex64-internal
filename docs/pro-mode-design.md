@@ -267,6 +267,15 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - renderer の CSP は `script-src 'self' 'unsafe-eval'`。**index.html にインラインスクリプト・インライン `onload`/`onerror` を書いても実行されない**（`mathlive-ready` が永久に発火しない事故があった）。外部 js から capture 段の load/error で拾う。
    - 監査残（未対応）: 用語ゆれ（グラフ/プロット・系列）/ node 入力欄に placeholder なし / `Cmd+A` 未実装 / 空キャンバスでも `コンパイル中…` が出る / インスペクタ空文言の位置。
 
+15. **Illustrator 式ペン + desmos 式グラフ挿入（J, 2026-08-14）** — `docs/pro-canvas-j-spec.md`、Codex 実装 + 監査1ラウンド（ゲート3+推奨4を修正）。恒久 gotcha:
+   - ペンの曲線は `penSegmentFor(prev,lastOut,anchor,handle)`（純関数・テスト済み）。**前アンカーの出ハンドルを c1 に継承**するのが肝で、これが無いと全セグメントが「直線で出て曲がって入る」半端な曲線になる。アンカーはスナップ・ハンドルは生座標。
+   - **pen 状態はシーン配列への参照を持つ**。undo/redo・ツール切替で scene が差し替わったら `abortPen()` しないと、以後のクリックが死んだオブジェクトへ無音で吸われる（ゾンビ化）。
+   - プロットの「空」判定は **kind ごとの実フィールド**で（parametric は expr2、points は points）。expr だけ見ると y(t) のみ入力した図を Esc が履歴ごと消す（データ消失）。
+   - math-field を**空にした**ときは `series.expr=""` を明示的に書き戻す。`latexToExpr("")` は null なので放置すると「消したはずの曲線が残る + 空欄に赤エラー」になる。
+   - 空の式は全種別で「未入力（valid・曲線なし）」。エラーは「書いて解釈できない」ときだけ。種別切替でプレースホルダ式を注入しない。
+   - 空の式は**数式モードで開始**する（テキストモード開始だと初見の `sin(x)` が pgf の度数法でほぼ平坦な線になる罠）。
+   - 監査残（未対応・軽微）: 滑らかに閉じられない（閉路が必ず角）/ 1点ペン破棄後の空振り undo エントリ / Alt+クリック往復でハンドル既定値化 / 閉パス頂点編集の始点アンカー重複。
+
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
 - renderer のみの変更は Cmd+R で反映。main プロセス（`electron/*.cjs`）は Electron 再起動。
