@@ -240,7 +240,7 @@ export const initProCanvasUi = (deps) => {
         overlay.tabIndex = -1;
         overlay.innerHTML = `<div class="pro-canvas-toolbar pro-canvas-topbar" role="toolbar">
       <strong class="pro-canvas-title">図キャンバス</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="縮小">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="拡大">+</button></span><span class="pro-canvas-topbar-spacer"></span>
-      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live">Live</button><button data-action="doc-preamble">Doc</button></span><span class="pro-canvas-separator"></span>
+      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live" title="編集しながら実際の LaTeX 組版結果をキャンバスに重ねて表示します">プレビュー</button><button data-action="doc-preamble" title="この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します">文書設定</button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="元に戻す">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="やり直す">↻</button></div>
       <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
       <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">画像として挿入 (PNG)</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ を更新" : "TikZ を挿入"}</button></div>`;
@@ -1306,7 +1306,9 @@ export const initProCanvasUi = (deps) => {
             }
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
             const snap = overlay.querySelector("[data-action=snap]");
-            snap.textContent = `Snap ${scene.grid.snap ? "on" : "off"}`;
+            snap.textContent = `吸着 ${scene.grid.snap ? "オン" : "オフ"}`;
+            snap.title = "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）";
+            snap.dataset.noI18n = "";
             snap.classList.toggle("is-active", scene.grid.snap);
             const liveButton = overlay.querySelector("[data-action=live]");
             liveButton.disabled = !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
