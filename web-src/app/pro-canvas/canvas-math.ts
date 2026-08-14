@@ -83,9 +83,18 @@ export const screenToScene = (point: Vec, view: CanvasViewport): Vec => {
   return { x: (point.x - originX) / scale, y: (originY - point.y) / scale };
 };
 
-export const snapToGrid = (point: Vec, size: number, enabled = true): Vec => {
+/**
+ * グリッド吸着。`pull`（グリッド幅に対する比、既定 1 = 常に最寄りへ）を小さくすると
+ * 格子線の近くだけ引き寄せる磁石式になり、格子から外れた位置にも素直に置ける。
+ * 軸ごとに独立して判定する（x だけ格子に乗せたい、が普通に起きるため）。
+ */
+export const snapToGrid = (point: Vec, size: number, enabled = true, pull = 1): Vec => {
   if (!enabled || !Number.isFinite(size) || size <= 0) return { ...point };
-  return { x: Math.round(point.x / size) * size, y: Math.round(point.y / size) * size };
+  const axis = (value: number) => {
+    const snapped = Math.round(value / size) * size;
+    return Math.abs(snapped - value) <= size * pull ? snapped : value;
+  };
+  return { x: axis(point.x), y: axis(point.y) };
 };
 
 export const collectSnapLines = (

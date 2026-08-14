@@ -18,6 +18,9 @@ import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
+// グリッド吸着は磁石式。格子から ±25%（5mm グリッドなら 1.25mm）の中でだけ引き寄せ、
+// 残り半分は素通しにする。全点が格子に乗ると、格子に沿わない線が引けなくなるため。
+const GRID_PULL = 0.25;
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
 const DOC_STORAGE_KEY = "tex64.proCanvas.docPreamble";
@@ -379,8 +382,8 @@ export const initProCanvasUi = (deps) => {
             queueMicrotask(scheduleCompile); };
         const view = () => { const r = svg.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, sceneWidth: scene.width, sceneHeight: scene.height, zoom, panX, panY }; };
         const rawPoint = (event) => screenToScene({ x: event.clientX, y: event.clientY }, view());
-        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, scene.grid.snap && !event.altKey);
-        const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey);
+        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
+        const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
         const showCoach = (kind) => { const key = kind === "plot" ? "plotEdit" : "nodeEdit"; if (shownHints[key] || coachKind || performance.now() < coachSuppressUntil)
@@ -1474,7 +1477,7 @@ export const initProCanvasUi = (deps) => {
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
             emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? "ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　ダブルクリック：頂点追加　Delete：頂点削除　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_b = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _b !== void 0 ? _b : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除" : "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? "ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　ダブルクリック：頂点追加　Delete：頂点削除　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_b = { line: "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ", rect: "ドラッグで作成　Shift で正方形　Alt で吸着オフ", ellipse: "ドラッグで作成　Shift で正円　Alt で吸着オフ", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _b !== void 0 ? _b : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除" : "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
             if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
@@ -1625,7 +1628,7 @@ export const initProCanvasUi = (deps) => {
             }
             if (tool === "pen") {
                 invalidateCompiled();
-                const p = snapToGrid(raw, scene.grid.size, scene.grid.snap);
+                const p = snapToGrid(raw, scene.grid.size, scene.grid.snap, GRID_PULL);
                 if (pen && pen.path.segments.length && Math.hypot(p.x - pen.path.start.x, p.y - pen.path.start.y) < scene.grid.size * .4) {
                     pen.path.closed = true;
                     rebuildPenPath();
@@ -1747,7 +1750,7 @@ export const initProCanvasUi = (deps) => {
                     }
                 }
                 else if (drag.anchorIndex !== undefined) {
-                    const points = [path.start, ...path.segments.map(segment => segment.to)], point = points[drag.anchorIndex], target = snapToGrid(raw, scene.grid.size, scene.grid.snap), dx = target.x - point.x, dy = target.y - point.y;
+                    const points = [path.start, ...path.segments.map(segment => segment.to)], point = points[drag.anchorIndex], target = snapToGrid(raw, scene.grid.size, scene.grid.snap && !e.altKey, GRID_PULL), dx = target.x - point.x, dy = target.y - point.y;
                     point.x = target.x;
                     point.y = target.y;
                     const closed0 = path.closed && drag.anchorIndex === 0, incoming = closed0 ? path.segments[path.segments.length - 1] : path.segments[drag.anchorIndex - 1], outgoing = path.segments[drag.anchorIndex];

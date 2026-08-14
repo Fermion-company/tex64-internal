@@ -79,10 +79,19 @@ export const screenToScene = (point, view) => {
     const originY = view.top + view.height / 2 + view.sceneHeight * scale / 2 + (view.panY || 0);
     return { x: (point.x - originX) / scale, y: (originY - point.y) / scale };
 };
-export const snapToGrid = (point, size, enabled = true) => {
+/**
+ * グリッド吸着。`pull`（グリッド幅に対する比、既定 1 = 常に最寄りへ）を小さくすると
+ * 格子線の近くだけ引き寄せる磁石式になり、格子から外れた位置にも素直に置ける。
+ * 軸ごとに独立して判定する（x だけ格子に乗せたい、が普通に起きるため）。
+ */
+export const snapToGrid = (point, size, enabled = true, pull = 1) => {
     if (!enabled || !Number.isFinite(size) || size <= 0)
         return { ...point };
-    return { x: Math.round(point.x / size) * size, y: Math.round(point.y / size) * size };
+    const axis = (value) => {
+        const snapped = Math.round(value / size) * size;
+        return Math.abs(snapped - value) <= size * pull ? snapped : value;
+    };
+    return { x: axis(point.x), y: axis(point.y) };
 };
 export const collectSnapLines = (others, artboard) => {
     const lines = { x: [], y: [] };

@@ -309,7 +309,9 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - 挿入先は**キャンバスを開いた瞬間の編集タブとカーソル**に固定（`anchorEditor` / `anchorPosition`）。閉じるまでに別グループがアクティブになっても、ユーザーが見ていた場所に入る。
    - カーソル位置に入れられないのは 2 通り: プリアンブル（`\begin{document}` 以前 → `\end{document}` 直前へ）と**図を入れられない環境の中**（tikzpicture・数式・verbatim 系 → その環境の直後へ）。`%% tex64-figure` の行は次の tikzpicture と 1 組として扱う。判定は `insert-plan.ts` の純関数。
    - 落とした場所は**必ず見せる**（`showInserted`）: カーソルをブロック内に移し、行を 2.2 秒光らせる（`.pro-canvas-inserted-line`）。移動したときだけ `revealLineInCenter` で強制的に中央へ送る。PNG 挿入も同じ経路。
-   - メタデータ行は消せない（シーン実体）ので**エディタ上だけ畳む**（`figure-meta-chip.ts`）。`inlineClassName` で base64 を `display:none`、`beforeContentClassName` の CSS `content` でチップを 1 個だけ出す。**`textContent` には残る**ので、検証は要素幅（隠し span の幅が 0）で見ること。
+   - メタデータ行は消せない（シーン実体）ので**エディタ上だけ畳む**（`figure-meta-chip.ts`）。`inlineClassName` で base64 を `display:none`、`beforeContentClassName` の CSS `content` でチップを 1 個だけ出す。**`textContent` には残る**ので、検証は要素幅（隠し span の幅が 0）で見ること。折り返し（wordWrap）を入れても 1 行のままなのは、Monaco が実描画幅で折り返しを決めるため。
+   - **グリッド吸着は磁石式**（`snapToGrid` の `pull`、既定 `GRID_PULL=.25`）。全点が格子に乗る絶対吸着だと「格子に沿わない線が引けない」になる。軸ごとに独立して判定する。Alt での一時解除はツールチップだけでなく**ヒントバーにも出す**（知られていなければ無いのと同じ）。ペンの Alt は角ノードなので吸着解除には使えない（意図的な例外）。
+   - `display: grid` のモーダルは、行トラックが `auto` のままだと **`max-height` を突き抜ける**（`auto` トラックは min-content より縮まない。中の要素に `min-height: 0` を書いても効かない）。伸びる行に `minmax(0, 1fr)` を与える。図ギャラリーがこれで「閉じる」ボタンごと画面外へ流れていた。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。

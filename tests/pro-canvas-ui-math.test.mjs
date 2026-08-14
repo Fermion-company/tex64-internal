@@ -24,6 +24,14 @@ test("grid snapping can be enabled or bypassed", () => {
   assert.deepEqual(snapToGrid({ x: 12.6, y: -7.4 }, 5, false), { x: 12.6, y: -7.4 });
 });
 
+test("磁石式の吸着は格子の近くだけ引き寄せ、軸ごとに独立して効く", () => {
+  // 5mm グリッド・pull .25 なら、格子から 1.25mm 以内だけ吸い付く。
+  assert.deepEqual(snapToGrid({ x: 11, y: 12.6 }, 5, true, 0.25), { x: 10, y: 12.6 });
+  assert.deepEqual(snapToGrid({ x: 13.75, y: 16.25 }, 5, true, 0.25), { x: 15, y: 15 });
+  // 既定（pull 1）は今まで通り常に最寄りの格子へ。
+  assert.deepEqual(snapToGrid({ x: 12.6, y: -7.4 }, 5, true, 1), { x: 15, y: -5 });
+});
+
 test("resize handles and affine point resize use scene coordinates", () => {
   const bounds = { minX: 10, minY: 20, maxX: 30, maxY: 60 };
   assert.deepEqual(resizeHandlePoint(bounds, "ne"), { x: 30, y: 60 });

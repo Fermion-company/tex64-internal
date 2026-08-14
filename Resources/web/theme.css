@@ -9079,8 +9079,11 @@ body:has(.pro-canvas-overlay) .pro-stash { display: none !important; }
 .pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; resize: vertical; }
 .pro-canvas-code-popover button { margin-right: 6px; }
 .pro-canvas-text-popover label, .pro-canvas-text-popover input { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
-.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); }
-.pro-canvas-gallery-list { display: grid; gap: 8px; overflow: auto; min-height: 0; }
+/* 一覧の行（auto トラック）は min-content より縮まないので、明示的に
+   minmax(0, 1fr) を与えないとカードの max-height を突き抜けて「閉じる」まで
+   画面外へ流れる。中身が伸びるのは真ん中の一覧だけ。 */
+.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); grid-template-rows: auto minmax(0, 1fr) auto; }
+.pro-canvas-gallery-list { display: grid; gap: 8px; align-content: start; overflow: auto; min-height: 0; }
 .pro-canvas-gallery-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 6px; }
 .pro-canvas-gallery-thumbnail { display: grid; place-items: center; width: 160px; min-height: 90px; overflow: hidden; color: var(--text-soft); background: white; }
 .pro-canvas-gallery-thumbnail img { display: block; max-width: 160px; max-height: 120px; }
