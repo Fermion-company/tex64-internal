@@ -244,6 +244,17 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
      数式ラップ（`y=x^2` が Missing $ でビルドを落とすのを防ぐ）。
    - 動的 title を持つボタン（⌨ トグル）にも `data-no-i18n`（i18n は title 属性も凍結する）。
 
+13. **スタイリング UX（H6, 2026-08-14）** — 塗り/編みかけ/グラデ/カラーウェル・矢印第一級化・複数選択スタイル適用（`docs/pro-canvas-h6-spec.md`, Codex 実装 + 監査2ラウンド）。恒久 gotcha:
+   - **TikZ の `crosshatch` は斜め格子**（NE+NW の重ね）。`grid` が縦横。実コンパイルで確認済み — プレビュー/アイコンを縦横にすると「選んだものと違うものが出る」。
+   - **下地色 + pattern の併用は `preaction={fill=...}`**。同一オプション列に `fill=` と `pattern=` を並べると pattern が fill を置き換えて下地が消える。
+   - shading 時のコマンドは draw なし → `\shade`、draw あり → `\draw[shade,...]`。`\fill`+`shade` は不可。fill は shading 時に出さない。
+   - **SVG プレビューは y 反転レイヤー内**なので `linearGradient` は `y1=0%→y2=100%` で stop0=bottom（objectBoundingBox の y0 が画面下）。`rotate(+angle)` が TikZ `shading angle` と一致（0°/45° を pdflatex と突き合わせ済み）。
+   - カラーポップオーバーは**インスペクタの左側**に開く（下に開くと後続のウェルを覆い、stopPropagation でクリックを食う「無反応 UI」になる）。
+   - ペン曲線の第1セグメントは c1 が始点と同一に退化する。**矢頭の接線は c1 → c2 → to のフォールバック**で取る（pgf と同じ）。
+   - undo/redo は `retainSelection()`（生存オブジェクトの選択を維持）。無条件 clearSelection に戻すと「戻して見比べる」のたびにパネルが消える。
+   - 塗りモード切替の設定は `fillMemory`（セッション内 Map）にスタッシュ。scene には残さない（emit 精度に影響させない）。
+   - 監査残（未対応・次スプリント候補）: 両端別チップの混在表示（中4）/ ポップ dismiss クリックの素通り（中7）/ 開いたパスへの塗り行表示（中9）/ プレビューとコンパイルのパターン密度差（軽微4）/ `rx`・`viewBox` のコンソールエラー原因未特定（軽微7）。
+
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
 - renderer のみの変更は Cmd+R で反映。main プロセス（`electron/*.cjs`）は Electron 再起動。
