@@ -8980,7 +8980,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-style-row .pro-canvas-segments { flex: 0 0 auto; }
 .pro-canvas-style { grid-template-columns: 1fr; }
 .pro-canvas-style-line, .pro-canvas-fill-seg, .pro-canvas-gradient-controls { display: flex; align-items: center; gap: 7px; grid-column: 1 / -1; }
-.pro-canvas-style-line > input { width: 58px !important; height: 28px; }
+.pro-canvas-style-line > input { width: 46px !important; height: 28px; }
+.pro-canvas-unit { margin-left: -3px; font-size: 10px; color: var(--text-soft); }
 .pro-canvas-style-line .pro-canvas-segments, .pro-canvas-fill-seg .pro-canvas-segments { margin-left: auto; }
 .pro-canvas-style .pro-canvas-segments button { display: grid; place-items: center; min-width: 29px; padding: 3px 6px; }
 .pro-canvas-style .pro-canvas-segments svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }

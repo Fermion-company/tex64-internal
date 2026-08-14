@@ -278,38 +278,49 @@ export const initProCanvasUi = (deps) => {
         finally {
             await ((_a = doc.destroy) === null || _a === void 0 ? void 0 : _a.call(doc));
         } };
-        const compileNow = async () => { if (!live || editingSymbolId || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
-            return; const sequence = ++compileSequence; setStatus("コンパイル中…"); const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
-            throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー"); return renderPdf(result.pdfBase64); }; try {
-            let image;
+        const compileNow = async () => {
+            if (!live || editingSymbolId || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
+                return;
+            const sequence = ++compileSequence;
+            setStatus("コンパイル中…"); // 初回は TeX エンジンの起動で 10 秒超かかる。無言で待たせず、何が起きているかを出す。
+            const slowNotice = setTimeout(() => { if (sequence === compileSequence)
+                setStatus(compiledImage ? "プレビューを更新中…" : "初回プレビューを準備中（TeX エンジンを起動しています）…"); }, 4000);
+            const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
+                throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー"); return renderPdf(result.pdfBase64); };
             try {
-                image = await run(docPreamble && Boolean(preamble));
-            }
-            catch (first) {
-                if (!docPreamble || !preamble)
-                    throw first;
-                const firstLine = first instanceof Error ? first.message.split(/\r?\n/)[0] : "コンパイルエラー";
-                image = await run(false);
+                let image;
+                try {
+                    image = await run(docPreamble && Boolean(preamble));
+                }
+                catch (first) {
+                    if (!docPreamble || !preamble)
+                        throw first;
+                    const firstLine = first instanceof Error ? first.message.split(/\r?\n/)[0] : "コンパイルエラー";
+                    image = await run(false);
+                    if (sequence !== compileSequence)
+                        return;
+                    compiledImage = image;
+                    setStatus(`プリアンブル起因のエラーの可能性: ${firstLine}`);
+                    render();
+                    return;
+                }
                 if (sequence !== compileSequence)
                     return;
                 compiledImage = image;
-                setStatus(`プリアンブル起因のエラーの可能性: ${firstLine}`);
+                setStatus("");
                 render();
-                return;
             }
-            if (sequence !== compileSequence)
-                return;
-            compiledImage = image;
-            setStatus("");
-            render();
-        }
-        catch (error) {
-            if (sequence !== compileSequence)
-                return;
-            compiledImage = null;
-            setStatus(error instanceof Error ? error.message.split(/\r?\n/)[0] : "コンパイルエラー", true);
-            render();
-        } };
+            catch (error) {
+                if (sequence !== compileSequence)
+                    return;
+                compiledImage = null;
+                setStatus(error instanceof Error ? error.message.split(/\r?\n/)[0] : "コンパイルエラー", true);
+                render();
+            }
+            finally {
+                clearTimeout(slowNotice);
+            }
+        };
         const scheduleCompile = () => { invalidateCompiled(); if (compileTimer)
             clearTimeout(compileTimer); if (live && !editingSymbolId)
             compileTimer = setTimeout(() => { compileTimer = null; void compileNow(); }, 600); };
@@ -730,8 +741,11 @@ export const initProCanvasUi = (deps) => {
         } pop.addEventListener("click", ev => { if (ev.target === pop)
             closeColorPop(); }); overlay.append(pop); colorPop = pop; const r = button.getBoundingClientRect(), pw = pop.offsetWidth || 202; let px = r.left - pw - 10; if (px < 8)
             px = Math.min(innerWidth - pw - 8, r.right + 10); pop.style.left = `${px}px`; pop.style.top = `${Math.max(8, Math.min(innerHeight - (pop.offsetHeight || 260) - 8, r.top - 6))}px`; }; wrap.append(button); return wrap; };
-        overlay.addEventListener("pointerdown", e => { if (colorPop && !colorPop.contains(e.target) && !e.target.closest(".pro-canvas-color-well"))
-            closeColorPop(); });
+        overlay.addEventListener("pointerdown", e => { if (!colorPop || colorPop.contains(e.target) || e.target.closest(".pro-canvas-color-well"))
+            return; closeColorPop(); if (e.target.closest(".pro-canvas-stage")) {
+            e.preventDefault();
+            e.stopPropagation();
+        } }, true);
         const renderInspector = () => {
             var _a, _b;
             const geometry = overlay.querySelector(".pro-canvas-geometry");
@@ -807,29 +821,38 @@ export const initProCanvasUi = (deps) => {
                 const line = document.createElement("div");
                 line.className = "pro-canvas-style-line";
                 line.append(colorWell("線", () => { var _a; return (_a = effective.draw) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).draw = v; }), true));
+                const widthUnit = document.createElement("span");
+                widthUnit.className = "pro-canvas-unit";
+                widthUnit.textContent = "pt";
                 const width = document.createElement("input");
                 width.type = "number";
                 width.min = "0";
                 width.step = "0.2";
                 width.value = String((_b = effective.lineWidthPt) !== null && _b !== void 0 ? _b : .4);
-                width.title = "線幅";
+                width.title = "線幅 (pt)";
                 width.dataset.noI18n = "";
                 width.onchange = () => apply("lineWidthPt", Math.max(0, Number(width.value) || 0));
-                line.append(width, seg(effective.dash || "solid", [["solid", "実線", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["dashed", "破線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="4 2"/>'], ["dotted", "点線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="1 2"/>']], v => apply("dash", v)));
+                line.append(width, widthUnit, seg(effective.dash || "solid", [["solid", "実線", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["dashed", "破線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="4 2"/>'], ["dotted", "点線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="1 2"/>']], v => apply("dash", v)));
                 host.append(line);
                 const paths = targets.filter((t) => t.type === "path");
                 if (paths.length) {
-                    const first = resolveStyle(scene, paths[0].style), shape = first.arrowStart || first.arrowEnd || "Stealth", arrowRow = document.createElement("div");
+                    const first = resolveStyle(scene, paths[0].style), mixedTips = Boolean(first.arrowStart && first.arrowEnd && first.arrowStart !== first.arrowEnd), shape = first.arrowStart || first.arrowEnd || "Stealth", arrowRow = document.createElement("div");
                     arrowRow.className = "pro-canvas-style-row";
                     const state = first.arrowStart && first.arrowEnd ? "both" : first.arrowStart ? "start" : first.arrowEnd ? "end" : "none", arrowIcon = '<line x1="2" y1="8" x2="14" y2="8"/><path d="M11 5l3 3-3 3"/>';
                     const select = document.createElement("select");
                     ["Stealth", "Latex", "Bar"].forEach(v => select.add(new Option(v, v)));
-                    select.value = shape;
-                    select.onchange = () => { if (state === "none")
+                    if (mixedTips) {
+                        const option = new Option("混在", "__mixed");
+                        select.add(option, 0);
+                    }
+                    select.value = mixedTips ? "__mixed" : shape;
+                    select.title = mixedTips ? "始点と終点で矢頭が異なります（選ぶと両端に適用）" : "矢頭の形";
+                    select.dataset.noI18n = "";
+                    select.onchange = () => { if (state === "none" || select.value === "__mixed")
                         return; snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); if (props.arrowStart)
                         props.arrowStart = select.value; if (props.arrowEnd)
                         props.arrowEnd = select.value; }); render(); scheduleCompile(); };
-                    arrowRow.append(document.createTextNode("矢印"), seg(state, [["none", "—", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["end", "→", arrowIcon], ["start", "←", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3"/>'], ["both", "↔", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3M11 5l3 3-3 3"/>']], v => { const tip = (select.value || "Stealth"); snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); props.arrowStart = v === "start" || v === "both" ? tip : ""; props.arrowEnd = v === "end" || v === "both" ? tip : ""; }); render(); scheduleCompile(); }), select);
+                    arrowRow.append(document.createTextNode("矢印"), seg(state, [["none", "—", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["end", "→", arrowIcon], ["start", "←", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3"/>'], ["both", "↔", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3M11 5l3 3-3 3"/>']], v => { const tip = (select.value === "__mixed" ? shape : select.value || "Stealth"); snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); props.arrowStart = v === "start" || v === "both" ? tip : ""; props.arrowEnd = v === "end" || v === "both" ? tip : ""; }); render(); scheduleCompile(); }), select);
                     host.append(arrowRow);
                 }
                 const mode = effective.shading ? "gradient" : effective.pattern ? "pattern" : effective.fill ? "solid" : "none", fillSeg = document.createElement("div");
@@ -1716,7 +1739,10 @@ export const initProCanvasUi = (deps) => {
                     return;
                 }
                 if (pen) {
+                    if (!pen.segments.length)
+                        removeById(currentObjects(), pen.id);
                     pen = null;
+                    clearSelection();
                     render();
                     return;
                 }
@@ -1739,7 +1765,10 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             if (e.key === "Enter" && pen) {
+                if (!pen.segments.length)
+                    removeById(currentObjects(), pen.id);
                 pen = null;
+                clearSelection();
                 render();
                 return;
             }

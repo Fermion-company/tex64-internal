@@ -158,7 +158,7 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="5" width="18" height="14" rx="2"></rect>
               <path d="M3 15h18"></path>
-              <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="0 0 2 2" fill="currentColor" opacity="0.35"></rect>
+              <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
           <button
@@ -1863,10 +1863,10 @@
       </div>
     </div>
 
-    <script>window.MATHLIVE_LOAD_ERROR = null;</script>
+    <script src="./vendor/mathlive-boot.js"></script>
     <script src="./vendor/marked.umd.js"></script>
     <script src="./vendor/katex.min.js"></script>
-    <script src="./mathlive/mathlive.min.js" onload="window.dispatchEvent(new Event('mathlive-ready'))" onerror="window.MATHLIVE_LOAD_ERROR = 'Script load failed'"></script>
+    <script src="./mathlive/mathlive.min.js"></script>
     <!-- Load xterm before Monaco's AMD loader: its UMD wrapper prefers AMD
          `define` when present, which would skip the window globals we rely on. -->
     <script src="./vendor/xterm.js"></script>
