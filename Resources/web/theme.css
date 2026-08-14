@@ -8975,7 +8975,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-chip { padding: 4px 9px !important; border-radius: 999px !important; font-size: 11px; }
 .pro-canvas-chip.is-active { border-color: var(--accent); color: var(--accent); }
 .pro-canvas-project-chip { opacity: .72; }
-.pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
+.pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 5px 0; }
+.pro-canvas-style-row select { width: 68px; flex: 0 0 auto; min-width: 0; }
+.pro-canvas-style-row .pro-canvas-segments { flex: 0 0 auto; }
 .pro-canvas-style { grid-template-columns: 1fr; }
 .pro-canvas-style-line, .pro-canvas-fill-seg, .pro-canvas-gradient-controls { display: flex; align-items: center; gap: 7px; grid-column: 1 / -1; }
 .pro-canvas-style-line > input { width: 58px !important; height: 28px; }
