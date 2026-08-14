@@ -1,3 +1,8 @@
+const {
+  looksBinary,
+  MAX_EXTENDED_TEXT_FILE_BYTES,
+} = require("../../services/text-file-types.cjs");
+
 const createWorkspaceFileHandlers = (ctx) => {
   const {
     fs,
@@ -12,6 +17,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     IMAGE_MIME_TYPES,
     getFileExtension,
     isTextFilePath,
+    isExtendedTextFilePath,
     isImageFilePath,
     isPdfFilePath,
 
@@ -56,8 +62,28 @@ const createWorkspaceFileHandlers = (ctx) => {
         });
         return;
       }
-      if (!isTextFilePath(relativePath)) {
+      if (!isTextFilePath(relativePath) && !isExtendedTextFilePath(relativePath)) {
         sendToRenderer("openFileResult", { path: relativePath, kind: "unsupported" });
+        return;
+      }
+      if (isExtendedTextFilePath(relativePath) && !isTextFilePath(relativePath)) {
+        const data = await workspace.readBinaryFile(relativePath);
+        if (data.length > MAX_EXTENDED_TEXT_FILE_BYTES) {
+          sendToRenderer("openFileResult", {
+            path: relativePath,
+            error: "File is too large to open in the editor (max 10MB).",
+          });
+          return;
+        }
+        if (looksBinary(data)) {
+          sendToRenderer("openFileResult", { path: relativePath, kind: "unsupported" });
+          return;
+        }
+        sendToRenderer("openFileResult", {
+          path: relativePath,
+          content: data.toString("utf8"),
+          kind: "text",
+        });
         return;
       }
       const content = await workspace.readFile(relativePath);
@@ -137,7 +163,7 @@ const createWorkspaceFileHandlers = (ctx) => {
       return;
     }
     await updateWorkspaceIfNeeded(rootPath);
-    if (!isTextFilePath(relativePath)) {
+    if (!isTextFilePath(relativePath) && !isExtendedTextFilePath(relativePath)) {
       sendToRenderer("file:excerptResult", {
         requestId,
         ok: false,

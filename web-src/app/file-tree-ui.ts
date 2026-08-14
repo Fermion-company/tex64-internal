@@ -577,6 +577,24 @@ export const initFileTreeUi = (
     { type: "separator" },
     {
       type: "action",
+      label: uiText("Copy relative path", "相対パスをコピー"),
+      action: () => navigator.clipboard.writeText(path).then(() => {}, () => {}),
+    },
+    {
+      type: "action",
+      label: uiText("Copy absolute path", "絶対パスをコピー"),
+      enabled: Boolean(deps.getWorkspaceRootKey()),
+      action: () => {
+        const root = deps.getWorkspaceRootKey();
+        if (!root) return;
+        navigator.clipboard
+          .writeText(`${root.replace(/\/+$/, "")}/${path}`)
+          .then(() => {}, () => {});
+      },
+    },
+    { type: "separator" },
+    {
+      type: "action",
       label: uiText("Rename...", "名前の変更..."),
       action: () => openRenameModal(path, "file"),
     },
@@ -616,6 +634,24 @@ export const initFileTreeUi = (
       type: "action",
       label: uiText("Open in terminal", "open in terminal"),
       action: () => requestOpenInTerminal(path),
+    },
+    { type: "separator" },
+    {
+      type: "action",
+      label: uiText("Copy relative path", "相対パスをコピー"),
+      action: () => navigator.clipboard.writeText(path).then(() => {}, () => {}),
+    },
+    {
+      type: "action",
+      label: uiText("Copy absolute path", "絶対パスをコピー"),
+      enabled: Boolean(deps.getWorkspaceRootKey()),
+      action: () => {
+        const root = deps.getWorkspaceRootKey();
+        if (!root) return;
+        navigator.clipboard
+          .writeText(`${root.replace(/\/+$/, "")}/${path}`)
+          .then(() => {}, () => {});
+      },
     },
     { type: "separator" },
     {

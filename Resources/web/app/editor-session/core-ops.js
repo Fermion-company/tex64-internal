@@ -1,4 +1,4 @@
-import { isTextFilePath } from "../files.js";
+import { isEditableTextFilePath } from "../files.js";
 export const createEditorSessionCoreOps = (runtime) => {
     const getEditorGroup = (key) => runtime.editorGroups[key];
     const getActiveGroup = () => runtime.editorGroups[runtime.state.activeEditorGroup];
@@ -7,7 +7,7 @@ export const createEditorSessionCoreOps = (runtime) => {
     const getActiveFileSnapshot = () => {
         var _a, _b, _c, _d, _e;
         const group = getActiveGroup();
-        if (!group.currentFilePath || !isTextFilePath(group.currentFilePath)) {
+        if (!group.currentFilePath || !isEditableTextFilePath(group.currentFilePath)) {
             return null;
         }
         const entry = runtime.monacoModels.get(group.currentFilePath);
@@ -21,7 +21,7 @@ export const createEditorSessionCoreOps = (runtime) => {
     const getActiveSelectionSnapshot = () => {
         var _a, _b, _c, _d, _e, _f, _g, _h;
         const group = getActiveGroup();
-        if (!group.currentFilePath || !isTextFilePath(group.currentFilePath) || !group.editor) {
+        if (!group.currentFilePath || !isEditableTextFilePath(group.currentFilePath) || !group.editor) {
             return null;
         }
         const editorAny = group.editor;
@@ -135,7 +135,7 @@ export const createEditorSessionCoreOps = (runtime) => {
         const snapshots = [];
         const pushSnapshot = (path, isDirty) => {
             var _a, _b, _c, _d, _e;
-            if (snapshots.length >= maxFiles || !isTextFilePath(path)) {
+            if (snapshots.length >= maxFiles || !isEditableTextFilePath(path)) {
                 return;
             }
             const entry = runtime.monacoModels.get(path);

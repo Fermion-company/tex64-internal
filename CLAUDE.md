@@ -46,11 +46,15 @@ npm run mathlive:rebuild # MathLive fork を clean → build（fork を触った
 npm run texlab:fetch     # texlab バイナリを取得（sha256 ピン留め）
 npm run electron:dist:mac# macOS 配布物（.dmg）をパッケージ
 
+npm run deploy:local     # 本番と同じ .app をビルド → /Applications/TeX64.app を差し替え（起動中なら再起動）
+npm run deploy:hooks     # 上記を commit ごとに自動実行する post-commit フックを入れる（解除は deploy:hooks:remove）
+
 node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 ```
 
 - テストは `node:test`。`tests/` 直下の単体に加え `tests/e2e/`・`tests/nightly/` がある。
 - ロジック変更は `node:test` で担保できる。UI の見た目は別（後述「検証」）。
+- ローカル配備（`scripts/install-local-app.cjs`）: dmg と同じバンドル（`electron-builder --dir`）を作り、Developer ID が無いのでプロダクションと同じ entitlements で ad-hoc 署名してから `/Applications` へ差し替える。フックは detached 実行なので commit は待たされない。ログは `~/Library/Logs/tex64-local-deploy.log`、1回だけ止めるなら `TEX64_SKIP_LOCAL_DEPLOY=1 git commit …`。docs/tests など**パッケージに入らないパスだけの commit ではビルドしない**。
 
 ---
 

@@ -1,6 +1,7 @@
-import { isImageFilePath, isPdfFilePath, isTextFilePath } from "./files.js";
+import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isProTextFilePath, isTextFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
-import { getUiLocale } from "./i18n.js";
+import { getUiLocale, uiText } from "./i18n.js";
+const isProModeActive = () => document.documentElement.dataset.appMode === "pro";
 export const createEditorSessionFileOps = (ctx) => {
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     /**
@@ -76,8 +77,11 @@ export const createEditorSessionFileOps = (ctx) => {
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
         group.currentFileSavedContent = null;
-        group.isDirty = false;
-        dirtyFiles.delete(path);
+        const keepDirty = isEditableTextFilePath(path) && dirtyFiles.has(path);
+        group.isDirty = keepDirty;
+        if (!keepDirty) {
+            dirtyFiles.delete(path);
+        }
         addOpenTab(group, path);
         deps.editorTabs.render(group);
         if (isActiveGroup(group)) {
@@ -94,7 +98,10 @@ export const createEditorSessionFileOps = (ctx) => {
             state.pendingReveal.group === group.key) {
             state.pendingReveal = null;
         }
-        group.viewer.showUnsupportedViewer();
+        const hint = isProTextFilePath(path) && !isProModeActive()
+            ? uiText("Switch to Pro mode to open this file in the editor.", "Pro モードに切り替えるとエディタで開けます。")
+            : undefined;
+        group.viewer.showUnsupportedViewer(hint);
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
             deps.fileTree.setTreeFocus(false);
@@ -326,7 +333,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 ? groupKey
                 : existingGroupKey !== null && existingGroupKey !== void 0 ? existingGroupKey : resolveAutoOpenGroupKey(groupKey);
         const group = getEditorGroup(resolvedGroupKey);
-        if (group.currentFilePath === path) {
+        if (group.currentFilePath === path && group.viewer.getViewerMode() !== "unsupported") {
             return false;
         }
         // Always cache buffer immediately (preserves IME composition text)
@@ -350,7 +357,7 @@ export const createEditorSessionFileOps = (ctx) => {
     const saveCurrentFileInternal = () => {
         const activeGroup = getActiveGroup();
         const activePath = activeGroup.currentFilePath;
-        if (!activePath || !activeGroup.editor || !isTextFilePath(activePath)) {
+        if (!activePath || !activeGroup.editor || !isEditableTextFilePath(activePath)) {
             const message = activePath
                 ? "This file format cannot be edited."
                 : "No files have been selected to save.";
@@ -414,7 +421,7 @@ export const createEditorSessionFileOps = (ctx) => {
         });
     };
     const saveDirtyFiles = async () => {
-        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isTextFilePath(path));
+        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
         if (dirtyPaths.length === 0) {
             return true;
         }
@@ -565,13 +572,18 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const path = payload.path;
-        const kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+        let kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
             ? "pdf"
             : isImageFilePath(path)
                 ? "image"
-                : isTextFilePath(path)
+                : isTextFilePath(path) || isProTextFilePath(path)
                     ? "text"
                     : "unsupported");
+        if (kind === "text" &&
+            !isTextFilePath(path) &&
+            (!isProTextFilePath(path) || !isProModeActive())) {
+            kind = "unsupported";
+        }
         if (pendingIndex < 0) {
             if (kind === "pdf") {
                 setSplitViewEnabled(true);

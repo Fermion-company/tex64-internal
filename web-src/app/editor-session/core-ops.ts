@@ -1,4 +1,4 @@
-import { isTextFilePath } from "../files.js";
+import { isEditableTextFilePath } from "../files.js";
 import type {
   EditorGroupKey,
   EditorGroupState,
@@ -48,7 +48,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
 
   const getActiveFileSnapshot = () => {
     const group = getActiveGroup();
-    if (!group.currentFilePath || !isTextFilePath(group.currentFilePath)) {
+    if (!group.currentFilePath || !isEditableTextFilePath(group.currentFilePath)) {
       return null;
     }
     const entry = runtime.monacoModels.get(group.currentFilePath);
@@ -62,7 +62,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
 
   const getActiveSelectionSnapshot = () => {
     const group = getActiveGroup();
-    if (!group.currentFilePath || !isTextFilePath(group.currentFilePath) || !group.editor) {
+    if (!group.currentFilePath || !isEditableTextFilePath(group.currentFilePath) || !group.editor) {
       return null;
     }
     const editorAny = group.editor as {
@@ -212,7 +212,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
       contentLength: number;
     }> = [];
     const pushSnapshot = (path: string, isDirty: boolean) => {
-      if (snapshots.length >= maxFiles || !isTextFilePath(path)) {
+      if (snapshots.length >= maxFiles || !isEditableTextFilePath(path)) {
         return;
       }
       const entry = runtime.monacoModels.get(path);
@@ -285,4 +285,3 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
     scheduleEditorLayout,
   };
 };
-

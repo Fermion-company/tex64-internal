@@ -144,7 +144,7 @@ export const createViewer = (deps: ViewerDeps) => {
     setViewerMode("hidden");
   };
 
-  const showUnsupportedViewer = () => {
+  const showUnsupportedViewer = (hint?: string) => {
     clearViewerUrl();
     if (deps.editorViewerImage instanceof HTMLImageElement) {
       deps.editorViewerImage.removeAttribute("src");
@@ -156,6 +156,20 @@ export const createViewer = (deps: ViewerDeps) => {
     pendingPdfOpen = null;
     pendingPdfSync = null;
     pdfViewerPath = null;
+    if (deps.editorViewer instanceof HTMLElement) {
+      const message = deps.editorViewer.querySelector<HTMLElement>(".editor-viewer-message");
+      const existingHint = message?.querySelector<HTMLElement>(".editor-viewer-hint");
+      if (hint && message) {
+        const hintElement = existingHint ?? document.createElement("p");
+        hintElement.className = "editor-viewer-hint";
+        hintElement.textContent = hint;
+        if (!existingHint) {
+          message.appendChild(hintElement);
+        }
+      } else {
+        existingHint?.remove();
+      }
+    }
     setViewerMode("unsupported");
     blurActiveElement();
   };

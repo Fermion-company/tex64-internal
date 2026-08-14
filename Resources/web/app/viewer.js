@@ -117,7 +117,7 @@ export const createViewer = (deps) => {
         pdfViewerPath = null;
         setViewerMode("hidden");
     };
-    const showUnsupportedViewer = () => {
+    const showUnsupportedViewer = (hint) => {
         clearViewerUrl();
         if (deps.editorViewerImage instanceof HTMLImageElement) {
             deps.editorViewerImage.removeAttribute("src");
@@ -129,6 +129,21 @@ export const createViewer = (deps) => {
         pendingPdfOpen = null;
         pendingPdfSync = null;
         pdfViewerPath = null;
+        if (deps.editorViewer instanceof HTMLElement) {
+            const message = deps.editorViewer.querySelector(".editor-viewer-message");
+            const existingHint = message === null || message === void 0 ? void 0 : message.querySelector(".editor-viewer-hint");
+            if (hint && message) {
+                const hintElement = existingHint !== null && existingHint !== void 0 ? existingHint : document.createElement("p");
+                hintElement.className = "editor-viewer-hint";
+                hintElement.textContent = hint;
+                if (!existingHint) {
+                    message.appendChild(hintElement);
+                }
+            }
+            else {
+                existingHint === null || existingHint === void 0 ? void 0 : existingHint.remove();
+            }
+        }
         setViewerMode("unsupported");
         blurActiveElement();
     };
