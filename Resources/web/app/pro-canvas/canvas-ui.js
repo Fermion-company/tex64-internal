@@ -700,6 +700,7 @@ export const initProCanvasUi = (deps) => {
             scheduleCompile();
         };
         const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        let stageObserver = null;
         let colorPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
         const fillMemory = new Map();
@@ -974,6 +975,9 @@ export const initProCanvasUi = (deps) => {
         };
         const render = () => {
             var _a, _b;
+            // 閉じた直後や幅ゼロのときに描くと viewBox が NaN、プロット座標が ±Infinity になる。
+            if (!stage.isConnected || stage.clientWidth < 1 || stage.clientHeight < 1)
+                return;
             svg.replaceChildren();
             const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom;
             const visibleW = stage.clientWidth / scale, visibleH = stage.clientHeight / scale;
@@ -1672,7 +1676,7 @@ export const initProCanvasUi = (deps) => {
             svg.style.cursor = "default";
             render();
         } });
-        const close = () => { window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
+        const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
             clearTimeout(compileTimer); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); if (wheelUndoTimer)
             clearTimeout(wheelUndoTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
@@ -2141,7 +2145,8 @@ export const initProCanvasUi = (deps) => {
             render();
             return;
         } const width = Math.max(bounds.maxX - bounds.minX, .01), height = Math.max(bounds.maxY - bounds.minY, .01), base = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height); zoom = Math.max(.25, Math.min(4, .7 * Math.min(stage.clientWidth / (width * base), stage.clientHeight / (height * base)))); const scale = base * zoom; panX = (scene.width / 2 - (bounds.minX + bounds.maxX) / 2) * scale; panY = ((bounds.minY + bounds.maxY) / 2 - scene.height / 2) * scale; render(); });
-        new ResizeObserver(render).observe(stage);
+        stageObserver = new ResizeObserver(render);
+        stageObserver.observe(stage);
         render();
         scheduleCompile();
         void loadProjectContext();

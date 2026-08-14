@@ -9,17 +9,22 @@ export const initMathLive = (context, deps) => {
     // MathLive handles math input in Latin script regardless of UI locale.
     const resolveMathLiveLocale = () => "en";
     const applyMathfieldLocale = (mathfield) => {
+        var _a;
         if (!(mathfield instanceof HTMLElement)) {
             return;
         }
         const locale = resolveMathLiveLocale();
         mathfield.setAttribute("lang", locale);
         try {
-            if (typeof mathfield.setOptions === "function") {
-                mathfield.setOptions({ locale });
+            const constructor = ((_a = mathfield.constructor) !== null && _a !== void 0 ? _a : {});
+            if ("locale" in constructor) {
+                constructor.locale = locale;
             }
             else if ("locale" in mathfield) {
                 mathfield.locale = locale;
+            }
+            else if (typeof mathfield.setOptions === "function") {
+                mathfield.setOptions({ locale });
             }
         }
         catch {
@@ -31,7 +36,7 @@ export const initMathLive = (context, deps) => {
         applyMathfieldLocale(currentMathfield);
     });
     const setupMathField = async () => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         if (setupInFlight) {
             return;
         }
@@ -295,14 +300,46 @@ export const initMathLive = (context, deps) => {
                     }
                 }
             }
-            if (typeof mathfield.setOptions === "function") {
+            // Newer MathLive exposes these as plain properties and logs a deprecation
+            // warning for every setOptions key, so prefer the property path and keep
+            // setOptions only as the fallback for older builds.
+            // Inline shortcuts stay empty on purpose: typed text must never be
+            // auto-replaced, the WYSIWYG suggestion system inserts commands itself.
+            const supportsDirectOptions = "smartMode" in mathfield;
+            if (supportsDirectOptions) {
+                const mf = mathfield;
+                const constructor = ((_b = mathfield.constructor) !== null && _b !== void 0 ? _b : {});
+                const assign = (target, key, value) => {
+                    try {
+                        if (key in target)
+                            target[key] = value;
+                    }
+                    catch {
+                        // ignore per-option setter failures
+                    }
+                };
+                assign(mf, "smartMode", false);
+                assign(mf, "smartFence", false);
+                assign(mf, "defaultMode", "math");
+                assign(mf, "inlineShortcuts", {});
+                assign(mf, "onInlineShortcut", () => "");
+                assign(mf, "inlineShortcutTimeout", 0);
+                assign(mf, "mathVirtualKeyboardPolicy", "manual");
+                assign(constructor, "fontsDirectory", "mathlive/fonts");
+                assign(constructor, "soundsDirectory", null);
+                assign(constructor, "locale", resolveMathLiveLocale());
+                const keyboard = window
+                    .mathVirtualKeyboard;
+                if (keyboard) {
+                    assign(keyboard, "keypressSound", null);
+                    assign(keyboard, "plonkSound", null);
+                }
+            }
+            else if (typeof mathfield.setOptions === "function") {
                 mathfield.setOptions({
                     smartMode: false,
                     smartFence: false,
                     defaultMode: "math",
-                    // Disable ALL inline shortcuts so that typed text is never
-                    // auto-replaced by MathLive's shortcut engine.  The WYSIWYG
-                    // suggestion system handles command insertion explicitly.
                     inlineShortcuts: {},
                     onInlineShortcut: () => "",
                     inlineShortcutTimeout: 0,
@@ -331,7 +368,7 @@ export const initMathLive = (context, deps) => {
             try {
                 if ("macros" in mathfield) {
                     mathfield.macros = {
-                        ...((_b = mathfield.macros) !== null && _b !== void 0 ? _b : {}),
+                        ...((_c = mathfield.macros) !== null && _c !== void 0 ? _c : {}),
                         mathds: { def: "\\mathbb{#1}", args: 1 },
                     };
                 }
@@ -441,7 +478,7 @@ export const initMathLive = (context, deps) => {
                             .filter(Boolean);
                         return cleanDividers(filtered);
                     };
-                    const currentMenuItems = (_c = mathfield.menuItems) !== null && _c !== void 0 ? _c : [];
+                    const currentMenuItems = (_d = mathfield.menuItems) !== null && _d !== void 0 ? _d : [];
                     mathfield.menuItems = filterMenuItems(currentMenuItems);
                 }
             }
@@ -590,7 +627,7 @@ export const initMathLive = (context, deps) => {
             // Try immediate injection first, then retry after a frame in case the
             // shadowRoot isn't available yet (custom element upgrade timing).
             injectStyles();
-            if (!((_d = mathfield.shadowRoot) === null || _d === void 0 ? void 0 : _d.querySelector("style[data-tex64-style]"))) {
+            if (!((_e = mathfield.shadowRoot) === null || _e === void 0 ? void 0 : _e.querySelector("style[data-tex64-style]"))) {
                 requestAnimationFrame(() => {
                     var _a;
                     injectStyles();

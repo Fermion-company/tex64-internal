@@ -48,10 +48,13 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
     const locale = resolveMathLiveLocale();
     mathfield.setAttribute("lang", locale);
     try {
-      if (typeof mathfield.setOptions === "function") {
-        mathfield.setOptions({ locale });
+      const constructor = (mathfield.constructor ?? {}) as Record<string, unknown>;
+      if ("locale" in constructor) {
+        constructor.locale = locale;
       } else if ("locale" in mathfield) {
         mathfield.locale = locale;
+      } else if (typeof mathfield.setOptions === "function") {
+        mathfield.setOptions({ locale });
       }
     } catch {
       // ignore locale update failures
@@ -366,14 +369,43 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
         }
       }
 
-      if (typeof mathfield.setOptions === "function") {
+      // Newer MathLive exposes these as plain properties and logs a deprecation
+      // warning for every setOptions key, so prefer the property path and keep
+      // setOptions only as the fallback for older builds.
+      // Inline shortcuts stay empty on purpose: typed text must never be
+      // auto-replaced, the WYSIWYG suggestion system inserts commands itself.
+      const supportsDirectOptions = "smartMode" in mathfield;
+      if (supportsDirectOptions) {
+        const mf = mathfield as unknown as Record<string, unknown>;
+        const constructor = (mathfield.constructor ?? {}) as Record<string, unknown>;
+        const assign = (target: Record<string, unknown>, key: string, value: unknown) => {
+          try {
+            if (key in target) target[key] = value;
+          } catch {
+            // ignore per-option setter failures
+          }
+        };
+        assign(mf, "smartMode", false);
+        assign(mf, "smartFence", false);
+        assign(mf, "defaultMode", "math");
+        assign(mf, "inlineShortcuts", {});
+        assign(mf, "onInlineShortcut", () => "");
+        assign(mf, "inlineShortcutTimeout", 0);
+        assign(mf, "mathVirtualKeyboardPolicy", "manual");
+        assign(constructor, "fontsDirectory", "mathlive/fonts");
+        assign(constructor, "soundsDirectory", null);
+        assign(constructor, "locale", resolveMathLiveLocale());
+        const keyboard = (window as unknown as { mathVirtualKeyboard?: Record<string, unknown> })
+          .mathVirtualKeyboard;
+        if (keyboard) {
+          assign(keyboard, "keypressSound", null);
+          assign(keyboard, "plonkSound", null);
+        }
+      } else if (typeof mathfield.setOptions === "function") {
         mathfield.setOptions({
           smartMode: false,
           smartFence: false,
           defaultMode: "math",
-          // Disable ALL inline shortcuts so that typed text is never
-          // auto-replaced by MathLive's shortcut engine.  The WYSIWYG
-          // suggestion system handles command insertion explicitly.
           inlineShortcuts: {},
           onInlineShortcut: () => "",
           inlineShortcutTimeout: 0,
