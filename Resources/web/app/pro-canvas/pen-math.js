@@ -1,3 +1,20 @@
+/**
+ * 既存の開いたパスの続きを描くための、末尾アンカーの疑似ノード。
+ * 最後のセグメントの出ハンドルを鏡写しにして持たせることで、続きが
+ * 折れずに繋がる（直線で終わっているパスは角として続ける）。
+ * 既存セグメントには触らない（append 専用）ので、元の曲線は歪まない。
+ */
+export const penSeedFromEnd = (path) => {
+    const last = path.segments[path.segments.length - 1];
+    if (!last)
+        return { p: { ...path.start }, kind: "corner", out: null };
+    if (last.type !== "cubic")
+        return { p: { ...last.to }, kind: "corner", out: null };
+    const out = { x: last.to.x - last.c2.x, y: last.to.y - last.c2.y };
+    return Math.hypot(out.x, out.y) < 1e-9
+        ? { p: { ...last.to }, kind: "corner", out: null }
+        : { p: { ...last.to }, kind: "manual", out };
+};
 export const penSegmentFor = (prev, lastOut, anchor, handle) => {
     var _a, _b, _c, _d;
     if (!lastOut && !handle)

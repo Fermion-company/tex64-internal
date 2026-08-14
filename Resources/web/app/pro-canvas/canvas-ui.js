@@ -5,7 +5,7 @@ import { planBodyInsert, planFigureInsert } from "./insert-plan.js";
 import { generateTikz } from "./tikz-generate.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
-import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, mirrorInstanceTransform, nearestOnPath, pathTightPoints, removeAnchor, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
+import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, mirrorInstanceTransform, nearestOnPath, pathTightPoints, removeAnchor, reversePath, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
@@ -13,7 +13,7 @@ import { importSvg } from "./svg-import.js";
 import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
 import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
-import { buildPenSegments } from "./pen-math.js";
+import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
 import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } from "./arrow-math.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
@@ -382,6 +382,8 @@ export const initProCanvasUi = (deps) => {
             queueMicrotask(scheduleCompile); };
         const view = () => { const r = svg.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, sceneWidth: scene.width, sceneHeight: scene.height, zoom, panX, panY }; };
         const rawPoint = (event) => screenToScene({ x: event.clientX, y: event.clientY }, view());
+        /** シーン単位あたりの画面 px。当たり判定の「画面上 N px」をシーン単位に直すのに使う。 */
+        const scaleFactor = () => Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom || 1;
         const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
         const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
@@ -1082,7 +1084,7 @@ export const initProCanvasUi = (deps) => {
             selectedAnchorIndex = Math.max(0, Math.min(selectedAnchorIndex, one.closed ? one.segments.length - 1 : one.segments.length));
         };
         const render = () => {
-            var _a, _b;
+            var _a, _b, _c, _d;
             syncAnchorEdit();
             if (tool !== "select")
                 svg.style.cursor = "crosshair";
@@ -1263,16 +1265,16 @@ export const initProCanvasUi = (deps) => {
                     let segs = object.segments, closedNow = object.closed;
                     if (pen && pen.path.id === object.id && !object.closed) {
                         if (penDrag)
-                            segs = buildPenSegments([...pen.nodes, { p: { ...penDrag.anchor }, kind: penDrag.handle ? "manual" : "auto", out: penDrag.handle ? { ...penDrag.handle } : null }], false);
+                            segs = penSegments([...pen.nodes, { p: { ...penDrag.anchor }, kind: penDrag.handle ? "manual" : "auto", out: penDrag.handle ? { ...penDrag.handle } : null }], false);
                         else if (penCursor) {
                             const closing = pen.nodes.length >= 2 && object.segments.length > 0 && Math.hypot(penCursor.x - object.start.x, penCursor.y - object.start.y) < scene.grid.size * .4;
                             const lastP = pen.nodes[pen.nodes.length - 1].p;
                             if (closing) {
-                                segs = buildPenSegments(pen.nodes, true);
+                                segs = penSegments(pen.nodes, true);
                                 closedNow = true;
                             }
                             else if (Math.hypot(penCursor.x - lastP.x, penCursor.y - lastP.y) > 1e-9)
-                                segs = buildPenSegments([...pen.nodes, { p: { ...penCursor }, kind: "auto", out: null }], false);
+                                segs = penSegments([...pen.nodes, { p: { ...penCursor }, kind: "auto", out: null }], false);
                         }
                     }
                     pathShape = { start: object.start, segments: segs, closed: closedNow };
@@ -1347,12 +1349,17 @@ export const initProCanvasUi = (deps) => {
                     smart.append(svgEl("line", { x1: 0, y1: drag.guides.y, x2: scene.width, y2: drag.guides.y }));
                 root.append(smart);
             }
-            if (pen) {
-                const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), path = pen.path, points = [path.start, ...path.segments.map(s => s.to)], close = penCursor && Math.hypot(penCursor.x - path.start.x, penCursor.y - path.start.y) < scene.grid.size * .4;
+            if (pen || penDrag || (tool === "pen" && penCursor)) {
+                const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), path = pen === null || pen === void 0 ? void 0 : pen.path, points = path ? [path.start, ...path.segments.map(s => s.to)] : [], close = Boolean(pen && penCursor && path && path.segments.length && Math.hypot(penCursor.x - path.start.x, penCursor.y - path.start.y) < scene.grid.size * .4);
                 points.forEach((point, index) => penLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: (index === 0 && close ? 4.5 : 3) / scale, class: `pro-canvas-pen-anchor${index === 0 && close ? " is-close" : ""}` })));
+                // 次のアンカーが落ちる位置（＝いまの終端）は、ドラッグ前でも点線の丸で予告する。
+                if (penCursor && !penDrag && !close) {
+                    const resuming = Boolean(penResume && !pen), target = resuming ? penResume.point : penCursor;
+                    penLayer.append(svgEl("circle", { cx: target.x, cy: target.y, r: (resuming ? 5.5 : 4) / scale, class: `pro-canvas-pen-ghost${resuming ? " is-resume" : ""}` }));
+                }
                 const committed = svgEl("g", { class: "pro-canvas-pen-committed" });
-                let prevAnchor = path.start;
-                path.segments.forEach(seg => { if (seg.type === "cubic")
+                let prevAnchor = (_a = path === null || path === void 0 ? void 0 : path.start) !== null && _a !== void 0 ? _a : { x: 0, y: 0 };
+                ((_b = path === null || path === void 0 ? void 0 : path.segments) !== null && _b !== void 0 ? _b : []).forEach(seg => { if (seg.type === "cubic")
                     [[prevAnchor, seg.c1], [seg.to, seg.c2]].forEach(([anchor, control]) => { if (Math.hypot(control.x - anchor.x, control.y - anchor.y) <= 1e-6)
                         return; committed.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: control.x, y2: control.y, class: "pro-canvas-pen-handle-line" })); committed.append(svgEl("circle", { cx: control.x, cy: control.y, r: 2.5 / scale, class: "pro-canvas-pen-handle-dot" })); }); prevAnchor = seg.to; });
                 if (committed.childNodes.length)
@@ -1363,7 +1370,7 @@ export const initProCanvasUi = (deps) => {
                     if (h)
                         penLayer.append(svgEl("line", { x1: a.x - h.x, y1: a.y - h.y, x2: a.x + h.x, y2: a.y + h.y, class: "pro-canvas-pen-handle-line" }), svgEl("circle", { cx: a.x - h.x, cy: a.y - h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }), svgEl("circle", { cx: a.x + h.x, cy: a.y + h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }));
                 }
-                else if (penCursor && pen.lastOut) {
+                else if (penCursor && (pen === null || pen === void 0 ? void 0 : pen.lastOut) && points.length) {
                     const last = points[points.length - 1];
                     penLayer.append(svgEl("line", { x1: last.x, y1: last.y, x2: last.x + pen.lastOut.x, y2: last.y + pen.lastOut.y, class: "pro-canvas-pen-handle-line" }), svgEl("circle", { cx: last.x + pen.lastOut.x, cy: last.y + pen.lastOut.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }));
                 }
@@ -1423,7 +1430,17 @@ export const initProCanvasUi = (deps) => {
                     object.segments.forEach((segment, i) => { if (segment.type !== "cubic")
                         return; ["c1", "c2"].forEach(key => { const anchor = key === "c1" ? (i === 0 ? object.start : object.segments[i - 1].to) : segment.to, point = segment[key], emphasis = strong(i, key); if (Math.hypot(point.x - anchor.x, point.y - anchor.y) < 1e-6)
                         return; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: `pro-canvas-anchor-tether${emphasis ? "" : " is-faint"}` })); const control = svgEl("circle", { cx: point.x, cy: point.y, r: (emphasis ? 3 : 2.5) / scale, class: `pro-canvas-anchor-control${emphasis ? "" : " is-faint"}` }); control.dataset.controlSegment = String(i); control.dataset.controlKey = key; layer.append(control); }); });
-                    points.slice(0, object.closed ? -1 : undefined).forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}` }); handle.dataset.anchorIndex = String(index); layer.append(handle); });
+                    points.slice(0, object.closed ? -1 : undefined).forEach((point, index) => { const size = (!object.closed && (index === 0 || index === points.length - 1) ? 7 : 5) / scale, end = !object.closed && (index === 0 || index === points.length - 1), handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}${end ? " is-end" : ""}` }); handle.dataset.anchorIndex = String(index); layer.append(handle); });
+                    // 追加できる場所には ＋、消せる頂点には − を重ねる。どちらもダブルクリックの予告。
+                    if (pathHint && tool === "select" && !drag) {
+                        const r = (pathHint.kind === "add" ? 5.5 : 7) / scale, hint = svgEl("g", { class: `pro-canvas-anchor-hint is-${pathHint.kind}` });
+                        hint.append(svgEl("circle", { cx: pathHint.point.x, cy: pathHint.point.y, r }));
+                        const arm = r * .5;
+                        hint.append(svgEl("line", { x1: pathHint.point.x - arm, y1: pathHint.point.y, x2: pathHint.point.x + arm, y2: pathHint.point.y }));
+                        if (pathHint.kind === "add")
+                            hint.append(svgEl("line", { x1: pathHint.point.x, y1: pathHint.point.y - arm, x2: pathHint.point.x, y2: pathHint.point.y + arm }));
+                        layer.append(hint);
+                    }
                     root.append(layer);
                 }
             }
@@ -1451,7 +1468,7 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=zoom-reset]").title = "クリック: 100% / Shift+クリック: 選択にフィット";
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
-            overlay.querySelector("[data-action=ai-import]").disabled = !((_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet);
+            overlay.querySelector("[data-action=ai-import]").disabled = !((_c = window.tex64Texize) === null || _c === void 0 ? void 0 : _c.snippet);
             renderInspector();
             positionNodeEditor();
             const edited = plotObject();
@@ -1477,7 +1494,7 @@ export const initProCanvasUi = (deps) => {
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
             emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? "ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　ダブルクリック：頂点追加　Delete：頂点削除　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_b = { line: "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ", rect: "ドラッグで作成　Shift で正方形　Alt で吸着オフ", ellipse: "ドラッグで作成　Shift で正円　Alt で吸着オフ", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _b !== void 0 ? _b : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除" : "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_d = { line: "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ", rect: "ドラッグで作成　Shift で正方形　Alt で吸着オフ", ellipse: "ドラッグで作成　Shift で正円　Alt で吸着オフ", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _d !== void 0 ? _d : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除" : "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
             if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
@@ -1497,14 +1514,79 @@ export const initProCanvasUi = (deps) => {
             object.width = Math.max(5, object.width);
             object.height = Math.max(5, object.height);
         } });
+        // base は「続きを描く」モードで手前に残す既存セグメント。既存部分は作り直さず
+        // 後ろに足すだけなので、拾い上げても元の曲線は歪まない。
         let pen = null, penCursor = null;
+        let penResume = null;
+        /** ポインタ由来の一時的な印（ペンのゴースト・頂点の＋−）を消す。道具を替えたときなど。 */
+        const clearPointerMarkers = () => { if (!pen)
+            penCursor = null; penResume = null; pathHint = null; };
+        /** 深い編集で、いま頂点を足せる／消せる場所。ホバーの度に更新して印を出す。 */
+        let pathHint = null;
+        // 頂点を消すとパス自体が退化する（＝丸ごと消える）ときは、消せる印を出さない。
+        const canRemoveAnchor = (path) => path.closed ? path.segments.length > 2 : path.segments.length > 1;
+        const hintAt = (target, point) => {
+            const object = anchorEdit ? walk(currentObjects(), anchorEdit.pathId) : null;
+            if ((object === null || object === void 0 ? void 0 : object.type) !== "path" || !object.segments.length)
+                return null;
+            const anchors = [object.start, ...object.segments.map(seg => seg.to)];
+            const over = target.dataset.anchorIndex;
+            if (over !== undefined)
+                return canRemoveAnchor(object) && anchors[Number(over)] ? { kind: "remove", point: { ...anchors[Number(over)] }, index: Number(over) } : null;
+            if (target.dataset.controlKey)
+                return null;
+            const near = nearestOnPath(object, point);
+            // 追加のダブルクリック判定と同じ 8px。印が出るのに追加できない、をなくす。
+            if (near.dist > 8 / scaleFactor())
+                return null;
+            // 既存の頂点に近すぎる位置は「追加」ではなく、その頂点を掴む場所。
+            if (anchors.some(anchor => Math.hypot(anchor.x - near.point.x, anchor.y - near.point.y) < 8 / scaleFactor()))
+                return null;
+            return { kind: "add", point: near.point, index: near.segIndex };
+        };
+        const penSegments = (nodes, closed) => (pen === null || pen === void 0 ? void 0 : pen.base) ? [...pen.base, ...buildPenSegments(nodes, false)] : buildPenSegments(nodes, closed);
         const rebuildPenPath = () => { if (!pen)
-            return; pen.path.start = { ...pen.nodes[0].p }; pen.path.segments = buildPenSegments(pen.nodes, pen.path.closed); };
+            return; if (!pen.base)
+            pen.path.start = { ...pen.nodes[0].p }; pen.path.segments = penSegments(pen.nodes, pen.path.closed); };
+        /** 続きを描ける端点（開いたパスの両端）を、画面上 12px 以内で拾う。 */
+        const openPathEndNear = (point) => {
+            const reach = 12 / scaleFactor();
+            let best = null;
+            for (const object of currentObjects()) {
+                if (object.type !== "path" || object.closed || !object.segments.length)
+                    continue;
+                const ends = [[true, object.start], [false, object.segments[object.segments.length - 1].to]];
+                for (const [atStart, end] of ends) {
+                    const distance = Math.hypot(point.x - end.x, point.y - end.y);
+                    if (distance <= reach && (!best || distance < best.distance))
+                        best = { path: object, atStart, point: end, distance };
+                }
+            }
+            return best;
+        };
+        /** その端点からペンを再開する。始点側を掴んだときは向きを反転して末尾に揃える。 */
+        const startPenFromEnd = (target, atStart) => {
+            if (atStart) {
+                const reversed = reversePath(target);
+                target.start = reversed.start;
+                target.segments = reversed.segments;
+                const props = target.style.props;
+                if (props && (props.arrowStart || props.arrowEnd)) {
+                    const swap = props.arrowStart;
+                    props.arrowStart = props.arrowEnd;
+                    props.arrowEnd = swap;
+                }
+            }
+            const seed = penSeedFromEnd(target);
+            pen = { path: target, nodes: [seed], lastOut: seed.out, base: target.segments.slice() };
+            penCursor = { ...seed.p };
+            replaceSelection(target.id);
+        };
         svg.addEventListener("pointerup", e => { if (!penDrag)
             return; const { anchor, handle, alt } = penDrag, node = { p: { ...anchor }, kind: handle ? "manual" : alt ? "corner" : "auto", out: handle }; if (!pen) {
             const path = { id: newObjectId(), type: "path", start: { ...anchor }, segments: [], closed: false, style: { props: { lineWidthPt: 1 } } };
             currentObjects().push(path);
-            pen = { path, nodes: [node], lastOut: handle };
+            pen = { path, nodes: [node], lastOut: handle, base: null };
         }
         else {
             pen.nodes.push(node);
@@ -1642,6 +1724,16 @@ export const initProCanvasUi = (deps) => {
                         return;
                     }
                 }
+                // 既存の開いたパスの端点を掴んだら、新しい線を始めるのではなく続きを描く。
+                if (!pen) {
+                    const resume = openPathEndNear(raw);
+                    if (resume) {
+                        snapshot();
+                        startPenFromEnd(resume.path, resume.atStart);
+                        render();
+                        return;
+                    }
+                }
                 if (!pen)
                     snapshot();
                 penDrag = { anchor: { ...p }, handle: null, startClient: client, alt: e.altKey };
@@ -1682,14 +1774,29 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             if (pen && !drag) {
-                penCursor = snapToGrid(rawPoint(e), scene.grid.size, scene.grid.snap);
+                penCursor = snapToGrid(rawPoint(e), scene.grid.size, scene.grid.snap, GRID_PULL);
+                penResume = openPathEndNear(rawPoint(e));
                 render();
+                return;
+            }
+            // 1 点目を置く前もカーソル位置に印を出す。どこに落ちるか・どの端点から続けられるかを先に見せる。
+            if (tool === "pen" && !penDrag && !drag) {
+                const next = snapToGrid(rawPoint(e), scene.grid.size, scene.grid.snap, GRID_PULL), resume = openPathEndNear(rawPoint(e));
+                if (!penCursor || penCursor.x !== next.x || penCursor.y !== next.y || (penResume === null || penResume === void 0 ? void 0 : penResume.path.id) !== (resume === null || resume === void 0 ? void 0 : resume.path.id) || (penResume === null || penResume === void 0 ? void 0 : penResume.atStart) !== (resume === null || resume === void 0 ? void 0 : resume.atStart)) {
+                    penCursor = next;
+                    penResume = resume;
+                    render();
+                }
                 return;
             }
             if (!drag) {
                 const target = e.target, nextHoveredId = (_b = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id) !== null && _b !== void 0 ? _b : null, handle = target.dataset.handle;
                 svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) && nextHoveredId === anchorEdit.pathId ? "crosshair" : nextHoveredId ? "move" : "default";
-                if (nextHoveredId !== hoveredId) {
+                // 深い編集では「ここをダブルクリックすると頂点が増える／減る」を印で先に見せる。
+                const nextHint = (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? hintAt(target, rawPoint(e)) : null;
+                const changed = ((pathHint === null || pathHint === void 0 ? void 0 : pathHint.kind) !== (nextHint === null || nextHint === void 0 ? void 0 : nextHint.kind)) || ((pathHint === null || pathHint === void 0 ? void 0 : pathHint.index) !== (nextHint === null || nextHint === void 0 ? void 0 : nextHint.index)) || (nextHint && pathHint && Math.hypot(nextHint.point.x - pathHint.point.x, nextHint.point.y - pathHint.point.y) > .05);
+                pathHint = nextHint;
+                if (nextHoveredId !== hoveredId || changed) {
                     hoveredId = nextHoveredId;
                     render();
                 }
@@ -1883,6 +1990,22 @@ export const initProCanvasUi = (deps) => {
                 if (lastClick && now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6) {
                     lastClick = null;
                     const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+                    const deepPath = (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? walk(currentObjects(), anchorEdit.pathId) : null;
+                    // 頂点の上でのダブルクリックは削除。＋−の印で予告しているので、実際に効くこと。
+                    // pointer capture 中の pointerup は e.target が svg になるため、掴んだ頂点は
+                    // pointerdown 時に記録した drag（completed）から取る。
+                    const removeIndex = completed.kind === "anchor" && completed.controlKey === undefined ? completed.anchorIndex : undefined;
+                    if (removeIndex !== undefined && (deepPath === null || deepPath === void 0 ? void 0 : deepPath.type) === "path" && canRemoveAnchor(deepPath)) {
+                        snapshot();
+                        const index = removeIndex;
+                        if (!removeAnchor(deepPath, index))
+                            removeById(currentObjects(), deepPath.id);
+                        pathHint = null;
+                        selectedAnchorIndex = Math.max(0, Math.min(index, deepPath.segments.length - (deepPath.closed ? 1 : 0)));
+                        render();
+                        scheduleCompile();
+                        return;
+                    }
                     const editPath = (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) && completed.kind === "bend" ? walk(currentObjects(), anchorEdit.pathId) : null;
                     if ((editPath === null || editPath === void 0 ? void 0 : editPath.type) === "path") {
                         const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, hit = nearestOnPath(editPath, rawPoint(e));
@@ -1906,11 +2029,9 @@ export const initProCanvasUi = (deps) => {
             else
                 lastClick = null;
         });
-        svg.addEventListener("pointerleave", () => { if (!drag && hoveredId) {
-            hoveredId = null;
-            svg.style.cursor = "default";
-            render();
-        } });
+        svg.addEventListener("pointerleave", () => { if (drag || penDrag)
+            return; const had = hoveredId || penResume || pathHint || (!pen && penCursor); if (!had)
+            return; hoveredId = null; svg.style.cursor = "default"; clearPointerMarkers(); render(); });
         const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
             clearTimeout(compileTimer); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); if (wheelUndoTimer)
@@ -1918,7 +2039,7 @@ export const initProCanvasUi = (deps) => {
             closeCurrent = null; };
         closeCurrent = close;
         const finishPen = () => { if (!pen)
-            return; const path = pen.path; pen = null; penDrag = null; penCursor = null; if (!path.segments.length) {
+            return; const path = pen.path; pen = null; penDrag = null; penCursor = null; penResume = null; if (!path.segments.length) {
             removeById(currentObjects(), path.id);
             clearSelection();
         }
@@ -1929,7 +2050,7 @@ export const initProCanvasUi = (deps) => {
             selectedAnchorIndex = 0;
         } render(); scheduleCompile(); };
         const abortPen = () => { if (pen && !pen.path.segments.length)
-            removeById(currentObjects(), pen.path.id); pen = null; penDrag = null; penCursor = null; };
+            removeById(currentObjects(), pen.path.id); pen = null; penDrag = null; penCursor = null; penResume = null; };
         const retainSelection = () => { var _a; selection.ids = new Set([...selection.ids].filter(id => walk(currentObjects(), id))); selection.primaryId = selection.primaryId && selection.ids.has(selection.primaryId) ? selection.primaryId : (_a = [...selection.ids][0]) !== null && _a !== void 0 ? _a : null; };
         const undoOnce = () => { flushWheelUndo(); pen = null; penDrag = null; penCursor = null; const prev = undo.pop(); if (!prev)
             return; redo.push(cloneScene(scene)); scene = prev; retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
@@ -2079,6 +2200,7 @@ export const initProCanvasUi = (deps) => {
             if (next !== "pen")
                 abortPen();
             tool = next;
+            clearPointerMarkers();
             e.preventDefault();
             render();
         } };
@@ -2235,12 +2357,14 @@ export const initProCanvasUi = (deps) => {
             closeMore(); if (!button)
             return; if (button.dataset.start) {
             tool = button.dataset.start;
+            clearPointerMarkers();
             render();
             return;
         } if (button.dataset.tool) {
             if (button.dataset.tool !== "pen")
                 abortPen();
             tool = button.dataset.tool;
+            clearPointerMarkers();
             render();
             return;
         } try {

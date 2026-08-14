@@ -8939,13 +8939,26 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-pen-feedback { pointer-events: none; }
 .pro-canvas-pen-anchor { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .pro-canvas-pen-anchor.is-close { fill: var(--accent-soft); }
-.pro-canvas-pen-ghost { stroke: var(--accent); stroke-opacity: .4; stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* 次の頂点が落ちる位置の予告。拾い上げられる端点の上では実線＋塗りで「ここから続く」を出す。 */
+.pro-canvas-pen-ghost { fill: none; stroke: var(--accent); stroke-opacity: .55; stroke-width: 1.5; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-pen-ghost.is-resume { fill: var(--accent-soft); stroke-opacity: 1; stroke-dasharray: none; }
 .pro-canvas-pen-handle-line { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-pen-handle-dot { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-anchor-layer { pointer-events: all; }
 .pro-canvas-anchor-layer.is-inert { pointer-events: none; opacity: .5; } /* 描画ツール中は掴めないので、掴めるように見せない */
 .pro-canvas-anchor { fill: rgb(255 255 255 / 25%); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; } /* 端点の矢頭を隠さないよう半透明。不透明白だと矢印の先端が欠けて見える */
 .pro-canvas-anchor.is-selected { stroke-width: 2; }
+/* 開いたパスの両端は太枠。ここがペンで拾えて、伸ばす／縮めるの起点になる。 */
+.pro-canvas-anchor.is-end { fill: var(--accent-soft); stroke-width: 2; }
+/* 頂点の追加（＋）・削除（−）予告。クリック対象は下の頂点なので当たり判定は持たせない。 */
+.pro-canvas-anchor-hint { pointer-events: none; }
+/* 台紙は白なので、印の下地も白。パネル色を敷くと黒い円が乗って強すぎる。 */
+.pro-canvas-anchor-hint circle { fill: #ffffff; fill-opacity: .92; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.pro-canvas-anchor-hint line { stroke-width: 1.5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pro-canvas-anchor-hint.is-add circle { stroke: var(--accent); }
+.pro-canvas-anchor-hint.is-add line { stroke: var(--accent); }
+.pro-canvas-anchor-hint.is-remove circle { stroke: var(--danger, #dc2626); }
+.pro-canvas-anchor-hint.is-remove line { stroke: var(--danger, #dc2626); }
 .pro-canvas-anchor-control { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
 .pro-canvas-anchor-tether { stroke: var(--accent); stroke-width: 1; stroke-opacity: .65; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-handle.is-path-corner { }

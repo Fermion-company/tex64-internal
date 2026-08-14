@@ -311,6 +311,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - 落とした場所は**必ず見せる**（`showInserted`）: カーソルをブロック内に移し、行を 2.2 秒光らせる（`.pro-canvas-inserted-line`）。移動したときだけ `revealLineInCenter` で強制的に中央へ送る。PNG 挿入も同じ経路。
    - メタデータ行は消せない（シーン実体）ので**エディタ上だけ畳む**（`figure-meta-chip.ts`）。`inlineClassName` で base64 を `display:none`、`beforeContentClassName` の CSS `content` でチップを 1 個だけ出す。**`textContent` には残る**ので、検証は要素幅（隠し span の幅が 0）で見ること。折り返し（wordWrap）を入れても 1 行のままなのは、Monaco が実描画幅で折り返しを決めるため。
    - **グリッド吸着は磁石式**（`snapToGrid` の `pull`、既定 `GRID_PULL=.25`）。全点が格子に乗る絶対吸着だと「格子に沿わない線が引けない」になる。軸ごとに独立して判定する。Alt での一時解除はツールチップだけでなく**ヒントバーにも出す**（知られていなければ無いのと同じ）。ペンの Alt は角ノードなので吸着解除には使えない（意図的な例外）。
+   - **ペンの印は `pen` ができる前から出す**。1 点目をドラッグしている間は `pen` がまだ null（`penDrag` だけ）なので、`if(pen)` で描いていると「引っ張っている最中だけ制御点が見えない」。描画条件は `pen||penDrag||(tool==="pen"&&penCursor)` で、`pen` 依存の参照は全部オプショナルにする。次の頂点が落ちる位置は点線の丸で常時予告する。
+   - **端点から続きを描く**（`penSeedFromEnd` + `pen.base`）。既存セグメントは `base` として手前に残し、後ろに足すだけ。`buildPenSegments` はノード列から全再構築するので、既存パスをノードに戻して作り直すと**非対称ハンドルが潰れて曲線が歪む**。始点側を掴んだときは `reversePath` で向きを揃え、見た目を保つため矢頭も入れ替える。
+   - **pointer capture 中の pointerup は `e.target` が svg になる**（K の gotcha の再来）。頂点ダブルクリックでの削除は `e.target.dataset.anchorIndex` ではなく、pointerdown 時に記録した `drag.anchorIndex` から取る。
+   - ＋−の予告は**実際に効く操作とだけ**結びつける（追加の当たり判定 8px はダブルクリック側と同じ値、削除は退化しない場合のみ）。印を出しておいて効かないのが一番たちが悪い。
    - `display: grid` のモーダルは、行トラックが `auto` のままだと **`max-height` を突き抜ける**（`auto` トラックは min-content より縮まない。中の要素に `min-height: 0` を書いても効かない）。伸びる行に `minmax(0, 1fr)` を与える。図ギャラリーがこれで「閉じる」ボタンごと画面外へ流れていた。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。

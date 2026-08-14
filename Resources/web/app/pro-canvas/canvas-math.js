@@ -29,6 +29,19 @@ export const splitSegmentAt = (from, seg, t) => { if (seg.type === "line") {
     const mid = { x: from.x + (seg.to.x - from.x) * t, y: from.y + (seg.to.y - from.y) * t };
     return [{ type: "line", to: mid }, { type: "line", to: { ...seg.to } }];
 } const mix = (a, b) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }), a = mix(from, seg.c1), b = mix(seg.c1, seg.c2), c = mix(seg.c2, seg.to), d = mix(a, b), e = mix(b, c), mid = mix(d, e); return [{ type: "cubic", c1: a, c2: d, to: mid }, { type: "cubic", c1: e, c2: c, to: { ...seg.to } }]; };
+/**
+ * パスの向きを反転する（形はそのまま）。始点側から続きを描くために使う。
+ * 見た目を変えないよう、呼び出し側は始点/終点の矢頭も入れ替えること。
+ */
+export const reversePath = (path) => {
+    const anchors = [path.start, ...path.segments.map((seg) => seg.to)];
+    const segments = [];
+    for (let i = path.segments.length - 1; i >= 0; i -= 1) {
+        const seg = path.segments[i], to = { ...anchors[i] };
+        segments.push(seg.type === "line" ? { type: "line", to } : { type: "cubic", c1: { ...seg.c2 }, c2: { ...seg.c1 }, to });
+    }
+    return { start: { ...anchors[anchors.length - 1] }, segments };
+};
 export const removeAnchor = (path, index) => { const n = path.segments.length; if (index < 0 || index > n)
     return false; if (!n)
     return false; if (index === 0) {
