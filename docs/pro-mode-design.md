@@ -299,7 +299,17 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - `% requires …` 行は**挿入ブロックから除く**（`planFigureInsert` がプリアンブルに `\usepackage`/`\usetikzlibrary` を自動追加するので重複）。`generateTikz` 自体は変更しない（standalone プレビューが自前で剥がす既存実装 + 既存テストがある）。
    - **`removeAnchor` の `false` は「退化した」と「index が範囲外で何もしなかった」の両方を意味する**。呼び出し側（Delete）は false をパス削除と読むので、範囲外の `selectedAnchorIndex` を渡すと**曲線が丸ごと消える**。`syncAnchorEdit` が毎 render で `Math.min(idx, closed?n-1:n)` にクランプすることで範囲外を作らない（頂点追加 → undo で範囲外になる経路を Opus 監査が実証。`tests/pro-canvas-curves.test.mjs` に契約テスト）。
    - 描画ツール中は選択中パスのアンカー層に `is-inert`（pointer-events: none / opacity .5）を付ける。掴めるのは select ツールのときだけなので、掴めるように見せない。
-   - Opus 監査残（未対応・K から継続）: 縮む undo（削除・パス消滅）でセレクションが復元されない（競合は復元する）/ ペンの 1 ストロークが undo 1 単位（Illustrator はクリック 1 点ごと）/ 全頂点のハンドルを同時表示する（競合は選択頂点のみが既定）/ v2 の 1 行は 400 セグメントで約 16,600 文字となり Monaco 既定の `stopRenderingLineAfter`（10,000）を超えて後半が描画されない（デコードは正常）。
+   - Opus 監査残（未対応・K から継続）: 縮む undo（削除・パス消滅）でセレクションが復元されない（競合は復元する）/ ペンの 1 ストロークが undo 1 単位（Illustrator はクリック 1 点ごと）/ 全頂点のハンドルを同時表示する（競合は選択頂点のみが既定）/ v2 の 1 行は 400 セグメントで約 16,600 文字となり Monaco 既定の `stopRenderingLineAfter`（10,000）を超えて後半が描画されない（デコードは正常。M でメタデータ行自体を隠したので見た目には出ない）。
+
+18. **矢頭の実物合わせ・挿入先・メタデータ行の畳み込み（M, 2026-08-15）** — ユーザー指摘 4 件（矢印の先端が変 / 挿入先がカーソルでない / 長いコメント / 「矢印を描く」の文言）への対処。恒久 gotcha:
+   - **矢頭の寸法は推測しない**。`web-src/app/pro-canvas/arrow-math.ts` の係数は、`\draw[line width=W, -{Tip}] (0,0) -- (2,0);` を 0.4/0.8/1.0/1.5/2.0pt でコンパイルし、`pdftocairo -svg` で PDF のパス座標を取り出して最小二乗で `寸法 = 定数 + 係数 × 線幅` に当てた**実測値**（残差 ≤ 0.003pt）。触るときは同じ手順で取り直し、`tests/pro-canvas-arrow-math.test.mjs` の REFERENCE も更新する。
+   - **TikZ の矢頭は「塗り」だけでなく「同じ線幅での縁取り」も掛かる**。縁取りを省くと線幅 1pt で矢頭が線とほぼ同じ幅になり、ユーザーには「先端のレンダリングが壊れている」に見える（実際の初期報告がこれ）。SVG 側も fill + stroke（miter, miterlimit 10）で描く。
+   - **見た目の先端＝パスの端点**。多角形の先端は縁取りのマイターぶん（`(線幅/2)/sin(先端半角)`、Bar は線幅/2）手前に置く（`backset`）。ここを 0 にすると矢印全体が端点より前へ 1.4pt はみ出す。
+   - **線は矢頭の手前で止める**（`trim` = backset + 多角形先端からの距離）。止めないと Stealth の切り欠きが線で埋まる。曲線は `trimPathForArrows` が de Casteljau で分割するので**元の曲線の上に載ったまま**縮む（TikZ 自身の短縮は近似で、曲線中央が最大 0.15mm ズレる。ズレているのは TikZ 側）。
+   - 挿入先は**キャンバスを開いた瞬間の編集タブとカーソル**に固定（`anchorEditor` / `anchorPosition`）。閉じるまでに別グループがアクティブになっても、ユーザーが見ていた場所に入る。
+   - カーソル位置に入れられないのは 2 通り: プリアンブル（`\begin{document}` 以前 → `\end{document}` 直前へ）と**図を入れられない環境の中**（tikzpicture・数式・verbatim 系 → その環境の直後へ）。`%% tex64-figure` の行は次の tikzpicture と 1 組として扱う。判定は `insert-plan.ts` の純関数。
+   - 落とした場所は**必ず見せる**（`showInserted`）: カーソルをブロック内に移し、行を 2.2 秒光らせる（`.pro-canvas-inserted-line`）。移動したときだけ `revealLineInCenter` で強制的に中央へ送る。PNG 挿入も同じ経路。
+   - メタデータ行は消せない（シーン実体）ので**エディタ上だけ畳む**（`figure-meta-chip.ts`）。`inlineClassName` で base64 を `display:none`、`beforeContentClassName` の CSS `content` でチップを 1 個だけ出す。**`textContent` には残る**ので、検証は要素幅（隠し span の幅が 0）で見ること。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。

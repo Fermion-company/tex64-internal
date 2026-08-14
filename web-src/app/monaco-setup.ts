@@ -16,6 +16,7 @@ import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
 import type { SpellBridge } from "./types.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
+import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -470,6 +471,9 @@ export const initMonacoSetup = (
             }));
           },
         });
+
+        // 図ブロックのメタデータ行は長いので、エディタ上では短いチップに畳む。
+        installFigureMetaChips(editor as any);
 
         // Spell: "Add to dictionary" for the word under the cursor (context menu
         // / command palette). Done as an editor action because this Monaco build

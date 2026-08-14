@@ -81,6 +81,9 @@ export const lzssDecompress = (data: Uint8Array): Uint8Array => {
   return Uint8Array.from(out);
 };
 
+/** 図ブロックの先頭にある、シーン実体を積んだ 1 行。 */
+export const isFigureHeaderLine = (line: string): boolean => /^%% tex64-figure v[12]\b/.test(line);
+
 export const encodeFigureBlock = (scene: Scene): string => {
   const code = generateTikz(scene).code.split("\n").filter((line) => !/^% requires(?::|\s|$)/.test(line)).join("\n");
   const body = `${code}\n`;
@@ -92,12 +95,12 @@ export const encodeFigureBlock = (scene: Scene): string => {
 export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scene: Scene; startLine: number; endLine: number; detached: boolean } | null => {
   if (!Number.isInteger(cursorLine) || cursorLine < 0 || cursorLine >= lines.length) return null;
   let startLine = cursorLine;
-  while (startLine >= 0 && !/^%% tex64-figure v[12]\b/.test(lines[startLine])) startLine--;
+  while (startLine >= 0 && !isFigureHeaderLine(lines[startLine])) startLine--;
   if (startLine < 0) return null;
-  for (let i = startLine + 1; i <= cursorLine; i++) if (/^%% tex64-figure v[12]\b/.test(lines[i])) return null;
+  for (let i = startLine + 1; i <= cursorLine; i++) if (isFigureHeaderLine(lines[i])) return null;
   let endLine = startLine;
   while (endLine < lines.length && lines[endLine] !== "\\end{tikzpicture}") {
-    if (endLine > startLine && /^%% tex64-figure v[12]\b/.test(lines[endLine])) return null;
+    if (endLine > startLine && isFigureHeaderLine(lines[endLine])) return null;
     endLine++;
   }
   if (endLine >= lines.length || cursorLine > endLine) return null;
@@ -127,7 +130,7 @@ export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scen
 export const listFigureBlocks = (lines: string[]): Array<{ scene: Scene; startLine: number; endLine: number; detached: boolean }> => {
   const blocks: Array<{ scene: Scene; startLine: number; endLine: number; detached: boolean }> = [];
   for (let line = 0; line < lines.length;) {
-    if (!/^%% tex64-figure v[12]\b/.test(lines[line])) { line++; continue; }
+    if (!isFigureHeaderLine(lines[line])) { line++; continue; }
     const decoded = decodeFigureBlockAt(lines, line);
     if (!decoded) { line++; continue; }
     blocks.push(decoded);

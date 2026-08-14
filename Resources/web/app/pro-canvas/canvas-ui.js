@@ -1,7 +1,7 @@
-import { insertAtEditorCursor } from "../pro-editor-insert.js";
+import { ensureTrailingNewline, insertAtEditorCursor } from "../pro-editor-insert.js";
 import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capture-ui.js";
 import { encodeFigureBlock } from "./figure-codec.js";
-import { planFigureInsert } from "./insert-plan.js";
+import { planBodyInsert, planFigureInsert } from "./insert-plan.js";
 import { generateTikz } from "./tikz-generate.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
@@ -14,6 +14,7 @@ import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
 import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments } from "./pen-math.js";
+import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } from "./arrow-math.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
@@ -250,10 +251,15 @@ export const initProCanvasUi = (deps) => {
     const openButton = document.getElementById("pro-canvas-open");
     openButton === null || openButton === void 0 ? void 0 : openButton.addEventListener("click", () => window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open")));
     const open = (detail = {}) => {
+        var _a;
         closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent();
+        // 挿入先はキャンバスを開いた瞬間の編集タブとカーソルに固定する。閉じるまでに
+        // 別のグループがアクティブになっても、ユーザーが見ていた場所に入るように。
+        const anchorEditor = deps.getActiveGroup().editor;
+        const anchorPosition = ((_a = anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.getPosition) === null || _a === void 0 ? void 0 : _a.call(anchorEditor)) || null;
         let scene = cloneScene(detail.scene || createEmptyScene());
         const selection = { ids: new Set(), primaryId: null };
-        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", pendingLineArrow = false, zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
+        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
         let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
         const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set();
@@ -264,7 +270,7 @@ export const initProCanvasUi = (deps) => {
       <strong class="pro-canvas-title">図キャンバス</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="縮小">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="拡大">+</button></span><span class="pro-canvas-topbar-spacer"></span>
       <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live" aria-pressed="false" title="編集しながら実際の LaTeX 組版結果をキャンバスに重ねて表示します">TeX プレビュー</button><button data-action="doc-preamble" aria-pressed="false" title="この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します">プリアンブル</button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="元に戻す">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="やり直す">↻</button></div>
-      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><div class="pro-canvas-emptystate"><div class="pro-canvas-empty-actions"><button type="button" data-start="arrow"><svg viewBox="0 0 36 24" aria-hidden="true"><line x1="4" y1="20" x2="31" y2="5"/><path d="M24 5h7v7"/></svg><span>矢印を描く</span></button><button type="button" data-start="node"><svg viewBox="0 0 36 24" aria-hidden="true"><text x="18" y="17">x²</text></svg><span>数式を置く</span></button><button type="button" data-start="plot"><svg viewBox="0 0 36 24" aria-hidden="true"><path d="M4 3v17h29"/><path d="M7 18c6-1 6-13 11-13s5 12 12 13"/></svg><span>関数を描く</span></button></div><p>作成した図は編集可能な TikZ コード、または PNG として挿入できます</p></div><div class="pro-canvas-coach" hidden></div><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
+      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><div class="pro-canvas-emptystate"><div class="pro-canvas-empty-actions"><button type="button" data-start="line"><svg viewBox="0 0 36 24" aria-hidden="true"><line x1="4" y1="20" x2="32" y2="4"/></svg><span>線を描く</span></button><button type="button" data-start="node"><svg viewBox="0 0 36 24" aria-hidden="true"><text x="18" y="17">x²</text></svg><span>数式を置く</span></button><button type="button" data-start="plot"><svg viewBox="0 0 36 24" aria-hidden="true"><path d="M4 3v17h29"/><path d="M7 18c6-1 6-13 11-13s5 12 12 13"/></svg><span>関数を描く</span></button></div><p>作成した図は編集可能な TikZ コード、または PNG として挿入できます</p></div><div class="pro-canvas-coach" hidden></div><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
       <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">PNG 画像として挿入</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ コードを更新" : "TikZ コードを挿入"}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
@@ -1242,6 +1248,9 @@ export const initProCanvasUi = (deps) => {
                 const lw = (style.lineWidthPt || .4) * ptu;
                 const attrs = { ...(interactive ? { "data-id": object.id } : {}), fill: fills.base, stroke: style.draw || "none", "stroke-width": lw, opacity: (_e = style.opacity) !== null && _e !== void 0 ? _e : 1, "stroke-dasharray": style.dash === "dashed" ? `${lw * 4} ${lw * 3}` : style.dash === "dotted" ? `${lw} ${lw * 2.5}` : "" };
                 let el;
+                let pathShape = null;
+                const tipOf = (value) => isArrowKind(value) ? value : null;
+                const tipMetrics = (kind) => arrowMetrics(kind, style.lineWidthPt || .4, ptu);
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
                 else if (object.type === "ellipse")
@@ -1263,8 +1272,13 @@ export const initProCanvasUi = (deps) => {
                                 segs = buildPenSegments([...pen.nodes, { p: { ...penCursor }, kind: "auto", out: null }], false);
                         }
                     }
-                    let d = `M ${object.start.x} ${object.start.y}`;
-                    segs.forEach(s => { d += s.type === "line" ? ` L ${s.to.x} ${s.to.y}` : ` C ${s.c1.x} ${s.c1.y} ${s.c2.x} ${s.c2.y} ${s.to.x} ${s.to.y}`; });
+                    pathShape = { start: object.start, segments: segs, closed: closedNow };
+                    // 矢頭は線の上に乗せるのではなく、TikZ と同じく矢頭の手前で線を止める。
+                    // 止めないと Stealth の切り欠きが線で埋まり、実際の組版結果とズレる。
+                    const startTip = closedNow ? null : tipOf(style.arrowStart), endTip = closedNow ? null : tipOf(style.arrowEnd);
+                    const shown = startTip || endTip ? trimPathForArrows(pathShape, startTip ? tipMetrics(startTip).trim : 0, endTip ? tipMetrics(endTip).trim : 0) : pathShape;
+                    let d = `M ${shown.start.x} ${shown.start.y}`;
+                    shown.segments.forEach(s => { d += s.type === "line" ? ` L ${s.to.x} ${s.to.y}` : ` C ${s.c1.x} ${s.c1.y} ${s.c2.x} ${s.c2.y} ${s.to.x} ${s.to.y}`; });
                     if (closedNow)
                         d += " Z";
                     el = svgEl("path", { ...attrs, d });
@@ -1297,19 +1311,17 @@ export const initProCanvasUi = (deps) => {
                     patternEl.setAttribute("pointer-events", "none");
                     parent.append(patternEl);
                 }
-                if (object.type === "path" && object.segments.length) {
-                    const arrow = (kind, tip, vector) => { var _a; let length = Math.hypot(vector.x, vector.y); if (length < 1e-9)
-                        return; const ux = vector.x / length, uy = vector.y / length, px = -uy, py = ux; if (kind === "Bar") {
-                        const half = (3 * lw + 1 * ptu) / 2;
-                        parent.append(svgEl("line", { x1: tip.x + px * half, y1: tip.y + py * half, x2: tip.x - px * half, y2: tip.y - py * half, stroke: style.draw || "#000000", "stroke-width": lw }));
-                        return;
-                    } const al = kind === "Latex" ? 4 * lw + 1.2 * ptu : 4.5 * lw + 1.5 * ptu, aw = (kind === "Latex" ? 3.6 * lw + 1.2 * ptu : 3 * lw + 1 * ptu) / 2, bx = tip.x - ux * al, by = tip.y - uy * al, points = kind === "Stealth" ? `${tip.x},${tip.y} ${bx + px * aw},${by + py * aw} ${bx + ux * al * .3},${by + uy * al * .3} ${bx - px * aw},${by - py * aw}` : `${tip.x},${tip.y} ${bx + px * aw},${by + py * aw} ${bx - px * aw},${by - py * aw}`; parent.append(svgEl("polygon", { points, fill: style.draw || "#000000", opacity: (_a = style.opacity) !== null && _a !== void 0 ? _a : 1, "pointer-events": "none" })); };
-                    const first = object.segments[0], last = object.segments[object.segments.length - 1], beforeLast = object.segments.length > 1 ? object.segments[object.segments.length - 2].to : object.start;
-                    const nz = (...vs) => vs.find(v => Math.hypot(v.x, v.y) > 1e-9) || vs[vs.length - 1];
-                    if (style.arrowStart)
-                        arrow(style.arrowStart, object.start, first.type === "cubic" ? nz({ x: object.start.x - first.c1.x, y: object.start.y - first.c1.y }, { x: object.start.x - first.c2.x, y: object.start.y - first.c2.y }, { x: object.start.x - first.to.x, y: object.start.y - first.to.y }) : { x: object.start.x - first.to.x, y: object.start.y - first.to.y });
-                    if (style.arrowEnd)
-                        arrow(style.arrowEnd, last.to, last.type === "cubic" ? nz({ x: last.to.x - last.c2.x, y: last.to.y - last.c2.y }, { x: last.to.x - last.c1.x, y: last.to.y - last.c1.y }, { x: last.to.x - beforeLast.x, y: last.to.y - beforeLast.y }) : { x: last.to.x - beforeLast.x, y: last.to.y - beforeLast.y });
+                if (pathShape && pathShape.segments.length) {
+                    // 矢頭の寸法・形は arrows.meta の実測式（arrow-math.ts）。TikZ は多角形を
+                    // 塗ったうえで同じ線幅で縁取るので、こちらも fill と stroke を両方掛ける。
+                    const tip = (kind, at, direction) => { var _a; if (!direction)
+                        return; const shape = arrowShape(kind, at, direction, tipMetrics(kind)); if (!shape)
+                        return; const color = style.draw || "#000000"; parent.append(svgEl("path", { d: shape.d, fill: shape.filled ? color : "none", stroke: color, "stroke-width": lw, "stroke-linejoin": "miter", "stroke-miterlimit": 10, opacity: (_a = style.opacity) !== null && _a !== void 0 ? _a : 1, "pointer-events": "none" })); };
+                    const startTip = tipOf(style.arrowStart), endTip = tipOf(style.arrowEnd);
+                    if (startTip)
+                        tip(startTip, pathShape.start, endTangent(pathShape, "start"));
+                    if (endTip)
+                        tip(endTip, pathShape.segments[pathShape.segments.length - 1].to, endTangent(pathShape, "end"));
                 }
                 // 細線でも掴めるよう、透明の太ストロークでヒット領域を確保する。
                 if (interactive && object.type !== "node") {
@@ -1649,9 +1661,7 @@ export const initProCanvasUi = (deps) => {
             }
             snapshot(false);
             invalidateCompiled();
-            const arrowEnd = pendingLineArrow ? "Stealth" : undefined;
-            pendingLineArrow = false;
-            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { lineWidthPt: 1, ...(arrowEnd ? { arrowEnd } : {}) } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { lineWidthPt: 1 } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { lineWidthPt: 1 } } };
+            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { lineWidthPt: 1 } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { lineWidthPt: 1 } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { lineWidthPt: 1 } } };
             currentObjects().push(object);
             replaceSelection(object.id);
             drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
@@ -2066,7 +2076,6 @@ export const initProCanvasUi = (deps) => {
             if (next !== "pen")
                 abortPen();
             tool = next;
-            pendingLineArrow = false;
             e.preventDefault();
             render();
         } };
@@ -2112,22 +2121,43 @@ export const initProCanvasUi = (deps) => {
             panX -= e.deltaX;
             panY -= e.deltaY;
         } render(); }, { passive: false });
+        // 図がどこへ入ったかは、カーソルを置いて画面に出し、数秒だけ行を光らせて示す。
+        // カーソル位置に入れられないとき（プリアンブル・数式環境の中など）に、黙って
+        // 別の場所へ落ちるのが一番わかりにくいので、必ず見える形で着地させる。
+        const showInserted = (editor, startLine, lineCount, relocated = false) => {
+            var _a, _b, _c, _d, _e;
+            const target = editor, Range = (_a = window.monaco) === null || _a === void 0 ? void 0 : _a.Range;
+            if (!target || !Range || lineCount < 1)
+                return;
+            const endLine = startLine + lineCount - 1;
+            (_b = target.setPosition) === null || _b === void 0 ? void 0 : _b.call(target, { lineNumber: Math.min(startLine + 1, endLine), column: 1 });
+            // カーソル位置に入れられなかったときは、必ず画面中央まで送って着地点を見せる。
+            if (relocated)
+                (_c = target.revealLineInCenter) === null || _c === void 0 ? void 0 : _c.call(target, startLine);
+            else
+                (_d = target.revealLineInCenterIfOutsideViewport) === null || _d === void 0 ? void 0 : _d.call(target, startLine);
+            const ids = (_e = target.deltaDecorations) === null || _e === void 0 ? void 0 : _e.call(target, [], [{ range: new Range(startLine, 1, endLine, 1), options: { isWholeLine: true, className: "pro-canvas-inserted-line" } }]);
+            if (ids === null || ids === void 0 ? void 0 : ids.length)
+                setTimeout(() => { var _a; return (_a = target.deltaDecorations) === null || _a === void 0 ? void 0 : _a.call(target, ids, []); }, 2200);
+        };
         const replaceOrInsert = () => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
-            const editor = deps.getActiveGroup().editor;
-            const block = encodeFigureBlock(scene);
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+            const editor = anchorEditor;
+            const block = encodeFigureBlock(scene), blockLines = block.split("\n").length - 1;
             if (!detail.replaceRange) {
                 // %% ヘッダ行が行頭に来ないとブロックが壊れるため、行中カーソルでは改行してから挿入する。
-                const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor), text = (_b = model === null || model === void 0 ? void 0 : model.getValue) === null || _b === void 0 ? void 0 : _b.call(model), cursor = (_d = (_c = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _d !== void 0 ? _d : { lineNumber: 1, column: 1 }, Range = (_e = window.monaco) === null || _e === void 0 ? void 0 : _e.Range;
+                const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor), text = (_b = model === null || model === void 0 ? void 0 : model.getValue) === null || _b === void 0 ? void 0 : _b.call(model), cursor = anchorPosition !== null && anchorPosition !== void 0 ? anchorPosition : { lineNumber: 1, column: 1 }, Range = (_c = window.monaco) === null || _c === void 0 ? void 0 : _c.Range;
                 if (typeof text === "string" && Range && (editor === null || editor === void 0 ? void 0 : editor.executeEdits)) {
                     // 未クリックのエディタはカーソルが 1:1 のまま。そこへ入れると \documentclass の前に図が入って文書が壊れる。
                     const plan = planFigureInsert(text, cursor, generateTikz(scene).requires, sceneHasPlot(scene)), edits = [{ range: new Range(plan.body.lineNumber, plan.body.column, plan.body.lineNumber, plan.body.column), text: plan.body.column > 1 ? `\n${block}` : block, forceMoveMarkers: true }];
                     if (plan.preamble)
                         edits.push({ range: new Range(plan.preamble.lineNumber, 1, plan.preamble.lineNumber, 1), text: plan.preamble.text, forceMoveMarkers: true });
-                    (_f = editor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(editor);
+                    (_d = editor.pushUndoStop) === null || _d === void 0 ? void 0 : _d.call(editor);
                     editor.executeEdits("pro-canvas", edits);
-                    (_g = editor.pushUndoStop) === null || _g === void 0 ? void 0 : _g.call(editor);
-                    (_h = editor.focus) === null || _h === void 0 ? void 0 : _h.call(editor);
+                    (_e = editor.pushUndoStop) === null || _e === void 0 ? void 0 : _e.call(editor);
+                    (_f = editor.focus) === null || _f === void 0 ? void 0 : _f.call(editor);
+                    const shift = plan.preamble ? plan.preamble.text.split("\n").length - 1 : 0;
+                    showInserted(editor, plan.body.lineNumber + (plan.body.column > 1 ? 1 : 0) + shift, blockLines, plan.moved !== null);
                     close();
                     return;
                 }
@@ -2135,13 +2165,14 @@ export const initProCanvasUi = (deps) => {
                 close();
                 return;
             }
-            const Range = (_j = window.monaco) === null || _j === void 0 ? void 0 : _j.Range;
+            const Range = (_g = window.monaco) === null || _g === void 0 ? void 0 : _g.Range;
             if (!(editor === null || editor === void 0 ? void 0 : editor.executeEdits) || !Range)
                 throw new Error("No active text editor is available.");
-            (_k = editor.pushUndoStop) === null || _k === void 0 ? void 0 : _k.call(editor);
+            (_h = editor.pushUndoStop) === null || _h === void 0 ? void 0 : _h.call(editor);
             editor.executeEdits("pro-canvas", [{ range: new Range(detail.replaceRange.startLine, 1, detail.replaceRange.endLine + 1, 1), text: block, forceMoveMarkers: true }]);
-            (_l = editor.pushUndoStop) === null || _l === void 0 ? void 0 : _l.call(editor);
-            (_m = editor.focus) === null || _m === void 0 ? void 0 : _m.call(editor);
+            (_j = editor.pushUndoStop) === null || _j === void 0 ? void 0 : _j.call(editor);
+            (_k = editor.focus) === null || _k === void 0 ? void 0 : _k.call(editor);
+            showInserted(editor, detail.replaceRange.startLine, blockLines);
             close();
         };
         const exportSty = async () => { var _a; let name = (await requestText("ファイル名", "figures.sty") || "").trim(); if (!name)
@@ -2150,42 +2181,63 @@ export const initProCanvasUi = (deps) => {
             throw new Error("有効なファイル名を指定してください"); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
             throw new Error("File writing is not available."); const result = await api({ path: name, data: base64EncodeUtf8(buildStyFile(scene, packageName)) }); if (!result.ok)
             throw new Error(result.error || "The style file could not be saved."); setStatus(`\\usepackage{${packageName}} で使えます`); };
-        const exportPng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-hover,.pro-canvas-marquee").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); const unit = scene.unit === "mm" ? 3.78 : scene.unit === "cm" ? 37.8 : 1.333; const width = Math.max(1, Math.round(scene.width * unit * 2)), height = Math.max(1, Math.round(scene.height * unit * 2)); clone.setAttribute("width", String(width)); clone.setAttribute("height", String(height)); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }); const url = URL.createObjectURL(blob); try {
-            const image = new Image();
-            await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG export failed.")); image.src = url; });
-            const canvas = document.createElement("canvas");
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            if (!ctx)
-                throw new Error("Canvas is unavailable.");
-            ctx.drawImage(image, 0, 0, width, height);
-            const data = canvas.toDataURL("image/png").split(",")[1];
-            const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64;
-            if (!api)
-                throw new Error("File writing is not available.");
-            const dir = chooseCaptureDirectory(deps.getWorkspaceFiles()), path = `${dir}/${timestampName()}`;
-            const result = await api({ path, data });
-            if (!result.ok)
-                throw new Error(result.error || "The image could not be saved.");
-            insertAtEditorCursor(deps.getActiveGroup().editor, buildIncludeGraphicsSnippet(path, false), "pro-canvas-png");
-            close();
-        }
-        finally {
-            URL.revokeObjectURL(url);
-        } };
+        const exportPng = async () => {
+            var _a, _b, _c, _d, _e, _f, _g, _h;
+            const clone = svg.cloneNode(true);
+            clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-hover,.pro-canvas-marquee").forEach(n => n.remove());
+            clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`);
+            const unit = scene.unit === "mm" ? 3.78 : scene.unit === "cm" ? 37.8 : 1.333;
+            const width = Math.max(1, Math.round(scene.width * unit * 2)), height = Math.max(1, Math.round(scene.height * unit * 2));
+            clone.setAttribute("width", String(width));
+            clone.setAttribute("height", String(height));
+            const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
+            const url = URL.createObjectURL(blob);
+            try {
+                const image = new Image();
+                await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG export failed.")); image.src = url; });
+                const canvas = document.createElement("canvas");
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx)
+                    throw new Error("Canvas is unavailable.");
+                ctx.drawImage(image, 0, 0, width, height);
+                const data = canvas.toDataURL("image/png").split(",")[1];
+                const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64;
+                if (!api)
+                    throw new Error("File writing is not available.");
+                const dir = chooseCaptureDirectory(deps.getWorkspaceFiles()), path = `${dir}/${timestampName()}`;
+                const result = await api({ path, data });
+                if (!result.ok)
+                    throw new Error(result.error || "The image could not be saved.");
+                // PNG も TikZ と同じ着地点ルール（プリアンブルや環境の中には落とさない）に従わせる。
+                const snippet = ensureTrailingNewline(buildIncludeGraphicsSnippet(path, false)), source = (_d = (_c = (_b = anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.getModel) === null || _b === void 0 ? void 0 : _b.call(anchorEditor)) === null || _c === void 0 ? void 0 : _c.getValue) === null || _d === void 0 ? void 0 : _d.call(_c), cursor = anchorPosition !== null && anchorPosition !== void 0 ? anchorPosition : { lineNumber: 1, column: 1 };
+                const plan = typeof source === "string" ? planBodyInsert(source, cursor) : { point: cursor, moved: null }, point = plan.point, Range = (_e = window.monaco) === null || _e === void 0 ? void 0 : _e.Range;
+                if (Range && (anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.executeEdits)) {
+                    (_f = anchorEditor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(anchorEditor);
+                    anchorEditor.executeEdits("pro-canvas-png", [{ range: new Range(point.lineNumber, point.column, point.lineNumber, point.column), text: point.column > 1 ? `\n${snippet}` : snippet, forceMoveMarkers: true }]);
+                    (_g = anchorEditor.pushUndoStop) === null || _g === void 0 ? void 0 : _g.call(anchorEditor);
+                    (_h = anchorEditor.focus) === null || _h === void 0 ? void 0 : _h.call(anchorEditor);
+                    showInserted(anchorEditor, point.lineNumber + (point.column > 1 ? 1 : 0), snippet.split("\n").length - 1, plan.moved !== null);
+                }
+                else
+                    insertAtEditorCursor(anchorEditor, snippet, "pro-canvas-png");
+                close();
+            }
+            finally {
+                URL.revokeObjectURL(url);
+            }
+        };
         overlay.addEventListener("click", async (e) => { const button = e.target.closest("button"); if (!e.target.closest(".pro-canvas-more"))
             closeMore(); if (!button)
             return; if (button.dataset.start) {
-            tool = button.dataset.start === "arrow" ? "line" : button.dataset.start;
-            pendingLineArrow = button.dataset.start === "arrow";
+            tool = button.dataset.start;
             render();
             return;
         } if (button.dataset.tool) {
             if (button.dataset.tool !== "pen")
                 abortPen();
             tool = button.dataset.tool;
-            pendingLineArrow = false;
             render();
             return;
         } try {

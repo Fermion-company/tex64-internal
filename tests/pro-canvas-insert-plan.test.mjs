@@ -17,20 +17,67 @@ const DOC = [
 
 test("a preamble cursor is moved to just before \\end{document}", () => {
   const { point, moved } = planBodyInsert(DOC, { lineNumber: 1, column: 1 });
-  assert.equal(moved, true);
+  assert.equal(moved, "preamble");
   assert.deepEqual(point, { lineNumber: 7, column: 1 });
 });
 
 test("a cursor already in the body is left alone", () => {
   const { point, moved } = planBodyInsert(DOC, { lineNumber: 5, column: 7 });
-  assert.equal(moved, false);
+  assert.equal(moved, null);
   assert.deepEqual(point, { lineNumber: 5, column: 7 });
 });
 
 test("a document without \\begin{document} keeps the cursor", () => {
   const { point, moved } = planBodyInsert("just a fragment\n", { lineNumber: 1, column: 3 });
-  assert.equal(moved, false);
+  assert.equal(moved, null);
   assert.deepEqual(point, { lineNumber: 1, column: 3 });
+});
+
+const withBody = (...body) => ["\\documentclass{article}", "\\begin{document}", ...body, "\\end{document}"].join("\n");
+
+test("a cursor inside an existing figure lands after it, not inside", () => {
+  const doc = withBody("%% tex64-figure v2 h=deadbeef AAAA", "\\begin{tikzpicture}", "  \\draw (0,0) -- (1,1);", "\\end{tikzpicture}", "after");
+  for (const line of [4, 5, 6]) { // \begin の次〜\end の行
+    const { point, moved } = planBodyInsert(doc, { lineNumber: line, column: 3 });
+    assert.equal(moved, "environment", `line ${line}`);
+    assert.deepEqual(point, { lineNumber: 7, column: 1 }, `line ${line}`);
+  }
+});
+
+test("the figure's metadata line is treated as part of the figure", () => {
+  const doc = withBody("%% tex64-figure v2 h=deadbeef AAAA", "\\begin{tikzpicture}", "\\end{tikzpicture}");
+  const { point, moved } = planBodyInsert(doc, { lineNumber: 3, column: 1 });
+  assert.equal(moved, "environment");
+  assert.deepEqual(point, { lineNumber: 6, column: 1 });
+});
+
+test("column 1 of an environment's first line still counts as outside it", () => {
+  const doc = withBody("\\begin{tikzpicture}", "\\end{tikzpicture}");
+  assert.equal(planBodyInsert(doc, { lineNumber: 3, column: 1 }).moved, null);
+  assert.equal(planBodyInsert(doc, { lineNumber: 3, column: 8 }).moved, "environment");
+});
+
+test("math and verbatim environments push the figure past their end", () => {
+  const doc = withBody("\\begin{align}", "  a &= b \\\\", "  c &= d", "\\end{align}", "text");
+  const { point, moved } = planBodyInsert(doc, { lineNumber: 5, column: 4 });
+  assert.equal(moved, "environment");
+  assert.deepEqual(point, { lineNumber: 7, column: 1 });
+});
+
+test("a nested environment escapes to the outermost one that cannot hold a figure", () => {
+  const doc = withBody("\\begin{tikzpicture}", "\\begin{scope}", "  \\draw (0,0);", "\\end{scope}", "\\end{tikzpicture}", "x");
+  const { point } = planBodyInsert(doc, { lineNumber: 5, column: 3 });
+  assert.deepEqual(point, { lineNumber: 8, column: 1 });
+});
+
+test("environments that can hold a figure are left alone", () => {
+  const doc = withBody("\\begin{itemize}", "  \\item one", "\\end{itemize}");
+  assert.equal(planBodyInsert(doc, { lineNumber: 4, column: 12 }).moved, null);
+});
+
+test("a commented-out \\begin{tikzpicture} does not trap the cursor", () => {
+  const doc = withBody("% \\begin{tikzpicture}", "text");
+  assert.equal(planBodyInsert(doc, { lineNumber: 4, column: 3 }).moved, null);
 });
 
 test("a missing \\end{document} appends past the last line", () => {
@@ -79,7 +126,7 @@ test("a commented \\begin{document} does not fool the body search", () => {
 
 test("the full plan places the preamble edit at \\begin{document}", () => {
   const plan = planFigureInsert(DOC, { lineNumber: 1, column: 1 }, ["arrows.meta"], true);
-  assert.equal(plan.movedIntoBody, true);
+  assert.equal(plan.moved, "preamble");
   assert.deepEqual(plan.body, { lineNumber: 7, column: 1 });
   assert.equal(plan.preamble.lineNumber, 4);
   assert.equal(
