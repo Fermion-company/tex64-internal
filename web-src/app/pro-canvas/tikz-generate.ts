@@ -120,6 +120,7 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
       if (object.anchor !== "center") options.unshift(`anchor=${object.anchor}`);
       return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${object.latex}};`];
     }
+    if (object.type === "path" && !object.segments.length) return []; // ペン1クリック中断の残骸（0セグメント）は無意味な \draw を出さない
     const prefix = `${indent}${withOptions(command(object), options)} `;
     if (object.type === "rect") return [`${prefix}${point(object.from)} rectangle ${point(object.to)};`];
     if (object.type === "ellipse") {

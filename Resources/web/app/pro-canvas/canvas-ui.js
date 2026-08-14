@@ -5,7 +5,7 @@ import { planFigureInsert } from "./insert-plan.js";
 import { generateTikz } from "./tikz-generate.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
-import { alignDeltas, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
+import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, mirrorInstanceTransform, nearestOnPath, pathTightPoints, removeAnchor, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
@@ -13,7 +13,7 @@ import { importSvg } from "./svg-import.js";
 import { extractPreamble, scanTikzsetStyles } from "./project-context.js";
 import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
-import { penSegmentFor } from "./pen-math.js";
+import { buildPenSegments } from "./pen-math.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
@@ -110,9 +110,20 @@ const allPoints = (object, scene) => {
         return { x: t.tx + x * Math.cos(rad) - y * Math.sin(rad), y: t.ty + x * Math.sin(rad) + y * Math.cos(rad) };
     });
 };
+const boundsPoints = (object, scene) => {
+    var _a;
+    if (object.type === "path")
+        return pathTightPoints(object);
+    if (object.type === "repeat")
+        return samplePathPoints(object.path, object.count).map(sample => sample.point);
+    if (object.type !== "group" && object.type !== "instance")
+        return allPoints(object, scene);
+    const children = object.type === "group" ? object.children : ((_a = findSymbol(scene, object.symbol)) === null || _a === void 0 ? void 0 : _a.objects) || [], t = object.transform, rad = t.rotate * Math.PI / 180;
+    return children.flatMap(child => boundsPoints(child, scene)).map(p => { const x = p.x * t.sx, y = p.y * t.sy; return { x: t.tx + x * Math.cos(rad) - y * Math.sin(rad), y: t.ty + x * Math.sin(rad) + y * Math.cos(rad) }; });
+};
 const objectBounds = (object, scene) => {
     var _a, _b;
-    const points = allPoints(object, scene);
+    const points = boundsPoints(object, scene);
     const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
     const x = (_a = xs[0]) !== null && _a !== void 0 ? _a : 0, y = (_b = ys[0]) !== null && _b !== void 0 ? _b : 0;
     return { minX: Math.min(...xs, x), minY: Math.min(...ys, y), maxX: Math.max(...xs, x), maxY: Math.max(...ys, y) };
@@ -1047,7 +1058,7 @@ export const initProCanvasUi = (deps) => {
             } });
         };
         const render = () => {
-            var _a, _b, _c;
+            var _a, _b;
             if (tool !== "select")
                 svg.style.cursor = "crosshair";
             // 閉じた直後や幅ゼロのときに描くと viewBox が NaN、プロット座標が ±Infinity になる。
@@ -1220,9 +1231,25 @@ export const initProCanvasUi = (deps) => {
                 else if (object.type === "ellipse")
                     el = svgEl("ellipse", { ...attrs, cx: object.center.x, cy: object.center.y, rx: object.rx, ry: object.ry });
                 else if (object.type === "path") {
+                    // ペン描画中はカーソルを仮ノードに含めた provisional 形状で描く（確定時のジャンプ・ゴーストとの二又を根絶）。始点付近では閉じた形を予告。
+                    let segs = object.segments, closedNow = object.closed;
+                    if (pen && pen.path.id === object.id && !object.closed) {
+                        if (penDrag)
+                            segs = buildPenSegments([...pen.nodes, { p: { ...penDrag.anchor }, kind: penDrag.handle ? "manual" : "auto", out: penDrag.handle ? { ...penDrag.handle } : null }], false);
+                        else if (penCursor) {
+                            const closing = pen.nodes.length >= 2 && object.segments.length > 0 && Math.hypot(penCursor.x - object.start.x, penCursor.y - object.start.y) < scene.grid.size * .4;
+                            const lastP = pen.nodes[pen.nodes.length - 1].p;
+                            if (closing) {
+                                segs = buildPenSegments(pen.nodes, true);
+                                closedNow = true;
+                            }
+                            else if (Math.hypot(penCursor.x - lastP.x, penCursor.y - lastP.y) > 1e-9)
+                                segs = buildPenSegments([...pen.nodes, { p: { ...penCursor }, kind: "auto", out: null }], false);
+                        }
+                    }
                     let d = `M ${object.start.x} ${object.start.y}`;
-                    object.segments.forEach(s => { d += s.type === "line" ? ` L ${s.to.x} ${s.to.y}` : ` C ${s.c1.x} ${s.c1.y} ${s.c2.x} ${s.c2.y} ${s.to.x} ${s.to.y}`; });
-                    if (object.closed)
+                    segs.forEach(s => { d += s.type === "line" ? ` L ${s.to.x} ${s.to.y}` : ` C ${s.c1.x} ${s.c1.y} ${s.c2.x} ${s.c2.y} ${s.to.x} ${s.to.y}`; });
+                    if (closedNow)
                         d += " Z";
                     el = svgEl("path", { ...attrs, d });
                 }
@@ -1292,24 +1319,22 @@ export const initProCanvasUi = (deps) => {
             if (pen) {
                 const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), path = pen.path, points = [path.start, ...path.segments.map(s => s.to)], close = penCursor && Math.hypot(penCursor.x - path.start.x, penCursor.y - path.start.y) < scene.grid.size * .4;
                 points.forEach((point, index) => penLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: (index === 0 && close ? 4.5 : 3) / scale, class: `pro-canvas-pen-anchor${index === 0 && close ? " is-close" : ""}` })));
+                const committed = svgEl("g", { class: "pro-canvas-pen-committed" });
+                let prevAnchor = path.start;
+                path.segments.forEach(seg => { if (seg.type === "cubic")
+                    [[prevAnchor, seg.c1], [seg.to, seg.c2]].forEach(([anchor, control]) => { if (Math.hypot(control.x - anchor.x, control.y - anchor.y) <= 1e-6)
+                        return; committed.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: control.x, y2: control.y, class: "pro-canvas-pen-handle-line" })); committed.append(svgEl("circle", { cx: control.x, cy: control.y, r: 2.5 / scale, class: "pro-canvas-pen-handle-dot" })); }); prevAnchor = seg.to; });
+                if (committed.childNodes.length)
+                    penLayer.append(committed);
                 if (penDrag) {
-                    const a = penDrag.anchor, h = penDrag.handle, prev = points[points.length - 1];
-                    if (prev && (prev.x !== a.x || prev.y !== a.y)) {
-                        const seg = penSegmentFor(prev, pen.lastOut, a, h);
-                        penLayer.append(svgEl("path", { d: seg.type === "cubic" ? `M ${prev.x} ${prev.y} C ${seg.c1.x} ${seg.c1.y} ${seg.c2.x} ${seg.c2.y} ${seg.to.x} ${seg.to.y}` : `M ${prev.x} ${prev.y} L ${seg.to.x} ${seg.to.y}`, fill: "none", class: "pro-canvas-pen-ghost" }));
-                    }
+                    const a = penDrag.anchor, h = penDrag.handle;
                     penLayer.append(svgEl("circle", { cx: a.x, cy: a.y, r: 3 / scale, class: "pro-canvas-pen-anchor" }));
                     if (h)
                         penLayer.append(svgEl("line", { x1: a.x - h.x, y1: a.y - h.y, x2: a.x + h.x, y2: a.y + h.y, class: "pro-canvas-pen-handle-line" }), svgEl("circle", { cx: a.x - h.x, cy: a.y - h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }), svgEl("circle", { cx: a.x + h.x, cy: a.y + h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }));
                 }
-                else if (penCursor) {
+                else if (penCursor && pen.lastOut) {
                     const last = points[points.length - 1];
-                    if (pen.lastOut) {
-                        const c1 = { x: last.x + pen.lastOut.x, y: last.y + pen.lastOut.y };
-                        penLayer.append(svgEl("path", { d: `M ${last.x} ${last.y} C ${c1.x} ${c1.y} ${penCursor.x} ${penCursor.y} ${penCursor.x} ${penCursor.y}`, fill: "none", class: "pro-canvas-pen-ghost" }));
-                    }
-                    else
-                        penLayer.append(svgEl("line", { x1: last.x, y1: last.y, x2: penCursor.x, y2: penCursor.y, class: "pro-canvas-pen-ghost" }));
+                    penLayer.append(svgEl("line", { x1: last.x, y1: last.y, x2: last.x + pen.lastOut.x, y2: last.y + pen.lastOut.y, class: "pro-canvas-pen-handle-line" }), svgEl("circle", { cx: last.x + pen.lastOut.x, cy: last.y + pen.lastOut.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }));
                 }
                 root.append(penLayer);
             }
@@ -1338,7 +1363,18 @@ export const initProCanvasUi = (deps) => {
                     if (selected.length > 1)
                         select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
                     else if (isStraightLine(selected[0])) {
-                        [selected[0].start, selected[0].segments[0].to].forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: "pro-canvas-anchor" }); handle.dataset.anchorIndex = String(index); handle.dataset.pathId = selected[0].id; select.append(handle); });
+                        const line0 = selected[0];
+                        [line0.start, line0.segments[0].to].forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: "pro-canvas-anchor" }); handle.dataset.anchorIndex = String(index); handle.dataset.pathId = line0.id; select.append(handle); });
+                    }
+                    else if (selected[0].type === "path") {
+                        const path = selected[0];
+                        [path.start, ...path.segments.map(s => s.to)].slice(0, path.closed ? -1 : undefined).forEach(point => select.append(svgEl("circle", { cx: point.x, cy: point.y, r: 1.75 / scale, class: "pro-canvas-path-dot" })));
+                        ["nw", "ne", "se", "sw"].forEach(h => { const p = resizeHandlePoint(b, h), handle = svgEl("circle", { cx: p.x, cy: p.y, r: 3 / scale, class: `pro-canvas-handle pro-canvas-handle-${h} is-path-corner` }); handle.dataset.handle = h; select.append(handle); });
+                        const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
+                        select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
+                        const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
+                        rotate.dataset.rotate = "true";
+                        select.append(rotate);
                     }
                     else if (selected[0].type !== "node") {
                         handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
@@ -1356,14 +1392,11 @@ export const initProCanvasUi = (deps) => {
             if (anchorEdit) {
                 const object = walk(currentObjects(), anchorEdit.pathId);
                 if ((object === null || object === void 0 ? void 0 : object.type) === "path") {
-                    const layer = svgEl("g", { class: "pro-canvas-anchor-layer pro-canvas-selection" }), points = [object.start, ...object.segments.map(segment => segment.to)], anchor = (_a = points[selectedAnchorIndex]) !== null && _a !== void 0 ? _a : object.start;
-                    const addControl = (segmentIndex, key) => { const segment = object.segments[segmentIndex]; if ((segment === null || segment === void 0 ? void 0 : segment.type) !== "cubic")
-                        return; const point = segment[key]; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: "pro-canvas-anchor-tether" })); const control = svgEl("circle", { cx: point.x, cy: point.y, r: 3 / scale, class: "pro-canvas-anchor-control" }); control.dataset.controlSegment = String(segmentIndex); control.dataset.controlKey = key; layer.append(control); };
-                    if (selectedAnchorIndex > 0)
-                        addControl(selectedAnchorIndex - 1, "c2");
-                    if (selectedAnchorIndex < object.segments.length)
-                        addControl(selectedAnchorIndex, "c1");
-                    points.forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}` }); handle.dataset.anchorIndex = String(index); layer.append(handle); });
+                    const layer = svgEl("g", { class: "pro-canvas-anchor-layer pro-canvas-selection" }), points = [object.start, ...object.segments.map(segment => segment.to)], strong = (i, key) => (key === "c1" && i === selectedAnchorIndex) || (key === "c2" && i + 1 === selectedAnchorIndex);
+                    object.segments.forEach((segment, i) => { if (segment.type !== "cubic")
+                        return; ["c1", "c2"].forEach(key => { const anchor = key === "c1" ? (i === 0 ? object.start : object.segments[i - 1].to) : segment.to, point = segment[key], emphasis = strong(i, key); if (Math.hypot(point.x - anchor.x, point.y - anchor.y) < 1e-6)
+                        return; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: `pro-canvas-anchor-tether${emphasis ? "" : " is-faint"}` })); const control = svgEl("circle", { cx: point.x, cy: point.y, r: (emphasis ? 3 : 2.5) / scale, class: `pro-canvas-anchor-control${emphasis ? "" : " is-faint"}` }); control.dataset.controlSegment = String(i); control.dataset.controlKey = key; layer.append(control); }); });
+                    points.slice(0, object.closed ? -1 : undefined).forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}` }); handle.dataset.anchorIndex = String(index); layer.append(handle); });
                     root.append(layer);
                 }
             }
@@ -1391,7 +1424,7 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=zoom-reset]").title = "クリック: 100% / Shift+クリック: 選択にフィット";
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
-            overlay.querySelector("[data-action=ai-import]").disabled = !((_b = window.tex64Texize) === null || _b === void 0 ? void 0 : _b.snippet);
+            overlay.querySelector("[data-action=ai-import]").disabled = !((_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet);
             renderInspector();
             positionNodeEditor();
             const edited = plotObject();
@@ -1417,7 +1450,7 @@ export const initProCanvasUi = (deps) => {
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
             emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : tool !== "select" ? (_c = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリック：直線でつなぐ　ドラッグ：曲線を引き出す　同じ点をもう一度クリックか Enter で確定　始点クリックで閉じる", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : anchorEdit ? "ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　ダブルクリック：頂点追加　Delete：頂点削除　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_b = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _b !== void 0 ? _b : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : "ダブルクリック：頂点とハンドルを編集　四隅をドラッグ：伸縮") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
             if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
@@ -1438,16 +1471,18 @@ export const initProCanvasUi = (deps) => {
             object.height = Math.max(5, object.height);
         } });
         let pen = null, penCursor = null;
+        const rebuildPenPath = () => { if (!pen)
+            return; pen.path.start = { ...pen.nodes[0].p }; pen.path.segments = buildPenSegments(pen.nodes, pen.path.closed); };
         svg.addEventListener("pointerup", e => { if (!penDrag)
-            return; const { anchor, handle } = penDrag; if (!pen) {
+            return; const { anchor, handle, alt } = penDrag, node = { p: { ...anchor }, kind: handle ? "manual" : alt ? "corner" : "auto", out: handle }; if (!pen) {
             const path = { id: newObjectId(), type: "path", start: { ...anchor }, segments: [], closed: false, style: { props: { lineWidthPt: 1 } } };
             currentObjects().push(path);
-            pen = { path, lastOut: handle };
+            pen = { path, nodes: [node], lastOut: handle };
         }
         else {
-            const prev = pen.path.segments.length ? pen.path.segments[pen.path.segments.length - 1].to : pen.path.start;
-            pen.path.segments.push(penSegmentFor(prev, pen.lastOut, anchor, handle));
+            pen.nodes.push(node);
             pen.lastOut = handle;
+            rebuildPenPath();
         } penDrag = null; penCursor = { ...anchor }; if (svg.hasPointerCapture(e.pointerId))
             svg.releasePointerCapture(e.pointerId); render(); scheduleCompile(); });
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
@@ -1491,20 +1526,42 @@ export const initProCanvasUi = (deps) => {
                         return;
                     if (anchorIndex !== undefined) {
                         selectedAnchorIndex = anchorIndex;
-                        if (e.altKey && anchorIndex > 0) {
+                        if (e.altKey && (anchorIndex > 0 || path.closed)) {
                             snapshot(false);
-                            toggleSegmentKind(path, anchorIndex);
+                            toggleSegmentKind(path, anchorIndex > 0 ? anchorIndex : path.segments.length);
                             render();
                             scheduleCompile();
                             e.preventDefault();
                             return;
                         }
                     }
-                    drag = { kind: "anchor", start: raw, startClient: client, before: cloneScene(scene), id: path.id, anchorIndex, controlSegment, controlKey };
+                    let mirrorSegment, mirrorKey, mirrorLength;
+                    if (controlSegment !== undefined && controlKey) {
+                        const n = path.segments.length, oppIndex = controlKey === "c1" ? (controlSegment > 0 ? controlSegment - 1 : path.closed ? n - 1 : -1) : (controlSegment < n - 1 ? controlSegment + 1 : path.closed ? 0 : -1), oppKey = controlKey === "c1" ? "c2" : "c1", anchor = controlKey === "c1" ? (controlSegment === 0 ? path.start : path.segments[controlSegment - 1].to) : path.segments[controlSegment].to, dragged = path.segments[controlSegment], opp = oppIndex >= 0 ? path.segments[oppIndex] : undefined;
+                        if ((dragged === null || dragged === void 0 ? void 0 : dragged.type) === "cubic" && (opp === null || opp === void 0 ? void 0 : opp.type) === "cubic" && isMirrorPair(anchor, dragged[controlKey], opp[oppKey])) {
+                            mirrorSegment = oppIndex;
+                            mirrorKey = oppKey;
+                            mirrorLength = Math.hypot(opp[oppKey].x - anchor.x, opp[oppKey].y - anchor.y);
+                        }
+                    }
+                    drag = { kind: "anchor", start: raw, startClient: client, before: cloneScene(scene), id: path.id, anchorIndex, controlSegment, controlKey, mirrorSegment, mirrorKey, mirrorLength };
                     hoveredId = null;
                     svg.setPointerCapture(e.pointerId);
                     render();
                     return;
+                }
+                if (anchorEdit && id === anchorEdit.pathId && !handle && !target.dataset.rotate) {
+                    const editPath = walk(currentObjects(), anchorEdit.pathId);
+                    if ((editPath === null || editPath === void 0 ? void 0 : editPath.type) === "path") {
+                        const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, hit = nearestOnPath(editPath, raw);
+                        if (hit.dist <= 8 / scale) {
+                            drag = { kind: "bend", start: raw, startClient: client, before: cloneScene(scene), id: editPath.id, segIndex: hit.segIndex, t: Math.max(.15, Math.min(.85, hit.t)) };
+                            hoveredId = null;
+                            svg.setPointerCapture(e.pointerId);
+                            render();
+                            return;
+                        }
+                    }
                 }
                 if (anchorEdit && id !== anchorEdit.pathId)
                     anchorEdit = null;
@@ -1559,18 +1616,15 @@ export const initProCanvasUi = (deps) => {
             }
             if (tool === "pen") {
                 invalidateCompiled();
+                const p = snapToGrid(raw, scene.grid.size, scene.grid.snap);
                 if (pen && pen.path.segments.length && Math.hypot(p.x - pen.path.start.x, p.y - pen.path.start.y) < scene.grid.size * .4) {
-                    const prev = pen.path.segments[pen.path.segments.length - 1].to;
-                    pen.path.segments.push(penSegmentFor(prev, pen.lastOut, pen.path.start, null));
                     pen.path.closed = true;
-                    pen = null;
-                    penDrag = null;
-                    scheduleCompile();
-                    render();
+                    rebuildPenPath();
+                    finishPen();
                     return;
                 }
                 if (pen) {
-                    const lastAnchor = pen.path.segments.length ? pen.path.segments[pen.path.segments.length - 1].to : pen.path.start;
+                    const lastAnchor = pen.nodes[pen.nodes.length - 1].p;
                     if (Math.hypot(p.x - lastAnchor.x, p.y - lastAnchor.y) < scene.grid.size * .3) {
                         finishPen();
                         return;
@@ -1578,7 +1632,7 @@ export const initProCanvasUi = (deps) => {
                 }
                 if (!pen)
                     snapshot();
-                penDrag = { anchor: { ...p }, handle: null, startClient: client };
+                penDrag = { anchor: { ...p }, handle: null, startClient: client, alt: e.altKey };
                 penCursor = { ...p };
                 svg.setPointerCapture(e.pointerId);
                 render();
@@ -1618,13 +1672,13 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             if (pen && !drag) {
-                penCursor = snappedPoint(e);
+                penCursor = snapToGrid(rawPoint(e), scene.grid.size, scene.grid.snap);
                 render();
                 return;
             }
             if (!drag) {
                 const target = e.target, nextHoveredId = (_b = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id) !== null && _b !== void 0 ? _b : null, handle = target.dataset.handle;
-                svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : nextHoveredId ? "move" : "default";
+                svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : anchorEdit && nextHoveredId === anchorEdit.pathId ? "crosshair" : nextHoveredId ? "move" : "default";
                 if (nextHoveredId !== hoveredId) {
                     hoveredId = nextHoveredId;
                     render();
@@ -1640,7 +1694,7 @@ export const initProCanvasUi = (deps) => {
             const raw = rawPoint(e), crossedThreshold = !drag.moved && Math.hypot(e.clientX - drag.startClient.x, e.clientY - drag.startClient.y) >= 4;
             if (crossedThreshold) {
                 drag.moved = true;
-                if (["move", "resize", "rotate", "anchor", "plot-pan"].includes(drag.kind))
+                if (["move", "resize", "rotate", "anchor", "bend", "plot-pan"].includes(drag.kind))
                     invalidateCompiled();
             }
             if (drag.kind === "marquee") {
@@ -1676,14 +1730,24 @@ export const initProCanvasUi = (deps) => {
                     return;
                 if (drag.controlSegment !== undefined && drag.controlKey) {
                     const segment = path.segments[drag.controlSegment];
-                    if ((segment === null || segment === void 0 ? void 0 : segment.type) === "cubic")
+                    if ((segment === null || segment === void 0 ? void 0 : segment.type) === "cubic") {
                         Object.assign(segment[drag.controlKey], raw);
+                        if (drag.mirrorSegment !== undefined && drag.mirrorKey && drag.mirrorLength !== undefined && !e.altKey) {
+                            const anchor = drag.controlKey === "c1" ? (drag.controlSegment === 0 ? path.start : path.segments[drag.controlSegment - 1].to) : segment.to, opp = path.segments[drag.mirrorSegment];
+                            if ((opp === null || opp === void 0 ? void 0 : opp.type) === "cubic")
+                                Object.assign(opp[drag.mirrorKey], mirroredControl(anchor, raw, drag.mirrorLength));
+                        }
+                    }
                 }
                 else if (drag.anchorIndex !== undefined) {
                     const points = [path.start, ...path.segments.map(segment => segment.to)], point = points[drag.anchorIndex], target = snapToGrid(raw, scene.grid.size, scene.grid.snap), dx = target.x - point.x, dy = target.y - point.y;
                     point.x = target.x;
                     point.y = target.y;
-                    const incoming = path.segments[drag.anchorIndex - 1], outgoing = path.segments[drag.anchorIndex];
+                    const closed0 = path.closed && drag.anchorIndex === 0, incoming = closed0 ? path.segments[path.segments.length - 1] : path.segments[drag.anchorIndex - 1], outgoing = path.segments[drag.anchorIndex];
+                    if (closed0 && incoming) {
+                        incoming.to.x = target.x;
+                        incoming.to.y = target.y;
+                    }
                     if ((incoming === null || incoming === void 0 ? void 0 : incoming.type) === "cubic") {
                         incoming.c2.x += dx;
                         incoming.c2.y += dy;
@@ -1693,6 +1757,22 @@ export const initProCanvasUi = (deps) => {
                         outgoing.c1.y += dy;
                     }
                 }
+                render();
+                return;
+            }
+            if (drag.kind === "bend") {
+                const path = drag.id ? walk(currentObjects(), drag.id) : null;
+                if ((path === null || path === void 0 ? void 0 : path.type) !== "path" || drag.segIndex === undefined || drag.t === undefined)
+                    return;
+                let seg = path.segments[drag.segIndex];
+                if (!seg)
+                    return;
+                if (seg.type === "line") {
+                    const from = drag.segIndex === 0 ? path.start : path.segments[drag.segIndex - 1].to;
+                    seg = { type: "cubic", c1: { x: from.x + (seg.to.x - from.x) / 3, y: from.y + (seg.to.y - from.y) / 3 }, c2: { x: from.x + (seg.to.x - from.x) * 2 / 3, y: from.y + (seg.to.y - from.y) * 2 / 3 }, to: { ...seg.to } };
+                    path.segments[drag.segIndex] = seg;
+                }
+                bendSegment(seg, drag.t, { x: raw.x - drag.start.x, y: raw.y - drag.start.y });
                 render();
                 return;
             }
@@ -1751,7 +1831,7 @@ export const initProCanvasUi = (deps) => {
         } });
         svg.addEventListener("pointerup", e => {
             var _a, _b;
-            const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor"].includes(completed.kind));
+            const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor", "bend"].includes(completed.kind));
             const drawn = (completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.id ? currentObjects().find(item => item.id === completed.id) : null, plotDrawn = (drawn === null || drawn === void 0 ? void 0 : drawn.type) === "plot" ? drawn : null;
             if (plotDrawn && !completed.moved) {
                 plotDrawn.width = 60;
@@ -1763,7 +1843,7 @@ export const initProCanvasUi = (deps) => {
                 undo.push(completed.before);
                 redo = [];
             }
-            else if (completed && !completed.moved && ["move", "resize", "rotate", "anchor"].includes(completed.kind)) {
+            else if (completed && !completed.moved && ["move", "resize", "rotate", "anchor", "bend"].includes(completed.kind)) {
                 scene = completed.before;
             }
             else if ((completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && !completed.moved && completed.id && !plotDrawn) {
@@ -1793,8 +1873,22 @@ export const initProCanvasUi = (deps) => {
                 if (lastClick && now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6) {
                     lastClick = null;
                     const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
-                    const object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null);
-                    activateForEdit(object);
+                    const editPath = anchorEdit && completed.kind === "bend" ? walk(currentObjects(), anchorEdit.pathId) : null;
+                    if ((editPath === null || editPath === void 0 ? void 0 : editPath.type) === "path") {
+                        const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, hit = nearestOnPath(editPath, rawPoint(e));
+                        if (hit.dist <= 8 / scale) {
+                            snapshot();
+                            const from = hit.segIndex === 0 ? editPath.start : editPath.segments[hit.segIndex - 1].to, [first, second] = splitSegmentAt(from, editPath.segments[hit.segIndex], hit.t);
+                            editPath.segments.splice(hit.segIndex, 1, first, second);
+                            selectedAnchorIndex = hit.segIndex + 1;
+                            render();
+                            scheduleCompile();
+                        }
+                    }
+                    else {
+                        const object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null);
+                        activateForEdit(object);
+                    }
                 }
                 else
                     lastClick = { t: now, x: e.clientX, y: e.clientY };
@@ -1818,8 +1912,12 @@ export const initProCanvasUi = (deps) => {
             removeById(currentObjects(), path.id);
             clearSelection();
         }
-        else
-            replaceSelection(path.id); render(); scheduleCompile(); };
+        else {
+            replaceSelection(path.id);
+            tool = "select";
+            anchorEdit = { pathId: path.id };
+            selectedAnchorIndex = 0;
+        } render(); scheduleCompile(); };
         const abortPen = () => { if (pen && !pen.path.segments.length)
             removeById(currentObjects(), pen.path.id); pen = null; penDrag = null; penCursor = null; };
         const retainSelection = () => { var _a; selection.ids = new Set([...selection.ids].filter(id => walk(currentObjects(), id))); selection.primaryId = selection.primaryId && selection.ids.has(selection.primaryId) ? selection.primaryId : (_a = [...selection.ids][0]) !== null && _a !== void 0 ? _a : null; };
@@ -1856,9 +1954,8 @@ export const initProCanvasUi = (deps) => {
                     return;
                 }
                 if (pen || penDrag) {
-                    abortPen();
-                    clearSelection();
-                    render();
+                    penDrag = null;
+                    finishPen();
                     return;
                 }
                 if (editingSymbolId) {
@@ -1883,6 +1980,23 @@ export const initProCanvasUi = (deps) => {
                 penDrag = null;
                 finishPen();
                 return;
+            }
+            if ((e.key === "Delete" || e.key === "Backspace") && anchorEdit) {
+                const path = walk(currentObjects(), anchorEdit.pathId);
+                if ((path === null || path === void 0 ? void 0 : path.type) === "path") {
+                    snapshot();
+                    if (!removeAnchor(path, selectedAnchorIndex)) {
+                        removeById(currentObjects(), path.id);
+                        anchorEdit = null;
+                        clearSelection();
+                    }
+                    else
+                        selectedAnchorIndex = Math.max(0, Math.min(selectedAnchorIndex, path.closed ? path.segments.length - 1 : path.segments.length));
+                    render();
+                    scheduleCompile();
+                    e.preventDefault();
+                    return;
+                }
             }
             if ((e.key === "Delete" || e.key === "Backspace") && selection.ids.size) {
                 snapshot();

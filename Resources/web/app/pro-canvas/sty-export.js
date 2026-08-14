@@ -161,6 +161,8 @@ export const buildStyFile = (scene, packageName) => {
             return [`${prefix}${point(object.from)} rectangle ${point(object.to)};`];
         if (object.type === "ellipse")
             return [`${prefix}${point(object.center)} ${object.rx === object.ry ? `circle [radius=${num(object.rx)}]` : `ellipse [x radius=${num(object.rx)}, y radius=${num(object.ry)}]`};`];
+        if (!object.segments.length)
+            return [];
         const parts = [point(object.start), ...object.segments.map(seg => seg.type === "line" ? `-- ${point(seg.to)}` : `.. controls ${point(seg.c1)} and ${point(seg.c2)} .. ${point(seg.to)}`)];
         if (object.closed)
             parts.push("-- cycle");

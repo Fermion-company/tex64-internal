@@ -8937,6 +8937,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-anchor.is-selected { stroke-width: 2; }
 .pro-canvas-anchor-control { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
 .pro-canvas-anchor-tether { stroke: var(--accent); stroke-width: 1; stroke-opacity: .65; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-path-dot { fill: var(--accent); stroke: #ffffff; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-handle.is-path-corner { }
+.pro-canvas-anchor-tether.is-faint { stroke-opacity: .35; }
+.pro-canvas-anchor-control.is-faint { fill-opacity: .8; }
+.pro-canvas-pen-committed { opacity: .45; pointer-events: none; }
 .pro-canvas-size-chip { position: fixed; z-index: 3; pointer-events: none; padding: 4px 7px; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel-strong); color: var(--text); box-shadow: var(--shadow-sm); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pro-canvas-command-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
 .pro-canvas-command-grid button { min-width: 0; height: 28px; padding: 4px; }

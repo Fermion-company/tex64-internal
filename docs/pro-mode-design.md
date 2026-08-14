@@ -274,7 +274,20 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - math-field を**空にした**ときは `series.expr=""` を明示的に書き戻す。`latexToExpr("")` は null なので放置すると「消したはずの曲線が残る + 空欄に赤エラー」になる。
    - 空の式は全種別で「未入力（valid・曲線なし）」。エラーは「書いて解釈できない」ときだけ。種別切替でプレースホルダ式を注入しない。
    - 空の式は**数式モードで開始**する（テキストモード開始だと初見の `sin(x)` が pgf の度数法でほぼ平坦な線になる罠）。
-   - 監査残（未対応・軽微）: 滑らかに閉じられない（閉路が必ず角）/ 1点ペン破棄後の空振り undo エントリ / Alt+クリック往復でハンドル既定値化 / 閉パス頂点編集の始点アンカー重複。
+   - 監査残（未対応・軽微）: 1点ペン破棄後の空振り undo エントリ / Alt+クリック往復でハンドル既定値化。（「閉路が必ず角」「閉パス始点アンカー重複」は K で解消済み）
+
+16. **曲線の見える化・直接編集・真の境界・自動スムース（K, 2026-08-14）** — `docs/pro-canvas-k-spec.md`、Codex（terra）実装 + Claude が配線を補完。恒久 gotcha:
+   - **パスの境界は `pathTightPoints`（ベジェ微分の根から実インクの extents）で計算し、`allPoints` は使わない**。ただし `allPoints` は rotate/resize が「返された Vec 参照を直接変異させる」ための収集器なので**削除・変更しない**。境界（objectBounds）だけ tight 側を使う二本立てが正解。
+   - ペンは `PenNode`（auto/corner/manual）列 + `buildPenSegments(nodes, closed)` の**全再構築**方式。クリック=auto、Alt+クリック=corner（**Alt でも吸着は維持**）、ドラッグ=manual（対称ハンドル）。auto 接線は **centripetal Catmull-Rom（α=.5）+ 開パス端は自然境界条件** — 一様版は不均一間隔で overshoot→ループするので戻さない（`tests/pro-canvas-curves.test.mjs` に L 字回帰テスト）。
+   - **描画中のプレビューはゴースト線ではなく、シーン上のパス自体を「カーソルを仮 auto ノードに含めた provisional 形状」で描く**（draw() で pen.path のみ差し替え）。ゴースト併記は確定 ink と二又に見える（監査実測 2.37mm）。始点近傍では closed ビルドで「閉じたらこうなる」を予告。カーソル=最終アンカー同一点のときは仮ノードを足さない（重複ノードで偽セグメントが生える）。
+   - **ペンの Esc は Enter と同じ「確定」**（破棄ではない）。中途半端な「確定するが未選択・ツール pen のまま」は UX が壊れる。
+   - **pointer capture 中の pointerup は e.target が svg になる**。ダブルクリック系の判定を `closest("[data-id]")` に頼ると突然壊れる。頂点追加は「未移動の bend クリック（pointerdown 時点で nearestOnPath 済み）」で判定する。
+   - セグメント曲げは最小ノルム解 `bendSegment`（w1=3(1−t)²t, w2=3(1−t)t², Δc=Δ·w/(w1²+w2²)）で **B(t) がちょうどマウス分動く**。t は [.15,.85] に clamp（端は発散）。line は曲げる前に 1/3-2/3 で cubic 化。
+   - ミラーは **pointerdown 時に共線判定して drag に記録**（isMirrorPair、cos<−cos10°）。動的に判定すると折った直後のハンドルが勝手に貼り付く。Alt 押下中は解除。反対側は**自分の長さを維持**（Illustrator 準拠）。
+   - 選択見た目: パスは曲線沿いアウトライン + アンカードット + **四隅のみの丸グリップ**（is-path-corner）。8 個の正方形は他タイプ専用。ヒット判定クローン（pro-canvas-hit）は data-id を複製するので DOM を数える検証では `:not(.pro-canvas-hit)`。
+   - finishPen（Enter/閉路/同一点）は **select ツールへ戻して即 anchorEdit に入る**（plot 配置と同じパターン）。描いた直後に曲げ位置が全部見える。
+   - 頂点編集の Delete は**オブジェクト削除より先に**アンカー削除として横取りする（キーハンドラの分岐順が仕様）。selectedAnchorIndex の clamp は **closed で `segments.length-1`**（closed は末尾アンカー非表示のため。`segments.length` まで許すと Delete 連打で removeAnchor が false を返しパスごと消えるデータ損失になる — Opus 監査で実証済み）。
+   - Opus 監査残（未対応・優先度低）: 縦一直線パスは幅 0 で四隅グリップが 2 点に潰れ横に伸ばせない / 描画中 Cmd+Z が全点破棄（competitor は 1 点ずつ）/ auto ノードの out ハンドルは opacity .45 のまま（lastOut は manual のみ）/ 頂点編集中にオブジェクト自体を消すには Esc が先に要る / アンカー座標の数値編集・パス結合/切断・simplify なし（競合比較ギャップ）。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
