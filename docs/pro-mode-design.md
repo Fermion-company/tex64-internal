@@ -255,6 +255,18 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - 塗りモード切替の設定は `fillMemory`（セッション内 Map）にスタッシュ。scene には残さない（emit 精度に影響させない）。
    - 監査残（未対応・次スプリント候補）: 両端別チップの混在表示（中4）/ ポップ dismiss クリックの素通り（中7）/ 開いたパスへの塗り行表示（中9）/ プレビューとコンパイルのパターン密度差（軽微4）/ `rx`・`viewBox` のコンソールエラー原因未特定（軽微7）。
 
+14. **初見オンボーディング + エラー掃討（I1, 2026-08-14）** — `docs/pro-canvas-i1-spec.md`（Codex と討議して確定）。Opus 監査 → ゲート 6 件修正済み。恒久 gotcha:
+   - **図の挿入位置は `insert-plan.ts` の純粋関数で決める**。初見ユーザーはエディタを一度もクリックしないのでカーソルは 1:1 のまま = プリアンブル内。素直に挿すと `\documentclass` の前に入って文書が壊れる。プリアンブル内なら `\end{document}` 直前へ回し、不足パッケージ（tikz / usetikzlibrary / pgfplots+compat）を `\begin{document}` の前に足す。**判定はコメント除去後**に行う（`%\usepackage{tikz}` を「有る」と誤判定する）。
+   - **ヒントバーは描画ツールを選択より優先**。何か描くと選択が残り続けるため、選択優先だとツール説明が実運用でほぼ出ない。かつ select 専用機能（ダブルクリックでの頂点編集）を他ツール中に案内すると嘘になる。
+   - **一回限りのヒントは「実際に読める状態で出たか」で消費する**。`showCoach` 時点で localStorage に書くと、ドラッグ中や直後に閉じる瞬間に使い切られて二度と出ない。1.5 秒表示されてから永続化し、ドラッグ中・select 以外・カードを閉じた直後は出さない。
+   - node は bounds が点なので、吹き出しはグリフに重なる。上へ逃がす（lift 22px）。
+   - 空状態のボタンは「描き始めたい場所」に居るので、描画ツール中はパネルごと隠す（`pointer-events:none` だけだと見えている死にボタンになり、次のクリックを奪う）。
+   - キャンバス上の文字は**白い用紙に重なる**前提で色を決める（半透明背景だと 2.7:1 まで落ちる）。ヒントバー・空状態の説明は不透明背景を敷く。
+   - 初回コンパイルの実測は約 40 秒（TeX エンジンの起動）。**具体的な秒数を約束しない**。進行中コンパイルを `invalidateCompiled()` で捨てるときはチップも畳む（でないと「コンパイル中…」で固まる）。
+   - エディタ既定フォントは同梱の **Latin Modern Mono**（`Resources/web/fonts/`, GUST Font License）。`\texttt` と同じ書体。等幅性は実測済み（i/m とも同幅）。
+   - renderer の CSP は `script-src 'self' 'unsafe-eval'`。**index.html にインラインスクリプト・インライン `onload`/`onerror` を書いても実行されない**（`mathlive-ready` が永久に発火しない事故があった）。外部 js から capture 段の load/error で拾う。
+   - 監査残（未対応）: 用語ゆれ（グラフ/プロット・系列）/ node 入力欄に placeholder なし / `Cmd+A` 未実装 / 空キャンバスでも `コンパイル中…` が出る / インスペクタ空文言の位置。
+
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
 - renderer のみの変更は Cmd+R で反映。main プロセス（`electron/*.cjs`）は Electron 再起動。
