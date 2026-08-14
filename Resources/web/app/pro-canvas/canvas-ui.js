@@ -270,8 +270,8 @@ export const initProCanvasUi = (deps) => {
         const requestText = (label, initial = "") => new Promise(resolve => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover pro-canvas-text-popover"; const title = document.createElement("label"); title.textContent = label; const input = document.createElement("input"); input.value = initial; const accept = document.createElement("button"); accept.textContent = "OK"; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; let done = false; const finish = (value) => { if (done)
             return; done = true; pop.remove(); resolve(value); }; accept.onclick = () => finish(input.value); cancel.onclick = () => finish(null); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
             return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
-        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<line x1="3" y1="13" x2="11" y2="5"/><polyline points="9,3 13,7 11,9 7,5 9,3"/><line x1="3" y1="13" x2="7" y2="12"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', '選択', '選択', 'V'], ['pen', 'ペン', 'ペン・曲線', 'P'], ['line', '直線', '直線', 'L'], ['rect', '矩形', '矩形', 'R'], ['ellipse', '楕円', '楕円', 'E'], ['node', '数式', '数式ラベル', 'T'], ['code', 'TikZ', 'TikZ コードを直接書く', 'C'], ['plot', 'グラフ', 'グラフ', 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
+        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
+        [['select', '選択', '選択', 'V'], ['pen', '曲線', '曲線（ペン）', 'P'], ['line', '直線', '直線', 'L'], ['rect', '矩形', '矩形', 'R'], ['ellipse', '楕円', '楕円', 'E'], ['node', '数式', '数式ラベル', 'T'], ['code', 'TikZ', 'TikZ コードを直接書く', 'C'], ['plot', 'グラフ', 'グラフ', 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
         let docPreamble = localStorage.getItem(DOC_STORAGE_KEY) === "true";
@@ -1048,6 +1048,8 @@ export const initProCanvasUi = (deps) => {
         };
         const render = () => {
             var _a, _b, _c;
+            if (tool !== "select")
+                svg.style.cursor = "crosshair";
             // 閉じた直後や幅ゼロのときに描くと viewBox が NaN、プロット座標が ±Infinity になる。
             if (!stage.isConnected || stage.clientWidth < 1 || stage.clientHeight < 1)
                 return;
@@ -1415,7 +1417,7 @@ export const initProCanvasUi = (deps) => {
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
             emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : tool !== "select" ? (_c = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリックで角の点　ドラッグで曲線（ハンドルを引き出す）　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : tool !== "select" ? (_c = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリック：直線でつなぐ　ドラッグ：曲線を引き出す　同じ点をもう一度クリックか Enter で確定　始点クリックで閉じる", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
             if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
@@ -1566,6 +1568,13 @@ export const initProCanvasUi = (deps) => {
                     scheduleCompile();
                     render();
                     return;
+                }
+                if (pen) {
+                    const lastAnchor = pen.path.segments.length ? pen.path.segments[pen.path.segments.length - 1].to : pen.path.start;
+                    if (Math.hypot(p.x - lastAnchor.x, p.y - lastAnchor.y) < scene.grid.size * .3) {
+                        finishPen();
+                        return;
+                    }
                 }
                 if (!pen)
                     snapshot();
@@ -1804,6 +1813,13 @@ export const initProCanvasUi = (deps) => {
             clearTimeout(wheelUndoTimer); hideCoach(); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
+        const finishPen = () => { if (!pen)
+            return; const path = pen.path; pen = null; penDrag = null; penCursor = null; if (!path.segments.length) {
+            removeById(currentObjects(), path.id);
+            clearSelection();
+        }
+        else
+            replaceSelection(path.id); render(); scheduleCompile(); };
         const abortPen = () => { if (pen && !pen.path.segments.length)
             removeById(currentObjects(), pen.path.id); pen = null; penDrag = null; penCursor = null; };
         const retainSelection = () => { var _a; selection.ids = new Set([...selection.ids].filter(id => walk(currentObjects(), id))); selection.primaryId = selection.primaryId && selection.ids.has(selection.primaryId) ? selection.primaryId : (_a = [...selection.ids][0]) !== null && _a !== void 0 ? _a : null; };
@@ -1864,9 +1880,8 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             if (e.key === "Enter" && (pen || penDrag)) {
-                abortPen();
-                clearSelection();
-                render();
+                penDrag = null;
+                finishPen();
                 return;
             }
             if ((e.key === "Delete" || e.key === "Backspace") && selection.ids.size) {
