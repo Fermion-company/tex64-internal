@@ -8931,7 +8931,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-pen-anchor.is-close { fill: var(--accent-soft); }
 .pro-canvas-pen-ghost { stroke: var(--accent); stroke-opacity: .4; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-anchor-layer { pointer-events: all; }
-.pro-canvas-anchor { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
+.pro-canvas-anchor { fill: rgb(255 255 255 / 25%); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; } /* 端点の矢頭を隠さないよう半透明。不透明白だと矢印の先端が欠けて見える */
 .pro-canvas-anchor.is-selected { stroke-width: 2; }
 .pro-canvas-anchor-control { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
 .pro-canvas-anchor-tether { stroke: var(--accent); stroke-width: 1; stroke-opacity: .65; vector-effect: non-scaling-stroke; pointer-events: none; }
