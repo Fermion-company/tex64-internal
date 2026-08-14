@@ -56,11 +56,16 @@ const previewSeries = (series, xmin, xmax) => { const kind = plotKind(series); i
     const points = parsePoints(series.points || "");
     return { pieces: points.map(point => [point]), valid: points.length > 0 };
 } if (kind === "fn" && !series.expr.trim())
-    return { pieces: [], valid: true }; const first = compileExpr(series.expr), second = kind === "parametric" ? compileExpr(series.expr2 || "") : null, domain = series.domain || (kind === "fn" ? { min: xmin, max: xmax } : { min: 0, max: 2 * Math.PI }); if (!first || (kind === "parametric" && !second))
+    return { pieces: [], valid: true }; if (kind === "polar" && !series.expr.trim())
+    return { pieces: [], valid: true }; if (kind === "parametric" && !series.expr.trim() && !(series.expr2 || "").trim())
+    return { pieces: [], valid: true }; if (kind === "parametric" && (!series.expr.trim() || !(series.expr2 || "").trim()))
+    return { pieces: [], valid: false }; const first = compileExpr(series.expr), second = kind === "parametric" ? compileExpr(series.expr2 || "") : null, domain = series.domain || (kind === "fn" ? { min: xmin, max: xmax } : { min: 0, max: 2 * Math.PI }); if (!first || (kind === "parametric" && !second))
     return { pieces: [], valid: false }; if (kind === "fn")
     return { pieces: samplePlot(first, domain.min, domain.max, series.samples), valid: true }; if (kind === "parametric")
     return { pieces: sampleParametric(first, second, domain.min, domain.max, series.samples), valid: true }; return { pieces: sampleParametric(t => first(t) * Math.cos(t), t => first(t) * Math.sin(t), domain.min, domain.max, series.samples), valid: true }; };
-const plotIsEmpty = (object) => object.series.every(series => (plotKind(series) === "points" ? (series.points || "") : series.expr).trim() === "");
+const plotIsEmpty = (object) => object.series.every(series => { const kind = plotKind(series); if (kind === "points")
+    return !(series.points || "").trim(); if (kind === "parametric")
+    return !series.expr.trim() && !(series.expr2 || "").trim(); return !series.expr.trim(); });
 const ensurePlotMathLive = () => { var _a; const global = window.MathLive, ctor = (_a = global === null || global === void 0 ? void 0 : global.MathfieldElement) !== null && _a !== void 0 ? _a : window.MathfieldElement, keyboard = window.mathVirtualKeyboard; try {
     if (ctor) {
         ctor.soundsDirectory = null;
@@ -534,7 +539,7 @@ export const initProCanvasUi = (deps) => {
                     liveField(mf, () => { var _a, _b; let raw = mf.value; try {
                         raw = (_b = (_a = mf.getValue) === null || _a === void 0 ? void 0 : _a.call(mf, "latex")) !== null && _b !== void 0 ? _b : raw;
                     }
-                    catch { } const next = latexToExpr(raw, varName), bad = next === null; mf.classList.toggle("is-error", bad); error.hidden = !bad; if (next !== null)
+                    catch { } const next = raw.trim() ? latexToExpr(raw, varName) : "", bad = next === null; mf.classList.toggle("is-error", bad); error.hidden = !bad; if (next !== null)
                         series[key] = next; });
                     editor = mf;
                 }
@@ -607,7 +612,7 @@ export const initProCanvasUi = (deps) => {
                 kindSelect.onchange = () => { snapshot(false); series.kind = kindSelect.value; const nextVar = series.kind === "fn" ? "x" : "t"; ["expr", "expr2"].forEach(key => { const src = series[key]; if (!src)
                     return; const ast = parseExpr(src); if (ast)
                     series[key] = astToPgf(ast, nextVar); }); if (series.kind === "parametric" && series.expr2 === undefined)
-                    series.expr2 = "sin(deg(t))"; if (series.kind === "points" && series.points === undefined)
+                    series.expr2 = ""; if (series.kind === "points" && series.points === undefined)
                     series.points = ""; plotDetailsOpen.add(detailsKey); plotCardSignature = ""; debouncePlotCompile(); render(); };
                 kindLabel.append(kindSelect);
                 const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field("定義域 最小", series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
@@ -684,7 +689,7 @@ export const initProCanvasUi = (deps) => {
                 ymax.input.placeholder = String(Number(r.max.toPrecision(4)));
             }
             range.append(rangeTitle, xmin.row, xmax.row, ymin.row, ymax.row, auto);
-            (_a = card.querySelector(".pro-canvas-plot-card-main")) === null || _a === void 0 ? void 0 : _a.after(range);
+            (_a = (card.querySelector(".pro-canvas-plot-add") || card.lastElementChild)) === null || _a === void 0 ? void 0 : _a.before(range); // 系列ラッパの外に置く（中だと複数系列で「系列1専用の軸設定」に見え、is-muted も巻き添えになる）
             const hint = document.createElement("p");
             hint.textContent = "プロット上: スクロールでズーム / ドラッグで移動";
             card.append(hint);
@@ -1285,9 +1290,15 @@ export const initProCanvasUi = (deps) => {
             if (pen) {
                 const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), path = pen.path, points = [path.start, ...path.segments.map(s => s.to)], close = penCursor && Math.hypot(penCursor.x - path.start.x, penCursor.y - path.start.y) < scene.grid.size * .4;
                 points.forEach((point, index) => penLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: (index === 0 && close ? 4.5 : 3) / scale, class: `pro-canvas-pen-anchor${index === 0 && close ? " is-close" : ""}` })));
-                if (penDrag === null || penDrag === void 0 ? void 0 : penDrag.handle) {
-                    const a = penDrag.anchor, h = penDrag.handle;
-                    penLayer.append(svgEl("line", { x1: a.x - h.x, y1: a.y - h.y, x2: a.x + h.x, y2: a.y + h.y, class: "pro-canvas-pen-handle-line" }), svgEl("circle", { cx: a.x - h.x, cy: a.y - h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }), svgEl("circle", { cx: a.x + h.x, cy: a.y + h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }));
+                if (penDrag) {
+                    const a = penDrag.anchor, h = penDrag.handle, prev = points[points.length - 1];
+                    if (prev && (prev.x !== a.x || prev.y !== a.y)) {
+                        const seg = penSegmentFor(prev, pen.lastOut, a, h);
+                        penLayer.append(svgEl("path", { d: seg.type === "cubic" ? `M ${prev.x} ${prev.y} C ${seg.c1.x} ${seg.c1.y} ${seg.c2.x} ${seg.c2.y} ${seg.to.x} ${seg.to.y}` : `M ${prev.x} ${prev.y} L ${seg.to.x} ${seg.to.y}`, fill: "none", class: "pro-canvas-pen-ghost" }));
+                    }
+                    penLayer.append(svgEl("circle", { cx: a.x, cy: a.y, r: 3 / scale, class: "pro-canvas-pen-anchor" }));
+                    if (h)
+                        penLayer.append(svgEl("line", { x1: a.x - h.x, y1: a.y - h.y, x2: a.x + h.x, y2: a.y + h.y, class: "pro-canvas-pen-handle-line" }), svgEl("circle", { cx: a.x - h.x, cy: a.y - h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }), svgEl("circle", { cx: a.x + h.x, cy: a.y + h.y, r: 3 / scale, class: "pro-canvas-pen-handle-dot" }));
                 }
                 else if (penCursor) {
                     const last = points[points.length - 1];
@@ -1793,11 +1804,13 @@ export const initProCanvasUi = (deps) => {
             clearTimeout(wheelUndoTimer); hideCoach(); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
+        const abortPen = () => { if (pen && !pen.path.segments.length)
+            removeById(currentObjects(), pen.path.id); pen = null; penDrag = null; penCursor = null; };
         const retainSelection = () => { var _a; selection.ids = new Set([...selection.ids].filter(id => walk(currentObjects(), id))); selection.primaryId = selection.primaryId && selection.ids.has(selection.primaryId) ? selection.primaryId : (_a = [...selection.ids][0]) !== null && _a !== void 0 ? _a : null; };
-        const undoOnce = () => { flushWheelUndo(); const prev = undo.pop(); if (!prev)
+        const undoOnce = () => { flushWheelUndo(); pen = null; penDrag = null; penCursor = null; const prev = undo.pop(); if (!prev)
             return; redo.push(cloneScene(scene)); scene = prev; retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
             replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
-        const redoOnce = () => { flushWheelUndo(); const next = redo.pop(); if (!next)
+        const redoOnce = () => { flushWheelUndo(); pen = null; penDrag = null; penCursor = null; const next = redo.pop(); if (!next)
             return; undo.push(cloneScene(scene)); scene = next; retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
             replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
@@ -1826,10 +1839,8 @@ export const initProCanvasUi = (deps) => {
                     render();
                     return;
                 }
-                if (pen) {
-                    if (!pen.path.segments.length)
-                        removeById(currentObjects(), pen.path.id);
-                    pen = null;
+                if (pen || penDrag) {
+                    abortPen();
                     clearSelection();
                     render();
                     return;
@@ -1852,10 +1863,8 @@ export const initProCanvasUi = (deps) => {
                 e.preventDefault();
                 return;
             }
-            if (e.key === "Enter" && pen) {
-                if (!pen.path.segments.length)
-                    removeById(currentObjects(), pen.path.id);
-                pen = null;
+            if (e.key === "Enter" && (pen || penDrag)) {
+                abortPen();
                 clearSelection();
                 render();
                 return;
@@ -1928,6 +1937,8 @@ export const initProCanvasUi = (deps) => {
         };
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
             return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code", g: "plot" }[e.key.toLowerCase()]; if (next) {
+            if (next !== "pen")
+                abortPen();
             tool = next;
             pendingLineArrow = false;
             e.preventDefault();
@@ -2045,6 +2056,8 @@ export const initProCanvasUi = (deps) => {
             render();
             return;
         } if (button.dataset.tool) {
+            if (button.dataset.tool !== "pen")
+                abortPen();
             tool = button.dataset.tool;
             pendingLineArrow = false;
             render();
