@@ -8992,6 +8992,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-color-pop { position: fixed; z-index: 12; width: 202px; box-sizing: border-box; padding: 9px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 35%); }
 .pro-canvas-color-grid { display: grid; grid-template-columns: repeat(8, 18px); gap: 5px; margin-bottom: 8px; }
 .pro-canvas-color-grid button { width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgb(255 255 255 / 30%); border-radius: 4px; }
+.pro-canvas-color-grid button.is-active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pro-canvas-color-pop > input[type="color"] { width: 100%; height: 28px; padding: 2px; }
 .pro-canvas-color-pop > button { width: 100%; margin-top: 6px; }
 .pro-canvas-pattern-grid { display: grid; grid-template-columns: repeat(4, 34px); gap: 6px; grid-column: 1 / -1; }

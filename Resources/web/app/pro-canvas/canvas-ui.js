@@ -702,6 +702,7 @@ export const initProCanvasUi = (deps) => {
         const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         let colorPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
+        const fillMemory = new Map();
         const presets = ["#000000", "#ffffff", "#6b7280", "#dc2626", "#ea580c", "#eab308", "#16a34a", "#2563eb", "#4f46e5", "#9333ea", "#ec4899", "#92400e", "#0891b2", "#65a30d", "#64748b", "#1e3a8a"], recentKey = "tex64.proCanvas.recentColors.v1", recent = () => { try {
             return JSON.parse(localStorage.getItem(recentKey) || "[]").filter((v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)).slice(0, 8);
         }
@@ -715,7 +716,8 @@ export const initProCanvasUi = (deps) => {
             ev.stopPropagation();
             closeColorPop();
         } }); const choose = (v) => { snapshot(false); if (v)
-            remember(v); set(v); render(); scheduleCompile(); }, grid = document.createElement("div"); grid.className = "pro-canvas-color-grid"; [...presets, ...recent().filter(c => !presets.includes(c))].forEach(c => { const b = document.createElement("button"); b.type = "button"; b.title = c; b.dataset.noI18n = ""; b.style.background = c; b.onclick = () => choose(c); grid.append(b); }); pop.append(grid); const picker = document.createElement("input"); picker.type = "color"; picker.value = value || "#000000"; picker.title = "カラーピッカー"; picker.dataset.noI18n = ""; let pickerPushed = false; picker.oninput = () => { if (!pickerPushed) {
+            remember(v); set(v); render(); scheduleCompile(); }, grid = document.createElement("div"); grid.className = "pro-canvas-color-grid"; const currentValue = (get() || "").toLowerCase(); [...presets, ...recent().filter(c => !presets.includes(c))].forEach(c => { const b = document.createElement("button"); b.type = "button"; b.title = c; b.dataset.noI18n = ""; b.style.background = c; if (c.toLowerCase() === currentValue)
+            b.classList.add("is-active"); b.onclick = () => choose(c); grid.append(b); }); pop.append(grid); const picker = document.createElement("input"); picker.type = "color"; picker.value = value || "#000000"; picker.title = "カラーピッカー"; picker.dataset.noI18n = ""; let pickerPushed = false; picker.oninput = () => { if (!pickerPushed) {
             snapshot(false);
             pickerPushed = true;
         } set(picker.value); render(); scheduleCompile(); }; picker.onchange = () => { remember(picker.value); }; pop.append(picker); if (allowNone) {
@@ -831,7 +833,10 @@ export const initProCanvasUi = (deps) => {
                 }
                 const mode = effective.shading ? "gradient" : effective.pattern ? "pattern" : effective.fill ? "solid" : "none", fillSeg = document.createElement("div");
                 fillSeg.className = "pro-canvas-fill-seg";
-                fillSeg.append(document.createTextNode("塗り"), seg(mode, [["none", "なし"], ["solid", "単色"], ["pattern", "編みかけ"], ["gradient", "グラデ"]], v => { snapshot(false); targets.forEach(t => { var _a; const p = (_a = t.style).props || (_a.props = {}); if (v === "none") {
+                fillSeg.append(document.createTextNode("塗り"), seg(mode, [["none", "なし"], ["solid", "単色"], ["pattern", "編みかけ"], ["gradient", "グラデ"]], v => { snapshot(false); targets.forEach(t => { var _a, _b, _c; var _d; const p = (_d = t.style).props || (_d.props = {}); const mem = { ...fillMemory.get(t.id) }; if (p.fill != null)
+                    mem.fill = p.fill; if (p.pattern)
+                    mem.pattern = p.pattern; if (p.shading)
+                    mem.shading = p.shading; fillMemory.set(t.id, mem); if (v === "none") {
                     p.fill = null;
                     p.pattern = null;
                     p.shading = null;
@@ -840,15 +845,15 @@ export const initProCanvasUi = (deps) => {
                     p.pattern = null;
                     p.shading = null;
                     if (!p.fill)
-                        p.fill = "#dbeafe";
+                        p.fill = (_a = mem.fill) !== null && _a !== void 0 ? _a : "#dbeafe";
                 }
                 else if (v === "pattern") {
                     p.shading = null;
-                    p.pattern || (p.pattern = { name: "north east lines" });
+                    p.pattern || (p.pattern = (_b = mem.pattern) !== null && _b !== void 0 ? _b : { name: "north east lines" });
                 }
                 else {
                     p.pattern = null;
-                    p.shading || (p.shading = { kind: "axis", top: "#93c5fd", bottom: "#1d4ed8" });
+                    p.shading || (p.shading = (_c = mem.shading) !== null && _c !== void 0 ? _c : { kind: "axis", top: "#93c5fd", bottom: "#1d4ed8" });
                 } }); render(); scheduleCompile(); }));
                 host.append(fillSeg);
                 if (mode === "solid")
@@ -1616,7 +1621,7 @@ export const initProCanvasUi = (deps) => {
             if (plotDrawn && !completed.moved) {
                 plotDrawn.width = 60;
                 plotDrawn.height = 45;
-                plotDrawn.at = { x: plotDrawn.at.x - 30, y: plotDrawn.at.y - 22.5 };
+                plotDrawn.at = { x: Math.max(0, Math.min(scene.width - 60, plotDrawn.at.x - 30)), y: Math.max(0, Math.min(scene.height - 45, plotDrawn.at.y - 22.5)) };
             } // plot はクリックのみでも既定サイズで配置（他ツールの「未ドラッグ=キャンセル」を適用しない）
             const drewObject = Boolean(drawn && (completed.moved || plotDrawn));
             if (changed) {
