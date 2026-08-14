@@ -1,8 +1,10 @@
 import { insertAtEditorCursor } from "../pro-editor-insert.js";
 import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capture-ui.js";
 import { encodeFigureBlock } from "./figure-codec.js";
+import { planFigureInsert } from "./insert-plan.js";
+import { generateTikz } from "./tikz-generate.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
-import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle } from "./scene.js";
+import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
 import { alignDeltas, boundsAfterHandleDrag, collectSnapLines, cornerInstanceTransforms, distributeDeltas, marqueeHits, mirrorInstanceTransform, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
 import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
@@ -285,7 +287,8 @@ export const initProCanvasUi = (deps) => {
             clearTimeout(coachPersistTimer);
             coachPersistTimer = null;
         } coachKind = null; coach.hidden = true; coach.classList.remove("is-fading"); };
-        const invalidateCompiled = () => { compileSequence += 1; compiledImage = null; };
+        const invalidateCompiled = () => { if (compiledImage === null)
+            setStatus(""); compileSequence += 1; compiledImage = null; };
         const renderPdf = async (pdfBase64) => { var _a; const binary = atob(pdfBase64), data = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1)
             data[i] = binary.charCodeAt(i); const lib = await loadPdfjs(); const doc = await lib.getDocument(pdfOptions(data)).promise; try {
             const page = await doc.getPage(1), base = page.getViewport({ scale: 1 }), rect = svg.getBoundingClientRect(), artScale = Math.min(rect.width / scene.width, rect.height / scene.height) * zoom, viewport = page.getViewport({ scale: Math.max(.1, scene.width * artScale * 2 / base.width) }), canvas = document.createElement("canvas");
@@ -306,7 +309,7 @@ export const initProCanvasUi = (deps) => {
             const sequence = ++compileSequence;
             setStatus("コンパイル中…"); // 初回は TeX エンジンの起動で 10 秒超かかる。無言で待たせず、何が起きているかを出す。
             const slowNotice = setTimeout(() => { if (sequence === compileSequence)
-                setStatus(compiledImage ? "TeX プレビューを更新中…" : "TeX プレビューを準備中… 初回は 10〜15 秒かかります"); }, 3000);
+                setStatus(compiledImage ? "TeX プレビューを更新中…" : "TeX プレビューを準備中… 初回は TeX エンジンの起動を待ちます"); }, 3000);
             const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
                 throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー"); return renderPdf(result.pdfBase64); };
             try {
@@ -427,7 +430,7 @@ export const initProCanvasUi = (deps) => {
             redo = [];
             pushed = true;
         } apply(); debouncePlotCompile(); render(); }); const commit = () => { before = null; pushed = false; }; input.addEventListener("change", commit); input.addEventListener("blur", commit); };
-        const positionPlotCard = () => { const object = plotObject(); if (!object || !plotCard)
+        const positionPlotCard = () => { var _a; const object = plotObject(); if (!object || !plotCard)
             return; if (plotCardPos) {
             plotCard.style.left = `${plotCardPos.x}px`;
             plotCard.style.top = `${plotCardPos.y}px`;
@@ -436,7 +439,7 @@ export const initProCanvasUi = (deps) => {
             x = left - w - gap; if (x < 8) {
             x = Math.max(8, Math.min(innerWidth - w - 8, left));
             y = bottom + gap;
-        } plotCard.style.left = `${x}px`; plotCard.style.top = `${Math.max(8, Math.min(innerHeight - plotCard.offsetHeight - 8, y))}px`; };
+        } plotCard.style.left = `${x}px`; const footer = overlay.querySelector(".pro-canvas-footer"), limit = ((_a = footer === null || footer === void 0 ? void 0 : footer.getBoundingClientRect().top) !== null && _a !== void 0 ? _a : innerHeight) - 8; plotCard.style.top = `${Math.max(8, Math.min(limit - plotCard.offsetHeight, y))}px`; };
         const buildPlotCard = (object, focusIndex = -1) => {
             plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove();
             const hasMathLive = ensurePlotMathLive(), card = document.createElement("div");
@@ -735,7 +738,12 @@ export const initProCanvasUi = (deps) => {
             render();
             scheduleCompile();
         };
-        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); pop.remove(); render(); scheduleCompile(); }; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = () => pop.remove(); pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); window.removeEventListener("keydown", onPopKey, true); pop.remove(); render(); scheduleCompile(); }; const onPopKey = (e) => { if (e.key !== "Escape" || !pop.isConnected)
+            return; e.preventDefault(); e.stopImmediatePropagation(); dismiss(); }; const dismiss = () => { window.removeEventListener("keydown", onPopKey, true); pop.remove(); if (!object.tikz.trim()) {
+            removeById(currentObjects(), object.id);
+            clearSelection();
+            render();
+        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = dismiss; pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         let stageObserver = null;
         let colorPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
@@ -1022,7 +1030,7 @@ export const initProCanvasUi = (deps) => {
             } });
         };
         const render = () => {
-            var _a, _b;
+            var _a, _b, _c;
             // 閉じた直後や幅ゼロのときに描くと viewBox が NaN、プロット座標が ±Infinity になる。
             if (!stage.isConnected || stage.clientWidth < 1 || stage.clientHeight < 1)
                 return;
@@ -1342,7 +1350,7 @@ export const initProCanvasUi = (deps) => {
             const docButton = overlay.querySelector("[data-action=doc-preamble]");
             docButton.disabled = !preamble;
             docButton.dataset.noI18n = "";
-            docButton.title = preamble ? "" : preambleReason;
+            docButton.title = preamble ? "この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します" : preambleReason;
             docButton.classList.toggle("is-active", docPreamble);
             docButton.setAttribute("aria-pressed", String(docPreamble));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
@@ -1373,15 +1381,15 @@ export const initProCanvasUi = (deps) => {
                 plotCardSignature = "";
             }
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
-            emptystate.classList.toggle("is-passive", tool !== "select"); // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
+            emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? "式の入力中に / で分数　Esc で編集を終了" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : tool === "line" ? "ドラッグで直線　Shift で水平・垂直・45°" : tool === "rect" ? "ドラッグで作成　Shift で正方形" : tool === "ellipse" ? "ドラッグで作成　Shift で正円" : tool === "pen" ? "クリックで頂点追加　ドラッグで曲線　Enter で確定　Esc で取り消し" : tool === "node" ? "クリックした位置に数式ラベルを置きます" : tool === "plot" ? "クリックまたはドラッグでグラフを配置" : tool === "code" ? "クリックした位置に TikZ コードを直接書けます" : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
-            if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId) {
+            hintbar.textContent = edited ? "式の入力中に / で分数　Esc で編集を終了" : tool !== "select" ? (_c = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリックで頂点追加　ドラッグで曲線　Enter で確定　Esc で取り消し", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
-                    const b = objectBounds(one, scene), point = sceneToScreen({ x: (b.minX + b.maxX) / 2, y: b.maxY }, view()), rect = stage.getBoundingClientRect();
+                    const b = objectBounds(one, scene), point = sceneToScreen({ x: (b.minX + b.maxX) / 2, y: b.maxY }, view()), rect = stage.getBoundingClientRect(), lift = one.type === "node" ? 22 : 8;
                     coach.style.left = `${Math.max(8, Math.min(rect.width - 8, point.x - rect.left))}px`;
-                    coach.style.top = `${Math.max(8, point.y - rect.top - 8)}px`;
+                    coach.style.top = `${Math.max(8, point.y - rect.top - lift)}px`;
                 }
             }
             else if (coachKind)
@@ -1932,23 +1940,35 @@ export const initProCanvasUi = (deps) => {
             panY -= e.deltaY;
         } render(); }, { passive: false });
         const replaceOrInsert = () => {
-            var _a, _b, _c, _d, _e, _f, _g;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
             const editor = deps.getActiveGroup().editor;
             const block = encodeFigureBlock(scene);
             if (!detail.replaceRange) {
                 // %% ヘッダ行が行頭に来ないとブロックが壊れるため、行中カーソルでは改行してから挿入する。
-                const column = (_c = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.column) !== null && _c !== void 0 ? _c : 1;
-                insertAtEditorCursor(editor, column > 1 ? `\n${block}` : block, "pro-canvas");
+                const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor), text = (_b = model === null || model === void 0 ? void 0 : model.getValue) === null || _b === void 0 ? void 0 : _b.call(model), cursor = (_d = (_c = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _d !== void 0 ? _d : { lineNumber: 1, column: 1 }, Range = (_e = window.monaco) === null || _e === void 0 ? void 0 : _e.Range;
+                if (typeof text === "string" && Range && (editor === null || editor === void 0 ? void 0 : editor.executeEdits)) {
+                    // 未クリックのエディタはカーソルが 1:1 のまま。そこへ入れると \documentclass の前に図が入って文書が壊れる。
+                    const plan = planFigureInsert(text, cursor, generateTikz(scene).requires, sceneHasPlot(scene)), edits = [{ range: new Range(plan.body.lineNumber, plan.body.column, plan.body.lineNumber, plan.body.column), text: plan.body.column > 1 ? `\n${block}` : block, forceMoveMarkers: true }];
+                    if (plan.preamble)
+                        edits.push({ range: new Range(plan.preamble.lineNumber, 1, plan.preamble.lineNumber, 1), text: plan.preamble.text, forceMoveMarkers: true });
+                    (_f = editor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(editor);
+                    editor.executeEdits("pro-canvas", edits);
+                    (_g = editor.pushUndoStop) === null || _g === void 0 ? void 0 : _g.call(editor);
+                    (_h = editor.focus) === null || _h === void 0 ? void 0 : _h.call(editor);
+                    close();
+                    return;
+                }
+                insertAtEditorCursor(editor, cursor.column > 1 ? `\n${block}` : block, "pro-canvas");
                 close();
                 return;
             }
-            const Range = (_d = window.monaco) === null || _d === void 0 ? void 0 : _d.Range;
+            const Range = (_j = window.monaco) === null || _j === void 0 ? void 0 : _j.Range;
             if (!(editor === null || editor === void 0 ? void 0 : editor.executeEdits) || !Range)
                 throw new Error("No active text editor is available.");
-            (_e = editor.pushUndoStop) === null || _e === void 0 ? void 0 : _e.call(editor);
+            (_k = editor.pushUndoStop) === null || _k === void 0 ? void 0 : _k.call(editor);
             editor.executeEdits("pro-canvas", [{ range: new Range(detail.replaceRange.startLine, 1, detail.replaceRange.endLine + 1, 1), text: block, forceMoveMarkers: true }]);
-            (_f = editor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(editor);
-            (_g = editor.focus) === null || _g === void 0 ? void 0 : _g.call(editor);
+            (_l = editor.pushUndoStop) === null || _l === void 0 ? void 0 : _l.call(editor);
+            (_m = editor.focus) === null || _m === void 0 ? void 0 : _m.call(editor);
             close();
         };
         const exportSty = async () => { var _a; let name = (await requestText("ファイル名", "figures.sty") || "").trim(); if (!name)

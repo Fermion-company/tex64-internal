@@ -8903,7 +8903,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-inspector button:disabled { opacity: .4; }
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
-.pro-canvas-hintbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; overflow: hidden; padding: 5px 10px; pointer-events: none; color: var(--text-soft); background: color-mix(in srgb, var(--panel-strong) 82%, transparent); font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
+.pro-canvas-hintbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; overflow: hidden; padding: 5px 10px; pointer-events: none; color: #c9d1d9; background: #161a22; font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
 .pro-canvas-emptystate { position: absolute; z-index: 2; top: 50%; left: 50%; width: min(560px, calc(100% - 32px)); transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
 .pro-canvas-emptystate[hidden] { display: none; }
 .pro-canvas-empty-actions { display: flex; justify-content: center; gap: 8px; }
@@ -8911,7 +8911,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-emptystate.is-passive .pro-canvas-empty-actions button { pointer-events: none; }
 .pro-canvas-empty-actions svg { width: 36px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .pro-canvas-empty-actions text { fill: currentColor; stroke: none; font: 15px Georgia, 'Times New Roman', serif; text-anchor: middle; }
-.pro-canvas-emptystate p { margin: 9px 0 0; color: var(--text-soft); font-size: 10px; }
+.pro-canvas-emptystate p { margin: 9px 0 0; padding: 2px 8px; border-radius: 5px; color: #e6edf3; background: rgb(22 26 34 / 88%); font-size: 10px; }
 .pro-canvas-coach { position: absolute; z-index: 3; padding: 5px 8px; transform: translate(-50%, -100%); pointer-events: none; color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel-strong); box-shadow: var(--shadow-sm); font-size: 10px; white-space: nowrap; transition: opacity .5s ease; }
 .pro-canvas-coach[hidden] { display: none; }
 .pro-canvas-coach.is-fading { opacity: 0; }
