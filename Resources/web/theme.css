@@ -8858,10 +8858,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-bottom { border-top: 1px solid var(--panel-border); }
 .pro-canvas-tools { display: flex; gap: 6px; }
 .pro-canvas-rail { flex-direction: column; align-items: center; padding: 8px 6px; border-right: 1px solid var(--panel-border); background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; }
-.pro-canvas-rail button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: var(--text-soft); border: 0; border-radius: 6px; background: transparent; }
+.pro-canvas-rail button { display: grid; grid-template-rows: 17px 12px; place-items: center; width: 32px; min-height: 43px; padding: 5px 0 4px; color: var(--text-soft); border: 0; border-radius: 6px; background: transparent; }
 .pro-canvas-rail button:hover { color: var(--text); background: var(--panel); }
 .pro-canvas-rail button.is-active { color: white; background: var(--accent); }
 .pro-canvas-rail svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pro-canvas-rail button > span { overflow: hidden; max-width: 32px; font-size: 10px; line-height: 12px; white-space: nowrap; text-overflow: ellipsis; }
 .pro-canvas-separator { width: 1px; height: 24px; margin: 0 4px; background: var(--panel-border); }
 .pro-canvas-toolbar button,
 .pro-canvas-bottom button,
@@ -8877,11 +8878,25 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-zoom, .pro-canvas-segments { display: inline-flex; overflow: hidden; border: 1px solid var(--panel-border); border-radius: 7px; }
 .pro-canvas-zoom button, .pro-canvas-segments button { min-height: 28px; padding: 3px 8px; border: 0; border-right: 1px solid var(--panel-border); border-radius: 0; background: transparent; }
 .pro-canvas-zoom button:last-child, .pro-canvas-segments button:last-child { border-right: 0; }
+.pro-canvas-topbar .pro-canvas-segments button[aria-pressed="true"]::before { content: "✓"; margin-right: 4px; font-size: 10px; }
 .pro-canvas-icon-button { width: 30px; height: 30px; padding: 0 !important; font-size: 17px; }
 .pro-canvas-toolbar button:disabled { opacity: .35; }
 .pro-canvas-inspector button:disabled { opacity: .4; }
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
+.pro-canvas-hintbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; overflow: hidden; padding: 5px 10px; pointer-events: none; color: var(--text-soft); background: color-mix(in srgb, var(--panel-strong) 82%, transparent); font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
+.pro-canvas-emptystate { position: absolute; z-index: 2; top: 50%; left: 50%; width: min(560px, calc(100% - 32px)); transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
+.pro-canvas-emptystate[hidden] { display: none; }
+.pro-canvas-empty-actions { display: flex; justify-content: center; gap: 8px; }
+.pro-canvas-empty-actions button { display: grid; grid-template-columns: 36px auto; align-items: center; gap: 6px; padding: 8px 11px; pointer-events: auto; color: var(--text); border: 1px solid var(--panel-border); border-radius: 8px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); box-shadow: var(--shadow-sm); }
+.pro-canvas-emptystate.is-passive .pro-canvas-empty-actions button { pointer-events: none; }
+.pro-canvas-empty-actions svg { width: 36px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pro-canvas-empty-actions text { fill: currentColor; stroke: none; font: 15px Georgia, 'Times New Roman', serif; text-anchor: middle; }
+.pro-canvas-emptystate p { margin: 9px 0 0; color: var(--text-soft); font-size: 10px; }
+.pro-canvas-coach { position: absolute; z-index: 3; padding: 5px 8px; transform: translate(-50%, -100%); pointer-events: none; color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel-strong); box-shadow: var(--shadow-sm); font-size: 10px; white-space: nowrap; transition: opacity .5s ease; }
+.pro-canvas-coach[hidden] { display: none; }
+.pro-canvas-coach.is-fading { opacity: 0; }
+@media (max-width: 900px) { .pro-canvas-empty-actions { flex-direction: column; align-items: center; } .pro-canvas-empty-actions button { width: 150px; } }
 .pro-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; }
 .pro-canvas-guides .pro-canvas-paper { fill: #ffffff; filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .16)) drop-shadow(0 8px 18px rgba(15, 23, 42, .1)); }
 .pro-canvas-guides line { stroke: rgba(100, 116, 139, 0.28); stroke-width: .15; vector-effect: non-scaling-stroke; }
@@ -9008,7 +9023,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-symbol-row { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, 24px); align-items: center; gap: 3px; }
 .pro-canvas-symbol-row button { width: 24px; height: 24px; padding: 0; }
 .pro-canvas-empty { margin: 0 0 16px; color: var(--text-soft); font-size: 12px; }
-.pro-canvas-status { position: absolute; z-index: 2; left: 12px; bottom: 12px; display: none; max-width: calc(100% - 24px); padding: 5px 9px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
+.pro-canvas-status { position: absolute; z-index: 2; left: 12px; bottom: 34px; display: none; max-width: calc(100% - 24px); padding: 5px 9px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
 .pro-canvas-status:not(:empty) { display: block; }
 .pro-canvas-status.is-error { color: var(--danger, #dc2626); border-color: var(--danger, #dc2626); }
 .pro-canvas-more { position: relative; }

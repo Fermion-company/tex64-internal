@@ -17,6 +17,7 @@ const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const LIVE_STORAGE_KEY = "tex64.proCanvas.live";
 const DOC_STORAGE_KEY = "tex64.proCanvas.docPreamble";
+const HINT_STORAGE_KEY = "tex64.proCanvas.hints.v1";
 let pdfjsLibPromise = null;
 export const loadPdfjs = async () => {
     if (!pdfjsLibPromise)
@@ -231,7 +232,7 @@ export const initProCanvasUi = (deps) => {
         closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent();
         let scene = cloneScene(detail.scene || createEmptyScene());
         const selection = { ids: new Set(), primaryId: null };
-        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
+        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", pendingLineArrow = false, zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
         let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
         const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set();
@@ -240,15 +241,18 @@ export const initProCanvasUi = (deps) => {
         overlay.tabIndex = -1;
         overlay.innerHTML = `<div class="pro-canvas-toolbar pro-canvas-topbar" role="toolbar">
       <strong class="pro-canvas-title">図キャンバス</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="縮小">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="拡大">+</button></span><span class="pro-canvas-topbar-spacer"></span>
-      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live" title="編集しながら実際の LaTeX 組版結果をキャンバスに重ねて表示します">プレビュー</button><button data-action="doc-preamble" title="この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します">文書設定</button></span><span class="pro-canvas-separator"></span>
+      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live" aria-pressed="false" title="編集しながら実際の LaTeX 組版結果をキャンバスに重ねて表示します">TeX プレビュー</button><button data-action="doc-preamble" aria-pressed="false" title="この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します">プリアンブル</button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="元に戻す">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="やり直す">↻</button></div>
-      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
-      <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">画像として挿入 (PNG)</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ を更新" : "TikZ を挿入"}</button></div>`;
+      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><div class="pro-canvas-emptystate"><div class="pro-canvas-empty-actions"><button type="button" data-start="arrow"><svg viewBox="0 0 36 24" aria-hidden="true"><line x1="4" y1="20" x2="31" y2="5"/><path d="M24 5h7v7"/></svg><span>矢印を描く</span></button><button type="button" data-start="node"><svg viewBox="0 0 36 24" aria-hidden="true"><text x="18" y="17">x²</text></svg><span>数式を置く</span></button><button type="button" data-start="plot"><svg viewBox="0 0 36 24" aria-hidden="true"><path d="M4 3v17h29"/><path d="M7 18c6-1 6-13 11-13s5 12 12 13"/></svg><span>関数を描く</span></button></div><p>作成した図は編集可能な TikZ コード、または PNG として挿入できます</p></div><div class="pro-canvas-coach" hidden></div><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
+      <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">PNG 画像として挿入</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ コードを更新" : "TikZ コードを挿入"}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
         const stage = overlay.querySelector(".pro-canvas-stage");
         const status = overlay.querySelector(".pro-canvas-status");
+        const hintbar = overlay.querySelector(".pro-canvas-hintbar");
+        const emptystate = overlay.querySelector(".pro-canvas-emptystate");
+        const coach = overlay.querySelector(".pro-canvas-coach");
         const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const moreMenu = overlay.querySelector(".pro-canvas-more-menu"), moreButton = overlay.querySelector("[data-action=more]");
@@ -257,12 +261,30 @@ export const initProCanvasUi = (deps) => {
             return; done = true; pop.remove(); resolve(value); }; accept.onclick = () => finish(input.value); cancel.onclick = () => finish(null); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
             return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<line x1="3" y1="13" x2="11" y2="5"/><polyline points="9,3 13,7 11,9 7,5 9,3"/><line x1="3" y1="13" x2="7" y2="12"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', '選択', 'V'], ['pen', 'ペン', 'P'], ['line', '直線', 'L'], ['rect', '矩形', 'R'], ['ellipse', '楕円', 'E'], ['node', 'ノード', 'T'], ['code', 'コード', 'C'], ['plot', 'グラフ', 'G']].forEach(([id, label, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.title = `${label} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg>`; toolHost.appendChild(b); });
+        [['select', '選択', '選択', 'V'], ['pen', 'ペン', 'ペン', 'P'], ['line', '直線', '直線', 'L'], ['rect', '矩形', '矩形', 'R'], ['ellipse', '楕円', '楕円', 'E'], ['node', '数式', '数式ラベル', 'T'], ['code', 'TikZ', 'TikZ コードを直接書く', 'C'], ['plot', 'グラフ', 'グラフ', 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
         let docPreamble = localStorage.getItem(DOC_STORAGE_KEY) === "true";
         let preamble = null, preambleReason = "プリアンブルを読み込み中です", projectStyles = [];
         let compiledImage = null, compileTimer = null, compileSequence = 0;
+        let coachKind = null, coachTimer = null;
+        let coachPersistTimer = null, coachSuppressUntil = 0;
+        let shownHints = {};
+        try {
+            const stored = JSON.parse(localStorage.getItem(HINT_STORAGE_KEY) || "{}");
+            if (stored && typeof stored === "object")
+                shownHints = stored;
+        }
+        catch { }
+        const saveHints = () => { try {
+            localStorage.setItem(HINT_STORAGE_KEY, JSON.stringify(shownHints));
+        }
+        catch { } };
+        const hideCoach = () => { if (coachTimer)
+            clearTimeout(coachTimer); coachTimer = null; if (coachPersistTimer) {
+            clearTimeout(coachPersistTimer);
+            coachPersistTimer = null;
+        } coachKind = null; coach.hidden = true; coach.classList.remove("is-fading"); };
         const invalidateCompiled = () => { compileSequence += 1; compiledImage = null; };
         const renderPdf = async (pdfBase64) => { var _a; const binary = atob(pdfBase64), data = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1)
             data[i] = binary.charCodeAt(i); const lib = await loadPdfjs(); const doc = await lib.getDocument(pdfOptions(data)).promise; try {
@@ -284,7 +306,7 @@ export const initProCanvasUi = (deps) => {
             const sequence = ++compileSequence;
             setStatus("コンパイル中…"); // 初回は TeX エンジンの起動で 10 秒超かかる。無言で待たせず、何が起きているかを出す。
             const slowNotice = setTimeout(() => { if (sequence === compileSequence)
-                setStatus(compiledImage ? "プレビューを更新中…" : "初回プレビューを準備中（TeX エンジンを起動しています）…"); }, 4000);
+                setStatus(compiledImage ? "TeX プレビューを更新中…" : "TeX プレビューを準備中… 初回は 10〜15 秒かかります"); }, 3000);
             const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
                 throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー"); return renderPdf(result.pdfBase64); };
             try {
@@ -333,6 +355,9 @@ export const initProCanvasUi = (deps) => {
         const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
+        const showCoach = (kind) => { const key = kind === "plot" ? "plotEdit" : "nodeEdit"; if (shownHints[key] || coachKind || performance.now() < coachSuppressUntil)
+            return; coachPersistTimer = setTimeout(() => { coachPersistTimer = null; shownHints[key] = true; saveHints(); }, 1500); coachKind = kind; coach.textContent = kind === "plot" ? "ダブルクリックして式を編集" : "ダブルクリックで数式を編集"; coach.hidden = false; coach.classList.remove("is-fading"); coachTimer = setTimeout(() => coach.classList.add("is-fading"), 5500); setTimeout(() => { if (coachKind === kind)
+            hideCoach(); }, 6000); };
         const replaceSelection = (id) => { selection.ids = new Set([id]); selection.primaryId = id; };
         const toggleSelection = (id) => { var _a; if (selection.ids.has(id)) {
             selection.ids.delete(id);
@@ -384,7 +409,7 @@ export const initProCanvasUi = (deps) => {
             return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
             return; positionNodeEditor(); input.focus(); input.select(); }); };
         const stopPlotEdit = () => { if (!plotEdit)
-            return; flushWheelUndo(); plotEdit = null; plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove(); plotCard = null; plotCardPos = null; plotCardSignature = ""; scheduleCompile(); render(); };
+            return; coachSuppressUntil = performance.now() + 1200; flushWheelUndo(); plotEdit = null; plotCard === null || plotCard === void 0 ? void 0 : plotCard.remove(); plotCard = null; plotCardPos = null; plotCardSignature = ""; scheduleCompile(); render(); };
         const plotObject = () => { const object = plotEdit ? nodeById(plotEdit.id) : null; return (object === null || object === void 0 ? void 0 : object.type) === "plot" ? object : null; };
         const debouncePlotCompile = () => { invalidateCompiled(); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); plotCompileTimer = setTimeout(() => { plotCompileTimer = null; scheduleCompile(); }, 400); };
@@ -1316,6 +1341,7 @@ export const initProCanvasUi = (deps) => {
             liveButton.setAttribute("aria-pressed", String(live));
             const docButton = overlay.querySelector("[data-action=doc-preamble]");
             docButton.disabled = !preamble;
+            docButton.dataset.noI18n = "";
             docButton.title = preamble ? "" : preambleReason;
             docButton.classList.toggle("is-active", docPreamble);
             docButton.setAttribute("aria-pressed", String(docPreamble));
@@ -1346,6 +1372,20 @@ export const initProCanvasUi = (deps) => {
                 plotCard = null;
                 plotCardSignature = "";
             }
+            emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
+            emptystate.classList.toggle("is-passive", tool !== "select"); // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
+            const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
+            hintbar.textContent = edited ? "式の入力中に / で分数　Esc で編集を終了" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : tool === "line" ? "ドラッグで直線　Shift で水平・垂直・45°" : tool === "rect" ? "ドラッグで作成　Shift で正方形" : tool === "ellipse" ? "ドラッグで作成　Shift で正円" : tool === "pen" ? "クリックで頂点追加　ドラッグで曲線　Enter で確定　Esc で取り消し" : tool === "node" ? "クリックした位置に数式ラベルを置きます" : tool === "plot" ? "クリックまたはドラッグでグラフを配置" : tool === "code" ? "クリックした位置に TikZ コードを直接書けます" : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId) {
+                showCoach(one.type);
+                if (coachKind === one.type) {
+                    const b = objectBounds(one, scene), point = sceneToScreen({ x: (b.minX + b.maxX) / 2, y: b.maxY }, view()), rect = stage.getBoundingClientRect();
+                    coach.style.left = `${Math.max(8, Math.min(rect.width - 8, point.x - rect.left))}px`;
+                    coach.style.top = `${Math.max(8, point.y - rect.top - 8)}px`;
+                }
+            }
+            else if (coachKind)
+                hideCoach();
         };
         let drag = null;
         let lastClick = null;
@@ -1499,7 +1539,9 @@ export const initProCanvasUi = (deps) => {
             }
             snapshot(false);
             invalidateCompiled();
-            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { lineWidthPt: 1 } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { lineWidthPt: 1 } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { lineWidthPt: 1 } } };
+            const arrowEnd = pendingLineArrow ? "Stealth" : undefined;
+            pendingLineArrow = false;
+            const object = tool === "line" ? { id: newObjectId(), type: "path", start: p, segments: [{ type: "line", to: p }], closed: false, style: { props: { lineWidthPt: 1, ...(arrowEnd ? { arrowEnd } : {}) } } } : tool === "rect" ? { id: newObjectId(), type: "rect", from: p, to: { ...p }, style: { props: { lineWidthPt: 1 } } } : { id: newObjectId(), type: "ellipse", center: p, rx: 0, ry: 0, style: { props: { lineWidthPt: 1 } } };
             currentObjects().push(object);
             replaceSelection(object.id);
             drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
@@ -1704,7 +1746,7 @@ export const initProCanvasUi = (deps) => {
         const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
             clearTimeout(compileTimer); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); if (wheelUndoTimer)
-            clearTimeout(wheelUndoTimer); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
+            clearTimeout(wheelUndoTimer); hideCoach(); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
         const retainSelection = () => { var _a; selection.ids = new Set([...selection.ids].filter(id => walk(currentObjects(), id))); selection.primaryId = selection.primaryId && selection.ids.has(selection.primaryId) ? selection.primaryId : (_a = [...selection.ids][0]) !== null && _a !== void 0 ? _a : null; };
@@ -1843,6 +1885,7 @@ export const initProCanvasUi = (deps) => {
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
             return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code", g: "plot" }[e.key.toLowerCase()]; if (next) {
             tool = next;
+            pendingLineArrow = false;
             e.preventDefault();
             render();
         } };
@@ -1940,8 +1983,14 @@ export const initProCanvasUi = (deps) => {
         } };
         overlay.addEventListener("click", async (e) => { const button = e.target.closest("button"); if (!e.target.closest(".pro-canvas-more"))
             closeMore(); if (!button)
-            return; if (button.dataset.tool) {
+            return; if (button.dataset.start) {
+            tool = button.dataset.start === "arrow" ? "line" : button.dataset.start;
+            pendingLineArrow = button.dataset.start === "arrow";
+            render();
+            return;
+        } if (button.dataset.tool) {
             tool = button.dataset.tool;
+            pendingLineArrow = false;
             render();
             return;
         } try {
@@ -2051,10 +2100,12 @@ export const initProCanvasUi = (deps) => {
         } });
         const activateForEdit = (object) => { if (!object)
             return; if (object.type === "node") {
+            hideCoach();
             if (editingNodeId !== object.id)
                 beginNodeEdit(object);
             return;
         } if (object.type === "plot") {
+            hideCoach();
             anchorEdit = null;
             plotEdit = { id: object.id };
             replaceSelection(object.id);
