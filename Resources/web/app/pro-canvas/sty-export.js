@@ -122,7 +122,10 @@ export const buildStyFile = (scene, packageName) => {
             for (const series of object.series) {
                 if (series.visible === false)
                     continue;
-                const kind = series.kind || "fn", a = parseExpr(series.expr), b = kind === "parametric" ? parseExpr(series.expr2 || "") : null, points = kind === "points" ? parsePoints(series.points || "") : [], domain = series.domain || (kind === "fn" ? { min: axis.xmin, max: axis.xmax } : { min: 0, max: 6.28319 });
+                const kind = series.kind || "fn";
+                if (kind === "fn" && !series.expr.trim())
+                    continue;
+                const a = parseExpr(series.expr), b = kind === "parametric" ? parseExpr(series.expr2 || "") : null, points = kind === "points" ? parsePoints(series.points || "") : [], domain = series.domain || (kind === "fn" ? { min: axis.xmin, max: axis.xmax } : { min: 0, max: 6.28319 });
                 if ((kind === "parametric" && (!a || !b)) || (kind === "polar" && !a) || (kind === "points" && !points.length)) {
                     lines.push(`${indent}  % skipped invalid series`);
                     continue;
