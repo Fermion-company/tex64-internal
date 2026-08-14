@@ -289,6 +289,18 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - 頂点編集の Delete は**オブジェクト削除より先に**アンカー削除として横取りする（キーハンドラの分岐順が仕様）。selectedAnchorIndex の clamp は **closed で `segments.length-1`**（closed は末尾アンカー非表示のため。`segments.length` まで許すと Delete 連打で removeAnchor が false を返しパスごと消えるデータ損失になる — Opus 監査で実証済み）。
    - Opus 監査残（未対応・優先度低）: 縦一直線パスは幅 0 で四隅グリップが 2 点に潰れ横に伸ばせない / 描画中 Cmd+Z が全点破棄（competitor は 1 点ずつ）/ auto ノードの out ハンドルは opacity .45 のまま（lastOut は manual のみ）/ 頂点編集中にオブジェクト自体を消すには Esc が先に要る / アンカー座標の数値編集・パス結合/切断・simplify なし（競合比較ギャップ）。
 
+17. **選択した曲線の制御点 / 挿入コードのコメント 1 行化（L, 2026-08-14）** — `docs/pro-canvas-l-spec.md`。ユーザー指摘「選択しても制御点の操作表示が出ない」「挿入されるソースにおびただしい数のコメントアウトが入る」への対処。恒久 gotcha:
+   - `anchorEdit` は**モードではなく選択の派生状態**（`{pathId, deep}`）。`render()` 先頭の `syncAnchorEdit()` が「単一パス選択 ⇔ anchorEdit あり」を常に一致させる。手で `anchorEdit=null` を書いても次の render で復活するので、状態を切りたいときは**選択を変える**か `deep` を落とす。
+   - **レベル1（選択）＝表示と頂点・ハンドル操作、レベル2（`deep`, ダブルクリック）＝曲げ・頂点追加・頂点削除**。この線引きが命で、bend をレベル1に降ろすと**線だけの図形をドラッグで移動できなくなる**（線の上しか掴む場所が無いため）。同様に Delete をレベル1で頂点削除にすると「選んで Delete でオブジェクトを消す」が壊れる。両方 `anchorEdit?.deep` でゲートしている。
+   - `syncAnchorEdit` は **`tool==="select"` を条件にしない**。線/矩形ツールは描いた後もツールが切り替わらないため、条件に入れると「描いた直後に頂点が見えない」退行になる。掴めるかどうかは pointerdown 側の `tool==="select"` が担保する。
+   - 直線パス専用の頂点描画（`dataset.pathId` 経由）は廃止し、アンカーレイヤに一本化。`pro-canvas-path-dot`（飾りドット）も廃止。
+   - 図の埋め込みは **v2 = `%% tex64-figure v2 h=… <base64>` の 1 行**（数値 6 桁丸め → 自前 LZSS → base64、チャンク分割なし）。旧 v1（`%% tex64-figure+` の 100 文字チャンク）は**復号のみ維持**し、開いて保存し直すと v2 に縮む。実測で 40 セグメントの曲線が 95 行 → 1 行。
+   - 丸めは **6 桁**。3 桁だとプロットの `domain`（例 6.28319）などユーザーが打った値が書き換わる。圧縮率より安全側を取る。
+   - `% requires …` 行は**挿入ブロックから除く**（`planFigureInsert` がプリアンブルに `\usepackage`/`\usetikzlibrary` を自動追加するので重複）。`generateTikz` 自体は変更しない（standalone プレビューが自前で剥がす既存実装 + 既存テストがある）。
+   - **`removeAnchor` の `false` は「退化した」と「index が範囲外で何もしなかった」の両方を意味する**。呼び出し側（Delete）は false をパス削除と読むので、範囲外の `selectedAnchorIndex` を渡すと**曲線が丸ごと消える**。`syncAnchorEdit` が毎 render で `Math.min(idx, closed?n-1:n)` にクランプすることで範囲外を作らない（頂点追加 → undo で範囲外になる経路を Opus 監査が実証。`tests/pro-canvas-curves.test.mjs` に契約テスト）。
+   - 描画ツール中は選択中パスのアンカー層に `is-inert`（pointer-events: none / opacity .5）を付ける。掴めるのは select ツールのときだけなので、掴めるように見せない。
+   - Opus 監査残（未対応・K から継続）: 縮む undo（削除・パス消滅）でセレクションが復元されない（競合は復元する）/ ペンの 1 ストロークが undo 1 単位（Illustrator はクリック 1 点ごと）/ 全頂点のハンドルを同時表示する（競合は選択頂点のみが既定）/ v2 の 1 行は 400 セグメントで約 16,600 文字となり Monaco 既定の `stopRenderingLineAfter`（10,000）を超えて後半が描画されない（デコードは正常）。
+
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
 - renderer のみの変更は Cmd+R で反映。main プロセス（`electron/*.cjs`）は Electron 再起動。

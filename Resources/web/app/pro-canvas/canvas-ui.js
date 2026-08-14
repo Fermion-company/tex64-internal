@@ -1057,8 +1057,24 @@ export const initProCanvasUi = (deps) => {
                 button.setAttribute("aria-label", replacement[1]);
             } });
         };
+        // 単一パス選択 = 頂点・ハンドルが見える状態。描画ツール中でも表示は出す（掴めるのは select のときだけ）。
+        const syncAnchorEdit = () => {
+            const one = !pen && !plotEdit && !editingNodeId && selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null;
+            if ((one === null || one === void 0 ? void 0 : one.type) !== "path") {
+                anchorEdit = null;
+                return;
+            }
+            if ((anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.pathId) !== one.id) {
+                anchorEdit = { pathId: one.id, deep: false };
+                selectedAnchorIndex = 0;
+            }
+            // undo でパスが縮むと selectedAnchorIndex が範囲外のまま残る。範囲外で Delete すると removeAnchor が「何もせず false」を返し、
+            // 呼び出し側がそれを「退化した」と誤読してパスごと消す（データ損失）。毎 render でクランプして範囲外を作らない。
+            selectedAnchorIndex = Math.max(0, Math.min(selectedAnchorIndex, one.closed ? one.segments.length - 1 : one.segments.length));
+        };
         const render = () => {
             var _a, _b;
+            syncAnchorEdit();
             if (tool !== "select")
                 svg.style.cursor = "crosshair";
             // 閉じた直後や幅ゼロのときに描くと viewBox が NaN、プロット座標が ±Infinity になる。
@@ -1359,22 +1375,18 @@ export const initProCanvasUi = (deps) => {
                     select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" }));
                 } });
                 const b = selectionBounds();
-                if (!anchorEdit) {
+                if (!(anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep)) {
                     if (selected.length > 1)
                         select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
-                    else if (isStraightLine(selected[0])) {
-                        const line0 = selected[0];
-                        [line0.start, line0.segments[0].to].forEach((point, index) => { const size = 5 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: "pro-canvas-anchor" }); handle.dataset.anchorIndex = String(index); handle.dataset.pathId = line0.id; select.append(handle); });
-                    }
                     else if (selected[0].type === "path") {
-                        const path = selected[0];
-                        [path.start, ...path.segments.map(s => s.to)].slice(0, path.closed ? -1 : undefined).forEach(point => select.append(svgEl("circle", { cx: point.x, cy: point.y, r: 1.75 / scale, class: "pro-canvas-path-dot" })));
-                        ["nw", "ne", "se", "sw"].forEach(h => { const p = resizeHandlePoint(b, h), handle = svgEl("circle", { cx: p.x, cy: p.y, r: 3 / scale, class: `pro-canvas-handle pro-canvas-handle-${h} is-path-corner` }); handle.dataset.handle = h; select.append(handle); });
-                        const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
-                        select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
-                        const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
-                        rotate.dataset.rotate = "true";
-                        select.append(rotate);
+                        if (!isStraightLine(selected[0])) {
+                            ["nw", "ne", "se", "sw"].forEach(h => { const p = resizeHandlePoint(b, h), handle = svgEl("circle", { cx: p.x, cy: p.y, r: 3 / scale, class: `pro-canvas-handle pro-canvas-handle-${h} is-path-corner` }); handle.dataset.handle = h; select.append(handle); });
+                            const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
+                            select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
+                            const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
+                            rotate.dataset.rotate = "true";
+                            select.append(rotate);
+                        }
                     }
                     else if (selected[0].type !== "node") {
                         handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
@@ -1392,7 +1404,7 @@ export const initProCanvasUi = (deps) => {
             if (anchorEdit) {
                 const object = walk(currentObjects(), anchorEdit.pathId);
                 if ((object === null || object === void 0 ? void 0 : object.type) === "path") {
-                    const layer = svgEl("g", { class: "pro-canvas-anchor-layer pro-canvas-selection" }), points = [object.start, ...object.segments.map(segment => segment.to)], strong = (i, key) => (key === "c1" && i === selectedAnchorIndex) || (key === "c2" && i + 1 === selectedAnchorIndex);
+                    const layer = svgEl("g", { class: `pro-canvas-anchor-layer pro-canvas-selection${tool === "select" ? "" : " is-inert"}` }), points = [object.start, ...object.segments.map(segment => segment.to)], strong = (i, key) => (key === "c1" && i === selectedAnchorIndex) || (key === "c2" && i + 1 === selectedAnchorIndex);
                     object.segments.forEach((segment, i) => { if (segment.type !== "cubic")
                         return; ["c1", "c2"].forEach(key => { const anchor = key === "c1" ? (i === 0 ? object.start : object.segments[i - 1].to) : segment.to, point = segment[key], emphasis = strong(i, key); if (Math.hypot(point.x - anchor.x, point.y - anchor.y) < 1e-6)
                         return; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: `pro-canvas-anchor-tether${emphasis ? "" : " is-faint"}` })); const control = svgEl("circle", { cx: point.x, cy: point.y, r: (emphasis ? 3 : 2.5) / scale, class: `pro-canvas-anchor-control${emphasis ? "" : " is-faint"}` }); control.dataset.controlSegment = String(i); control.dataset.controlKey = key; layer.append(control); }); });
@@ -1450,7 +1462,7 @@ export const initProCanvasUi = (deps) => {
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
             emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : anchorEdit ? "ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　ダブルクリック：頂点追加　Delete：頂点削除　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_b = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _b !== void 0 ? _b : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "ダブルクリックで頂点編集　端の□をドラッグで伸縮" : "ダブルクリック：頂点とハンドルを編集　四隅をドラッグ：伸縮") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? "ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　ダブルクリック：頂点追加　Delete：頂点削除　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_b = { line: "ドラッグで直線　Shift で水平・垂直・45°", rect: "ドラッグで作成　Shift で正方形", ellipse: "ドラッグで作成　Shift で正円", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _b !== void 0 ? _b : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除" : "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
             if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
@@ -1507,17 +1519,6 @@ export const initProCanvasUi = (deps) => {
             }
             if (plotEdit && id !== plotEdit.id && !handle && !target.dataset.rotate)
                 stopPlotEdit();
-            if (tool === "select" && target.dataset.pathId && target.dataset.anchorIndex !== undefined) {
-                const path = walk(currentObjects(), target.dataset.pathId), anchorIndex = Number(target.dataset.anchorIndex);
-                if ((path === null || path === void 0 ? void 0 : path.type) !== "path")
-                    return;
-                selectedAnchorIndex = anchorIndex;
-                drag = { kind: "anchor", start: raw, startClient: client, before: cloneScene(scene), id: path.id, anchorIndex };
-                hoveredId = null;
-                svg.setPointerCapture(e.pointerId);
-                render();
-                return;
-            }
             if (tool === "select") {
                 const anchorIndex = target.dataset.anchorIndex === undefined ? undefined : Number(target.dataset.anchorIndex), controlSegment = target.dataset.controlSegment === undefined ? undefined : Number(target.dataset.controlSegment), controlKey = target.dataset.controlKey;
                 if (anchorEdit && (anchorIndex !== undefined || controlSegment !== undefined)) {
@@ -1550,7 +1551,7 @@ export const initProCanvasUi = (deps) => {
                     render();
                     return;
                 }
-                if (anchorEdit && id === anchorEdit.pathId && !handle && !target.dataset.rotate) {
+                if ((anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) && id === anchorEdit.pathId && !handle && !target.dataset.rotate) {
                     const editPath = walk(currentObjects(), anchorEdit.pathId);
                     if ((editPath === null || editPath === void 0 ? void 0 : editPath.type) === "path") {
                         const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, hit = nearestOnPath(editPath, raw);
@@ -1563,10 +1564,6 @@ export const initProCanvasUi = (deps) => {
                         }
                     }
                 }
-                if (anchorEdit && id !== anchorEdit.pathId)
-                    anchorEdit = null;
-                else if (anchorEdit && !id)
-                    anchorEdit = null;
                 const oneId = selectedIdOne();
                 if (handle && oneId) {
                     const o = currentObjects().find(item => item.id === oneId);
@@ -1678,7 +1675,7 @@ export const initProCanvasUi = (deps) => {
             }
             if (!drag) {
                 const target = e.target, nextHoveredId = (_b = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id) !== null && _b !== void 0 ? _b : null, handle = target.dataset.handle;
-                svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : anchorEdit && nextHoveredId === anchorEdit.pathId ? "crosshair" : nextHoveredId ? "move" : "default";
+                svg.style.cursor = target.dataset.rotate ? "grab" : handle ? `${handle}-resize` : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) && nextHoveredId === anchorEdit.pathId ? "crosshair" : nextHoveredId ? "move" : "default";
                 if (nextHoveredId !== hoveredId) {
                     hoveredId = nextHoveredId;
                     render();
@@ -1873,7 +1870,7 @@ export const initProCanvasUi = (deps) => {
                 if (lastClick && now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6) {
                     lastClick = null;
                     const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
-                    const editPath = anchorEdit && completed.kind === "bend" ? walk(currentObjects(), anchorEdit.pathId) : null;
+                    const editPath = (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) && completed.kind === "bend" ? walk(currentObjects(), anchorEdit.pathId) : null;
                     if ((editPath === null || editPath === void 0 ? void 0 : editPath.type) === "path") {
                         const scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, hit = nearestOnPath(editPath, rawPoint(e));
                         if (hit.dist <= 8 / scale) {
@@ -1915,7 +1912,7 @@ export const initProCanvasUi = (deps) => {
         else {
             replaceSelection(path.id);
             tool = "select";
-            anchorEdit = { pathId: path.id };
+            anchorEdit = { pathId: path.id, deep: true };
             selectedAnchorIndex = 0;
         } render(); scheduleCompile(); };
         const abortPen = () => { if (pen && !pen.path.segments.length)
@@ -1948,8 +1945,8 @@ export const initProCanvasUi = (deps) => {
                     stopPlotEdit();
                     return;
                 }
-                if (anchorEdit) {
-                    anchorEdit = null;
+                if (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) {
+                    anchorEdit.deep = false;
                     render();
                     return;
                 }
@@ -1981,7 +1978,7 @@ export const initProCanvasUi = (deps) => {
                 finishPen();
                 return;
             }
-            if ((e.key === "Delete" || e.key === "Backspace") && anchorEdit) {
+            if ((e.key === "Delete" || e.key === "Backspace") && (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep)) {
                 const path = walk(currentObjects(), anchorEdit.pathId);
                 if ((path === null || path === void 0 ? void 0 : path.type) === "path") {
                     snapshot();
@@ -2312,9 +2309,11 @@ export const initProCanvasUi = (deps) => {
         } if (object.type === "path") {
             replaceSelection(object.id);
             if ((anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.pathId) !== object.id) {
-                anchorEdit = { pathId: object.id };
+                anchorEdit = { pathId: object.id, deep: true };
                 selectedAnchorIndex = 0;
             }
+            else
+                anchorEdit.deep = true;
             render();
             return;
         } if (object.type === "code") {

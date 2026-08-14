@@ -24,62 +24,160 @@ export const base64DecodeUtf8 = (b64) => {
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return new TextDecoder().decode(bytes);
 };
+const base64EncodeBytes = (bytes) => {
+    if (typeof Buffer !== "undefined")
+        return Buffer.from(bytes).toString("base64");
+    let binary = "";
+    for (const byte of bytes)
+        binary += String.fromCharCode(byte);
+    return btoa(binary);
+};
+const base64DecodeBytes = (b64) => {
+    if (typeof Buffer !== "undefined")
+        return Uint8Array.from(Buffer.from(b64, "base64"));
+    const binary = atob(b64);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+};
+export const lzssCompress = (input) => {
+    const out = [], n = input.length, chains = new Map();
+    let i = 0;
+    while (i < n) {
+        const flagIndex = out.length;
+        out.push(0);
+        let flags = 0;
+        for (let bit = 0; bit < 8 && i < n; bit++) {
+            let bestLen = 0, bestOff = 0;
+            const key3 = () => input[i] << 16 | input[i + 1] << 8 | input[i + 2];
+            if (i + 2 < n) {
+                const chain = chains.get(key3());
+                if (chain)
+                    for (let c = chain.length - 1, tried = 0; c >= 0 && tried < 64; c--, tried++) {
+                        const pos = chain[c], off = i - pos;
+                        if (off > 4096)
+                            break;
+                        let len = 0;
+                        while (len < 18 && i + len < n && input[pos + len] === input[i + len])
+                            len++;
+                        if (len > bestLen) {
+                            bestLen = len;
+                            bestOff = off;
+                            if (len === 18)
+                                break;
+                        }
+                    }
+            }
+            const remember = () => { if (i + 2 < n) {
+                const key = key3();
+                let chain = chains.get(key);
+                if (!chain)
+                    chains.set(key, chain = []);
+                chain.push(i);
+            } };
+            if (bestLen >= 3) {
+                const token = (bestOff - 1) << 4 | (bestLen - 3);
+                out.push(token >> 8 & 255, token & 255);
+                for (let k = 0; k < bestLen; k++) {
+                    remember();
+                    i++;
+                }
+            }
+            else {
+                flags |= 1 << bit;
+                remember();
+                out.push(input[i]);
+                i++;
+            }
+        }
+        out[flagIndex] = flags;
+    }
+    return Uint8Array.from(out);
+};
+export const lzssDecompress = (data) => {
+    const out = [];
+    let i = 0;
+    while (i < data.length) {
+        const flags = data[i++];
+        for (let bit = 0; bit < 8 && i < data.length; bit++) {
+            if (flags >> bit & 1)
+                out.push(data[i++]);
+            else {
+                const token = data[i] << 8 | data[i + 1];
+                i += 2;
+                const start = out.length - ((token >> 4) + 1), len = (token & 15) + 3;
+                for (let k = 0; k < len; k++)
+                    out.push(out[start + k]);
+            }
+        }
+    }
+    return Uint8Array.from(out);
+};
 export const encodeFigureBlock = (scene) => {
-    const code = generateTikz(scene).code;
+    const code = generateTikz(scene).code.split("\n").filter((line) => !/^% requires(?::|\s|$)/.test(line)).join("\n");
     const body = `${code}\n`;
-    const encoded = base64EncodeUtf8(JSON.stringify(scene));
-    const chunks = encoded.match(/.{1,100}/g) || [""];
-    return [`%% tex64-figure v1 h=${fnv1a32(body)}`, ...chunks.map((chunk) => `%% tex64-figure+ ${chunk}`), `${code}\n`].join("\n");
+    const json = JSON.stringify(scene, (_key, value) => typeof value === "number" && Number.isFinite(value) ? Math.round(value * 1e6) / 1e6 : value);
+    const encoded = base64EncodeBytes(lzssCompress(new TextEncoder().encode(json)));
+    return `%% tex64-figure v2 h=${fnv1a32(body)} ${encoded}\n${code}\n`;
 };
 export const decodeFigureBlockAt = (lines, cursorLine) => {
     if (!Number.isInteger(cursorLine) || cursorLine < 0 || cursorLine >= lines.length)
         return null;
     let startLine = cursorLine;
-    while (startLine >= 0 && !/^%% tex64-figure v1\b/.test(lines[startLine]))
+    while (startLine >= 0 && !/^%% tex64-figure v[12]\b/.test(lines[startLine]))
         startLine--;
     if (startLine < 0)
         return null;
     for (let i = startLine + 1; i <= cursorLine; i++)
-        if (/^%% tex64-figure v1\b/.test(lines[i]))
+        if (/^%% tex64-figure v[12]\b/.test(lines[i]))
             return null;
     let endLine = startLine;
     while (endLine < lines.length && lines[endLine] !== "\\end{tikzpicture}") {
-        if (endLine > startLine && /^%% tex64-figure v1\b/.test(lines[endLine]))
+        if (endLine > startLine && /^%% tex64-figure v[12]\b/.test(lines[endLine]))
             return null;
         endLine++;
     }
     if (endLine >= lines.length || cursorLine > endLine)
         return null;
-    const header = /^%% tex64-figure v1 h=([0-9a-fA-F]{8})$/.exec(lines[startLine]);
-    if (!header)
+    const v2 = /^%% tex64-figure v2 h=([0-9a-f]{8}) ([A-Za-z0-9+/=]+)$/.exec(lines[startLine]);
+    const v1 = /^%% tex64-figure v1 h=([0-9a-fA-F]{8})$/.exec(lines[startLine]);
+    if (!v1 && !v2)
         return null;
-    const chunks = [];
     let bodyStart = startLine + 1;
-    while (bodyStart < endLine) {
-        const match = /^%% tex64-figure\+ ([A-Za-z0-9+/=]*)$/.exec(lines[bodyStart]);
-        if (!match)
-            break;
-        chunks.push(match[1]);
-        bodyStart++;
-    }
-    if (!chunks.length)
-        return null;
     let scene = null;
-    try {
-        scene = validateScene(JSON.parse(base64DecodeUtf8(chunks.join(""))));
+    if (v2) {
+        try {
+            scene = validateScene(JSON.parse(new TextDecoder().decode(lzssDecompress(base64DecodeBytes(v2[2])))));
+        }
+        catch {
+            return null;
+        }
     }
-    catch {
-        return null;
+    else {
+        const chunks = [];
+        while (bodyStart < endLine) {
+            const match = /^%% tex64-figure\+ ([A-Za-z0-9+/=]*)$/.exec(lines[bodyStart]);
+            if (!match)
+                break;
+            chunks.push(match[1]);
+            bodyStart++;
+        }
+        if (!chunks.length)
+            return null;
+        try {
+            scene = validateScene(JSON.parse(base64DecodeUtf8(chunks.join(""))));
+        }
+        catch {
+            return null;
+        }
     }
     if (!scene)
         return null;
     const body = `${lines.slice(bodyStart, endLine + 1).join("\n")}\n`;
-    return { scene, startLine, endLine, detached: fnv1a32(body) !== header[1].toLowerCase() };
+    return { scene, startLine, endLine, detached: fnv1a32(body) !== ((v2 === null || v2 === void 0 ? void 0 : v2[1]) || v1[1].toLowerCase()) };
 };
 export const listFigureBlocks = (lines) => {
     const blocks = [];
     for (let line = 0; line < lines.length;) {
-        if (!/^%% tex64-figure v1\b/.test(lines[line])) {
+        if (!/^%% tex64-figure v[12]\b/.test(lines[line])) {
             line++;
             continue;
         }
