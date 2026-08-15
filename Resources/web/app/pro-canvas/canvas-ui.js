@@ -1,3 +1,4 @@
+import { uiText } from "../i18n.js";
 import { ensureTrailingNewline, insertAtEditorCursor } from "../pro-editor-insert.js";
 import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capture-ui.js";
 import { encodeFigureBlock } from "./figure-codec.js";
@@ -270,11 +271,11 @@ export const initProCanvasUi = (deps) => {
         overlay.className = "pro-canvas-overlay";
         overlay.tabIndex = -1;
         overlay.innerHTML = `<div class="pro-canvas-toolbar pro-canvas-topbar" role="toolbar">
-      <strong class="pro-canvas-title">図キャンバス</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="縮小">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="拡大">+</button></span><span class="pro-canvas-topbar-spacer"></span>
-      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live" aria-pressed="false" title="編集しながら実際の LaTeX 組版結果をキャンバスに重ねて表示します">TeX プレビュー</button><button data-action="doc-preamble" aria-pressed="false" title="この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します">プリアンブル</button></span><span class="pro-canvas-separator"></span>
-      <button class="pro-canvas-icon-button" data-action="undo" title="元に戻す">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="やり直す">↻</button></div>
-      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="描画ツール"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><div class="pro-canvas-emptystate"><div class="pro-canvas-empty-actions"><button type="button" data-start="line"><svg viewBox="0 0 36 24" aria-hidden="true"><line x1="4" y1="20" x2="32" y2="4"/></svg><span>線を描く</span></button><button type="button" data-start="node"><svg viewBox="0 0 36 24" aria-hidden="true"><text x="18" y="17">x²</text></svg><span>数式を置く</span></button><button type="button" data-start="plot"><svg viewBox="0 0 36 24" aria-hidden="true"><path d="M4 3v17h29"/><path d="M7 18c6-1 6-13 11-13s5 12 12 13"/></svg><span>関数を描く</span></button></div><p>作成した図は編集可能な TikZ コード、または PNG として挿入できます</p></div><div class="pro-canvas-coach" hidden></div><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>配置</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>スタイル</h3><div class="pro-canvas-style"></div></section><section><h3>スタイル集</h3><div class="pro-canvas-named"></div></section><section><h3>シンボル</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
-      <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ その他</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">SVG 取り込み</button><button data-action="ai-import">AI で TikZ 化</button><button data-action="sty">.sty へ書き出し</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">キャンセル</button>${detail.replaceRange ? "" : '<button class="pro-canvas-secondary" data-action="png">PNG 画像として挿入</button>'}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? "TikZ コードを更新" : "TikZ コードを挿入"}</button></div>`;
+      <strong class="pro-canvas-title">${uiText("Figure canvas", "図キャンバス")}</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="${uiText("Zoom out", "縮小")}">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="${uiText("Zoom in", "拡大")}">+</button></span><span class="pro-canvas-topbar-spacer"></span>
+      <span class="pro-canvas-segments"><button data-action="snap"></button><button data-action="live" aria-pressed="false" title="${uiText("Overlays the real LaTeX typeset result on the canvas as you edit", "編集しながら実際の LaTeX 組版結果をキャンバスに重ねて表示します")}">${uiText("TeX preview", "TeX プレビュー")}</button><button data-action="doc-preamble" aria-pressed="false" title="${uiText("Apply this document's preamble (macros and packages) to the preview too", "この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します")}">${uiText("Preamble", "プリアンブル")}</button></span><span class="pro-canvas-separator"></span>
+      <button class="pro-canvas-icon-button" data-action="undo" title="${uiText("Undo", "元に戻す")}">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="${uiText("Redo", "やり直す")}">↻</button></div>
+      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="${uiText("Drawing tools", "描画ツール")}"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><div class="pro-canvas-emptystate"><div class="pro-canvas-empty-actions"><button type="button" data-start="line"><svg viewBox="0 0 36 24" aria-hidden="true"><line x1="4" y1="20" x2="32" y2="4"/></svg><span>${uiText("Draw a line", "線を描く")}</span></button><button type="button" data-start="node"><svg viewBox="0 0 36 24" aria-hidden="true"><text x="18" y="17">x²</text></svg><span>${uiText("Place a formula", "数式を置く")}</span></button><button type="button" data-start="plot"><svg viewBox="0 0 36 24" aria-hidden="true"><path d="M4 3v17h29"/><path d="M7 18c6-1 6-13 11-13s5 12 12 13"/></svg><span>${uiText("Plot a function", "関数を描く")}</span></button></div><p>${uiText("Insert what you draw as editable TikZ code, or as a PNG", "作成した図は編集可能な TikZ コード、または PNG として挿入できます")}</p></div><div class="pro-canvas-coach" hidden></div><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>${uiText("Placement", "配置")}</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>${uiText("Style", "スタイル")}</h3><div class="pro-canvas-style"></div></section><section><h3>${uiText("Style set", "スタイル集")}</h3><div class="pro-canvas-named"></div></section><section><h3>${uiText("Symbols", "シンボル")}</h3><div class="pro-canvas-symbols"></div></section></aside></div><div class="pro-canvas-size-chip" hidden></div>
+      <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ ${uiText("More", "その他")}</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">${uiText("Import SVG", "SVG 取り込み")}</button><button data-action="ai-import">${uiText("Convert to TikZ with AI", "AI で TikZ 化")}</button><button data-action="sty">${uiText("Export to .sty", ".sty へ書き出し")}</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">${uiText("Cancel", "キャンセル")}</button>${detail.replaceRange ? "" : `<button class="pro-canvas-secondary" data-action="png">${uiText("Insert as PNG image", "PNG 画像として挿入")}</button>`}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? uiText("Update TikZ code", "TikZ コードを更新") : uiText("Insert TikZ code", "TikZ コードを挿入")}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
@@ -287,15 +288,15 @@ export const initProCanvasUi = (deps) => {
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const moreMenu = overlay.querySelector(".pro-canvas-more-menu"), moreButton = overlay.querySelector("[data-action=more]");
         const closeMore = () => { moreMenu.hidden = true; moreButton.setAttribute("aria-expanded", "false"); };
-        const requestText = (label, initial = "") => new Promise(resolve => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover pro-canvas-text-popover"; const title = document.createElement("label"); title.textContent = label; const input = document.createElement("input"); input.value = initial; const accept = document.createElement("button"); accept.textContent = "OK"; const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; let done = false; const finish = (value) => { if (done)
+        const requestText = (label, initial = "") => new Promise(resolve => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover pro-canvas-text-popover"; const title = document.createElement("label"); title.textContent = label; const input = document.createElement("input"); input.value = initial; const accept = document.createElement("button"); accept.textContent = "OK"; const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); let done = false; const finish = (value) => { if (done)
             return; done = true; pop.remove(); resolve(value); }; accept.onclick = () => finish(input.value); cancel.onclick = () => finish(null); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
             return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', '選択', '選択', 'V'], ['pen', '曲線', '曲線（ペン）', 'P'], ['line', '直線', '直線', 'L'], ['rect', '矩形', '矩形', 'R'], ['ellipse', '楕円', '楕円', 'E'], ['node', '数式', '数式ラベル', 'T'], ['code', 'TikZ', 'TikZ コードを直接書く', 'C'], ['plot', 'グラフ', 'グラフ', 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
+        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T'], ['code', 'TikZ', uiText("Write TikZ code directly", "TikZ コードを直接書く"), 'C'], ['plot', uiText("Graph", "グラフ"), uiText("Graph", "グラフ"), 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         const fermion = window.tex64Fermion;
         let live = localStorage.getItem(LIVE_STORAGE_KEY) !== "false" && Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
         let docPreamble = localStorage.getItem(DOC_STORAGE_KEY) === "true";
-        let preamble = null, preambleReason = "プリアンブルを読み込み中です", projectStyles = [];
+        let preamble = null, preambleReason = uiText("Reading the preamble…", "プリアンブルを読み込み中です"), projectStyles = [];
         let compiledImage = null, compileTimer = null, compileSequence = 0;
         let coachKind = null, coachTimer = null;
         let coachPersistTimer = null, coachSuppressUntil = 0;
@@ -331,15 +332,24 @@ export const initProCanvasUi = (deps) => {
         finally {
             await ((_a = doc.destroy) === null || _a === void 0 ? void 0 : _a.call(doc));
         } };
+        // An empty scene has nothing to typeset: compiling it only produced a
+        // "Compiling…" chip that never resolved into anything visible.
         const compileNow = async () => {
             if (!live || editingSymbolId || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
                 return;
+            if (!scene.objects.length) {
+                compileSequence += 1;
+                compiledImage = null;
+                setStatus("");
+                render();
+                return;
+            }
             const sequence = ++compileSequence;
-            setStatus("コンパイル中…"); // 初回は TeX エンジンの起動で 10 秒超かかる。無言で待たせず、何が起きているかを出す。
+            setStatus(uiText("Compiling…", "コンパイル中…")); // 初回は TeX エンジンの起動で 10 秒超かかる。無言で待たせず、何が起きているかを出す。
             const slowNotice = setTimeout(() => { if (sequence === compileSequence)
-                setStatus(compiledImage ? "TeX プレビューを更新中…" : "TeX プレビューを準備中… 初回は TeX エンジンの起動を待ちます"); }, 3000);
+                setStatus(compiledImage ? uiText("Updating the TeX preview…", "TeX プレビューを更新中…") : uiText("Preparing the TeX preview… the first run waits for the TeX engine to start", "TeX プレビューを準備中… 初回は TeX エンジンの起動を待ちます")); }, 3000);
             const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
-                throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || "コンパイルエラー"); return renderPdf(result.pdfBase64); };
+                throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || uiText("Compile error", "コンパイルエラー")); return renderPdf(result.pdfBase64); };
             try {
                 let image;
                 try {
@@ -348,12 +358,12 @@ export const initProCanvasUi = (deps) => {
                 catch (first) {
                     if (!docPreamble || !preamble)
                         throw first;
-                    const firstLine = first instanceof Error ? first.message.split(/\r?\n/)[0] : "コンパイルエラー";
+                    const firstLine = first instanceof Error ? first.message.split(/\r?\n/)[0] : uiText("Compile error", "コンパイルエラー");
                     image = await run(false);
                     if (sequence !== compileSequence)
                         return;
                     compiledImage = image;
-                    setStatus(`プリアンブル起因のエラーの可能性: ${firstLine}`);
+                    setStatus(uiText(`The preamble may be causing this error: ${firstLine}`, `プリアンブル起因のエラーの可能性: ${firstLine}`));
                     render();
                     return;
                 }
@@ -367,7 +377,7 @@ export const initProCanvasUi = (deps) => {
                 if (sequence !== compileSequence)
                     return;
                 compiledImage = null;
-                setStatus(error instanceof Error ? error.message.split(/\r?\n/)[0] : "コンパイルエラー", true);
+                setStatus(error instanceof Error ? error.message.split(/\r?\n/)[0] : uiText("Compile error", "コンパイルエラー"), true);
                 render();
             }
             finally {
@@ -389,7 +399,7 @@ export const initProCanvasUi = (deps) => {
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
         const showCoach = (kind) => { const key = kind === "plot" ? "plotEdit" : "nodeEdit"; if (shownHints[key] || coachKind || performance.now() < coachSuppressUntil)
-            return; coachPersistTimer = setTimeout(() => { coachPersistTimer = null; shownHints[key] = true; saveHints(); }, 1500); coachKind = kind; coach.textContent = kind === "plot" ? "ダブルクリックして式を編集" : "ダブルクリックで数式を編集"; coach.hidden = false; coach.classList.remove("is-fading"); coachTimer = setTimeout(() => coach.classList.add("is-fading"), 5500); setTimeout(() => { if (coachKind === kind)
+            return; coachPersistTimer = setTimeout(() => { coachPersistTimer = null; shownHints[key] = true; saveHints(); }, 1500); coachKind = kind; coach.textContent = kind === "plot" ? uiText("Double-click to edit the expression", "ダブルクリックして式を編集") : uiText("Double-click to edit the formula", "ダブルクリックで数式を編集"); coach.hidden = false; coach.classList.remove("is-fading"); coachTimer = setTimeout(() => coach.classList.add("is-fading"), 5500); setTimeout(() => { if (coachKind === kind)
             hideCoach(); }, 6000); };
         const replaceSelection = (id) => { selection.ids = new Set([id]); selection.primaryId = id; };
         const toggleSelection = (id) => { var _a; if (selection.ids.has(id)) {
@@ -487,12 +497,12 @@ export const initProCanvasUi = (deps) => {
             const header = document.createElement("div");
             header.className = "pro-canvas-plot-card-header";
             const headTitle = document.createElement("strong");
-            headTitle.textContent = "グラフを編集";
+            headTitle.textContent = uiText("Edit graph", "グラフを編集");
             const headClose = document.createElement("button");
             headClose.type = "button";
             headClose.textContent = "✕";
-            headClose.title = "閉じる";
-            headClose.setAttribute("aria-label", "閉じる");
+            headClose.title = uiText("Close", "閉じる");
+            headClose.setAttribute("aria-label", uiText("Close", "閉じる"));
             headClose.onclick = () => stopPlotEdit();
             header.append(headTitle, headClose);
             header.addEventListener("pointerdown", e => { if (e.target.closest("button"))
@@ -507,7 +517,7 @@ export const initProCanvasUi = (deps) => {
                 main.className = "pro-canvas-plot-card-main";
                 const chip = document.createElement("label");
                 chip.className = "pro-canvas-color-chip";
-                chip.title = `系列 ${index + 1} の色`;
+                chip.title = uiText(`Series ${index + 1} color`, `系列 ${index + 1} の色`);
                 chip.setAttribute("aria-label", chip.title);
                 chip.style.background = series.color;
                 chip.tabIndex = 0;
@@ -519,7 +529,7 @@ export const initProCanvasUi = (deps) => {
                 const expressions = document.createElement("div");
                 expressions.className = "pro-canvas-plot-expressions";
                 const editors = [], valid = () => previewSeries(series, object.axis.xmin, object.axis.xmax).valid, refreshError = () => { const bad = !valid(); editors.forEach(editor => editor.classList.toggle("is-error", bad)); error.hidden = !bad; };
-                const addExpr = (labelText, key, placeholder) => { const label = document.createElement("label"), caption = document.createElement("span"), value = series[key] || "", varName = kind === "fn" ? "x" : "t", modeKey = `${object.id}:${index}:${key}`, latex = value.trim() ? exprToLatex(value, varName) : "", useMath = hasMathLive && latex !== null && !plotTextModes.has(modeKey), toggle = document.createElement("button"); caption.textContent = labelText; toggle.type = "button"; toggle.className = "pro-canvas-plot-input-toggle"; toggle.dataset.noI18n = ""; toggle.textContent = "⌨"; toggle.disabled = !hasMathLive || latex === null; toggle.title = !hasMathLive ? "数式入力を利用できません" : latex === null ? "この式は数式入力に変換できません" : useMath ? "テキストで編集" : "数式で編集"; toggle.setAttribute("aria-label", toggle.title); toggle.onclick = () => { if (toggle.disabled)
+                const addExpr = (labelText, key, placeholder) => { const label = document.createElement("label"), caption = document.createElement("span"), value = series[key] || "", varName = kind === "fn" ? "x" : "t", modeKey = `${object.id}:${index}:${key}`, latex = value.trim() ? exprToLatex(value, varName) : "", useMath = hasMathLive && latex !== null && !plotTextModes.has(modeKey), toggle = document.createElement("button"); caption.textContent = labelText; toggle.type = "button"; toggle.className = "pro-canvas-plot-input-toggle"; toggle.dataset.noI18n = ""; toggle.textContent = "⌨"; toggle.disabled = !hasMathLive || latex === null; toggle.title = !hasMathLive ? uiText("Formula input is unavailable", "数式入力を利用できません") : latex === null ? uiText("This expression cannot be shown as a formula", "この式は数式入力に変換できません") : useMath ? uiText("Edit as text", "テキストで編集") : uiText("Edit as a formula", "数式で編集"); toggle.setAttribute("aria-label", toggle.title); toggle.onclick = () => { if (toggle.disabled)
                     return; if (useMath)
                     plotTextModes.add(modeKey);
                 else
@@ -527,7 +537,7 @@ export const initProCanvasUi = (deps) => {
                     const mf = document.createElement("math-field");
                     mf.className = "pro-canvas-plot-expr";
                     mf.dataset.noI18n = "";
-                    mf.title = `系列 ${index + 1} ${labelText}`;
+                    mf.title = uiText(`Series ${index + 1} ${labelText}`, `系列 ${index + 1} ${labelText}`);
                     mf.setAttribute("math-virtual-keyboard-policy", "manual");
                     mf.setAttribute("placeholder", placeholder);
                     try {
@@ -571,9 +581,9 @@ export const initProCanvasUi = (deps) => {
                     input.className = "pro-canvas-plot-expr";
                     input.placeholder = placeholder;
                     input.dataset.noI18n = "";
-                    input.title = `系列 ${index + 1} ${labelText}`;
+                    input.title = uiText(`Series ${index + 1} ${labelText}`, `系列 ${index + 1} ${labelText}`);
                     input.value = value;
-                    liveField(input, () => { series[key] = input.value; const nextLatex = exprToLatex(input.value, varName); toggle.disabled = !hasMathLive || nextLatex === null; toggle.title = !hasMathLive ? "数式入力を利用できません" : nextLatex === null ? "この式は数式入力に変換できません" : "数式で編集"; toggle.setAttribute("aria-label", toggle.title); refreshError(); });
+                    liveField(input, () => { series[key] = input.value; const nextLatex = exprToLatex(input.value, varName); toggle.disabled = !hasMathLive || nextLatex === null; toggle.title = !hasMathLive ? uiText("Formula input is unavailable", "数式入力を利用できません") : nextLatex === null ? uiText("This expression cannot be shown as a formula", "この式は数式入力に変換できません") : uiText("Edit as a formula", "数式で編集"); toggle.setAttribute("aria-label", toggle.title); refreshError(); });
                     editor = input;
                 } label.append(caption, editor, toggle); expressions.append(label); editors.push(editor); };
                 if (kind === "points") {
@@ -582,49 +592,49 @@ export const initProCanvasUi = (deps) => {
                     area.rows = 3;
                     area.placeholder = "0,0\n1,1";
                     area.dataset.noI18n = "";
-                    area.title = `系列 ${index + 1} の点列`;
+                    area.title = uiText(`Series ${index + 1} points`, `系列 ${index + 1} の点列`);
                     area.value = series.points || "";
                     liveField(area, () => { series.points = area.value; refreshError(); });
                     expressions.append(area);
                     editors.push(area);
                 }
                 else if (kind === "parametric") {
-                    addExpr("x(t)", "expr", "例: cos(deg(t))");
-                    addExpr("y(t)", "expr2", "例: sin(deg(t))");
+                    addExpr("x(t)", "expr", uiText("e.g. cos(deg(t))", "例: cos(deg(t))"));
+                    addExpr("y(t)", "expr2", uiText("e.g. sin(deg(t))", "例: sin(deg(t))"));
                 }
                 else if (kind === "polar")
-                    addExpr("r(θ)", "expr", "例: 1+cos(deg(t))");
+                    addExpr("r(θ)", "expr", uiText("e.g. 1+cos(deg(t))", "例: 1+cos(deg(t))"));
                 else
-                    addExpr("f(x)", "expr", plotTextModes.has(`${object.id}:${index}:expr`) ? "例: sin(deg(x))" : "例: sin(x)");
+                    addExpr("f(x)", "expr", plotTextModes.has(`${object.id}:${index}:expr`) ? uiText("e.g. sin(deg(x))", "例: sin(deg(x))") : uiText("e.g. sin(x)", "例: sin(x)"));
                 const eye = document.createElement("button");
                 eye.type = "button";
                 eye.className = "pro-canvas-eye";
-                eye.title = "表示/非表示";
+                eye.title = uiText("Show / hide", "表示/非表示");
                 eye.setAttribute("aria-label", eye.title);
                 eye.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M1.5 9s2.7-4 7.5-4 7.5 4 7.5 4-2.7 4-7.5 4-7.5-4-7.5-4Z"/><circle cx="9" cy="9" r="2"/></svg>';
                 eye.onclick = () => { snapshot(false); series.visible = series.visible === false; wrap.classList.toggle("is-muted", series.visible === false); debouncePlotCompile(); render(); };
                 const more = document.createElement("button");
                 more.type = "button";
                 more.textContent = "⋯";
-                more.title = "系列の詳細";
+                more.title = uiText("Series details", "系列の詳細");
                 const remove = document.createElement("button");
                 remove.type = "button";
                 remove.textContent = "×";
-                remove.title = "系列を削除";
+                remove.title = uiText("Remove series", "系列を削除");
                 remove.disabled = object.series.length <= 1;
                 remove.onclick = () => { snapshot(false); object.series.splice(index, 1); plotCardSignature = ""; debouncePlotCompile(); render(); };
                 main.append(chip, expressions, eye, more, remove);
                 const error = document.createElement("div");
                 error.className = "pro-canvas-plot-error";
-                error.textContent = kind === "points" ? "点列を解釈できません" : "式を解釈できません";
+                error.textContent = kind === "points" ? uiText("That point list cannot be interpreted", "点列を解釈できません") : uiText("That expression cannot be interpreted", "式を解釈できません");
                 error.hidden = valid();
                 editors.forEach(editor => editor.classList.toggle("is-error", !error.hidden));
                 const detailsKey = `${object.id}:${index}`, details = document.createElement("div");
                 details.className = "pro-canvas-plot-details";
                 details.hidden = !plotDetailsOpen.has(detailsKey);
                 const kindLabel = document.createElement("label"), kindSelect = document.createElement("select");
-                kindLabel.textContent = "種類";
-                for (const [value, text] of [["fn", "関数 y=f(x)"], ["parametric", "媒介変数"], ["polar", "極座標 r(θ)"], ["points", "点列"]]) {
+                kindLabel.textContent = uiText("Kind", "種類");
+                for (const [value, text] of [["fn", uiText("Function y=f(x)", "関数 y=f(x)")], ["parametric", uiText("Parametric", "媒介変数")], ["polar", uiText("Polar r(θ)", "極座標 r(θ)")], ["points", uiText("Point list", "点列")]]) {
                     const option = document.createElement("option");
                     option.value = value;
                     option.textContent = text;
@@ -637,18 +647,18 @@ export const initProCanvasUi = (deps) => {
                     series.expr2 = ""; if (series.kind === "points" && series.points === undefined)
                     series.points = ""; plotDetailsOpen.add(detailsKey); plotCardSignature = ""; debouncePlotCompile(); render(); };
                 kindLabel.append(kindSelect);
-                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field("定義域 最小", series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field(uiText("Domain min", "定義域 最小"), series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
                     series.domain = null;
                 else if (Number.isFinite(n))
-                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field("定義域 最大", series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field(uiText("Domain max", "定義域 最大"), series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
                     series.domain = null;
                 else if (Number.isFinite(n))
-                    series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : defaults.min, max: n }; }), samples = field("分割数", String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field("凡例", series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input");
+                    series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : defaults.min, max: n }; }), samples = field(uiText("Steps", "分割数"), String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field(uiText("Legend", "凡例"), series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input");
                 dmin.input.placeholder = String(Number(defaults.min.toPrecision(4)));
                 dmax.input.placeholder = String(Number(defaults.max.toPrecision(4)));
                 dmin.input.dataset.noI18n = "";
                 dmax.input.dataset.noI18n = "";
-                thick.textContent = "太線";
+                thick.textContent = uiText("Thick", "太線");
                 thickInput.type = "checkbox";
                 thickInput.checked = series.thick;
                 liveField(thickInput, () => series.thick = thickInput.checked);
@@ -674,18 +684,18 @@ export const initProCanvasUi = (deps) => {
             const add = document.createElement("button");
             add.type = "button";
             add.className = "pro-canvas-plot-add";
-            add.textContent = "＋ 系列を追加";
+            add.textContent = uiText("＋ Add series", "＋ 系列を追加");
             add.onclick = () => { snapshot(false); object.series.push({ kind: "fn", expr: "", domain: null, samples: 100, color: PLOT_PALETTE[object.series.length % PLOT_PALETTE.length], thick: true, legend: "", visible: true }); plotCardSignature = ""; debouncePlotCompile(); render(); requestAnimationFrame(() => buildPlotCard(object, object.series.length - 1)); };
             card.append(add);
             const range = document.createElement("div");
             range.className = "pro-canvas-plot-range";
             const rangeTitle = document.createElement("span");
             rangeTitle.className = "pro-canvas-plot-range-title";
-            rangeTitle.textContent = "x 範囲";
-            const xmin = field("最小", String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
-                object.axis.xmin = n; }), xmax = field("〜", String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
+            rangeTitle.textContent = uiText("x range", "x 範囲");
+            const xmin = field(uiText("Min", "最小"), String(Number(object.axis.xmin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n < object.axis.xmax)
+                object.axis.xmin = n; }), xmax = field(uiText("to", "〜"), String(Number(object.axis.xmax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n) && n > object.axis.xmin)
                 object.axis.xmax = n; }), auto = document.createElement("label"), autoInput = document.createElement("input");
-            auto.textContent = "y 自動";
+            auto.textContent = uiText("auto y", "y 自動");
             autoInput.type = "checkbox";
             autoInput.checked = object.axis.ymin === null || object.axis.ymax === null;
             autoInput.onchange = () => { snapshot(false); if (autoInput.checked) {
@@ -697,7 +707,7 @@ export const initProCanvasUi = (deps) => {
             } plotCardSignature = ""; debouncePlotCompile(); render(); };
             auto.append(autoInput);
             const ymin = field("y:", object.axis.ymin === null ? "" : String(Number(object.axis.ymin.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
-                object.axis.ymin = n; }), ymax = field("〜", object.axis.ymax === null ? "" : String(Number(object.axis.ymax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
+                object.axis.ymin = n; }), ymax = field(uiText("to", "〜"), object.axis.ymax === null ? "" : String(Number(object.axis.ymax.toPrecision(4))), "number", v => { const n = Number(v); if (Number.isFinite(n))
                 object.axis.ymax = n; });
             [xmin, xmax, ymin, ymax].forEach(f => f.input.dataset.noI18n = "");
             xmin.input.dataset.plotRange = "xmin";
@@ -713,23 +723,23 @@ export const initProCanvasUi = (deps) => {
             range.append(rangeTitle, xmin.row, xmax.row, ymin.row, ymax.row, auto);
             (_a = (card.querySelector(".pro-canvas-plot-add") || card.lastElementChild)) === null || _a === void 0 ? void 0 : _a.before(range); // 系列ラッパの外に置く（中だと複数系列で「系列1専用の軸設定」に見え、is-muted も巻き添えになる）
             const hint = document.createElement("p");
-            hint.textContent = "プロット上: スクロールでズーム / ドラッグで移動";
+            hint.textContent = uiText("On the plot: scroll to zoom · drag to pan", "プロット上: スクロールでズーム / ドラッグで移動");
             card.append(hint);
             const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); };
-            segments("軸線", object.axis.axisLines, [["box", "枠"], ["middle", "中央"], ["left", "左下"]], v => object.axis.axisLines = v);
-            segments("グリッド", object.axis.grid, [["none", "なし"], ["major", "主"], ["both", "主+副"]], v => object.axis.grid = v);
+            segments(uiText("Axis lines", "軸線"), object.axis.axisLines, [["box", uiText("Border", "枠")], ["middle", uiText("Center", "中央")], ["left", uiText("Bottom left", "左下")]], v => object.axis.axisLines = v);
+            segments(uiText("Grid", "グリッド"), object.axis.grid, [["none", uiText("None", "なし")], ["major", uiText("Major", "主")], ["both", uiText("Major+minor", "主+副")]], v => object.axis.grid = v);
             const eqRow = document.createElement("label");
             eqRow.className = "pro-canvas-plot-equal";
             const eqInput = document.createElement("input");
             eqInput.type = "checkbox";
             eqInput.checked = Boolean(object.axis.equal);
             eqInput.onchange = () => { snapshot(false); object.axis.equal = eqInput.checked || undefined; debouncePlotCompile(); render(); };
-            eqRow.append(eqInput, document.createTextNode(" 等尺 (axis equal)"));
+            eqRow.append(eqInput, document.createTextNode(uiText(" Equal scale (axis equal)", " 等尺 (axis equal)")));
             card.append(eqRow);
             const disclosure = document.createElement("details"), summary = document.createElement("summary");
-            summary.textContent = "詳細";
+            summary.textContent = uiText("Details", "詳細");
             disclosure.append(summary);
-            for (const [label, key] of [["x ラベル", "xlabel"], ["y ラベル", "ylabel"], ["タイトル", "title"]]) {
+            for (const [label, key] of [[uiText("x label", "x ラベル"), "xlabel"], [uiText("y label", "y ラベル"), "ylabel"], [uiText("Title", "タイトル"), "title"]]) {
                 const f = field(label, object.axis[key], "text", v => object.axis[key] = v);
                 disclosure.append(f.row);
             }
@@ -762,7 +772,7 @@ export const initProCanvasUi = (deps) => {
         const symbolizeSelection = async (object, symmetric) => {
             const name = await requestText("Symbol name (letters and digits)");
             if (!name || !/^[A-Za-z][A-Za-z0-9]*$/.test(name) || (scene.symbols || []).some(s => s.name === name)) {
-                setStatus("有効で重複しないシンボル名を指定してください", true);
+                setStatus(uiText("Enter a unique, valid symbol name", "有効で重複しないシンボル名を指定してください"), true);
                 return;
             }
             snapshot();
@@ -777,12 +787,12 @@ export const initProCanvasUi = (deps) => {
             render();
             scheduleCompile();
         };
-        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = "適用"; save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); window.removeEventListener("keydown", onPopKey, true); pop.remove(); render(); scheduleCompile(); }; const onPopKey = (e) => { if (e.key !== "Escape" || !pop.isConnected)
+        const editCode = (object) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 9; area.placeholder = "\\draw (0,0) -- (10,10);"; area.dataset.noI18n = ""; area.value = object.tikz; const save = document.createElement("button"); save.textContent = uiText("Apply", "適用"); save.onclick = () => { snapshot(); object.tikz = stripTikzWrapper(area.value); window.removeEventListener("keydown", onPopKey, true); pop.remove(); render(); scheduleCompile(); }; const onPopKey = (e) => { if (e.key !== "Escape" || !pop.isConnected)
             return; e.preventDefault(); e.stopImmediatePropagation(); dismiss(); }; const dismiss = () => { window.removeEventListener("keydown", onPopKey, true); pop.remove(); if (!object.tikz.trim()) {
             removeById(currentObjects(), object.id);
             clearSelection();
             render();
-        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = "キャンセル"; cancel.onclick = dismiss; pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
+        } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); cancel.onclick = dismiss; pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         let stageObserver = null;
         let colorPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
@@ -801,13 +811,13 @@ export const initProCanvasUi = (deps) => {
             closeColorPop();
         } }); const choose = (v) => { snapshot(false); if (v)
             remember(v); set(v); render(); scheduleCompile(); }, grid = document.createElement("div"); grid.className = "pro-canvas-color-grid"; const currentValue = (get() || "").toLowerCase(); [...presets, ...recent().filter(c => !presets.includes(c))].forEach(c => { const b = document.createElement("button"); b.type = "button"; b.title = c; b.dataset.noI18n = ""; b.style.background = c; if (c.toLowerCase() === currentValue)
-            b.classList.add("is-active"); b.onclick = () => choose(c); grid.append(b); }); pop.append(grid); const picker = document.createElement("input"); picker.type = "color"; picker.value = value || "#000000"; picker.title = "カラーピッカー"; picker.dataset.noI18n = ""; let pickerPushed = false; picker.oninput = () => { if (!pickerPushed) {
+            b.classList.add("is-active"); b.onclick = () => choose(c); grid.append(b); }); pop.append(grid); const picker = document.createElement("input"); picker.type = "color"; picker.value = value || "#000000"; picker.title = uiText("Color picker", "カラーピッカー"); picker.dataset.noI18n = ""; let pickerPushed = false; picker.oninput = () => { if (!pickerPushed) {
             snapshot(false);
             pickerPushed = true;
         } set(picker.value); render(); scheduleCompile(); }; picker.onchange = () => { remember(picker.value); }; pop.append(picker); if (allowNone) {
             const none = document.createElement("button");
             none.type = "button";
-            none.textContent = "なし";
+            none.textContent = uiText("None", "なし");
             none.onclick = () => choose(null);
             pop.append(none);
         } pop.addEventListener("click", ev => { if (ev.target === pop)
@@ -851,7 +861,7 @@ export const initProCanvasUi = (deps) => {
             if (selected.length > 1) {
                 const bar = document.createElement("div");
                 bar.className = "pro-canvas-command-grid";
-                const modes = [[['left', '左揃え'], ['centerX', '左右中央']], [['right', '右揃え'], ['top', '上揃え']], [['centerY', '上下中央'], ['bottom', '下揃え']], [['distributeX', '横等間隔'], ['distributeY', '縦等間隔']]], icons = { left: '<line x1="3" y1="2" x2="3" y2="14"/><line x1="3" y1="5" x2="12" y2="5"/><line x1="3" y1="11" x2="9" y2="11"/>', centerX: '<line x1="8" y1="2" x2="8" y2="14"/><line x1="3" y1="5" x2="13" y2="5"/><line x1="5" y1="11" x2="11" y2="11"/>', right: '<line x1="13" y1="2" x2="13" y2="14"/><line x1="4" y1="5" x2="13" y2="5"/><line x1="7" y1="11" x2="13" y2="11"/>', top: '<line x1="2" y1="3" x2="14" y2="3"/><line x1="5" y1="3" x2="5" y2="12"/><line x1="11" y1="3" x2="11" y2="9"/>', centerY: '<line x1="2" y1="8" x2="14" y2="8"/><line x1="5" y1="3" x2="5" y2="13"/><line x1="11" y1="5" x2="11" y2="11"/>', bottom: '<line x1="2" y1="13" x2="14" y2="13"/><line x1="5" y1="4" x2="5" y2="13"/><line x1="11" y1="7" x2="11" y2="13"/>', distributeX: '<rect x="2" y="3" width="2" height="10"/><rect x="7" y="3" width="2" height="10"/><rect x="12" y="3" width="2" height="10"/>', distributeY: '<rect x="3" y="2" width="10" height="2"/><rect x="3" y="7" width="10" height="2"/><rect x="3" y="12" width="10" height="2"/>' };
+                const modes = [[['left', uiText("Align left", "左揃え")], ['centerX', uiText("Center horizontally", "左右中央")]], [['right', uiText("Align right", "右揃え")], ['top', uiText("Align top", "上揃え")]], [['centerY', uiText("Center vertically", "上下中央")], ['bottom', uiText("Align bottom", "下揃え")]], [['distributeX', uiText("Distribute horizontally", "横等間隔")], ['distributeY', uiText("Distribute vertically", "縦等間隔")]]], icons = { left: '<line x1="3" y1="2" x2="3" y2="14"/><line x1="3" y1="5" x2="12" y2="5"/><line x1="3" y1="11" x2="9" y2="11"/>', centerX: '<line x1="8" y1="2" x2="8" y2="14"/><line x1="3" y1="5" x2="13" y2="5"/><line x1="5" y1="11" x2="11" y2="11"/>', right: '<line x1="13" y1="2" x2="13" y2="14"/><line x1="4" y1="5" x2="13" y2="5"/><line x1="7" y1="11" x2="13" y2="11"/>', top: '<line x1="2" y1="3" x2="14" y2="3"/><line x1="5" y1="3" x2="5" y2="12"/><line x1="11" y1="3" x2="11" y2="9"/>', centerY: '<line x1="2" y1="8" x2="14" y2="8"/><line x1="5" y1="3" x2="5" y2="13"/><line x1="11" y1="5" x2="11" y2="11"/>', bottom: '<line x1="2" y1="13" x2="14" y2="13"/><line x1="5" y1="4" x2="5" y2="13"/><line x1="11" y1="7" x2="11" y2="13"/>', distributeX: '<rect x="2" y="3" width="2" height="10"/><rect x="7" y="3" width="2" height="10"/><rect x="12" y="3" width="2" height="10"/>', distributeY: '<rect x="3" y="2" width="10" height="2"/><rect x="3" y="7" width="10" height="2"/><rect x="3" y="12" width="10" height="2"/>' };
                 modes.flat().forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.align = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.disabled = mode.startsWith("distribute") && selected.length < 3; button.onclick = () => { snapshot(); const bs = selected.map(o => objectBounds(o, scene)), deltas = mode === "distributeX" || mode === "distributeY" ? distributeDeltas(bs, mode === "distributeX" ? "x" : "y") : alignDeltas(bs, mode); selected.forEach((o, i) => moveObject(o, deltas[i].x, deltas[i].y)); render(); }; bar.append(button); });
                 geometry.append(bar);
             }
@@ -859,19 +869,19 @@ export const initProCanvasUi = (deps) => {
                 const order = document.createElement("div");
                 order.className = "pro-canvas-command-grid";
                 const icons = { front: '<rect x="3" y="5" width="8" height="8"/><rect x="6" y="2" width="7" height="7" style="fill:currentColor"/>', forward: '<rect x="3" y="5" width="8" height="8"/><rect x="6" y="2" width="7" height="7" style="fill:currentColor;fill-opacity:.55"/>', backward: '<rect x="6" y="2" width="7" height="7"/><rect x="3" y="5" width="8" height="8" style="fill:currentColor;fill-opacity:.55"/>', back: '<rect x="6" y="2" width="7" height="7"/><rect x="3" y="5" width="8" height="8" style="fill:currentColor"/>' };
-                [['front', '最前面'], ['forward', '前面へ'], ['backward', '背面へ'], ['back', '最背面']].forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.order = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.onclick = () => changeOrder(mode); order.append(button); });
+                [['front', uiText("Bring to front", "最前面")], ['forward', uiText("Bring forward", "前面へ")], ['backward', uiText("Send backward", "背面へ")], ['back', uiText("Send to back", "最背面")]].forEach(([mode, title]) => { const button = document.createElement("button"); button.title = title; button.setAttribute("aria-label", title); button.dataset.order = mode; button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${icons[mode]}</svg>`; button.onclick = () => changeOrder(mode); order.append(button); });
                 geometry.append(order);
             }
             if (!object && !targets.length) {
                 const empty = document.createElement("p");
                 empty.className = "pro-canvas-empty";
-                empty.textContent = selection.ids.size ? `${selection.ids.size} 個を選択中` : "オブジェクトを選択すると設定が表示されます";
+                empty.textContent = selection.ids.size ? uiText(`${selection.ids.size} selected`, `${selection.ids.size} 個を選択中`) : uiText("Select an object to see its settings", "オブジェクトを選択すると設定が表示されます");
                 named.before(empty);
             }
             else if (!targets.length && (object === null || object === void 0 ? void 0 : object.type) === "plot") {
                 const hint = document.createElement("p");
                 hint.className = "pro-canvas-empty";
-                hint.textContent = "ダブルクリックでグラフを編集";
+                hint.textContent = uiText("Double-click to edit the graph", "ダブルクリックでグラフを編集");
                 host.append(hint);
             }
             else if (!targets.length && (object === null || object === void 0 ? void 0 : object.type) === "code") {
@@ -887,12 +897,12 @@ export const initProCanvasUi = (deps) => {
                 if (targets.length > 1) {
                     const badge = document.createElement("span");
                     badge.className = "pro-canvas-style-badge";
-                    badge.textContent = `${targets.length} 個に適用`;
+                    badge.textContent = uiText(`Applies to ${targets.length}`, `${targets.length} 個に適用`);
                     host.append(badge);
                 }
                 const line = document.createElement("div");
                 line.className = "pro-canvas-style-line";
-                line.append(colorWell("線", () => { var _a; return (_a = effective.draw) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).draw = v; }), true));
+                line.append(colorWell(uiText("Stroke", "線"), () => { var _a; return (_a = effective.draw) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).draw = v; }), true));
                 const widthUnit = document.createElement("span");
                 widthUnit.className = "pro-canvas-unit";
                 widthUnit.textContent = "pt";
@@ -901,10 +911,10 @@ export const initProCanvasUi = (deps) => {
                 width.min = "0";
                 width.step = "0.2";
                 width.value = String((_b = effective.lineWidthPt) !== null && _b !== void 0 ? _b : .4);
-                width.title = "線幅 (pt)";
+                width.title = uiText("Line width (pt)", "線幅 (pt)");
                 width.dataset.noI18n = "";
                 width.onchange = () => apply("lineWidthPt", Math.max(0, Number(width.value) || 0));
-                line.append(width, widthUnit, seg(effective.dash || "solid", [["solid", "実線", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["dashed", "破線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="4 2"/>'], ["dotted", "点線", '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="1 2"/>']], v => apply("dash", v)));
+                line.append(width, widthUnit, seg(effective.dash || "solid", [["solid", uiText("Solid", "実線"), '<line x1="2" y1="8" x2="14" y2="8"/>'], ["dashed", uiText("Dashed", "破線"), '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="4 2"/>'], ["dotted", uiText("Dotted", "点線"), '<line x1="2" y1="8" x2="14" y2="8" stroke-dasharray="1 2"/>']], v => apply("dash", v)));
                 host.append(line);
                 const paths = targets.filter((t) => t.type === "path");
                 if (paths.length) {
@@ -914,22 +924,22 @@ export const initProCanvasUi = (deps) => {
                     const select = document.createElement("select");
                     ["Stealth", "Latex", "Bar"].forEach(v => select.add(new Option(v, v)));
                     if (mixedTips) {
-                        const option = new Option("混在", "__mixed");
+                        const option = new Option(uiText("Mixed", "混在"), "__mixed");
                         select.add(option, 0);
                     }
                     select.value = mixedTips ? "__mixed" : shape;
-                    select.title = mixedTips ? "始点と終点で矢頭が異なります（選ぶと両端に適用）" : "矢頭の形";
+                    select.title = mixedTips ? uiText("The start and end arrow heads differ (choosing one applies it to both)", "始点と終点で矢頭が異なります（選ぶと両端に適用）") : uiText("Arrow head", "矢頭の形");
                     select.dataset.noI18n = "";
                     select.onchange = () => { if (state === "none" || select.value === "__mixed")
                         return; snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); if (props.arrowStart)
                         props.arrowStart = select.value; if (props.arrowEnd)
                         props.arrowEnd = select.value; }); render(); scheduleCompile(); };
-                    arrowRow.append(document.createTextNode("矢印"), seg(state, [["none", "—", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["end", "→", arrowIcon], ["start", "←", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3"/>'], ["both", "↔", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3M11 5l3 3-3 3"/>']], v => { const tip = (select.value === "__mixed" ? shape : select.value || "Stealth"); snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); props.arrowStart = v === "start" || v === "both" ? tip : ""; props.arrowEnd = v === "end" || v === "both" ? tip : ""; }); render(); scheduleCompile(); }), select);
+                    arrowRow.append(document.createTextNode(uiText("Arrows", "矢印")), seg(state, [["none", "—", '<line x1="2" y1="8" x2="14" y2="8"/>'], ["end", "→", arrowIcon], ["start", "←", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3"/>'], ["both", "↔", '<line x1="2" y1="8" x2="14" y2="8"/><path d="M5 5L2 8l3 3M11 5l3 3-3 3"/>']], v => { const tip = (select.value === "__mixed" ? shape : select.value || "Stealth"); snapshot(false); paths.forEach(p => { var _a; const props = (_a = p.style).props || (_a.props = {}); props.arrowStart = v === "start" || v === "both" ? tip : ""; props.arrowEnd = v === "end" || v === "both" ? tip : ""; }); render(); scheduleCompile(); }), select);
                     host.append(arrowRow);
                 }
                 const mode = effective.shading ? "gradient" : effective.pattern ? "pattern" : effective.fill ? "solid" : "none", fillSeg = document.createElement("div");
                 fillSeg.className = "pro-canvas-fill-seg";
-                fillSeg.append(document.createTextNode("塗り"), seg(mode, [["none", "なし"], ["solid", "単色"], ["pattern", "編みかけ"], ["gradient", "グラデ"]], v => { snapshot(false); targets.forEach(t => { var _a, _b, _c; var _d; const p = (_d = t.style).props || (_d.props = {}); const mem = { ...fillMemory.get(t.id) }; if (p.fill != null)
+                fillSeg.append(document.createTextNode(uiText("Fill", "塗り")), seg(mode, [["none", uiText("None", "なし")], ["solid", uiText("Solid color", "単色")], ["pattern", uiText("Hatch", "編みかけ")], ["gradient", uiText("Gradient", "グラデ")]], v => { snapshot(false); targets.forEach(t => { var _a, _b, _c; var _d; const p = (_d = t.style).props || (_d.props = {}); const mem = { ...fillMemory.get(t.id) }; if (p.fill != null)
                     mem.fill = p.fill; if (p.pattern)
                     mem.pattern = p.pattern; if (p.shading)
                     mem.shading = p.shading; fillMemory.set(t.id, mem); if (v === "none") {
@@ -953,35 +963,35 @@ export const initProCanvasUi = (deps) => {
                 } }); render(); scheduleCompile(); }));
                 host.append(fillSeg);
                 if (mode === "solid")
-                    host.append(colorWell("色", () => { var _a; return (_a = effective.fill) !== null && _a !== void 0 ? _a : "#dbeafe"; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).fill = v; }), false));
+                    host.append(colorWell(uiText("Color", "色"), () => { var _a; return (_a = effective.fill) !== null && _a !== void 0 ? _a : "#dbeafe"; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).fill = v; }), false));
                 else if (mode === "pattern") {
                     const names = ["horizontal lines", "vertical lines", "north east lines", "north west lines", "grid", "crosshatch", "dots", "crosshatch dots"], grid = document.createElement("div");
                     grid.className = "pro-canvas-pattern-grid";
                     names.forEach(name => { var _a; const b = document.createElement("button"); b.type = "button"; b.title = name; b.dataset.noI18n = ""; b.classList.toggle("is-active", ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.name) === name); const patIcons = { "horizontal lines": '<path d="M0 6h34M0 13h34M0 20h34"/>', "vertical lines": '<path d="M8 0v26M17 0v26M26 0v26"/>', "north east lines": '<path d="M0 26L26 0M10 26L34 2M0 16L16 0"/>', "north west lines": '<path d="M0 0L26 26M10 0L34 24M0 10L16 26"/>', grid: '<path d="M0 8h34M0 18h34M10 0v26M22 0v26"/>', crosshatch: '<path d="M0 26L26 0M10 26L34 2M0 12L12 0M0 0L26 26M10 0L34 24M0 14L12 26"/>', dots: '<circle cx="7" cy="7" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="7" r="1.7" fill="currentColor" stroke="none"/><circle cx="31" cy="7" r="1.7" fill="currentColor" stroke="none"/><circle cx="13" cy="17" r="1.7" fill="currentColor" stroke="none"/><circle cx="25" cy="17" r="1.7" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r="1.7" fill="currentColor" stroke="none"/>', "crosshatch dots": '<circle cx="5" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="13" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="21" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="29" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="17" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="25" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="5" cy="21" r="1.2" fill="currentColor" stroke="none"/><circle cx="13" cy="21" r="1.2" fill="currentColor" stroke="none"/><circle cx="21" cy="21" r="1.2" fill="currentColor" stroke="none"/><circle cx="29" cy="21" r="1.2" fill="currentColor" stroke="none"/>' }; b.innerHTML = `<svg viewBox="0 0 34 26">${patIcons[name]}</svg>`; b.onclick = () => apply("pattern", { ...(effective.pattern || {}), name }); grid.append(b); });
-                    host.append(grid, colorWell("パターン色", () => { var _a; return ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.color) || effective.draw || "#000000"; }, v => { var _a; return apply("pattern", { name: ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.name) || "north east lines", ...(v ? { color: v } : {}) }); }, false), colorWell("下地色", () => { var _a; return (_a = effective.fill) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).fill = v; }), true));
+                    host.append(grid, colorWell(uiText("Pattern color", "パターン色"), () => { var _a; return ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.color) || effective.draw || "#000000"; }, v => { var _a; return apply("pattern", { name: ((_a = effective.pattern) === null || _a === void 0 ? void 0 : _a.name) || "north east lines", ...(v ? { color: v } : {}) }); }, false), colorWell(uiText("Base color", "下地色"), () => { var _a; return (_a = effective.fill) !== null && _a !== void 0 ? _a : null; }, v => targets.forEach(t => { var _a; return ((_a = t.style).props || (_a.props = {})).fill = v; }), true));
                 }
                 else if (mode === "gradient" && effective.shading) {
                     const s = effective.shading, grad = document.createElement("div");
                     grad.className = "pro-canvas-gradient-controls";
-                    grad.append(seg(s.kind, [['axis', '線形'], ['radial', '放射']], v => apply("shading", v === "axis" ? { kind: "axis", top: s.kind === "axis" ? s.top : s.inner, bottom: s.kind === "axis" ? s.bottom : s.outer } : { kind: "radial", inner: s.kind === "radial" ? s.inner : s.top, outer: s.kind === "radial" ? s.outer : s.bottom })));
+                    grad.append(seg(s.kind, [['axis', uiText("Linear", "線形")], ['radial', uiText("Radial", "放射")]], v => apply("shading", v === "axis" ? { kind: "axis", top: s.kind === "axis" ? s.top : s.inner, bottom: s.kind === "axis" ? s.bottom : s.outer } : { kind: "radial", inner: s.kind === "radial" ? s.inner : s.top, outer: s.kind === "radial" ? s.outer : s.bottom })));
                     if (s.kind === "axis") {
-                        grad.append(colorWell("上", () => s.top, v => v && apply("shading", { ...s, top: v }), false), colorWell("下", () => s.bottom, v => v && apply("shading", { ...s, bottom: v }), false), seg(String(s.angle || 0), [["0", "0°"], ["45", "45°"], ["90", "90°"], ["135", "135°"]], v => apply("shading", { ...s, angle: Number(v) })));
+                        grad.append(colorWell(uiText("Top", "上"), () => s.top, v => v && apply("shading", { ...s, top: v }), false), colorWell(uiText("Bottom", "下"), () => s.bottom, v => v && apply("shading", { ...s, bottom: v }), false), seg(String(s.angle || 0), [["0", "0°"], ["45", "45°"], ["90", "90°"], ["135", "135°"]], v => apply("shading", { ...s, angle: Number(v) })));
                     }
                     else
-                        grad.append(colorWell("内", () => s.inner, v => v && apply("shading", { ...s, inner: v }), false), colorWell("外", () => s.outer, v => v && apply("shading", { ...s, outer: v }), false));
+                        grad.append(colorWell(uiText("Inside", "内"), () => s.inner, v => v && apply("shading", { ...s, inner: v }), false), colorWell(uiText("Outside", "外"), () => s.outer, v => v && apply("shading", { ...s, outer: v }), false));
                     host.append(grad);
                 }
                 const details = document.createElement("details"), summary = document.createElement("summary");
-                summary.textContent = "詳細";
+                summary.textContent = uiText("Details", "詳細");
                 details.append(summary);
-                const fields = [["不透明度", "opacity", "number"], ["角丸", "roundedCornersPt", "number"], ["二重罫", "doubleDistancePt", "number"], ["cap", "cap", "select", ["butt", "round", "rect"]], ["join", "join", "select", ["miter", "round", "bevel"]], ["始点矢印", "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], ["終点矢印", "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]]];
+                const fields = [[uiText("Opacity", "不透明度"), "opacity", "number"], [uiText("Corner radius", "角丸"), "roundedCornersPt", "number"], [uiText("Double rule", "二重罫"), "doubleDistancePt", "number"], ["cap", "cap", "select", ["butt", "round", "rect"]], ["join", "join", "select", ["miter", "round", "bevel"]], [uiText("Start arrow", "始点矢印"), "arrowStart", "select", ["", "Stealth", "Latex", "Bar"]], [uiText("End arrow", "終点矢印"), "arrowEnd", "select", ["", "Stealth", "Latex", "Bar"]]];
                 fields.forEach(([label, key, kind, options]) => { var _a; const row = document.createElement("label"), input = kind === "select" ? document.createElement("select") : document.createElement("input"); row.textContent = label; if (input instanceof HTMLInputElement) {
                     input.type = "number";
                     input.step = key === "opacity" ? "0.1" : "0.1";
                     input.min = "0";
                 }
                 else
-                    options.forEach(v => input.add(new Option(v || "なし", v))); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => apply(key, kind === "number" ? Number(input.value) : input.value); row.append(input); details.append(row); });
+                    options.forEach(v => input.add(new Option(v || uiText("None", "なし"), v))); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => apply(key, kind === "number" ? Number(input.value) : input.value); row.append(input); details.append(row); });
                 host.append(details);
             }
             scene.styles.forEach((style) => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip"; apply.textContent = style.name; apply.classList.toggle("is-active", styleObjects.length > 0 && styleObjects.every(item => item.style.ref === style.name)); apply.disabled = !styleObjects.length; apply.onclick = () => { if (styleObjects.length) {
@@ -992,7 +1002,7 @@ export const initProCanvasUi = (deps) => {
             const add = document.createElement("button");
             add.className = "pro-canvas-chip pro-canvas-chip-add";
             add.textContent = "＋";
-            add.title = "新規スタイル";
+            add.title = uiText("New style", "新規スタイル");
             add.onclick = async () => { const name = await requestText("Style name (letters only)"); if (!name || !/^[A-Za-z]+$/.test(name) || scene.styles.some(s => s.name === name))
                 return; snapshot(); scene.styles.push({ name, props: object && object.type !== "group" && object.type !== "code" ? { ...resolveStyle(scene, object.style) } : { draw: "#000000" } }); render(); };
             named.append(add);
@@ -1001,7 +1011,7 @@ export const initProCanvasUi = (deps) => {
                 heading.className = "pro-canvas-project-heading";
                 heading.textContent = "Project";
                 named.append(heading);
-                projectStyles.forEach(name => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip pro-canvas-project-chip"; apply.textContent = name; apply.title = "プロジェクト定義"; apply.classList.toggle("is-active", styleObjects.length > 0 && styleObjects.every(item => item.style.ref === name)); apply.disabled = !styleObjects.length; apply.onclick = () => { if (styleObjects.length) {
+                projectStyles.forEach(name => { const apply = document.createElement("button"); apply.className = "pro-canvas-chip pro-canvas-project-chip"; apply.textContent = name; apply.title = uiText("From the project", "プロジェクト定義"); apply.classList.toggle("is-active", styleObjects.length > 0 && styleObjects.every(item => item.style.ref === name)); apply.disabled = !styleObjects.length; apply.onclick = () => { if (styleObjects.length) {
                     snapshot();
                     styleObjects.forEach(item => item.style = { ref: name });
                     render();
@@ -1009,19 +1019,19 @@ export const initProCanvasUi = (deps) => {
             }
             if (editingSymbolId) {
                 const done = document.createElement("button");
-                done.textContent = "シンボル編集終了";
+                done.textContent = uiText("Finish symbol editing", "シンボル編集終了");
                 done.onclick = () => { editingSymbolId = null; clearSelection(); render(); scheduleCompile(); };
                 symbols.append(done);
                 return;
             }
             const symbolize = document.createElement("button");
-            symbolize.textContent = "選択をシンボル化";
+            symbolize.textContent = uiText("Make symbol from selection", "選択をシンボル化");
             symbolize.disabled = !object || object.type === "instance" || object.type === "repeat";
             symbolize.onclick = () => { if (object)
                 symbolizeSelection(object, false); };
             symbols.append(symbolize);
             const symmetric = document.createElement("button");
-            symmetric.textContent = "選択を対称シンボル化";
+            symmetric.textContent = uiText("Make symmetric symbol from selection", "選択を対称シンボル化");
             symmetric.disabled = symbolize.disabled;
             symmetric.onclick = () => { if (object)
                 symbolizeSelection(object, true); };
@@ -1031,37 +1041,37 @@ export const initProCanvasUi = (deps) => {
                 row.className = "pro-canvas-symbol-row";
                 row.append(document.createTextNode(symbol.name));
                 const place = document.createElement("button");
-                place.textContent = "配置";
+                place.textContent = uiText("Placement", "配置");
                 place.onclick = () => { snapshot(); const instance = { id: newObjectId(), type: "instance", symbol: symbol.id, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 }, style: {} }; scene.objects.push(instance); replaceSelection(instance.id); render(); };
                 const corners = document.createElement("button");
-                corners.textContent = "四隅に配置";
+                corners.textContent = uiText("Place at the four corners", "四隅に配置");
                 corners.onclick = async () => { const raw = await requestText("inset", "5"); if (raw === null)
                     return; const inset = Number(raw); if (!Number.isFinite(inset)) {
-                    setStatus("inset は数値で指定してください", true);
+                    setStatus(uiText("inset must be a number", "inset は数値で指定してください"), true);
                     return;
                 } const identity = { id: "bounds", type: "instance", symbol: symbol.id, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 }, style: {} }; const transforms = cornerInstanceTransforms(objectBounds(identity, scene), scene.width, scene.height, inset); snapshot(); const children = transforms.map(transform => ({ id: newObjectId(), type: "instance", symbol: symbol.id, transform, style: {} })); const group = { id: newObjectId(), type: "group", children, transform: { tx: 0, ty: 0, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); replaceSelection(group.id); render(); scheduleCompile(); };
                 const edit = document.createElement("button");
-                edit.textContent = "編集";
+                edit.textContent = uiText("Edit", "編集");
                 edit.onclick = () => { editingSymbolId = symbol.id; clearSelection(); invalidateCompiled(); setStatus(""); render(); };
                 const along = document.createElement("button");
-                along.textContent = "選択パスに沿って配置";
+                along.textContent = uiText("Place along the selected path", "選択パスに沿って配置");
                 along.disabled = (object === null || object === void 0 ? void 0 : object.type) !== "path";
                 along.onclick = async () => { if ((object === null || object === void 0 ? void 0 : object.type) !== "path")
-                    return; const raw = await requestText("配置数", "5"); if (raw === null)
+                    return; const raw = await requestText(uiText("Count", "配置数"), "5"); if (raw === null)
                     return; snapshot(); const repeat = { id: newObjectId(), type: "repeat", symbol: symbol.id, path: { start: { ...object.start }, segments: JSON.parse(JSON.stringify(object.segments)) }, count: Math.max(1, Math.floor(Number(raw) || 1)), align: true, style: {} }; scene.objects.push(repeat); replaceSelection(repeat.id); render(); };
                 const remove = document.createElement("button");
-                remove.textContent = "削除";
+                remove.textContent = uiText("Delete", "削除");
                 remove.onclick = () => { var _a; const referenced = scene.objects.some(o => { let hit = false; const visit = (items) => items.forEach(item => { if ((item.type === "instance" || item.type === "repeat") && item.symbol === symbol.id)
                     hit = true;
                 else if (item.type === "group")
                     visit(item.children); }); visit([o]); return hit; }); if (referenced) {
-                    setStatus("配置またはリピートから参照されているため削除できません", true);
+                    setStatus(uiText("It cannot be deleted while a placement or repeat still references it", "配置またはリピートから参照されているため削除できません"), true);
                     return;
                 } snapshot(); scene.symbols = (_a = scene.symbols) === null || _a === void 0 ? void 0 : _a.filter(s => s.id !== symbol.id); render(); };
                 row.append(place, corners, edit, along, remove);
                 symbols.append(row);
             }
-            const symbolLabels = { "配置": ["⊕", "配置"], "四隅に配置": ["⛶", "四隅"], "選択パスに沿って配置": ["∿", "パスに沿って"], "編集": ["✎", "編集"], "削除": ["×", "削除"] };
+            const symbolLabels = { [uiText("Placement", "配置")]: ["⊕", uiText("Placement", "配置")], [uiText("Place at the four corners", "四隅に配置")]: ["⛶", uiText("Four corners", "四隅")], [uiText("Place along the selected path", "選択パスに沿って配置")]: ["∿", uiText("Along a path", "パスに沿って")], [uiText("Edit", "編集")]: ["✎", uiText("Edit", "編集")], [uiText("Delete", "削除")]: ["×", uiText("Delete", "削除")] };
             symbols.querySelectorAll(".pro-canvas-symbol-row button").forEach(button => { const replacement = symbolLabels[button.textContent || ""]; if (replacement) {
                 button.textContent = replacement[0];
                 button.title = replacement[1];
@@ -1236,7 +1246,7 @@ export const initProCanvasUi = (deps) => {
                     g.append(legendLayer);
                     if (compiled.some(entry => !entry.preview.valid)) {
                         const error = svgEl("text", { x: object.at.x + 6 / scale, y: -(object.at.y + object.height - 14 / scale), transform: "scale(1,-1)", "text-anchor": "start", fill: "#dc2626", "font-size": 11 / scale });
-                        error.textContent = "式エラー";
+                        error.textContent = uiText("Expression error", "式エラー");
                         g.append(error);
                     }
                     if (a.title)
@@ -1450,8 +1460,8 @@ export const initProCanvasUi = (deps) => {
             }
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
             const snap = overlay.querySelector("[data-action=snap]");
-            snap.textContent = `吸着 ${scene.grid.snap ? "オン" : "オフ"}`;
-            snap.title = "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）";
+            snap.textContent = scene.grid.snap ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
+            snap.title = uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
             snap.dataset.noI18n = "";
             snap.classList.toggle("is-active", scene.grid.snap);
             const liveButton = overlay.querySelector("[data-action=live]");
@@ -1461,11 +1471,11 @@ export const initProCanvasUi = (deps) => {
             const docButton = overlay.querySelector("[data-action=doc-preamble]");
             docButton.disabled = !preamble;
             docButton.dataset.noI18n = "";
-            docButton.title = preamble ? "この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します" : preambleReason;
+            docButton.title = preamble ? uiText("Apply this document's preamble (macros and packages) to the preview too", "この文書のプリアンブル（マクロ・パッケージ）をプレビューにも適用します") : preambleReason;
             docButton.classList.toggle("is-active", docPreamble);
             docButton.setAttribute("aria-pressed", String(docPreamble));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
-            overlay.querySelector("[data-action=zoom-reset]").title = "クリック: 100% / Shift+クリック: 選択にフィット";
+            overlay.querySelector("[data-action=zoom-reset]").title = uiText("Click: 100% · Shift+click: fit selection", "クリック: 100% / Shift+クリック: 選択にフィット");
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
             overlay.querySelector("[data-action=ai-import]").disabled = !((_c = window.tex64Texize) === null || _c === void 0 ? void 0 : _c.snippet);
@@ -1494,7 +1504,7 @@ export const initProCanvasUi = (deps) => {
             emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
             emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? "式を入力すると描画されます" : "式の入力中に / で分数　Esc で編集を終了") : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了" : tool !== "select" ? (_d = { line: "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ", rect: "ドラッグで作成　Shift で正方形　Alt で吸着オフ", ellipse: "ドラッグで作成　Shift で正円　Alt で吸着オフ", pen: "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定", node: "クリックした位置に数式ラベルを置きます", plot: "クリックまたはドラッグでグラフを配置", code: "クリックした位置に TikZ コードを直接書けます" }[tool]) !== null && _d !== void 0 ? _d : "" : selection.ids.size > 1 ? "Cmd+G でグループ化　矢印キーで微調整　Delete で削除" : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動" : (one === null || one === void 0 ? void 0 : one.type) === "node" ? "ダブルクリックで数式を編集" : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除" : "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除") : "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_d = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a graph", "クリックまたはドラッグでグラフを配置"), code: uiText("Click to write TikZ code at that spot", "クリックした位置に TikZ コードを直接書けます") }[tool]) !== null && _d !== void 0 ? _d : "" : selection.ids.size > 1 ? uiText("Cmd+G to group · Arrow keys to nudge · Delete to remove", "Cmd+G でグループ化　矢印キーで微調整　Delete で削除") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Double-click to edit the graph · Scroll to zoom the axes · Drag to pan them", "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Double-click to edit the formula", "ダブルクリックで数式を編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag the end □ to resize · Double-click to add or remove a point", "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除") : uiText("Drag ○ to reshape the curve · Corners resize · Double-click to add or remove a point", "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除")) : uiText("Drag to marquee-select · Space+drag to pan · Double-click a shape to edit", "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集");
             if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
                 showCoach(one.type);
                 if (coachKind === one.type) {
@@ -2300,12 +2310,12 @@ export const initProCanvasUi = (deps) => {
             showInserted(editor, detail.replaceRange.startLine, blockLines);
             close();
         };
-        const exportSty = async () => { var _a; let name = (await requestText("ファイル名", "figures.sty") || "").trim(); if (!name)
+        const exportSty = async () => { var _a; let name = (await requestText(uiText("File name", "ファイル名"), "figures.sty") || "").trim(); if (!name)
             return; if (!name.toLowerCase().endsWith(".sty"))
             name += ".sty"; name = name.replace(/^.*[\\/]/, ""); const packageName = name.slice(0, -4); if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(packageName))
-            throw new Error("有効なファイル名を指定してください"); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
+            throw new Error(uiText("Enter a valid file name", "有効なファイル名を指定してください")); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
             throw new Error("File writing is not available."); const result = await api({ path: name, data: base64EncodeUtf8(buildStyFile(scene, packageName)) }); if (!result.ok)
-            throw new Error(result.error || "The style file could not be saved."); setStatus(`\\usepackage{${packageName}} で使えます`); };
+            throw new Error(result.error || "The style file could not be saved."); setStatus(uiText(`Use it with \\usepackage{${packageName}}`, `\\usepackage{${packageName}} で使えます`)); };
         const exportPng = async () => {
             var _a, _b, _c, _d, _e, _f, _g, _h;
             const clone = svg.cloneNode(true);
@@ -2427,7 +2437,7 @@ export const initProCanvasUi = (deps) => {
                     replaceOrInsert();
                     break;
                 case "png":
-                    setStatus("書き出し中…");
+                    setStatus(uiText("Exporting…", "書き出し中…"));
                     await exportPng();
                     break;
             }
@@ -2449,19 +2459,19 @@ export const initProCanvasUi = (deps) => {
         finally {
             URL.revokeObjectURL(url);
         } };
-        const showAiPreview = (tikz) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 10; area.value = stripTikzWrapper(tikz); const place = document.createElement("button"); place.textContent = "コードオブジェクトとして配置"; place.onclick = () => { snapshot(); const object = { id: newObjectId(), type: "code", tikz: stripTikzWrapper(area.value), transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(object); replaceSelection(object.id); pop.remove(); render(); scheduleCompile(); }; pop.append(area, place); overlay.append(pop); area.focus(); };
+        const showAiPreview = (tikz) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 10; area.value = stripTikzWrapper(tikz); const place = document.createElement("button"); place.textContent = uiText("Place as a code object", "コードオブジェクトとして配置"); place.onclick = () => { snapshot(); const object = { id: newObjectId(), type: "code", tikz: stripTikzWrapper(area.value), transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(object); replaceSelection(object.id); pop.remove(); render(); scheduleCompile(); }; pop.append(area, place); overlay.append(pop); area.focus(); };
         const importSvgFile = async () => { const file = await pickFile(".svg,image/svg+xml"); if (!file)
             return; const result = importSvg(await file.text(), scene.width * .8); if (!result)
-            throw new Error("SVG を読み込めませんでした"); snapshot(); const group = { id: newObjectId(), type: "group", children: result.objects, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); replaceSelection(group.id); setStatus(result.warnings.length ? `${result.warnings.length} 件の警告: ${result.warnings[0]}` : ""); render(); scheduleCompile(); };
+            throw new Error(uiText("That SVG could not be read", "SVG を読み込めませんでした")); snapshot(); const group = { id: newObjectId(), type: "group", children: result.objects, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); replaceSelection(group.id); setStatus(result.warnings.length ? uiText(`${result.warnings.length} warning(s): ${result.warnings[0]}`, `${result.warnings.length} 件の警告: ${result.warnings[0]}`) : ""); render(); scheduleCompile(); };
         const importAi = async () => { var _a; const snippet = (_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet; if (!snippet)
-            return; let imageBase64; if (confirm("OK: 画像ファイルを選ぶ / キャンセル: 今のキャンバスを下絵にする")) {
+            return; let imageBase64; if (confirm(uiText("OK: pick an image file · Cancel: trace the current canvas", "OK: 画像ファイルを選ぶ / キャンセル: 今のキャンバスを下絵にする"))) {
             const file = await pickFile("image/*");
             if (!file)
                 return;
             imageBase64 = (await readDataUrl(file)).split(",")[1];
         }
         else
-            imageBase64 = await approximatePng(); setStatus("TikZ 化中…"); const result = await snippet({ imageBase64 }); if (!(result === null || result === void 0 ? void 0 : result.ok))
+            imageBase64 = await approximatePng(); setStatus(uiText("Converting to TikZ…", "TikZ 化中…")); const result = await snippet({ imageBase64 }); if (!(result === null || result === void 0 ? void 0 : result.ok))
             throw new Error((result === null || result === void 0 ? void 0 : result.error) || "texize failed."); setStatus(""); showAiPreview(result.tex || ""); };
         overlay.addEventListener("click", async (e) => { var _a; const action = (_a = e.target.closest("button")) === null || _a === void 0 ? void 0 : _a.dataset.action; try {
             if (action === "svg-import")
@@ -2510,25 +2520,25 @@ export const initProCanvasUi = (deps) => {
             var _a;
             const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.readText, rootPath = deps.getRootFilePath(), sources = [];
             if (!api) {
-                preambleReason = "ファイル読み込み機能が利用できません";
+                preambleReason = uiText("File reading is unavailable", "ファイル読み込み機能が利用できません");
                 render();
                 return;
             }
             if (!rootPath)
-                preambleReason = "ルート文書が選択されていません";
+                preambleReason = uiText("No root document is selected", "ルート文書が選択されていません");
             else
                 try {
                     const root = await api({ path: rootPath });
                     if (!root.ok)
-                        throw new Error(root.error || "ルート文書を読み込めません");
+                        throw new Error(root.error || uiText("The root document cannot be read", "ルート文書を読み込めません"));
                     preamble = extractPreamble(root.text || "");
                     if (preamble)
                         sources.push(preamble);
                     else
-                        preambleReason = "ルート文書からプリアンブルを取得できません";
+                        preambleReason = uiText("The preamble cannot be read from the root document", "ルート文書からプリアンブルを取得できません");
                 }
                 catch (error) {
-                    preambleReason = error instanceof Error ? error.message : "プリアンブルを読み込めません";
+                    preambleReason = error instanceof Error ? error.message : uiText("The preamble cannot be read", "プリアンブルを読み込めません");
                 }
             const styFiles = deps.getWorkspaceFiles().filter(path => { const normalized = path.replace(/\\/g, "/").replace(/^\.\//, ""); return normalized.toLowerCase().endsWith(".sty") && normalized.split("/").length <= 2; }).slice(0, 20);
             const reads = await Promise.all(styFiles.map(path => api({ path }).catch(() => ({ ok: false, text: undefined, error: undefined }))));

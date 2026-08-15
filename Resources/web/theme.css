@@ -3972,7 +3972,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
 .pro-layout-switcher { display: inline-flex; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); overflow: hidden; }
 .pro-layout-switcher[hidden] { display: none; }
-.pro-layout-switcher button { min-width: 28px; border-radius: 0; padding: 3px 7px; }
+.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; border-radius: 0; padding: 3px 6px; }
+.pro-layout-switcher button svg { display: block; }
 .pro-layout-switcher button[aria-pressed="true"] { color: var(--accent); background: var(--panel-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
 
@@ -8919,10 +8920,12 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 /* 挿入した図がどこへ入ったかを数秒だけ光らせて示す（pro-canvas の showInserted）。 */
 .monaco-editor .pro-canvas-inserted-line { background: color-mix(in srgb, var(--accent) 16%, transparent); border-left: 3px solid var(--accent); }
-/* 図データの 1 行は隠し、代わりに短いチップを 1 個だけ出す（figure-meta-chip.ts）。 */
+/* 図データの 1 行は隠し、代わりに短いチップを 1 個だけ出す（figure-meta-chip.ts）。
+   ラベルは CSS の content なので翻訳パスが届かない。figure-meta-chip.ts が
+   --tex64-figure-meta-chip にロケール済みの文字列を publish する。 */
 .monaco-editor .tex64-figure-meta { display: none !important; }
 .monaco-editor .tex64-figure-meta-chip::before {
-  content: "▤ 図データ（キャンバスで編集）";
+  content: var(--tex64-figure-meta-chip, "▤ figure data (edit on canvas)");
   padding: 0 6px; border: 1px solid var(--panel-border); border-radius: 4px;
   background: var(--panel-muted); color: var(--muted); font-size: 11px; opacity: .85;
 }

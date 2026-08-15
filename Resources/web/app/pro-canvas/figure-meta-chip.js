@@ -5,13 +5,25 @@
 // 実装は Monaco のデコレーション 2 枚:
 //   inlineClassName        … base64 本体を display:none で隠す
 //   beforeContentClassName … その手前にチップを 1 個だけ描く（CSS の content）
+import { onUiLocaleChange, uiText } from "../i18n.js";
 import { isFigureHeaderLine } from "./figure-codec.js";
-const HOVER = "この図のデータです（キャンバスで編集するのに必要）。消すと「図をキャンバスで編集」が使えなくなります。";
+const hoverText = () => uiText("This is the figure's data, needed to edit it on the canvas. Deleting it means the figure can no longer be reopened there.", "この図のデータです（キャンバスで編集するのに必要）。消すと「図をキャンバスで編集」が使えなくなります。");
+// The chip itself is drawn by CSS `content`, which no translation pass can
+// reach. Publish the label as a custom property instead, and refresh it when
+// the locale changes.
+const chipLabel = () => uiText("▤ figure data (edit on canvas)", "▤ 図データ（キャンバスで編集）");
+const publishChipLabel = () => document.documentElement.style.setProperty("--tex64-figure-meta-chip", JSON.stringify(chipLabel()));
+let localeHooked = false;
 export const installFigureMetaChips = (editor) => {
     var _a, _b, _c;
     const Range = (_a = window.monaco) === null || _a === void 0 ? void 0 : _a.Range;
     if (!Range || !(editor === null || editor === void 0 ? void 0 : editor.createDecorationsCollection))
         return;
+    publishChipLabel();
+    if (!localeHooked) {
+        localeHooked = true;
+        onUiLocaleChange(publishChipLabel);
+    }
     const collection = editor.createDecorationsCollection([]);
     const refresh = () => {
         var _a, _b, _c;
@@ -29,7 +41,7 @@ export const installFigureMetaChips = (editor) => {
                 options: {
                     inlineClassName: "tex64-figure-meta",
                     beforeContentClassName: "tex64-figure-meta-chip",
-                    hoverMessage: { value: HOVER },
+                    hoverMessage: { value: hoverText() },
                     stickiness: 1, // NeverGrowsWhenTypingAtEdges
                 },
             });

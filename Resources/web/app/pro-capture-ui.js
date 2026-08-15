@@ -1,3 +1,4 @@
+import { uiText } from "./i18n.js";
 import { insertAtEditorCursor } from "./pro-editor-insert.js";
 import { calculateAutoScrollDelta, documentRectToViewportRect, viewportPointToDocumentPoint, } from "./pdf-capture-math.js";
 export const normalizeCaptureRect = (startX, startY, endX, endY) => ({
@@ -95,7 +96,7 @@ export const initProCaptureUi = (deps) => {
         const overlay = document.createElement("div");
         overlay.className = "pro-capture-overlay";
         overlay.tabIndex = 0;
-        overlay.innerHTML = '<div class="pro-capture-hint">Drag to select · PDF: 下端で自動スクロール · Esc to cancel</div>';
+        overlay.innerHTML = `<div class="pro-capture-hint">${uiText("Drag to select · PDF: scrolls automatically at the bottom edge · Esc to cancel", "ドラッグで選択 · PDF は下端で自動スクロール · Esc で中止")}</div>`;
         body.appendChild(overlay);
         overlay.focus();
         let start = null;
@@ -229,7 +230,7 @@ export const initProCaptureUi = (deps) => {
             overlay.releasePointerCapture(event.pointerId);
             const menu = document.createElement("div");
             menu.className = "pro-capture-menu";
-            menu.innerHTML = `<button data-action="tex">TeX化</button><span class="pro-capture-translate"><select aria-label="Translation language"><option>Japanese</option><option>English</option><option value="custom">Other…</option></select><input hidden placeholder="Language" /></span><button data-action="translate">翻訳して挿入</button><label><input type="checkbox" data-figure /> figure</label><button data-action="image">画像化して挿入</button><button data-action="stash">スタッシュへ</button><button data-action="copy">コピー(PNG)</button><span class="pro-capture-status"></span>`;
+            menu.innerHTML = `<button data-action="tex">${uiText("To TeX", "TeX化")}</button><span class="pro-capture-translate"><select aria-label="Translation language"><option>Japanese</option><option>English</option><option value="custom">Other…</option></select><input hidden placeholder="Language" /></span><button data-action="translate">${uiText("Translate and insert", "翻訳して挿入")}</button><label><input type="checkbox" data-figure /> figure</label><button data-action="image">${uiText("Insert as an image", "画像化して挿入")}</button><button data-action="stash">${uiText("Send to stash", "スタッシュへ")}</button><button data-action="copy">${uiText("Copy (PNG)", "コピー(PNG)")}</button><span class="pro-capture-status"></span>`;
             const boxLeft = Number.parseFloat((box === null || box === void 0 ? void 0 : box.style.left) || String(rect.x));
             const boxTop = Number.parseFloat((box === null || box === void 0 ? void 0 : box.style.top) || String(rect.y));
             Object.assign(menu.style, { left: `${Math.max(4, Math.min(boxLeft, overlay.clientWidth - 300))}px`, top: `${Math.max(4, Math.min(boxTop + Math.min(rect.height, overlay.clientHeight) + 6, overlay.clientHeight - 120))}px` });
@@ -261,7 +262,7 @@ export const initProCaptureUi = (deps) => {
                 textarea.value = tex;
                 textarea.rows = 7;
                 const insert = document.createElement("button");
-                insert.textContent = "カーソル位置に挿入";
+                insert.textContent = uiText("Insert at the cursor", "カーソル位置に挿入");
                 insert.addEventListener("click", () => { try {
                     insertText(textarea.value);
                     close();
@@ -270,7 +271,7 @@ export const initProCaptureUi = (deps) => {
                     confirm.dataset.error = error instanceof Error ? error.message : String(error);
                 } });
                 const stash = document.createElement("button");
-                stash.textContent = "スタッシュへ";
+                stash.textContent = uiText("Send to stash", "スタッシュへ");
                 stash.addEventListener("click", () => { window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", { detail: { kind: "text", content: textarea.value } })); close(); });
                 confirm.append(textarea, insert, stash);
                 overlay.appendChild(confirm);
@@ -283,12 +284,12 @@ export const initProCaptureUi = (deps) => {
                     return;
                 try {
                     status.classList.add("is-loading");
-                    status.textContent = "処理中…";
+                    status.textContent = uiText("Working…", "処理中…");
                     const png = await getPng();
                     if (action === "copy") {
                         const blob = await (await fetch(png)).blob();
                         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-                        status.textContent = "コピーしました";
+                        status.textContent = uiText("Copied", "コピーしました");
                         return;
                     }
                     if (action === "stash") {

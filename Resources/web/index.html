@@ -122,11 +122,24 @@
         <div class="topbar-drag"></div>
         <div class="top-actions">
           <div class="pro-mode-controls" aria-label="Pro mode layout">
-            <button id="pro-canvas-open" type="button" title="図を描いて TikZ として挿入する" hidden>✎ 作図</button>
-            <button id="pro-canvas-gallery" type="button" title="Figure gallery" hidden>⊞ Figures</button>
+            <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
+            <button id="pro-canvas-gallery" type="button" title="Every figure in this document" hidden>⊞ Figures</button>
             <div id="pro-layout-switcher" class="pro-layout-switcher" aria-label="Pro layout" hidden>
-              <button type="button" data-pro-layout="preview-source" aria-pressed="true" title="Preview | Source">①</button>
-              <button type="button" data-pro-layout="source-reference-code" aria-pressed="false" title="Source | Reference | Code">②</button>
+              <button type="button" data-pro-layout="preview-source" aria-pressed="true" title="Preview | Source" aria-label="Preview and source">
+                <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
+                  <path d="M12 1.5v13"></path>
+                  <rect class="pro-layout-fill" x="1.5" y="1.5" width="10.5" height="13" rx="1.5" fill="currentColor" stroke="none" opacity="0.32"></rect>
+                </svg>
+              </button>
+              <button type="button" data-pro-layout="source-reference-code" aria-pressed="false" title="Source | Reference | Code" aria-label="Source, reference and code">
+                <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
+                  <path d="M10 1.5v13"></path>
+                  <path d="M18 1.5v13"></path>
+                  <rect class="pro-layout-fill" x="1.5" y="1.5" width="8.5" height="13" rx="1.5" fill="currentColor" stroke="none" opacity="0.32"></rect>
+                </svg>
+              </button>
             </div>
           </div>
           <button
@@ -1273,7 +1286,7 @@
                 <span class="pro-pane-actions">
                   <span id="pro-preview-live-status" class="pro-live-status" aria-live="polite"></span>
                   <button id="pro-preview-live-toggle" type="button" aria-pressed="false" title="Toggle live preview">Live</button>
-                  <button type="button" data-pro-capture="preview" title="Select region" aria-label="Select preview region">⌖ Select</button>
+                  <button type="button" data-pro-capture="preview" title="Capture a region: turn it into TeX, translate it, or insert it as an image" aria-label="Capture a region of the preview">⌖ Capture</button>
                   <button type="button" data-pro-open="preview" title="Open PDF">Open</button>
                   <button type="button" data-pro-collapse="preview" aria-label="Collapse preview">‹</button>
                 </span>
@@ -1283,7 +1296,7 @@
                   <div class="editor-viewer-body">
                     <img id="pro-preview-image" class="editor-viewer-media editor-viewer-image" alt="preview" />
                     <iframe id="pro-preview-pdf" class="editor-viewer-media editor-viewer-pdf" title="PDF preview"></iframe>
-                    <div class="editor-viewer-message"><h2>Preview</h2><p>Open a PDF to show it beside the source.</p></div>
+                    <div class="editor-viewer-message"><h2>Preview</h2><p>Turn on Live above to typeset as you write, or press Open to show a PDF beside the source.</p></div>
                   </div>
                 </div>
                 <iframe id="pro-preview-live" class="pro-preview-live" title="Live TeX preview" aria-hidden="true"></iframe>
@@ -1294,7 +1307,7 @@
               <div class="editor-tabs" id="editor-tabs">
                 <div class="editor-tabs-list" id="editor-tabs-list"></div>
                 <div class="editor-tab-actions">
-                  <button id="pro-structure-button" class="pro-structure-button" type="button" aria-expanded="false" aria-controls="pro-structure-drawer" title="Document structure (Cmd/Ctrl+Alt+O)">構造</button>
+                  <button id="pro-structure-button" class="pro-structure-button" type="button" aria-expanded="false" aria-controls="pro-structure-drawer" title="Document structure (Cmd/Ctrl+Alt+O)">Structure</button>
                   <button class="pro-pane-collapse" type="button" data-pro-collapse="source" aria-label="Collapse source">‹</button>
                   <div id="pro-structure-drawer" class="pro-structure-drawer" role="dialog" aria-label="Document structure" hidden>
                     <div class="pro-structure-heading">Document structure</div>
@@ -1337,7 +1350,7 @@
               <header class="pro-pane-header">
                 <span id="pro-reference-title">Reference</span>
                 <span class="pro-pane-actions">
-                  <button type="button" data-pro-capture="reference" title="Select region" aria-label="Select reference region">⌖ Select</button>
+                  <button type="button" data-pro-capture="reference" title="Capture a region: turn it into TeX, translate it, or insert it as an image" aria-label="Capture a region of the reference">⌖ Capture</button>
                   <button type="button" data-pro-open="reference" title="Open PDF or image">Open</button>
                   <button type="button" data-pro-collapse="reference" aria-label="Collapse reference">‹</button>
                 </span>
@@ -1347,7 +1360,7 @@
                   <div class="editor-viewer-body">
                     <img id="pro-reference-image" class="editor-viewer-media editor-viewer-image" alt="reference" />
                     <iframe id="pro-reference-pdf" class="editor-viewer-media editor-viewer-pdf" title="Reference PDF"></iframe>
-                    <div class="editor-viewer-message"><h2>Reference</h2><p>Open a PDF or image for reference.</p></div>
+                    <div class="editor-viewer-message"><h2>Reference</h2><p>Press Open to keep a PDF or image beside what you are writing.</p></div>
                   </div>
                 </div>
               </div>
