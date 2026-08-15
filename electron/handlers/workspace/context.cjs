@@ -21,6 +21,7 @@ const createWorkspaceContext = (deps) => {
     WorkspaceError,
     state,
     userSettings,
+    fileAccess = { ensureAccess: async () => true },
   } = deps;
 
   const TEXT_FILE_EXTENSIONS = new Set([
@@ -220,6 +221,7 @@ const createWorkspaceContext = (deps) => {
     WorkspaceError,
     state,
     userSettings,
+    fileAccess,
 
     TEXT_FILE_EXTENSIONS,
     IMAGE_FILE_EXTENSIONS,

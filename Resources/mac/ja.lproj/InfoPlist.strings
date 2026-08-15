@@ -1,0 +1,6 @@
+"NSDesktopFolderUsageDescription" = "デスクトップにある LaTeX プロジェクトを開いて編集・ビルド・保存するために使用します。";
+"NSDocumentsFolderUsageDescription" = "書類フォルダにある LaTeX プロジェクトを開いて編集・ビルド・保存するために使用します。";
+"NSDownloadsFolderUsageDescription" = "ダウンロードした LaTeX プロジェクトや図を開くために使用します。";
+"NSRemovableVolumesUsageDescription" = "このボリュームにある LaTeX プロジェクトを開いて保存するために使用します。";
+"NSNetworkVolumesUsageDescription" = "ネットワークボリュームにある LaTeX プロジェクトを開いて保存するために使用します。";
+"NSFileProviderDomainUsageDescription" = "iCloud Drive にある LaTeX プロジェクトを開いて保存するために使用します。";

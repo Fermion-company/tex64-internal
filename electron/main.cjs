@@ -30,6 +30,7 @@ const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
 const { TexizeService } = require("./services/texize.cjs");
 const { FermionEngineService } = require("./services/fermion-engine.cjs");
+const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
 const { TerminalService } = require("./services/terminal.cjs");
@@ -122,6 +123,12 @@ const state = {
   lastBuildPdfPath: null,
   formatWarningShown: false,
 };
+const macFileAccess = new MacFileAccessService({
+  dialog,
+  shell,
+  getWindow: () => state.mainWindow,
+  locale: () => app.getLocale(),
+});
 
 // ---------------------------------------------------------------------------
 // Window state persistence
@@ -259,7 +266,7 @@ const getMathOcrService = () => {
 
 const getTexizeService = () => {
   if (!texizeService) {
-    texizeService = new TexizeService();
+    texizeService = new TexizeService({ fileAccess: macFileAccess });
   }
   return texizeService;
 };
@@ -272,11 +279,11 @@ const getAiWebService = () => {
   return aiWebService;
 };
 const getFermionEngineService = () => {
-  if (!fermionEngineService) fermionEngineService = new FermionEngineService();
+  if (!fermionEngineService) fermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
   return fermionEngineService;
 };
 const getCanvasFermionEngineService = () => {
-  if (!canvasFermionEngineService) canvasFermionEngineService = new FermionEngineService();
+  if (!canvasFermionEngineService) canvasFermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
   return canvasFermionEngineService;
 };
 
@@ -524,6 +531,7 @@ const workspaceHandlers = createWorkspaceHandlers({
     addRecentProject: (p) => ensureUserSettings().addRecentProject(p),
     removeRecentProject: (p) => ensureUserSettings().removeRecentProject(p),
   },
+  fileAccess: macFileAccess,
 });
 
 const agentService = new AgentService({

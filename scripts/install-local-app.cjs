@@ -24,6 +24,8 @@ const BUNDLE_ID = "com.wedd.tex64";
 const DEFAULT_TARGET = path.join("/Applications", APP_BASENAME);
 const LOCK_DIR = path.join(os.homedir(), "Library", "Caches", "TeX64", "local-deploy.lock");
 const RERUN_FLAG = path.join(os.homedir(), "Library", "Caches", "TeX64", "local-deploy.rerun");
+const LOCAL_SIGNING_NAME = "TeX64 Local Signing";
+const LOCAL_SIGNING_KEYCHAIN = path.join(os.homedir(), "Library", "Keychains", "tex64-local-signing.keychain-db");
 
 // Commits that only touch these never change the packaged app.
 const IRRELEVANT_PREFIXES = [
@@ -217,8 +219,22 @@ function hasDeveloperIdIdentity() {
   return result.ok && result.stdout.includes("Developer ID Application");
 }
 
-function codesign(target, { entitlements, deep } = {}) {
-  const args = ["--force", "--sign", "-", "--timestamp=none", "--options", "runtime"];
+function findLocalSigningIdentity() {
+  if (!fs.existsSync(LOCAL_SIGNING_KEYCHAIN)) return null;
+  const result = tryRun("security", ["find-identity", "-v", "-p", "codesigning", LOCAL_SIGNING_KEYCHAIN]);
+  return result.ok && result.stdout.includes(LOCAL_SIGNING_NAME)
+    ? { name: LOCAL_SIGNING_NAME, keychain: LOCAL_SIGNING_KEYCHAIN }
+    : null;
+}
+
+function signingArgs(identity) {
+  return identity
+    ? ["--sign", identity.name, "--keychain", identity.keychain]
+    : ["--sign", "-"];
+}
+
+function codesign(target, identity, { entitlements, deep } = {}) {
+  const args = ["--force", ...signingArgs(identity), "--timestamp=none", "--options", "runtime"];
   if (deep) args.push("--deep");
   if (entitlements) args.push("--entitlements", entitlements);
   args.push(target);
@@ -228,36 +244,44 @@ function codesign(target, { entitlements, deep } = {}) {
   }
 }
 
-function adhocSign(appPath) {
+function signBundle(appPath, identity) {
   const entitlements = path.join(repoRoot, "build", "entitlements.mac.plist");
   const inherit = path.join(repoRoot, "build", "entitlements.mac.inherit.plist");
   if (!fs.existsSync(entitlements) || !fs.existsSync(inherit)) {
     throw new Error("entitlements plists are missing — run `npm run dist:prep` first.");
   }
 
-  log("ad-hoc signing the bundle (no Developer ID on this Mac)…");
+  log(identity
+    ? `signing the bundle with ${identity.name}…`
+    : "ad-hoc signing the bundle (no Developer ID on this Mac)…");
 
   // Deepest first: loose binaries, then frameworks, then helpers, then the app.
   const resources = path.join(appPath, "Contents", "Resources");
   for (const file of collectMachOFiles(resources)) {
-    const result = tryRun("codesign", ["--force", "--sign", "-", "--timestamp=none", file]);
+    const result = tryRun("codesign", ["--force", ...signingArgs(identity), "--timestamp=none", file]);
     if (!result.ok) log(`WARN: could not sign ${path.relative(appPath, file)}: ${result.stderr.trim()}`);
   }
 
   const frameworksDir = path.join(appPath, "Contents", "Frameworks");
   const frameworkEntries = fs.existsSync(frameworksDir) ? fs.readdirSync(frameworksDir) : [];
   for (const name of frameworkEntries.filter((entry) => entry.endsWith(".framework"))) {
-    codesign(path.join(frameworksDir, name), { deep: true });
+    codesign(path.join(frameworksDir, name), identity, { deep: true });
   }
   for (const name of frameworkEntries.filter((entry) => entry.endsWith(".app"))) {
-    codesign(path.join(frameworksDir, name), { deep: true, entitlements: inherit });
+    codesign(path.join(frameworksDir, name), identity, { deep: true, entitlements: inherit });
   }
-  codesign(appPath, { entitlements });
+  codesign(appPath, identity, { entitlements });
 
   const verify = tryRun("codesign", ["--verify", "--strict", "--verbose=2", appPath]);
   if (!verify.ok) {
     throw new Error(`signature verification failed:\n${verify.stderr.trim()}`);
   }
+  const requirement = tryRun("codesign", ["-d", "-r-", appPath]);
+  const requirementText = `${requirement.stdout}${requirement.stderr}`.trim();
+  if (identity && !requirementText.includes("certificate leaf")) {
+    throw new Error(`stable designated requirement was not created:\n${requirementText}`);
+  }
+  if (requirementText) log(`designated requirement: ${requirementText.replace(/\s+/g, " ")}`);
   log("signature verified.");
 }
 
@@ -360,7 +384,11 @@ function deployOnce() {
   if (hasDeveloperIdIdentity()) {
     log("Developer ID identity found — keeping electron-builder's signature.");
   } else {
-    adhocSign(sourceApp);
+    const localIdentity = findLocalSigningIdentity();
+    signBundle(sourceApp, localIdentity);
+    if (!localIdentity) {
+      log("ad-hoc 署名のため、再ビルドのたびに macOS のファイルアクセス許可がリセットされます。`npm run sign:local-identity` で安定署名にできます。");
+    }
   }
 
   const target = options.target;

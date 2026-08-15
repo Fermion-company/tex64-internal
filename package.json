@@ -22,6 +22,8 @@
     "deploy:local:fast": "node scripts/install-local-app.cjs --skip-build",
     "deploy:hooks": "node scripts/install-git-hooks.cjs",
     "deploy:hooks:remove": "node scripts/install-git-hooks.cjs --uninstall",
+    "sign:local-identity": "node scripts/create-local-signing-identity.cjs",
+    "sign:local-identity:status": "node scripts/create-local-signing-identity.cjs --status",
     "dmg:background": "node scripts/generate-dmg-background.cjs",
     "math:check": "node scripts/check-math-stack.cjs",
     "texlab:fetch": "node scripts/fetch-texlab.cjs",
@@ -91,7 +93,21 @@
       "icon": "Resources/icons/tex64.icns",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "extendInfo": {
+        "NSDesktopFolderUsageDescription": "TeX64 opens, builds, and saves the LaTeX projects you keep on your Desktop.",
+        "NSDocumentsFolderUsageDescription": "TeX64 opens, builds, and saves the LaTeX projects you keep in Documents.",
+        "NSDownloadsFolderUsageDescription": "TeX64 opens LaTeX projects and figures you downloaded.",
+        "NSRemovableVolumesUsageDescription": "TeX64 opens and saves LaTeX projects stored on this volume.",
+        "NSNetworkVolumesUsageDescription": "TeX64 opens and saves LaTeX projects stored on this network volume.",
+        "NSFileProviderDomainUsageDescription": "TeX64 opens and saves LaTeX projects stored in iCloud Drive."
+      },
+      "extraResources": [
+        {
+          "from": "Resources/mac/ja.lproj/InfoPlist.strings",
+          "to": "ja.lproj/InfoPlist.strings"
+        }
+      ]
     },
     "win": {
       "files": [
