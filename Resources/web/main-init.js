@@ -288,6 +288,7 @@ export const initMain = () => {
             getRootFilePath,
             postToNative: (payload, silent) => postToNative(payload, silent),
             updateIssues: updateIssuesProxy,
+            getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
             setAutoDetectedUi,
             setBlockPreviewActive: (active) => {
                 blockPreviewActive = active;

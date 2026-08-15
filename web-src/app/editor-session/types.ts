@@ -42,6 +42,13 @@ export type EditorSessionDeps = {
   getRootFilePath: () => string | null;
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   updateIssues: (count: number, summary: string, status: IssuesStatus, issues: IssueItem[]) => void;
+  getRecentIssuesSnapshot?: () => {
+    count: number;
+    summary: string;
+    status: IssuesStatus;
+    issues: IssueItem[];
+    updatedAt: number;
+  } | null;
   setAutoDetectedUi: (enabled: boolean, lineNumber?: number) => void;
   setBlockPreviewActive: (active: boolean) => void;
   updateFallback: (message: string) => void;

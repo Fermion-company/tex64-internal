@@ -74,6 +74,7 @@ type FileOpsDeps = {
 };
 
 export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
+  let lastSaveErrorMessage: string | null = null;
   const {
     deps,
     editorGroups,
@@ -101,6 +102,11 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     scheduleAfterComposition,
     getLanguageIdForPath,
   } = ctx;
+
+  const reportSaveError = (message: string) => {
+    lastSaveErrorMessage = message;
+    deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+  };
 
   /**
    * Replace model content via executeEdits (preserves undo stack) when available,
@@ -644,9 +650,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       await waitForCompositionIfNeeded(path);
       const content = readBuffer(path);
       if (content === null) {
-        deps.updateIssues(1, `Unable to retrieve content to save: ${path}`, "error", [
-          { severity: "error", message: `Unable to retrieve content to save: ${path}` },
-        ]);
+        reportSaveError(`Unable to retrieve content to save: ${path}`);
         return false;
       }
       try {
@@ -690,7 +694,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Saving failed.";
-        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+        reportSaveError(message);
         return false;
       }
     }
@@ -723,7 +727,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       // Use saveDirtyFiles to save all dirty files across all groups.
       saveDirtyFiles().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+        reportSaveError(message);
       });
     }, 400);
   };
@@ -828,6 +832,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     formatError?: string;
   }) => {
     let savedContent: string | null = null;
+    const saveErrorMessage = payload.error ?? "Saving failed.";
     if (state.pendingSave) {
       if (state.pendingSave.path === payload.path) {
         if (payload.ok) {
@@ -837,7 +842,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           savedContent = state.pendingSave.content;
           state.pendingSave.resolve(true);
         } else {
-          state.pendingSave.reject(payload.error ?? "Saving failed.");
+          state.pendingSave.reject(saveErrorMessage);
         }
         state.pendingSave = null;
       } else {
@@ -849,10 +854,20 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       }
     }
     if (!payload.ok) {
-      deps.updateIssues(1, payload.error ?? "Saving failed.", "error", [
-        { severity: "error", message: payload.error ?? "Saving failed." },
-      ]);
+      reportSaveError(saveErrorMessage);
       return;
+    }
+    if (lastSaveErrorMessage !== null) {
+      const snapshot = deps.getRecentIssuesSnapshot?.();
+      const stillOurs =
+        !snapshot ||
+        (snapshot.status === "error" &&
+          snapshot.issues.length === 1 &&
+          snapshot.issues[0].message === lastSaveErrorMessage);
+      if (stillOurs) {
+        deps.updateIssues(0, "", "info", []);
+      }
+      lastSaveErrorMessage = null;
     }
     const entry = monacoModels.get(payload.path);
     let resolvedSavedContent = savedContent;
