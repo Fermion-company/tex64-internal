@@ -11,15 +11,28 @@ import { getRuntimeConfig } from "../_lib/runtime-config.js";
 import {
   isSubscriptionEventProcessed,
   markSubscriptionEventProcessed,
+  withSubscriptionUserLock,
 } from "../_lib/subscription-event-store.js";
+import {
+  TEX64_COMMERCE_NAMESPACE,
+  TEX64_COMMERCE_SCHEMA_VERSION,
+  classifySubscriptionBridgeCommerce,
+  classifySubscriptionBridgeOrdering,
+  isTex64SubscriptionStatus,
+} from "../_lib/subscription-bridge-routing.js";
 import {
   applySubscriptionPatch,
   getUsageSnapshot,
-  getUserContext,
 } from "../_lib/user-context.js";
 
 const isObject = (value) => Boolean(value && typeof value === "object" && !Array.isArray(value));
 const WEBHOOK_TOKEN_REGEX = /^[A-Za-z0-9._:-]+$/;
+const STRIPE_EVENT_ID_REGEX = /^evt_[A-Za-z0-9]+$/;
+const FORBIDDEN_COMMERCE_FIELDS = Object.freeze([
+  "quotaLimitTokens",
+  "quotaLimitRequests",
+  "resetUsage",
+]);
 
 const sanitizeString = (value) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
@@ -54,6 +67,91 @@ const asEmail = (value) => {
   return email;
 };
 
+const hasOwn = (value, key) =>
+  Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+
+const invalidCommerceEnvelope = (reason, details = {}) =>
+  new ApiError(
+    "COMMERCE_ROUTING_INVALID",
+    "TeX64 subscription commerce routing is invalid.",
+    500,
+    { details: { reason, ...details } }
+  );
+
+const uniqueProvidedValues = (values) => [
+  ...new Set(values.map(sanitizeString).filter(Boolean)),
+];
+
+const resolveConsistentToken = ({ values, maxLength, label }) => {
+  const provided = uniqueProvidedValues(values);
+  if (provided.length > 1) {
+    throw invalidCommerceEnvelope(`${label}_CONFLICT`);
+  }
+  const raw = provided[0] || null;
+  const token = sanitizeWebhookToken(raw, maxLength);
+  if (!token) {
+    throw invalidCommerceEnvelope(`${label}_INVALID`);
+  }
+  return token;
+};
+
+const parseOptionalDate = (value, fieldName) => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const normalized = sanitizeString(value);
+  const timestamp = normalized ? Date.parse(normalized) : Number.NaN;
+  if (!Number.isFinite(timestamp)) {
+    throw invalidCommerceEnvelope(`${fieldName.toUpperCase()}_INVALID`);
+  }
+  return new Date(timestamp).toISOString();
+};
+
+const buildSubscriptionPatch = (body, productId) => {
+  const status = sanitizeString(body.status)?.toLowerCase() || "";
+  if (!isTex64SubscriptionStatus(status)) {
+    throw invalidCommerceEnvelope("STATUS_INVALID");
+  }
+  for (const fieldName of FORBIDDEN_COMMERCE_FIELDS) {
+    if (hasOwn(body, fieldName)) {
+      throw invalidCommerceEnvelope("ENTITLEMENT_OVERRIDE_FORBIDDEN", {
+        field: fieldName,
+      });
+    }
+  }
+
+  const billingPeriodStart = parseOptionalDate(
+    body.billingPeriodStart,
+    "billing_period_start"
+  );
+  const billingPeriodEnd = parseOptionalDate(
+    body.billingPeriodEnd,
+    "billing_period_end"
+  );
+  if (Boolean(billingPeriodStart) !== Boolean(billingPeriodEnd)) {
+    throw invalidCommerceEnvelope("BILLING_PERIOD_INCOMPLETE");
+  }
+  if (
+    billingPeriodStart &&
+    billingPeriodEnd &&
+    Date.parse(billingPeriodEnd) <= Date.parse(billingPeriodStart)
+  ) {
+    throw invalidCommerceEnvelope("BILLING_PERIOD_INVALID");
+  }
+  const graceEndsAt = parseOptionalDate(body.graceEndsAt, "grace_ends_at");
+  if (status === "grace" && !graceEndsAt) {
+    throw invalidCommerceEnvelope("GRACE_END_MISSING");
+  }
+
+  return {
+    plan: productId,
+    status,
+    ...(billingPeriodStart ? { billingPeriodStart } : {}),
+    ...(billingPeriodEnd ? { billingPeriodEnd } : {}),
+    ...(graceEndsAt ? { graceEndsAt } : {}),
+  };
+};
+
 const handler = async (req, res) => {
   if (handleOptionsRequest(req, res)) {
     return;
@@ -80,35 +178,52 @@ const handler = async (req, res) => {
     if (!isObject(body)) {
       throw new ApiError("VALIDATION_ERROR", "JSON body is required.", 400);
     }
+    const commerce = classifySubscriptionBridgeCommerce(body);
+    if (commerce.action === "ignore") {
+      sendJson(res, 200, {
+        requestId,
+        received: true,
+        ignored: true,
+        reason: commerce.reason,
+        commerceNamespace: commerce.namespace,
+      });
+      return;
+    }
+    if (commerce.action !== "process") {
+      throw invalidCommerceEnvelope(commerce.reason, {
+        commerceNamespace: commerce.namespace,
+        productId: commerce.productId,
+      });
+    }
+
     const email = asEmail(body.email);
     const explicitUserId = sanitizeString(body.userId);
-    if (!explicitUserId && !email) {
-      throw new ApiError(
-        "VALIDATION_ERROR",
-        "Either userId or email is required to update a subscription.",
-        400
-      );
+    if (!explicitUserId) {
+      throw invalidCommerceEnvelope("USER_ID_MISSING");
     }
-    const rawSource =
-      sanitizeString(body.source) ||
-      readHeaderString(req, "x-tex64-webhook-source") ||
-      readHeaderString(req, "x-tex64-source") ||
-      "manual";
-    const source = sanitizeWebhookToken(rawSource, 64);
-    if (!source) {
-      throw new ApiError(
-        "VALIDATION_ERROR",
-        "Webhook source is invalid.",
-        400
-      );
+    const source = resolveConsistentToken({
+      values: [
+        body.source,
+        readHeaderString(req, "x-tex64-webhook-source"),
+        readHeaderString(req, "x-tex64-source"),
+      ],
+      maxLength: 64,
+      label: "SOURCE",
+    });
+    if (source !== config.subscriptionBridgeSource) {
+      throw invalidCommerceEnvelope("SOURCE_NOT_OWNED", { source });
     }
-    const rawEventId =
-      sanitizeString(body.eventId) ||
-      readHeaderString(req, "x-tex64-event-id") ||
-      readHeaderString(req, "idempotency-key");
-    const eventId = sanitizeWebhookToken(rawEventId, 180);
-    if (rawEventId && !eventId) {
-      throw new ApiError("VALIDATION_ERROR", "eventId is invalid.", 400);
+    const eventId = resolveConsistentToken({
+      values: [
+        body.eventId,
+        readHeaderString(req, "x-tex64-event-id"),
+        readHeaderString(req, "idempotency-key"),
+      ],
+      maxLength: 180,
+      label: "EVENT_ID",
+    });
+    if (commerce.legacy && !STRIPE_EVENT_ID_REGEX.test(eventId)) {
+      throw invalidCommerceEnvelope("LEGACY_EVENT_ID_UNVERIFIED");
     }
 
     const userClaims = {
@@ -116,93 +231,91 @@ const handler = async (req, res) => {
       email,
       name: sanitizeString(body.name),
     };
-    const patch = {};
-    if (sanitizeString(body.plan)) {
-      patch.plan = sanitizeString(body.plan);
+    const patch = buildSubscriptionPatch(body, commerce.productId);
+    const ordering = classifySubscriptionBridgeOrdering(body, {
+      legacy: commerce.legacy,
+      eventId,
+    });
+    if (ordering.action !== "process") {
+      throw invalidCommerceEnvelope(ordering.reason);
     }
-    if (sanitizeString(body.status)) {
-      patch.status = sanitizeString(body.status);
-    }
-    if (sanitizeString(body.billingPeriodStart)) {
-      patch.billingPeriodStart = sanitizeString(body.billingPeriodStart);
-    }
-    if (sanitizeString(body.billingPeriodEnd)) {
-      patch.billingPeriodEnd = sanitizeString(body.billingPeriodEnd);
-    }
-    if (sanitizeString(body.graceEndsAt)) {
-      patch.graceEndsAt = sanitizeString(body.graceEndsAt);
-    }
-    if (Number.isFinite(Number(body.quotaLimitTokens))) {
-      patch.quotaLimitTokens = Number(body.quotaLimitTokens);
-    }
-    if (Number.isFinite(Number(body.quotaLimitRequests))) {
-      patch.quotaLimitRequests = Number(body.quotaLimitRequests);
-    }
+    const durableOrdering = { ...ordering, source };
     const pruneMaxAgeMs =
       Math.max(3600, Math.round(config.subscriptionEventTtlSec || 90 * 24 * 60 * 60)) *
       1000;
-    if (eventId) {
-      const duplicate = await isSubscriptionEventProcessed(
+    await withSubscriptionUserLock(source, explicitUserId, async () => {
+      const alreadyProcessed = await isSubscriptionEventProcessed(
         config,
         source,
         eventId,
         { pruneMaxAgeMs }
       );
-      if (duplicate) {
-        const duplicateContext = await getUserContext(config, userClaims);
-        const duplicateUsage = getUsageSnapshot(duplicateContext.usage);
+      if (alreadyProcessed) {
         sendJson(res, 200, {
           requestId,
+          received: true,
           duplicate: true,
           source,
           eventId,
-          user: {
-            id: duplicateContext.user.id,
-            email: duplicateContext.user.email,
-            name: duplicateContext.user.name,
-          },
-          subscription: duplicateContext.subscription,
-          summary: duplicateUsage.summary,
-          byFeature: duplicateUsage.byFeature,
         });
         return;
       }
-    }
-    const context = await applySubscriptionPatch({
-      config,
-      userClaims,
-      patch,
-      resetUsage: body.resetUsage === true,
-    });
-    let duplicate = false;
-    if (eventId) {
+      const context = await applySubscriptionPatch({
+        config,
+        userClaims,
+        patch,
+        resetUsage: false,
+        ordering: durableOrdering,
+      });
       const tracking = await markSubscriptionEventProcessed(
         config,
         {
           source,
           eventId,
           userId: context.user.id,
-          payload: patch,
+          payload: {
+            commerce_namespace: TEX64_COMMERCE_NAMESPACE,
+            commerce_schema_version: commerce.legacy
+              ? null
+              : TEX64_COMMERCE_SCHEMA_VERSION,
+            product_id: commerce.productId,
+            legacy: commerce.legacy,
+            stripeEventType: ordering.eventType,
+            stripeEventCreated: ordering.eventCreated,
+            stripeEventRank: ordering.eventRank,
+            stale: context.stale === true,
+            ...patch,
+          },
         },
         { pruneMaxAgeMs }
       );
-      duplicate = tracking?.duplicate === true;
-    }
-    const usage = getUsageSnapshot(context.usage);
+      const duplicate = tracking?.duplicate === true;
+      const usage = getUsageSnapshot(context.usage);
 
-    sendJson(res, 200, {
-      requestId,
-      duplicate,
-      source: eventId ? source : null,
-      eventId: eventId || null,
-      user: {
-        id: context.user.id,
-        email: context.user.email,
-        name: context.user.name,
-      },
-      subscription: context.subscription,
-      summary: usage.summary,
-      byFeature: usage.byFeature,
+      sendJson(res, 200, {
+        requestId,
+        duplicate,
+        ignored: context.stale === true,
+        ...(context.stale ? { reason: "STALE_EVENT" } : {}),
+        source,
+        eventId,
+        commerce: {
+          namespace: TEX64_COMMERCE_NAMESPACE,
+          schemaVersion: commerce.legacy
+            ? null
+            : TEX64_COMMERCE_SCHEMA_VERSION,
+          productId: commerce.productId,
+          legacy: commerce.legacy,
+        },
+        user: {
+          id: context.user.id,
+          email: context.user.email,
+          name: context.user.name,
+        },
+        subscription: context.subscription,
+        summary: usage.summary,
+        byFeature: usage.byFeature,
+      });
     });
   } catch (error) {
     sendApiError(res, requestId, error);

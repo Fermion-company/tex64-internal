@@ -148,6 +148,7 @@ const buildSubscriptionRecord = ({ plan, status, now, config }) => {
     quotaPeriodEnd: toIso(period.end),
     quotaLimitTokens,
     quotaLimitRequests,
+    metadata: {},
     updatedAt: toIso(now),
     createdAt: toIso(now),
   };
@@ -184,6 +185,9 @@ const normalizeSubscriptionRecord = (subscription, config, now) => {
     quotaPeriodEnd: toIso(quotaPeriod.end),
     quotaLimitTokens,
     quotaLimitRequests,
+    metadata: isObject(subscription?.metadata)
+      ? { ...subscription.metadata }
+      : {},
     createdAt: sanitizeString(subscription?.createdAt) || toIso(now),
     updatedAt: toIso(now),
   };

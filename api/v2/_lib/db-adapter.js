@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Pool } from "pg";
 
 import { ApiError } from "./http.js";
+import { isSubscriptionBridgeOrderStale } from "./subscription-bridge-routing.js";
 import {
   computeRequestLimitForPlan,
   computeTokenLimitForPlan,
@@ -299,6 +300,19 @@ export const ensurePlatformSchema = async (config) => {
       CREATE INDEX IF NOT EXISTS tex64_processed_subscription_events_created_idx
       ON tex64_processed_subscription_events (created_at DESC);
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tex64_subscription_event_orders (
+        source TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES tex64_users(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        event_created BIGINT NOT NULL,
+        event_rank INTEGER NOT NULL,
+        legacy BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (source, user_id)
+      );
+    `);
     return true;
   })().catch((error) => {
     schemaMap.delete(key);
@@ -404,12 +418,11 @@ export const getSubscriptionRecordByUserId = async (config, userId) => {
   return normalizeSubscriptionRow(result.rows[0] ?? null, config);
 };
 
-export const upsertSubscriptionRecordForUser = async (config, payload) => {
+const normalizeSubscriptionUpsert = (config, payload) => {
   const userId = typeof payload?.userId === "string" ? payload.userId.trim() : "";
   if (!userId) {
     return null;
   }
-  const pool = await requireDb(config);
   const plan = normalizePlan(payload?.plan, normalizePlan(config.defaultPlan, "free"));
   const status = normalizeStatus(
     payload?.status,
@@ -441,7 +454,27 @@ export const upsertSubscriptionRecordForUser = async (config, payload) => {
       400
     );
   }
-  const result = await pool.query(
+  return {
+    userId,
+    plan,
+    status,
+    billingPeriodStart,
+    billingPeriodEnd,
+    graceEndsAt,
+    quotaPeriodStart,
+    quotaPeriodEnd,
+    quotaLimitTokens,
+    quotaLimitRequests,
+    metadata,
+  };
+};
+
+const executeSubscriptionUpsert = async (
+  queryable,
+  normalized,
+  { bypassEventOrderGuard = false } = {}
+) => {
+  const result = await queryable.query(
     `
       INSERT INTO tex64_subscriptions (
         user_id,
@@ -471,23 +504,178 @@ export const upsertSubscriptionRecordForUser = async (config, payload) => {
         quota_limit_requests = EXCLUDED.quota_limit_requests,
         metadata = EXCLUDED.metadata,
         updated_at = NOW()
+      WHERE $12::boolean
+        OR tex64_subscriptions.metadata -> 'subscriptionEventOrder' IS NULL
+        OR EXCLUDED.metadata -> 'subscriptionEventOrder'
+          = tex64_subscriptions.metadata -> 'subscriptionEventOrder'
       RETURNING *;
     `,
     [
-      userId,
-      plan,
-      status,
-      billingPeriodStart,
-      billingPeriodEnd,
-      graceEndsAt,
-      quotaPeriodStart,
-      quotaPeriodEnd,
-      quotaLimitTokens,
-      quotaLimitRequests,
-      JSON.stringify(metadata),
+      normalized.userId,
+      normalized.plan,
+      normalized.status,
+      normalized.billingPeriodStart,
+      normalized.billingPeriodEnd,
+      normalized.graceEndsAt,
+      normalized.quotaPeriodStart,
+      normalized.quotaPeriodEnd,
+      normalized.quotaLimitTokens,
+      normalized.quotaLimitRequests,
+      JSON.stringify(normalized.metadata),
+      bypassEventOrderGuard,
     ]
   );
-  return normalizeSubscriptionRow(result.rows[0] ?? null, config);
+  return result.rows[0] ?? null;
+};
+
+export const upsertSubscriptionRecordForUser = async (config, payload) => {
+  const normalized = normalizeSubscriptionUpsert(config, payload);
+  if (!normalized) {
+    return null;
+  }
+  const pool = await requireDb(config);
+  const row = await executeSubscriptionUpsert(pool, normalized);
+  return normalizeSubscriptionRow(row, config);
+};
+
+export const upsertOrderedSubscriptionRecordForUser = async (
+  config,
+  payload,
+  ordering
+) => {
+  const normalized = normalizeSubscriptionUpsert(config, payload);
+  if (!normalized) {
+    return { applied: false, stale: false, subscription: null };
+  }
+  const source = typeof ordering?.source === "string" ? ordering.source.trim() : "";
+  const eventId = typeof ordering?.eventId === "string" ? ordering.eventId.trim() : "";
+  const eventType =
+    typeof ordering?.eventType === "string" ? ordering.eventType.trim() : "";
+  const eventCreated = parseInteger(ordering?.eventCreated, -1);
+  const eventRank = parseInteger(ordering?.eventRank, -1);
+  const legacy = ordering?.legacy === true;
+  if (
+    !source ||
+    !eventId ||
+    !eventType ||
+    eventCreated < 0 ||
+    eventRank <= 0 ||
+    (!legacy && eventCreated === 0)
+  ) {
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      "Subscription event ordering is invalid.",
+      500
+    );
+  }
+  const pool = await requireDb(config);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT pg_advisory_xact_lock(141594, hashtext($1));",
+      [`${source}:${normalized.userId}`]
+    );
+    const currentResult = await client.query(
+      `
+        SELECT source, user_id, event_id, event_type, event_created, event_rank, legacy
+        FROM tex64_subscription_event_orders
+        WHERE source = $1 AND user_id = $2
+        LIMIT 1
+        FOR UPDATE;
+      `,
+      [source, normalized.userId]
+    );
+    const currentRow = currentResult.rows[0] ?? null;
+    const current = currentRow
+      ? {
+          source: currentRow.source,
+          userId: currentRow.user_id,
+          eventId: currentRow.event_id,
+          eventType: currentRow.event_type,
+          eventCreated: Number(currentRow.event_created || 0),
+          eventRank: Number(currentRow.event_rank || 0),
+          legacy: currentRow.legacy === true,
+        }
+      : null;
+    const incoming = {
+      source,
+      userId: normalized.userId,
+      eventId,
+      eventType,
+      eventCreated,
+      eventRank,
+      legacy,
+    };
+    if (isSubscriptionBridgeOrderStale(current, incoming)) {
+      const subscriptionResult = await client.query(
+        "SELECT * FROM tex64_subscriptions WHERE user_id = $1 LIMIT 1;",
+        [normalized.userId]
+      );
+      await client.query("COMMIT");
+      return {
+        applied: false,
+        stale: true,
+        subscription: normalizeSubscriptionRow(
+          subscriptionResult.rows[0] ?? null,
+          config
+        ),
+        current,
+      };
+    }
+
+    normalized.metadata = {
+      ...normalized.metadata,
+      subscriptionEventOrder: incoming,
+    };
+    const subscriptionRow = await executeSubscriptionUpsert(client, normalized, {
+      bypassEventOrderGuard: true,
+    });
+    await client.query(
+      `
+        INSERT INTO tex64_subscription_event_orders (
+          source,
+          user_id,
+          event_id,
+          event_type,
+          event_created,
+          event_rank,
+          legacy,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        ON CONFLICT (source, user_id)
+        DO UPDATE SET
+          event_id = EXCLUDED.event_id,
+          event_type = EXCLUDED.event_type,
+          event_created = EXCLUDED.event_created,
+          event_rank = EXCLUDED.event_rank,
+          legacy = EXCLUDED.legacy,
+          updated_at = NOW();
+      `,
+      [
+        source,
+        normalized.userId,
+        eventId,
+        eventType,
+        eventCreated,
+        eventRank,
+        legacy,
+      ]
+    );
+    await client.query("COMMIT");
+    return {
+      applied: true,
+      stale: false,
+      subscription: normalizeSubscriptionRow(subscriptionRow, config),
+      current: incoming,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 export const getUsageRecordForUserPeriod = async (config, payload) => {

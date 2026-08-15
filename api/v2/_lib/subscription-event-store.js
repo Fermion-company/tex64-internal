@@ -8,6 +8,9 @@ import { ApiError } from "./http.js";
 import { loadPlatformState, savePlatformState } from "./state-store.js";
 import { isStateFallbackEnabled } from "./state-backend.js";
 
+const GLOBAL_SUBSCRIPTION_EVENT_LOCKS_KEY =
+  "__TEX64_PLATFORM_V2_SUBSCRIPTION_EVENT_LOCKS__";
+
 const isObject = (value) =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
 
@@ -31,6 +34,52 @@ const normalizeEventId = (value) =>
   typeof value === "string" && value.trim() ? value.trim() : "";
 
 const buildEventKey = (source, eventId) => `${source}:${eventId}`;
+const buildUserKey = (source, userId) => `user:${source}:${userId}`;
+
+const getSubscriptionEventLocks = () => {
+  if (!(globalThis[GLOBAL_SUBSCRIPTION_EVENT_LOCKS_KEY] instanceof Map)) {
+    globalThis[GLOBAL_SUBSCRIPTION_EVENT_LOCKS_KEY] = new Map();
+  }
+  return globalThis[GLOBAL_SUBSCRIPTION_EVENT_LOCKS_KEY];
+};
+
+/**
+ * Serialize duplicate deliveries within one runtime. The database uniqueness
+ * constraint remains the cross-runtime idempotency authority; this lock also
+ * protects the development file fallback from concurrent read/modify/write
+ * races.
+ */
+const withSubscriptionLock = async (key, callback) => {
+  const locks = getSubscriptionEventLocks();
+  const previous = locks.get(key) || Promise.resolve();
+  let releaseCurrent;
+  const current = new Promise((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => current);
+  locks.set(key, tail);
+  await previous.catch(() => {});
+  try {
+    return await callback();
+  } finally {
+    releaseCurrent();
+    if (locks.get(key) === tail) {
+      locks.delete(key);
+    }
+  }
+};
+
+export const withSubscriptionEventLock = async (source, eventId, callback) =>
+  withSubscriptionLock(
+    buildEventKey(normalizeSource(source), normalizeEventId(eventId)),
+    callback
+  );
+
+export const withSubscriptionUserLock = async (source, userId, callback) =>
+  withSubscriptionLock(
+    buildUserKey(normalizeSource(source), normalizeEventId(userId)),
+    callback
+  );
 
 const ensureEventMap = (state) => {
   if (!isObject(state.processedSubscriptionEvents)) {
