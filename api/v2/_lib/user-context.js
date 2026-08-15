@@ -3,6 +3,7 @@ import {
   getSubscriptionRecordByUserId,
   getUsageRecordForUserPeriod,
   isDatabaseConfigured,
+  upsertOrderedSubscriptionRecordForUser,
   upsertSubscriptionRecordForUser,
   upsertUsageRecordForUserPeriod,
   upsertUserRecord,
@@ -10,6 +11,7 @@ import {
 import { ApiError } from "./http.js";
 import { loadPlatformState, savePlatformState } from "./state-store.js";
 import { isStateFallbackEnabled } from "./state-backend.js";
+import { isSubscriptionBridgeOrderStale } from "./subscription-bridge-routing.js";
 import {
   buildQuotaSummary,
   buildUsageBreakdown,
@@ -20,6 +22,9 @@ import {
   upsertSubscriptionRecord,
 } from "./subscription-domain.js";
 
+const isObject = (value) =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
 const buildEmptyState = () => ({
   users: {},
   usersByEmail: {},
@@ -28,6 +33,7 @@ const buildEmptyState = () => ({
   authRequests: {},
   refreshTokens: {},
   processedSubscriptionEvents: {},
+  subscriptionEventOrders: {},
 });
 
 const applyContextFromState = (state, userClaims, config, now = new Date()) => {
@@ -66,7 +72,12 @@ const withFallbackState = async (config, userClaims, callback) => {
   });
 };
 
-const withDatabaseState = async (config, userClaims, callback) => {
+const withDatabaseState = async (
+  config,
+  userClaims,
+  callback,
+  { persistInitialState = true } = {}
+) => {
   const now = new Date();
   const state = buildEmptyState();
   const userRow = await upsertUserRecord(config, userClaims);
@@ -105,11 +116,12 @@ const withDatabaseState = async (config, userClaims, callback) => {
     });
   };
   if (
-    userResult.changed ||
-    subscriptionResult.changed ||
-    usageResult.changed ||
-    !dbSubscription ||
-    !dbUsage
+    persistInitialState &&
+    (userResult.changed ||
+      subscriptionResult.changed ||
+      usageResult.changed ||
+      !dbSubscription ||
+      !dbUsage)
   ) {
     await persist();
   }
@@ -135,15 +147,15 @@ const ensureBackendAvailable = (config) => {
   );
 };
 
-export const withUserContext = async (config, userClaims, callback) => {
+export const withUserContext = async (config, userClaims, callback, options = {}) => {
   ensureBackendAvailable(config);
   if (isDatabaseConfigured(config)) {
-    return withDatabaseState(config, userClaims, callback);
+    return withDatabaseState(config, userClaims, callback, options);
   }
   return withFallbackState(config, userClaims, callback);
 };
 
-export const getUserContext = async (config, userClaims) =>
+export const getUserContext = async (config, userClaims, options = {}) =>
   withUserContext(config, userClaims, async (ctx) => {
     if (ctx.changed && typeof ctx.save === "function") {
       await ctx.save();
@@ -156,7 +168,7 @@ export const getUserContext = async (config, userClaims) =>
       usage: ctx.usage,
       save: ctx.save,
     };
-  });
+  }, options);
 
 export const getAiFeatureSnapshot = (subscription, usage, config) =>
   evaluateAiFeature(subscription, usage, config.pricingUrl);
@@ -171,6 +183,7 @@ export const applySubscriptionPatch = async ({
   userClaims,
   patch = {},
   resetUsage = false,
+  ordering = null,
 }) =>
   withUserContext(config, userClaims, async (ctx) => {
     const userId = ctx.user.id;
@@ -180,14 +193,58 @@ export const applySubscriptionPatch = async ({
       transient.subscriptions[userId] = ctx.subscription;
       upsertSubscriptionRecord(transient, userId, patch, config, new Date());
       const normalized = ensureSubscriptionState(transient, userId, config, new Date());
-      await upsertSubscriptionRecordForUser(config, {
+      const subscriptionPayload = {
         userId,
         ...normalized.subscription,
-      });
+      };
+      const writeResult = ordering
+        ? await upsertOrderedSubscriptionRecordForUser(
+            config,
+            subscriptionPayload,
+            ordering
+          )
+        : {
+            applied: true,
+            stale: false,
+            subscription: await upsertSubscriptionRecordForUser(
+              config,
+              subscriptionPayload
+            ),
+          };
+      if (writeResult.stale) {
+        return {
+          ...(await getUserContext(config, ctx.user, {
+            persistInitialState: false,
+          })),
+          stale: true,
+          order: writeResult.current || null,
+        };
+      }
       if (resetUsage) {
         await deleteUsageRecordsForUser(config, userId);
       }
-      return getUserContext(config, ctx.user);
+      return {
+        ...(await getUserContext(config, ctx.user, {
+          persistInitialState: false,
+        })),
+        stale: false,
+        order: writeResult.current || null,
+      };
+    }
+    if (ordering) {
+      if (!isObject(ctx.state.subscriptionEventOrders)) {
+        ctx.state.subscriptionEventOrders = {};
+      }
+      const orderKey = `${ordering.source}:${userId}`;
+      const currentOrder = ctx.state.subscriptionEventOrders[orderKey] || null;
+      if (isSubscriptionBridgeOrderStale(currentOrder, ordering)) {
+        return { ...ctx, stale: true, order: currentOrder };
+      }
+      ctx.state.subscriptionEventOrders[orderKey] = {
+        ...ordering,
+        userId,
+        updatedAt: new Date().toISOString(),
+      };
     }
     upsertSubscriptionRecord(ctx.state, userId, patch, config, new Date());
     ensureSubscriptionState(ctx.state, userId, config, new Date());
@@ -196,5 +253,9 @@ export const applySubscriptionPatch = async ({
     }
     ensureUsageRecord(ctx.state, userId, ctx.state.subscriptions[userId]);
     await ctx.save();
-    return getUserContext(config, ctx.user);
-  });
+    return {
+      ...(await getUserContext(config, ctx.user)),
+      stale: false,
+      order: ordering || null,
+    };
+  }, { persistInitialState: !ordering });

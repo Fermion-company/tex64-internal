@@ -169,6 +169,11 @@ export const getRuntimeConfig = () => {
         90 * 24 * 60 * 60
       )
     ),
+    subscriptionBridgeSource:
+      typeof process.env.TEX64_PLATFORM_SUBSCRIPTION_BRIDGE_SOURCE === "string" &&
+      process.env.TEX64_PLATFORM_SUBSCRIPTION_BRIDGE_SOURCE.trim()
+        ? process.env.TEX64_PLATFORM_SUBSCRIPTION_BRIDGE_SOURCE.trim()
+        : "tex64.com",
     mockOAuthEnabled: parseBoolean(process.env.TEX64_PLATFORM_MOCK_OAUTH, false),
     mockOAuthEmail:
       typeof process.env.TEX64_PLATFORM_MOCK_OAUTH_EMAIL === "string" &&

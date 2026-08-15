@@ -14,6 +14,7 @@ const DEFAULT_STATE = Object.freeze({
   authRequests: {},
   refreshTokens: {},
   processedSubscriptionEvents: {},
+  subscriptionEventOrders: {},
 });
 
 const toObject = (value) =>
@@ -30,6 +31,7 @@ const normalizeState = (value) => {
     authRequests: toObject(source.authRequests),
     refreshTokens: toObject(source.refreshTokens),
     processedSubscriptionEvents: toObject(source.processedSubscriptionEvents),
+    subscriptionEventOrders: toObject(source.subscriptionEventOrders),
   };
 };
 
