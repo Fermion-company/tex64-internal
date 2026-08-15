@@ -26,6 +26,24 @@ function hasIdentity() {
   return result.status === 0 && result.stdout.includes(IDENTITY_NAME);
 }
 
+// Present in the keychain, but not yet trusted — "-v" only lists trusted identities,
+// so this is what tells an import failure apart from a missing trust setting.
+function importedIdentity() {
+  const result = tryRun("security", ["find-identity", "-p", "codesigning", KEYCHAIN]);
+  return result.status === 0 && result.stdout.includes(IDENTITY_NAME);
+}
+
+function exportPkcs12({ key, cert, identity, pass }) {
+  const args = ["pkcs12", "-export", "-inkey", key, "-in", cert, "-name", IDENTITY_NAME,
+    "-out", identity, "-passout", `pass:${pass}`];
+  // OpenSSL 3 (Homebrew's, which usually wins the PATH) writes AES-256/PBKDF2 bundles
+  // that Security cannot read: "MAC verification failed during PKCS12 import". -legacy
+  // asks for the format macOS accepts. LibreSSL in /usr/bin has no such flag and
+  // already writes that format, so fall back to a plain export there.
+  if (tryRun("openssl", ["pkcs12", "-export", "-legacy", ...args.slice(2)]).status === 0) return;
+  run("openssl", args);
+}
+
 function status() {
   console.log(hasIdentity() ? `${IDENTITY_NAME}: available` : `${IDENTITY_NAME}: not installed`);
 }
@@ -55,11 +73,11 @@ function create() {
   if (fs.existsSync(KEYCHAIN)) uninstall({ quiet: true });
   const pass = password();
   fs.mkdirSync(path.dirname(KEYCHAIN), { recursive: true });
-  run("security", ["create-keychain", "-p", pass, KEYCHAIN]);
-  run("security", ["set-keychain-settings", KEYCHAIN]);
-  run("security", ["unlock-keychain", "-p", pass, KEYCHAIN]);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-local-signing-"));
   try {
+    run("security", ["create-keychain", "-p", pass, KEYCHAIN]);
+    run("security", ["set-keychain-settings", KEYCHAIN]);
+    run("security", ["unlock-keychain", "-p", pass, KEYCHAIN]);
     const key = path.join(tempDir, "key.pem");
     const cert = path.join(tempDir, "cert.pem");
     const identity = path.join(tempDir, "id.p12");
@@ -67,15 +85,23 @@ function create() {
       "-days", "3650", "-nodes", "-subj", `/CN=${IDENTITY_NAME}`,
       "-addext", "basicConstraints=critical,CA:false", "-addext", "keyUsage=critical,digitalSignature",
       "-addext", "extendedKeyUsage=critical,codeSigning"]);
-    run("openssl", ["pkcs12", "-export", "-inkey", key, "-in", cert, "-name", IDENTITY_NAME,
-      "-out", identity, "-passout", `pass:${pass}`]);
+    exportPkcs12({ key, cert, identity, pass });
     run("security", ["import", identity, "-k", KEYCHAIN, "-P", pass, "-T", "/usr/bin/codesign", "-A"]);
     run("security", ["set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", pass, KEYCHAIN]);
+    if (!importedIdentity()) throw new Error("証明書をキーチェーンに取り込めませんでした。");
     const keychains = listedKeychains();
     if (!keychains.some((item) => path.resolve(item) === path.resolve(KEYCHAIN))) keychains.push(KEYCHAIN);
     run("security", ["list-keychains", "-d", "user", "-s", ...keychains]);
     console.log("この 1 回だけ macOS のログインパスワードを求められます。");
     run("security", ["add-trusted-cert", "-r", "trustRoot", "-p", "codeSign", "-k", KEYCHAIN, cert], { stdio: "inherit" });
+  } catch (error) {
+    console.error(`署名 ID を作成できませんでした: ${error.message}`);
+    const output = `${error.stdout || ""}${error.stderr || ""}`.trim();
+    if (output) console.error(output);
+    // An imported-but-untrusted certificate is still worth keeping: the trust setting
+    // can be added by hand. Anything earlier leaves nothing usable behind.
+    if (!importedIdentity()) uninstall({ quiet: true });
+    process.exit(1);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
