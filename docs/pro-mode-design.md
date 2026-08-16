@@ -344,6 +344,26 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - レイアウト切替の `①` `②` は初見で意味が取れない。トップバーの他のレイアウトトグルと同じく
      **分割の形そのものを描いた SVG** にした（言語にも依存しない）。
 
+20. **ペンの閉じる/確定を画面ピクセルの raw 判定に統一（O, 2026-08-16）** — Codex と 2 ラウンドの
+   設計討議で仕様を凍結してから実装。従来は「始点クリックで閉じる」= 吸着後の点 × `grid.size*.4`、
+   「同一点クリックで確定」= `grid.size*.3` で、(a) ズームで的の実寸が変わる（400% では閉じ
+   避け不能・25% では閉じ不能）、(b) 無関係な格子幅の設定が閉じやすさを変える、(c) 吸着トグルを
+   切っても格子幅基準が残る、という 3 重の歪みがあった。恒久 gotcha:
+   - **ジェスチャ（クリック当たり判定）は生カーソル × 画面 px、配置だけが吸着後の点**。判定は
+     `canvas-math.ts` の純関数 `penClickAction`（`PEN_CLOSE_PX=10` / `PEN_FINISH_PX=8` /
+     `PEN_RESUME_PX=12`、優先順位 close > finish > skip > add、境界 inclusive）。
+     頂点追加 8px・端点再開 12px と同じ流儀に揃えた。
+   - **pointerdown とプレビュー（閉形予告・始点ハイライト・点線ゴースト）は必ず同じ
+     `penClickAction` を消費する**（`penHoverAction`）。判定だけ直すと「予告と違うことが起きる」
+     UI になる — プレビュー側も吸着後の点 + `grid.size*.4` を使っていた。
+   - **吸着は判定に漏れさせない**: ズームインすると磁石の捕捉域（`grid.size*.25`）が画面上で
+     ジェスチャ半径を超える（400% で 1.25mm ≈ 27px > 10px）。raw が半径外で吸着後の点が
+     最終アンカーと厳密一致 → **skip**（長さ 0 セグメント防止の完全 no-op）。始点と厳密一致 →
+     **通常の add**（プレビューが閉形を予告していないのに閉じるのは乖離の再発。閉じたければ
+     10px 以内をクリックするか Enter）。
+   - 回帰テスト: `tests/pro-canvas-pen-click.test.mjs`（境界値 × 2 ズーム・優先順位・縮退 2 種・
+     raw/snapped の分離）+ E2E「clicking the start point closes the path」。
+
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。
 - renderer のみの変更は Cmd+R で反映。main プロセス（`electron/*.cjs`）は Electron 再起動。

@@ -106,6 +106,34 @@ export const snapToGrid = (point, size, enabled = true, pull = 1) => {
     };
     return { x: axis(point.x), y: axis(point.y) };
 };
+/**
+ * ペンのクリック 1 回をどう解釈するか（閉じる / 確定 / スキップ / 頂点追加）。
+ *
+ * 閉じる・確定はジェスチャ（「始点そのものをクリックしたか」）なので、判定は
+ * **吸着前の生カーソル × 画面ピクセル**で行う。ユーザーは画面に見えている印に
+ * 向かってクリックするのだから、ズーム率や格子幅（無関係な設定）で「閉じやすさ」が
+ * 変わってはいけない。既存の頂点追加 8px・端点再開 12px と同じ流儀。
+ * 吸着後の点は「どこに置くか」だけに使う（add の point）。ただし吸着が最終
+ * アンカーの真上に載せた場合だけは、長さ 0 のセグメントになるので置かない（skip）。
+ * 優先順位: close > finish > skip > add。境界は inclusive。
+ * pointerdown もプレビュー（閉形予告・仮ノード）も必ずこの関数を通し、
+ * 「予告と違うことが起きる」を作らない。
+ */
+export const PEN_CLOSE_PX = 10;
+export const PEN_FINISH_PX = 8;
+export const PEN_RESUME_PX = 12;
+export const penClickAction = (input) => {
+    const { rawPoint, snappedPoint, start, last, scaleFactor, segmentCount } = input;
+    const scale = Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+    const screenDistance = (target) => Math.hypot(rawPoint.x - target.x, rawPoint.y - target.y) * scale;
+    if (start && segmentCount > 0 && screenDistance(start) <= PEN_CLOSE_PX)
+        return { action: "close" };
+    if (last && screenDistance(last) <= PEN_FINISH_PX)
+        return { action: "finish" };
+    if (last && snappedPoint.x === last.x && snappedPoint.y === last.y)
+        return { action: "skip" };
+    return { action: "add", point: { ...snappedPoint } };
+};
 export const collectSnapLines = (others, artboard) => {
     const lines = { x: [], y: [] };
     for (const bounds of others) {

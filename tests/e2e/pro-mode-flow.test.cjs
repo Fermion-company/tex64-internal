@@ -277,6 +277,26 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     assert.ok(await objectCount(page) > count, "the pen drew nothing");
   });
 
+  await t.test("clicking the start point closes the path", async () => {
+    const before = await objectCount(page);
+    await pickTool(page, "pen");
+    const b = await surfaceBox(page);
+    for (const [x, y] of [[150, 560], [250, 640], [350, 560]]) {
+      await page.mouse.click(b.x + x, b.y + y);
+      await page.waitForTimeout(250);
+    }
+    // Back onto the first point: within the 10-screen-px close radius.
+    await page.mouse.click(b.x + 150, b.y + 560);
+    await page.waitForTimeout(600);
+    assert.equal(await objectCount(page), before + 1, "closing did not leave exactly one new object");
+    const closed = await page.evaluate(() => {
+      const nodes = document.querySelectorAll("svg.pro-canvas-svg path[data-id]:not(.pro-canvas-hit)");
+      const last = nodes[nodes.length - 1];
+      return last ? /Z\s*$/i.test(last.getAttribute("d") || "") : null;
+    });
+    assert.equal(closed, true, "the click on the start point did not close the path");
+  });
+
   await t.test("marquee selection fills the inspector", async () => {
     await pickTool(page, "select");
     await dragOnCanvas(page, 120, 120, 820, 500);
