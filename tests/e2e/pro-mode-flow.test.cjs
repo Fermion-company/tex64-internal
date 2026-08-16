@@ -297,6 +297,59 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     assert.equal(closed, true, "the click on the start point did not close the path");
   });
 
+  await t.test("pen follows the raw cursor and the rubber band never dies", async () => {
+    await pickTool(page, "pen");
+    const b = await surfaceBox(page);
+    // Two anchors in an empty region (upper right, clear of everything drawn
+    // so far). Sized relative to the surface: absolute pixels overflow the
+    // svg on smaller windows.
+    const p1 = { x: b.x + b.width * 0.74, y: b.y + b.height * 0.25 };
+    const p2 = { x: b.x + b.width * 0.8, y: b.y + b.height * 0.3 };
+    await page.mouse.click(p1.x, p1.y);
+    await page.waitForTimeout(250);
+    await page.mouse.click(p2.x, p2.y);
+    await page.waitForTimeout(250);
+
+    // The scene<->screen transform, read off the paper rect itself.
+    const t2 = await page.evaluate(() => {
+      const paper = document.querySelector("svg.pro-canvas-svg .pro-canvas-paper");
+      const r = paper.getBoundingClientRect();
+      const box = paper.getBBox();
+      return { left: r.left, top: r.top, scale: r.width / box.width };
+    });
+
+    // Hover 0.6mm to the right of a 5mm grid line: with the old magnet
+    // (capture range grid*0.25 = 1.25mm) the preview point would stick to the
+    // line; now it must sit exactly under the cursor.
+    const sceneY = (p2.y - t2.top) / t2.scale;
+    const gx = Math.round(((b.x + b.width * 0.86 - t2.left) / t2.scale) / 5) * 5 + 0.6;
+    await page.mouse.move(t2.left + gx * t2.scale, t2.top + sceneY * t2.scale);
+    await page.waitForTimeout(300);
+    const ghostX = await page.evaluate(() =>
+      Number(document.querySelector("circle.pro-canvas-pen-ghost")?.getAttribute("cx")));
+    assert.ok(Math.abs(ghostX - gx) < 0.15, `preview point detached from the cursor: cx=${ghostX}, cursor=${gx}`);
+
+    // Inside the 8px finish zone the rubber band must keep stretching, and the
+    // last anchor grows a ring to predict that a click finishes the stroke.
+    await page.mouse.move(p2.x + 4, p2.y);
+    await page.waitForTimeout(300);
+    const zone = await page.evaluate(() => {
+      const path = Array.from(document.querySelectorAll("svg.pro-canvas-svg path[data-id]:not(.pro-canvas-hit)")).pop();
+      const d = path?.getAttribute("d") || "";
+      const anchors = document.querySelectorAll("circle.pro-canvas-pen-anchor");
+      return {
+        drawnSegments: (d.match(/[CL]/g) || []).length,
+        finishRing: !!document.querySelector("circle.pro-canvas-pen-anchor.is-close"),
+        anchorCount: anchors.length,
+      };
+    });
+    assert.equal(zone.drawnSegments, 2, `rubber band vanished in the finish zone (segments=${zone.drawnSegments})`);
+    assert.ok(zone.finishRing, "no ring on the last anchor to predict that a click finishes");
+
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(500);
+  });
+
   await t.test("marquee selection fills the inspector", async () => {
     await pickTool(page, "select");
     await dragOnCanvas(page, 120, 120, 820, 500);

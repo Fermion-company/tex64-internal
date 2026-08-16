@@ -363,6 +363,19 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
      10px 以内をクリックするか Enter）。
    - 回帰テスト: `tests/pro-canvas-pen-click.test.mjs`（境界値 × 2 ズーム・優先順位・縮退 2 種・
      raw/snapped の分離）+ E2E「clicking the start point closes the path」。
+   - **v2（同日、実使用フィードバックで追補）**:
+     - **曲線は吸着自体を廃止**し、アンカーもプレビューも生カーソルに追従する。磁石の
+       スティック↔解放ジャンプは、弾性プレビューでは「点がカーソルから外れる」と見える
+       （捕捉域は格子 5mm の半分を占めるので描画中ずっと繰り返す）。格子に沿わせたい線は
+       直線ツールが担う。§15「アンカーはスナップ」・§18「ペンの Alt は角ノードなので
+       吸着解除には使えない」はこれで無効化（Alt=角は継続）。
+     - **ラバーバンドは描画中いかなるゾーンでも消さない**。確定（finish）ゾーンでも伸ばし
+       続け、「ここをクリックすると確定」は最終アンカーのリング（is-close 流用）が予告する。
+       v1 の「finish ではプレビューを出さない」は撤回。
+     - **pointermove にはペン用の分岐が 2 本ある**（`pen&&!drag` = 描画中 / `tool==="pen"` =
+       1 点目前）。片方だけ直すと「描画中だけプレビューが死ぬ」— v1 はまさにこれをやらかし、
+       hover を検証しない E2E がすり抜けた。E2E「pen follows the raw cursor and the rubber
+       band never dies」が ghost 位置（磁石なし）と確定ゾーンの伸びを固定する。
 
 - renderer は `web-src/`（TypeScript, バンドラなし, plain tsc）。`Resources/web/**/*.js` は生成物なので手で編集しない。`Resources/web/index.html` は手編集対象。
 - monaco は AMD グローバル。バンドル前提ライブラリを持ち込まない。

@@ -1282,8 +1282,12 @@ export const initProCanvasUi = (deps) => {
                                 segs = penSegments(pen.nodes, true);
                                 closedNow = true;
                             }
-                            else if ((act === null || act === void 0 ? void 0 : act.action) === "add")
-                                segs = penSegments([...pen.nodes, { p: { ...act.point }, kind: "auto", out: null }], false);
+                            else if (act && (act.action === "add" || act.action === "finish")) {
+                                const tip = act.action === "add" ? act.point : penCursor, lastP = pen.nodes[pen.nodes.length - 1].p;
+                                // 確定ゾーン（finish）でもラバーバンドは伸ばし続ける（消すと「途中で伸びなくなる」）。クリックで確定することは最終アンカーのリングが予告する。
+                                if (Math.hypot(tip.x - lastP.x, tip.y - lastP.y) > 1e-9)
+                                    segs = penSegments([...pen.nodes, { p: { ...tip }, kind: "auto", out: null }], false);
+                            }
                         }
                     }
                     pathShape = { start: object.start, segments: segs, closed: closedNow };
@@ -1359,8 +1363,8 @@ export const initProCanvasUi = (deps) => {
                 root.append(smart);
             }
             if (pen || penDrag || (tool === "pen" && penCursor)) {
-                const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), path = pen === null || pen === void 0 ? void 0 : pen.path, points = path ? [path.start, ...path.segments.map(s => s.to)] : [], penAct = penDrag ? null : penHoverAction(), close = (penAct === null || penAct === void 0 ? void 0 : penAct.action) === "close";
-                points.forEach((point, index) => penLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: (index === 0 && close ? 4.5 : 3) / scale, class: `pro-canvas-pen-anchor${index === 0 && close ? " is-close" : ""}` })));
+                const penLayer = svgEl("g", { class: "pro-canvas-pen-feedback pro-canvas-selection" }), path = pen === null || pen === void 0 ? void 0 : pen.path, points = path ? [path.start, ...path.segments.map(s => s.to)] : [], penAct = penDrag ? null : penHoverAction(), close = (penAct === null || penAct === void 0 ? void 0 : penAct.action) === "close", finish = (penAct === null || penAct === void 0 ? void 0 : penAct.action) === "finish";
+                points.forEach((point, index) => { const ring = (index === 0 && close) || (index === points.length - 1 && finish); penLayer.append(svgEl("circle", { cx: point.x, cy: point.y, r: (ring ? 4.5 : 3) / scale, class: `pro-canvas-pen-anchor${ring ? " is-close" : ""}` })); });
                 // 次のアンカーが落ちる位置（＝いまの終端）は、ドラッグ前でも点線の丸で予告する。
                 if (penCursor && !penDrag && !close && (!pen || (penAct === null || penAct === void 0 ? void 0 : penAct.action) === "add")) {
                     const resuming = Boolean(penResume && !pen), target = resuming ? penResume.point : (penAct === null || penAct === void 0 ? void 0 : penAct.action) === "add" ? penAct.point : penCursor;
@@ -1722,11 +1726,11 @@ export const initProCanvasUi = (deps) => {
                 editCode(object);
                 return;
             }
+            // 曲線は吸着させない: 磁石のスティック↔解放ジャンプは、弾性プレビューでは「点がカーソルから外れる」と見える（実使用の指摘で確定）。格子に沿わせたい直線は直線ツールが担う。
             if (tool === "pen") {
                 invalidateCompiled();
-                const p = snapToGrid(raw, scene.grid.size, scene.grid.snap, GRID_PULL);
                 if (pen) {
-                    const act = penClickAction({ rawPoint: raw, snappedPoint: p, start: pen.path.start, last: pen.nodes[pen.nodes.length - 1].p, scaleFactor: scaleFactor(), segmentCount: pen.path.segments.length });
+                    const act = penClickAction({ rawPoint: raw, snappedPoint: raw, start: pen.path.start, last: pen.nodes[pen.nodes.length - 1].p, scaleFactor: scaleFactor(), segmentCount: pen.path.segments.length });
                     if (act.action === "close") {
                         pen.path.closed = true;
                         rebuildPenPath();
@@ -1752,8 +1756,8 @@ export const initProCanvasUi = (deps) => {
                 }
                 if (!pen)
                     snapshot();
-                penDrag = { anchor: { ...p }, handle: null, startClient: client, alt: e.altKey };
-                penCursor = { ...p };
+                penDrag = { anchor: { ...raw }, handle: null, startClient: client, alt: e.altKey };
+                penCursor = { ...raw };
                 penRawCursor = null;
                 svg.setPointerCapture(e.pointerId);
                 render();
@@ -1791,14 +1795,16 @@ export const initProCanvasUi = (deps) => {
                 return;
             }
             if (pen && !drag) {
-                penCursor = snapToGrid(rawPoint(e), scene.grid.size, scene.grid.snap, GRID_PULL);
-                penResume = openPathEndNear(rawPoint(e));
+                const rawCursor = rawPoint(e);
+                penCursor = rawCursor;
+                penRawCursor = rawCursor;
+                penResume = openPathEndNear(rawCursor);
                 render();
                 return;
             }
             // 1 点目を置く前もカーソル位置に印を出す。どこに落ちるか・どの端点から続けられるかを先に見せる。
             if (tool === "pen" && !penDrag && !drag) {
-                const rawCursor = rawPoint(e), next = snapToGrid(rawCursor, scene.grid.size, scene.grid.snap, GRID_PULL), resume = openPathEndNear(rawCursor);
+                const rawCursor = rawPoint(e), next = rawCursor, resume = openPathEndNear(rawCursor);
                 if (!penCursor || penCursor.x !== next.x || penCursor.y !== next.y || (penRawCursor === null || penRawCursor === void 0 ? void 0 : penRawCursor.x) !== rawCursor.x || (penRawCursor === null || penRawCursor === void 0 ? void 0 : penRawCursor.y) !== rawCursor.y || (penResume === null || penResume === void 0 ? void 0 : penResume.path.id) !== (resume === null || resume === void 0 ? void 0 : resume.path.id) || (penResume === null || penResume === void 0 ? void 0 : penResume.atStart) !== (resume === null || resume === void 0 ? void 0 : resume.atStart)) {
                     penCursor = next;
                     penRawCursor = rawCursor;
