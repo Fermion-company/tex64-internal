@@ -2,10 +2,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
-  applyDocumentPatch,
   assertDocumentResourceBudget,
   type DocumentModel,
-  type DocumentPatch,
 } from "@/domain/document";
 import {
   CanonicalSourceLocatorSchema,
@@ -36,7 +34,6 @@ import {
   AgentRunNotFoundError,
   ArtifactConflictError,
   DocumentNotFoundError,
-  PendingDocumentActionConflictError,
   ResearchLedgerConflictError,
   RevisionConflictError,
   RunReplyConflictError,
@@ -49,7 +46,6 @@ import {
   type StoredDocument,
   type StoredDocumentAgentSession,
   type StoredDocumentListItem,
-  type StoredPendingDocumentAction,
   type ResearchLedger,
   type StoredRevision,
   type StoredRevisionListItem,
@@ -59,7 +55,6 @@ import {
   type WorkflowStartClaim,
 } from "./types";
 import {
-  assertDocumentAgentSessionReplyTarget,
   assertDocumentAgentSessionScope,
   classifyDocumentAgentSessionSave,
   parseStoredDocumentAgentSession,
@@ -74,12 +69,12 @@ import {
   runEventIdempotencyKey,
 } from "./invariants";
 import {
-  assertPendingActionDraft,
   assertRunReplyTarget,
-  assertStoredPendingAction,
   needsInputQuestion,
 } from "./pending-actions";
 
+// Legacy stores may still contain a "pendingActions" key from the removed
+// approval flow; it is ignored on read and carried through untouched.
 type LocalStoreData = {
   version: 1;
   documents: Record<string, StoredDocument>;
@@ -87,7 +82,6 @@ type LocalStoreData = {
   runs: Record<string, StoredAgentRun>;
   events: Record<string, StoredRunEvent[]>;
   artifacts: Record<string, StoredArtifact>;
-  pendingActions: Record<string, StoredPendingDocumentAction>;
   documentAgentSessions: Record<string, StoredDocumentAgentSession>;
   sourceRecords: Record<string, SourceRecord>;
   researchLedgers: Record<string, ResearchLedger>;
@@ -108,7 +102,6 @@ const EMPTY_STORE: LocalStoreData = {
   runs: {},
   events: {},
   artifacts: {},
-  pendingActions: {},
   documentAgentSessions: {},
   sourceRecords: {},
   researchLedgers: {},
@@ -280,7 +273,6 @@ export class LocalDocumentRepository implements DocumentRepository {
         source,
         candidate.documentId,
         binding.sourceRunId,
-        null,
       );
       const markerKey = `${binding.responseRunId}:clarification-continuation:${binding.sourceRunId}`;
       const marker = (data.events[responseKey] ?? []).find(
@@ -433,7 +425,6 @@ export class LocalDocumentRepository implements DocumentRepository {
       const run: StoredAgentRun = {
         ...input,
         replyToRunId: input.replyToRunId ?? null,
-        decision: input.decision ?? null,
         targetNodeId: input.targetNodeId ?? null,
         workflowRunId: null,
         status: "queued",
@@ -673,36 +664,12 @@ export class LocalDocumentRepository implements DocumentRepository {
       if (!question || question.length > 500) {
         throw new RunReplyConflictError("Needs-input question is invalid.");
       }
-      if (input.code === "approval_required" && !input.pendingAction) {
-        throw new PendingDocumentActionConflictError(
-          "Approval requires an exact pending document patch.",
-        );
-      }
-      if (input.code === "clarification_required" && input.pendingAction) {
-        throw new PendingDocumentActionConflictError(
-          "Clarification cannot carry a destructive pending action.",
-        );
-      }
 
       const events = data.events[runKeyValue] ?? [];
       const eventKey = `${input.runId}:needs_input:primary`;
       const existingEvent = events.find(
         (event) => event.idempotencyKey === eventKey,
       );
-      const actionKey = pendingActionKey(input.userId, input.runId);
-      const existingAction = data.pendingActions[actionKey];
-      const patch = input.pendingAction
-        ? assertPendingActionDraft({
-            documentId: input.documentId,
-            draft: input.pendingAction,
-          })
-        : null;
-      const expectedPatchBase = current.resultRevision ?? current.baseRevision;
-      if (patch && patch.baseRevision !== expectedPatchBase) {
-        throw new PendingDocumentActionConflictError(
-          "Pending patch base does not match the run revision.",
-        );
-      }
 
       if (current.status === "waiting_approval") {
         if (
@@ -716,34 +683,15 @@ export class LocalDocumentRepository implements DocumentRepository {
             "Run is already waiting for a different response.",
           );
         }
-        const replayedAt = new Date().toISOString();
-        if (input.pendingAction && patch) {
-          if (
-            existingAction &&
-            (assertStoredPendingAction(existingAction).status !== "pending" ||
-              existingAction.id !== input.pendingAction.id ||
-              existingAction.documentId !== input.documentId ||
-              existingAction.sourceRunId !== input.runId ||
-              existingAction.patchDigest !== input.pendingAction.patchDigest ||
-              existingAction.summary !== input.pendingAction.summary ||
-              existingAction.question !== question ||
-              JSON.stringify(existingAction.patch) !== JSON.stringify(patch))
-          ) {
-            throw new PendingDocumentActionConflictError();
-          }
-          if (!existingAction) {
-            data.pendingActions[actionKey] = createPendingAction({
-              input,
-              patch,
-              question,
-              now: replayedAt,
-            });
-          }
-        } else if (existingAction) {
-          throw new PendingDocumentActionConflictError();
-        }
         if (!existingEvent) {
-          events.push(createNeedsInputEvent({ input, question, events, now: replayedAt }));
+          events.push(
+            createNeedsInputEvent({
+              input,
+              question,
+              events,
+              now: new Date().toISOString(),
+            }),
+          );
           data.events[runKeyValue] = events;
         }
         return clone(current);
@@ -761,21 +709,8 @@ export class LocalDocumentRepository implements DocumentRepository {
         now,
       );
 
-      if (input.pendingAction && patch) {
-        if (existingAction) throw new PendingDocumentActionConflictError();
-        data.pendingActions[actionKey] = createPendingAction({
-          input,
-          patch,
-          question,
-          now,
-        });
-      }
-
       if (existingEvent) {
         throw new RunReplyConflictError("Needs-input event already exists.");
-      }
-      if (!input.pendingAction && existingAction) {
-        throw new PendingDocumentActionConflictError();
       }
       events.push(createNeedsInputEvent({ input, question, events, now }));
       data.events[runKeyValue] = events;
@@ -796,7 +731,7 @@ export class LocalDocumentRepository implements DocumentRepository {
       const response = data.runs[responseKey];
       const source = data.runs[sourceKey];
       if (!response || !source) throw new AgentRunNotFoundError();
-      assertReplyScope(response, source, documentId, sourceRunId, null);
+      assertReplyScope(response, source, documentId, sourceRunId);
 
       const sourceEvents = data.events[sourceKey] ?? [];
       const question = needsInputQuestion(
@@ -851,267 +786,6 @@ export class LocalDocumentRepository implements DocumentRepository {
       data.events[responseKey] = responseEvents;
       return { sourceRun: clone(source), question };
     });
-  }
-
-  async resolvePendingDocumentDecision(
-    userId: string,
-    documentId: string,
-    responseRunId: string,
-    sourceRunId: string,
-  ) {
-    return this.write(async (data) => {
-      const responseKey = runKey(userId, responseRunId);
-      const sourceKey = runKey(userId, sourceRunId);
-      const response = data.runs[responseKey];
-      const source = data.runs[sourceKey];
-      if (!response || !source) throw new AgentRunNotFoundError();
-      if (!response.decision) {
-        throw new RunReplyConflictError("A structured approval decision is required.");
-      }
-      assertReplyScope(
-        response,
-        source,
-        documentId,
-        sourceRunId,
-        response.decision,
-      );
-
-      const actionKey = pendingActionKey(userId, sourceRunId);
-      const actionValue = data.pendingActions[actionKey];
-      if (!actionValue) throw new PendingDocumentActionConflictError();
-      const action = assertStoredPendingAction(actionValue);
-      if (
-        action.userId !== userId ||
-        action.documentId !== documentId ||
-        action.sourceRunId !== sourceRunId
-      ) {
-        throw new PendingDocumentActionConflictError();
-      }
-
-      if (action.resolvedByRunId === responseRunId) {
-        if (
-          (action.status === "rejected" && response.decision !== "reject") ||
-          ((action.status === "applied" || action.status === "cancelled") &&
-            response.decision !== "approve")
-        ) {
-          throw new PendingDocumentActionConflictError(
-            "Resolved action does not match the stored decision.",
-          );
-        }
-        const healed = healResolvedLocalDecisionRuns({
-          data,
-          sourceKey,
-          responseKey,
-          source,
-          response,
-          action,
-          now: new Date().toISOString(),
-        });
-        if (action.status === "applied" && action.appliedRevision !== null) {
-          return { status: "applied" as const, revision: action.appliedRevision, action: clone(action) };
-        }
-        if (action.status === "rejected") {
-          return { status: "rejected" as const, action: clone(action) };
-        }
-        if (action.status === "cancelled") {
-          return {
-            status: "stale" as const,
-            action: clone(action),
-            message: healed.response.errorMessage ?? "文書が更新されたため、この変更は適用しませんでした。",
-          };
-        }
-      }
-      const approvalQuestion = needsInputQuestion(
-        source,
-        data.events[sourceKey] ?? [],
-        "approval_required",
-      );
-      if (
-        action.status !== "pending" ||
-        action.resolvedByRunId !== null ||
-        response.status !== "running" ||
-        source.status !== "waiting_approval" ||
-        approvalQuestion === null ||
-        approvalQuestion !== action.question
-      ) {
-        throw new PendingDocumentActionConflictError();
-      }
-
-      const now = new Date().toISOString();
-      if (response.decision === "reject") {
-        const rejected: StoredPendingDocumentAction = {
-          ...action,
-          status: "rejected",
-          resolvedByRunId: responseRunId,
-          updatedAt: now,
-        };
-        data.pendingActions[actionKey] = rejected;
-        data.runs[sourceKey] = prepareRunUpdate(
-          source,
-          { expectedStateVersion: source.stateVersion, status: "cancelled" },
-          now,
-        );
-        data.runs[responseKey] = prepareRunUpdate(
-          response,
-          { expectedStateVersion: response.stateVersion, status: "cancelled" },
-          now,
-        );
-        return { status: "rejected" as const, action: clone(rejected) };
-      }
-
-      const documentKeyValue = documentKey(userId, documentId);
-      const document = data.documents[documentKeyValue];
-      if (!document) throw new DocumentNotFoundError();
-      const priorCommit = Object.values(data.revisions).find(
-        (revision) =>
-          revision.userId === userId &&
-          revision.documentId === documentId &&
-          revision.commitId === action.patch.id,
-      );
-      if (priorCommit) {
-        if (response.baseRevision !== action.baseRevision) {
-          throw new PendingDocumentActionConflictError(
-            "Approval run does not share the pending patch base revision.",
-          );
-        }
-        assertPriorLocalPatchCommit(data, action, priorCommit);
-        const applied: StoredPendingDocumentAction = {
-          ...action,
-          status: "applied",
-          resolvedByRunId: responseRunId,
-          appliedRevision: priorCommit.revision,
-          updatedAt: now,
-        };
-        data.pendingActions[actionKey] = applied;
-        healResolvedLocalDecisionRuns({
-          data,
-          sourceKey,
-          responseKey,
-          source,
-          response,
-          action: applied,
-          now,
-        });
-        return {
-          status: "applied" as const,
-          revision: priorCommit.revision,
-          action: clone(applied),
-        };
-      }
-      if (
-        document.currentRevision !== action.baseRevision ||
-        response.baseRevision !== action.baseRevision
-      ) {
-        const message = "文書が更新されたため、この変更は適用しませんでした。";
-        const cancelled: StoredPendingDocumentAction = {
-          ...action,
-          status: "cancelled",
-          resolvedByRunId: responseRunId,
-          updatedAt: now,
-        };
-        data.pendingActions[actionKey] = cancelled;
-        data.runs[sourceKey] = prepareRunUpdate(
-          source,
-          { expectedStateVersion: source.stateVersion, status: "cancelled" },
-          now,
-        );
-        data.runs[responseKey] = prepareRunUpdate(
-          response,
-          {
-            expectedStateVersion: response.stateVersion,
-            status: "failed",
-            stage: "failed",
-            errorMessage: message,
-          },
-          now,
-        );
-        return { status: "stale" as const, action: clone(cancelled), message };
-      }
-
-      const currentRevision = data.revisions[
-        revisionKey(userId, documentId, document.currentRevision)
-      ];
-      if (!currentRevision) throw new DocumentNotFoundError();
-      assertRevisionWithinLimit(document.currentRevision);
-      const next = applyDocumentPatch(
-        {
-          revisionId: currentRevision.commitId,
-          revision: currentRevision.revision,
-          parentRevisionId: null,
-          committedAt: currentRevision.createdAt,
-          document: document.document,
-        },
-        action.patch,
-      );
-      const nextRevision = document.currentRevision + 1;
-      const updatedDocument: StoredDocument = {
-        ...document,
-        title: next.document.metadata.title,
-        document: next.document,
-        currentRevision: nextRevision,
-        updatedAt: now,
-      };
-      data.documents[documentKeyValue] = updatedDocument;
-      data.revisions[revisionKey(userId, documentId, nextRevision)] = {
-        userId,
-        documentId,
-        commitId: action.patch.id,
-        revision: nextRevision,
-        document: next.document,
-        actor: "agent",
-        summary: action.summary,
-        operations: action.patch.operations,
-        createdAt: now,
-      };
-      const applied: StoredPendingDocumentAction = {
-        ...action,
-        status: "applied",
-        resolvedByRunId: responseRunId,
-        appliedRevision: nextRevision,
-        updatedAt: now,
-      };
-      data.pendingActions[actionKey] = applied;
-      data.runs[sourceKey] = prepareRunUpdate(
-        source,
-        { expectedStateVersion: source.stateVersion, status: "cancelled" },
-        now,
-      );
-      data.runs[responseKey] = prepareRunUpdate(
-        response,
-        {
-          expectedStateVersion: response.stateVersion,
-          status: "running",
-          stage: "writing",
-          resultRevision: nextRevision,
-          errorMessage: null,
-        },
-        now,
-      );
-      return { status: "applied" as const, revision: nextRevision, action: clone(applied) };
-    });
-  }
-
-  async getPendingDocumentAction(
-    userId: string,
-    sourceRunId: string,
-  ): Promise<StoredPendingDocumentAction | null> {
-    const data = await this.readAfterWrites();
-    const action = data.pendingActions[pendingActionKey(userId, sourceRunId)];
-    return action ? clone(assertStoredPendingAction(action)) : null;
-  }
-
-  async listPendingDocumentActions(
-    userId: string,
-    sourceRunIds: readonly string[],
-  ): Promise<StoredPendingDocumentAction[]> {
-    const ids = new Set(normalizeBatchIds(sourceRunIds));
-    if (ids.size === 0) return [];
-    const data = await this.readAfterWrites();
-    return Object.values(data.pendingActions)
-      .filter(
-        (action) => action.userId === userId && ids.has(action.sourceRunId),
-      )
-      .map((action) => clone(assertStoredPendingAction(action)));
   }
 
   async completeRunForCurrentRevision(
@@ -1512,7 +1186,6 @@ function localDocumentPreview(document: DocumentModel): string {
 }
 
 function normalizeLegacyStore(data: LocalStoreData): void {
-  data.pendingActions ??= {};
   data.documentAgentSessions ??= {};
   data.sourceRecords ??= {};
   data.researchLedgers ??= {};
@@ -1534,7 +1207,6 @@ function normalizeLegacyStore(data: LocalStoreData): void {
   for (const run of Object.values(data.runs)) {
     run.stateVersion ??= 0;
     run.replyToRunId ??= null;
-    run.decision ??= null;
     run.artifactRelease ??= null;
     run.resultNote ??= null;
     run.targetNodeId ??= null;
@@ -1566,17 +1238,6 @@ function assertLocalRunReplyTarget(
   data: LocalStoreData,
   input: CreateRunInput,
 ): void {
-  const storedSession = data.documentAgentSessions[
-    documentKey(input.userId, input.documentId)
-  ];
-  const session = storedSession
-    ? parseStoredDocumentAgentSession(clone(storedSession))
-    : null;
-  if (session) {
-    assertDocumentAgentSessionScope(session, input.userId, input.documentId);
-  }
-  assertDocumentAgentSessionReplyTarget(session, input);
-
   const source = input.replyToRunId
     ? data.runs[runKey(input.userId, input.replyToRunId)] ?? null
     : null;
@@ -1596,9 +1257,6 @@ function assertLocalRunReplyTarget(
     request: input,
     source,
     events: source ? (data.events[runKey(input.userId, source.id)] ?? []) : [],
-    pendingAction: source
-      ? data.pendingActions[pendingActionKey(input.userId, source.id)] ?? null
-      : null,
     activeResponse,
   });
 }
@@ -1615,42 +1273,12 @@ function runKey(userId: string, runId: string): string {
   return `${userId}:${runId}`;
 }
 
-function pendingActionKey(userId: string, sourceRunId: string): string {
-  return `${userId}:${sourceRunId}`;
-}
-
 function sourceRecordKey(userId: string, sourceId: string): string {
   return `${userId}:${sourceId}`;
 }
 
 function researchLedgerKey(userId: string, ledgerId: string): string {
   return `${userId}:${ledgerId}`;
-}
-
-function createPendingAction(inputValue: {
-  input: Parameters<DocumentRepository["setRunNeedsInput"]>[0];
-  patch: DocumentPatch;
-  question: string;
-  now: string;
-}): StoredPendingDocumentAction {
-  const draft = inputValue.input.pendingAction;
-  if (!draft) throw new PendingDocumentActionConflictError();
-  return {
-    id: draft.id,
-    userId: inputValue.input.userId,
-    documentId: inputValue.input.documentId,
-    sourceRunId: inputValue.input.runId,
-    status: "pending",
-    baseRevision: inputValue.patch.baseRevision,
-    patch: inputValue.patch,
-    patchDigest: draft.patchDigest,
-    summary: draft.summary,
-    question: inputValue.question,
-    resolvedByRunId: null,
-    appliedRevision: null,
-    createdAt: inputValue.now,
-    updatedAt: inputValue.now,
-  };
 }
 
 function createNeedsInputEvent(inputValue: {
@@ -1671,148 +1299,9 @@ function createNeedsInputEvent(inputValue: {
       eventKey,
       code: inputValue.input.code,
       question: inputValue.question,
-      ...(inputValue.input.pendingAction
-        ? {
-            pendingActionId: inputValue.input.pendingAction.id,
-            patchDigest: inputValue.input.pendingAction.patchDigest,
-          }
-        : {}),
     },
     createdAt: inputValue.now,
   };
-}
-
-function healResolvedLocalDecisionRuns(input: {
-  data: LocalStoreData;
-  sourceKey: string;
-  responseKey: string;
-  source: StoredAgentRun;
-  response: StoredAgentRun;
-  action: StoredPendingDocumentAction;
-  now: string;
-}): { source: StoredAgentRun; response: StoredAgentRun } {
-  const source =
-    input.source.status === "cancelled"
-      ? input.source
-      : prepareRunUpdate(
-          input.source,
-          {
-            expectedStateVersion: input.source.stateVersion,
-            status: "cancelled",
-          },
-          input.now,
-        );
-  let response: StoredAgentRun;
-  if (input.action.status === "applied" && input.action.appliedRevision !== null) {
-    if (input.response.status === "completed") {
-      if (input.response.resultRevision !== input.action.appliedRevision) {
-        throw new PendingDocumentActionConflictError(
-          "Completed decision run points to a different revision.",
-        );
-      }
-      response = input.response;
-    } else {
-      if (input.response.status === "cancelled" || input.response.status === "failed") {
-        throw new PendingDocumentActionConflictError(
-          "Applied decision run is terminal with another outcome.",
-        );
-      }
-      if (
-        input.response.resultRevision !== null &&
-        input.response.resultRevision !== input.action.appliedRevision
-      ) {
-        throw new PendingDocumentActionConflictError(
-          "Decision run points to a different document revision.",
-        );
-      }
-      response = prepareRunUpdate(
-        input.response,
-        {
-          expectedStateVersion: input.response.stateVersion,
-          status: "running",
-          stage: "writing",
-          resultRevision: input.action.appliedRevision,
-          errorMessage: null,
-        },
-        input.now,
-      );
-    }
-  } else if (input.action.status === "rejected") {
-    response =
-      input.response.status === "cancelled"
-        ? input.response
-        : prepareRunUpdate(
-            input.response,
-            {
-              expectedStateVersion: input.response.stateVersion,
-              status: "cancelled",
-            },
-            input.now,
-          );
-  } else if (input.action.status === "cancelled") {
-    const message =
-      input.response.errorMessage ??
-      "文書が更新されたため、この変更は適用しませんでした。";
-    if (input.response.status === "failed") {
-      if (input.response.stage !== "failed") {
-        throw new PendingDocumentActionConflictError();
-      }
-      response = input.response;
-    } else {
-      if (input.response.status === "completed" || input.response.status === "cancelled") {
-        throw new PendingDocumentActionConflictError(
-          "Stale decision run is terminal with another outcome.",
-        );
-      }
-      response = prepareRunUpdate(
-        input.response,
-        {
-          expectedStateVersion: input.response.stateVersion,
-          status: "failed",
-          stage: "failed",
-          errorMessage: message,
-        },
-        input.now,
-      );
-    }
-  } else {
-    throw new PendingDocumentActionConflictError();
-  }
-  input.data.runs[input.sourceKey] = source;
-  input.data.runs[input.responseKey] = response;
-  return { source, response };
-}
-
-function assertPriorLocalPatchCommit(
-  data: LocalStoreData,
-  action: StoredPendingDocumentAction,
-  priorCommit: StoredRevision,
-): void {
-  const base = data.revisions[
-    revisionKey(action.userId, action.documentId, action.baseRevision)
-  ];
-  if (!base) throw new DocumentNotFoundError();
-  const expected = applyDocumentPatch(
-    {
-      revisionId: base.commitId,
-      revision: base.revision,
-      parentRevisionId: null,
-      committedAt: base.createdAt,
-      document: base.document,
-    },
-    action.patch,
-  );
-  if (
-    priorCommit.revision !== action.baseRevision + 1 ||
-    priorCommit.actor !== "agent" ||
-    priorCommit.summary !== action.summary ||
-    canonicalJson(priorCommit.operations) !== canonicalJson(action.patch.operations) ||
-    canonicalJson(priorCommit.document) !== canonicalJson(expected.document)
-  ) {
-    throw new PendingDocumentActionConflictError(
-      "Existing patch commit does not match the pending action.",
-    );
-  }
 }
 
 function assertReplyScope(
@@ -1820,7 +1309,6 @@ function assertReplyScope(
   source: StoredAgentRun,
   documentId: string,
   sourceRunId: string,
-  decision: StoredAgentRun["decision"],
 ): void {
   if (
     response.id === source.id ||
@@ -1828,7 +1316,6 @@ function assertReplyScope(
     response.documentId !== documentId ||
     source.documentId !== documentId ||
     response.replyToRunId !== sourceRunId ||
-    response.decision !== decision ||
     source.createdAt > response.createdAt
   ) {
     throw new RunReplyConflictError();

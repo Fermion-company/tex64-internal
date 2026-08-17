@@ -53,7 +53,6 @@ function runningRun(): StoredAgentRun {
     documentId: SAMPLE_DOCUMENT.id,
     prompt: "第2節を書き直して",
     replyToRunId: null,
-    decision: null,
     targetNodeId: null,
     idempotencyKey: "result-note-invariants",
     workflowRunId: "workflow-result-note",

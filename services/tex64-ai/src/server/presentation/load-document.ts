@@ -15,7 +15,7 @@ export async function loadDocumentDetail(userId: string, documentId: string) {
       stored.currentRevision,
     ),
   ]);
-  const presentedRuns = await presentAgentRuns(repository, userId, runs);
+  const presentedRuns = presentAgentRuns(runs);
   return toDocumentDetail({
     stored,
     revisions,

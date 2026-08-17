@@ -1,7 +1,6 @@
 import { evaluateBriefCoverage } from "./coverage";
 import {
   extractBriefDeterministically,
-  isExplicitBriefConfirmation,
   isExplicitDelegationAnswer,
 } from "./extract";
 import { deterministicBriefId } from "./fingerprint";
@@ -16,7 +15,6 @@ import {
   type BriefExtraction,
   type DocumentAgentSession,
   type DocumentBrief,
-  type ElicitationQuestion,
   type RequirementGroup,
   type RequirementPath,
   type RequirementValue,
@@ -95,13 +93,12 @@ function keepOrMarkNotApplicable<T>(
 function evidencePaths(
   extraction: BriefExtraction,
   answerText: string,
-  question: ElicitationQuestion | null,
 ): Set<RequirementPath> {
   const answer = normalized(answerText);
   const conservative = extractBriefDeterministically({
     text: answerText,
-    target: question?.target ?? null,
-    targetPaths: question?.targetPaths ?? [],
+    target: null,
+    targetPaths: [],
   });
   const conservativePaths = new Set(
     conservative.evidence.map((item) => item.path),
@@ -202,15 +199,10 @@ function applyProvidedExtraction(input: {
   answerText: string;
   runId: string;
   now: string;
-  question: ElicitationQuestion | null;
 }): DocumentBrief {
   const brief = structuredClone(input.brief);
   const before = JSON.stringify(brief);
-  const explicit = evidencePaths(
-    input.extraction,
-    input.answerText,
-    input.question,
-  );
+  const explicit = evidencePaths(input.extraction, input.answerText);
   const set = <T>(
     path: RequirementPath,
     value: T | null,
@@ -674,6 +666,12 @@ function delegateGroup(
       );
       break;
     case "visuals":
+      // The runtime cannot ingest user-supplied figure files. With intake
+      // questions removed, an unexecutable "provided_only" choice resolves to
+      // the agent proposing figures instead of stalling the run on a question.
+      if (brief.figures.policy.value === "provided_only") {
+        brief.figures.policy = delegated("agent_proposes", runId, now);
+      }
       brief.figures.policy = delegateUnknown(
         brief.figures.policy,
         "agent_proposes",
@@ -872,13 +870,6 @@ export function autopilotDocumentBrief(input: {
   const coverage = evaluateBriefCoverage(session.brief);
   if (!coverage.complete) {
     if (coverage.gaps.some((gap) => !gap.canDelegate)) return null;
-    if (
-      coverage.gaps.some((gap) => gap.group === "visuals") &&
-      session.brief.figures.policy.value === "provided_only"
-    ) {
-      // The user explicitly chose supplied figures; do not silently override.
-      return null;
-    }
     const before = JSON.stringify(session.brief);
     for (const gap of coverage.gaps) {
       delegateGroup(session.brief, gap.group, input.runId, input.now);
@@ -900,27 +891,45 @@ export function autopilotDocumentBrief(input: {
   });
 }
 
-function resolveQuestion(
+/** Marks a legacy pending question resolved so the session can proceed. */
+function resolveLegacyActiveQuestion(
   session: DocumentAgentSession,
-  questionId: string | undefined,
   runId: string,
-): ElicitationQuestion | null {
-  if (!session.activeQuestionId) {
-    if (questionId) throw new BriefDomainError("No question is awaiting an answer.");
-    return null;
+): void {
+  if (!session.activeQuestionId) return;
+  const question = session.questions.find(
+    (item) => item.id === session.activeQuestionId,
+  );
+  if (question && question.status === "pending") {
+    question.status = "answered";
+    question.answeredByRunId = runId;
   }
-  const effectiveQuestionId = questionId ?? session.activeQuestionId;
-  if (effectiveQuestionId !== session.activeQuestionId) {
-    throw new BriefDomainError("The answer targets a different question.");
-  }
-  const question = session.questions.find((item) => item.id === effectiveQuestionId);
-  if (!question || question.status !== "pending") {
-    throw new BriefDomainError("The target question is no longer pending.");
-  }
-  question.status = "answered";
-  question.answeredByRunId = runId;
   session.activeQuestionId = null;
-  return question;
+  if (
+    session.phase === "awaiting_answer" ||
+    session.phase === "awaiting_brief_confirmation"
+  ) {
+    session.phase = "eliciting";
+  }
+}
+
+/**
+ * Question elicitation no longer exists, but sessions persisted before its
+ * removal can still carry a pending question. This clears it so autopilot can
+ * confirm and continue the run without ever asking again.
+ */
+export function clearPendingElicitation(input: {
+  session: DocumentAgentSession;
+  runId: string;
+  now: string;
+}): DocumentAgentSession {
+  const original = DocumentAgentSessionSchema.parse(input.session);
+  if (!original.activeQuestionId) return original;
+  const session = structuredClone(original);
+  resolveLegacyActiveQuestion(session, input.runId);
+  session.stateVersion += 1;
+  session.updatedAt = input.now;
+  return DocumentAgentSessionSchema.parse(session);
 }
 
 export function applyBriefExtraction(input: {
@@ -929,12 +938,11 @@ export function applyBriefExtraction(input: {
   answerText: string;
   runId: string;
   now: string;
-  questionId?: string;
 }): DocumentAgentSession {
   const original = DocumentAgentSessionSchema.parse(input.session);
   if (original.lastProcessedRunId === input.runId) return original;
   const session = structuredClone(original);
-  const question = resolveQuestion(session, input.questionId, input.runId);
+  resolveLegacyActiveQuestion(session, input.runId);
   const previousBrief = JSON.stringify(session.brief);
   session.brief = applyProvidedExtraction({
     brief: session.brief,
@@ -942,18 +950,10 @@ export function applyBriefExtraction(input: {
     answerText: input.answerText,
     runId: input.runId,
     now: input.now,
-    question,
   });
 
-  const explicitlyDelegated = isExplicitDelegationAnswer(input.answerText);
-  if (explicitlyDelegated) {
-    const requestedGroups =
-      question?.target === "delegation_offer"
-        ? evaluateBriefCoverage(session.brief).gaps
-            .filter((gap) => gap.canDelegate)
-            .map((gap) => gap.group)
-        : input.extraction.delegatedGroups;
-    for (const group of new Set(requestedGroups)) {
+  if (isExplicitDelegationAnswer(input.answerText)) {
+    for (const group of new Set(input.extraction.delegatedGroups)) {
       if (
         group !== "subject" &&
         isRequirementGroupApplicable(session.brief, group)
@@ -973,31 +973,39 @@ export function applyBriefExtraction(input: {
   session.lastProcessedRunId = input.runId;
   session.stateVersion += 1;
   session.updatedAt = input.now;
-  if (question?.target === "delegation_offer") {
-    session.consecutiveQuestionCount = 0;
-  }
 
-  const parsed = DocumentAgentSessionSchema.parse(session);
-  if (
-    question?.target === "brief_confirmation" &&
-    question.briefVersion === parsed.briefVersion &&
-    input.extraction.confirmsBrief &&
-    isExplicitBriefConfirmation(input.answerText)
-  ) {
-    return confirmDocumentBrief({
-      session: parsed,
-      confirmedByRunId: input.runId,
-      now: input.now,
-    });
-  }
-  return parsed;
+  return DocumentAgentSessionSchema.parse(session);
+}
+
+/**
+ * Build-first guarantee: when no subject could be extracted, the raw user
+ * prompt itself (trimmed and clipped) becomes the writing subject so the run
+ * can proceed instead of asking. No other requirement is touched.
+ */
+export function provideBriefSubjectFallback(input: {
+  session: DocumentAgentSession;
+  rawPrompt: string;
+  runId: string;
+  now: string;
+}): DocumentAgentSession {
+  const original = DocumentAgentSessionSchema.parse(input.session);
+  if (original.brief.goal.subject.status === "provided") return original;
+  const subject = normalized(input.rawPrompt).slice(0, 1_000);
+  if (!subject) return original;
+  const session = structuredClone(original);
+  session.brief.goal.subject = provided(subject, input.runId, input.now);
+  session.briefVersion += 1;
+  session.confirmedBriefVersion = null;
+  session.brief.updatedAt = input.now;
+  session.stateVersion += 1;
+  session.updatedAt = input.now;
+  return DocumentAgentSessionSchema.parse(session);
 }
 
 export function confirmDocumentBrief(input: {
   session: DocumentAgentSession;
   confirmedByRunId: string;
   now: string;
-  questionId?: string;
 }): DocumentAgentSession {
   const original = DocumentAgentSessionSchema.parse(input.session);
   if (
@@ -1010,18 +1018,7 @@ export function confirmDocumentBrief(input: {
     throw new BriefDomainError("The brief still has unresolved requirements.");
   }
   const session = structuredClone(original);
-  if (session.activeQuestionId) {
-    const question = resolveQuestion(
-      session,
-      input.questionId,
-      input.confirmedByRunId,
-    );
-    if (question?.target !== "brief_confirmation") {
-      throw new BriefDomainError("The active question is not brief confirmation.");
-    }
-  } else if (input.questionId) {
-    throw new BriefDomainError("No brief confirmation is pending.");
-  }
+  resolveLegacyActiveQuestion(session, input.confirmedByRunId);
   session.confirmedBriefVersion = session.briefVersion;
   session.phase = "planning";
   session.activeQuestionId = null;

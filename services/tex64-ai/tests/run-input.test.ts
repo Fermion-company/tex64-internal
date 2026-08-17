@@ -9,7 +9,7 @@ import {
 } from "@/lib/client/run-input";
 import type { AgentRun } from "@/lib/client/types";
 
-function waiting(inputKind: AgentRun["inputKind"]): AgentRun {
+function waiting(inputKind: AgentRun["inputKind"] = "clarification"): AgentRun {
   return {
     id: "30000000-0000-4000-8000-000000000001",
     documentId: "30000000-0000-4000-8000-000000000002",
@@ -31,26 +31,19 @@ describe("run reply input", () => {
   });
 
   it.each([
-    ["はい", "approve"],
-    ["この変更を承認します", "approve"],
-    ["いいえ", "reject"],
-    ["キャンセルします", "reject"],
-  ] as const)("maps %s to a structured %s decision", (prompt, decision) => {
-    expect(createRunReplyInput(waiting("approval"), prompt)).toEqual({
-      prompt,
-      replyToRunId: "30000000-0000-4000-8000-000000000001",
-      decision,
-    });
-  });
-
-  it("does not approve a qualified free-form response", () => {
-    expect(
-      createRunReplyInput(waiting("approval"), "はい、ただし考察は残して"),
-    ).toEqual({
-      prompt: "はい、ただし考察は残して",
-      replyToRunId: "30000000-0000-4000-8000-000000000001",
-    });
-  });
+    "はい",
+    "この変更を承認します",
+    "いいえ",
+    "キャンセルします",
+  ] as const)(
+    "keeps %s as a plain free-text reply (no structured decision)",
+    (prompt) => {
+      expect(createRunReplyInput(waiting(), prompt)).toEqual({
+        prompt,
+        replyToRunId: "30000000-0000-4000-8000-000000000001",
+      });
+    },
+  );
 
   it("does not reuse an idempotency identity for the same answer to another question", () => {
     const first = runRequestIdentity(
@@ -59,7 +52,6 @@ describe("run reply input", () => {
       {
         prompt: "はい",
         replyToRunId: "30000000-0000-4000-8000-000000000003",
-        decision: "approve",
       },
     );
     const second = runRequestIdentity(
@@ -68,7 +60,6 @@ describe("run reply input", () => {
       {
         prompt: "はい",
         replyToRunId: "30000000-0000-4000-8000-000000000004",
-        decision: "approve",
       },
     );
 

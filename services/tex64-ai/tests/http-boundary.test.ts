@@ -12,7 +12,6 @@ import {
   ArtifactConflictError,
   IdempotencyConflictError,
   InvalidAgentRunTransitionError,
-  PendingDocumentActionConflictError,
   RunReplyConflictError,
 } from "@/server/persistence";
 
@@ -129,7 +128,6 @@ describe("safe API errors", () => {
     new InvalidAgentRunTransitionError("queued -> completed"),
     new ArtifactConflictError(),
     new RunReplyConflictError("private reply detail"),
-    new PendingDocumentActionConflictError("private pending detail"),
   ])("maps persistence conflicts to a detail-free 409 response", async (error) => {
     const response = handleRouteError(error);
     expect(response.status).toBe(409);

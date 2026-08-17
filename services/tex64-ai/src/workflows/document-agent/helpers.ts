@@ -15,11 +15,7 @@ import type {
   AgentRuntimeSelection,
   DocumentRunPromptContext,
 } from "./types";
-import {
-  hasVercelRuntimeSignal,
-  isProductionRuntime,
-  isTrustedLocalWorkflowRuntime,
-} from "@/server/config/runtime-environment";
+import { hasVercelRuntimeSignal } from "@/server/config/runtime-environment";
 import { PdfVisualRepairObservationSchema } from "@/server/compiler/visual-review";
 import { z } from "zod";
 
@@ -99,9 +95,18 @@ export type DocumentAgentExecutionEvidence = {
   completedNaturally: boolean;
 };
 
+/**
+ * User-facing copy for the missing-model configuration failure. The workflow
+ * stores it on the failed run so the chat explains the fix instead of a
+ * generic failure message.
+ */
+export const AGENT_RUNTIME_UNCONFIGURED_MESSAGE =
+  "AIモデルが設定されていません。OPENAI_API_KEY か TEX64_AI_MODEL を設定してください。";
+
+/** Raised when no AI model runtime is configured. */
 export class AgentRuntimeConfigurationError extends Error {
   constructor() {
-    super("AI Gateway identity and TEX64_AI_MODEL are required in production.");
+    super(AGENT_RUNTIME_UNCONFIGURED_MESSAGE);
     this.name = "AgentRuntimeConfigurationError";
   }
 }
@@ -131,13 +136,10 @@ export function selectAgentRuntime(
     return { provider: "ai_gateway", model };
   }
 
-  if (
-    isProductionRuntime(environment) &&
-    !isTrustedLocalWorkflowRuntime(environment)
-  ) {
-    throw new AgentRuntimeConfigurationError();
-  }
-  return { provider: "deterministic_fallback", model: null };
+  // There is no deterministic fallback engine anymore: without a configured
+  // model every run fails fast — in development too — as a failed run with a
+  // clear Japanese message, never a crash or a silently degraded document.
+  throw new AgentRuntimeConfigurationError();
 }
 
 export function semanticEventKey(
@@ -156,14 +158,11 @@ export function hasSemanticEvent(
 }
 
 export function nextCompileFailureAction(input: {
-  provider: AgentRuntimeSelection["provider"];
   repairAttempt: number;
   maxRepairAttempts?: number;
 }): "repair_document" | "fail" {
   const maximum = input.maxRepairAttempts ?? MAX_AST_REPAIR_ATTEMPTS;
-  return input.provider === "ai_gateway" && input.repairAttempt < maximum
-    ? "repair_document"
-    : "fail";
+  return input.repairAttempt < maximum ? "repair_document" : "fail";
 }
 
 /**
@@ -389,41 +388,6 @@ function writingRequirements(brief: DocumentBrief) {
   };
 }
 
-/** Gives the deterministic local writer the same confirmed intent as the AI writer. */
-export function buildBriefBackedFallbackPrompt(
-  brief: DocumentBrief,
-): string {
-  const deliverableLabels: Record<
-    NonNullable<DocumentBrief["goal"]["deliverable"]["value"]>,
-    string
-  > = {
-    article: "記事",
-    proposal: "提案書",
-    report: "報告書",
-    paper: "論文",
-    letter: "手紙",
-    notes: "ノート",
-  };
-  const deliverable = brief.goal.deliverable.value ?? "article";
-  const requirements = writingRequirements(brief);
-  return [
-    `${brief.goal.subject.value ?? "確定した主題"}について${deliverableLabels[deliverable]}を書いてください。`,
-    brief.goal.purpose.value ? `目的は${brief.goal.purpose.value}です。` : null,
-    brief.goal.audience.value
-      ? `対象読者は${brief.goal.audience.value}です。`
-      : null,
-    brief.scope.targetLength.value
-      ? `長さは${brief.scope.targetLength.value}です。`
-      : null,
-    brief.template.sectionOrder.value?.length
-      ? `構成は${brief.template.sectionOrder.value.join("、")}です。`
-      : null,
-    `確認済み要件: ${JSON.stringify(requirements)}`,
-  ]
-    .filter((value): value is string => value !== null)
-    .join(" ");
-}
-
 export function buildRepairAgentPrompt(input: {
   documentId: string;
   currentRevision: number;
@@ -535,5 +499,30 @@ export function safeWorkflowFailureCode(error: unknown): string {
   ) {
     return "revision_conflict";
   }
+  if (isAgentRuntimeConfigurationError(error)) {
+    return "agent_runtime_unconfigured";
+  }
   return "document_run_failed";
+}
+
+function isAgentRuntimeConfigurationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  // The durable step boundary rethrows this condition as a FatalError with the
+  // same fixed copy, so the message is part of the detection contract.
+  return (
+    ("name" in error && error.name === "AgentRuntimeConfigurationError") ||
+    ("message" in error &&
+      error.message === AGENT_RUNTIME_UNCONFIGURED_MESSAGE)
+  );
+}
+
+/**
+ * User-facing message stored on the failed run. Only the missing-model
+ * configuration error carries its own copy; everything else keeps the
+ * generic failure message.
+ */
+export function safeWorkflowFailureMessage(error: unknown): string | null {
+  return isAgentRuntimeConfigurationError(error)
+    ? AGENT_RUNTIME_UNCONFIGURED_MESSAGE
+    : null;
 }

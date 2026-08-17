@@ -4,18 +4,16 @@ import {
   BriefDomainError,
   BriefExtractionSchema,
   DocumentBriefSchema,
-  advanceElicitation,
   applyBriefExtraction,
   applyExplicitDelegation,
+  autopilotDocumentBrief,
   confirmDocumentBrief,
   createDocumentAgentSession,
-  createQuestionFingerprint,
   evaluateBriefCoverage,
   extractBriefDeterministically,
   isRequirementGroupApplicable,
   requirementProfileFor,
   resolveSafeCustomTemplatePreset,
-  summarizeDocumentBrief,
 } from "./index";
 
 const NOW = "2026-08-08T00:00:00.000+09:00";
@@ -141,7 +139,7 @@ describe("typed document brief", () => {
   });
 });
 
-describe("coverage and adaptive questions", () => {
+describe("coverage and autopilot", () => {
   it("treats the missing subject as the first blocking gap", () => {
     const coverage = evaluateBriefCoverage(paperSession().brief);
     expect(coverage.complete).toBe(false);
@@ -153,94 +151,61 @@ describe("coverage and adaptive questions", () => {
     });
   });
 
-  it("selects one stable question and returns it idempotently until answered", () => {
-    const first = advanceElicitation({
+  it("autopilots a subject-only brief to a confirmed state without asking", () => {
+    const subjectAnswer = "注意機構について論文を書いて";
+    const withSubject = applyBriefExtraction({
       session: paperSession(),
-      sourceRunId: ROOT_RUN_ID,
-      now: NOW,
-    });
-    expect(first.question).toMatchObject({
-      target: "subject",
-      targetPaths: ["goal.subject"],
-      status: "pending",
-    });
-    expect(first.session.phase).toBe("awaiting_answer");
-    expect(first.session.questionCount).toBe(1);
-
-    const replay = advanceElicitation({
-      session: first.session,
-      sourceRunId: ROOT_RUN_ID,
-      now: LATER,
-    });
-    expect(replay.question).toEqual(first.question);
-    expect(replay.session).toEqual(first.session);
-  });
-
-  it("creates stable fingerprints that change with the decision being asked", () => {
-    const common = {
-      prompt: "どの条件にしますか？",
-      options: [{ id: "a", label: "A" }],
-    };
-    const first = createQuestionFingerprint({
-      ...common,
-      target: "subject",
-      targetPaths: ["goal.subject"],
-    });
-    const replay = createQuestionFingerprint({
-      ...common,
-      target: "subject",
-      targetPaths: ["goal.subject"],
-    });
-    const other = createQuestionFingerprint({
-      ...common,
-      target: "visuals",
-      targetPaths: ["figures.policy"],
-    });
-    expect(first).toMatch(/^[0-9a-f]{64}$/);
-    expect(replay).toBe(first);
-    expect(other).not.toBe(first);
-  });
-
-  it("offers recommended defaults after three consecutive questions", () => {
-    const rootAnswer = "Transformerの注意機構について論文を書いて";
-    let session = applyBriefExtraction({
-      session: paperSession(),
-      extraction: extractBriefDeterministically({ text: rootAnswer }),
-      answerText: rootAnswer,
+      extraction: extractBriefDeterministically({ text: subjectAnswer }),
+      answerText: subjectAnswer,
       runId: ROOT_RUN_ID,
       now: NOW,
     });
-
-    for (const [index, runId] of [
-      ANSWER_RUN_ID,
-      LATER_RUN_ID,
-      "30000000-0000-4000-8000-000000000004",
-    ].entries()) {
-      const advanced = advanceElicitation({
-        session,
-        sourceRunId: runId,
-        now: LATER,
-      });
-      expect(advanced.question).not.toBeNull();
-      session = applyBriefExtraction({
-        session: advanced.session,
-        extraction: extractBriefDeterministically({ text: "まだ決めていません" }),
-        answerText: "まだ決めていません",
-        runId,
-        now: LATER,
-        questionId: advanced.question?.id,
-      });
-      expect(session.questionCount).toBe(index + 1);
-    }
-
-    const checkpoint = advanceElicitation({
-      session,
-      sourceRunId: "30000000-0000-4000-8000-000000000005",
+    const confirmed = autopilotDocumentBrief({
+      session: withSubject,
+      runId: ANSWER_RUN_ID,
       now: LATER,
     });
-    expect(checkpoint.question).toMatchObject({
-      target: "delegation_offer",
-      kind: "confirm",
+    expect(confirmed).not.toBeNull();
+    if (!confirmed) return;
+    expect(confirmed.confirmedBriefVersion).toBe(confirmed.briefVersion);
+    expect(evaluateBriefCoverage(confirmed.brief).complete).toBe(true);
+    expect(confirmed.brief.goal.audience.status).toBe("delegated");
+  });
+
+  it("resolves an unexecutable provided_only figures choice to agent proposals", () => {
+    const subjectAnswer = "注意機構について論文を書いて";
+    let session = applyBriefExtraction({
+      session: paperSession(),
+      extraction: extractBriefDeterministically({ text: subjectAnswer }),
+      answerText: subjectAnswer,
+      runId: ROOT_RUN_ID,
+      now: NOW,
+    });
+    session = {
+      ...session,
+      brief: {
+        ...session.brief,
+        figures: {
+          ...session.brief.figures,
+          policy: {
+            status: "provided",
+            value: "provided_only",
+            source: { kind: "user", runId: ROOT_RUN_ID },
+            updatedAt: NOW,
+          },
+        },
+      },
+    };
+    const confirmed = autopilotDocumentBrief({
+      session,
+      runId: ANSWER_RUN_ID,
+      now: LATER,
+    });
+    expect(confirmed).not.toBeNull();
+    if (!confirmed) return;
+    expect(confirmed.brief.figures.policy).toMatchObject({
+      status: "delegated",
+      value: "agent_proposes",
     });
   });
 });
@@ -515,138 +480,6 @@ describe("delegation and final confirmation", () => {
     expect(delegated.brief.goal.intendedOutcome.status).toBe("delegated");
   });
 
-  it("refuses direct delegation while a question is awaiting an answer", () => {
-    const awaiting = advanceElicitation({
-      session: paperSession(),
-      sourceRunId: ROOT_RUN_ID,
-      now: NOW,
-    });
-    expect(() =>
-      applyExplicitDelegation({
-        session: awaiting.session,
-        groups: ["presentation"],
-        delegatedByRunId: ANSWER_RUN_ID,
-        now: LATER,
-      }),
-    ).toThrow(BriefDomainError);
-  });
-
-  it("renders confirmation summaries without internal enum names", () => {
-    const subjectAnswer = "注意機構について論文を書いて";
-    const withSubject = applyBriefExtraction({
-      session: paperSession(),
-      extraction: extractBriefDeterministically({ text: subjectAnswer }),
-      answerText: subjectAnswer,
-      runId: ROOT_RUN_ID,
-      now: NOW,
-    });
-    const delegated = applyExplicitDelegation({
-      session: withSubject,
-      groups: ["sources_evidence", "mathematics", "visuals", "presentation"],
-      delegatedByRunId: ANSWER_RUN_ID,
-      now: LATER,
-    });
-    const summary = summarizeDocumentBrief(delegated.brief);
-    expect(summary).toContain("出典: 文献を調査");
-    expect(summary).toContain("数式: 必要な箇所に数式");
-    expect(summary).toContain("口調: 学術的");
-    expect(summary).toContain("形式: 論文");
-    expect(summary).toContain("版面: A4・1段");
-    expect(summary).not.toMatch(/agent_research|as_needed|academic/u);
-  });
-
-  it("asks for a supported format before confirming an unsupported custom template", () => {
-    const subjectAnswer = "確率過程について論文を書いて";
-    let session = applyBriefExtraction({
-      session: paperSession(),
-      extraction: extractBriefDeterministically({ text: subjectAnswer }),
-      answerText: subjectAnswer,
-      runId: ROOT_RUN_ID,
-      now: NOW,
-    });
-    const customAnswer = "テンプレートは東大学位論文.cls";
-    session = applyBriefExtraction({
-      session,
-      extraction: BriefExtractionSchema.parse({
-        ...extractBriefDeterministically({ text: customAnswer }),
-        templateFamily: "custom",
-        customTemplate: "東大学位論文.cls",
-        evidence: [
-          { path: "template.family", quote: customAnswer },
-          { path: "template.customTemplate", quote: customAnswer },
-        ],
-      }),
-      answerText: customAnswer,
-      runId: ANSWER_RUN_ID,
-      now: LATER,
-    });
-    session = applyExplicitDelegation({
-      session,
-      groups: [
-        "purpose_audience",
-        "scope_structure",
-        "sources_evidence",
-        "mathematics",
-        "visuals",
-        "acceptance",
-      ],
-      delegatedByRunId: LATER_RUN_ID,
-      now: LATER,
-    });
-
-    const chooseFormat = advanceElicitation({
-      session,
-      sourceRunId: "30000000-0000-4000-8000-000000000004",
-      now: LATER,
-    });
-    expect(chooseFormat.question).toMatchObject({
-      target: "presentation",
-      targetPaths: ["template.customTemplate"],
-      prompt: expect.stringContaining("希望する仕上がり"),
-    });
-    expect(chooseFormat.question?.prompt).not.toContain("対応していません");
-    expect(chooseFormat.session.brief.template.customTemplate.status).toBe(
-      "unknown",
-    );
-    expect(resolveSafeCustomTemplatePreset("東大学位論文.cls")).toBeNull();
-    expect(
-      resolveSafeCustomTemplatePreset("\\documentclass{article}"),
-    ).toBeNull();
-    expect(chooseFormat.question?.prompt).toContain("コンパクト");
-
-    const formatAnswer = "コンパクト";
-    session = applyBriefExtraction({
-      session: chooseFormat.session,
-      extraction: extractBriefDeterministically({
-        text: formatAnswer,
-        target: chooseFormat.question?.target,
-        targetPaths: chooseFormat.question?.targetPaths,
-      }),
-      answerText: formatAnswer,
-      runId: "30000000-0000-4000-8000-000000000005",
-      now: LATER,
-      questionId: chooseFormat.question?.id,
-    });
-    expect(session.brief.template.family.value).toBe("compact");
-    expect(session.brief.template.customTemplate.status).toBe(
-      "not_applicable",
-    );
-
-    session = applyExplicitDelegation({
-      session,
-      groups: ["presentation"],
-      delegatedByRunId: "30000000-0000-4000-8000-000000000006",
-      now: LATER,
-    });
-    const confirmation = advanceElicitation({
-      session,
-      sourceRunId: "30000000-0000-4000-8000-000000000007",
-      now: LATER,
-    });
-    expect(confirmation.question?.target).toBe("brief_confirmation");
-    expect(confirmation.question?.prompt).toContain("形式: コンパクト");
-  });
-
   it("keeps a safely representable custom style through confirmation", () => {
     const subjectAnswer = "監査可能なAIについて提案書を書いて";
     let session = applyBriefExtraction({
@@ -690,90 +523,13 @@ describe("delegation and final confirmation", () => {
     });
     expect(session.brief.template.family.value).toBe("custom");
     expect(session.brief.template.customTemplate.value).toBe("経営会議向け");
-
-    const confirmation = advanceElicitation({
+    expect(evaluateBriefCoverage(session.brief).complete).toBe(true);
+    const confirmed = confirmDocumentBrief({
       session,
-      sourceRunId: "30000000-0000-4000-8000-000000000009",
+      confirmedByRunId: "30000000-0000-4000-8000-000000000009",
       now: LATER,
     });
-    expect(confirmation.question?.target).toBe("brief_confirmation");
-    expect(confirmation.question?.prompt).toContain("形式: 経営会議向け");
-  });
-
-  it("asks what to revise instead of repeating confirmation and reconfirms the new brief", () => {
-    const subjectAnswer = "注意機構について論文を書いて";
-    let session = applyBriefExtraction({
-      session: paperSession(),
-      extraction: extractBriefDeterministically({ text: subjectAnswer }),
-      answerText: subjectAnswer,
-      runId: ROOT_RUN_ID,
-      now: NOW,
-    });
-    session = applyExplicitDelegation({
-      session,
-      groups: [
-        "purpose_audience",
-        "scope_structure",
-        "sources_evidence",
-        "mathematics",
-        "visuals",
-        "presentation",
-        "acceptance",
-      ],
-      delegatedByRunId: ANSWER_RUN_ID,
-      now: LATER,
-    });
-    const confirmation = advanceElicitation({
-      session,
-      sourceRunId: LATER_RUN_ID,
-      now: LATER,
-    });
-    const revisionRequest = "条件を変更する";
-    session = applyBriefExtraction({
-      session: confirmation.session,
-      extraction: extractBriefDeterministically({
-        text: revisionRequest,
-        target: confirmation.question?.target,
-        targetPaths: confirmation.question?.targetPaths,
-      }),
-      answerText: revisionRequest,
-      runId: LATER_RUN_ID,
-      now: LATER,
-      questionId: confirmation.question?.id,
-    });
-
-    const revision = advanceElicitation({
-      session,
-      sourceRunId: "30000000-0000-4000-8000-000000000004",
-      now: LATER,
-    });
-    expect(revision.question).toMatchObject({
-      target: "brief_revision",
-      prompt: expect.stringContaining("変更したい条件を1つ"),
-    });
-
-    const change = "図表なしに変更";
-    session = applyBriefExtraction({
-      session: revision.session,
-      extraction: extractBriefDeterministically({
-        text: change,
-        target: revision.question?.target,
-        targetPaths: revision.question?.targetPaths,
-      }),
-      answerText: change,
-      runId: "30000000-0000-4000-8000-000000000005",
-      now: LATER,
-      questionId: revision.question?.id,
-    });
-    expect(session.brief.figures.policy.value).toBe("none");
-
-    const revisedConfirmation = advanceElicitation({
-      session,
-      sourceRunId: "30000000-0000-4000-8000-000000000006",
-      now: LATER,
-    });
-    expect(revisedConfirmation.question?.target).toBe("brief_confirmation");
-    expect(revisedConfirmation.question?.prompt).toContain("図表: 図表なし");
+    expect(confirmed.confirmedBriefVersion).toBe(confirmed.briefVersion);
   });
 
   it("requires complete coverage and a separate final confirmation before planning", () => {
@@ -825,31 +581,12 @@ describe("delegation and final confirmation", () => {
       }),
     ]);
 
-    const awaitingConfirmation = advanceElicitation({
-      session: delegated,
-      sourceRunId: LATER_RUN_ID,
-      now: LATER,
-    });
-    expect(awaitingConfirmation.ready).toBe(false);
-    expect(awaitingConfirmation.question?.target).toBe("brief_confirmation");
-    expect(awaitingConfirmation.session.phase).toBe(
-      "awaiting_brief_confirmation",
-    );
-
     const confirmed = confirmDocumentBrief({
-      session: awaitingConfirmation.session,
+      session: delegated,
       confirmedByRunId: LATER_RUN_ID,
-      questionId: awaitingConfirmation.question?.id,
       now: LATER,
     });
     expect(confirmed.phase).toBe("planning");
     expect(confirmed.confirmedBriefVersion).toBe(confirmed.briefVersion);
-    expect(
-      advanceElicitation({
-        session: confirmed,
-        sourceRunId: LATER_RUN_ID,
-        now: LATER,
-      }).ready,
-    ).toBe(true);
   });
 });

@@ -45,7 +45,6 @@ export function assertRunReplayMatches(existing: StoredAgentRun, input: CreateRu
   if (
     existing.prompt !== input.prompt ||
     existing.replyToRunId !== (input.replyToRunId ?? null) ||
-    existing.decision !== (input.decision ?? null) ||
     existing.targetNodeId !== (input.targetNodeId ?? null)
   ) {
     throw new IdempotencyConflictError("agent_run", input.idempotencyKey);

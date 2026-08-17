@@ -70,7 +70,6 @@ function confirmedBriefAndPlan() {
     session,
     extraction: extractBriefRequirementsDeterministically({
       prompt: answer,
-      activeQuestion: null,
     }),
     answerText: answer,
     runId: SUBJECT_RUN_ID,

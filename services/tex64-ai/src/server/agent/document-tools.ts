@@ -355,8 +355,8 @@ function assertDocumentScope(
   }
 }
 
-/** Shared AI SDK tool set. Approvals follow external_run semantics: the
- * durable handlers persist pending actions instead of suspending the workflow. */
+/** Shared AI SDK tool set. Every edit executes autonomously; undo is the
+ * document revision history. */
 export function createDocumentTools(handlers: DocumentToolHandlers) {
   return {
     read_document: tool({

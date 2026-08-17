@@ -1,62 +1,17 @@
-import { createHash } from "node:crypto";
-
-import { DocumentPatchSchema, type DocumentPatch } from "@/domain/document";
-
 import {
-  PendingDocumentActionConflictError,
   RunReplyConflictError,
   type CreateRunInput,
   type NeedsInputCode,
-  type PendingDocumentActionDraft,
   type StoredAgentRun,
-  type StoredPendingDocumentAction,
   type StoredRunEvent,
 } from "./types";
 
-export function documentPatchDigest(patchValue: DocumentPatch): string {
-  const patch = DocumentPatchSchema.parse(patchValue);
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalize(patch)))
-    .digest("hex");
-}
-
-export function assertPendingActionDraft(input: {
-  documentId: string;
-  draft: PendingDocumentActionDraft;
-}): DocumentPatch {
-  const patch = DocumentPatchSchema.parse(input.draft.patch);
-  if (patch.documentId !== input.documentId) {
-    throw new PendingDocumentActionConflictError(
-      "Pending patch targets a different document.",
-    );
-  }
-  if (input.draft.patchDigest !== documentPatchDigest(patch)) {
-    throw new PendingDocumentActionConflictError(
-      "Pending patch digest does not match its validated content.",
-    );
-  }
-  if (!input.draft.summary.trim() || input.draft.summary.length > 1_000) {
-    throw new PendingDocumentActionConflictError(
-      "Pending patch summary is invalid.",
-    );
-  }
-  return patch;
-}
-
-export function assertStoredPendingAction(
-  action: StoredPendingDocumentAction,
-): StoredPendingDocumentAction {
-  if (
-    action.patch.documentId !== action.documentId ||
-    action.patch.baseRevision !== action.baseRevision ||
-    documentPatchDigest(action.patch) !== action.patchDigest
-  ) {
-    throw new PendingDocumentActionConflictError(
-      "Stored pending patch failed its integrity check.",
-    );
-  }
-  return action;
-}
+/**
+ * The pending-document-action (approval) subsystem was removed; this module
+ * now only hosts the clarification-reply helpers shared by both repository
+ * backends. The pending_document_actions table still exists on disk (see
+ * migrations/) but is no longer written or read.
+ */
 
 function needsInputEventCode(
   events: readonly Pick<StoredRunEvent, "stage" | "detail">[],
@@ -65,8 +20,11 @@ function needsInputEventCode(
     const event = events[index];
     if (event?.stage !== "needs_input") continue;
     const code = event.detail?.code;
+    // Legacy runs persisted before the approval flow was removed carry
+    // "approval_required"; their free-text reply is handled as an ordinary
+    // clarification so those historical runs never become unanswerable.
     if (code === "clarification_required" || code === "approval_required") {
-      return code;
+      return "clarification_required";
     }
   }
   return null;
@@ -85,7 +43,8 @@ export function needsInputQuestion(
     .find(
       (candidate) =>
         candidate.stage === "needs_input" &&
-        candidate.detail?.code === expectedCode,
+        (candidate.detail?.code === "clarification_required" ||
+          candidate.detail?.code === "approval_required"),
     );
   if (
     typeof event?.detail?.question === "string" &&
@@ -100,18 +59,10 @@ export function assertRunReplyTarget(input: {
   request: CreateRunInput;
   source: StoredAgentRun | null;
   events: readonly Pick<StoredRunEvent, "stage" | "detail">[];
-  pendingAction: StoredPendingDocumentAction | null;
   activeResponse: StoredAgentRun | null;
 }): void {
   const { request } = input;
-  if (!request.replyToRunId) {
-    if (request.decision) {
-      throw new RunReplyConflictError(
-        "A structured decision must target a pending run.",
-      );
-    }
-    return;
-  }
+  if (!request.replyToRunId) return;
 
   const source = input.source;
   if (
@@ -130,39 +81,9 @@ export function assertRunReplyTarget(input: {
     );
   }
 
-  const expectedCode: NeedsInputCode = request.decision
-    ? "approval_required"
-    : "clarification_required";
-  if (!needsInputQuestion(source, input.events, expectedCode)) {
+  if (!needsInputQuestion(source, input.events, "clarification_required")) {
     throw new RunReplyConflictError(
       "The response kind does not match the pending request.",
     );
   }
-
-  if (request.decision) {
-    const action = input.pendingAction;
-    if (
-      !action ||
-      action.userId !== request.userId ||
-      action.documentId !== request.documentId ||
-      action.sourceRunId !== source.id ||
-      action.status !== "pending" ||
-      action.resolvedByRunId !== null
-    ) {
-      throw new PendingDocumentActionConflictError(
-        "The approval no longer has a pending document change.",
-      );
-    }
-    assertStoredPendingAction(action);
-  }
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, canonicalize(nested)]),
-  );
 }

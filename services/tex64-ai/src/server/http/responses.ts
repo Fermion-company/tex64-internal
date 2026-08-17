@@ -8,7 +8,6 @@ import {
   DocumentNotFoundError,
   IdempotencyConflictError,
   InvalidAgentRunTransitionError,
-  PendingDocumentActionConflictError,
   RevisionConflictError,
   ResourceLimitExceededError,
   RunReplyConflictError,
@@ -64,10 +63,7 @@ export function handleRouteError(error: unknown): NextResponse {
   if (error instanceof ArtifactConflictError) {
     return jsonError("この版のPDFはすでに作成されています。", 409, "artifact_conflict");
   }
-  if (
-    error instanceof RunReplyConflictError ||
-    error instanceof PendingDocumentActionConflictError
-  ) {
+  if (error instanceof RunReplyConflictError) {
     return jsonError(
       "この確認への回答はすでに処理されたか、現在の状態と一致しません。",
       409,

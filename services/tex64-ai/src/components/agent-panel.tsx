@@ -107,7 +107,10 @@ export function AgentPanel({
                 <AssistantMessage error>
                   {run.status === "cancelled"
                     ? "いったん止めました。"
-                    : "途中で止まりました。もう一度お試しください。"}
+                    : userFacingRunNote(
+                        run.resultNote,
+                        "途中で止まりました。もう一度お試しください。",
+                      )}
                 </AssistantMessage>
               ) : null}
             </div>

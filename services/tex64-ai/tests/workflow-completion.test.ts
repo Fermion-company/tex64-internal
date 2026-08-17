@@ -54,7 +54,6 @@ beforeEach(async () => {
     prompt: run.prompt,
     baseRevision: run.baseRevision,
     replyToRunId: null,
-    decision: null,
   };
   const artifact: StoredArtifact = {
     userId: USER_ID,

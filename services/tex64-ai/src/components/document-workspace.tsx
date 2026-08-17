@@ -747,9 +747,9 @@ export function DocumentWorkspace() {
       }
       const reply = createRunReplyInput(conversationRun, prompt);
       // Element selection scopes fresh requests only; clarification answers
-      // and approval decisions keep their original scope. selectedElement is
-      // resolved against the CURRENT document, so a selection whose element
-      // was deleted in the meantime scopes nothing.
+      // keep their original scope. selectedElement is resolved against the
+      // CURRENT document, so a selection whose element was deleted in the
+      // meantime scopes nothing.
       const input: StartRunInput =
         !reply.replyToRunId && selectedElement
           ? { ...reply, targetNodeId: selectedElement.id }

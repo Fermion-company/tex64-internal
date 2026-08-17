@@ -1,7 +1,6 @@
 import type {
   AgentRunStage,
   ArtifactReleaseBinding,
-  RunDecision,
 } from "@/server/persistence";
 import type { DocumentBrief } from "@/domain/brief";
 
@@ -15,7 +14,6 @@ export type DocumentAgentWorkflowInput = {
   prompt: string;
   baseRevision: number;
   replyToRunId: string | null;
-  decision: RunDecision | null;
   targetNodeId?: string | null;
 };
 
@@ -43,22 +41,14 @@ export type DocumentRunPromptContext = {
   history?: ClarificationHistory | null;
 };
 
-export type DocumentBriefAssessment =
-  | {
-      status: "needs_input";
-      question: string;
-      briefSummary: string;
-    }
-  | {
-      status: "ready";
-      brief: DocumentBrief | null;
-      briefVersion: number | null;
-      legacyDocument: boolean;
-    };
+export type DocumentBriefAssessment = {
+  status: "ready";
+  brief: DocumentBrief | null;
+  briefVersion: number | null;
+  legacyDocument: boolean;
+};
 
-export type DocumentAgentProvider =
-  | "ai_gateway"
-  | "deterministic_fallback";
+export type DocumentAgentProvider = "ai_gateway";
 
 export type DocumentAgentArtifactSummary = {
   revision: number;
@@ -93,9 +83,7 @@ export type DocumentAgentWorkflowResult =
       message: string;
     };
 
-export type AgentRuntimeSelection =
-  | { provider: "ai_gateway"; model: string }
-  | { provider: "deterministic_fallback"; model: null };
+export type AgentRuntimeSelection = { provider: "ai_gateway"; model: string };
 
 export type WorkflowLoadResult =
   | {
@@ -123,12 +111,6 @@ export type RunDocumentRevisionResult = {
   needsInput: boolean;
   question?: string;
 };
-
-export type DocumentDecisionRunResult =
-  | { status: "not_requested" }
-  | { status: "applied"; revision: number }
-  | { status: "rejected" }
-  | { status: "stale"; message: string };
 
 export type CompileAndStoreResult =
   | {

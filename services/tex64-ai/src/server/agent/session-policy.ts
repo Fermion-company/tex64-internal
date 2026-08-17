@@ -20,21 +20,16 @@ export type DocumentMutationReadiness =
     };
 
 /**
- * A conversational edit run: a fresh prompt (not a clarification answer or an
- * approval decision) against a document that already has content. Derivable
- * from persisted run/document state alone so durable tool steps can recompute
- * it identically on replay.
+ * A conversational edit run: a fresh prompt (not a clarification answer)
+ * against a document that already has content. Derivable from persisted
+ * run/document state alone so durable tool steps can recompute it
+ * identically on replay.
  */
 export function isContentEditRun(input: {
   replyToRunId: string | null;
-  decision: unknown;
   documentHasContent: boolean;
 }): boolean {
-  return (
-    input.decision === null &&
-    input.replyToRunId === null &&
-    input.documentHasContent
-  );
+  return input.replyToRunId === null && input.documentHasContent;
 }
 
 const CONTRACT_CHANGING_EDIT_PATTERN =

@@ -11,10 +11,7 @@ import {
   createDocumentAgentSession,
 } from "@/domain/brief";
 import { DocumentSchema } from "@/domain/document";
-import {
-  planDocumentDeterministically,
-  type DocumentToolExecution,
-} from "@/server/agent";
+import { type DocumentToolExecution } from "@/server/agent";
 import type { DocumentRepository } from "@/server/persistence";
 import { IdempotencyConflictError } from "@/server/persistence";
 import { LocalDocumentRepository } from "@/server/persistence/local-repository";
@@ -107,6 +104,33 @@ function toolContext() {
   return { documentId: DOCUMENT_ID, runId: RUN_ID, actorId: USER_ID };
 }
 
+/** Minimal semantic patch used to exercise the durable mutation boundary. */
+function insertParagraphPatch(input: {
+  patchId: string;
+  nodeId: string;
+  baseRevision: number;
+  text: string;
+  createdAt?: string;
+}) {
+  return {
+    id: input.patchId,
+    documentId: DOCUMENT_ID,
+    baseRevision: input.baseRevision,
+    createdAt: input.createdAt ?? NOW,
+    operations: [
+      {
+        op: "insert" as const,
+        node: {
+          id: input.nodeId,
+          type: "paragraph" as const,
+          content: [{ type: "text" as const, text: input.text, marks: [] }],
+        },
+        position: { kind: "root" as const, index: 0 },
+      },
+    ],
+  };
+}
+
 function verifiedSource(
   overrides: Partial<SourceRecord> = {},
 ): SourceRecord {
@@ -197,7 +221,6 @@ describe.sequential("durable tool mutation serialization", () => {
       prompt: "注意機構について論文を書いて",
       baseRevision: 1,
       replyToRunId: null,
-      decision: null,
     } as const;
 
     await expect(
@@ -277,7 +300,6 @@ describe.sequential("durable tool mutation serialization", () => {
         prompt: "指定テンプレートで論文を書いて",
         baseRevision: 1,
         replyToRunId: null,
-        decision: null,
       },
       briefVersion: session.briefVersion,
       baseRevision: 1,
@@ -347,7 +369,6 @@ describe.sequential("durable tool mutation serialization", () => {
         prompt: "Chicago形式で論文を書いて",
         baseRevision: 1,
         replyToRunId: null,
-        decision: null,
       },
       briefVersion: session.briefVersion,
       baseRevision: 1,
@@ -485,24 +506,20 @@ describe.sequential("durable tool mutation serialization", () => {
   });
 
   it("never commits a patch while the same model response is waiting for an answer", async () => {
-    const document = await repository.getDocument(USER_ID, DOCUMENT_ID);
-    expect(document).not.toBeNull();
-    if (!document) return;
-    const plan = planDocumentDeterministically({
-      prompt: "注意機構について論文を書いて",
-      currentDocument: document.document,
-      baseRevision: document.currentRevision,
-      now: NOW,
+    const patch = insertParagraphPatch({
+      patchId: "50000000-0000-4000-8000-000000000101",
+      nodeId: "50000000-0000-4000-8000-000000000102",
+      baseRevision: 1,
+      text: "注意機構は入力の関連部分を選択する仕組みである。",
     });
-    expect(plan.status).toBe("planned");
-    if (plan.status !== "planned") return;
+    const summary = "本文を追加";
 
     const batchMessages: ModelMessage[] = [
       { role: "user", content: "注意機構について論文を書いて" },
     ];
     const outcomes = await Promise.allSettled([
       applyDocumentPatchToolStep(
-        { patch: plan.patch, summary: plan.summary },
+        { patch, summary },
         toolContext(),
         execution("call-write", batchMessages),
       ),
@@ -552,7 +569,7 @@ describe.sequential("durable tool mutation serialization", () => {
       expect(events.filter((event) => event.stage === "needs_input")).toHaveLength(0);
       await expect(
         applyDocumentPatchToolStep(
-          { patch: plan.patch, summary: plan.summary },
+          { patch, summary },
           toolContext(),
           execution("call-write", batchMessages),
         ),
@@ -562,35 +579,30 @@ describe.sequential("durable tool mutation serialization", () => {
   });
 
   it("allows a later model turn to apply a second durable mutation", async () => {
-    const firstDocument = await repository.getDocument(USER_ID, DOCUMENT_ID);
-    if (!firstDocument) throw new Error("expected document");
-    const first = planDocumentDeterministically({
-      prompt: "注意機構について論文を書いて",
-      currentDocument: firstDocument.document,
+    const first = insertParagraphPatch({
+      patchId: "50000000-0000-4000-8000-000000000111",
+      nodeId: "50000000-0000-4000-8000-000000000112",
       baseRevision: 1,
-      now: NOW,
+      text: "最初の本文。",
     });
-    if (first.status !== "planned") throw new Error("expected first plan");
 
     await applyDocumentPatchToolStep(
-      { patch: first.patch, summary: first.summary },
+      { patch: first, summary: "本文を追加" },
       toolContext(),
       execution("call-first", [{ role: "user", content: "最初の依頼" }]),
     );
 
-    const secondDocument = await repository.getDocument(USER_ID, DOCUMENT_ID);
-    if (!secondDocument) throw new Error("expected updated document");
-    const second = planDocumentDeterministically({
-      prompt: "「今後の課題」章を追加して",
-      currentDocument: secondDocument.document,
+    const second = insertParagraphPatch({
+      patchId: "50000000-0000-4000-8000-000000000113",
+      nodeId: "50000000-0000-4000-8000-000000000114",
       baseRevision: 2,
-      now: "2026-08-07T12:01:00.000+09:00",
+      text: "今後の課題。",
+      createdAt: "2026-08-07T12:01:00.000+09:00",
     });
-    if (second.status !== "planned") throw new Error("expected second plan");
 
     await expect(
       applyDocumentPatchToolStep(
-        { patch: second.patch, summary: second.summary },
+        { patch: second, summary: "今後の課題を追加" },
         toolContext(),
         execution("call-second", [
           { role: "user", content: "最初の依頼" },
@@ -610,25 +622,22 @@ describe.sequential("durable tool mutation serialization", () => {
   });
 
   it("rejects a reused patch id when its durable commit payload differs", async () => {
-    const document = await repository.getDocument(USER_ID, DOCUMENT_ID);
-    if (!document) throw new Error("expected document");
-    const plan = planDocumentDeterministically({
-      prompt: "注意機構について論文を書いて",
-      currentDocument: document.document,
+    const patch = insertParagraphPatch({
+      patchId: "50000000-0000-4000-8000-000000000121",
+      nodeId: "50000000-0000-4000-8000-000000000122",
       baseRevision: 1,
-      now: NOW,
+      text: "注意機構の概要。",
     });
-    if (plan.status !== "planned") throw new Error("expected plan");
 
     await applyDocumentPatchToolStep(
-      { patch: plan.patch, summary: plan.summary },
+      { patch, summary: "本文を追加" },
       toolContext(),
       execution("call-original", [{ role: "user", content: "最初の依頼" }]),
     );
 
     await expect(
       applyDocumentPatchToolStep(
-        { patch: plan.patch, summary: "異なる要約" },
+        { patch, summary: "異なる要約" },
         toolContext(),
         execution("call-conflicting-replay", [
           { role: "user", content: "最初の依頼" },

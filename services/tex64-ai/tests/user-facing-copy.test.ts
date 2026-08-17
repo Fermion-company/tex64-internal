@@ -4,11 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DocumentSchema } from "@/domain/document";
-import {
-  createRunReplyInput,
-  userFacingRunNote,
-} from "@/lib/client/run-input";
-import type { AgentRun } from "@/lib/client/types";
+import { userFacingRunNote } from "@/lib/client/run-input";
 import {
   USER_FACING_QUESTION_FALLBACKS,
   containsUnsafeUserFacingCopy,
@@ -89,7 +85,6 @@ async function createRunningRun(input: {
     documentId: DOCUMENT_ID,
     prompt: input.prompt,
     replyToRunId: input.replyToRunId ?? null,
-    decision: null,
     idempotencyKey: `copy-safety-${input.id}`,
     baseRevision: 1,
   });
@@ -105,7 +100,6 @@ async function createRunningRun(input: {
     prompt: run.prompt,
     baseRevision: run.baseRevision,
     replyToRunId: run.replyToRunId,
-    decision: run.decision,
   };
 }
 
@@ -128,7 +122,6 @@ describe.sequential("user-facing question boundary", () => {
     });
     await markDocumentRunNeedsInputStep({
       workflow,
-      code: "clarification_required",
       question,
     });
     await expect(repository.getRun(USER_ID, QUESTION_RUN_ID)).resolves.toMatchObject({
@@ -185,9 +178,7 @@ describe.sequential("user-facing question boundary", () => {
     expect(events.at(-1)?.detail?.question).toBe(
       USER_FACING_QUESTION_FALLBACKS.clarification_required,
     );
-    await expect(
-      presentAgentRun(repository, USER_ID, stored),
-    ).resolves.toMatchObject({
+    expect(presentAgentRun(stored)).toMatchObject({
       resultNote: USER_FACING_QUESTION_FALLBACKS.clarification_required,
       inputKind: "clarification",
     });
@@ -205,34 +196,6 @@ describe.sequential("user-facing question boundary", () => {
     });
   });
 
-  it("uses an approval fallback that the existing reply control can answer", () => {
-    const question = normalizeUserFacingQuestion(
-      `apply_document_patch runId=${QUESTION_RUN_ID}`,
-      "approval_required",
-    );
-    expect(question).toBe(USER_FACING_QUESTION_FALLBACKS.approval_required);
-
-    const run: AgentRun = {
-      id: QUESTION_RUN_ID,
-      documentId: DOCUMENT_ID,
-      prompt: "結論を削除して",
-      stage: "needs_input",
-      status: "waiting_approval",
-      createdAt: NOW,
-      updatedAt: NOW,
-      inputKind: "approval",
-      resultNote: question,
-    };
-    expect(createRunReplyInput(run, "はい")).toMatchObject({
-      replyToRunId: QUESTION_RUN_ID,
-      decision: "approve",
-    });
-    expect(createRunReplyInput(run, "いいえ")).toMatchObject({
-      replyToRunId: QUESTION_RUN_ID,
-      decision: "reject",
-    });
-  });
-
   it("sanitizes unsafe legacy copy again at every server presentation boundary", async () => {
     const legacyRun: StoredAgentRun = {
       id: QUESTION_RUN_ID,
@@ -240,7 +203,6 @@ describe.sequential("user-facing question boundary", () => {
       documentId: DOCUMENT_ID,
       prompt: "結論を整理して",
       replyToRunId: null,
-      decision: null,
       idempotencyKey: "legacy-unsafe-copy",
       workflowRunId: "workflow-legacy-unsafe-copy",
       status: "waiting_approval",
@@ -259,23 +221,7 @@ describe.sequential("user-facing question boundary", () => {
     expect(toAgentRun(legacyRun)).toMatchObject({
       resultNote: USER_FACING_QUESTION_FALLBACKS.clarification_required,
     });
-    await expect(
-      presentAgentRun(
-        { getPendingDocumentAction: async () => ({}) as never },
-        USER_ID,
-        legacyRun,
-      ),
-    ).resolves.toMatchObject({
-      resultNote: USER_FACING_QUESTION_FALLBACKS.approval_required,
-      inputKind: "approval",
-    });
-    await expect(
-      presentAgentRun(
-        { getPendingDocumentAction: async () => null },
-        USER_ID,
-        legacyRun,
-      ),
-    ).resolves.toMatchObject({
+    expect(presentAgentRun(legacyRun)).toMatchObject({
       resultNote: USER_FACING_QUESTION_FALLBACKS.clarification_required,
       inputKind: "clarification",
     });

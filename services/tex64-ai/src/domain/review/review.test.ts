@@ -310,7 +310,6 @@ describe("deterministic acceptance", () => {
       session: initial,
       extraction: extractBriefRequirementsDeterministically({
         prompt: answer,
-        activeQuestion: null,
       }),
       answerText: answer,
       runId: AUTHORING_RUN_ID,

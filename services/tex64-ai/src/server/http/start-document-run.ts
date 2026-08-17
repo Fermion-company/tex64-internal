@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
   DocumentRepository,
-  RunDecision,
   StoredAgentRun,
 } from "@/server/persistence";
 
@@ -14,7 +13,6 @@ export type DocumentWorkflowInput = {
   prompt: string;
   baseRevision: number;
   replyToRunId: string | null;
-  decision: RunDecision | null;
   targetNodeId: string | null;
 };
 
@@ -38,7 +36,6 @@ export async function createAndStartDocumentRun(input: {
   idempotencyKey: string;
   baseRevision: number;
   replyToRunId?: string | null;
-  decision?: RunDecision | null;
   targetNodeId?: string | null;
   startWorkflow: DocumentWorkflowStarter;
 }): Promise<StoredAgentRun> {
@@ -50,7 +47,6 @@ export async function createAndStartDocumentRun(input: {
     idempotencyKey: input.idempotencyKey,
     baseRevision: input.baseRevision,
     replyToRunId: input.replyToRunId ?? null,
-    decision: input.decision ?? null,
     targetNodeId: input.targetNodeId ?? null,
   });
 
@@ -79,7 +75,6 @@ export async function createAndStartDocumentRun(input: {
       prompt: run.prompt,
       baseRevision: run.baseRevision,
       replyToRunId: run.replyToRunId,
-      decision: run.decision,
       targetNodeId: run.targetNodeId,
     });
     workflowRunId = workflowRun.runId;

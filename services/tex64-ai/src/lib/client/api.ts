@@ -216,7 +216,6 @@ function isRun(value: unknown): value is AgentRun {
     (value.resultNote === undefined || typeof value.resultNote === "string") &&
     (value.inputKind === undefined ||
       value.inputKind === null ||
-      value.inputKind === "approval" ||
       value.inputKind === "clarification")
   );
 }

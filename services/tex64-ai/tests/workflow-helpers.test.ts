@@ -18,6 +18,10 @@ import {
   nextCompileFailureAction,
   selectAgentRuntime,
   semanticEventKey,
+  safeWorkflowFailureCode,
+  safeWorkflowFailureMessage,
+  AgentRuntimeConfigurationError,
+  AGENT_RUNTIME_UNCONFIGURED_MESSAGE,
 } from "@/workflows/document-agent/helpers";
 
 describe("document agent workflow helpers", () => {
@@ -84,11 +88,14 @@ describe("document agent workflow helpers", () => {
     });
 
     expect(
-      selectAgentRuntime({ TEX64_AI_MODEL: "openai/example-model" }),
-    ).toEqual({ provider: "deterministic_fallback", model: null });
-    expect(selectAgentRuntime({ AI_GATEWAY_API_KEY: "gateway-token" })).toEqual(
-      { provider: "deterministic_fallback", model: null },
-    );
+      selectAgentRuntime({
+        TEX64_AI_MODEL: "openai/example-model",
+        OPENAI_API_KEY: "sk-test",
+      }),
+    ).toEqual({
+      provider: "ai_gateway",
+      model: "openai/example-model",
+    });
   });
 
   it("accepts Vercel OIDC as the Gateway identity", () => {
@@ -117,48 +124,37 @@ describe("document agent workflow helpers", () => {
     },
   );
 
-  it("fails closed when a hosted production runtime lacks its AI configuration", () => {
+  it("fails fast with a clear Japanese error whenever no model runtime is configured", () => {
+    // The deterministic fallback engine is gone: development environments
+    // fail exactly like production instead of silently degrading.
+    expect(() => selectAgentRuntime({})).toThrow(
+      AgentRuntimeConfigurationError,
+    );
+    expect(() =>
+      selectAgentRuntime({ TEX64_AI_MODEL: "openai/example-model" }),
+    ).toThrow(AGENT_RUNTIME_UNCONFIGURED_MESSAGE);
+    expect(() =>
+      selectAgentRuntime({ AI_GATEWAY_API_KEY: "gateway-token" }),
+    ).toThrow(AGENT_RUNTIME_UNCONFIGURED_MESSAGE);
     expect(() =>
       selectAgentRuntime({
         NODE_ENV: "production",
         TEX64_AI_MODEL: "openai/example-model",
       }),
-    ).toThrow("required in production");
+    ).toThrow(AGENT_RUNTIME_UNCONFIGURED_MESSAGE);
     expect(() =>
-      selectAgentRuntime({
-        WORKFLOW_TARGET_WORLD: "vercel",
-        AI_GATEWAY_API_KEY: "gateway-token",
-      }),
-    ).toThrow("required in production");
-  });
-
-  it("keeps the deterministic fallback available in Workflow local development", () => {
-    expect(
       selectAgentRuntime({
         NODE_ENV: "production",
         WORKFLOW_TARGET_WORLD: "local",
         TEX64_LOCAL_DEVELOPMENT: "true",
       }),
-    ).toEqual({ provider: "deterministic_fallback", model: null });
-  });
-
-  it("does not enable fallback from a bare local-world production flag", () => {
-    expect(() =>
-      selectAgentRuntime({
-        NODE_ENV: "production",
-        WORKFLOW_TARGET_WORLD: "local",
-      }),
-    ).toThrow("required in production");
-  });
-
-  it("rejects deterministic fallback when Vercel also advertises a local world", () => {
-    expect(() =>
-      selectAgentRuntime({
-        NODE_ENV: "production",
-        WORKFLOW_TARGET_WORLD: "local",
-        VERCEL: "1",
-      }),
-    ).toThrow("required in production");
+    ).toThrow(AGENT_RUNTIME_UNCONFIGURED_MESSAGE);
+    expect(safeWorkflowFailureCode(new AgentRuntimeConfigurationError())).toBe(
+      "agent_runtime_unconfigured",
+    );
+    expect(
+      safeWorkflowFailureMessage(new AgentRuntimeConfigurationError()),
+    ).toBe(AGENT_RUNTIME_UNCONFIGURED_MESSAGE);
   });
 
   it("deduplicates persisted semantic events by deterministic event key", () => {
@@ -179,30 +175,13 @@ describe("document agent workflow helpers", () => {
   });
 
   it("allows at most two AI AST repair and re-typeset attempts", () => {
-    expect(
-      nextCompileFailureAction({
-        provider: "ai_gateway",
-        repairAttempt: 0,
-      }),
-    ).toBe("repair_document");
-    expect(
-      nextCompileFailureAction({
-        provider: "ai_gateway",
-        repairAttempt: 1,
-      }),
-    ).toBe("repair_document");
-    expect(
-      nextCompileFailureAction({
-        provider: "ai_gateway",
-        repairAttempt: 2,
-      }),
-    ).toBe("fail");
-    expect(
-      nextCompileFailureAction({
-        provider: "deterministic_fallback",
-        repairAttempt: 0,
-      }),
-    ).toBe("fail");
+    expect(nextCompileFailureAction({ repairAttempt: 0 })).toBe(
+      "repair_document",
+    );
+    expect(nextCompileFailureAction({ repairAttempt: 1 })).toBe(
+      "repair_document",
+    );
+    expect(nextCompileFailureAction({ repairAttempt: 2 })).toBe("fail");
   });
 
   it("distinguishes a natural finish from a tool loop stopped at its cap", () => {
@@ -400,7 +379,6 @@ describe("document agent workflow helpers", () => {
       session: initial,
       extraction: extractBriefRequirementsDeterministically({
         prompt: answer,
-        activeQuestion: null,
       }),
       answerText: answer,
       runId: rootRunId,

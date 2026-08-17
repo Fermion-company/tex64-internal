@@ -99,7 +99,7 @@ export interface AgentRun {
   createdAt: string;
   updatedAt: string;
   resultNote?: string;
-  inputKind?: "approval" | "clarification" | null;
+  inputKind?: "clarification" | null;
 }
 
 /**
@@ -184,7 +184,6 @@ export interface CreateDocumentInput {
 export interface StartRunInput {
   prompt?: string;
   replyToRunId?: string;
-  decision?: "approve" | "reject";
   /** Document element (block id) this request is scoped to. */
   targetNodeId?: string;
 }
