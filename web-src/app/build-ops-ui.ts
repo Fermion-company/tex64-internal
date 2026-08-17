@@ -324,6 +324,8 @@ export const initBuildOpsUi = (
         isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
       );
       buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
+      const label = buildButton.querySelector<HTMLElement>(".build-button-label");
+      if (label) label.textContent = isBusy ? uiText("Cancel", "キャンセル") : uiText("Build", "ビルド");
     }
     if (state === "success") {
       try {

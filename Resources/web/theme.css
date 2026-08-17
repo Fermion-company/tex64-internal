@@ -3964,7 +3964,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: none;
 }
 
-.pro-mode-controls { display: inline-flex; align-items: center; gap: 6px; }
+.pro-mode-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
+:root:not([data-pro-mode="true"]) .pro-mode-controls { display: none; }
+.pro-figure-tools, .pro-layout-control { display: inline-flex; align-items: center; gap: 6px; }
+.pro-controls-caption { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; }
 .pro-mode-toggle { display: inline-flex; align-items: center; gap: 6px; }
 .pro-mode-toggle-track { width: 28px; height: 16px; padding: 2px; border-radius: 999px; background: var(--panel-border-strong); transition: background .2s ease; }
 .pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
@@ -3972,10 +3975,23 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
 .pro-layout-switcher { display: inline-flex; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); overflow: hidden; }
 .pro-layout-switcher[hidden] { display: none; }
-.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; border-radius: 0; padding: 3px 6px; }
+.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 32px; border-radius: 0; padding: 3px 7px; white-space: nowrap; }
 .pro-layout-switcher button svg { display: block; }
+.pro-layout-button-label { font-size: 10px; font-weight: 600; letter-spacing: .01em; }
 .pro-layout-switcher button[aria-pressed="true"] { color: var(--accent); background: var(--panel-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
+
+/* Pro already owns the editor arrangement through the labeled layout picker. */
+:root[data-pro-mode="true"] #editor-split-button { display: none; }
+:root[data-pro-mode="true"] #toggle-bottom-panel-button { width: auto; padding: 0 7px; gap: 5px; }
+.topbar-layout-label { display: none; color: currentColor; font-size: 10px; font-weight: 600; white-space: nowrap; }
+:root[data-pro-mode="true"] .topbar-layout-label { display: inline; }
+
+@media (max-width: 1100px) {
+  .pro-layout-button-label,
+  :root[data-pro-mode="true"] .topbar-layout-label { display: none; }
+  :root[data-pro-mode="true"] #toggle-bottom-panel-button { width: 30px; padding: 0; }
+}
 
 :root[data-pro-mode="true"] .editor-groups {
   --pro-handle: 8px;
@@ -4289,8 +4305,9 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 }
 
 #build-button {
-  width: 30px;
-  padding: 0;
+  min-width: 30px;
+  padding: 0 8px;
+  gap: 4px;
   margin-left: 2px;
   border-color: rgba(121, 126, 249, 0.45);
   background: rgba(121, 126, 249, 0.18);
@@ -4384,6 +4401,10 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
   border: 2px solid currentColor;
   border-top-color: transparent;
   animation: build-spin 0.8s linear infinite;
+}
+
+.build-button-label {
+  white-space: nowrap;
 }
 
 #save-file-button {
