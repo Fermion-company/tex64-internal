@@ -126,10 +126,19 @@
               <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
               <button id="pro-canvas-gallery" type="button" title="Every figure in this document" hidden>⊞ Figures</button>
             </div>
-            <div class="pro-layout-control">
-              <span class="pro-controls-caption">Layout</span>
-              <div id="pro-layout-switcher" class="pro-layout-switcher" role="group" aria-label="Pro layout" hidden>
-                <button type="button" data-pro-layout="preview-source" aria-pressed="true" title="Preview | Source" aria-label="Preview and source">
+            <div id="pro-layout-control" class="pro-layout-control">
+              <button id="pro-layout-trigger" class="pro-layout-trigger" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="pro-layout-switcher" title="Choose split layout">
+                <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
+                  <path d="M12 1.5v13"></path>
+                </svg>
+                <span>Split</span>
+                <svg class="pro-layout-chevron" viewBox="0 0 10 6" width="8" height="5" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                  <path d="m1 1 4 4 4-4"></path>
+                </svg>
+              </button>
+              <div id="pro-layout-switcher" class="pro-layout-switcher" role="menu" aria-label="Choose split layout" hidden>
+                <button type="button" role="menuitemradio" data-pro-layout="preview-source" aria-checked="true" title="Preview | Source" aria-label="Preview and source">
                   <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
                     <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
                     <path d="M12 1.5v13"></path>
@@ -137,7 +146,7 @@
                   </svg>
                   <span class="pro-layout-button-label">Preview | Source</span>
                 </button>
-                <button type="button" data-pro-layout="source-reference-code" aria-pressed="false" title="Source | Reference | Code" aria-label="Source, reference and code">
+                <button type="button" role="menuitemradio" data-pro-layout="source-reference-code" aria-checked="false" title="Source | Reference | Code" aria-label="Source, reference and code">
                   <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
                     <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
                     <path d="M10 1.5v13"></path>

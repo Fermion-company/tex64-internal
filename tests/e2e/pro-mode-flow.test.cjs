@@ -123,9 +123,9 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
         const el = document.getElementById(id);
         return !!el && !el.hidden && getComputedStyle(el).display !== "none";
       };
-      return { draw: shown("pro-canvas-open"), figures: shown("pro-canvas-gallery"), layout: shown("pro-layout-switcher") };
+      return { draw: shown("pro-canvas-open"), figures: shown("pro-canvas-gallery"), split: shown("pro-layout-trigger") };
     });
-    assert.deepEqual(visible, { draw: true, figures: true, layout: true });
+    assert.deepEqual(visible, { draw: true, figures: true, split: true });
   });
 
   await t.test("layout 1 shows the preview pane, and it collapses and reopens", async () => {
@@ -163,12 +163,16 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
   });
 
   await t.test("layout 2 shows the reference pane, and layout 1 comes back", async () => {
+    await page.hover("#pro-layout-trigger");
+    await page.waitForTimeout(250);
     await page.click('[data-pro-layout="source-reference-code"]');
     await page.waitForTimeout(900);
     const ref = await page.locator("#pro-reference-pane").boundingBox();
     assert.ok(ref && ref.width > 100, `reference pane not laid out: ${JSON.stringify(ref)}`);
     assert.equal(await page.evaluate(() => document.getElementById("editor-groups").dataset.proLayout), "source-reference-code");
 
+    await page.hover("#pro-layout-trigger");
+    await page.waitForTimeout(250);
     await page.click('[data-pro-layout="preview-source"]');
     await page.waitForTimeout(800);
     assert.equal(await page.evaluate(() => document.getElementById("editor-groups").dataset.proLayout), "preview-source");
