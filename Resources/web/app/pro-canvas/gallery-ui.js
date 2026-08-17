@@ -1,3 +1,4 @@
+import { uiText } from "../i18n.js";
 import { listFigureBlocks } from "./figure-codec.js";
 import { loadPdfjs } from "./canvas-ui.js";
 import { buildStandaloneDoc } from "./standalone.js";
@@ -53,13 +54,13 @@ export const initProCanvasGallery = (deps) => {
         card.setAttribute("aria-modal", "true");
         const title = document.createElement("h2");
         title.className = "modal-title";
-        title.textContent = "Figure gallery / 図ギャラリー";
+        title.textContent = uiText("Figure gallery", "図ギャラリー");
         const list = document.createElement("div");
         list.className = "pro-canvas-gallery-list";
         const thumbnails = [];
         if (!blocks.length) {
             const empty = document.createElement("p");
-            empty.textContent = "この文書にはキャンバス図がありません。";
+            empty.textContent = uiText("This document has no canvas figures yet.", "この文書にはキャンバス図がありません。");
             list.append(empty);
         }
         const close = () => {
@@ -83,7 +84,7 @@ export const initProCanvasGallery = (deps) => {
             row.className = "pro-canvas-gallery-row";
             const label = document.createElement("div");
             label.className = "pro-canvas-gallery-label";
-            label.textContent = `図 ${index + 1}（行 ${block.startLine + 1}、オブジェクト数 ${block.scene.objects.length}）`;
+            label.textContent = uiText(`Figure ${index + 1} — line ${block.startLine + 1}, ${block.scene.objects.length} object(s)`, `図 ${index + 1}（行 ${block.startLine + 1}、オブジェクト数 ${block.scene.objects.length}）`);
             if (block.detached) {
                 const badge = document.createElement("span");
                 badge.className = "pro-canvas-gallery-detached";
@@ -100,7 +101,7 @@ export const initProCanvasGallery = (deps) => {
             const edit = document.createElement("button");
             edit.type = "button";
             edit.className = "panel-button";
-            edit.textContent = "編集";
+            edit.textContent = uiText("Edit", "編集");
             edit.addEventListener("click", () => {
                 window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", { detail: {
                         scene: block.scene,
@@ -116,7 +117,7 @@ export const initProCanvasGallery = (deps) => {
         const closeButton = document.createElement("button");
         closeButton.type = "button";
         closeButton.className = "panel-button";
-        closeButton.textContent = "閉じる";
+        closeButton.textContent = uiText("Close", "閉じる");
         closeButton.addEventListener("click", close);
         actions.append(closeButton);
         card.append(title, list, actions);
@@ -143,7 +144,7 @@ export const initProCanvasGallery = (deps) => {
                             return;
                         const image = document.createElement("img");
                         image.src = src;
-                        image.alt = `図 ${index + 1}`;
+                        image.alt = uiText(`Figure ${index + 1}`, `図 ${index + 1}`);
                         thumbnail.replaceChildren(image);
                     }
                     catch {

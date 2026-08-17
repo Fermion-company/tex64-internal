@@ -1,6 +1,6 @@
 const DEFAULT_STYLE = {
     draw: "#000000", fill: null, lineWidthPt: 0.4, dash: "solid", opacity: 1,
-    arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0,
+    arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0, pattern: null, shading: null,
 };
 let idCounter = 0;
 export const createEmptyScene = () => ({
@@ -42,6 +42,22 @@ const isStyleProps = (value) => {
         return false;
     if (value.roundedCornersPt !== undefined && (!isNumber(value.roundedCornersPt) || value.roundedCornersPt < 0))
         return false;
+    if (value.pattern !== undefined && value.pattern !== null && (!isRecord(value.pattern) || !oneOf(value.pattern.name, ["horizontal lines", "vertical lines", "north east lines", "north west lines", "grid", "crosshatch", "dots", "crosshatch dots"]) || value.pattern.color !== undefined && typeof value.pattern.color !== "string"))
+        return false;
+    if (value.shading !== undefined && value.shading !== null) {
+        if (!isRecord(value.shading))
+            return false;
+        if (value.shading.kind === "axis") {
+            if (typeof value.shading.top !== "string" || typeof value.shading.bottom !== "string" || value.shading.angle !== undefined && !isNumber(value.shading.angle) || "inner" in value.shading || "outer" in value.shading)
+                return false;
+        }
+        else if (value.shading.kind === "radial") {
+            if (typeof value.shading.inner !== "string" || typeof value.shading.outer !== "string" || "top" in value.shading || "bottom" in value.shading || "angle" in value.shading)
+                return false;
+        }
+        else
+            return false;
+    }
     return value.doubleDistancePt === undefined || (isNumber(value.doubleDistancePt) && value.doubleDistancePt >= 0);
 };
 const isObjStyle = (value) => isRecord(value)
@@ -73,9 +89,10 @@ const isSceneObject = (value) => {
         return isVec(value.at) && isNumber(value.width) && value.width > 0 && isNumber(value.height) && value.height > 0
             && isRecord(value.axis) && isNumber(value.axis.xmin) && isNumber(value.axis.xmax)
             && (value.axis.ymin === null || isNumber(value.axis.ymin)) && (value.axis.ymax === null || isNumber(value.axis.ymax))
-            && oneOf(value.axis.axisLines, ["box", "middle", "left"]) && oneOf(value.axis.grid, ["none", "major", "both"])
+            && oneOf(value.axis.axisLines, ["box", "middle", "left"]) && oneOf(value.axis.grid, ["none", "major", "both"]) && (value.axis.equal === undefined || typeof value.axis.equal === "boolean")
             && typeof value.axis.xlabel === "string" && typeof value.axis.ylabel === "string" && typeof value.axis.title === "string"
-            && Array.isArray(value.series) && value.series.every(series => isRecord(series) && typeof series.expr === "string"
+            && Array.isArray(value.series) && value.series.every(series => isRecord(series) && typeof series.expr === "string" && (series.kind === undefined || oneOf(series.kind, ["fn", "parametric", "polar", "points"]))
+            && (series.kind !== "parametric" || typeof series.expr2 === "string") && (series.kind !== "points" || typeof series.points === "string")
             && (series.domain === null || (isRecord(series.domain) && isNumber(series.domain.min) && isNumber(series.domain.max)))
             && Number.isInteger(series.samples) && series.samples > 0 && typeof series.color === "string" && /^#[0-9a-fA-F]{6}$/.test(series.color)
             && typeof series.thick === "boolean" && typeof series.legend === "string" && (series.visible === undefined || typeof series.visible === "boolean"));

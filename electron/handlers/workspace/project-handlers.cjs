@@ -84,6 +84,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
     ensureWorkspace,
     sendWorkspace,
     searchService,
+    fileAccess,
   } = ctx;
 
   const e2eDialogQueueState = {
@@ -177,6 +178,10 @@ const createWorkspaceProjectHandlers = (ctx) => {
       return;
     }
     sendLauncherStatus({ isBusy: true, message: null });
+    if (!(await fileAccess.ensureAccess(projectPath))) {
+      sendLauncherStatus({ isBusy: false, message: null });
+      return;
+    }
     // Verify the path exists
     try {
       const stats = await fsp.stat(projectPath);

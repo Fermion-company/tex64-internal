@@ -1,0 +1,38 @@
+% 図キャンバスの練習用。図の行にカーソルを置くと「図キャンバスで編集」が出る。
+% 試す順番は ../../README.md の「図キャンバス」に書いてある。
+\documentclass[a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\begin{document}
+
+\section*{なめらかな曲線}
+なめらかな波。選択しただけで曲がり位置と制御点が見えます。
+
+%% tex64-figure v2 h=084b1056 /3sidiI6MSwi/3VuaXQiOiJt/20iLCJ3aWR0/WgBUDAwLCJoZedpZ2gBkADCZ3Jp/2QiOnsic2l6/2UiOjUsInNu/2FwIjp0cnVl/X0AwHR5bGVzIv86W10sIm9iardlY3QAwXsiAzEi73dhdmUFoHR5cI4DkCJwYQYAAxQFAXD3cm9wAsB7ImxpV25lVwfhUAcxfQVQ32Nsb3NlBBBmYbdsc2UDIWFyAaB7+yJ4CTEsInkiOvs0NQfBZWdtZW58BxQGVGN1YmljBmCrYzEDBDIDAzcDAWO1MgFEMwFIdG8BRDSmBaZ9LAT/BPU1AlMxkgT6NgFIBPY3BP8E/zpbNzYCUjYzBPk4AUgKBPY5BPddABA=
+\begin{tikzpicture}[x=1mm, y=1mm]
+  \draw[line width=1pt] (10,45) .. controls (20,75) and (30,75) .. (40,45)
+    .. controls (50,15) and (60,15) .. (70,45) .. controls (76,63) and (86,63) .. (90,45);
+\end{tikzpicture}
+
+\section*{閉じた曲線}
+閉パス。頂点の追加・削除や、閉じたまま滑らかにつながるかの確認に。
+
+%% tex64-figure v2 h=0ebb2372 /3sidiI6MSwi/3VuaXQiOiJt/20iLCJ3aWR0/WgBUDAwLCJoZedpZ2gBkADCZ3Jp/2QiOnsic2l6/2UiOjUsInNu/2FwIjp0cnVl/X0AwHR5bGVzIv86W10sIm9iardlY3QAwXsiAzEi72Jsb2IFoHR5cI4DkCJwYQYAAxQFAXD3cm9wAsB7Imxp125lVwfhUAcxLCLvZmlsbALwI2Riv2VhZmUifQZgY49sb3NlBSAHUQQhYZ1yAqB7IngJAAogee8iOjgwCMFlZ23zZW4IFAdUY3ViaW1jB2BjMQMENzYDAqs3OAVhMgFEOAFDNtYEUXRvAUUyAUI0MCgIEAT/BPY4AlIyA6EE9i01BPMxMgT5MwFDApBkBP8E9zECVAn6MTQBQjE1AUEE9g+nfV0AEA==
+\definecolor{t64DBEAFE}{HTML}{DBEAFE}
+\begin{tikzpicture}[x=1mm, y=1mm]
+  \filldraw[fill=t64DBEAFE, line width=1pt] (50,80) .. controls (76,78) and (86,60) .. (82,40)
+    .. controls (78,20) and (56,12) .. (36,20) .. controls (16,28) and (14,58) .. (50,80) -- cycle;
+\end{tikzpicture}
+
+\section*{矢印と数式ラベル}
+直線パス（端点□をドラッグで伸縮）と数式ノード（ダブルクリックで編集）。
+
+%% tex64-figure v2 h=2217db6f /3sidiI6MSwi/3VuaXQiOiJt/20iLCJ3aWR0/WgBUDAwLCJoZedpZ2gBkADCZ3Jp/2QiOnsic2l6/2UiOjUsInNu/2FwIjp0cnVl/X0AwHR5bGVzIv86W10sIm9iardlY3QAwXsiAzEi72F4aXMFoHR5cI4DkCJwYQYAAxQFAXD3cm9wAsB7Imxp125lVwfhUAcxLCJ/YXJyb3dFbgQRX1N0ZWFsA2B9BqDfY2xvc2UBQGZht2xzZQRxYXIC8HvzIngDQAlgeSI6Mn01CRFlZ21lbghkqAekBhEIgW8C9DgC8za/NX19XX0sCtRs72FiZWwK525vZEoDMWEGNTUQsAMwNQYxv2FuY2hvcgJAY/YGkGVyAmBsYXRl/gJAIiR2ID0gXP9cZGZyYWN7ZH94fXtkdH0kD1gABwE=
+\begin{tikzpicture}[x=1mm, y=1mm]
+  \draw[line width=1pt, -{Stealth}] (15,25) -- (85,65);
+  \node at (50,55) {$v = \dfrac{dx}{dt}$};
+\end{tikzpicture}
+
+\end{document}

@@ -1,3 +1,60 @@
+const cubicPoint = (from, seg, t) => { const u = 1 - t; return { x: u * u * u * from.x + 3 * u * u * t * seg.c1.x + 3 * u * t * t * seg.c2.x + t * t * t * seg.to.x, y: u * u * u * from.y + 3 * u * u * t * seg.c1.y + 3 * u * t * t * seg.c2.y + t * t * t * seg.to.y }; };
+export const cubicExtremaPoints = (from, seg) => {
+    const roots = (p0, p1, p2, p3) => { const a = -p0 + 3 * p1 - 3 * p2 + p3, b = p0 - 2 * p1 + p2, c = p1 - p0, eps = 1e-12; if (Math.abs(a) < eps)
+        return Math.abs(b) < eps ? [] : [-c / (2 * b)]; const d = b * b - a * c; return d < 0 ? [] : [(-b + Math.sqrt(d)) / a, (-b - Math.sqrt(d)) / a]; };
+    const cubic = seg, ts = [...roots(from.x, seg.c1.x, seg.c2.x, seg.to.x), ...roots(from.y, seg.c1.y, seg.c2.y, seg.to.y)].filter(t => t > 0 && t < 1);
+    return [...ts.map(t => cubicPoint(from, cubic, t)), { ...seg.to }];
+};
+export const pathTightPoints = (path) => { const points = [{ ...path.start }]; let from = path.start; for (const seg of path.segments) {
+    points.push(...(seg.type === "line" ? [{ ...seg.to }] : cubicExtremaPoints(from, seg)));
+    from = seg.to;
+} return points; };
+export const pathTightBounds = (path) => { const points = pathTightPoints(path), xs = points.map(p => p.x), ys = points.map(p => p.y); return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) }; };
+export const isMirrorPair = (anchor, a, b) => { const ax = a.x - anchor.x, ay = a.y - anchor.y, bx = b.x - anchor.x, by = b.y - anchor.y, al = Math.hypot(ax, ay), bl = Math.hypot(bx, by); return al > 1e-6 && bl > 1e-6 && (ax * bx + ay * by) / (al * bl) < -Math.cos(Math.PI / 18); };
+export const mirroredControl = (anchor, dragged, oppositeLength) => { const dx = dragged.x - anchor.x, dy = dragged.y - anchor.y, length = Math.hypot(dx, dy); return length < 1e-12 ? { ...anchor } : { x: anchor.x - dx / length * oppositeLength, y: anchor.y - dy / length * oppositeLength }; };
+export const nearestOnPath = (path, p) => { let best = { segIndex: 0, t: 0, dist: Infinity, point: { ...path.start } }, from = path.start; path.segments.forEach((seg, segIndex) => { if (seg.type === "line") {
+    const dx = seg.to.x - from.x, dy = seg.to.y - from.y, d = dx * dx + dy * dy, t = d ? Math.max(0, Math.min(1, ((p.x - from.x) * dx + (p.y - from.y) * dy) / d)) : 0, point = { x: from.x + dx * t, y: from.y + dy * t }, dist = Math.hypot(p.x - point.x, p.y - point.y);
+    if (dist < best.dist)
+        best = { segIndex, t, dist, point };
+}
+else
+    for (let i = 0; i <= 32; i++) {
+        const t = i / 32, point = cubicPoint(from, seg, t), dist = Math.hypot(p.x - point.x, p.y - point.y);
+        if (dist < best.dist)
+            best = { segIndex, t, dist, point };
+    } from = seg.to; }); return best; };
+export const bendSegment = (seg, t, delta) => { const w1 = 3 * (1 - t) * (1 - t) * t, w2 = 3 * (1 - t) * t * t, s = w1 * w1 + w2 * w2; if (!s)
+    return; seg.c1.x += delta.x * w1 / s; seg.c1.y += delta.y * w1 / s; seg.c2.x += delta.x * w2 / s; seg.c2.y += delta.y * w2 / s; };
+export const splitSegmentAt = (from, seg, t) => { if (seg.type === "line") {
+    const mid = { x: from.x + (seg.to.x - from.x) * t, y: from.y + (seg.to.y - from.y) * t };
+    return [{ type: "line", to: mid }, { type: "line", to: { ...seg.to } }];
+} const mix = (a, b) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }), a = mix(from, seg.c1), b = mix(seg.c1, seg.c2), c = mix(seg.c2, seg.to), d = mix(a, b), e = mix(b, c), mid = mix(d, e); return [{ type: "cubic", c1: a, c2: d, to: mid }, { type: "cubic", c1: e, c2: c, to: { ...seg.to } }]; };
+/**
+ * パスの向きを反転する（形はそのまま）。始点側から続きを描くために使う。
+ * 見た目を変えないよう、呼び出し側は始点/終点の矢頭も入れ替えること。
+ */
+export const reversePath = (path) => {
+    const anchors = [path.start, ...path.segments.map((seg) => seg.to)];
+    const segments = [];
+    for (let i = path.segments.length - 1; i >= 0; i -= 1) {
+        const seg = path.segments[i], to = { ...anchors[i] };
+        segments.push(seg.type === "line" ? { type: "line", to } : { type: "cubic", c1: { ...seg.c2 }, c2: { ...seg.c1 }, to });
+    }
+    return { start: { ...anchors[anchors.length - 1] }, segments };
+};
+export const removeAnchor = (path, index) => { const n = path.segments.length; if (index < 0 || index > n)
+    return false; if (!n)
+    return false; if (index === 0) {
+    path.start = { ...path.segments[0].to };
+    path.segments.shift();
+    if (path.closed && path.segments.length)
+        path.segments[path.segments.length - 1].to = { ...path.start };
+    return path.segments.length > 0;
+} if (!path.closed && index === n) {
+    path.segments.pop();
+    return path.segments.length > 0;
+} const prev = path.segments[index - 1], next = path.segments[index]; if (!next)
+    return false; const from = index === 1 ? path.start : path.segments[index - 2].to, lineC1 = (a, b) => ({ x: a.x + (b.x - a.x) / 3, y: a.y + (b.y - a.y) / 3 }), lineC2 = (a, b) => ({ x: a.x + (b.x - a.x) * 2 / 3, y: a.y + (b.y - a.y) * 2 / 3 }); path.segments.splice(index - 1, 2, { type: "cubic", c1: prev.type === "cubic" ? { ...prev.c1 } : lineC1(from, prev.to), c2: next.type === "cubic" ? { ...next.c2 } : lineC2(prev.to, next.to), to: { ...next.to } }); return path.segments.length > 0; };
 export const zoomAtPoint = (view, cursorOffset, newZoom) => {
     const ratio = newZoom / view.zoom;
     return {
@@ -35,10 +92,47 @@ export const screenToScene = (point, view) => {
     const originY = view.top + view.height / 2 + view.sceneHeight * scale / 2 + (view.panY || 0);
     return { x: (point.x - originX) / scale, y: (originY - point.y) / scale };
 };
-export const snapToGrid = (point, size, enabled = true) => {
+/**
+ * グリッド吸着。`pull`（グリッド幅に対する比、既定 1 = 常に最寄りへ）を小さくすると
+ * 格子線の近くだけ引き寄せる磁石式になり、格子から外れた位置にも素直に置ける。
+ * 軸ごとに独立して判定する（x だけ格子に乗せたい、が普通に起きるため）。
+ */
+export const snapToGrid = (point, size, enabled = true, pull = 1) => {
     if (!enabled || !Number.isFinite(size) || size <= 0)
         return { ...point };
-    return { x: Math.round(point.x / size) * size, y: Math.round(point.y / size) * size };
+    const axis = (value) => {
+        const snapped = Math.round(value / size) * size;
+        return Math.abs(snapped - value) <= size * pull ? snapped : value;
+    };
+    return { x: axis(point.x), y: axis(point.y) };
+};
+/**
+ * ペンのクリック 1 回をどう解釈するか（閉じる / 確定 / スキップ / 頂点追加）。
+ *
+ * 閉じる・確定はジェスチャ（「始点そのものをクリックしたか」）なので、判定は
+ * **吸着前の生カーソル × 画面ピクセル**で行う。ユーザーは画面に見えている印に
+ * 向かってクリックするのだから、ズーム率や格子幅（無関係な設定）で「閉じやすさ」が
+ * 変わってはいけない。既存の頂点追加 8px・端点再開 12px と同じ流儀。
+ * 吸着後の点は「どこに置くか」だけに使う（add の point）。ただし吸着が最終
+ * アンカーの真上に載せた場合だけは、長さ 0 のセグメントになるので置かない（skip）。
+ * 優先順位: close > finish > skip > add。境界は inclusive。
+ * pointerdown もプレビュー（閉形予告・仮ノード）も必ずこの関数を通し、
+ * 「予告と違うことが起きる」を作らない。
+ */
+export const PEN_CLOSE_PX = 10;
+export const PEN_FINISH_PX = 8;
+export const PEN_RESUME_PX = 12;
+export const penClickAction = (input) => {
+    const { rawPoint, snappedPoint, start, last, scaleFactor, segmentCount } = input;
+    const scale = Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+    const screenDistance = (target) => Math.hypot(rawPoint.x - target.x, rawPoint.y - target.y) * scale;
+    if (start && segmentCount > 0 && screenDistance(start) <= PEN_CLOSE_PX)
+        return { action: "close" };
+    if (last && screenDistance(last) <= PEN_FINISH_PX)
+        return { action: "finish" };
+    if (last && snappedPoint.x === last.x && snappedPoint.y === last.y)
+        return { action: "skip" };
+    return { action: "add", point: { ...snappedPoint } };
 };
 export const collectSnapLines = (others, artboard) => {
     const lines = { x: [], y: [] };

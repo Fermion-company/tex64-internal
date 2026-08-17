@@ -3,8 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { resolveEngineDir, NO_FILE_ACCESS } = require("./engine-dir.cjs");
 
-const DEFAULT_TEXIZE_DIR = "/Users/majinkuu/Desktop/texize";
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60_000;
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -14,13 +14,19 @@ class TexizeService {
     const envTexizeDir = typeof process.env.TEX64_TEXIZE_DIR === "string"
       ? process.env.TEX64_TEXIZE_DIR.trim()
       : "";
-    this.texizeDir = envTexizeDir || options.texizeDir || DEFAULT_TEXIZE_DIR;
+    this.fileAccess = options.fileAccess || NO_FILE_ACCESS;
+    this.explicitTexizeDir = options.texizeDir;
+    this.envTexizeDir = envTexizeDir;
+    this.existsSync = options.existsSync || fs.existsSync;
+    const resolved = this.resolveDirectory();
+    this.texizeDir = resolved.dir;
+    this.needsAccess = resolved.needsAccess;
+    this.explicitPythonPath = options.pythonPath;
     this.pythonPath = options.pythonPath || path.join(this.texizeDir, "venv", "bin", "python");
     this.daemonArgs = options.daemonArgs || ["-m", "ocr2tex.serve"];
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.spawnImpl = options.spawnImpl || spawn;
-    this.existsSync = options.existsSync || fs.existsSync;
 
     this.proc = null;
     this.startPromise = null;
@@ -37,8 +43,20 @@ class TexizeService {
     this.lastError = null;
   }
 
+  resolveDirectory() {
+    return resolveEngineDir({ name: "texize", marker: "venv/bin/python", envDir: this.envTexizeDir,
+      explicitDir: this.explicitTexizeDir, existsSync: this.existsSync, fileAccess: this.fileAccess });
+  }
+
+  refreshDirectory() {
+    const resolved = this.resolveDirectory();
+    this.texizeDir = resolved.dir;
+    this.needsAccess = resolved.needsAccess;
+    if (!this.explicitPythonPath) this.pythonPath = path.join(this.texizeDir, "venv", "bin", "python");
+  }
+
   isAvailable() {
-    return this.existsSync(this.pythonPath);
+    return this.fileAccess.probeIfAllowed(this.pythonPath, () => this.existsSync(this.pythonPath)) === true;
   }
 
   isRunning() {
@@ -52,6 +70,7 @@ class TexizeService {
       state: this.state,
       version: this.version,
       texizeDir: this.texizeDir,
+      needsAccess: this.needsAccess,
       error: this.lastError,
     };
   }
@@ -95,13 +114,23 @@ class TexizeService {
     });
   }
 
-  ensureReady() {
+  async ensureReady() {
     if (this.isRunning() && this.state === "ready") {
-      return Promise.resolve();
+      return;
     }
     if (this.startPromise) {
       return this.startPromise;
     }
+    const allowed = await this.fileAccess.ensureAccess(this.texizeDir, { reason: "texize" });
+    if (!allowed) {
+      const root = this.fileAccess.classify(this.texizeDir)?.root || this.texizeDir;
+      const error = new Error(`TeX64 に ${root} へのアクセス許可がないため texize を起動できません。`);
+      this.lastError = error.message;
+      this.state = "unavailable";
+      throw error;
+    }
+    this.refreshDirectory();
+    if (this.startPromise) return this.startPromise;
     if (!this.isAvailable()) {
       const error = new Error(
         `texize Python was not found at ${this.pythonPath}. ` +
@@ -109,7 +138,7 @@ class TexizeService {
       );
       this.lastError = error.message;
       this.state = "unavailable";
-      return Promise.reject(error);
+      throw error;
     }
 
     this.state = "starting";
@@ -256,7 +285,6 @@ class TexizeService {
 
 module.exports = {
   TexizeService,
-  DEFAULT_TEXIZE_DIR,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_IDLE_TIMEOUT_MS,
 };

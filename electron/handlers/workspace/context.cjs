@@ -1,3 +1,9 @@
+const {
+  EXTENDED_TEXT_FILE_EXTENSIONS,
+  EXTENDED_TEXT_FILE_NAMES,
+  isExtendedTextFileName,
+} = require("../../services/text-file-types.cjs");
+
 const createWorkspaceContext = (deps) => {
   const {
     dialog,
@@ -15,6 +21,7 @@ const createWorkspaceContext = (deps) => {
     WorkspaceError,
     state,
     userSettings,
+    fileAccess = { ensureAccess: async () => true },
   } = deps;
 
   const TEXT_FILE_EXTENSIONS = new Set([
@@ -75,6 +82,7 @@ const createWorkspaceContext = (deps) => {
   };
 
   const isTextFilePath = (relativePath) => TEXT_FILE_EXTENSIONS.has(getFileExtension(relativePath));
+  const isExtendedTextFilePath = (relativePath) => isExtendedTextFileName(relativePath);
   const isImageFilePath = (relativePath) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(relativePath));
   const isPdfFilePath = (relativePath) => getFileExtension(relativePath) === "pdf";
 
@@ -213,12 +221,14 @@ const createWorkspaceContext = (deps) => {
     WorkspaceError,
     state,
     userSettings,
+    fileAccess,
 
     TEXT_FILE_EXTENSIONS,
     IMAGE_FILE_EXTENSIONS,
     IMAGE_MIME_TYPES,
     getFileExtension,
     isTextFilePath,
+    isExtendedTextFilePath,
     isImageFilePath,
     isPdfFilePath,
 

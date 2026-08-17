@@ -1,6 +1,7 @@
 const path = require("path");
 const fsp = require("fs/promises");
 const { normalizeRelativePath } = require("./workspace.cjs");
+const { isSearchableSourceFile } = require("./text-file-types.cjs");
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -15,12 +16,7 @@ const MAX_SEARCH_RESULTS = 200;
 const PREVIEW_CONTEXT_BEFORE = 48;
 const PREVIEW_CONTEXT_AFTER = 96;
 
-const getFileExtension = (name) => {
-  const ext = path.extname(name).toLowerCase();
-  return ext.startsWith(".") ? ext.slice(1) : ext;
-};
-
-const isSearchableFile = (name) => getFileExtension(name) === "tex";
+const isSearchableFile = (name) => isSearchableSourceFile(name);
 
 const buildPreview = (line, matchIndex, matchLength) => {
   const start = Math.max(0, matchIndex - PREVIEW_CONTEXT_BEFORE);

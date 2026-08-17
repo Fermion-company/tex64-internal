@@ -64,7 +64,7 @@ const DEFAULTS = new Map<EditorFeatureId, boolean>(EDITOR_FEATURES.map((f) => [f
 
 // The previous hardcoded editor font; "" font family means "use this default".
 export const DEFAULT_FONT_FAMILY =
-  '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace';
+  '"Latin Modern Mono", "SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace';
 export const DEFAULT_FONT_SIZE = 12;
 export const MIN_FONT_SIZE = 8;
 export const MAX_FONT_SIZE = 40;

@@ -5,8 +5,8 @@ const net = require("node:net");
 const path = require("node:path");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
+const { resolveEngineDir, NO_FILE_ACCESS } = require("./engine-dir.cjs");
 
-const DEFAULT_FERMION_ENGINE_DIR = "/Users/majinkuu/Desktop/fermion-tex-engine";
 const DEFAULT_PORT = 4633;
 const DEFAULT_START_TIMEOUT_MS = 30_000;
 
@@ -76,7 +76,9 @@ class FermionEngineService {
   constructor(options = {}) {
     const envDir = typeof process.env.TEX64_FERMION_ENGINE_DIR === "string"
       ? process.env.TEX64_FERMION_ENGINE_DIR.trim() : "";
-    this.engineDir = envDir || options.engineDir || DEFAULT_FERMION_ENGINE_DIR;
+    this.fileAccess = options.fileAccess || NO_FILE_ACCESS;
+    this.envEngineDir = envDir;
+    this.explicitEngineDir = options.engineDir;
     this.nodePath = options.nodePath || "node";
     this.serverScript = options.serverScript || "server.js";
     this.preferredPort = options.port ?? DEFAULT_PORT;
@@ -84,6 +86,9 @@ class FermionEngineService {
     this.pollIntervalMs = options.pollIntervalMs ?? 75;
     this.spawnImpl = options.spawnImpl || spawn;
     this.existsSync = options.existsSync || fs.existsSync;
+    const resolved = this.resolveDirectory();
+    this.engineDir = resolved.dir;
+    this.needsAccess = resolved.needsAccess;
     this.proc = null;
     this.startPromise = null;
     this.port = null;
@@ -93,18 +98,42 @@ class FermionEngineService {
     this.renderQueue = Promise.resolve();
   }
 
-  isAvailable() { return this.existsSync(path.join(this.engineDir, this.serverScript)); }
+  resolveDirectory() {
+    return resolveEngineDir({ name: "fermion-tex-engine", marker: this.serverScript,
+      envDir: this.envEngineDir, explicitDir: this.explicitEngineDir,
+      existsSync: this.existsSync, fileAccess: this.fileAccess });
+  }
+
+  refreshDirectory() {
+    const resolved = this.resolveDirectory();
+    this.engineDir = resolved.dir;
+    this.needsAccess = resolved.needsAccess;
+  }
+
+  isAvailable() { return this.fileAccess.probeIfAllowed(this.engineDir,
+    () => this.existsSync(path.join(this.engineDir, this.serverScript))) === true; }
   isRunning() { return Boolean(this.proc && this.proc.exitCode === null && !this.proc.killed); }
   get url() { return this.port ? `http://127.0.0.1:${this.port}` : null; }
   getStatus() {
     return { available: this.isAvailable(), running: this.isRunning(), state: this.state,
-      url: this.url, backend: this.backend, engineDir: this.engineDir, error: this.lastError };
+      url: this.url, backend: this.backend, engineDir: this.engineDir,
+      needsAccess: this.needsAccess, error: this.lastError };
   }
 
   async start() {
     if (this.isRunning() && this.state === "ready") {
       return { ok: true, url: this.url, backend: this.backend };
     }
+    if (this.startPromise) return this.startPromise;
+    const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "fermion" });
+    if (!allowed) {
+      const root = this.fileAccess.classify(this.engineDir)?.root || this.engineDir;
+      const error = new Error(`TeX64 に ${root} へのアクセス許可がないため fermion を起動できません。`);
+      this.state = "unavailable";
+      this.lastError = error.message;
+      throw error;
+    }
+    this.refreshDirectory();
     if (this.startPromise) return this.startPromise;
     if (!this.isAvailable()) {
       const error = new Error(`fermion-tex-engine was not found at ${this.engineDir}. Set TEX64_FERMION_ENGINE_DIR to its checkout.`);
@@ -204,4 +233,4 @@ class FermionEngineService {
   shutdown() { return this.stop(); }
 }
 
-module.exports = { FermionEngineService, DEFAULT_FERMION_ENGINE_DIR, DEFAULT_PORT, findAvailablePort, requestBuffer };
+module.exports = { FermionEngineService, DEFAULT_PORT, findAvailablePort, requestBuffer };

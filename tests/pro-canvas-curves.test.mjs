@@ -1,0 +1,46 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { bendSegment, cubicExtremaPoints, isMirrorPair, mirroredControl, nearestOnPath, pathTightBounds, removeAnchor, reversePath, splitSegmentAt } from "../Resources/web/app/pro-canvas/canvas-math.js";
+import { buildPenSegments, penSeedFromEnd, penSegmentFor } from "../Resources/web/app/pro-canvas/pen-math.js";
+const near=(a,b,e=1e-9)=>assert.ok(Math.abs(a-b)<=e,`${a} != ${b}`), point=(a,b,e=1e-9)=>{near(a.x,b.x,e);near(a.y,b.y,e);}, cubic=(a,s,t)=>{const u=1-t;return{x:u**3*a.x+3*u*u*t*s.c1.x+3*u*t*t*s.c2.x+t**3*s.to.x,y:u**3*a.y+3*u*u*t*s.c1.y+3*u*t*t*s.c2.y+t**3*s.to.y};};
+test("tight cubic bounds use extrema rather than control bbox",()=>{const start={x:0,y:0},seg={type:"cubic",c1:{x:100,y:60},c2:{x:-100,y:-60},to:{x:10,y:0}},path={start,segments:[seg]},b=pathTightBounds(path);assert.ok(b.maxX<100&&b.minX>-100);const samples=Array.from({length:101},(_,i)=>cubic(start,seg,i/100));near(b.minX,Math.min(...samples.map(p=>p.x)),1e-2);near(b.maxX,Math.max(...samples.map(p=>p.x)),1e-2);assert.ok(b.minX<=Math.min(...samples.map(p=>p.x))&&b.maxX>=Math.max(...samples.map(p=>p.x)));assert.ok(cubicExtremaPoints(start,seg).length>=3);});
+test("buildPenSegments handles auto, corners, manual, and closed wrap",()=>{const auto=[{p:{x:0,y:0},kind:"auto",out:null},{p:{x:10,y:10},kind:"auto",out:null},{p:{x:20,y:0},kind:"auto",out:null}],s=buildPenSegments(auto,false);assert.equal(s[0].type,"cubic");assert.equal(s[1].type,"cubic");if(s[0].type==="cubic"&&s[1].type==="cubic"){const a={x:s[0].to.x-s[0].c2.x,y:s[0].to.y-s[0].c2.y},b={x:s[1].c1.x-s[0].to.x,y:s[1].c1.y-s[0].to.y};near(a.x*b.y-a.y*b.x,0);}assert.ok(buildPenSegments(auto.map(n=>({...n,kind:"corner"})),false).every(x=>x.type==="line"));const manual=[{p:{x:0,y:0},kind:"manual",out:{x:2,y:3}},{p:{x:10,y:0},kind:"manual",out:{x:4,y:-2}}],m=buildPenSegments(manual,false);assert.deepEqual(m[0],penSegmentFor(manual[0].p,manual[0].out,manual[1].p,manual[1].out));const closed=buildPenSegments(auto,true);assert.equal(closed.length,3);assert.equal(closed[2].type,"cubic");});
+test("centripetal auto tangents do not overshoot short chords (L-bracket loop regression)",()=>{const nodes=[{p:{x:20,y:30},kind:"auto",out:null},{p:{x:70,y:30},kind:"auto",out:null},{p:{x:75,y:30},kind:"auto",out:null},{p:{x:80,y:70},kind:"auto",out:null}],s=buildPenSegments(nodes,false);let from=nodes[0].p;for(const seg of s.slice(0,2)){assert.equal(seg.type,"cubic");for(let i=0;i<=100;i++){const p=cubic(from,seg,i/100);assert.ok(p.x<=75.5&&p.x>=19.5,`x=${p.x} escapes [19.5,75.5]`);}from=seg.to;}});
+test("bendSegment exactly moves B(t)",()=>{const from={x:0,y:0},s={type:"cubic",c1:{x:2,y:5},c2:{x:8,y:-4},to:{x:10,y:0}},before=cubic(from,s,.5);bendSegment(s,.5,{x:3,y:-2});point(cubic(from,s,.5),{x:before.x+3,y:before.y-2});});
+test("splitSegmentAt preserves cubic shape",()=>{const from={x:0,y:0},s={type:"cubic",c1:{x:2,y:7},c2:{x:8,y:-3},to:{x:10,y:1}},[a,b]=splitSegmentAt(from,s,.37);for(const t of [0,.1,.3,.5,.7,.9,1])point(t<=.37?cubic(from,a,t/.37):cubic(a.to,b,(t-.37)/.63),cubic(from,s,t));});
+test("removeAnchor covers inner endpoints and closed synchronization",()=>{const p={start:{x:0,y:0},segments:[{type:"line",to:{x:1,y:0}},{type:"line",to:{x:2,y:0}},{type:"line",to:{x:3,y:0}}],closed:false};assert.equal(removeAnchor(p,1),true);assert.equal(p.segments.length,2);point(p.start,{x:0,y:0});point(p.segments.at(-1).to,{x:3,y:0});assert.equal(removeAnchor(p,0),true);assert.equal(removeAnchor(p,p.segments.length),false);const c={start:{x:0,y:0},segments:[{type:"line",to:{x:1,y:0}},{type:"line",to:{x:0,y:0}}],closed:true};assert.equal(removeAnchor(c,0),true);point(c.segments.at(-1).to,c.start);});
+// removeAnchor の false は「退化した」と「index が範囲外で何もしなかった」の両方を意味する。呼び出し側は false をパス削除と読むので、
+// 範囲外を渡さないこと（canvas-ui の syncAnchorEdit が毎 render でクランプする）が前提。その契約を固定する。
+test("removeAnchor returns false without touching the path when the index is out of range",()=>{const p={start:{x:0,y:0},segments:[{type:"line",to:{x:1,y:0}},{type:"line",to:{x:2,y:0}}],closed:false},copy=JSON.parse(JSON.stringify(p));assert.equal(removeAnchor(p,3),false);assert.deepEqual(p,copy);assert.equal(removeAnchor(p,-1),false);assert.deepEqual(p,copy);assert.equal(removeAnchor(p,2),true);assert.equal(p.segments.length,1);});
+test("mirror helpers and nearest path point",()=>{assert.equal(isMirrorPair({x:0,y:0},{x:2,y:0},{x:-3,y:0}),true);assert.equal(isMirrorPair({x:0,y:0},{x:2,y:0},{x:-1,y:1}),false);point(mirroredControl({x:0,y:0},{x:2,y:0},5),{x:-5,y:0});const hit=nearestOnPath({start:{x:0,y:0},segments:[{type:"line",to:{x:10,y:0}}]},{x:3,y:4});near(hit.t,.3);near(hit.dist,4);});
+
+// 端点から「続きを描く」ための土台。既存セグメントは触らず後ろに足すだけなので、
+// 拾い上げても元の曲線が動かないこと・繋ぎ目が折れないことを固定する。
+test("penSeedFromEnd continues the existing tangent without touching the curve",()=>{
+  const path={start:{x:0,y:0},segments:[{type:"cubic",c1:{x:2,y:6},c2:{x:8,y:6},to:{x:10,y:0}}]};
+  const seed=penSeedFromEnd(path);
+  assert.equal(seed.kind,"manual");point(seed.p,{x:10,y:0});point(seed.out,{x:2,y:-6});
+  const appended=[...path.segments,...buildPenSegments([seed,{p:{x:20,y:0},kind:"auto",out:null}],false)];
+  assert.deepEqual(appended[0],path.segments[0]); // 既存部分は 1 バイトも変わらない
+  const incoming={x:path.segments[0].to.x-path.segments[0].c2.x,y:path.segments[0].to.y-path.segments[0].c2.y};
+  const outgoing={x:appended[1].c1.x-seed.p.x,y:appended[1].c1.y-seed.p.y};
+  near(incoming.x*outgoing.y-incoming.y*outgoing.x,0,1e-9); // 接線が平行＝繋ぎ目が折れない
+  assert.equal(penSeedFromEnd({start:{x:0,y:0},segments:[{type:"line",to:{x:5,y:0}}]}).kind,"corner");
+  assert.equal(penSeedFromEnd({start:{x:1,y:2},segments:[]}).kind,"corner");
+  point(penSeedFromEnd({start:{x:1,y:2},segments:[]}).p,{x:1,y:2});
+});
+
+test("reversePath keeps the shape and is its own inverse",()=>{
+  const path={start:{x:0,y:0},segments:[{type:"cubic",c1:{x:2,y:7},c2:{x:8,y:-3},to:{x:10,y:1}},{type:"line",to:{x:14,y:5}}]};
+  const back=reversePath(path);
+  point(back.start,{x:14,y:5});
+  assert.equal(back.segments.length,2);
+  assert.equal(back.segments[0].type,"line");
+  point(back.segments[0].to,{x:10,y:1});
+  point(back.segments[1].c1,{x:8,y:-3});point(back.segments[1].c2,{x:2,y:7});point(back.segments[1].to,{x:0,y:0});
+  // 反転した曲線は元と同じ点を（逆向きに）通る
+  const forward=cubic(path.start,path.segments[0],.3),reverse=cubic(back.segments[0].to,back.segments[1],.7);
+  point(forward,reverse,1e-9);
+  const twice=reversePath(back);
+  assert.deepEqual(twice,{start:path.start,segments:path.segments});
+});

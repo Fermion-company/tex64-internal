@@ -1,8 +1,14 @@
-import { isImageFilePath, isPdfFilePath, isTextFilePath } from "./files.js";
+import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isProTextFilePath, isTextFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
-import { getUiLocale } from "./i18n.js";
+import { getUiLocale, uiText } from "./i18n.js";
+const isProModeActive = () => document.documentElement.dataset.appMode === "pro";
 export const createEditorSessionFileOps = (ctx) => {
+    let lastSaveErrorMessage = null;
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
+    const reportSaveError = (message) => {
+        lastSaveErrorMessage = message;
+        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    };
     /**
      * Replace model content via executeEdits (preserves undo stack) when available,
      * falling back to setValue (clears undo stack) otherwise.
@@ -76,8 +82,11 @@ export const createEditorSessionFileOps = (ctx) => {
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
         group.currentFileSavedContent = null;
-        group.isDirty = false;
-        dirtyFiles.delete(path);
+        const keepDirty = isEditableTextFilePath(path) && dirtyFiles.has(path);
+        group.isDirty = keepDirty;
+        if (!keepDirty) {
+            dirtyFiles.delete(path);
+        }
         addOpenTab(group, path);
         deps.editorTabs.render(group);
         if (isActiveGroup(group)) {
@@ -94,7 +103,10 @@ export const createEditorSessionFileOps = (ctx) => {
             state.pendingReveal.group === group.key) {
             state.pendingReveal = null;
         }
-        group.viewer.showUnsupportedViewer();
+        const hint = isProTextFilePath(path) && !isProModeActive()
+            ? uiText("Switch to Pro mode to open this file in the editor.", "Pro モードに切り替えるとエディタで開けます。")
+            : undefined;
+        group.viewer.showUnsupportedViewer(hint);
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
             deps.fileTree.setTreeFocus(false);
@@ -326,7 +338,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 ? groupKey
                 : existingGroupKey !== null && existingGroupKey !== void 0 ? existingGroupKey : resolveAutoOpenGroupKey(groupKey);
         const group = getEditorGroup(resolvedGroupKey);
-        if (group.currentFilePath === path) {
+        if (group.currentFilePath === path && group.viewer.getViewerMode() !== "unsupported") {
             return false;
         }
         // Always cache buffer immediately (preserves IME composition text)
@@ -350,7 +362,7 @@ export const createEditorSessionFileOps = (ctx) => {
     const saveCurrentFileInternal = () => {
         const activeGroup = getActiveGroup();
         const activePath = activeGroup.currentFilePath;
-        if (!activePath || !activeGroup.editor || !isTextFilePath(activePath)) {
+        if (!activePath || !activeGroup.editor || !isEditableTextFilePath(activePath)) {
             const message = activePath
                 ? "This file format cannot be edited."
                 : "No files have been selected to save.";
@@ -414,7 +426,7 @@ export const createEditorSessionFileOps = (ctx) => {
         });
     };
     const saveDirtyFiles = async () => {
-        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isTextFilePath(path));
+        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
         if (dirtyPaths.length === 0) {
             return true;
         }
@@ -456,9 +468,7 @@ export const createEditorSessionFileOps = (ctx) => {
             await waitForCompositionIfNeeded(path);
             const content = readBuffer(path);
             if (content === null) {
-                deps.updateIssues(1, `Unable to retrieve content to save: ${path}`, "error", [
-                    { severity: "error", message: `Unable to retrieve content to save: ${path}` },
-                ]);
+                reportSaveError(`Unable to retrieve content to save: ${path}`);
                 return false;
             }
             try {
@@ -502,7 +512,7 @@ export const createEditorSessionFileOps = (ctx) => {
             }
             catch (error) {
                 const message = error instanceof Error ? error.message : "Saving failed.";
-                deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+                reportSaveError(message);
                 return false;
             }
         }
@@ -533,7 +543,7 @@ export const createEditorSessionFileOps = (ctx) => {
             // Use saveDirtyFiles to save all dirty files across all groups.
             saveDirtyFiles().catch((error) => {
                 const message = error instanceof Error ? error.message : String(error);
-                deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+                reportSaveError(message);
             });
         }, 400);
     };
@@ -565,13 +575,18 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const path = payload.path;
-        const kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+        let kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
             ? "pdf"
             : isImageFilePath(path)
                 ? "image"
-                : isTextFilePath(path)
+                : isTextFilePath(path) || isProTextFilePath(path)
                     ? "text"
                     : "unsupported");
+        if (kind === "text" &&
+            !isTextFilePath(path) &&
+            (!isProTextFilePath(path) || !isProModeActive())) {
+            kind = "unsupported";
+        }
         if (pendingIndex < 0) {
             if (kind === "pdf") {
                 setSplitViewEnabled(true);
@@ -611,8 +626,9 @@ export const createEditorSessionFileOps = (ctx) => {
         applyFileContent(targetGroup, path, content, content);
     };
     const handleSaveResult = (payload) => {
-        var _a, _b, _c;
+        var _a, _b;
         let savedContent = null;
+        const saveErrorMessage = (_a = payload.error) !== null && _a !== void 0 ? _a : "Saving failed.";
         if (state.pendingSave) {
             if (state.pendingSave.path === payload.path) {
                 if (payload.ok) {
@@ -623,7 +639,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     state.pendingSave.resolve(true);
                 }
                 else {
-                    state.pendingSave.reject((_a = payload.error) !== null && _a !== void 0 ? _a : "Saving failed.");
+                    state.pendingSave.reject(saveErrorMessage);
                 }
                 state.pendingSave = null;
             }
@@ -634,10 +650,19 @@ export const createEditorSessionFileOps = (ctx) => {
             }
         }
         if (!payload.ok) {
-            deps.updateIssues(1, (_b = payload.error) !== null && _b !== void 0 ? _b : "Saving failed.", "error", [
-                { severity: "error", message: (_c = payload.error) !== null && _c !== void 0 ? _c : "Saving failed." },
-            ]);
+            reportSaveError(saveErrorMessage);
             return;
+        }
+        if (lastSaveErrorMessage !== null) {
+            const snapshot = (_b = deps.getRecentIssuesSnapshot) === null || _b === void 0 ? void 0 : _b.call(deps);
+            const stillOurs = !snapshot ||
+                (snapshot.status === "error" &&
+                    snapshot.issues.length === 1 &&
+                    snapshot.issues[0].message === lastSaveErrorMessage);
+            if (stillOurs) {
+                deps.updateIssues(0, "", "info", []);
+            }
+            lastSaveErrorMessage = null;
         }
         const entry = monacoModels.get(payload.path);
         let resolvedSavedContent = savedContent;

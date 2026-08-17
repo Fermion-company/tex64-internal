@@ -1,3 +1,22 @@
+/* Latin Modern Mono — the typewriter face LaTeX itself uses for \texttt, bundled
+   so the editor matches the compiled document. GUST Font License; see
+   Resources/web/fonts/LICENSE_GUST.txt. No bold cut exists for this optical
+   size, so bold is left to the renderer's synthetic weight. */
+@font-face {
+  font-family: "Latin Modern Mono";
+  src: url("./fonts/lmmono10-regular.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Latin Modern Mono";
+  src: url("./fonts/lmmono10-italic.otf") format("opentype");
+  font-weight: normal;
+  font-style: italic;
+  font-display: block;
+}
+
 :root {
   color-scheme: dark;
   
@@ -3953,7 +3972,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
 .pro-layout-switcher { display: inline-flex; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); overflow: hidden; }
 .pro-layout-switcher[hidden] { display: none; }
-.pro-layout-switcher button { min-width: 28px; border-radius: 0; padding: 3px 7px; }
+.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; border-radius: 0; padding: 3px 6px; }
+.pro-layout-switcher button svg { display: block; }
 .pro-layout-switcher button[aria-pressed="true"] { color: var(--accent); background: var(--panel-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
 
@@ -8858,10 +8878,11 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-bottom { border-top: 1px solid var(--panel-border); }
 .pro-canvas-tools { display: flex; gap: 6px; }
 .pro-canvas-rail { flex-direction: column; align-items: center; padding: 8px 6px; border-right: 1px solid var(--panel-border); background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; }
-.pro-canvas-rail button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: var(--text-soft); border: 0; border-radius: 6px; background: transparent; }
+.pro-canvas-rail button { display: grid; grid-template-rows: 17px 12px; place-items: center; width: 32px; min-height: 43px; padding: 5px 0 4px; color: var(--text-soft); border: 0; border-radius: 6px; background: transparent; }
 .pro-canvas-rail button:hover { color: var(--text); background: var(--panel); }
 .pro-canvas-rail button.is-active { color: white; background: var(--accent); }
 .pro-canvas-rail svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pro-canvas-rail button > span { overflow: hidden; max-width: 32px; font-size: 10px; line-height: 12px; white-space: nowrap; text-overflow: ellipsis; }
 .pro-canvas-separator { width: 1px; height: 24px; margin: 0 4px; background: var(--panel-border); }
 .pro-canvas-toolbar button,
 .pro-canvas-bottom button,
@@ -8877,11 +8898,37 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-zoom, .pro-canvas-segments { display: inline-flex; overflow: hidden; border: 1px solid var(--panel-border); border-radius: 7px; }
 .pro-canvas-zoom button, .pro-canvas-segments button { min-height: 28px; padding: 3px 8px; border: 0; border-right: 1px solid var(--panel-border); border-radius: 0; background: transparent; }
 .pro-canvas-zoom button:last-child, .pro-canvas-segments button:last-child { border-right: 0; }
+.pro-canvas-topbar .pro-canvas-segments button[aria-pressed="true"]::before { content: "✓"; margin-right: 4px; font-size: 10px; }
 .pro-canvas-icon-button { width: 30px; height: 30px; padding: 0 !important; font-size: 17px; }
 .pro-canvas-toolbar button:disabled { opacity: .35; }
 .pro-canvas-inspector button:disabled { opacity: .4; }
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
+.pro-canvas-hintbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; overflow: hidden; padding: 5px 10px; pointer-events: none; color: #c9d1d9; background: #161a22; font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
+.pro-canvas-emptystate { position: absolute; z-index: 2; top: 50%; left: 50%; width: min(560px, calc(100% - 32px)); transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
+.pro-canvas-emptystate[hidden] { display: none; }
+.pro-canvas-empty-actions { display: flex; justify-content: center; gap: 8px; }
+.pro-canvas-empty-actions button { display: grid; grid-template-columns: 36px auto; align-items: center; gap: 6px; padding: 8px 11px; pointer-events: auto; color: var(--text); border: 1px solid var(--panel-border); border-radius: 8px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); box-shadow: var(--shadow-sm); }
+.pro-canvas-emptystate.is-passive .pro-canvas-empty-actions button { pointer-events: none; }
+.pro-canvas-empty-actions svg { width: 36px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pro-canvas-empty-actions text { fill: currentColor; stroke: none; font: 15px Georgia, 'Times New Roman', serif; text-anchor: middle; }
+.pro-canvas-emptystate p { margin: 9px 0 0; padding: 2px 8px; border-radius: 5px; color: #e6edf3; background: rgb(22 26 34 / 88%); font-size: 10px; }
+.pro-canvas-coach { position: absolute; z-index: 3; padding: 5px 8px; transform: translate(-50%, -100%); pointer-events: none; color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel-strong); box-shadow: var(--shadow-sm); font-size: 10px; white-space: nowrap; transition: opacity .5s ease; }
+.pro-canvas-coach[hidden] { display: none; }
+.pro-canvas-coach.is-fading { opacity: 0; }
+@media (max-width: 900px) { .pro-canvas-empty-actions { flex-direction: column; align-items: center; } .pro-canvas-empty-actions button { width: 150px; } }
+
+/* 挿入した図がどこへ入ったかを数秒だけ光らせて示す（pro-canvas の showInserted）。 */
+.monaco-editor .pro-canvas-inserted-line { background: color-mix(in srgb, var(--accent) 16%, transparent); border-left: 3px solid var(--accent); }
+/* 図データの 1 行は隠し、代わりに短いチップを 1 個だけ出す（figure-meta-chip.ts）。
+   ラベルは CSS の content なので翻訳パスが届かない。figure-meta-chip.ts が
+   --tex64-figure-meta-chip にロケール済みの文字列を publish する。 */
+.monaco-editor .tex64-figure-meta { display: none !important; }
+.monaco-editor .tex64-figure-meta-chip::before {
+  content: var(--tex64-figure-meta-chip, "▤ figure data (edit on canvas)");
+  padding: 0 6px; border: 1px solid var(--panel-border); border-radius: 4px;
+  background: var(--panel-muted); color: var(--muted); font-size: 11px; opacity: .85;
+}
 .pro-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; }
 .pro-canvas-guides .pro-canvas-paper { fill: #ffffff; filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .16)) drop-shadow(0 8px 18px rgba(15, 23, 42, .1)); }
 .pro-canvas-guides line { stroke: rgba(100, 116, 139, 0.28); stroke-width: .15; vector-effect: non-scaling-stroke; }
@@ -8895,12 +8942,32 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-pen-feedback { pointer-events: none; }
 .pro-canvas-pen-anchor { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .pro-canvas-pen-anchor.is-close { fill: var(--accent-soft); }
-.pro-canvas-pen-ghost { stroke: var(--accent); stroke-opacity: .4; stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* 次の頂点が落ちる位置の予告。拾い上げられる端点の上では実線＋塗りで「ここから続く」を出す。 */
+.pro-canvas-pen-ghost { fill: none; stroke: var(--accent); stroke-opacity: .55; stroke-width: 1.5; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-pen-ghost.is-resume { fill: var(--accent-soft); stroke-opacity: 1; stroke-dasharray: none; }
+.pro-canvas-pen-handle-line { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pro-canvas-pen-handle-dot { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-anchor-layer { pointer-events: all; }
-.pro-canvas-anchor { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
+.pro-canvas-anchor-layer.is-inert { pointer-events: none; opacity: .5; } /* 描画ツール中は掴めないので、掴めるように見せない */
+.pro-canvas-anchor { fill: rgb(255 255 255 / 25%); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; } /* 端点の矢頭を隠さないよう半透明。不透明白だと矢印の先端が欠けて見える */
 .pro-canvas-anchor.is-selected { stroke-width: 2; }
+/* 開いたパスの両端は太枠。ここがペンで拾えて、伸ばす／縮めるの起点になる。 */
+.pro-canvas-anchor.is-end { fill: var(--accent-soft); stroke-width: 2; }
+/* 頂点の追加（＋）・削除（−）予告。クリック対象は下の頂点なので当たり判定は持たせない。 */
+.pro-canvas-anchor-hint { pointer-events: none; }
+/* 台紙は白なので、印の下地も白。パネル色を敷くと黒い円が乗って強すぎる。 */
+.pro-canvas-anchor-hint circle { fill: #ffffff; fill-opacity: .92; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.pro-canvas-anchor-hint line { stroke-width: 1.5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pro-canvas-anchor-hint.is-add circle { stroke: var(--accent); }
+.pro-canvas-anchor-hint.is-add line { stroke: var(--accent); }
+.pro-canvas-anchor-hint.is-remove circle { stroke: var(--danger, #dc2626); }
+.pro-canvas-anchor-hint.is-remove line { stroke: var(--danger, #dc2626); }
 .pro-canvas-anchor-control { fill: #ffffff; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; }
 .pro-canvas-anchor-tether { stroke: var(--accent); stroke-width: 1; stroke-opacity: .65; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-handle.is-path-corner { }
+.pro-canvas-anchor-tether.is-faint { stroke-opacity: .35; }
+.pro-canvas-anchor-control.is-faint { fill-opacity: .8; }
+.pro-canvas-pen-committed { opacity: .45; pointer-events: none; }
 .pro-canvas-size-chip { position: fixed; z-index: 3; pointer-events: none; padding: 4px 7px; border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel-strong); color: var(--text); box-shadow: var(--shadow-sm); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pro-canvas-command-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
 .pro-canvas-command-grid button { min-width: 0; height: 28px; padding: 4px; }
@@ -8916,15 +8983,26 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-node { font: 4px Georgia, 'Times New Roman', serif; fill: #111827; }
 .pro-canvas-code-preview { font: 2.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--text-soft); }
 .pro-canvas-inline-editor { position: fixed; z-index: 5; min-width: 80px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: Georgia, 'Times New Roman', serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
-.pro-canvas-plot-card { position: fixed; z-index: 5; box-sizing: border-box; width: 260px; max-height: calc(100vh - 16px); overflow: auto; padding: 10px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; word-break: keep-all; }
+.pro-canvas-plot-card { position: fixed; z-index: 5; box-sizing: border-box; width: 320px; max-height: calc(100vh - 16px); overflow: auto; padding: 10px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; word-break: keep-all; }
 .pro-canvas-plot-card-header { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 6px; cursor: grab; }
 .pro-canvas-plot-card-header strong { font-size: 11px; letter-spacing: .04em; color: var(--text-soft); }
 .pro-canvas-plot-card-header button { width: 20px; height: 20px; padding: 0; border: 0 !important; background: transparent !important; color: var(--text-soft); }
 .pro-canvas-plot-card-header button:hover { color: var(--text); }
-.pro-canvas-plot-card button, .pro-canvas-plot-card input { box-sizing: border-box; min-width: 0; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); }
+.pro-canvas-plot-card button, .pro-canvas-plot-card input, .pro-canvas-plot-card select, .pro-canvas-plot-card textarea { box-sizing: border-box; min-width: 0; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); }
 .pro-canvas-plot-card-series { padding: 6px 0; border-bottom: 1px solid var(--panel-border); }
 .pro-canvas-plot-card-series.is-muted { opacity: .48; }
 .pro-canvas-plot-card-main { display: grid; grid-template-columns: 18px minmax(0,1fr) 25px 25px 25px; align-items: center; gap: 4px; }
+.pro-canvas-plot-expressions { display: grid; gap: 4px; min-width: 0; }
+.pro-canvas-plot-expressions label { display: grid; grid-template-columns: 28px minmax(0,1fr) 24px; align-items: center; gap: 3px; color: var(--text-soft); }
+.pro-canvas-plot-card math-field { width: 100%; min-height: 28px; padding: 1px 4px; font-size: 15px; color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 5px; --caret-color: var(--accent); --selection-color: var(--text); --selection-background-color: var(--focus-ring); --placeholder-color: var(--text-soft); --contains-highlight-background-color: transparent; }
+.pro-canvas-plot-card math-field::part(virtual-keyboard-toggle), .pro-canvas-plot-card math-field::part(menu-toggle) { display: none; }
+.pro-canvas-plot-card math-field:focus-within { border-color: var(--accent); }
+.pro-canvas-plot-card math-field.is-error { border-color: #dc2626; }
+.pro-canvas-plot-input-toggle { width: 24px; height: 28px; padding: 0; font-size: 11px; }
+.pro-canvas-plot-input-toggle:disabled { opacity: .35; cursor: not-allowed; }
+.pro-canvas-plot-equal { display: flex; align-items: center; gap: 6px; margin: 6px 0; color: var(--text-soft); white-space: nowrap; }
+.pro-canvas-plot-points { width: 100%; padding: 5px 6px; resize: vertical; font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.pro-canvas-plot-points.is-error { border-color: #dc2626; }
 .pro-canvas-color-chip { position: relative; width: 16px; height: 16px; border: 2px solid var(--panel-strong); border-radius: 50%; box-shadow: 0 0 0 1px var(--panel-border); cursor: pointer; }
 .pro-canvas-color-chip:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pro-canvas-color-chip input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -8936,8 +9014,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-plot-details[hidden] { display: none; }
 .pro-canvas-plot-details label, .pro-canvas-plot-range label, .pro-canvas-plot-card details label { display: grid; gap: 2px; color: var(--text-soft); }
 .pro-canvas-plot-details input, .pro-canvas-plot-range input, .pro-canvas-plot-card details input { width: 100%; padding: 4px; }
+.pro-canvas-plot-details select { width: 100%; padding: 4px; }
 .pro-canvas-plot-add { width: 100%; margin: 7px 0; padding: 6px; }
 .pro-canvas-plot-range { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.pro-canvas-plot-range-title { grid-column: 1 / -1; color: var(--text-soft); font-weight: 600; }
 .pro-canvas-plot-range label:last-child { display: flex; grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 5px; white-space: nowrap; }
 .pro-canvas-plot-card p { margin: 7px 0; color: var(--text-soft); }
 .pro-canvas-plot-segment-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 6px 0; }
@@ -8963,13 +9043,40 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-chip { padding: 4px 9px !important; border-radius: 999px !important; font-size: 11px; }
 .pro-canvas-chip.is-active { border-color: var(--accent); color: var(--accent); }
 .pro-canvas-project-chip { opacity: .72; }
-.pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
+.pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 5px 0; }
+.pro-canvas-style-row select { width: 68px; flex: 0 0 auto; min-width: 0; }
+.pro-canvas-style-row .pro-canvas-segments { flex: 0 0 auto; }
+.pro-canvas-style { grid-template-columns: 1fr; }
+.pro-canvas-style-line, .pro-canvas-fill-seg, .pro-canvas-gradient-controls { display: flex; align-items: center; gap: 7px; grid-column: 1 / -1; }
+.pro-canvas-style-line > input { width: 46px !important; height: 28px; }
+.pro-canvas-unit { margin-left: -3px; font-size: 10px; color: var(--text-soft); }
+.pro-canvas-style-line .pro-canvas-segments, .pro-canvas-fill-seg .pro-canvas-segments { margin-left: auto; }
+.pro-canvas-style .pro-canvas-segments button { display: grid; place-items: center; min-width: 29px; padding: 3px 6px; }
+.pro-canvas-style .pro-canvas-segments svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.pro-canvas-style .pro-canvas-segments button.is-active, .pro-canvas-pattern-grid button.is-active { color: white; border-color: var(--accent); background: var(--accent); }
+.pro-canvas-style-badge { justify-self: end; padding: 2px 6px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; font-size: 9px; }
+.pro-canvas-color-field { display: inline-flex !important; grid-template-columns: auto 22px; align-items: center; gap: 5px !important; }
+.pro-canvas-color-well { position: relative; width: 22px; min-width: 22px; height: 22px; min-height: 22px !important; padding: 0 !important; border: 2px solid var(--panel-strong) !important; border-radius: 50% !important; box-shadow: 0 0 0 1px var(--panel-border); }
+.pro-canvas-color-well.is-none { background: linear-gradient(135deg, white 44%, #dc2626 45%, #dc2626 55%, white 56%) !important; }
+.pro-canvas-color-pop { position: fixed; z-index: 12; width: 202px; box-sizing: border-box; padding: 9px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 35%); }
+.pro-canvas-color-grid { display: grid; grid-template-columns: repeat(8, 18px); gap: 5px; margin-bottom: 8px; }
+.pro-canvas-color-grid button { width: 18px; height: 18px; min-height: 18px; padding: 0; border: 1px solid rgb(255 255 255 / 30%); border-radius: 4px; }
+.pro-canvas-color-grid button.is-active { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pro-canvas-color-pop > input[type="color"] { width: 100%; height: 28px; padding: 2px; }
+.pro-canvas-color-pop > button { width: 100%; margin-top: 6px; }
+.pro-canvas-pattern-grid { display: grid; grid-template-columns: repeat(4, 34px); gap: 6px; grid-column: 1 / -1; }
+.pro-canvas-pattern-grid button { width: 34px; height: 26px; min-height: 26px; padding: 0; overflow: hidden; color: var(--text-soft); border: 1px solid var(--panel-border); background: var(--panel); }
+.pro-canvas-pattern-grid svg { width: 34px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1; }
+.pro-canvas-gradient-controls { flex-wrap: wrap; }
+.pro-canvas-style > details { grid-column: 1 / -1; padding-top: 3px; border-top: 1px solid var(--panel-border); }
+.pro-canvas-style > details summary { margin-bottom: 6px; cursor: pointer; color: var(--text-soft); }
+.pro-canvas-style > details label { margin-bottom: 6px; }
 .pro-canvas-project-heading { flex-basis: 100%; margin-top: 6px; font-size: 10px; font-weight: 600; color: var(--text-soft); }
 .pro-canvas-symbols { display: flex; flex-wrap: wrap; gap: 6px; }
 .pro-canvas-symbol-row { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, 24px); align-items: center; gap: 3px; }
 .pro-canvas-symbol-row button { width: 24px; height: 24px; padding: 0; }
 .pro-canvas-empty { margin: 0 0 16px; color: var(--text-soft); font-size: 12px; }
-.pro-canvas-status { position: absolute; z-index: 2; left: 12px; bottom: 12px; display: none; max-width: calc(100% - 24px); padding: 5px 9px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
+.pro-canvas-status { position: absolute; z-index: 2; left: 12px; bottom: 34px; display: none; max-width: calc(100% - 24px); padding: 5px 9px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
 .pro-canvas-status:not(:empty) { display: block; }
 .pro-canvas-status.is-error { color: var(--danger, #dc2626); border-color: var(--danger, #dc2626); }
 .pro-canvas-more { position: relative; }
@@ -8988,8 +9095,11 @@ body:has(.pro-canvas-overlay) .pro-stash { display: none !important; }
 .pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; resize: vertical; }
 .pro-canvas-code-popover button { margin-right: 6px; }
 .pro-canvas-text-popover label, .pro-canvas-text-popover input { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
-.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); }
-.pro-canvas-gallery-list { display: grid; gap: 8px; overflow: auto; min-height: 0; }
+/* 一覧の行（auto トラック）は min-content より縮まないので、明示的に
+   minmax(0, 1fr) を与えないとカードの max-height を突き抜けて「閉じる」まで
+   画面外へ流れる。中身が伸びるのは真ん中の一覧だけ。 */
+.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); grid-template-rows: auto minmax(0, 1fr) auto; }
+.pro-canvas-gallery-list { display: grid; gap: 8px; align-content: start; overflow: auto; min-height: 0; }
 .pro-canvas-gallery-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 6px; }
 .pro-canvas-gallery-thumbnail { display: grid; place-items: center; width: 160px; min-height: 90px; overflow: hidden; color: var(--text-soft); background: white; }
 .pro-canvas-gallery-thumbnail img { display: block; max-width: 160px; max-height: 120px; }

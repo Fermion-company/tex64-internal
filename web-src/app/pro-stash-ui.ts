@@ -24,16 +24,20 @@ export const reorderStashItems = <T>(items: readonly T[], from: number, to: numb
 export const snapStashSide = (clientX: number, viewportWidth: number): "left" | "right" => clientX < viewportWidth / 2 ? "left" : "right";
 export const clampStashWidth = (width: number, viewportWidth: number, min = 260, max = 560): number =>
   Math.round(Math.min(Math.max(width, min), Math.min(max, Math.max(min, viewportWidth - 32))));
+// The tray starts collapsed: expanded, it is a 340px panel floating over the
+// bottom-right of the editor, and on first run it covered the very code the
+// canvas had just inserted. Collapsed it is a pill that still shows its name
+// and count, so it stays discoverable without hiding the document.
 export const parseProStashUiState = (raw: string | null, viewportWidth = 1024): ProStashUiState => {
   try {
     const value = JSON.parse(raw || "{}") as Partial<ProStashUiState>;
-    return { side: value.side === "left" ? "left" : "right", width: clampStashWidth(Number(value.width) || 340, viewportWidth), collapsed: value.collapsed === true };
-  } catch { return { side: "right", width: 340, collapsed: false }; }
+    return { side: value.side === "left" ? "left" : "right", width: clampStashWidth(Number(value.width) || 340, viewportWidth), collapsed: value.collapsed !== false };
+  } catch { return { side: "right", width: 340, collapsed: true }; }
 };
 
 export const buildStashEditPrompt = (items: readonly ProStashItem[], instruction: string): StashPrompt => ({
-  system: 'あなたはLaTeX編集アシスタント。番号付き断片群にユーザー指示を適用し、結果を番号付きで返す。削除指定は出力から除外。JSON で {"items": [{"n": 番号, "text": "..."}]} のみ返す。',
-  user: `${items.map((item, index) => `[${index + 1}]\n${item.content}`).join("\n\n")}\n\nユーザー指示:\n${instruction.trim()}`,
+  system: 'You are a LaTeX editing assistant. Apply the user\'s instruction to the numbered fragments and return the results, still numbered. Omit any fragment the instruction says to delete. Keep each fragment in its own language. Reply with JSON only: {"items": [{"n": <number>, "text": "..."}]}.',
+  user: `${items.map((item, index) => `[${index + 1}]\n${item.content}`).join("\n\n")}\n\nInstruction:\n${instruction.trim()}`,
 });
 
 export const parseStashEditResponse = (raw: string): Array<{ n: number; text: string }> => {

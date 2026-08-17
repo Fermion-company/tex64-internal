@@ -1,0 +1,39 @@
+#!/bin/sh
+# tex64-local-deploy-hook
+#
+# Rebuilds the production bundle and refreshes /Applications/TeX64.app after
+# every commit. Installed by `npm run deploy:hooks` (which pins NODE_BIN below).
+# The build runs detached, so committing stays instant.
+#
+#   tail -f "$HOME/Library/Logs/tex64-local-deploy.log"   # watch a deploy
+#   TEX64_SKIP_LOCAL_DEPLOY=1 git commit …                # skip one commit
+#   npm run deploy:hooks:remove                           # stop deploying on commit
+
+if [ "${TEX64_SKIP_LOCAL_DEPLOY:-0}" = "1" ]; then
+  exit 0
+fi
+
+NODE_BIN="@@NODE_BIN@@"
+if [ ! -x "$NODE_BIN" ]; then
+  NODE_BIN="$(command -v node 2>/dev/null)"
+fi
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "tex64 local deploy: node not found — skipping (run 'npm run deploy:hooks' to re-pin it)." >&2
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$ROOT" ] || [ ! -f "$ROOT/scripts/install-local-app.cjs" ]; then
+  exit 0
+fi
+
+LOG="$HOME/Library/Logs/tex64-local-deploy.log"
+mkdir -p "$(dirname "$LOG")"
+
+# Drop the hook's git environment so the build sees a normal repo, and detach so
+# the commit does not wait for the ~2-3 minute package step.
+env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_PREFIX -u GIT_EXEC_PATH \
+  -u GIT_AUTHOR_DATE -u GIT_EDITOR \
+  nohup "$NODE_BIN" "$ROOT/scripts/install-local-app.cjs" --from-hook >>"$LOG" 2>&1 &
+
+exit 0

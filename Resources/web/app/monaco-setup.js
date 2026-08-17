@@ -9,6 +9,7 @@ import { attachEditorErgonomics } from "./editor-ergonomics.js";
 import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
+import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const hoverState = { registered: false };
@@ -295,6 +296,8 @@ export const initMonacoSetup = (context, deps) => {
                     }));
                 },
             });
+            // 図ブロックのメタデータ行は長いので、エディタ上では短いチップに畳む。
+            installFigureMetaChips(editor);
             // Spell: "Add to dictionary" for the word under the cursor (context menu
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.

@@ -24,6 +24,11 @@ export class LspDocumentSync {
     return Boolean(model && model.uri && model.uri.scheme === "file");
   }
 
+  private isTexModel(model: any): boolean {
+    const id = model.getLanguageId ? model.getLanguageId() : "latex";
+    return id === "latex" || id === "bibtex";
+  }
+
   private languageId(model: any): string {
     const id = model.getLanguageId ? model.getLanguageId() : "latex";
     return id === "bibtex" ? "bibtex" : "latex";
@@ -45,7 +50,7 @@ export class LspDocumentSync {
   }
 
   private openModel(model: any): void {
-    if (!this.isFileModel(model)) {
+    if (!this.isFileModel(model) || !this.isTexModel(model)) {
       return;
     }
     const uri = model.uri.toString();
@@ -70,7 +75,7 @@ export class LspDocumentSync {
   }
 
   private changeModel(model: any): void {
-    if (!this.isFileModel(model) || !this.client.isReady()) {
+    if (!this.isFileModel(model) || !this.isTexModel(model) || !this.client.isReady()) {
       return;
     }
     const uri = model.uri.toString();

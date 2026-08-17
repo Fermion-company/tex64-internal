@@ -23,6 +23,11 @@ test("stash snapping and persisted width stay within viewport bounds", () => {
   assert.equal(clampStashWidth(100, 800), 260);
   assert.equal(clampStashWidth(900, 800), 560);
   assert.deepEqual(parseProStashUiState('{"side":"left","width":420,"collapsed":true}', 800), { side: "left", width: 420, collapsed: true });
+  // Opening the tray is remembered; with nothing stored it starts collapsed so
+  // it never covers the editor on first run.
+  assert.deepEqual(parseProStashUiState('{"side":"left","width":420,"collapsed":false}', 800), { side: "left", width: 420, collapsed: false });
+  assert.equal(parseProStashUiState(null).collapsed, true);
+  assert.equal(parseProStashUiState("not json").collapsed, true);
 });
 
 const textItem = (id, content, createdAt = 1) => ({ id, kind: "text", content, createdAt });
