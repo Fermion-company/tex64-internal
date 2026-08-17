@@ -1,4 +1,3 @@
-import type { DocumentOperation } from "@/domain/document";
 import type { DocumentBrief, RequirementValue } from "@/domain/brief";
 import type { DocumentPlan } from "@/domain/plan";
 import {
@@ -70,14 +69,10 @@ export function nextContentReviewAction(input: {
 }
 
 export function needsIndependentReviewAfterCompilation(input: {
-  reviewEnabled: boolean;
   lastReviewedRevision: number | null;
   compiledRevision: number;
 }): boolean {
-  return (
-    input.reviewEnabled &&
-    input.lastReviewedRevision !== input.compiledRevision
-  );
+  return input.lastReviewedRevision !== input.compiledRevision;
 }
 
 export type DocumentAgentExecutionStep = {
@@ -104,29 +99,11 @@ export type DocumentAgentExecutionEvidence = {
   completedNaturally: boolean;
 };
 
-export type PendingInputCode =
-  | "clarification_required"
-  | "approval_required";
-
 export class AgentRuntimeConfigurationError extends Error {
   constructor() {
     super("AI Gateway identity and TEX64_AI_MODEL are required in production.");
     this.name = "AgentRuntimeConfigurationError";
   }
-}
-
-export function pendingInputCode(
-  events: readonly Pick<StoredRunEvent, "stage" | "detail">[],
-): PendingInputCode | null {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event?.stage !== "needs_input") continue;
-    const code = event.detail?.code;
-    if (code === "clarification_required" || code === "approval_required") {
-      return code;
-    }
-  }
-  return null;
 }
 
 export function selectAgentRuntime(
@@ -176,24 +153,6 @@ export function hasSemanticEvent(
   eventKey: string,
 ): boolean {
   return events.some((event) => event.detail?.eventKey === eventKey);
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value === null || typeof value !== "object") return value;
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, canonicalize(nested)]),
-  );
-}
-
-export function documentOperationsMatch(
-  left: readonly DocumentOperation[],
-  right: readonly DocumentOperation[],
-): boolean {
-  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }
 
 export function nextCompileFailureAction(input: {
@@ -377,7 +336,7 @@ function writingRequirement(requirement: AnyRequirement) {
 }
 
 /** Removes persistence provenance while preserving every confirmed condition. */
-export function writingRequirements(brief: DocumentBrief) {
+function writingRequirements(brief: DocumentBrief) {
   return {
     goal: Object.fromEntries(
       Object.entries(brief.goal).map(([key, value]) => [

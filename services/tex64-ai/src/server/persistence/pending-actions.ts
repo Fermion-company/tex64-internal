@@ -58,7 +58,7 @@ export function assertStoredPendingAction(
   return action;
 }
 
-export function needsInputEventCode(
+function needsInputEventCode(
   events: readonly Pick<StoredRunEvent, "stage" | "detail">[],
 ): NeedsInputCode | null {
   for (let index = events.length - 1; index >= 0; index -= 1) {

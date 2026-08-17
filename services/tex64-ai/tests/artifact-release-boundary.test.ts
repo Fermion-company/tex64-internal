@@ -27,7 +27,6 @@ vi.mock("@/server/artifacts", async () => {
 });
 
 import { GET as listDocuments } from "@/app/api/documents/route";
-import { GET as getLegacyArtifact } from "@/app/api/documents/[documentId]/artifacts/[revision]/route";
 import { GET as getArtifact } from "@/app/api/documents/[documentId]/artifacts/[revision]/[sha256]/route";
 import { SAMPLE_DOCUMENT } from "@/domain/document";
 import {
@@ -85,7 +84,7 @@ afterEach(async () => {
 });
 
 describe.sequential("artifact publication boundary", () => {
-  it("keeps staged metadata hidden from detail, list, old URL, and direct GET", async () => {
+  it("keeps staged metadata hidden from detail, list, and direct GET", async () => {
     await expect(loadDocumentDetail(USER_ID, SAMPLE_DOCUMENT.id)).resolves.not.toHaveProperty(
       "artifactUrl",
     );
@@ -96,9 +95,7 @@ describe.sequential("artifact publication boundary", () => {
       documents: [{ id: SAMPLE_DOCUMENT.id, status: "working" }],
     });
 
-    const legacy = await legacyArtifactResponse();
     const direct = await artifactResponse(1, staged.sha256);
-    expect(legacy.status).toBe(404);
     expect(direct.status).toBe(404);
     expect(doubles.readPdf).not.toHaveBeenCalled();
   });
@@ -207,7 +204,7 @@ describe.sequential("artifact publication boundary", () => {
     expect((await artifactResponse(1, staged.sha256)).status).toBe(404);
   });
 
-  it("revokes both the old alias and a replacement candidate until a new acceptance", async () => {
+  it("revokes a replacement candidate until a new acceptance", async () => {
     await complete(staged);
     const replacement = artifactFor(PDF_B, 1);
     await repository.replaceArtifact(staged, replacement);
@@ -225,7 +222,6 @@ describe.sequential("artifact publication boundary", () => {
     });
     expect((await artifactResponse(1, staged.sha256)).status).toBe(404);
     expect((await artifactResponse(1, replacement.sha256)).status).toBe(404);
-    expect((await legacyArtifactResponse()).status).toBe(404);
     expect(doubles.readPdf).not.toHaveBeenCalled();
 
     await expect(
@@ -320,8 +316,4 @@ async function artifactResponse(revision: number, sha256: string) {
       sha256,
     }),
   });
-}
-
-async function legacyArtifactResponse() {
-  return getLegacyArtifact();
 }

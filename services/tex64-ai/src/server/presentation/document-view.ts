@@ -80,9 +80,9 @@ export const ClientDocumentPatchSchema = z
   })
   .strict();
 
-export type ClientDocumentPatchInput = z.infer<typeof ClientDocumentPatchSchema>;
+type ClientDocumentPatchInput = z.infer<typeof ClientDocumentPatchSchema>;
 
-export type ApiDocumentDetail = DocumentDetail & {
+type ApiDocumentDetail = DocumentDetail & {
   revision: number;
   artifactUrl?: string;
 };
@@ -418,7 +418,7 @@ function newNodeFromBlock(block: DocumentBlock): DocumentNode {
  * counters. Nodes that never typeset standalone (citations, footnotes,
  * page breaks) are omitted.
  */
-export function documentToElements(document: DocumentModel): DocumentElement[] {
+function documentToElements(document: DocumentModel): DocumentElement[] {
   const nodeById = new Map(document.nodes.map((node) => [node.id, node]));
   const elements: DocumentElement[] = [];
   let sectionNumber = 0;

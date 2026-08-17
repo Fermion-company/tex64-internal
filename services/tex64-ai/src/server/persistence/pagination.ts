@@ -4,8 +4,8 @@ export const MAX_PAGE_SIZE = 100;
 export const DEFAULT_DOCUMENT_PAGE_SIZE = 100;
 export const DEFAULT_REVISION_PAGE_SIZE = 50;
 export const DEFAULT_RUN_PAGE_SIZE = 50;
-export const DEFAULT_EVENT_PAGE_SIZE = 200;
-export const MAX_EVENT_PAGE_SIZE = 500;
+const DEFAULT_EVENT_PAGE_SIZE = 200;
+const MAX_EVENT_PAGE_SIZE = 500;
 export const MAX_PAGE_OFFSET = 10_000;
 
 export function normalizePageRequest(

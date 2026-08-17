@@ -96,14 +96,6 @@ export function parseStronglyScopedLegacyEdit(
     : { kind: "section_punctuation", sectionOrdinal: ordinal };
 }
 
-/**
- * Only edits whose target and operation are completely determined may bypass
- * intake for a pre-existing document. Ambiguity deliberately returns false.
- */
-export function isStronglyScopedLegacyEdit(promptValue: string): boolean {
-  return parseStronglyScopedLegacyEdit(promptValue) !== null;
-}
-
 function mapInlineText(value: unknown, transform: (text: string) => string): unknown {
   if (Array.isArray(value)) return value.map((item) => mapInlineText(item, transform));
   if (!value || typeof value !== "object") return value;

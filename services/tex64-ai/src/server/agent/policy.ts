@@ -6,9 +6,6 @@ export const AgentPolicyActionSchema = z.enum([
   "check_document",
   "format_document",
   "request_input",
-  "delete_document",
-  "publish_document",
-  "run_expensive_task",
 ]);
 
 export type AgentPolicyAction = z.infer<typeof AgentPolicyActionSchema>;
@@ -20,8 +17,6 @@ export const ApprovalPolicyDecisionSchema = z
       "read_only",
       "reversible_edit",
       "destructive_delete",
-      "publishing",
-      "expensive_operation",
       "unknown_action",
     ]),
   })
@@ -37,18 +32,6 @@ export interface AgentPolicyRequest {
 }
 
 const DELETE_MARKER = /(^|[_-])(delete|remove|clear|discard)([_-]|$)/i;
-
-const EXPLICIT_APPROVAL_PROMPT = /^(?:はい[、,\s]*)?(?:(?:この|その|前の|直前の)[\s]*)?(?:(?:変更|操作|削除)[\s]*(?:を)?[\s]*)?承認(?:します|する|しました)?[。.!！\s]*$/;
-
-/**
- * Approval must be a dedicated, unambiguous user message. Merely mentioning
- * approval inside a broader instruction never grants it.
- */
-export function isExplicitApprovalPrompt(prompt: string): boolean {
-  return EXPLICIT_APPROVAL_PROMPT.test(
-    prompt.normalize("NFKC").replace(/\s+/g, " ").trim(),
-  );
-}
 
 function discriminatorOf(value: unknown): string | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -99,15 +82,6 @@ export function evaluateAgentPolicy(
     case "format_document":
       return { outcome: "auto", reason: "reversible_edit" };
 
-    case "delete_document":
-      return { outcome: "requires_approval", reason: "destructive_delete" };
-
-    case "publish_document":
-      return { outcome: "requires_approval", reason: "publishing" };
-
-    case "run_expensive_task":
-      return { outcome: "requires_approval", reason: "expensive_operation" };
-
     default:
       return { outcome: "requires_approval", reason: "unknown_action" };
   }
@@ -117,41 +91,10 @@ export function requiresApproval(request: AgentPolicyRequest): boolean {
   return evaluateAgentPolicy(request).outcome === "requires_approval";
 }
 
-/**
- * The external-run flow currently grants only a previously-pending semantic
- * deletion. Publishing, whole-document deletion, expensive work, and unknown
- * actions remain unavailable even after a generic approval message.
- */
-export function canApprovePendingDocumentPatch(input: {
-  approvalPrompt: string;
-  patch: unknown;
-}): boolean {
-  if (!isExplicitApprovalPrompt(input.approvalPrompt)) return false;
-  const decision = evaluateAgentPolicy({
-    action: "apply_document_patch",
-    input: { patch: input.patch },
-  });
-  return (
-    decision.outcome === "requires_approval" &&
-    decision.reason === "destructive_delete"
-  );
-}
-
 /** WorkflowAgent's tool-level `needsApproval` contract. */
 export function workflowNeedsApproval(
   action: AgentPolicyAction,
   input?: unknown,
 ): boolean {
   return requiresApproval({ action, input });
-}
-
-/** ToolLoopAgent's generic `toolApproval` contract. */
-export function toolLoopDocumentApproval({
-  toolCall,
-}: {
-  toolCall: { toolName: string; input: unknown };
-}): "user-approval" | undefined {
-  return requiresApproval({ action: toolCall.toolName, input: toolCall.input })
-    ? "user-approval"
-    : undefined;
 }

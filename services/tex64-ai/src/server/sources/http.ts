@@ -138,7 +138,7 @@ function headerValue(headers: IncomingHttpHeaders, name: string): string | undef
   return Array.isArray(value) ? value[0] : value;
 }
 
-export function buildPinnedRequestOptions(input: PinnedFetchInput): RequestOptions {
+function buildPinnedRequestOptions(input: PinnedFetchInput): RequestOptions {
   const originalHostname = normalizedHostname(input.url);
   const hostHeader = input.url.port ? `${input.url.hostname}:${input.url.port}` : input.url.hostname;
   // Node 22's family autoselection (Happy Eyeballs) calls lookup with

@@ -307,21 +307,6 @@ export async function startRun(
   }
 }
 
-export async function listRuns(documentId: string): Promise<ClientResult<AgentRun[]>> {
-  try {
-    const payload = getEnvelopeValue(
-      await requestJson(`/api/documents/${encodeURIComponent(documentId)}/runs`),
-      "runs",
-    );
-    if (!Array.isArray(payload) || !payload.every(isRun)) {
-      throw new InvalidResponseError();
-    }
-    return { data: payload, source: "remote", ok: true };
-  } catch (error) {
-    return requestFailure(error);
-  }
-}
-
 const RUN_STAGE_SET: readonly AgentRun["stage"][] = RUN_STAGES;
 
 function isProgressEvent(value: unknown): value is RunProgressEvent {

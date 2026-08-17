@@ -4,7 +4,6 @@ import {
   ArrowUp,
   Check,
   LoaderCircle,
-  Sigma,
   X,
 } from "lucide-react";
 import type { RefObject } from "react";
@@ -265,9 +264,6 @@ function AssistantMessage({
   return (
     <div className={`assistant-message${error ? " is-error" : ""}`} id={id}>
       <div className="assistant-name">
-        <span aria-hidden="true">
-          <Sigma size={12} strokeWidth={2.2} />
-        </span>
         <strong>TeX64</strong>
       </div>
       <p>{children}</p>

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { DocumentOperation } from "@/domain/document";
 import {
   applyBriefExtraction,
   applyExplicitDelegation,
@@ -15,10 +14,8 @@ import {
   buildInitialAgentPrompt,
   buildRepairAgentPrompt,
   documentAgentExecutionEvidence,
-  documentOperationsMatch,
   hasSemanticEvent,
   nextCompileFailureAction,
-  pendingInputCode,
   selectAgentRuntime,
   semanticEventKey,
 } from "@/workflows/document-agent/helpers";
@@ -73,33 +70,6 @@ describe("document agent workflow helpers", () => {
     expect(prompt).toContain('"question":"何について書きますか？"');
     expect(prompt).toContain('"answer":"学部生です"');
     expect(prompt).not.toContain("latest-question-run");
-  });
-
-  it("keeps clarification and destructive approval states distinct", () => {
-    expect(
-      pendingInputCode([
-        {
-          stage: "needs_input",
-          detail: { code: "clarification_required" },
-        },
-      ]),
-    ).toBe("clarification_required");
-    expect(
-      pendingInputCode([
-        {
-          stage: "needs_input",
-          detail: { code: "approval_required" },
-        },
-      ]),
-    ).toBe("approval_required");
-    expect(
-      pendingInputCode([
-        {
-          stage: "writing",
-          detail: { code: "clarification_continuation" },
-        },
-      ]),
-    ).toBeNull();
   });
 
   it("selects AI Gateway only when both identity and a configured model exist outside Vercel", () => {
@@ -206,31 +176,6 @@ describe("document agent workflow helpers", () => {
     expect(hasSemanticEvent([{ detail: { eventKey: "different" } }], key)).toBe(
       false,
     );
-  });
-
-  it("compares semantic operations independent of object key order", () => {
-    const left = [
-      {
-        op: "delete",
-        nodeId: "6b913dca-21f2-4efb-926e-11e545e1e03d",
-      },
-    ] satisfies DocumentOperation[];
-    const right = [
-      {
-        nodeId: "6b913dca-21f2-4efb-926e-11e545e1e03d",
-        op: "delete",
-      },
-    ] satisfies DocumentOperation[];
-
-    expect(documentOperationsMatch(left, right)).toBe(true);
-    expect(
-      documentOperationsMatch(left, [
-        {
-          op: "delete",
-          nodeId: "c7c39e5d-663a-4642-af32-c06e1add9605",
-        },
-      ]),
-    ).toBe(false);
   });
 
   it("allows at most two AI AST repair and re-typeset attempts", () => {

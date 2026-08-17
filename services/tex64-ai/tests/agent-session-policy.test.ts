@@ -9,7 +9,6 @@ import {
 } from "@/domain/document";
 import {
   documentMutationReadiness,
-  isStronglyScopedLegacyEdit,
   parseStronglyScopedLegacyEdit,
   patchMatchesScopedLegacyEdit,
 } from "@/server/agent/session-policy";
@@ -76,10 +75,12 @@ describe("document mutation readiness", () => {
   });
 
   it("allows only a deterministically scoped legacy edit without a brief", () => {
-    expect(isStronglyScopedLegacyEdit("「誤字A」を「正字B」に置換して")).toBe(
-      true,
-    );
-    expect(isStronglyScopedLegacyEdit("第2節の句読点だけ直して")).toBe(true);
+    expect(
+      parseStronglyScopedLegacyEdit("「誤字A」を「正字B」に置換して"),
+    ).not.toBeNull();
+    expect(
+      parseStronglyScopedLegacyEdit("第2節の句読点だけ直して"),
+    ).not.toBeNull();
     expect(
       documentMutationReadiness({
         session: null,
@@ -99,7 +100,7 @@ describe("document mutation readiness", () => {
     "文体を学術的にして",
     "第2節をいい感じに直して",
   ])("fails closed for a contract-changing or ambiguous legacy edit: %s", (prompt) => {
-    expect(isStronglyScopedLegacyEdit(prompt)).toBe(false);
+    expect(parseStronglyScopedLegacyEdit(prompt)).toBeNull();
   });
 
   it("binds a quoted replacement to the exact resulting patch", () => {

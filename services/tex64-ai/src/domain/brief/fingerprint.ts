@@ -13,7 +13,7 @@ function hash32(value: string, seed: number): number {
 }
 
 /** Stable 256-bit-shaped digest for deduplication; it is not an auth token. */
-export function stableBriefFingerprint(value: string): string {
+function stableBriefFingerprint(value: string): string {
   const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
   return Array.from({ length: 8 }, (_, index) =>
     hash32(`${normalized}:${index}`, index * 0x9e3779b9)

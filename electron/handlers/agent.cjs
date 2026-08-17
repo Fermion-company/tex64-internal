@@ -95,14 +95,16 @@ const createAgentHandlers = (deps) => {
   };
 
   const guardAiAccess = async (conversationId, source) => {
-    // When the user provides their own API key, skip platform entitlement checks.
+    // When the user provides their own API key — or runs on their own
+    // ChatGPT/Codex subscription — skip platform entitlement checks.
     try {
       const settings = await ensureUserSettings().getAgentSettings();
       const hasOwnKey =
         typeof settings?.apiKey === "string" && settings.apiKey.trim().length > 0;
       const hasOwnEndpoint =
         typeof settings?.endpoint === "string" && settings.endpoint.trim().length > 0;
-      if (hasOwnKey || hasOwnEndpoint) {
+      const usesCodexBackend = (settings?.model || "") === "codex";
+      if (hasOwnKey || hasOwnEndpoint || usesCodexBackend) {
         return true;
       }
     } catch {

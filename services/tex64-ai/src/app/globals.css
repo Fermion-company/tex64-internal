@@ -200,10 +200,12 @@ textarea {
   height: 30px;
   flex: 0 0 30px;
   place-items: center;
-  border-radius: 8px;
-  background: var(--brand-gradient);
-  color: #fff;
-  box-shadow: var(--brand-glow);
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .brand-separator {
@@ -256,32 +258,7 @@ textarea {
   font-size: 10.5px;
 }
 
-.view-segment {
-  display: inline-flex;
-  justify-self: center;
-  gap: 2px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  padding: 4px;
-}
 
-.view-segment button {
-  border-radius: 7px;
-  padding: 6px 16px;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-
-.view-segment button:hover {
-  color: var(--ink-soft);
-}
-
-.view-segment button[aria-pressed="true"] {
-  background: var(--surface-raised);
-  color: var(--ink);
-  font-weight: 600;
-}
 
 .document-menu {
   position: absolute;
@@ -607,6 +584,12 @@ textarea {
   color: var(--placeholder);
 }
 
+/* 枠は外側（:focus-within）だけ。内側の textarea には二重の枠を出さない。 */
+.agent-composer textarea:focus-visible,
+.large-composer textarea:focus-visible {
+  outline: none;
+}
+
 .composer-submit {
   position: absolute;
   right: 9px;
@@ -716,220 +699,29 @@ textarea {
   background: var(--workspace);
 }
 
-/* Document workspace */
-.document-canvas {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-}
 
-.canvas-toolbar {
-  display: grid;
-  height: 52px;
-  flex: 0 0 52px;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel-muted);
-  padding: 0 16px;
-}
 
-.canvas-mode-pill {
-  border-radius: 6px;
-  background: var(--accent-soft);
-  padding: 4px 10px;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
 
-.canvas-mode-pill.is-working {
-  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
-  color: var(--ink-faint);
-}
 
-.canvas-document-title {
-  max-width: 360px;
-  min-width: 0;
-  justify-self: start;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--panel);
-  padding: 5px 11px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.save-indicator {
-  display: inline-flex;
-  min-width: 65px;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-  color: var(--ink-faint);
-  font-size: 10px;
-}
 
-.save-indicator.save-saved {
-  color: var(--success);
-}
 
-.save-indicator.save-error {
-  color: var(--danger);
-}
 
-.toolbar-action {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--panel-muted);
-  padding: 0 10px;
-  color: var(--ink-soft);
-  font-size: 10.5px;
-  font-weight: 650;
-  text-decoration: none;
-}
 
-.toolbar-action:hover {
-  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
-  color: var(--accent-strong);
-}
 
-.document-stage {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-}
 
-.outline-rail {
-  display: flex;
-  width: 230px;
-  flex: 0 0 230px;
-  flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
-  border-right: 1px solid var(--line);
-  background: var(--panel-muted);
-  padding: 18px 12px 20px;
-}
 
-.outline-label {
-  padding: 0 10px;
-  color: var(--placeholder);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
 
-.outline-items {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 
-.outline-items button {
-  overflow: hidden;
-  border-radius: 7px;
-  padding: 8px 10px;
-  color: var(--ink-soft);
-  font-size: 12.5px;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.outline-items button:hover {
-  background: var(--hover);
-}
 
-.outline-items button.is-active {
-  background: var(--accent-soft);
-  color: var(--ink);
-  font-weight: 600;
-}
 
-.outline-empty {
-  padding: 8px 10px;
-  color: var(--ink-faint);
-  font-size: 11.5px;
-}
 
-.paper-viewport {
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow: auto;
-  background:
-    radial-gradient(circle at 50% 0%, rgba(155, 47, 201, 0.08), transparent 60%),
-    var(--workspace);
-  padding: 26px 22px 76px;
-}
 
-.paper-sheet {
-  width: min(620px, 100%);
-  min-height: 880px;
-  margin: 0 auto;
-  border-radius: 4px;
-  background: var(--paper);
-  box-shadow: var(--shadow-paper);
-  padding: 52px 54px 72px;
-  color: var(--paper-ink);
-  font-family: var(--font-paper);
-}
 
-.paper-sheet input,
-.paper-sheet textarea {
-  display: block;
-  width: 100%;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  field-sizing: content;
-}
 
-.paper-sheet input::placeholder,
-.paper-sheet textarea::placeholder {
-  color: #aaa3aa;
-}
 
-.paper-sheet input:focus-visible,
-.paper-sheet textarea:focus-visible {
-  outline: 1.5px solid var(--paper-accent);
-  outline-offset: 1px;
-  border-radius: 2px;
-}
 
-.paper-sheet ::selection {
-  background: rgba(255, 93, 200, 0.22);
-}
-
-.paper-title-field textarea {
-  min-height: 44px;
-  overflow: hidden;
-  font-size: 21.5px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.45;
-  text-align: center;
-}
-
-.paper-author-field input {
-  margin-top: 12px;
-  color: var(--paper-muted);
-  font-size: 11.5px;
-  text-align: center;
-}
 
 .paper-blocks {
   display: flex;
@@ -940,60 +732,8 @@ textarea {
 
 .paper-block {
   position: relative;
-  scroll-margin-top: 20px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  margin: -4px -9px;
-  padding: 4px 9px;
-}
-
-.paper-block:hover,
-.paper-block:focus-within {
-  border-color: rgba(155, 47, 201, 0.16);
-  background: rgba(155, 47, 201, 0.03);
-}
-
-/* Floating white toolbar above the block, per the Builder design. */
-.block-actions {
-  position: absolute;
-  top: 3px;
-  right: calc(100% + 5px);
-  display: flex;
-  align-items: center;
-  flex-direction: column;
-  gap: 1px;
-  border-radius: 8px;
-  background: #ffffff;
-  padding: 2px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
-  opacity: 0;
-  transform: translateX(3px);
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
-}
-
-.paper-block:hover .block-actions,
-.paper-block:focus-within .block-actions,
-.block-actions:focus-within {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.block-actions button {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  border-radius: 6px;
-  color: #2a2a2a;
-}
-
-.block-actions button:hover {
-  background: #f3f0f7;
-  color: var(--paper-accent);
-}
-
-.block-actions button:last-child:hover {
-  color: #b84b59;
+  margin: 0;
+  padding: 0;
 }
 
 .block-heading {
@@ -1007,7 +747,7 @@ textarea {
 }
 
 .heading-number {
-  color: var(--paper-accent);
+  color: var(--accent-strong);
   font-size: 13.5px;
   font-weight: 700;
 }
@@ -1015,17 +755,23 @@ textarea {
 .block-heading-field textarea {
   min-height: 24px;
   overflow: hidden;
-  font-size: 14.5px;
-  font-weight: 700;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 650;
   line-height: 1.5;
 }
 
 .block-paragraph-field {
-  min-height: 44px;
+  width: 100%;
+  min-height: 64px;
   overflow: hidden;
-  font-size: 11.5px;
-  line-height: 1.9;
-  text-align: justify;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.8;
 }
 
 .block-quote {
@@ -1039,18 +785,24 @@ textarea {
 }
 
 .block-quote-fields textarea {
+  width: 100%;
   min-height: 44px;
   overflow: hidden;
-  color: #4b454c;
-  font-size: 12px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
   font-style: italic;
   line-height: 1.8;
 }
 
 .block-quote-fields input {
+  width: 100%;
   margin-top: 5px;
-  color: #6f676f;
-  font-size: 9px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: var(--font-ui);
+  font-size: 11px;
   text-align: right;
 }
 
@@ -1240,26 +992,11 @@ textarea {
   }
 }
 
-@media (max-width: 1280px) {
-  .outline-rail {
-    display: none;
-  }
-}
-
 @media (max-width: 1100px) and (min-width: 821px) {
   .workspace-grid {
     grid-template-columns: 340px minmax(0, 1fr);
   }
 
-  .view-segment button {
-    padding: 6px 11px;
-    font-size: 12px;
-  }
-
-  .paper-sheet {
-    padding-right: 46px;
-    padding-left: 46px;
-  }
 }
 
 @media (max-width: 820px) {
@@ -1269,13 +1006,6 @@ textarea {
     grid-template-columns: auto minmax(0, 1fr) auto;
     padding: 0 10px;
   }
-
-  .brand-separator,
-  .view-segment,
-  .topbar-new-button span {
-    display: none;
-  }
-
   .brand-mark {
     width: 28px;
     height: 28px;
@@ -1359,51 +1089,11 @@ textarea {
     padding: 22px 16px calc(14px + env(safe-area-inset-bottom));
   }
 
-  .canvas-toolbar {
-    height: 48px;
-    flex-basis: 48px;
-    padding: 0 10px 0 13px;
-  }
 
-  .canvas-mode-pill {
-    display: none;
-  }
 
-  .save-indicator span,
-  .toolbar-action span {
-    display: none;
-  }
 
-  .save-indicator {
-    min-width: 18px;
-  }
 
-  .toolbar-action {
-    width: 32px;
-    justify-content: center;
-    padding: 0;
-  }
 
-  .paper-viewport {
-    height: calc(100% - 48px);
-    padding: 14px 8px 64px;
-  }
-
-  .paper-sheet {
-    min-height: calc(100dvh - 172px);
-    padding: 48px 36px 70px;
-  }
-
-  .block-actions {
-    top: -24px;
-    right: 0;
-    width: auto;
-    flex-direction: row;
-  }
-
-  .paper-block:focus-within {
-    margin-top: 22px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -1421,15 +1111,6 @@ textarea {
     height: 42px;
     flex-direction: column;
     gap: 2px;
-  }
-
-  .paper-sheet {
-    padding-right: 26px;
-    padding-left: 26px;
-  }
-
-  .paper-title-field textarea {
-    font-size: 19px;
   }
 
   .block-paragraph-field {
@@ -1454,39 +1135,7 @@ textarea {
     background: #fff;
   }
 
-  .app-topbar,
-  .mobile-view-tabs,
-  .pane-conversation,
-  .canvas-toolbar,
-  .outline-rail,
-  .block-actions {
-    display: none !important;
-  }
 
-  .workspace-shell,
-  .workspace-grid,
-  .pane-document,
-  .document-canvas,
-  .document-stage,
-  .paper-viewport {
-    display: block;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    background: #fff;
-  }
-
-  .paper-viewport {
-    background: #fff;
-    padding: 0;
-  }
-
-  .paper-sheet {
-    width: 100%;
-    min-height: 0;
-    padding: 18mm 17mm;
-    box-shadow: none;
-  }
 
   .paper-block {
     border-color: transparent !important;
@@ -1554,13 +1203,9 @@ textarea {
 }
 
 .element-card {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  z-index: 7;
-  width: min(430px, calc(100% - 36px));
-  max-height: 55%;
+  /* 位置は PdfPreview の selectionCard ラッパー（選択要素の直下）が決める。 */
   display: flex;
+  max-height: 320px;
   flex-direction: column;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
@@ -1601,8 +1246,33 @@ textarea {
   overflow-y: auto;
 }
 
-.element-card-editor .paper-block {
-  margin: 0;
+.element-card-editor textarea,
+.element-card-editor input {
+  width: 100%;
+}
+
+/* カード自体が編集面。内側のフィールドに二重の枠を出さない。 */
+.element-card-editor textarea:focus-visible,
+.element-card-editor input:focus-visible {
+  outline: none;
+}
+
+.element-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.element-card-delete {
+  padding: 3px 9px;
+  border-radius: 8px;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+}
+
+.element-card-delete:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
 }
 
 .element-card-hint {

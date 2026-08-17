@@ -294,3 +294,10 @@
 .retryButton:hover {
   background: var(--accent-faint);
 }
+
+/* 選択要素の直下にアンカーされる編集カードの受け皿。中身は .element-card。 */
+.selectionCard {
+  position: absolute;
+  z-index: 6;
+  cursor: default;
+}

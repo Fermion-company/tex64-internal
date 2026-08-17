@@ -150,15 +150,6 @@ type RequestInputInput = Parameters<
 type ResolveSourceInput = Parameters<
   DocumentToolHandlers["resolveSource"]
 >[0];
-type DeleteDocumentInput = Parameters<
-  DocumentToolHandlers["deleteDocument"]
->[0];
-type PublishDocumentInput = Parameters<
-  DocumentToolHandlers["publishDocument"]
->[0];
-type RunExpensiveTaskInput = Parameters<
-  DocumentToolHandlers["runExpensiveTask"]
->[0];
 
 const WorkflowInputSchema = z
   .object({
@@ -1932,48 +1923,6 @@ export async function requestInputToolStep(
     input.question,
   );
   return { ok: true };
-}
-
-export async function deleteDocumentToolStep(
-  _input: DeleteDocumentInput,
-  contextValue: DocumentToolContext,
-  execution?: DocumentToolExecution,
-): Promise<{ ok: true }> {
-  "use step";
-
-  const { repository, run } = await loadToolScope(contextValue);
-  await claimToolMutation(repository, run, "delete_document", execution);
-  throw new FatalError(
-    "文書全体の削除は現在利用できません。",
-  );
-}
-
-export async function publishDocumentToolStep(
-  _input: PublishDocumentInput,
-  contextValue: DocumentToolContext,
-  execution?: DocumentToolExecution,
-): Promise<never> {
-  "use step";
-
-  const { repository, run } = await loadToolScope(contextValue);
-  await claimToolMutation(repository, run, "publish_document", execution);
-  throw new FatalError(
-    "文書の公開は現在利用できません。自動では実行しません。",
-  );
-}
-
-export async function runExpensiveTaskToolStep(
-  _input: RunExpensiveTaskInput,
-  contextValue: DocumentToolContext,
-  execution?: DocumentToolExecution,
-): Promise<never> {
-  "use step";
-
-  const { repository, run } = await loadToolScope(contextValue);
-  await claimToolMutation(repository, run, "run_expensive_task", execution);
-  throw new FatalError(
-    "この高コスト処理は現在利用できません。自動では実行しません。",
-  );
 }
 
 export async function planFallbackDocumentStep(

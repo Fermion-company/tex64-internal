@@ -11,8 +11,8 @@ import {
   type RequirementPath,
 } from "./schema";
 
-export const QUESTION_FATIGUE_CHECKPOINT = 3;
-export const TOTAL_QUESTION_FATIGUE_CHECKPOINT = 5;
+const QUESTION_FATIGUE_CHECKPOINT = 3;
+const TOTAL_QUESTION_FATIGUE_CHECKPOINT = 5;
 
 type QuestionDraft = Pick<
   ElicitationQuestion,

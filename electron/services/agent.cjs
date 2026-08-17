@@ -28,6 +28,7 @@ const {
 } = require("./agent-proposal-runtime.cjs");
 const { executeToolCall } = require("./agent-tool-executor.cjs");
 const { runAgentConversation, completeSingleChat } = require("./openprism/run-loop.cjs");
+const { runCodexConversation } = require("./codex/axiom-adapter.cjs");
 
 class AgentService {
   constructor({
@@ -392,6 +393,12 @@ class AgentService {
   }
 
   async run(payload) {
+    // model "codex" はユーザー自身の ChatGPT/Codex サブスクで動くバックエンド。
+    // それ以外は従来どおり openprism (Axiom proxy) 経路。
+    const settings = await this.ensureUserSettings().getAgentSettings();
+    if ((settings?.model || "") === "codex") {
+      return runCodexConversation(this, payload);
+    }
     return runAgentConversation(this, payload);
   }
 

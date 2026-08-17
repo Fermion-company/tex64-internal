@@ -983,12 +983,6 @@ export function isRenderableFigureNode(
   return Boolean(node.content) && !node.assetId && !node.assetKind;
 }
 
-export function countRenderableFigures(
-  document: Pick<DocumentModel, "nodes">,
-): number {
-  return document.nodes.filter(isRenderableFigureNode).length;
-}
-
 export const DocumentAuthorSchema = z.strictObject({
   id: StableIdSchema,
   name: ShortTextSchema,

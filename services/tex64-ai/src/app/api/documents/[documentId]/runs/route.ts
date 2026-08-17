@@ -4,15 +4,11 @@ import { z } from "zod";
 import { start } from "workflow/api";
 import { requireSession } from "@/server/auth";
 import { handleRouteError, rateLimitResponse } from "@/server/http/responses";
-import { pageMetadata, parsePageRequest } from "@/server/http/pagination";
 import { assertSameOrigin } from "@/server/http/origin";
 import { readJsonBody } from "@/server/http/request";
 import { createAndStartDocumentRun } from "@/server/http/start-document-run";
 import { DocumentNotFoundError, getDocumentRepository } from "@/server/persistence";
-import {
-  presentAgentRun,
-  presentAgentRuns,
-} from "@/server/presentation/document-view";
+import { presentAgentRun } from "@/server/presentation/document-view";
 import {
   MAX_DOCUMENT_AGENT_PROMPT_CHARS,
   runDocumentAgentWorkflow,
@@ -67,28 +63,6 @@ const StartRunSchema = z
       });
     }
   });
-
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ documentId: string }> },
-) {
-  try {
-    const { userId } = await requireSession();
-    const { documentId } = await context.params;
-    z.string().uuid().parse(documentId);
-    const repository = getDocumentRepository();
-    if (!(await repository.getDocument(userId, documentId))) throw new DocumentNotFoundError();
-    const page = parsePageRequest(request);
-    const runs = await repository.listRuns(userId, documentId, page);
-    const presentedRuns = await presentAgentRuns(repository, userId, runs);
-    return NextResponse.json({
-      runs: presentedRuns,
-      page: pageMetadata(page, presentedRuns.length),
-    });
-  } catch (error) {
-    return handleRouteError(error);
-  }
-}
 
 export async function POST(
   request: Request,

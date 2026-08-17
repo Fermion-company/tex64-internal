@@ -132,7 +132,7 @@ export function freezeResearchDocumentNodes(
   });
 }
 
-export function createResearchSourceSnapshotDigest(
+function createResearchSourceSnapshotDigest(
   sources: readonly SourceRecord[],
 ): string {
   const normalized = [...sources]

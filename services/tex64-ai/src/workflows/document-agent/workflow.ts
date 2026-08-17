@@ -36,14 +36,12 @@ import {
   checkDocumentToolStep,
   completeDocumentRunStep,
   createDocumentPlanStep,
-  deleteDocumentToolStep,
   failDocumentRunStep,
   formatDocumentToolStep,
   getRunDocumentRevisionStep,
   loadDocumentRunStep,
   markDocumentRunNeedsInputStep,
   planFallbackDocumentStep,
-  publishDocumentToolStep,
   readDocumentToolStep,
   resolveSourceToolStep,
   reviewDocumentStep,
@@ -52,7 +50,6 @@ import {
   resolveDocumentRunPromptStep,
   requestInputToolStep,
   resolveAgentRuntimeStep,
-  runExpensiveTaskToolStep,
   validateRenderCompileAndStoreStep,
 } from "./steps";
 import type {
@@ -69,9 +66,6 @@ const durableToolHandlers = {
   checkDocument: checkDocumentToolStep,
   formatDocument: formatDocumentToolStep,
   requestInput: requestInputToolStep,
-  deleteDocument: deleteDocumentToolStep,
-  publishDocument: publishDocumentToolStep,
-  runExpensiveTask: runExpensiveTaskToolStep,
 } satisfies DocumentToolHandlers;
 
 function documentToolContext(
@@ -151,11 +145,9 @@ function createDurableAgent(
       totalTokenBudget,
     ),
     maxTotalTokens: totalTokenBudget,
-    approvalMode: "external_run",
     additionalInstructions: [
       "この実行では対象文書だけを扱い、少なくとも一度は現在の文書を読んでから判断する。",
       "承認が必要な操作はこの実行内で待機せず保留し、承認を回避する別操作も試みない。",
-      "文書全体の削除、公開、高コスト処理は未提供であり、自動実行しない。",
     ],
   });
 }
@@ -811,7 +803,6 @@ export async function runDocumentAgentWorkflow(
       briefAssessment?.status === "ready" &&
       briefAssessment.brief &&
       needsIndependentReviewAfterCompilation({
-        reviewEnabled: true,
         lastReviewedRevision: lastIndependentlyReviewedRevision,
         compiledRevision: compileResult.revision,
       })

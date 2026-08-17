@@ -622,22 +622,13 @@ describe("workflow autonomy gates", () => {
   it("requires another independent review when compilation repairs change revision", () => {
     expect(
       needsIndependentReviewAfterCompilation({
-        reviewEnabled: true,
         lastReviewedRevision: 4,
         compiledRevision: 5,
       }),
     ).toBe(true);
     expect(
       needsIndependentReviewAfterCompilation({
-        reviewEnabled: true,
         lastReviewedRevision: 5,
-        compiledRevision: 5,
-      }),
-    ).toBe(false);
-    expect(
-      needsIndependentReviewAfterCompilation({
-        reviewEnabled: false,
-        lastReviewedRevision: null,
         compiledRevision: 5,
       }),
     ).toBe(false);

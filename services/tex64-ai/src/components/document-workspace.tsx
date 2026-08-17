@@ -1,20 +1,15 @@
 "use client";
 
-import { ChevronDown, History, Plus, RefreshCw, Sigma, SunMoon } from "lucide-react";
+import { ChevronDown, History, Plus } from "lucide-react";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { AgentPanel } from "@/components/agent-panel";
-import {
-  BlockEditor,
-  DocumentCanvas,
-  type SaveState,
-} from "@/components/document-canvas";
+import { BlockEditor, type SaveState } from "@/components/document-canvas";
 import { NewDocumentPanel } from "@/components/new-document-panel";
 import { PdfPreview, type PdfElementRegion, type PdfRegionRect } from "@/components/pdf-preview";
 import {
@@ -54,8 +49,6 @@ import type {
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 type MobileView = "conversation" | "document";
-/** "preview" = 紙面 (compiled PDF), "outline" = 構成 (block canvas + rail). */
-type CanvasView = "preview" | "outline";
 
 const KIND_LABELS: Record<string, string> = {
   proposal: "提案書",
@@ -87,7 +80,6 @@ export function DocumentWorkspace() {
   const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null);
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("conversation");
-  const [canvasView, setCanvasView] = useState<CanvasView>("outline");
   const [documentLoading, setDocumentLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -99,7 +91,6 @@ export function DocumentWorkspace() {
     url: string;
     nodes: { id: string; rects: PdfRegionRect[] }[];
   } | null>(null);
-  const [manualViewChoice, setManualViewChoice] = useState<Record<string, CanvasView>>({});
   const [compiling, setCompiling] = useState(false);
   const [compileFailed, setCompileFailed] = useState(false);
   const [progressEvents, setProgressEvents] = useState<RunProgressEvent[]>([]);
@@ -200,13 +191,6 @@ export function DocumentWorkspace() {
     [],
   );
 
-  useLayoutEffect(() => {
-    const saved = window.localStorage.getItem("tex64-theme");
-    if (saved === "dark" || saved === "light") {
-      document.documentElement.dataset.theme = saved;
-    }
-  }, []);
-
   // Element-region map for the PDF overlay. Keyed on the immutable per-PDF
   // URL so the 2-second document polling never refetches it; state carries
   // its own key so switching PDFs needs no synchronous reset.
@@ -245,24 +229,6 @@ export function DocumentWorkspace() {
   // State adjustments happen during render (not in effects) per house rules.
   const activeDocumentId = activeDocument?.id ?? null;
   const hasPreview = Boolean(activeDocument?.previewUrl);
-  const autoViewKey = activeDocumentId
-    ? `${activeDocumentId}:${hasPreview ? "paper" : "structure"}`
-    : null;
-  const [appliedAutoViewKey, setAppliedAutoViewKey] = useState<string | null>(null);
-  if (autoViewKey !== appliedAutoViewKey) {
-    const previousKey = appliedAutoViewKey;
-    setAppliedAutoViewKey(autoViewKey);
-    if (activeDocumentId) {
-      const documentChanged = !previousKey?.startsWith(`${activeDocumentId}:`);
-      const chosen = manualViewChoice[activeDocumentId];
-      if (documentChanged) {
-        setCanvasView(chosen ?? (hasPreview ? "preview" : "outline"));
-      } else if (hasPreview && !chosen) {
-        setCanvasView("preview");
-      }
-    }
-  }
-
   // Keep the last typeset PDF on screen while a newer revision compiles.
   const [lastPreview, setLastPreview] = useState<{
     documentId: string;
@@ -917,7 +883,8 @@ export function DocumentWorkspace() {
         <div className="topbar-left">
           <div className="brand-lockup">
             <span className="brand-mark" aria-hidden="true">
-              <Sigma size={16} strokeWidth={2.4} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/tex64-icon.png" alt="" width={30} height={30} />
             </span>
             <span className="brand-separator" aria-hidden="true">
               /
@@ -957,58 +924,7 @@ export function DocumentWorkspace() {
           </div>
         </div>
 
-        <div className="view-segment" role="group" aria-label="表示切り替え">
-          <button
-            type="button"
-            aria-pressed={canvasView === "preview"}
-            onClick={() => {
-              if (activeDocument) {
-                setManualViewChoice((current) => ({
-                  ...current,
-                  [activeDocument.id]: "preview",
-                }));
-              }
-              setCanvasView("preview");
-            }}
-          >
-            紙面
-          </button>
-          <button
-            type="button"
-            aria-pressed={canvasView === "outline"}
-            onClick={() => {
-              if (activeDocument) {
-                setManualViewChoice((current) => ({
-                  ...current,
-                  [activeDocument.id]: "outline",
-                }));
-              }
-              setCanvasView("outline");
-            }}
-          >
-            構成
-          </button>
-        </div>
-
         <div className="topbar-actions">
-          {activeDocument && documentHasContent ? (
-            <button
-              type="button"
-              className="topbar-icon-button"
-              aria-label="紙面を更新"
-              title="紙面を更新"
-              disabled={compiling || agentWorking}
-              onClick={() => {
-                lastFailedCompileRef.current = null;
-                setCompileFailed(false);
-                if (activeDocument) {
-                  void runCompile(activeDocument.id, activeDocument.revision);
-                }
-              }}
-            >
-              <RefreshCw size={16} className={compiling ? "is-spinning" : undefined} />
-            </button>
-          ) : null}
           {activeDocument && activeDocument.versions.length > 0 ? (
             <div className="history-anchor">
               <button
@@ -1053,20 +969,6 @@ export function DocumentWorkspace() {
               ) : null}
             </div>
           ) : null}
-          <button
-            type="button"
-            className="topbar-icon-button"
-            aria-label="配色を切り替える"
-            title="配色を切り替える"
-            onClick={() => {
-              const next =
-                document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-              document.documentElement.dataset.theme = next;
-              window.localStorage.setItem("tex64-theme", next);
-            }}
-          >
-            <SunMoon size={16} />
-          </button>
           <button
             type="button"
             className="topbar-new-button"
@@ -1128,8 +1030,7 @@ export function DocumentWorkspace() {
           {documentLoading ? (
             <DocumentSkeleton />
           ) : activeDocument ? (
-            canvasView === "preview" ? (
-              <section className="paper-surface" aria-label="紙面">
+            <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
                   regions={pdfRegions}
@@ -1148,6 +1049,53 @@ export function DocumentWorkspace() {
                         ? "紙面を組み立てています…"
                         : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
+                  selectionCard={
+                    selectedElement ? (
+                      <div className="element-card" aria-label="選択中の要素">
+                        <div className="element-card-head">
+                          <strong>{selectedElement.label}</strong>
+                          <div className="element-card-head-actions">
+                            {selectedBlock ? (
+                              <button
+                                type="button"
+                                className="element-card-delete"
+                                disabled={agentWorking || submitting || restoring}
+                                onClick={() => {
+                                  if (window.confirm("この部分を削除しますか？")) {
+                                    removeBlockById(selectedBlock.id);
+                                  }
+                                }}
+                              >
+                                削除
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              aria-label="選択を解除"
+                              onClick={() => setSelectedElementId(null)}
+                            >
+                              閉じる
+                            </button>
+                          </div>
+                        </div>
+                        {selectedBlock ? (
+                          <div className="element-card-editor">
+                            <BlockEditor
+                              block={selectedBlock}
+                              headingNumber={selectedHeadingNumber}
+                              equationNumber={selectedEquationNumber}
+                              onChange={(next) => updateBlockById(selectedBlock.id, next)}
+                              readOnly={agentWorking || submitting || restoring}
+                            />
+                          </div>
+                        ) : (
+                          <div className="element-card-hint">
+                            <p>この要素は左の欄から依頼して編集します。</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : null
+                  }
                 />
                 {compileFailed ? (
                   <div className="compile-banner" role="alert">
@@ -1162,84 +1110,9 @@ export function DocumentWorkspace() {
                     >
                       再試行
                     </button>
-                    <button
-                      type="button"
-                      disabled={submitting || agentWorking}
-                      onClick={() => {
-                        setCompileFailed(false);
-                        submitWritingRequest(
-                          "文書を紙面として組み立てられない原因を調べて修正してください。",
-                        );
-                      }}
-                    >
-                      AIに修正を頼む
-                    </button>
-                  </div>
-                ) : null}
-                {selectedElement ? (
-                  <div className="element-card" aria-label="選択中の要素">
-                    <div className="element-card-head">
-                      <strong>{selectedElement.label}</strong>
-                      <button
-                        type="button"
-                        aria-label="選択を解除"
-                        onClick={() => setSelectedElementId(null)}
-                      >
-                        閉じる
-                      </button>
-                    </div>
-                    {selectedBlock ? (
-                      <div className="element-card-editor">
-                        <BlockEditor
-                          block={selectedBlock}
-                          headingNumber={selectedHeadingNumber}
-                          equationNumber={selectedEquationNumber}
-                          onChange={(next) => updateBlockById(selectedBlock.id, next)}
-                          onRemove={() => removeBlockById(selectedBlock.id)}
-                          onAskAgent={() => {
-                            setMobileView("conversation");
-                            window.requestAnimationFrame(() =>
-                              composerRef.current?.focus(),
-                            );
-                          }}
-                          requestPending={agentWorking || submitting || restoring}
-                          readOnly={agentWorking || submitting || restoring}
-                        />
-                      </div>
-                    ) : (
-                      <div className="element-card-hint">
-                        <p>この要素は左の欄からAIに依頼して編集します。</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMobileView("conversation");
-                            window.requestAnimationFrame(() =>
-                              composerRef.current?.focus(),
-                            );
-                          }}
-                        >
-                          依頼を書く
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ) : null}
               </section>
-            ) : (
-              <DocumentCanvas
-                document={activeDocument}
-                saveState={saveState}
-                outlineVisible
-                requestPending={submitting || agentWorking || restoring}
-                selectedId={selectedElementId}
-                onChange={handleDocumentChange}
-                onSelectElement={(id) => {
-                  setSelectedElementId(id);
-                  setMobileView("conversation");
-                  window.requestAnimationFrame(() => composerRef.current?.focus());
-                }}
-              />
-            )
           ) : (
             <div className="empty-document-view" aria-hidden="true" />
           )}
