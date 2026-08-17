@@ -55,6 +55,7 @@ const createMiscHandlers = (deps) => {
     platformService,
     shell,
     Notification,
+    getUiLocale: deps.getUiLocale,
     sendToRenderer,
     appPlatform,
     appArch,

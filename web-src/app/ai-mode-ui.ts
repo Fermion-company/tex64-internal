@@ -1,4 +1,5 @@
 import type { AiWebBridge, BridgeWindow } from "./types.js";
+import { uiText } from "./i18n.js";
 
 // AI mode hosts the tex64-ai document agent (services/tex64-ai) in a
 // <webview>. The guest is the exact app that ships as the standalone web
@@ -52,11 +53,11 @@ export const initAiModeUi = (): AiModeApi => {
   const createWebview = async () => {
     if (webview || creating || !host) return;
     creating = true;
-    showFallback("AIワークスペースに接続しています…");
+    showFallback(uiText("Connecting to the AI workspace…", "AIワークスペースに接続しています…"));
     const config = await bridge?.getConfig?.().catch(() => null);
     creating = false;
     if (!config?.ok || !config.url) {
-      showFallback("AIワークスペースの設定を取得できませんでした。");
+      showFallback(uiText("Could not load the AI workspace settings.", "AIワークスペースの設定を取得できませんでした。"));
       return;
     }
     if (devHint) devHint.hidden = config.packaged !== false;
@@ -82,7 +83,10 @@ export const initAiModeUi = (): AiModeApi => {
       if (event.isMainFrame === false || event.errorCode === -3) return;
       lastLoadFailed = true;
       showFallback(
-        "AIワークスペースに接続できませんでした。サーバーが起動しているか確認してください。"
+        uiText(
+          "Could not connect to the AI workspace. Check that the server is running.",
+          "AIワークスペースに接続できませんでした。サーバーが起動しているか確認してください。"
+        )
       );
     });
     element.addEventListener("did-finish-load", () => {
@@ -101,7 +105,7 @@ export const initAiModeUi = (): AiModeApi => {
 
   retryButton?.addEventListener("click", () => {
     if (webview) {
-      showFallback("AIワークスペースに再接続しています…");
+      showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続しています…"));
       webview.reload?.();
     } else {
       void createWebview();

@@ -12,12 +12,14 @@ export const calculateProSplitterDrag = (layout, boundary, pointerRatio, ratios,
     const minimum = Math.min(Math.max(minRatio, 0), 1 / 3);
     const current = clampProRatios(ratios, 0);
     if (layout === "preview-source") {
+        // The source pane sits left of the preview, so the pointer ratio at the
+        // splitter is the source's share; ratios[0] stays the preview's share.
         if (ratio < minimum)
-            return { ratios: current, collapse: "preview" };
-        if (1 - ratio < minimum)
             return { ratios: current, collapse: "source" };
+        if (1 - ratio < minimum)
+            return { ratios: current, collapse: "preview" };
         const tail = Math.max(current[1] + current[2], 0.001);
-        return { ratios: [ratio, (1 - ratio) * current[1] / tail, (1 - ratio) * current[2] / tail], collapse: null };
+        return { ratios: [1 - ratio, ratio * current[1] / tail, ratio * current[2] / tail], collapse: null };
     }
     if (boundary === 0) {
         if (ratio < minimum)

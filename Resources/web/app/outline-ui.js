@@ -26,9 +26,11 @@ export const initOutlineUi = (context, deps) => {
         }
         return filterEntriesForCurrent(entries);
     };
-    const resolveSectionLabels = () => getUiLocale() === "en"
-        ? ["Chapter", "Section", "Subsection", "Item", "Subitem", "Paragraph", "Subparagraph"]
-        : ["chapter", "section", "measure", "term", "subsection", "paragraph", "small paragraph"];
+    // English for every locale except Japanese: the old non-en branch served
+    // machine-mangled English ("measure", "small paragraph") to all six locales.
+    const resolveSectionLabels = () => getUiLocale() === "ja"
+        ? ["章", "節", "小節", "項", "小項", "段落", "小段落"]
+        : ["Chapter", "Section", "Subsection", "Item", "Subitem", "Paragraph", "Subparagraph"];
     const renderModeButtons = () => {
         if (outlineModeCurrent instanceof HTMLButtonElement) {
             const isActive = outlineMode === "current";

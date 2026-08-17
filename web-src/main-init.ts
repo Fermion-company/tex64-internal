@@ -45,7 +45,7 @@ import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
 import { initWorkspaceController } from "./app/workspace-controller.js";
-import { getUiLocale, initI18n, uiText } from "./app/i18n.js";
+import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
 import { initProModeUi, parseProModeState, PRO_MODE_STORAGE_KEY } from "./app/pro-mode-ui.js";
@@ -849,6 +849,10 @@ export const initMain = () => {
     launcherUi.setStatus({ isBusy: false, message: null });
   }
   postToNative({ type: "ready" }, true);
+  // Keep the main process in sync with the in-app language so native surfaces
+  // (permission dialogs, menu, notifications) match the UI, not the OS locale.
+  postToNative({ type: "uiLocale", locale: getUiLocale() });
+  onUiLocaleChange((locale) => postToNative({ type: "uiLocale", locale }));
   const uiEvents = initUiEvents(appContext, {
     setActiveTab,
     normalizeTabKey: tabController.normalizeTabKey,

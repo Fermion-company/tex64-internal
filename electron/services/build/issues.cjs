@@ -72,7 +72,7 @@ module.exports = (BuildService) => {
       const codePoint = `U+${String(match[2] ?? "").toUpperCase()}`;
       const font = String(match[3] ?? "").trim().replace(/[;:]+$/, "");
       const character = rawCharacter || codePoint;
-      const fontPart = font ? `現在のフォント ${font} にこのグリフがありません。` : "";
+      const fontPart = font ? `The current font ${font} has no glyph for it. ` : "";
       issues.push({
         severity: "error",
         code: "missing-glyph",
@@ -83,9 +83,9 @@ module.exports = (BuildService) => {
         column: null,
         path: activeTexPath ?? null,
         message:
-          `PDFで表示できない文字があります: ${character} (${codePoint})。` +
+          `The PDF cannot display the character ${character} (${codePoint}). ` +
           `${fontPart}` +
-          "Unicode 対応の文書クラス/パッケージ（日本語: ltjsarticle または luatexja、中国語: ctex、韓国語: kotex、その他: fontspec + 対応フォント）を使ってください。",
+          "Use a Unicode-aware document class/package (Japanese: ltjsarticle or luatexja, Chinese: ctex, Korean: kotex, otherwise: fontspec with a suitable font).",
       });
     }
     return issues;
@@ -305,10 +305,10 @@ module.exports = (BuildService) => {
       lower.includes("'latexmk' is not recognized") ||
       lower.includes('"latexmk" is not recognized');
     if (latexmkMissing) {
-      return "latexmk がnot found。TeX environmentを確認してください。";
+      return "latexmk not found. Check the TeX environment.";
     }
     if (output.includes(mainFileName) && output.includes("No such file")) {
-      return `${mainFileName} がnot found。`;
+      return `${mainFileName} was not found.`;
     }
     const firstError = issues.find((issue) => issue.severity === "error");
     if (firstError) {
@@ -317,6 +317,6 @@ module.exports = (BuildService) => {
     if (issues[0]) {
       return issues[0].message;
     }
-    return "build failed。Issuesを確認してください。";
+    return "Build failed. Check the Issues panel.";
   };
 };

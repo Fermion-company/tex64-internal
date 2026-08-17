@@ -128,7 +128,7 @@ class FermionEngineService {
     const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "fermion" });
     if (!allowed) {
       const root = this.fileAccess.classify(this.engineDir)?.root || this.engineDir;
-      const error = new Error(`TeX64 に ${root} へのアクセス許可がないため fermion を起動できません。`);
+      const error = new Error(`TeX64 cannot start fermion because it has no permission to access ${root}.`);
       this.state = "unavailable";
       this.lastError = error.message;
       throw error;

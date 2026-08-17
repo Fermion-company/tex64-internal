@@ -9,11 +9,13 @@ import {
 } from "../Resources/web/app/pro-mode-ui.js";
 
 test("splitter drag collapses panes below the minimum and freely restores ratios", () => {
-  assert.equal(calculateProSplitterDrag("preview-source", 0, 0.05, [.34, .33, .33], .1).collapse, "preview");
-  assert.equal(calculateProSplitterDrag("preview-source", 0, 0.95, [.34, .33, .33], .1).collapse, "source");
+  // Layout 1 renders source LEFT / preview RIGHT, so the pointer ratio at the
+  // splitter is the source's share while ratios[0] remains the preview's.
+  assert.equal(calculateProSplitterDrag("preview-source", 0, 0.05, [.34, .33, .33], .1).collapse, "source");
+  assert.equal(calculateProSplitterDrag("preview-source", 0, 0.95, [.34, .33, .33], .1).collapse, "preview");
   const open = calculateProSplitterDrag("preview-source", 0, .42, [.34, .33, .33], .1);
   assert.equal(open.collapse, null);
-  assert.ok(Math.abs(open.ratios[0] - .42) < 1e-9);
+  assert.ok(Math.abs(open.ratios[0] - .58) < 1e-9);
   assert.equal(calculateProSplitterDrag("source-reference-code", 1, .95, [.34, .33, .33], .1).collapse, "code");
 });
 

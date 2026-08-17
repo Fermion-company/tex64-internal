@@ -97,22 +97,53 @@ class MacFileAccessService {
     if (!this.dialog || this.notified.has(key)) return;
     this.notified.add(key);
     try {
-      const japanese = String(this.getLocale()).toLowerCase().startsWith("ja");
-      const buttons = japanese
-        ? ["システム設定を開く", "閉じる"]
-        : ["Open System Settings", "Close"];
+      const STRINGS = {
+        en: {
+          buttons: ["Open System Settings", "Close"],
+          message: (root) => `TeX64 does not have permission to access ${root}.`,
+          detail: "Enable TeX64 under Privacy & Security → Files and Folders, then restart TeX64.",
+        },
+        ja: {
+          buttons: ["システム設定を開く", "閉じる"],
+          message: (root) => `TeX64 に ${root} へのアクセスが許可されていません。`,
+          detail: "「プライバシーとセキュリティ」→「ファイルとフォルダ」で TeX64 を有効にしてから、TeX64 を再起動してください。",
+        },
+        zh: {
+          buttons: ["打开系统设置", "关闭"],
+          message: (root) => `TeX64 没有访问 ${root} 的权限。`,
+          detail: "请在“隐私与安全性”→“文件与文件夹”中启用 TeX64，然后重新启动 TeX64。",
+        },
+        ko: {
+          buttons: ["시스템 설정 열기", "닫기"],
+          message: (root) => `TeX64 에 ${root} 접근 권한이 없습니다.`,
+          detail: "'개인정보 보호 및 보안' → '파일 및 폴더'에서 TeX64 를 활성화한 뒤 TeX64 를 다시 시작하세요.",
+        },
+        fr: {
+          buttons: ["Ouvrir les Réglages Système", "Fermer"],
+          message: (root) => `TeX64 n'a pas l'autorisation d'accéder à ${root}.`,
+          detail: "Activez TeX64 dans Confidentialité et sécurité → Fichiers et dossiers, puis redémarrez TeX64.",
+        },
+        de: {
+          buttons: ["Systemeinstellungen öffnen", "Schließen"],
+          message: (root) => `TeX64 hat keine Berechtigung für den Zugriff auf ${root}.`,
+          detail: "Aktivieren Sie TeX64 unter Datenschutz & Sicherheit → Dateien und Ordner und starten Sie TeX64 neu.",
+        },
+        es: {
+          buttons: ["Abrir Ajustes del Sistema", "Cerrar"],
+          message: (root) => `TeX64 no tiene permiso para acceder a ${root}.`,
+          detail: "Activa TeX64 en Privacidad y seguridad → Archivos y carpetas y reinicia TeX64.",
+        },
+      };
+      const base = String(this.getLocale()).toLowerCase().split(/[-_]/, 1)[0];
+      const strings = STRINGS[base] || STRINGS.en;
       const root = path.resolve(PROTECTED_ROOTS[key](this.homeDir));
       const options = {
         type: "warning",
-        buttons,
+        buttons: strings.buttons,
         defaultId: 0,
         cancelId: 1,
-        message: japanese
-          ? `TeX64 に ${root} へのアクセスが許可されていません。`
-          : `TeX64 does not have permission to access ${root}.`,
-        detail: japanese
-          ? "「プライバシーとセキュリティ」→「ファイルとフォルダ」で TeX64 を有効にしてから、TeX64 を再起動してください。"
-          : "Enable TeX64 under Privacy & Security → Files and Folders, then restart TeX64.",
+        message: strings.message(root),
+        detail: strings.detail,
       };
       const window = this.getWindow();
       const result = window

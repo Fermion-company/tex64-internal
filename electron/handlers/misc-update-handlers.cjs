@@ -20,6 +20,7 @@ const createUpdateHandlers = ({
   platformService,
   shell,
   Notification,
+  getUiLocale = () => "en",
   sendToRenderer,
   appPlatform,
   appArch,
@@ -147,9 +148,19 @@ const createUpdateHandlers = ({
       return;
     }
     try {
+      const UPDATE_STRINGS = {
+        en: { title: "TeX64 Update", body: (v) => `Version ${v} is available.` },
+        ja: { title: "TeX64 アップデート", body: (v) => `バージョン ${v} が利用できます。` },
+        zh: { title: "TeX64 更新", body: (v) => `版本 ${v} 已可用。` },
+        ko: { title: "TeX64 업데이트", body: (v) => `버전 ${v} 을 사용할 수 있습니다.` },
+        fr: { title: "Mise à jour de TeX64", body: (v) => `La version ${v} est disponible.` },
+        de: { title: "TeX64-Update", body: (v) => `Version ${v} ist verfügbar.` },
+        es: { title: "Actualización de TeX64", body: (v) => `La versión ${v} está disponible.` },
+      };
+      const strings = UPDATE_STRINGS[getUiLocale()] || UPDATE_STRINGS.en;
       const notification = new Notification({
-        title: "TeX64 Update",
-        body: `Version ${latestVersion} is available.`,
+        title: strings.title,
+        body: strings.body(latestVersion),
         silent: true,
       });
       if (typeof notification.on === "function" && shell?.openExternal) {

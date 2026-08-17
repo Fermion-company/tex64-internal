@@ -15,6 +15,152 @@ import {
   viewportPointToDocumentPoint,
 } from "./app/pdf-capture-math.js";
 
+// This page runs in its own iframe and never goes through the app's initI18n(),
+// so it reads the stored UI locale itself. English is the source language and
+// the fallback, matching the app's i18n default.
+const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
+const UI_STRINGS = {
+  noPdf: {
+    en: "No PDF is loaded.",
+    ja: "PDF が未読み込みです。",
+    zh: "尚未加载 PDF。",
+    ko: "PDF가 로드되지 않았습니다.",
+    fr: "Aucun PDF n’est chargé.",
+    de: "Es ist kein PDF geladen.",
+    es: "No hay ningún PDF cargado.",
+  },
+  noOutline: {
+    en: "No outline.",
+    ja: "目次がありません。",
+    zh: "没有目录。",
+    ko: "목차가 없습니다.",
+    fr: "Aucun sommaire.",
+    de: "Keine Gliederung.",
+    es: "No hay índice.",
+  },
+  jumpToSource: {
+    en: "Jump to source",
+    ja: "ソースへ移動",
+    zh: "跳转到源码",
+    ko: "소스로 이동",
+    fr: "Aller à la source",
+    de: "Zur Quelle springen",
+    es: "Ir al código fuente",
+  },
+  loading: {
+    en: "Loading…",
+    ja: "読み込み中...",
+    zh: "加载中…",
+    ko: "불러오는 중…",
+    fr: "Chargement…",
+    de: "Wird geladen…",
+    es: "Cargando…",
+  },
+  ready: {
+    en: "Ready",
+    ja: "準備完了",
+    zh: "准备就绪",
+    ko: "준비 완료",
+    fr: "Prêt",
+    de: "Bereit",
+    es: "Listo",
+  },
+  loadFailed: {
+    en: "Failed to load the PDF.",
+    ja: "読み込みに失敗しました。",
+    zh: "加载失败。",
+    ko: "불러오지 못했습니다.",
+    fr: "Échec du chargement.",
+    de: "Laden fehlgeschlagen.",
+    es: "Error al cargar.",
+  },
+  sidebar: { en: "Sidebar", ja: "サイドバー", zh: "侧边栏", ko: "사이드바", fr: "Panneau latéral", de: "Seitenleiste", es: "Barra lateral" },
+  hideSidebar: { en: "Hide sidebar", ja: "サイドバーを隠す", zh: "隐藏侧边栏", ko: "사이드바 숨기기", fr: "Masquer le panneau latéral", de: "Seitenleiste ausblenden", es: "Ocultar la barra lateral" },
+  prevPage: { en: "Previous page", ja: "前のページ", zh: "上一页", ko: "이전 페이지", fr: "Page précédente", de: "Vorherige Seite", es: "Página anterior" },
+  nextPage: { en: "Next page", ja: "次のページ", zh: "下一页", ko: "다음 페이지", fr: "Page suivante", de: "Nächste Seite", es: "Página siguiente" },
+  pageWord: { en: "Page", ja: "ページ", zh: "页面", ko: "페이지", fr: "Page", de: "Seite", es: "Página" },
+  zoomOut: { en: "Zoom out", ja: "縮小", zh: "缩小", ko: "축소", fr: "Zoom arrière", de: "Verkleinern", es: "Alejar" },
+  zoomIn: { en: "Zoom in", ja: "拡大", zh: "放大", ko: "확대", fr: "Zoom avant", de: "Vergrößern", es: "Acercar" },
+  fitWidth: { en: "Fit width", ja: "幅に合わせる", zh: "适应宽度", ko: "폭 맞춤", fr: "Ajuster à la largeur", de: "An Breite anpassen", es: "Ajustar al ancho" },
+  widthWord: { en: "Width", ja: "幅", zh: "宽度", ko: "폭", fr: "Largeur", de: "Breite", es: "Ancho" },
+  fitPage: { en: "Fit page", ja: "ページに合わせる", zh: "适应页面", ko: "페이지 맞춤", fr: "Ajuster à la page", de: "An Seite anpassen", es: "Ajustar a la página" },
+  rotateLeft: { en: "Rotate left", ja: "左に回転", zh: "向左旋转", ko: "왼쪽으로 회전", fr: "Pivoter à gauche", de: "Nach links drehen", es: "Girar a la izquierda" },
+  rotateRight: { en: "Rotate right", ja: "右に回転", zh: "向右旋转", ko: "오른쪽으로 회전", fr: "Pivoter à droite", de: "Nach rechts drehen", es: "Girar a la derecha" },
+  search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
+  searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
+  searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
+  invert: { en: "Invert", ja: "反転", zh: "反色", ko: "반전", fr: "Inverser", de: "Invertieren", es: "Invertir" },
+  download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
+  print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
+  reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
+  waiting: { en: "Waiting", ja: "待機中", zh: "等待中", ko: "대기 중", fr: "En attente", de: "Wartend", es: "En espera" },
+  outline: { en: "Outline", ja: "目次", zh: "目录", ko: "목차", fr: "Sommaire", de: "Gliederung", es: "Índice" },
+  thumbnails: { en: "Thumbnails", ja: "サムネイル", zh: "缩略图", ko: "썸네일", fr: "Vignettes", de: "Miniaturen", es: "Miniaturas" },
+  untitled: { en: "(untitled)", ja: "（無題）", zh: "（无标题）", ko: "(제목 없음)", fr: "(sans titre)", de: "(ohne Titel)", es: "(sin título)" },
+};
+const uiString = (key) => {
+  const entry = UI_STRINGS[key];
+  let locale = "en";
+  try {
+    const stored = localStorage.getItem(UI_LOCALE_STORAGE_KEY);
+    if (stored && Object.hasOwn(entry, stored)) {
+      locale = stored;
+    }
+  } catch {
+    // Keep English when storage is unavailable.
+  }
+  return entry[locale];
+};
+
+// Translate the static toolbar/sidebar chrome. index.html gets this from the
+// app-wide applyI18n observer; this standalone page has to do it itself.
+const localizeChrome = () => {
+  const setTitle = (id, key) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.title = uiString(key);
+      if (el.hasAttribute("aria-label")) el.setAttribute("aria-label", uiString(key));
+    }
+  };
+  setTitle("pdf-sidebar-toggle", "sidebar");
+  setTitle("pdf-sidebar-close", "hideSidebar");
+  setTitle("pdf-prev", "prevPage");
+  setTitle("pdf-next", "nextPage");
+  setTitle("pdf-zoom-out", "zoomOut");
+  setTitle("pdf-zoom-in", "zoomIn");
+  setTitle("pdf-fit-width", "fitWidth");
+  setTitle("pdf-fit-page", "fitPage");
+  setTitle("pdf-rotate-left", "rotateLeft");
+  setTitle("pdf-rotate-right", "rotateRight");
+  setTitle("pdf-search-prev", "searchPrev");
+  setTitle("pdf-search-next", "searchNext");
+  setTitle("pdf-invert", "invert");
+  setTitle("pdf-download", "download");
+  setTitle("pdf-print", "print");
+  setTitle("pdf-reload", "reload");
+  document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
+  const searchInput = document.getElementById("pdf-search-input");
+  if (searchInput) searchInput.placeholder = uiString("search");
+  const fitWidthSpan = document.querySelector("#pdf-fit-width span");
+  if (fitWidthSpan) fitWidthSpan.textContent = uiString("widthWord");
+  const fitPageSpan = document.querySelector("#pdf-fit-page span");
+  if (fitPageSpan) fitPageSpan.textContent = uiString("pageWord");
+  const setText = (id, key) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = uiString(key);
+  };
+  setText("pdf-invert", "invert");
+  setText("pdf-print", "print");
+  setText("pdf-reload", "reload");
+  setText("pdf-status", "waiting");
+  setText("pdf-tab-outline", "outline");
+  setText("pdf-tab-thumbs", "thumbnails");
+  const stored = (() => {
+    try { return localStorage.getItem(UI_LOCALE_STORAGE_KEY); } catch { return null; }
+  })();
+  if (stored) document.documentElement.lang = stored;
+};
+
 const createParentBridge = () => {
   if (!window.parent || window.parent === window) {
     return null;
@@ -70,6 +216,7 @@ const initPdfViewer = () => {
   const bridge = resolveBridge();
   const embedded = isEmbeddedViewer();
   document.body.classList.toggle("is-embedded", embedded);
+  localizeChrome();
   const titleEl = document.getElementById("pdf-title");
   const statusEl = document.getElementById("pdf-status");
   const sidebarToggleBtn = document.getElementById("pdf-sidebar-toggle");
@@ -406,12 +553,12 @@ const initPdfViewer = () => {
     }
     outlineEl.innerHTML = "";
     if (!state.doc) {
-      outlineEl.textContent = "PDF が未読み込みです。";
+      outlineEl.textContent = uiString("noPdf");
       return;
     }
     const outline = await state.doc.getOutline().catch(() => null);
     if (!Array.isArray(outline) || outline.length === 0) {
-      outlineEl.textContent = "目次がありません。";
+      outlineEl.textContent = uiString("noOutline");
       return;
     }
 
@@ -424,7 +571,7 @@ const initPdfViewer = () => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "pdf-outline-item";
-        button.textContent = title || "(untitled)";
+        button.textContent = title || uiString("untitled");
         button.style.paddingLeft = `${8 + depth * 12}px`;
         const dest = item.dest ?? null;
         if (dest) {
@@ -475,7 +622,7 @@ const initPdfViewer = () => {
     }
     thumbnailsEl.innerHTML = "";
     if (!state.doc || !state.pageCount) {
-      thumbnailsEl.textContent = "PDF が未読み込みです。";
+      thumbnailsEl.textContent = uiString("noPdf");
       return;
     }
     if (state.thumbObserver) {
@@ -611,7 +758,7 @@ const initPdfViewer = () => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "pdf-context-menu-item";
-    button.textContent = "ソースへ移動";
+    button.textContent = uiString("jumpToSource");
     button.addEventListener("click", (clickEvent) => {
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
@@ -1016,7 +1163,7 @@ const initPdfViewer = () => {
     reloadInFlight = true;
     clearSidebarContent();
     clearSyncMarker();
-    setStatus("読み込み中...");
+    setStatus(uiString("loading"));
     try {
       const task = pdfjs.getDocument(createPdfDocumentOptions(url));
       state.doc = await task.promise;
@@ -1031,10 +1178,10 @@ const initPdfViewer = () => {
       if (!embedded) {
         renderThumbnails();
       }
-      setStatus("準備完了");
+      setStatus(uiString("ready"));
     } catch (error) {
       reloadInFlight = false;
-      setStatus("読み込みに失敗しました。");
+      setStatus(uiString("loadFailed"));
       // eslint-disable-next-line no-console
       console.error(error);
     }

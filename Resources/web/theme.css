@@ -3970,11 +3970,43 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
 .pro-mode-toggle.is-active .pro-mode-toggle-track { background: var(--accent); }
 .pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
-.pro-layout-switcher { display: inline-flex; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); overflow: hidden; }
+#pro-canvas-open,
+#pro-canvas-gallery {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 28px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+#pro-canvas-open[hidden],
+#pro-canvas-gallery[hidden] { display: none; }
+#pro-canvas-open:hover,
+#pro-canvas-gallery:hover {
+  color: var(--text);
+  border-color: var(--panel-border-strong);
+  background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
+}
+#pro-canvas-open:active,
+#pro-canvas-gallery:active { transform: translateY(1px); }
+.pro-layout-switcher { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--control-bg); }
 .pro-layout-switcher[hidden] { display: none; }
-.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; border-radius: 0; padding: 3px 6px; }
+.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; margin: 0; padding: 0 4px; border: none; border-radius: calc(var(--radius-sm) - 2px); background: transparent; color: var(--muted); cursor: pointer; transition: background var(--duration-fast) ease, color var(--duration-fast) ease; }
+.pro-layout-switcher button:hover { color: var(--text-soft); }
 .pro-layout-switcher button svg { display: block; }
-.pro-layout-switcher button[aria-pressed="true"] { color: var(--accent); background: var(--panel-strong); }
+.pro-layout-switcher button[aria-pressed="true"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 1px var(--panel-border-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
 
 :root[data-pro-mode="true"] .editor-groups {
@@ -3990,18 +4022,79 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 :root[data-pro-mode="true"] .editor-groups.is-pro-resizing > * { transition: none !important; }
 :root[data-pro-mode="true"] .editor-groups > .editor-splitter { display: none; }
 :root[data-pro-mode="true"] .pro-pane-collapse { display: inline-flex; }
-:root[data-pro-mode="true"] .pro-pane { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
-.pro-pane-header { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 12px; border-bottom: 1px solid var(--panel-border); color: var(--text-soft); font-size: 12px; }
-.pro-pane-actions { display: inline-flex; gap: 4px; }
-.pro-live-status { align-self: center; max-width: 150px; overflow: hidden; color: var(--text-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-pro-mode="true"] .pro-pane { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
+.pro-pane-header { height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--panel-border); color: var(--text-soft); font-size: 12px; }
+.pro-pane-header > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The live status only ever takes the header's spare width (flex-basis 0), so
+   it can never push the buttons out of the pane. */
+.pro-pane-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; flex: 1 1 auto; min-width: 0; }
+.pro-pane-actions button { flex-shrink: 0; }
+.pro-live-status { align-self: center; flex: 1 1 0; max-width: 150px; min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .pro-live-status.is-error { color: var(--danger); }
 #pro-preview-live-toggle.is-active { color: white; background: var(--accent); }
 .pro-preview-live { display: none; width: 100%; height: 100%; border: 0; background: white; }
 .pro-preview-live.is-visible { display: block; }
 .editor-viewer.is-live-hidden { display: none !important; }
+/* Quiet ghost buttons for pane chrome — match .topbar-layout-toggle rather than
+   the UA default bevel. The Live toggle's accent .is-active state (above, by id)
+   still wins over these. */
+.pro-pane-actions button, .pro-pane-collapse, :root[data-pro-mode="true"] .pro-structure-button {
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+.pro-pane-actions button:hover, .pro-pane-collapse:hover, :root[data-pro-mode="true"] .pro-structure-button:hover {
+  background: var(--control-bg);
+  color: var(--text);
+}
 .pro-pane-actions button, .pro-pane-collapse { padding: 2px 7px; min-height: 24px; }
+/* Chip-style buttons for the pro popovers and the stash tray, which sit on
+   panel surfaces where a fully transparent button would not read as clickable. */
+.pro-capture-menu button, .pro-capture-confirm button, .pro-stash button {
+  margin: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  color: var(--text);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+.pro-capture-menu button:hover, .pro-capture-confirm button:hover, .pro-stash button:hover {
+  border-color: var(--panel-border-strong);
+  background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
+}
+.pro-stash button { font-size: 11px; min-height: 24px; padding: 2px 7px; }
+.pro-stash-item-actions button { border: none; background: transparent; }
 .pro-pane-body { position: relative; min-height: 0; }
 .pro-pane-body .editor-viewer { display: grid; }
+/* The pane's empty state is the first thing Pro mode shows; a floating card
+   with a drop shadow reads as an error dialog there. Quiet hint instead. */
+.pro-pane-body .editor-viewer-message {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 20px 28px;
+}
+.pro-pane-body .editor-viewer-message h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+  margin: 0 0 6px;
+}
+.pro-pane-body .editor-viewer-message p {
+  font-size: 12px;
+  color: var(--muted);
+}
 .pro-capture-overlay { position: absolute; inset: 0; z-index: 30; cursor: crosshair; background: rgb(10 20 35 / 8%); overflow: hidden; user-select: none; }
 .pro-capture-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); padding: 5px 9px; border-radius: 999px; background: rgb(20 24 32 / 82%); color: white; font-size: 11px; pointer-events: none; }
 .pro-capture-selection { position: absolute; border: 1px solid #fff; outline: 1px solid var(--accent); background: rgb(50 140 255 / 12%); box-shadow: 0 0 0 9999px rgb(0 0 0 / 24%); pointer-events: none; }
@@ -4021,7 +4114,17 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 .pro-stash[data-side="left"] { right: auto; left: 16px; }
 .pro-stash > header { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 7px; border-bottom: 1px solid var(--panel-border); cursor: grab; touch-action: none; }
 .pro-stash.is-positioning > header { cursor: grabbing; }
-.pro-stash > header strong { flex: 1; }
+.pro-stash > header strong { flex: 1; font-size: 12px; }
+/* Header controls are ghost buttons; the chip look is for the body's actions. */
+.pro-stash > header button { border-color: transparent; background: transparent; color: var(--text-soft); }
+.pro-stash > header button:hover { border-color: transparent; background: var(--control-bg); color: var(--text); }
+.pro-stash > header [data-stash-toggle] { min-width: 22px; padding: 2px 0; font-size: 10px; }
+.pro-stash [data-stash-selection] { min-height: 26px; color: var(--text-soft); }
+.pro-stash [data-stash-selection]:hover { color: var(--text); }
+/* AI edit is the tray's one primary action. */
+.pro-stash [data-stash-ai] { padding: 2px 12px; border-color: transparent; background: var(--accent); color: white; }
+.pro-stash [data-stash-ai]:hover { border-color: transparent; background: var(--accent-strong); color: white; }
+.pro-stash [data-stash-ai]:disabled { opacity: .5; cursor: default; }
 .pro-stash > header [data-stash-count] { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; text-align: center; font-size: 10px; }
 .pro-stash.is-collapsed { width: auto !important; border-radius: 999px; }
 .pro-stash.is-collapsed > header { min-height: 28px; padding: 2px 7px; border: 0; }
@@ -4044,7 +4147,7 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 .pro-stash-dropzone { padding: 7px; border: 1px dashed var(--panel-border-strong); border-radius: var(--radius-sm); color: var(--text-soft); text-align: center; font-size: 10px; }
 .pro-stash-dropzone.is-drag-over { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
 .pro-stash-resizer { position: absolute; z-index: 2; inset: 0 auto 0 -5px; width: 11px; cursor: ew-resize; touch-action: none; }
-.pro-stash textarea { width: 100%; resize: vertical; box-sizing: border-box; padding: 6px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--bg); font: 11px/1.4 var(--font-ui); }
+.pro-stash textarea { width: 100%; resize: vertical; box-sizing: border-box; padding: 6px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--bg); font-family: inherit; font-size: 11px; line-height: 1.4; }
 .pro-stash-actions, .pro-stash-output { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .pro-stash-output[hidden] { display: none; }
 .pro-stash-actions [data-stash-status] { flex: 1; color: var(--text-soft); font-size: 10px; overflow-wrap: anywhere; }
@@ -4055,10 +4158,15 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 .pro-splitter:hover::before, .is-pro-resizing .pro-splitter::before { filter: contrast(1.8); }
 
 :root[data-pro-mode="true"] #editor-split-button { display: none; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, var(--pro-pane-a)) var(--pro-handle) minmax(0, var(--pro-pane-rest)); }
+/* Layout 1 puts the source on the LEFT and the preview on the RIGHT (the
+   convention every LaTeX editor shares), even though the DOM keeps the preview
+   pane first — hence the explicit grid-column assignments. */
+:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, var(--pro-pane-rest)) var(--pro-handle) minmax(0, var(--pro-pane-a)); }
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-preview-pane,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-primary,
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="primary"] { display: grid; }
+:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
+:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
+:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-preview-pane { grid-column: 3; grid-row: 1; }
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-reference-pane,
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-secondary,
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="secondary"] { display: none; }
@@ -4070,8 +4178,8 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] .pro-reference-pane { grid-column: 3; grid-row: 1; }
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] #pro-splitter-secondary { display: block; grid-column: 4; grid-row: 1; }
 :root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] > [data-editor-group="secondary"] { display: grid; grid-column: 5; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed[data-pro-layout="preview-source"] { grid-template-columns: var(--pro-strip) 0 minmax(0, 1fr); }
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, 1fr) 0 var(--pro-strip); }
+:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, 1fr) 0 var(--pro-strip); }
+:root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="preview-source"] { grid-template-columns: var(--pro-strip) 0 minmax(0, 1fr); }
 :root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: var(--pro-strip) 0 minmax(0, var(--pro-pane-b)) var(--pro-handle) minmax(0, var(--pro-pane-c)); }
 :root[data-pro-mode="true"] .editor-groups.is-reference-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) 0 var(--pro-strip) 0 minmax(0, var(--pro-pane-c)); }
 :root[data-pro-mode="true"] .editor-groups.is-code-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) var(--pro-handle) minmax(0, var(--pro-pane-b)) 0 var(--pro-strip); }
@@ -4079,6 +4187,17 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 :root[data-pro-mode="true"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] .editor-surface,
 :root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane .pro-pane-body,
 :root[data-pro-mode="true"] .editor-groups.is-code-collapsed > [data-editor-group="secondary"] .editor-surface { visibility: hidden; }
+/* A collapsed pane is a 34px strip; its header contents would clip into
+   garbage ("Prev…"), so the strip shows only a centered expand chevron and
+   invites the click-to-reopen the pane already handles. */
+:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane,
+:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane { cursor: pointer; }
+:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header,
+:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header { justify-content: center; padding: 0; border-bottom: 0; }
+:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header > *,
+:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header > * { display: none; }
+:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header::after,
+:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header::after { content: "‹"; color: var(--text-soft); font-size: 14px; }
 
 .editor-header {
   display: flex;
@@ -4235,7 +4354,10 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
   overflow: hidden;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
-  background: var(--panel);
+  /* Opaque: the drawer floats over the editor, and a translucent panel over
+     dark code turns to mud in the light theme. */
+  background: var(--panel-strong);
+  backdrop-filter: blur(10px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, .24);
   z-index: 30;
 }
@@ -8834,6 +8956,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   box-shadow: var(--shadow);
 }
 
+:root[data-theme="light"] .pro-pane-body .editor-viewer-message {
+  box-shadow: none;
+}
+
 :root[data-theme="light"] .ai-chat-delete-modal {
   background: rgba(15, 23, 42, 0.22);
 }
@@ -8904,7 +9030,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-inspector button:disabled { opacity: .4; }
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
-.pro-canvas-hintbar { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; overflow: hidden; padding: 5px 10px; pointer-events: none; color: #c9d1d9; background: #161a22; font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
+.pro-canvas-hintbar { position: absolute; z-index: 2; left: 50%; bottom: 8px; transform: translateX(-50%); max-width: calc(100% - 24px); overflow: hidden; padding: 4px 12px; pointer-events: none; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
+.pro-canvas-hintbar:empty { display: none; }
 .pro-canvas-emptystate { position: absolute; z-index: 2; top: 50%; left: 50%; width: min(560px, calc(100% - 32px)); transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
 .pro-canvas-emptystate[hidden] { display: none; }
 .pro-canvas-empty-actions { display: flex; justify-content: center; gap: 8px; }
@@ -8912,7 +9039,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-emptystate.is-passive .pro-canvas-empty-actions button { pointer-events: none; }
 .pro-canvas-empty-actions svg { width: 36px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .pro-canvas-empty-actions text { fill: currentColor; stroke: none; font: 15px Georgia, 'Times New Roman', serif; text-anchor: middle; }
-.pro-canvas-emptystate p { margin: 9px 0 0; padding: 2px 8px; border-radius: 5px; color: #e6edf3; background: rgb(22 26 34 / 88%); font-size: 10px; }
+.pro-canvas-emptystate p { display: inline-block; margin: 9px 0 0; padding: 3px 10px; border: 1px solid var(--panel-border); border-radius: 999px; color: var(--text-soft); background: color-mix(in srgb, var(--panel-strong) 92%, transparent); font-size: 10px; }
 .pro-canvas-coach { position: absolute; z-index: 3; padding: 5px 8px; transform: translate(-50%, -100%); pointer-events: none; color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel-strong); box-shadow: var(--shadow-sm); font-size: 10px; white-space: nowrap; transition: opacity .5s ease; }
 .pro-canvas-coach[hidden] { display: none; }
 .pro-canvas-coach.is-fading { opacity: 0; }

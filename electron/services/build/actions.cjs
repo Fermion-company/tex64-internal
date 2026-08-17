@@ -83,7 +83,7 @@ module.exports = (BuildService) => {
     if (!fs.existsSync(mainFilePath)) {
       const issue = {
         severity: "error",
-        message: `${mainFileName} がnot found。`,
+        message: `${mainFileName} was not found.`,
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -160,7 +160,7 @@ module.exports = (BuildService) => {
         output = [
           output,
           "",
-          "[tex64] xypdf Issuesを検出したため、pdflatex で再executionしました。",
+          "[tex64] Detected an xypdf issue and rebuilt with pdflatex.",
           fallback.output,
         ]
           .filter(Boolean)
@@ -192,7 +192,7 @@ module.exports = (BuildService) => {
     const missingGlyphIssues = this.findMissingGlyphIssues(issues);
     if (missingGlyphIssues.length > 0) {
       const summary =
-        "PDFで表示できない文字があります。Unicode 対応の文書クラス/パッケージまたはフォントを設定してください。";
+        "The PDF contains characters it cannot display. Configure a Unicode-aware document class/package or font.";
       return {
         kind: "failure",
         summary,
@@ -210,14 +210,14 @@ module.exports = (BuildService) => {
       if (resolvedPdfPath) {
         return {
           kind: "success",
-          summary: "build成功",
+          summary: "Build succeeded",
           issues,
           pdfPath: resolvedPdfPath,
           log: output,
         };
       }
       const message =
-        "buildは成功しましたが、PDF not found.-jobname / outDir / latexmkrc を確認してください。";
+        "The build succeeded but the PDF was not found. Check -jobname / outDir / latexmkrc.";
       return {
         kind: "failure",
         summary: message,
@@ -243,8 +243,8 @@ module.exports = (BuildService) => {
     const summaryText = typeof summary === "string" ? summary.trim() : "";
     const summaryLooksWarning = /\bwarning\b/i.test(summaryText);
     const fallbackMessage = summaryLooksWarning
-      ? "build failed。Warningだけでは原因を特定できません。buildログを確認してください。"
-      : summaryText || "build failed。buildログを確認してください。";
+      ? "Build failed. Warnings alone do not pinpoint the cause; check the build log."
+      : summaryText || "Build failed. Check the build log.";
     const fallback = {
       severity: "error",
       message: fallbackMessage,
@@ -265,7 +265,7 @@ module.exports = (BuildService) => {
     if (!fs.existsSync(mainFilePath)) {
       const issue = {
         severity: "error",
-        message: `${mainFileName} がnot found。`,
+        message: `${mainFileName} was not found.`,
         line: null,
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
@@ -298,7 +298,7 @@ module.exports = (BuildService) => {
       if (result.cancelled === true || this.cancelRequested) {
         return {
           kind: "cancelled",
-          summary: deep ? "clean（全Delete）をCancelled." : "Clean cancelled.",
+          summary: deep ? "Deep clean cancelled." : "Clean cancelled.",
           issues: [],
           log: output,
         };
@@ -324,12 +324,12 @@ module.exports = (BuildService) => {
     if (status === 0) {
       return {
         kind: "success",
-        summary: deep ? "clean（全Delete）Done" : "Clean done",
+        summary: deep ? "Deep clean done" : "Clean done",
         issues: [],
         log: output,
       };
     }
-    const summary = "clean に失敗しました。";
+    const summary = "Clean failed.";
     return {
       kind: "failure",
       summary,
