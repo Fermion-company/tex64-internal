@@ -27,6 +27,7 @@ import {
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
 import { drainPendingSaves } from "@/lib/client/save-drain";
+import { runNativeTurn } from "@/lib/client/native-agent";
 import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
 import type {
   ChatMessage,
@@ -36,6 +37,7 @@ import type {
   DocumentDetail,
   DocumentPatch,
   DocumentSummary,
+  TurnFrame,
 } from "@/lib/client/types";
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
@@ -637,10 +639,7 @@ export function DocumentWorkspace() {
       });
 
       let revisionChanged = false;
-      const result = await sendMessage(
-        document.id,
-        targetNodeId ? { prompt, targetNodeId } : { prompt },
-        (frame) => {
+      const onFrame = (frame: TurnFrame) => {
           switch (frame.type) {
             case "text":
               setStreamingText((current) => current + frame.delta);
@@ -659,9 +658,20 @@ export function DocumentWorkspace() {
             default:
               break;
           }
-        },
-        controller.signal,
-      );
+      };
+
+      // In the desktop app the turn runs against the workspace's own files
+      // through the host agent; in a browser it runs against this service.
+      const result = workspacePdf.native
+        ? await runNativeTurn({ prompt, onFrame, signal: controller.signal })
+            .then(() => ({ ok: true }) as const)
+            .catch(() => ({ ok: false }) as const)
+        : await sendMessage(
+            document.id,
+            targetNodeId ? { prompt, targetNodeId } : { prompt },
+            onFrame,
+            controller.signal,
+          );
 
       turnAbortRef.current = null;
       setTurnDocumentId(null);
@@ -689,6 +699,7 @@ export function DocumentWorkspace() {
       flushOutstandingSave,
       refreshAfterTurn,
       updateStoredDocument,
+      workspacePdf.native,
     ],
   );
 
