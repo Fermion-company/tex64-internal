@@ -77,21 +77,90 @@ export type RunDocumentTurnInput = {
  */
 const MAX_REPLAYED_THREAD_CHARS = 120_000;
 
+/** Placeholder left in place of a document snapshot that a later read replaced. */
+const SUPERSEDED_DOCUMENT_SNAPSHOT =
+  "（この時点の文書内容。以降の read_document がより新しい内容を返しています）";
+
+type ContentPart = { type?: unknown; toolName?: unknown };
+
+function contentParts(content: unknown): ContentPart[] | null {
+  return Array.isArray(content) ? (content as ContentPart[]) : null;
+}
+
+/**
+ * Reasoning is a within-response artifact: replaying it on later turns costs
+ * real tokens (measured at half of this thread) and tells the model nothing
+ * its own messages and tool results do not already say.
+ *
+ * Dropping it means the provider item identity has to go with it. The
+ * Responses API rejects a message item whose sibling reasoning item is
+ * missing ("was provided without its required 'reasoning' item"), so the
+ * replayed parts are sent as plain content with no item ids attached.
+ */
+function withoutReasoning(content: unknown): unknown {
+  const parts = contentParts(content);
+  if (!parts) return content;
+  return parts
+    .filter((part) => part.type !== "reasoning")
+    .map((part) => {
+      if (!("providerOptions" in part)) return part;
+      const { providerOptions: _dropped, ...rest } = part as ContentPart & {
+        providerOptions?: unknown;
+      };
+      return rest;
+    });
+}
+
+function isDocumentSnapshot(message: { role: string; content: unknown }): boolean {
+  const parts = contentParts(message.content);
+  return (
+    message.role === "tool" &&
+    parts !== null &&
+    parts.some(
+      (part) =>
+        part.type === "tool-result" && part.toolName === "read_document",
+    )
+  );
+}
+
+/**
+ * Only the newest document snapshot is worth replaying; the older ones are
+ * stale by construction and, on a real manuscript, each one is the whole
+ * document again.
+ */
+function collapseSupersededSnapshot(content: unknown): unknown {
+  const parts = contentParts(content);
+  if (!parts) return content;
+  return parts.map((part) =>
+    part.type === "tool-result" && part.toolName === "read_document"
+      ? {
+          ...part,
+          output: { type: "text", value: SUPERSEDED_DOCUMENT_SNAPSHOT },
+        }
+      : part,
+  );
+}
+
 function storedMessagesToModelMessages(
   stored: readonly StoredConversationMessage[],
 ): ModelMessage[] {
   const replayed: ModelMessage[] = [];
   let budget = MAX_REPLAYED_THREAD_CHARS;
+  let keptSnapshot = false;
   for (let index = stored.length - 1; index >= 0; index -= 1) {
     const message = stored[index];
     if (!message) continue;
-    const size = JSON.stringify(message.content ?? null).length;
+    let content = withoutReasoning(message.content);
+    if (isDocumentSnapshot({ role: message.role, content })) {
+      if (keptSnapshot) content = collapseSupersededSnapshot(content);
+      keptSnapshot = true;
+    }
+    const parts = contentParts(content);
+    if (parts && parts.length === 0) continue;
+    const size = JSON.stringify(content ?? null).length;
     if (size > budget && replayed.length > 0) break;
     budget -= size;
-    replayed.unshift({
-      role: message.role,
-      content: message.content,
-    } as ModelMessage);
+    replayed.unshift({ role: message.role, content } as ModelMessage);
   }
   // A thread must not start with a dangling tool result whose call was
   // dropped; providers reject that.
@@ -284,10 +353,15 @@ export async function* runDocumentTurn(
     turnId: input.turnId,
     messages: [
       { role: "user", content: promptText },
-      ...responseMessages.map((message) => ({
-        role: message.role as StoredConversationMessage["role"],
-        content: message.content,
-      })),
+      ...responseMessages
+        .map((message) => ({
+          role: message.role as StoredConversationMessage["role"],
+          content: withoutReasoning(message.content),
+        }))
+        .filter((message) => {
+          const parts = contentParts(message.content);
+          return !parts || parts.length > 0;
+        }),
     ],
   });
 

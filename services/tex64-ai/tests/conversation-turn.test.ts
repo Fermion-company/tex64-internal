@@ -131,6 +131,97 @@ describe("conversation turn", () => {
     ).resolves.toMatchObject({ status: "completed", stage: "ready" });
   });
 
+  it("replays neither prior reasoning nor superseded document snapshots", async () => {
+    installModel(answeringModel("はい。"));
+    await repository.appendConversationMessages({
+      userId: USER_ID,
+      documentId: SAMPLE_DOCUMENT.id,
+      turnId: TURN_ONE,
+      messages: [
+        { role: "user", content: "書いて" },
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "長い思考の記録".repeat(50) },
+            {
+              type: "tool-call",
+              toolCallId: "a",
+              toolName: "read_document",
+              input: {},
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "a",
+              toolName: "read_document",
+              output: { type: "json", value: { stale: "古い版の全文" } },
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "b",
+              toolName: "read_document",
+              input: {},
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "b",
+              toolName: "read_document",
+              output: { type: "json", value: { fresh: "最新版の全文" } },
+            },
+          ],
+        },
+      ],
+    });
+
+    await repository.createRun({
+      id: TURN_TWO,
+      userId: USER_ID,
+      documentId: SAMPLE_DOCUMENT.id,
+      prompt: "続けて",
+      idempotencyKey: TURN_TWO,
+      baseRevision: 1,
+    });
+    await collect(TURN_TWO, "続けて");
+
+    const sent = JSON.stringify(calls.at(-1)?.prompt);
+    expect(sent).not.toContain("長い思考の記録");
+    expect(sent).not.toContain("古い版の全文");
+    expect(sent).toContain("最新版の全文");
+  });
+
+  it("stores the turn without its reasoning", async () => {
+    installModel(answeringModel("はい。"));
+    await repository.createRun({
+      id: TURN_ONE,
+      userId: USER_ID,
+      documentId: SAMPLE_DOCUMENT.id,
+      prompt: "こんにちは",
+      idempotencyKey: TURN_ONE,
+      baseRevision: 1,
+    });
+    await collect(TURN_ONE, "こんにちは");
+
+    const stored = await repository.listConversationMessages(
+      USER_ID,
+      SAMPLE_DOCUMENT.id,
+    );
+    expect(JSON.stringify(stored)).not.toContain('"reasoning"');
+  });
+
   it("replays the whole thread to the model on the next turn", async () => {
     installModel(answeringModel("はい。"));
     for (const [turnId, prompt] of [
