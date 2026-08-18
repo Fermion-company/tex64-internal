@@ -175,8 +175,12 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       if (payload?.type === "host-request") {
         const requestType = payload.request?.type;
         if (typeof requestType !== "string" || !GUEST_REQUESTS.has(requestType)) {
+          // A request the AI mode makes but the host does not open is a wiring
+          // mistake, and silence is the worst way to report one.
+          console.warn("[ai-mode] blocked host request:", requestType);
           return;
         }
+        console.debug("[ai-mode] host request:", requestType);
         const body = payload.request?.payload;
         deps.postToNative({
           type: requestType,

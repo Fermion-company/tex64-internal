@@ -1008,7 +1008,7 @@ export function DocumentWorkspace() {
             <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
-                  regions={pdfRegions}
+                  regions={workspacePdf.native ? null : pdfRegions}
                   selectedId={selectedElementId}
                   refreshing={
                     compiling ||
@@ -1034,7 +1034,9 @@ export function DocumentWorkspace() {
                   }
                   selectionCard={
                     workspacePdf.native ? (
-                      sourceLocator.location || sourceLocator.error ? (
+                      sourceLocator.location ||
+                      sourceLocator.error ||
+                      sourceLocator.locating ? (
                         <div className="element-card" aria-label="選択中の箇所">
                           <div className="element-card-head">
                             <button
@@ -1045,16 +1047,20 @@ export function DocumentWorkspace() {
                               閉じる
                             </button>
                             <strong>
-                              {sourceLocator.location
-                                ? sourceLocator.location.confident
-                                  ? "この箇所"
-                                  : "この付近"
-                                : "見つかりません"}
+                              {sourceLocator.locating
+                                ? "探しています…"
+                                : sourceLocator.location
+                                  ? sourceLocator.location.confident
+                                    ? "この箇所"
+                                    : "この付近"
+                                  : "見つかりません"}
                             </strong>
                             <div className="element-card-head-actions" />
                           </div>
                           <div className="element-card-editor">
-                            {sourceLocator.location ? (
+                            {sourceLocator.locating ? (
+                              <p>本文のどこかを確かめています。</p>
+                            ) : sourceLocator.location ? (
                               <p>{sourceLocator.location.text || "（空行）"}</p>
                             ) : (
                               <p>{sourceLocator.error}</p>
