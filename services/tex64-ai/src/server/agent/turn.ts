@@ -104,9 +104,8 @@ function withoutReasoning(content: unknown): unknown {
     .filter((part) => part.type !== "reasoning")
     .map((part) => {
       if (!("providerOptions" in part)) return part;
-      const { providerOptions: _dropped, ...rest } = part as ContentPart & {
-        providerOptions?: unknown;
-      };
+      const rest: Record<string, unknown> = { ...part };
+      delete rest.providerOptions;
       return rest;
     });
 }
