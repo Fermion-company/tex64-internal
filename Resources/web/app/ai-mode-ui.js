@@ -19,6 +19,7 @@ export const initAiModeUi = () => {
     const status = document.getElementById("ai-mode-fallback-status");
     const retryButton = document.getElementById("ai-mode-retry");
     const browserButton = document.getElementById("ai-mode-open-browser");
+    const axiomButton = document.getElementById("ai-mode-open-axiom");
     const devHint = document.getElementById("ai-mode-dev-hint");
     const bridge = window.tex64AiWeb;
     let webview = null;
@@ -97,6 +98,15 @@ export const initAiModeUi = () => {
         var _a;
         if (currentUrl)
             void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.openExternal) === null || _a === void 0 ? void 0 : _a.call(bridge, currentUrl));
+    });
+    // AI mode and the Axiom chat are different surfaces, and the Codex (ChatGPT)
+    // backend lives in the latter. When AI mode cannot connect — in dev it needs
+    // its own server — offer the chat that is right there instead of dead-ending.
+    axiomButton === null || axiomButton === void 0 ? void 0 : axiomButton.addEventListener("click", () => {
+        var _a, _b;
+        (_a = document
+            .querySelector('[data-app-mode-tab="code"]')) === null || _a === void 0 ? void 0 : _a.click();
+        (_b = document.querySelector('.tab[data-tab="ai"]')) === null || _b === void 0 ? void 0 : _b.click();
     });
     return {
         activate: () => {

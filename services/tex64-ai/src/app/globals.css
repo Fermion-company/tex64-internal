@@ -358,7 +358,16 @@ textarea {
   background: var(--panel);
 }
 
+/* A flex column with a bounded height: without it `.paper-surface` (flex: 1)
+   has no flex container, falls back to its content height, and every
+   `height: 100%` below it — viewer, scroller — resolves to auto. The page
+   stack then grows past the viewport and `body { overflow: hidden }` clips
+   the bottom instead of the scroller scrolling. */
 .pane-document {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   background: var(--workspace);
 }
 
@@ -631,31 +640,6 @@ textarea {
   overflow-y: auto;
   background: var(--panel);
   padding: 28px 20px 16px;
-}
-
-.document-kind-picker {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  margin-bottom: 9px;
-}
-
-.document-kind-picker button {
-  display: inline-flex;
-  min-width: 0;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border-radius: 7px;
-  color: var(--ink-faint);
-  font-size: 10.5px;
-}
-
-.document-kind-picker button:hover,
-.document-kind-picker button.active {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
 }
 
 .large-composer textarea {

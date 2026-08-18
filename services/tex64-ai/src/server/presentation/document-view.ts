@@ -90,20 +90,22 @@ type ApiDocumentDetail = DocumentDetail & {
 export function createEmptyDocument(input: {
   id: string;
   prompt: string;
-  kind: DocumentKind;
+  /** Omitted by the UI: the request text alone decides the kind. */
+  kind?: DocumentKind;
   now?: string;
 }): DocumentModel {
   const now = input.now ?? new Date().toISOString();
   const normalizedPrompt = input.prompt.normalize("NFKC").replace(/\s+/g, " ").trim();
-  const title = deriveTitle(normalizedPrompt, input.kind);
+  const kind = input.kind ?? inferDocumentKind(normalizedPrompt);
+  const title = deriveTitle(normalizedPrompt, kind);
   return DocumentSchema.parse({
     schemaVersion: 1,
     id: input.id,
     metadata: {
       title,
-      subtitle: kindLabel(input.kind),
+      subtitle: kindLabel(kind),
       language: "ja",
-      documentType: kindToDocumentType(input.kind),
+      documentType: kindToDocumentType(kind),
       authors: [],
       keywords: [],
       createdAt: now,
@@ -974,7 +976,7 @@ function deriveTitle(prompt: string, kind: DocumentKind): string {
   if (quoted) return quoted;
   const stripped = prompt
     .replace(
-      /(?:について|に関する|の)?(?:提案書|報告書|論文|メモ|文書)(?:を|に)?(?:まとめて|作って|書いて|作成して|執筆して|生成して).*$/u,
+      /(?:について|に関する|の)?(?:企画書|提案書|報告書|論文|メモ|文書)(?:を|に)?(?:まとめて|作って|書いて|作成して|執筆して|生成して).*$/u,
       "",
     )
     .trim();
@@ -982,7 +984,53 @@ function deriveTitle(prompt: string, kind: DocumentKind): string {
 }
 
 function kindLabel(kind: DocumentKind): string {
-  return { proposal: "提案書", report: "報告書", paper: "論文", memo: "メモ" }[kind];
+  // `proposal` stays the wire/enum value; 企画書 is the Japanese label users see.
+  return { proposal: "企画書", report: "報告書", paper: "論文", memo: "メモ" }[kind];
+}
+
+/**
+ * Picks the document kind from the request text so the user never has to pick
+ * one up front. Explicit document nouns ("企画書", "論文") outrank topical
+ * hints ("研究", "提案"); nothing matching falls back to the previous default.
+ */
+const KIND_SIGNALS: ReadonlyArray<{
+  kind: DocumentKind;
+  strong: RegExp;
+  weak: RegExp;
+}> = [
+  {
+    kind: "proposal",
+    strong: /企画書|提案書|proposal/iu,
+    weak: /企画|提案|ピッチ|pitch|plan\b/iu,
+  },
+  {
+    kind: "report",
+    strong: /報告書|レポート|report/iu,
+    weak: /報告|調査|analysis|分析結果|実験結果/iu,
+  },
+  {
+    kind: "paper",
+    strong: /論文|paper|thesis|dissertation/iu,
+    weak: /研究|学会|査読|arxiv|preprint/iu,
+  },
+  {
+    kind: "memo",
+    strong: /メモ|議事録|覚書|memo\b|notes?\b/iu,
+    weak: /要点|箇条書き|下書き|走り書き/iu,
+  },
+];
+
+const DEFAULT_DOCUMENT_KIND: DocumentKind = "paper";
+
+export function inferDocumentKind(prompt: string): DocumentKind {
+  const text = prompt.normalize("NFKC");
+  for (const signal of KIND_SIGNALS) {
+    if (signal.strong.test(text)) return signal.kind;
+  }
+  for (const signal of KIND_SIGNALS) {
+    if (signal.weak.test(text)) return signal.kind;
+  }
+  return DEFAULT_DOCUMENT_KIND;
 }
 
 function kindToDocumentType(kind: DocumentKind): DocumentModel["metadata"]["documentType"] {

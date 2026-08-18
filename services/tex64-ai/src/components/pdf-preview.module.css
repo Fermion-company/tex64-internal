@@ -105,10 +105,16 @@
   overflow: auto;
 }
 
+/* `min-width: max-content` keeps a zoomed-in page reachable: a centred flex
+   child wider than its scroll container is clipped on BOTH sides and the
+   start edge can never be scrolled to. Growing the stack to the page width
+   instead makes the overflow scrollable while centring still applies
+   whenever the page is narrower than the viewport. */
 .pages {
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-width: max-content;
   min-height: 100%;
   transition: opacity 160ms ease;
 }

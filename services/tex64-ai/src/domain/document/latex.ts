@@ -1580,6 +1580,12 @@ export function renderDocumentToLatex(input: DocumentModel): string {
     "\\begin{document}",
     "\\maketitle",
     body,
+    // Blank line before \end{document}: TeX fires the LAST paragraph's \par
+    // wherever the paragraph ends, and \end{document} sits outside every node
+    // range. Ending the body on a blank line instead keeps that \par on a line
+    // the region map aliases back into the paragraph (see blankLineAliases in
+    // synctex-regions), so the final paragraph stays selectable on the page.
+    "",
     "\\end{document}",
     "",
   ].join("\n");

@@ -20,6 +20,11 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // The dev overlay renders a floating "N" badge over the app. Inside the
+  // TeX64 desktop AI mode it reads as a product control that leads nowhere,
+  // so it is off by default; set TEX64_NEXT_DEV_INDICATORS=1 when a developer
+  // wants the Next.js dev tools in a normal browser.
+  devIndicators: process.env.TEX64_NEXT_DEV_INDICATORS === "1" ? undefined : false,
   serverExternalPackages: [
     "pg",
     // Bundling the AI SDK duplicates its module instances across bundle

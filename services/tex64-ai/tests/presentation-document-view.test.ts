@@ -5,6 +5,7 @@ import {
   ClientDocumentPatchSchema,
   createEmptyDocument,
   createDomainPatchFromClient,
+  inferDocumentKind,
   presentAgentRun,
   presentAgentRuns,
   toAgentRun,
@@ -50,8 +51,33 @@ describe("document presentation", () => {
       now: "2026-08-07T00:00:00.000Z",
     });
 
+    // The stored/API value stays `proposal`; only the Japanese label changed.
     expect(document.metadata.documentType).toBe("proposal");
-    expect(document.metadata.subtitle).toBe("提案書");
+    expect(document.metadata.subtitle).toBe("企画書");
+  });
+
+  it.each([
+    ["ゲームの企画書を作って", "proposal"],
+    ["新規事業の提案書をまとめて", "proposal"],
+    ["要点をメモして", "memo"],
+    ["会議の議事録をまとめて", "memo"],
+    ["市場調査の報告書を作成して", "report"],
+    ["注意機構について論文を書いて", "paper"],
+    ["拡散モデルの研究をまとめて", "paper"],
+    ["カフェの新メニューについて書いて", "paper"],
+  ])("infers the document kind from %s", (prompt, expected) => {
+    expect(inferDocumentKind(prompt)).toBe(expected);
+  });
+
+  it("infers the kind when the caller omits it", () => {
+    const document = createEmptyDocument({
+      id: "30000000-0000-4000-8000-000000000005",
+      prompt: "ゲームの企画書を作って",
+      now: "2026-08-07T00:00:00.000Z",
+    });
+
+    expect(document.metadata.documentType).toBe("proposal");
+    expect(document.metadata.subtitle).toBe("企画書");
   });
 
   it("keeps an edited list valid when the client submits no items", () => {

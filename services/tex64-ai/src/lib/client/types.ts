@@ -178,7 +178,8 @@ export type DocumentChanges = Omit<DocumentPatch, "baseRevision">;
 
 export interface CreateDocumentInput {
   prompt: string;
-  kind: DocumentKind;
+  /** Omitted by the app: the server infers the kind from the prompt. */
+  kind?: DocumentKind;
 }
 
 export interface StartRunInput {

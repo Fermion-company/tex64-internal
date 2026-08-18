@@ -21,6 +21,11 @@
 | **AI** | tex64-ai 文書エージェント（`services/tex64-ai` を埋め込み） | 文書を「依頼して作る」人 |
 | **Pro** | 分割レイアウト・範囲キャプチャ・スタッシュ・ライブプレビュー（KKTeX 担当） | TeX を直接書くプロ |
 
+**AI モードと Axiom チャットは別物**。ワークスペースの `.tex` を編集する AI チャット（Axiom /
+Codex (ChatGPT)）は **Code モードの左サイドバー Axiom パネル**にある。トップバーの `AI` は
+`services/tex64-ai` を埋め込む別サーフェスで、dev ではそのサーバーを別途起動しないと繋がらない
+（`npm run dev` は起動しない）。→ [codex-dev.md](codex-dev.md)
+
 ## 実装の要点
 
 - 状態は `web-src/app/app-mode.ts` が管理。`<html data-app-mode="code|ai|pro">` を立て、

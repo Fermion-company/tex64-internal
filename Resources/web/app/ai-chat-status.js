@@ -128,7 +128,8 @@ export const createAiChatStatusController = (params) => {
         }
         const authenticated = Boolean((_a = state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated);
         aiAuthTopbar.classList.toggle("is-hidden", authenticated);
-        aiAuthTopbar.textContent = aiText("login");
+        aiAuthTopbar.textContent = aiText("login_tex64");
+        aiAuthTopbar.title = aiText("login_tex64_hint");
         aiAuthTopbar.disabled = false;
     };
     const ensureTooltipDom = (parent) => {

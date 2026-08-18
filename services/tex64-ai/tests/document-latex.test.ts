@@ -100,8 +100,10 @@ function citationStyleDocument(
 describe("deterministic LaTeX renderer", () => {
   it("preserves the established output for legacy documents byte for byte", () => {
     const rendered = renderDocumentToLatex(SAMPLE_DOCUMENT);
-    // Region markers are the ONLY addition on top of the legacy output:
-    // stripping the marker lines must reproduce the historical bytes exactly.
+    // Region markers, plus the blank line that ends the body, are the ONLY
+    // additions on top of the legacy output. The blank line is load-bearing:
+    // it is where the final paragraph's \par fires, which is what keeps that
+    // paragraph in the SyncTeX region map (see renderDocumentToLatex).
     const stripped = rendered
       .split("\n")
       .filter(
@@ -109,10 +111,10 @@ describe("deterministic LaTeX renderer", () => {
       )
       .join("\n");
     expect(createHash("sha256").update(stripped).digest("hex")).toBe(
-      "09dd8c9241997fa8cb93985bd5409b280328ad1c5127bc4c01c0c6273f5beaba",
+      "1e330be00560d9e0f225d518225d1a2b6d0db74576f0f239a8f6e5327672687b",
     );
     expect(createHash("sha256").update(rendered).digest("hex")).toBe(
-      "9ce0885ea3f761aa6760bf34f8578a6beb423f6e9879d0b5314e8dcdb1e339b7",
+      "ca3b56dd9910785c4df001218764d41f56a1645cd397e08d265dfef30b0e6dde",
     );
   });
 

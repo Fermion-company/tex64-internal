@@ -37,6 +37,7 @@ export const initAiModeUi = (): AiModeApi => {
   const status = document.getElementById("ai-mode-fallback-status");
   const retryButton = document.getElementById("ai-mode-retry");
   const browserButton = document.getElementById("ai-mode-open-browser");
+  const axiomButton = document.getElementById("ai-mode-open-axiom");
   const devHint = document.getElementById("ai-mode-dev-hint");
   const bridge = (window as BridgeWindow).tex64AiWeb as AiWebBridge | undefined;
 
@@ -113,6 +114,15 @@ export const initAiModeUi = (): AiModeApi => {
   });
   browserButton?.addEventListener("click", () => {
     if (currentUrl) void bridge?.openExternal?.(currentUrl);
+  });
+  // AI mode and the Axiom chat are different surfaces, and the Codex (ChatGPT)
+  // backend lives in the latter. When AI mode cannot connect — in dev it needs
+  // its own server — offer the chat that is right there instead of dead-ending.
+  axiomButton?.addEventListener("click", () => {
+    document
+      .querySelector<HTMLButtonElement>('[data-app-mode-tab="code"]')
+      ?.click();
+    document.querySelector<HTMLButtonElement>('.tab[data-tab="ai"]')?.click();
   });
 
   return {

@@ -105,10 +105,14 @@ export function PdfPreview({
   /** Scroll metrics captured just before a new document swaps in. */
   const scrollRestoreRef = useRef<ScrollMetrics | null>(null);
   const docKeyRef = useRef(0);
+  /** Page indices whose latest render failed for a non-cancellation reason. */
+  const failedPagesRef = useRef<Set<number>>(new Set());
 
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const [loading, setLoading] = useState(pdfUrl !== null);
   const [loadFailed, setLoadFailed] = useState(false);
+  /** A page render failed while the canvas still shows the previous frame. */
+  const [renderFailed, setRenderFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
   const [zoom, setZoom] = useState<ZoomState>({ mode: "fit" });
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -122,6 +126,7 @@ export function PdfPreview({
   if (lastUrl !== pdfUrl) {
     setLastUrl(pdfUrl);
     setLoadFailed(false);
+    setRenderFailed(false);
     setLoading(pdfUrl !== null);
     if (!pdfUrl) {
       setLoaded(null);
@@ -133,6 +138,8 @@ export function PdfPreview({
   // asked. The new document is fully loaded and measured *before* it replaces
   // the previous one, so a recompile never blanks the viewer.
   useEffect(() => {
+    // Page-render failures belong to the document being replaced.
+    failedPagesRef.current.clear();
     if (!pdfUrl) {
       docKeyRef.current = 0;
       const stale = committedTaskRef.current;
@@ -291,6 +298,24 @@ export function PdfPreview({
     setZoom({ mode: "manual", percent: clampZoomPercent(zoomPercent + delta) });
   };
 
+  const handleRendered = useCallback((index: number) => {
+    if (failedPagesRef.current.delete(index)) {
+      setRenderFailed(failedPagesRef.current.size > 0);
+    }
+  }, []);
+  const handleRenderFailed = useCallback((index: number) => {
+    failedPagesRef.current.add(index);
+    setRenderFailed(true);
+  }, []);
+  const retry = () => {
+    failedPagesRef.current.clear();
+    setLoadFailed(false);
+    setRenderFailed(false);
+    setLoading(true);
+    setRetryToken((token) => token + 1);
+  };
+  const failed = loadFailed || renderFailed;
+
   return (
     <section className={styles.viewer} aria-label="紙面プレビュー">
       <div className={styles.toolbar}>
@@ -332,25 +357,21 @@ export function PdfPreview({
       </div>
 
       <div className={styles.stage}>
-        {loadFailed ? (
+        {failed ? (
           <div className={styles.errorBanner} role="alert">
             <CircleAlert aria-hidden="true" size={14} />
-            <span>紙面を表示できませんでした</span>
-            <button
-              type="button"
-              className={styles.retryButton}
-              onClick={() => {
-                setLoadFailed(false);
-                setLoading(true);
-                setRetryToken((token) => token + 1);
-              }}
-            >
+            <span>
+              {loadFailed
+                ? "紙面を表示できませんでした"
+                : "最新の紙面を描画できませんでした（表示は前の版のままです）"}
+            </span>
+            <button type="button" className={styles.retryButton} onClick={retry}>
               <RotateCw aria-hidden="true" size={13} />
               再試行
             </button>
           </div>
         ) : null}
-        {refreshing && loaded && !loadFailed ? (
+        {refreshing && loaded && !failed ? (
           <div className={styles.refreshPill} role="status">
             <span className={styles.refreshDot} aria-hidden="true" />
             紙面を更新中
@@ -386,6 +407,9 @@ export function PdfPreview({
                     selectionCard={
                       overlayActive && selectionCardPage === index + 1 ? selectionCard : null
                     }
+                    index={index}
+                    onRendered={handleRendered}
+                    onRenderFailed={handleRenderFailed}
                   />
                 );
               })}
@@ -417,6 +441,22 @@ interface PdfPageViewProps {
   onSelect: (id: string | null) => void;
   /** Card to render just below the selected region on this page. */
   selectionCard: ReactNode;
+  /** Position of this page in the stack; identifies it to the parent. */
+  index: number;
+  /** A fresh frame reached the canvas. */
+  onRendered: (index: number) => void;
+  /** The render failed for a reason other than being cancelled/superseded. */
+  onRenderFailed: (index: number) => void;
+}
+
+/** pdfjs reports cancellations by exception name, not by a dedicated type. */
+function isRenderingCancelled(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "RenderingCancelledException"
+  );
 }
 
 function PdfPageView({
@@ -432,6 +472,9 @@ function PdfPageView({
   onHover,
   onSelect,
   selectionCard,
+  index,
+  onRendered,
+  onRenderFailed,
 }: PdfPageViewProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -448,15 +491,26 @@ function PdfPageView({
       canvas.width = width;
       canvas.height = height;
     }
+    let superseded = false;
     const renderTask = page.render({ canvas, viewport });
-    renderTask.promise.catch(() => {
-      // Cancelled or superseded renders keep the previous frame; document
-      // level failures surface through the error banner instead.
-    });
+    renderTask.promise.then(
+      () => {
+        if (!superseded) onRendered(index);
+      },
+      (error: unknown) => {
+        // A cancelled render is routine (zoom change, document swap) and keeps
+        // the previous frame. A genuine failure must NOT: the canvas still
+        // shows the stale frame, so silently swallowing it would report the
+        // previous revision as if it were the new one.
+        if (superseded || isRenderingCancelled(error)) return;
+        onRenderFailed(index);
+      },
+    );
     return () => {
+      superseded = true;
       renderTask.cancel();
     };
-  }, [page, scale, dpr]);
+  }, [page, scale, dpr, index, onRendered, onRenderFailed]);
 
   return (
     <div className={styles.page} style={{ width: cssWidth, height: cssHeight }}>

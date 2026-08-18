@@ -5,6 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import {
+  extractNodeLineRanges,
+  renderDocumentToLatex,
+  validateDocument,
+  type DocumentModel,
+} from "@/domain/document";
 import { createLatexChildEnvironment } from "@/server/compiler/local-compiler";
 import {
   RegionMapSchema,
@@ -182,5 +188,102 @@ describe.skipIf(!existsSync(LUALATEX_PATH))("synctex regions from real lualatex 
     if (equationRect.page === lastParagraphRect.page) {
       expect(equationRect.y).toBeGreaterThan(lastParagraphRect.y);
     }
+  }, 90_000);
+});
+
+/**
+ * The production pipeline, end to end: a real DocumentModel through
+ * renderDocumentToLatex → extractNodeLineRanges → lualatex → buildRegionMap
+ * with `sourceText` (blank-line \par aliasing enabled), asserting that EVERY
+ * node reaches the map. The final paragraph is the one that regressed: TeX
+ * attributes its records to the line where \par fires, and with no blank line
+ * before \end{document} that line sits outside every range, so the node
+ * collected zero in-range votes and silently vanished from the map.
+ */
+describe.skipIf(!existsSync(LUALATEX_PATH))("region map covers every rendered node", () => {
+  function documentEndingInAParagraph(): DocumentModel {
+    const id = (suffix: string) => `50000000-0000-4000-8000-0000000000${suffix}`;
+    return validateDocument({
+      schemaVersion: 1,
+      id: id("01"),
+      metadata: {
+        title: "領域マップの網羅性",
+        language: "ja",
+        documentType: "report",
+        authors: [],
+        keywords: [],
+        createdAt: "2026-08-18T00:00:00.000Z",
+        updatedAt: "2026-08-18T00:00:00.000Z",
+      },
+      root: [id("10"), id("20")],
+      nodes: [
+        {
+          id: id("10"),
+          type: "section",
+          title: [{ type: "text", text: "はじめに", marks: [] }],
+          children: [id("11"), id("12")],
+        },
+        {
+          id: id("11"),
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "冒頭の段落です。複数行に折り返るだけの長さを確保して、行ボックスが確実に生成されるようにしています。",
+              marks: [],
+            },
+          ],
+        },
+        {
+          id: id("12"),
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "節の最後の段落です。ここも十分な長さの本文を入れて、SyncTeX の記録が確実に残るようにしています。",
+              marks: [],
+            },
+          ],
+        },
+        {
+          id: id("20"),
+          type: "section",
+          title: [{ type: "text", text: "まとめ", marks: [] }],
+          children: [id("21")],
+        },
+        {
+          id: id("21"),
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "文書全体の最終段落です。この段落の par は文書末で発火するため、領域マップから落ちやすい位置にあります。",
+              marks: [],
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  it("includes the final paragraph of the document", async () => {
+    const document = documentEndingInAParagraph();
+    const latex = renderDocumentToLatex(document);
+    const ranges = extractNodeLineRanges(latex);
+    expect(ranges.length).toBeGreaterThan(0);
+
+    const { synctex, log } = await compileWithSynctex(latex);
+    expect(synctex, log.slice(-2_000)).not.toBeNull();
+    if (synctex === null) return;
+
+    const map = buildRegionMap({ synctex, ranges, sourceText: latex });
+    expect(map).not.toBeNull();
+    if (map === null) return;
+    expect(RegionMapSchema.safeParse(map).success).toBe(true);
+    assertWithinA4(map);
+
+    const mapped = new Set(map.nodes.filter((node) => node.rects.length > 0).map((node) => node.id));
+    const missing = [...new Set(ranges.map((range) => range.id))].filter((id) => !mapped.has(id));
+    expect(missing).toEqual([]);
   }, 90_000);
 });

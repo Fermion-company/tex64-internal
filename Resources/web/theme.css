@@ -6360,6 +6360,32 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   font-size: 14px;
 }
 
+/* A long brief is collapsed so the run's progress and result stay in view;
+   the mask fades the cut instead of chopping a line in half. */
+.ai-message.is-user.is-clamped .ai-message-content {
+  max-height: 8.5em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+}
+.ai-message.is-user.has-expand {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.ai-message-expand {
+  align-self: flex-end;
+  margin-top: 2px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--text-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+.ai-message-expand:hover {
+  color: var(--accent);
+}
+
 /* Assistant */
 .ai-message.is-assistant {
   align-items: flex-start;
@@ -6599,6 +6625,38 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   padding: 1px 5px;
   border-radius: var(--radius-sm);
   color: var(--text);
+}
+
+/* ── Markdown — Links ──────────────────────────────────── */
+/* Both are inert in the DOM: the chat panel opens them itself, so nothing in
+   model output can navigate the renderer. */
+.ai-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 0.86em;
+  line-height: 1.5;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.ai-file-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ai-external-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
 /* ── Markdown — Lists ──────────────────────────────────── */

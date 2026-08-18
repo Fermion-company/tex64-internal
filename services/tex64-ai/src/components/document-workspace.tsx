@@ -51,7 +51,8 @@ import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 type MobileView = "conversation" | "document";
 
 const KIND_LABELS: Record<string, string> = {
-  proposal: "提案書",
+  // `proposal` is the stored/API value; 企画書 is what the user reads.
+  proposal: "企画書",
   report: "報告書",
   paper: "論文",
   memo: "メモ",
@@ -697,7 +698,7 @@ export function DocumentWorkspace() {
   );
 
   const createNewDocument = useCallback(
-    async (prompt: string, kind: CreateDocumentInput["kind"]) => {
+    async (prompt: string) => {
       initialLoadRef.current = false;
       const navigationVersion = navigationVersionRef.current + 1;
       navigationVersionRef.current = navigationVersion;
@@ -705,14 +706,12 @@ export function DocumentWorkspace() {
       setCreating(true);
       const previousRequest = pendingCreateRequestRef.current;
       const request =
-        previousRequest?.prompt === prompt && previousRequest.kind === kind
+        previousRequest?.prompt === prompt
           ? previousRequest
-          : { prompt, kind, idempotencyKey: window.crypto.randomUUID() };
+          : { prompt, idempotencyKey: window.crypto.randomUUID() };
       pendingCreateRequestRef.current = request;
-      const result = await createDocument(
-        { prompt: request.prompt, kind: request.kind },
-        request.idempotencyKey,
-      );
+      // No `kind`: the server infers it from the prompt.
+      const result = await createDocument({ prompt: request.prompt }, request.idempotencyKey);
       if (navigationVersionRef.current !== navigationVersion) {
         setCreating(false);
         return;

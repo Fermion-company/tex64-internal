@@ -482,6 +482,28 @@ export const initAiChatUi = (context, deps) => {
             const distanceFromBottom = aiChatLog.scrollHeight - aiChatLog.scrollTop - aiChatLog.clientHeight;
             chatPinnedToBottom = distanceFromBottom < 48;
         }, { passive: true });
+        // File chips and web links inside assistant messages. Both are rendered as
+        // inert elements by the markdown renderer and only act through here, so a
+        // link in model output can never navigate the renderer itself.
+        aiChatLog.addEventListener("click", (event) => {
+            var _a, _b, _c, _d;
+            const target = event.target;
+            const fileEl = (_a = target === null || target === void 0 ? void 0 : target.closest) === null || _a === void 0 ? void 0 : _a.call(target, "[data-open-file]");
+            if (fileEl) {
+                event.preventDefault();
+                const filePath = (_b = fileEl.dataset.openFile) !== null && _b !== void 0 ? _b : "";
+                if (filePath)
+                    deps.postToNative({ type: "openFile", path: filePath });
+                return;
+            }
+            const urlEl = (_c = target === null || target === void 0 ? void 0 : target.closest) === null || _c === void 0 ? void 0 : _c.call(target, "[data-open-url]");
+            if (urlEl) {
+                event.preventDefault();
+                const url = (_d = urlEl.dataset.openUrl) !== null && _d !== void 0 ? _d : "";
+                if (url)
+                    openExternalUrl(url);
+            }
+        });
     }
     const scrollToBottom = (force = false) => {
         if (!(aiChatLog instanceof HTMLElement))

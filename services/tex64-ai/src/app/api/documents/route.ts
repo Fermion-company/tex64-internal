@@ -22,7 +22,10 @@ export const dynamic = "force-dynamic";
 const CreateDocumentSchema = z
   .object({
     prompt: z.string().trim().min(1).max(20_000),
-    kind: z.enum(["proposal", "report", "paper", "memo"]),
+    // Optional: the app no longer asks the user to classify the document up
+    // front, so the kind is inferred from the prompt when it is absent. Kept
+    // accepted for API compatibility and for callers that do know the kind.
+    kind: z.enum(["proposal", "report", "paper", "memo"]).optional(),
   })
   .strict();
 

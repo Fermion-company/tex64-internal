@@ -546,8 +546,8 @@
                 <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="Axiom usage">
                   <span class="ai-usage-meter-text" id="ai-usage-meter-text">-</span>
                 </div>
-                <button class="panel-button ghost ai-topbar-auth is-hidden" id="ai-auth-topbar" type="button">
-                  Login
+                <button class="panel-button ghost ai-topbar-auth is-hidden" id="ai-auth-topbar" type="button" title="Signs in to your TeX64 account — unrelated to ChatGPT.">
+                  TeX64 Login
                 </button>
                 <button class="ai-icon-btn" id="ai-chat-new" type="button" aria-label="New Chat">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
@@ -1464,10 +1464,13 @@
             <div class="ai-mode-fallback-actions">
               <button id="ai-mode-retry" type="button">Reconnect</button>
               <button id="ai-mode-open-browser" type="button">Open in browser</button>
+              <button id="ai-mode-open-axiom" type="button">Use Axiom in Code mode</button>
             </div>
             <p class="ai-mode-dev-hint" id="ai-mode-dev-hint" hidden>
-              Dev server: <code>cd services/tex64-ai &amp;&amp; npm run dev</code>
-              (<code>http://localhost:3100</code>)
+              AI mode runs a separate app. <code>npm run dev</code> does not start it:
+              <code>cd services/tex64-ai &amp;&amp; npm run dev</code>
+              (<code>http://localhost:3100</code>).
+              The Codex (ChatGPT) chat is elsewhere — Code mode, Axiom panel.
             </p>
           </div>
         </div>

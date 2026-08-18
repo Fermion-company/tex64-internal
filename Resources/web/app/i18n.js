@@ -9,6 +9,11 @@ export const SUPPORTED_LOCALES = [
 ];
 export const UI_LOCALE_STORAGE_KEY = "tex64.ui.locale.v1";
 const EN_TO_JA = {
+    "Use Axiom in Code mode": "Code モードの Axiom を使う",
+    "Show more": "もっと見る",
+    "Show less": "折りたたむ",
+    "Revert the change and save the file.": "変更を取り消してファイルを保存します。",
+    "Close the diff. The change is already saved.": "差分表示を閉じます。変更はすでに保存済みです。",
     "⌖ Capture": "⌖ 切り取り",
     "Capture a region: turn it into TeX, translate it, or insert it as an image": "範囲を切り取って TeX 化・翻訳・画像として挿入する",
     "Capture a region of the preview": "プレビューの範囲を切り取る",
@@ -1041,6 +1046,11 @@ const normalizeUiLocaleValue = (value) => {
 // untranslated strings fall back to the EN source — the same behaviour the
 // original JA-only implementation provided for any non-JA locale.
 const EN_TO_ZH = {
+    "Use Axiom in Code mode": "改用 Code 模式的 Axiom",
+    "Show more": "展开",
+    "Show less": "收起",
+    "Revert the change and save the file.": "撤销更改并保存文件。",
+    "Close the diff. The change is already saved.": "关闭差异视图。更改已保存。",
     "⌖ Capture": "⌖ 截取",
     "Capture a region: turn it into TeX, translate it, or insert it as an image": "截取一个区域：转成 TeX、翻译，或作为图片插入",
     "Capture a region of the preview": "截取预览中的区域",
@@ -1956,6 +1966,11 @@ const EN_TO_ZH = {
     "Live preview update failed": "实时预览更新失败",
 };
 const EN_TO_KO = {
+    "Use Axiom in Code mode": "Code 모드의 Axiom 사용",
+    "Show more": "더 보기",
+    "Show less": "접기",
+    "Revert the change and save the file.": "변경을 되돌리고 파일을 저장합니다.",
+    "Close the diff. The change is already saved.": "차이 보기를 닫습니다. 변경은 이미 저장되었습니다.",
     "⌖ Capture": "⌖ 잘라내기",
     "Capture a region: turn it into TeX, translate it, or insert it as an image": "영역을 잘라 TeX로 변환하거나 번역하거나 이미지로 삽입합니다",
     "Capture a region of the preview": "미리보기의 영역을 잘라냅니다",
@@ -2871,6 +2886,11 @@ const EN_TO_KO = {
     "Live preview update failed": "실시간 미리보기 업데이트 실패",
 };
 const EN_TO_FR = {
+    "Use Axiom in Code mode": "Utiliser Axiom en mode Code",
+    "Show more": "Afficher plus",
+    "Show less": "Afficher moins",
+    "Revert the change and save the file.": "Annule la modification et enregistre le fichier.",
+    "Close the diff. The change is already saved.": "Ferme le diff. La modification est déjà enregistrée.",
     "⌖ Capture": "⌖ Capturer",
     "Capture a region: turn it into TeX, translate it, or insert it as an image": "Capturer une zone : la convertir en TeX, la traduire ou l'insérer comme image",
     "Capture a region of the preview": "Capturer une zone de l'aperçu",
@@ -3786,6 +3806,11 @@ const EN_TO_FR = {
     "Live preview update failed": "Échec de la mise à jour de l'aperçu en direct",
 };
 const EN_TO_DE = {
+    "Use Axiom in Code mode": "Axiom im Code-Modus nutzen",
+    "Show more": "Mehr anzeigen",
+    "Show less": "Weniger anzeigen",
+    "Revert the change and save the file.": "Änderung zurücknehmen und Datei speichern.",
+    "Close the diff. The change is already saved.": "Diff schließen. Die Änderung ist bereits gespeichert.",
     "⌖ Capture": "⌖ Ausschnitt",
     "Capture a region: turn it into TeX, translate it, or insert it as an image": "Einen Bereich aufnehmen: in TeX umwandeln, übersetzen oder als Bild einfügen",
     "Capture a region of the preview": "Einen Bereich der Vorschau aufnehmen",
@@ -4700,6 +4725,11 @@ const EN_TO_DE = {
     "Live preview update failed": "Live-Vorschau-Update fehlgeschlagen",
 };
 const EN_TO_ES = {
+    "Use Axiom in Code mode": "Usar Axiom en el modo Code",
+    "Show more": "Mostrar más",
+    "Show less": "Mostrar menos",
+    "Revert the change and save the file.": "Revierte el cambio y guarda el archivo.",
+    "Close the diff. The change is already saved.": "Cierra el diff. El cambio ya está guardado.",
     "⌖ Capture": "⌖ Capturar",
     "Capture a region: turn it into TeX, translate it, or insert it as an image": "Captura una zona: conviértela en TeX, tradúcela o insértala como imagen",
     "Capture a region of the preview": "Capturar una zona de la vista previa",
