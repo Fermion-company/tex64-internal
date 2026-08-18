@@ -40,6 +40,9 @@ import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 type MobileView = "conversation" | "document";
 
+/** How long editing must be quiet before the page catches up on its own. */
+const IDLE_COMPILE_DELAY_MS = 8_000;
+
 const KIND_LABELS: Record<string, string> = {
   // `proposal` is the stored/API value; 企画書 is what the user reads.
   proposal: "企画書",
@@ -288,9 +291,11 @@ export function DocumentWorkspace() {
     ) {
       return;
     }
+    // Typing must not drag a typesetting run behind it. The page catches up
+    // on its own once editing has clearly stopped; 確定 does it immediately.
     const timer = window.setTimeout(() => {
       void runCompile(activeDocumentId, activeRevision);
-    }, 1_200);
+    }, IDLE_COMPILE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [
     activeDocumentId,
@@ -684,6 +689,16 @@ export function DocumentWorkspace() {
     runTurnRef.current = runTurn;
   }, [runTurn]);
 
+  const confirmSelectionEdit = useCallback(async () => {
+    const documentId = selectedDocumentRef.current;
+    setSelectedElementId(null);
+    if (!documentId) return;
+    const saved = await flushOutstandingSave();
+    if (saved === false) return;
+    const revision = latestDocumentsRef.current[documentId]?.revision;
+    if (revision !== undefined) void runCompile(documentId, revision);
+  }, [flushOutstandingSave, runCompile]);
+
   const stopTurn = useCallback(() => {
     queuedPromptRef.current = null;
     setQueuedPrompt(null);
@@ -962,6 +977,14 @@ export function DocumentWorkspace() {
                     selectedElement ? (
                       <div className="element-card" aria-label="選択中の要素">
                         <div className="element-card-head">
+                          {/* 閉じる＝編集はそのまま残る。確定＝いま組版まで進める。 */}
+                          <button
+                            type="button"
+                            className="element-card-close"
+                            onClick={() => setSelectedElementId(null)}
+                          >
+                            閉じる
+                          </button>
                           <strong>{selectedElement.label}</strong>
                           <div className="element-card-head-actions">
                             {selectedBlock ? (
@@ -980,10 +1003,13 @@ export function DocumentWorkspace() {
                             ) : null}
                             <button
                               type="button"
-                              aria-label="選択を解除"
-                              onClick={() => setSelectedElementId(null)}
+                              className="element-card-confirm"
+                              disabled={agentWorking || restoring}
+                              onClick={() => {
+                                void confirmSelectionEdit();
+                              }}
                             >
-                              閉じる
+                              確定
                             </button>
                           </div>
                         </div>

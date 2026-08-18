@@ -38,7 +38,7 @@ export interface PdfPreviewProps {
   /** Element regions for the overlay; null/[] = overlay disabled. */
   regions: PdfElementRegion[] | null;
   selectedId: string | null;
-  /** True while a newer PDF is being compiled: keep pages visible, dim them. */
+  /** True while a newer PDF is compiling. Shows a pill; never blocks the page. */
   refreshing: boolean;
   /** False = plain viewer without the hover/click overlay (e.g. mobile). */
   interactive: boolean;
@@ -266,9 +266,9 @@ export function PdfPreview({
   }, [selectedId, selectionCard, regionsByPage]);
   const overlayActive =
     interactive && regions !== null && regions.length > 0 && loaded !== null;
-  // While refreshing the overlay stays visible (selected outline included) but
-  // ignores the pointer, so any lingering hover state is simply not shown.
-  const effectiveHoveredId = overlayActive && !refreshing ? hoveredId : null;
+  // A compile in flight is background work: the page stays readable and
+  // clickable throughout, and the refresh pill is the only sign of it.
+  const effectiveHoveredId = overlayActive ? hoveredId : null;
 
   // Restore the scroll ratio right after a new document swapped in, before
   // the browser paints the new layout.
@@ -381,7 +381,7 @@ export function PdfPreview({
         <div ref={scrollerRef} className={styles.scroller} onScroll={handleScroll}>
           {loaded ? (
             <div
-              className={clsx(styles.pages, refreshing && styles.pagesDimmed)}
+              className={styles.pages}
               style={{ padding: STAGE_PADDING_PX, gap: PAGE_GAP_PX }}
             >
               {loaded.pages.map((page, index) => {
@@ -401,7 +401,6 @@ export function PdfPreview({
                     regionRects={overlayActive ? (regionsByPage.get(index + 1) ?? null) : null}
                     hoveredId={effectiveHoveredId}
                     selectedId={selectedId}
-                    disabled={refreshing}
                     onHover={setHoveredId}
                     onSelect={onSelect}
                     selectionCard={
@@ -435,8 +434,6 @@ interface PdfPageViewProps {
   regionRects: PageRegionRect[] | null;
   hoveredId: string | null;
   selectedId: string | null;
-  /** True while refreshing: overlay stays visible but ignores the pointer. */
-  disabled: boolean;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
   /** Card to render just below the selected region on this page. */
@@ -468,7 +465,6 @@ function PdfPageView({
   regionRects,
   hoveredId,
   selectedId,
-  disabled,
   onHover,
   onSelect,
   selectionCard,
@@ -522,9 +518,9 @@ function PdfPageView({
       />
       {regionRects ? (
         <div
-          className={clsx(styles.overlay, disabled && styles.overlayDisabled)}
+          className={styles.overlay}
           onClick={() => {
-            if (!disabled) onSelect(null);
+            onSelect(null);
           }}
         >
           {regionRects.map((entry) => {

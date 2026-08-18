@@ -119,10 +119,6 @@
   transition: opacity 160ms ease;
 }
 
-.pagesDimmed {
-  opacity: 0.55;
-}
-
 .page {
   position: relative;
   flex: none;
@@ -151,10 +147,6 @@
 .overlay {
   position: absolute;
   inset: 0;
-}
-
-.overlayDisabled {
-  pointer-events: none;
 }
 
 .region {
