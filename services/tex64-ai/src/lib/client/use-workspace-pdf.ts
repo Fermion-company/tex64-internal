@@ -15,6 +15,8 @@ const LAST_PDF_KEY = "tex64.ai.lastBuiltPdf";
 export type WorkspacePdf = {
   /** Object URL of the page the workspace build produced. */
   url: string | null;
+  /** Workspace-relative path of that page, for SyncTeX. */
+  path: string | null;
   /** A build is running; the page below stays readable meanwhile. */
   building: boolean;
   /** True when the AI mode is running inside the desktop app. */
@@ -32,6 +34,7 @@ const subscribeToNothing = () => () => {};
 
 export function useWorkspacePdf(): WorkspacePdf {
   const [url, setUrl] = useState<string | null>(null);
+  const [path, setPath] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const native = useSyncExternalStore(
@@ -47,8 +50,7 @@ export function useWorkspacePdf(): WorkspacePdf {
     let disposed = false;
     let currentUrl: string | null = null;
 
-    const show = async (relativePath: string) => {
-      try {
+    const show = async (relativePath: string) => {      try {
         const next = await fetchWorkspaceFileUrl(host, relativePath, "application/pdf");
         if (disposed) {
           URL.revokeObjectURL(next);
@@ -57,6 +59,7 @@ export function useWorkspacePdf(): WorkspacePdf {
         if (currentUrl) URL.revokeObjectURL(currentUrl);
         currentUrl = next;
         setUrl(next);
+        setPath(relativePath);
         window.localStorage.setItem(LAST_PDF_KEY, relativePath);
       } catch {
         // A page that cannot be read leaves the previous one on screen.
@@ -87,8 +90,7 @@ export function useWorkspacePdf(): WorkspacePdf {
       }
     });
 
-    const remembered = window.localStorage.getItem(LAST_PDF_KEY);
-    if (remembered) {
+    const remembered = window.localStorage.getItem(LAST_PDF_KEY);    if (remembered) {
       void show(remembered);
     } else {
       // Nothing to show yet. Typesetting the workspace is this mode's whole
@@ -104,5 +106,5 @@ export function useWorkspacePdf(): WorkspacePdf {
     };
   }, []);
 
-  return { url, building, native, failure };
+  return { url, path, building, native, failure };
 }

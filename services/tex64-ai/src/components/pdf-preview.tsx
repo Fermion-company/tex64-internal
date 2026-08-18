@@ -261,7 +261,7 @@ export function PdfPreview({
 
   // Where a point-based selection landed, so its card has a page to sit under
   // when there is no element map to anchor to.
-  const [pointPage, setPointPage] = useState<number | null>(null);
+  const [pointAt, setPointAt] = useState<{ page: number; y: number } | null>(null);
   const regionsByPage = useMemo(() => groupRectsByPage(regions ?? []), [regions]);
   // 編集カードは、選択要素の矩形が載っている最後のページの直下にアンカーする。
   const selectionCardPage = useMemo(() => {
@@ -416,18 +416,25 @@ export function PdfPreview({
                     onPointSelect={
                       onPointSelect
                         ? (point) => {
-                            setPointPage(point.page);
+                            setPointAt({ page: point.page, y: point.y });
                             onPointSelect(point);
                           }
                         : undefined
                     }
                     selectionCard={
                       (overlayActive && selectionCardPage === index + 1) ||
-                      (!overlayActive && pointPage === index + 1)
+                      (!overlayActive && pointAt?.page === index + 1)
                         ? selectionCard
                         : null
                     }
                     index={index}
+                    // A point selection has no region to sit under, so its card
+                    // sits where the reader clicked.
+                    selectionCardTop={
+                      !overlayActive && pointAt?.page === index + 1
+                        ? pointAt.y * scale
+                        : null
+                    }
                     onRendered={handleRendered}
                     onRenderFailed={handleRenderFailed}
                   />
@@ -460,6 +467,8 @@ interface PdfPageViewProps {
   onPointSelect?: (point: { page: number; x: number; y: number }) => void;
   /** Card to render just below the selected region on this page. */
   selectionCard: ReactNode;
+  /** Pixels from the page top for a card with no region to follow. */
+  selectionCardTop?: number | null;
   /** Position of this page in the stack; identifies it to the parent. */
   index: number;
   /** A fresh frame reached the canvas. */
@@ -491,6 +500,7 @@ function PdfPageView({
   onSelect,
   onPointSelect,
   selectionCard,
+  selectionCardTop = null,
   index,
   onRendered,
   onRenderFailed,
@@ -542,8 +552,7 @@ function PdfPageView({
       {!regionRects && onPointSelect ? (
         <div
           className={styles.overlay}
-          onClick={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect();
+          onClick={(event) => {            const bounds = event.currentTarget.getBoundingClientRect();
             onPointSelect({
               page: index + 1,
               // The overlay covers the rendered page exactly, so undoing the
@@ -553,6 +562,19 @@ function PdfPageView({
             });
           }}
         />
+      ) : null}
+      {!regionRects && selectionCard && selectionCardTop !== null ? (
+        <div
+          className={styles.selectionCard}
+          style={{
+            top: Math.min(selectionCardTop + 12, Math.max(8, cssHeight - 260)),
+            left: Math.max(8, (cssWidth - Math.min(430, cssWidth - 16)) / 2),
+            width: Math.min(430, cssWidth - 16),
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {selectionCard}
+        </div>
       ) : null}
       {regionRects ? (
         <div

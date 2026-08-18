@@ -19,7 +19,7 @@ export type SourceLocator = {
   location: SourceLocation | null;
   error: string | null;
   locating: boolean;
-  locate: (point: { page: number; x: number; y: number }) => void;
+  locate: (point: { page: number; x: number; y: number; pdfPath: string | null }) => void;
   clear: () => void;
 };
 
@@ -34,9 +34,13 @@ export function useSourceLocator(): SourceLocator {
   const [error, setError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
 
-  const locate = useCallback((point: { page: number; x: number; y: number }) => {
-    const host = getNativeHost();
-    if (!host) return;
+  const locate = useCallback((point: {
+    page: number;
+    x: number;
+    y: number;
+    pdfPath: string | null;
+  }) => {
+    const host = getNativeHost();    if (!host) return;
     setLocating(true);
     setError(null);
     void (async () => {
@@ -52,7 +56,14 @@ export function useSourceLocator(): SourceLocator {
         >(host, {
           type: "synctex:reverse",
           resultType: "synctex:reverseResult",
-          payload: { page: point.page, x: point.x, y: point.y },
+          payload: {
+            page: point.page,
+            x: point.x,
+            y: point.y,
+            // Without this, the host can only answer for a build that ran in
+            // its own lifetime.
+            ...(point.pdfPath ? { pdfPath: point.pdfPath } : {}),
+          },
         });
         if (!found.ok || typeof found.path !== "string" || typeof found.line !== "number") {
           setError(found.error ?? "この場所は本文と結び付けられませんでした。");

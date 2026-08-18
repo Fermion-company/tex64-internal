@@ -114,14 +114,18 @@ export const initAiModeUi = (deps) => {
             element.setAttribute("preload", config.preloadFileUrl);
         }
         element.className = "ai-mode-webview";
+        guestReady = false;
+        pending.length = 0;
         // did-finish-load also fires after a failed navigation, so remember the
         // failure until the next load attempt starts.
         let lastLoadFailed = false;
         element.addEventListener("dom-ready", () => {
+            // Deliver to this element, not the module's handle: the handle is only
+            // assigned after the element is appended, and dom-ready can beat it.
             guestReady = true;
             const backlog = pending.splice(0, pending.length);
             for (const message of backlog)
-                sendToGuest(message);
+                sendToGuest(element, message);
         });
         element.addEventListener("did-start-loading", () => {
             // A reload gives us a new guest; anything queued was for the old one.
@@ -192,10 +196,13 @@ export const initAiModeUi = (deps) => {
             .querySelector('[data-app-mode-tab="code"]')) === null || _a === void 0 ? void 0 : _a.click();
         (_b = document.querySelector('.tab[data-tab="ai"]')) === null || _b === void 0 ? void 0 : _b.click();
     });
-    const sendToGuest = (message) => {
-        var _a;
+    const sendToGuest = (target, message) => {
+        if (!(target === null || target === void 0 ? void 0 : target.send)) {
+            console.warn("[ai-mode] no webview to deliver to:", message.type);
+            return;
+        }
         try {
-            (_a = webview === null || webview === void 0 ? void 0 : webview.send) === null || _a === void 0 ? void 0 : _a.call(webview, GUEST_CHANNEL, message);
+            target.send(GUEST_CHANNEL, message);
         }
         catch (error) {
             console.warn("[ai-mode] could not reach the webview:", error);
@@ -209,7 +216,7 @@ export const initAiModeUi = (deps) => {
                 pending.push(message);
             return;
         }
-        sendToGuest(message);
+        sendToGuest(webview, message);
     };
     return {
         deliver,

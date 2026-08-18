@@ -1018,7 +1018,13 @@ export function DocumentWorkspace() {
                   interactive
                   onSelect={(id) => setSelectedElementId(id)}
                   onPointSelect={
-                    workspacePdf.native ? sourceLocator.locate : undefined
+                    workspacePdf.native
+                      ? (point) =>
+                          sourceLocator.locate({
+                            ...point,
+                            pdfPath: workspacePdf.path,
+                          })
+                      : undefined
                   }
                   emptyHint={
                     workspacePdf.native

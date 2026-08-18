@@ -144,13 +144,17 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       element.setAttribute("preload", config.preloadFileUrl);
     }
     element.className = "ai-mode-webview";
+    guestReady = false;
+    pending.length = 0;
     // did-finish-load also fires after a failed navigation, so remember the
     // failure until the next load attempt starts.
     let lastLoadFailed = false;
     element.addEventListener("dom-ready", () => {
+      // Deliver to this element, not the module's handle: the handle is only
+      // assigned after the element is appended, and dom-ready can beat it.
       guestReady = true;
       const backlog = pending.splice(0, pending.length);
-      for (const message of backlog) sendToGuest(message);
+      for (const message of backlog) sendToGuest(element, message);
     });
     element.addEventListener("did-start-loading", () => {
       // A reload gives us a new guest; anything queued was for the old one.
@@ -226,9 +230,16 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     document.querySelector<HTMLButtonElement>('.tab[data-tab="ai"]')?.click();
   });
 
-  const sendToGuest = (message: { type: string; payload?: unknown }) => {
+  const sendToGuest = (
+    target: WebviewElement | null,
+    message: { type: string; payload?: unknown },
+  ) => {
+    if (!target?.send) {
+      console.warn("[ai-mode] no webview to deliver to:", message.type);
+      return;
+    }
     try {
-      webview?.send?.(GUEST_CHANNEL, message);
+      target.send(GUEST_CHANNEL, message);
     } catch (error) {
       console.warn("[ai-mode] could not reach the webview:", error);
     }
@@ -240,7 +251,7 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       if (pending.length < MAX_PENDING) pending.push(message);
       return;
     }
-    sendToGuest(message);
+    sendToGuest(webview, message);
   };
 
   return {
