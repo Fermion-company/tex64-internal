@@ -1189,7 +1189,7 @@ textarea {
 .element-card {
   /* 位置は PdfPreview の selectionCard ラッパー（選択要素の直下）が決める。 */
   display: flex;
-  max-height: 320px;
+  max-height: min(48vh, 420px);
   flex-direction: column;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
@@ -1227,7 +1227,12 @@ textarea {
 
 .element-card-editor {
   padding: 12px 14px 14px;
+  /* flex item の既定 min-height:auto だと内容の高さのまま伸びてカードから
+     はみ出し、overflow-y:auto が効かない（＝切れて、ホイールは紙面へ流れる）。 */
+  min-height: 0;
   overflow-y: auto;
+  /* 端まで来ても紙面側へスクロールを渡さない。 */
+  overscroll-behavior: contain;
 }
 
 .element-card-editor textarea,
