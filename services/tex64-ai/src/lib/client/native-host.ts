@@ -9,6 +9,17 @@
  */
 export type HostMessage = { type: string; [key: string]: unknown };
 
+/**
+ * The desktop bus nests every event's fields under `payload` — the same
+ * shape Code mode's own dispatcher reads (electron/main.cjs's sendToRenderer
+ * wraps every send as `{ type, payload }`). Never read a field off the raw
+ * message; read it off this.
+ */
+export function hostMessageBody(message: HostMessage): Record<string, unknown> {
+  const body = message.payload;
+  return body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+}
+
 type NativeHost = {
   send: (type: string, payload?: Record<string, unknown>) => void;
   onMessage: (handler: (message: HostMessage) => void) => () => void;
@@ -48,10 +59,11 @@ export function requestFromHost<T extends HostMessage>(
     }, input.timeoutMs ?? 20_000);
     const unsubscribe = host.onMessage((message) => {
       if (message.type !== input.resultType) return;
-      if (message.requestId !== requestId) return;
+      const body = hostMessageBody(message);
+      if (body.requestId !== requestId) return;
       clearTimeout(timer);
       unsubscribe();
-      resolve(message as T);
+      resolve(body as T);
     });
     host.send(input.type, { ...input.payload, requestId });
   });
@@ -71,6 +83,7 @@ export async function fetchWorkspaceFileUrl(
     payload: { path: relativePath },
     timeoutMs: 60_000,
   });
+  // requestFromHost already unwraps `payload`.
   if (!result.ok || typeof result.base64 !== "string") {
     throw new Error(result.error ?? "Could not read the file.");
   }

@@ -1,12 +1,17 @@
 "use client";
 
-import { getNativeHost, type HostMessage } from "./native-host";
+import { getNativeHost, hostMessageBody, type HostMessage } from "./native-host";
 import type { TurnFrame } from "./types";
 
 /** The AI mode's own thread on the desktop agent, separate from Code mode's. */
 export const AI_MODE_CONVERSATION_ID = "tex64-ai-mode";
 
-type AgentEvent = HostMessage & {
+/**
+ * The desktop bus nests every event's fields under `payload` — the same
+ * shape Code mode's own dispatcher reads (electron/main.cjs's sendToRenderer
+ * wraps every send as `{ type, payload }`).
+ */
+type AgentEventBody = {
   conversationId?: unknown;
   text?: unknown;
   name?: unknown;
@@ -61,26 +66,27 @@ export function runNativeTurn(input: {
       finish("failed");
     }, FIRST_EVENT_TIMEOUT_MS);
 
-    const unsubscribe = host.onMessage((raw: AgentEvent) => {
+    const unsubscribe = host.onMessage((raw: HostMessage) => {
+      const body = hostMessageBody(raw) as AgentEventBody;
       if (
-        typeof raw.conversationId === "string" &&
-        raw.conversationId !== AI_MODE_CONVERSATION_ID
+        typeof body.conversationId === "string" &&
+        body.conversationId !== AI_MODE_CONVERSATION_ID
       ) {
         return;
       }
       if (raw.type.startsWith("agent:")) heard = true;
       switch (raw.type) {
         case "agent:messageDelta":
-          if (typeof raw.text === "string" && raw.text) {
-            input.onFrame({ type: "text", delta: raw.text });
+          if (typeof body.text === "string" && body.text) {
+            input.onFrame({ type: "text", delta: body.text });
           }
           break;
         case "agent:tool": {
-          if (typeof raw.name !== "string") break;
-          const summary = typeof raw.summary === "string" ? raw.summary : "";
+          if (typeof body.name !== "string") break;
+          const summary = typeof body.summary === "string" ? body.summary : "";
           input.onFrame({
             type: "tool",
-            name: typeof raw.label === "string" && raw.label ? raw.label : raw.name,
+            name: typeof body.label === "string" && body.label ? body.label : body.name,
             state:
               summary === "running" ? "start" : summary === "ok" ? "ok" : "error",
           });
@@ -90,8 +96,8 @@ export function runNativeTurn(input: {
           input.onFrame({
             type: "error",
             message:
-              typeof raw.message === "string" && raw.message
-                ? raw.message
+              typeof body.message === "string" && body.message
+                ? body.message
                 : "処理が最後まで進みませんでした。もう一度お試しください。",
           });
           finish("failed");
@@ -99,7 +105,7 @@ export function runNativeTurn(input: {
         case "agent:status":
           // The agent reports idle once the turn is finished, including the
           // turns that only answered.
-          if (raw.state === "idle") finish("completed");
+          if (body.state === "idle") finish("completed");
           break;
         default:
           break;

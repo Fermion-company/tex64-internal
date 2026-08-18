@@ -8,7 +8,10 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  // blob: is how the page hands the desktop build's PDF to the viewer:
+  // the bytes arrive over the host bridge, not the network, and pdf.js
+  // reads them back through a blob URL of our own making.
+  "connect-src 'self' blob:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

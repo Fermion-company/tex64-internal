@@ -5,6 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   fetchWorkspaceFileUrl,
   getNativeHost,
+  hostMessageBody,
   type HostMessage,
 } from "./native-host";
 
@@ -64,18 +65,23 @@ export function useWorkspacePdf(): WorkspacePdf {
 
     const unsubscribe = host.onMessage((message: HostMessage) => {
       if (message.type !== "setBuildState") return;
-      const state = message.state;
+      const body = hostMessageBody(message) as {
+        state?: unknown;
+        message?: unknown;
+        pdfPath?: unknown;
+      };
+      const state = body.state;
       const running = state === "running" || state === "building";
       setBuilding(running);
       if (running) setFailure(null);
-      if (state === "success" && typeof message.pdfPath === "string") {
+      if (state === "success" && typeof body.pdfPath === "string") {
         setFailure(null);
-        void show(message.pdfPath);
+        void show(body.pdfPath);
       }
       if (state === "failed") {
         setFailure(
-          typeof message.message === "string" && message.message
-            ? message.message
+          typeof body.message === "string" && body.message
+            ? body.message
             : "紙面を組み立てられませんでした。",
         );
       }
