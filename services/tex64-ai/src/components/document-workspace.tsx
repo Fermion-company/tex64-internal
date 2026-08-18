@@ -27,6 +27,7 @@ import {
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
 import { drainPendingSaves } from "@/lib/client/save-drain";
+import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
 import type {
   ChatMessage,
   CreateDocumentInput,
@@ -229,11 +230,17 @@ export function DocumentWorkspace() {
   ) {
     setLastPreview({ documentId: activeDocument.id, url: activeDocument.previewUrl });
   }
-  const displayPdfUrl = activeDocument
+  // Inside the desktop app the page comes from the workspace build, not from
+  // this service's own artifact.
+  const workspacePdf = useWorkspacePdf();
+  const ownPdfUrl = activeDocument
     ? (activeDocument.previewUrl ??
       (lastPreview?.documentId === activeDocument.id ? lastPreview.url : null))
     : null;
-  const previewStale = Boolean(displayPdfUrl && !activeDocument?.previewUrl);
+  const displayPdfUrl = workspacePdf.native ? workspacePdf.url : ownPdfUrl;
+  const previewStale = workspacePdf.native
+    ? workspacePdf.building
+    : Boolean(displayPdfUrl && !activeDocument?.previewUrl);
 
   // Selections and one-off run telemetry do not survive document switches.
   const [selectionDocumentId, setSelectionDocumentId] =
