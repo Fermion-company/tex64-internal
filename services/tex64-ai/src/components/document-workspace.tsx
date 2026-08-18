@@ -985,11 +985,15 @@ export function DocumentWorkspace() {
                   interactive
                   onSelect={(id) => setSelectedElementId(id)}
                   emptyHint={
-                    agentWorking
-                      ? "紙面を準備しています…"
-                      : documentHasContent
+                    workspacePdf.native
+                      ? workspacePdf.building
                         ? "紙面を組み立てています…"
-                        : "まだ紙面がありません。左の欄から執筆を依頼してください。"
+                        : "ワークスペースをビルドすると、その紙面がここに出ます。"
+                      : agentWorking
+                        ? "紙面を準備しています…"
+                        : documentHasContent
+                          ? "紙面を組み立てています…"
+                          : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
                   selectionCard={
                     selectedElement ? (
