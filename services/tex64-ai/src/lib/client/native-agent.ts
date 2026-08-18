@@ -7,6 +7,15 @@ import type { TurnFrame } from "./types";
 export const AI_MODE_CONVERSATION_ID = "tex64-ai-mode";
 
 /**
+ * Typesets the workspace so the page catches up with whatever the turn wrote.
+ * The agent may build on its own; latexmk skips the work when nothing changed,
+ * so asking again is cheap and makes the page reliable rather than hopeful.
+ */
+export function requestWorkspaceBuild(): void {
+  getNativeHost()?.send("build", {});
+}
+
+/**
  * The desktop bus nests every event's fields under `payload` — the same
  * shape Code mode's own dispatcher reads (electron/main.cjs's sendToRenderer
  * wraps every send as `{ type, payload }`).

@@ -27,7 +27,7 @@ import {
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
 import { drainPendingSaves } from "@/lib/client/save-drain";
-import { runNativeTurn } from "@/lib/client/native-agent";
+import { requestWorkspaceBuild, runNativeTurn } from "@/lib/client/native-agent";
 import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
 import type {
   ChatMessage,
@@ -105,10 +105,16 @@ export function DocumentWorkspace() {
   const saveVersionRef = useRef(0);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const pendingCreateRequestRef = useRef<PendingCreateRequest | null>(null);
+  // Inside the desktop app the page comes from the workspace build, not from
+  // this service's own artifact, and the agent keeps its own thread.
+  const workspacePdf = useWorkspacePdf();
   const agentWorking = turnDocumentId !== null;
+  // The desktop agent keeps its own thread; this service's document knows
+  // nothing about it, so reloading the document must not wipe the chat.
+  const [nativeMessages, setNativeMessages] = useState<ChatMessage[]>([]);
   const messages = useMemo<ChatMessage[]>(
-    () => activeDocument?.messages ?? [],
-    [activeDocument?.messages],
+    () => (workspacePdf.native ? nativeMessages : (activeDocument?.messages ?? [])),
+    [activeDocument?.messages, nativeMessages, workspacePdf.native],
   );
   const selectedElement = useMemo(
     () =>
@@ -232,9 +238,6 @@ export function DocumentWorkspace() {
   ) {
     setLastPreview({ documentId: activeDocument.id, url: activeDocument.previewUrl });
   }
-  // Inside the desktop app the page comes from the workspace build, not from
-  // this service's own artifact.
-  const workspacePdf = useWorkspacePdf();
   const ownPdfUrl = activeDocument
     ? (activeDocument.previewUrl ??
       (lastPreview?.documentId === activeDocument.id ? lastPreview.url : null))
@@ -622,6 +625,13 @@ export function DocumentWorkspace() {
       setActivityTool(null);
       setTurnError(null);
       setMobileView("conversation");
+      const shownAt = new Date().toISOString();
+      if (workspacePdf.native) {
+        setNativeMessages((current) => [
+          ...current,
+          { id: `local:${shownAt}`, role: "user", text: prompt, createdAt: shownAt },
+        ]);
+      } else
       // The user's own message is shown immediately; the server persists it
       // as part of the turn.
       updateStoredDocument({
@@ -639,9 +649,11 @@ export function DocumentWorkspace() {
       });
 
       let revisionChanged = false;
+      let replyText = "";
       const onFrame = (frame: TurnFrame) => {
           switch (frame.type) {
             case "text":
+              replyText += frame.delta;
               setStreamingText((current) => current + frame.delta);
               setActivityTool(null);
               break;
@@ -681,9 +693,28 @@ export function DocumentWorkspace() {
         setTurnError("送信できませんでした。もう一度お試しください。");
         return;
       }
-      // The stored thread now holds the assistant's reply; reloading also
-      // picks up the new revision and its page.
-      await refreshAfterTurn(document.id);
+      if (workspacePdf.native) {
+        // The page must reflect what the turn wrote, whether or not the agent
+        // typeset it itself.
+        requestWorkspaceBuild();
+        // Nothing on this service stores the turn, so the reply is kept here.
+        if (replyText.trim()) {
+          const repliedAt = new Date().toISOString();
+          setNativeMessages((current) => [
+            ...current,
+            {
+              id: `local:${repliedAt}`,
+              role: "assistant",
+              text: replyText,
+              createdAt: repliedAt,
+            },
+          ]);
+        }
+      } else {
+        // The stored thread now holds the assistant's reply; reloading also
+        // picks up the new revision and its page.
+        await refreshAfterTurn(document.id);
+      }
       if (revisionChanged) setCompileFailed(false);
 
       // A message typed while this turn was running goes next, in order.
