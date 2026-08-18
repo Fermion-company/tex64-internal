@@ -5,7 +5,7 @@ Claude にやってほしいタスクをここに書く。上から順に着手�
 
 ## やること
 
-- AI モードの受け入れ確認: [docs/ai-mode-paper-e2e.md](docs/ai-mode-paper-e2e.md) の論文 A〜D を実際に書き、チェックリストを埋める。
+- AI モードの受け入れ確認: [docs/ai-mode-paper-e2e.md](docs/ai-mode-paper-e2e.md) の通り学部量子力学の教科書を S1 から実際に書き、チェックリストを埋める。
 
 
 ## 完了
