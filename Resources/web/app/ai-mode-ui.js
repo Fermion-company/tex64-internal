@@ -13,7 +13,59 @@ export const resolveAiEmbedUrl = (base) => {
         return base;
     }
 };
-export const initAiModeUi = () => {
+/**
+ * What the AI mode webview may ask the host to do. The guest is a web page, so
+ * the surface is an allowlist rather than the whole message bus: the workspace
+ * it can read and write, the build it can run, SyncTeX both ways, and the
+ * agent — the same things Code mode uses, and nothing else.
+ */
+const GUEST_REQUESTS = new Set([
+    "requestWorkspace",
+    "detectRoot",
+    "openFile",
+    "file:excerpt",
+    "file:preview",
+    "saveFile",
+    "createFile",
+    "createFolder",
+    "search",
+    "build",
+    "build:cancel",
+    "synctex:forward",
+    "synctex:reverse",
+    "agent:settings:get",
+    "agent:settings:set",
+    "agent:state:get",
+    "agent:run",
+    "agent:abort",
+    "agent:clear",
+]);
+/** What the host relays back into the webview. */
+const GUEST_EVENTS = new Set([
+    "updateWorkspace",
+    "updateIndex",
+    "updateSearch",
+    "openFileResult",
+    "file:excerptResult",
+    "file:previewResult",
+    "saveResult",
+    "setBuildState",
+    "buildLog",
+    "updateIssues",
+    "synctex:forwardResult",
+    "synctex:reverseResult",
+    "agent:settings",
+    "agent:state",
+    "agent:status",
+    "agent:message",
+    "agent:messageDelta",
+    "agent:tool",
+    "agent:thought",
+    "agent:applyContent",
+    "agent:error",
+]);
+const GUEST_CHANNEL = "tex64-ai-host";
+export const initAiModeUi = (deps) => {
     const host = document.getElementById("ai-mode-webview-host");
     const fallback = document.getElementById("ai-mode-fallback");
     const status = document.getElementById("ai-mode-fallback-status");
@@ -73,12 +125,24 @@ export const initAiModeUi = () => {
                 hideFallback();
         });
         element.addEventListener("ipc-message", (event) => {
-            var _a, _b;
+            var _a, _b, _c, _d;
             if (event.channel !== "tex64-ai-web")
                 return;
             const payload = (_a = event.args) === null || _a === void 0 ? void 0 : _a[0];
             if ((payload === null || payload === void 0 ? void 0 : payload.type) === "open-external" && typeof payload.url === "string") {
                 void ((_b = bridge === null || bridge === void 0 ? void 0 : bridge.openExternal) === null || _b === void 0 ? void 0 : _b.call(bridge, payload.url));
+                return;
+            }
+            if ((payload === null || payload === void 0 ? void 0 : payload.type) === "host-request") {
+                const requestType = (_c = payload.request) === null || _c === void 0 ? void 0 : _c.type;
+                if (typeof requestType !== "string" || !GUEST_REQUESTS.has(requestType)) {
+                    return;
+                }
+                const body = (_d = payload.request) === null || _d === void 0 ? void 0 : _d.payload;
+                deps.postToNative({
+                    type: requestType,
+                    ...(body && typeof body === "object" ? body : {}),
+                });
             }
         });
         host.appendChild(element);
@@ -108,7 +172,14 @@ export const initAiModeUi = () => {
             .querySelector('[data-app-mode-tab="code"]')) === null || _a === void 0 ? void 0 : _a.click();
         (_b = document.querySelector('.tab[data-tab="ai"]')) === null || _b === void 0 ? void 0 : _b.click();
     });
+    const deliver = (message) => {
+        var _a;
+        if (!webview || !GUEST_EVENTS.has(message.type))
+            return;
+        (_a = webview.send) === null || _a === void 0 ? void 0 : _a.call(webview, GUEST_CHANNEL, message);
+    };
     return {
+        deliver,
         activate: () => {
             void createWebview();
         },

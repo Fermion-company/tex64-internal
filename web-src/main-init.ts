@@ -399,7 +399,13 @@ export const initMain = () => {
     getRootFilePath,
   });
   initProCanvasGallery({ getActiveGroup: editorSession.getActiveGroup });
-  const aiModeApi = initAiModeUi();
+  const aiModeApi = initAiModeUi({
+    postToNative: (payload, silent) => postToNative(payload, silent),
+  });
+  // The AI mode webview sees the same host messages Code mode does, filtered
+  // by its own allowlist. Registering a second listener keeps the existing
+  // dispatcher untouched.
+  bridgeWindow.tex64Bridge?.onMessage?.((message) => aiModeApi.deliver(message));
   initAppModeUi({
     initialMode: resolveInitialAppMode(
       localStorage.getItem(APP_MODE_STORAGE_KEY),

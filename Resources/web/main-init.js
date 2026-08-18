@@ -57,7 +57,7 @@ import { initProStructureUi } from "./app/pro-structure-ui.js";
 import { initProLivePreview } from "./app/pro-live-preview.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         initAppearanceTheme();
         initI18n();
         requestAnimationFrame(() => {
@@ -343,7 +343,13 @@ export const initMain = () => {
             getRootFilePath,
         });
         initProCanvasGallery({ getActiveGroup: editorSession.getActiveGroup });
-        const aiModeApi = initAiModeUi();
+        const aiModeApi = initAiModeUi({
+            postToNative: (payload, silent) => postToNative(payload, silent),
+        });
+        // The AI mode webview sees the same host messages Code mode does, filtered
+        // by its own allowlist. Registering a second listener keeps the existing
+        // dispatcher untouched.
+        (_b = (_a = bridgeWindow.tex64Bridge) === null || _a === void 0 ? void 0 : _a.onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, (message) => aiModeApi.deliver(message));
         initAppModeUi({
             initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY), parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled),
             onModeChange: (mode) => {
@@ -582,7 +588,7 @@ export const initMain = () => {
         });
         // Settings > Account > Plans & Usage: close the full-screen settings first,
         // then open the same in-app Plans modal used everywhere else.
-        (_a = document.getElementById("settings-plan-open")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => {
+        (_c = document.getElementById("settings-plan-open")) === null || _c === void 0 ? void 0 : _c.addEventListener("click", () => {
             var _a;
             (_a = document.getElementById("settings-close")) === null || _a === void 0 ? void 0 : _a.click();
             window.dispatchEvent(new CustomEvent("tex64:open-plans"));
@@ -728,7 +734,7 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_b = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _b === void 0 ? void 0 : _b.dataset.tab);
+        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_d = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _d === void 0 ? void 0 : _d.dataset.tab);
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();

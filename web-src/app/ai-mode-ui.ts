@@ -1,3 +1,4 @@
+import type { PostToNative } from "./bridge-sender.js";
 import type { AiWebBridge, BridgeWindow } from "./types.js";
 import { uiText } from "./i18n.js";
 
@@ -19,9 +20,65 @@ export const resolveAiEmbedUrl = (base: string): string => {
 type WebviewElement = HTMLElement & {
   reload?: () => void;
   loadURL?: (url: string) => void;
+  send?: (channel: string, ...args: unknown[]) => void;
 };
 
 type WebviewIpcEvent = Event & { channel?: string; args?: unknown[] };
+
+/**
+ * What the AI mode webview may ask the host to do. The guest is a web page, so
+ * the surface is an allowlist rather than the whole message bus: the workspace
+ * it can read and write, the build it can run, SyncTeX both ways, and the
+ * agent — the same things Code mode uses, and nothing else.
+ */
+const GUEST_REQUESTS: ReadonlySet<string> = new Set([
+  "requestWorkspace",
+  "detectRoot",
+  "openFile",
+  "file:excerpt",
+  "file:preview",
+  "saveFile",
+  "createFile",
+  "createFolder",
+  "search",
+  "build",
+  "build:cancel",
+  "synctex:forward",
+  "synctex:reverse",
+  "agent:settings:get",
+  "agent:settings:set",
+  "agent:state:get",
+  "agent:run",
+  "agent:abort",
+  "agent:clear",
+]);
+
+/** What the host relays back into the webview. */
+const GUEST_EVENTS: ReadonlySet<string> = new Set([
+  "updateWorkspace",
+  "updateIndex",
+  "updateSearch",
+  "openFileResult",
+  "file:excerptResult",
+  "file:previewResult",
+  "saveResult",
+  "setBuildState",
+  "buildLog",
+  "updateIssues",
+  "synctex:forwardResult",
+  "synctex:reverseResult",
+  "agent:settings",
+  "agent:state",
+  "agent:status",
+  "agent:message",
+  "agent:messageDelta",
+  "agent:tool",
+  "agent:thought",
+  "agent:applyContent",
+  "agent:error",
+]);
+
+const GUEST_CHANNEL = "tex64-ai-host";
 type WebviewFailEvent = Event & {
   errorCode?: number;
   isMainFrame?: boolean;
@@ -29,9 +86,16 @@ type WebviewFailEvent = Event & {
 
 export type AiModeApi = {
   activate: () => void;
+  /** Relay one host message into the webview, when it is on the allowlist. */
+  deliver: (message: { type: string; payload?: unknown }) => void;
 };
 
-export const initAiModeUi = (): AiModeApi => {
+export type AiModeDeps = {
+  /** Sends an allowlisted request on to the main process. */
+  postToNative: PostToNative;
+};
+
+export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
   const host = document.getElementById("ai-mode-webview-host");
   const fallback = document.getElementById("ai-mode-fallback");
   const status = document.getElementById("ai-mode-fallback-status");
@@ -95,9 +159,27 @@ export const initAiModeUi = (): AiModeApi => {
     });
     element.addEventListener("ipc-message", (event: WebviewIpcEvent) => {
       if (event.channel !== "tex64-ai-web") return;
-      const payload = event.args?.[0] as { type?: string; url?: string } | undefined;
+      const payload = event.args?.[0] as
+        | {
+            type?: string;
+            url?: string;
+            request?: { type?: unknown; payload?: unknown };
+          }
+        | undefined;
       if (payload?.type === "open-external" && typeof payload.url === "string") {
         void bridge?.openExternal?.(payload.url);
+        return;
+      }
+      if (payload?.type === "host-request") {
+        const requestType = payload.request?.type;
+        if (typeof requestType !== "string" || !GUEST_REQUESTS.has(requestType)) {
+          return;
+        }
+        const body = payload.request?.payload;
+        deps.postToNative({
+          type: requestType,
+          ...(body && typeof body === "object" ? body : {}),
+        });
       }
     });
     host.appendChild(element);
@@ -125,7 +207,13 @@ export const initAiModeUi = (): AiModeApi => {
     document.querySelector<HTMLButtonElement>('.tab[data-tab="ai"]')?.click();
   });
 
+  const deliver = (message: { type: string; payload?: unknown }) => {
+    if (!webview || !GUEST_EVENTS.has(message.type)) return;
+    webview.send?.(GUEST_CHANNEL, message);
+  };
+
   return {
+    deliver,
     activate: () => {
       void createWebview();
     },
