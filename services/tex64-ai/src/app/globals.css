@@ -172,7 +172,9 @@ textarea {
   display: grid;
   height: 64px;
   flex: 0 0 64px;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 440px) minmax(180px, 1fr);
+  /* Two children: the document it is on, and what you can do with it. A third
+     column left the actions stranded mid-bar. */
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid var(--line);
   background: var(--header);
@@ -987,7 +989,7 @@ textarea {
   .app-topbar {
     height: 54px;
     flex-basis: 54px;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 0 10px;
   }
   .brand-mark {
