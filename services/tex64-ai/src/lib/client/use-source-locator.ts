@@ -60,7 +60,13 @@ export function useSourceLocator(): SourceLocator {
             // Without this, the host can only answer for a build that ran in
             // its own lifetime.
             ...(point.pdfPath ? { pdfPath: point.pdfPath } : {}),
+            // This mode never sends forward hints, so the hint cache holds
+            // nothing for it and can only answer for somewhere else.
+            bypassHint: true,
           },
+          // The lookup itself takes milliseconds. Waiting longer than this
+          // means the answer is not coming, and saying so beats a spinner.
+          timeoutMs: 6_000,
         });
         const found = hostMessageBody(answer);
         if (
@@ -76,16 +82,23 @@ export function useSourceLocator(): SourceLocator {
           setLocation(null);
           return;
         }
-        const excerptAnswer = await requestFromHost<HostMessage>(host, {
-          type: "file:excerpt",
-          resultType: "file:excerptResult",
-          payload: { path: found.path, line: found.line, radius: 0, maxLines: 1 },
-        });
-        const excerpt = hostMessageBody(excerptAnswer);
-        const text =
-          excerpt.ok === true && Array.isArray(excerpt.lines)
-            ? String(excerpt.lines[0] ?? "")
-            : "";
+        // The place is the answer; its text is a courtesy. A failed excerpt
+        // must not throw away a lookup that succeeded.
+        let text = "";
+        try {
+          const excerptAnswer = await requestFromHost<HostMessage>(host, {
+            type: "file:excerpt",
+            resultType: "file:excerptResult",
+            payload: { path: found.path, line: found.line, radius: 0, maxLines: 1 },
+            timeoutMs: 8_000,
+          });
+          const excerpt = hostMessageBody(excerptAnswer);
+          if (excerpt.ok === true && Array.isArray(excerpt.lines)) {
+            text = String(excerpt.lines[0] ?? "");
+          }
+        } catch {
+          // Leave the text empty; the location still stands.
+        }
         setLocation({
           path: found.path,
           line: found.line,
@@ -93,7 +106,9 @@ export function useSourceLocator(): SourceLocator {
           text,
         });
       } catch {
-        setError("本文の場所を確かめられませんでした。");
+        setError(
+          "本文の場所を確かめられませんでした。組版し直すと直ることがあります。",
+        );
         setLocation(null);
       } finally {
         setLocating(false);

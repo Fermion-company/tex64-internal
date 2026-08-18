@@ -1069,7 +1069,10 @@ export function DocumentWorkspace() {
                             {sourceLocator.locating ? (
                               <p>本文のどこかを確かめています。</p>
                             ) : sourceLocator.location ? (
-                              <p>{sourceLocator.location.text || "（空行）"}</p>
+                              <p>
+                                {sourceLocator.location.text ||
+                                  `${sourceLocator.location.path} の ${sourceLocator.location.line} 行目`}
+                              </p>
                             ) : (
                               <p>{sourceLocator.error}</p>
                             )}

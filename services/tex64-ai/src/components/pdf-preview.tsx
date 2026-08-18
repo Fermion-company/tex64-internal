@@ -548,6 +548,7 @@ function PdfPageView({
   onHover,
   onSelect,
   onPointSelect,
+  pointRects = null,
   selectionCard,
   selectionCardTop = null,
   index,
@@ -598,6 +599,22 @@ function PdfPageView({
         style={{ width: cssWidth, height: cssHeight }}
         aria-hidden="true"
       />
+      {pointRects && pointRects.length > 0 ? (
+        <div className={styles.overlay} aria-hidden="true">
+          {pointRects.map((rect, rectIndex) => (
+            <div
+              key={`${rect.top}-${rectIndex}`}
+              className={clsx(styles.region, styles.regionSelected)}
+              style={{
+                left: rect.left * scale,
+                top: rect.top * scale,
+                width: rect.width * scale,
+                height: rect.height * scale,
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
       {!regionRects && onPointSelect ? (
         <div
           className={styles.overlay}
@@ -642,6 +659,9 @@ function PdfPageView({
       ) : null}
       {!regionRects && selectionCard && selectionCardTop !== null ? (
         <div
+          ref={(node) =>
+            node?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+          }
           className={styles.selectionCard}
           style={{
             top: Math.min(selectionCardTop + 12, Math.max(8, cssHeight - 260)),

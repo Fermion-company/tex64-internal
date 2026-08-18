@@ -15,28 +15,38 @@ export type TextRect = {
 };
 
 export type TextItemLike = {
-  /** [a, b, c, d, e, f] in the page's view space, top-left origin. */
-  transform: number[];
-  width: number;
-  height: number;
-  str: string;
+  /**
+   * [a, b, c, d, e, f] in the page's view space, top-left origin. Absent on
+   * the marked-content entries pdf.js mixes into the same list.
+   */
+  transform?: number[];
+  width?: number;
+  height?: number;
+  str?: string;
 };
 
 type Line = { top: number; bottom: number; left: number; right: number };
 
-/** Lines closer than this fraction of their own height belong together. */
-const PARAGRAPH_GAP_RATIO = 0.9;
+/** A vertical gap this much larger than the line height starts a new block. */
+const BLOCK_GAP_RATIO = 0.6;
+/** A first line indented at least this far (points) starts a paragraph. */
+const INDENT_THRESHOLD = 4;
 /** Items whose baselines differ by less than this share a line. */
 const SAME_LINE_TOLERANCE = 2;
 
 function itemRect(item: TextItemLike): TextRect | null {
+  // pdf.js mixes marked-content markers into the same list; they carry no
+  // geometry, and reading one as if it did used to throw away the whole page.
+  if (!Array.isArray(item.transform)) return null;
+  if (typeof item.str !== "string" || !item.str.trim()) return null;
   const d = item.transform[3] ?? 0;
   const e = item.transform[4] ?? Number.NaN;
   const f = item.transform[5] ?? Number.NaN;
+  const width = typeof item.width === "number" ? item.width : 0;
   const height = Math.abs(item.height || d || 0);
   if (!Number.isFinite(e) || !Number.isFinite(f) || height <= 0) return null;
-  if (!item.str.trim()) return null;
-  return { left: e, top: f - height, width: item.width, height };
+  if (width <= 0) return null;
+  return { left: e, top: f - height, width, height };
 }
 
 function toLines(items: readonly TextItemLike[]): Line[] {
@@ -65,9 +75,28 @@ function toLines(items: readonly TextItemLike[]): Line[] {
 }
 
 /**
- * The lines of the paragraph containing `point`, as rectangles. Empty when the
- * click landed away from any text.
+ * The left edge most lines share within one block — its margin. Measured per
+ * block, not per page: an abstract or a quotation is indented as a whole, and
+ * against the page's margin every one of its lines would look like the start
+ * of a new paragraph.
  */
+function marginLeft(lines: readonly Line[]): number {
+  const counts = new Map<number, number>();
+  for (const line of lines) {
+    const key = Math.round(line.left);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let best = lines[0]?.left ?? 0;
+  let bestCount = 0;
+  for (const [left, count] of counts) {
+    if (count > bestCount || (count === bestCount && left < best)) {
+      best = left;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 export function findTextBlockRects(
   items: readonly TextItemLike[],
   point: { x: number; y: number },
@@ -84,18 +113,33 @@ export function findTextBlockRects(
   );
   if (hitIndex === -1) return [];
 
-  const belongs = (above: Line, below: Line) => {
+  // The visual block first: everything the click's line runs together with,
+  // separated only by vertical space.
+  const touches = (above: Line, below: Line) => {
     const gap = below.top - above.bottom;
     const height = Math.max(above.bottom - above.top, below.bottom - below.top);
-    return gap <= height * PARAGRAPH_GAP_RATIO;
+    return gap <= height * BLOCK_GAP_RATIO;
   };
+  let blockFirst = hitIndex;
+  while (blockFirst > 0 && touches(lines[blockFirst - 1]!, lines[blockFirst]!)) {
+    blockFirst -= 1;
+  }
+  let blockLast = hitIndex;
+  while (
+    blockLast < lines.length - 1 &&
+    touches(lines[blockLast]!, lines[blockLast + 1]!)
+  ) {
+    blockLast += 1;
+  }
+
+  // Then the paragraph inside it, by the indent its first line carries.
+  const margin = marginLeft(lines.slice(blockFirst, blockLast + 1));
+  const startsParagraph = (line: Line) => line.left > margin + INDENT_THRESHOLD;
 
   let first = hitIndex;
-  while (first > 0 && belongs(lines[first - 1]!, lines[first]!)) first -= 1;
+  while (first > blockFirst && !startsParagraph(lines[first]!)) first -= 1;
   let last = hitIndex;
-  while (last < lines.length - 1 && belongs(lines[last]!, lines[last + 1]!)) {
-    last += 1;
-  }
+  while (last < blockLast && !startsParagraph(lines[last + 1]!)) last += 1;
 
   return lines.slice(first, last + 1).map((line) => ({
     left: line.left,
