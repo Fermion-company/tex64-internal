@@ -12,8 +12,19 @@ const HOST_CHANNEL = "tex64-ai-web";
 const GUEST_CHANNEL = "tex64-ai-host";
 
 const hostListeners = new Set();
+// Answers can arrive before the page has attached a listener — a reply to a
+// question asked as it mounts, or across a re-render that swaps subscribers.
+// Hold them rather than dropping them, as the desktop bridge does.
+const pendingHostMessages = [];
+const MAX_PENDING_HOST_MESSAGES = 200;
 
-ipcRenderer.on(GUEST_CHANNEL, (_event, message) => {
+const dispatchHostMessage = (message) => {
+  if (hostListeners.size === 0) {
+    if (pendingHostMessages.length < MAX_PENDING_HOST_MESSAGES) {
+      pendingHostMessages.push(message);
+    }
+    return;
+  }
   hostListeners.forEach((listener) => {
     try {
       listener(message);
@@ -21,6 +32,10 @@ ipcRenderer.on(GUEST_CHANNEL, (_event, message) => {
       console.error("tex64Native host listener error:", error);
     }
   });
+};
+
+ipcRenderer.on(GUEST_CHANNEL, (_event, message) => {
+  dispatchHostMessage(message);
 });
 
 contextBridge.exposeInMainWorld("tex64Native", {
@@ -41,6 +56,16 @@ contextBridge.exposeInMainWorld("tex64Native", {
     onMessage: (handler) => {
       if (typeof handler !== "function") return () => {};
       hostListeners.add(handler);
+      if (pendingHostMessages.length > 0) {
+        const backlog = pendingHostMessages.splice(0, pendingHostMessages.length);
+        for (const message of backlog) {
+          try {
+            handler(message);
+          } catch (error) {
+            console.error("tex64Native host listener error:", error);
+          }
+        }
+      }
       return () => hostListeners.delete(handler);
     },
   },

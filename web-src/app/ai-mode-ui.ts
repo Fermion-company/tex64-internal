@@ -32,8 +32,7 @@ type WebviewIpcEvent = Event & { channel?: string; args?: unknown[] };
  * agent — the same things Code mode uses, and nothing else.
  */
 const GUEST_REQUESTS: ReadonlySet<string> = new Set([
-  "requestWorkspace",
-  "detectRoot",
+  "workspace:state:get",
   "openFile",
   "file:excerpt",
   "file:preview",
@@ -108,11 +107,15 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
   const bridge = (window as BridgeWindow).tex64AiWeb as AiWebBridge | undefined;
 
   let webview: WebviewElement | null = null;
-  // <webview>.send throws until the guest is ready, and the first answers —
-  // the page it asks for the moment it mounts — arrive inside that window.
-  let guestReady = false;
   const pending: { type: string; payload?: unknown }[] = [];
   const MAX_PENDING = 200;
+  /**
+   * State a guest joining late still needs: what project is open, and how the
+   * last build went. Both are announced once, and the AI mode is created on
+   * demand — long after.
+   */
+  const STICKY_EVENTS = ["updateWorkspace", "setBuildState"] as const;
+  const sticky = new Map<string, { type: string; payload?: unknown }>();
   let currentUrl = "";
   let creating = false;
 
@@ -144,7 +147,6 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       element.setAttribute("preload", config.preloadFileUrl);
     }
     element.className = "ai-mode-webview";
-    guestReady = false;
     pending.length = 0;
     // did-finish-load also fires after a failed navigation, so remember the
     // failure until the next load attempt starts.
@@ -152,13 +154,12 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     element.addEventListener("dom-ready", () => {
       // Deliver to this element, not the module's handle: the handle is only
       // assigned after the element is appended, and dom-ready can beat it.
-      guestReady = true;
+      for (const message of sticky.values()) sendToGuest(element, message);
       const backlog = pending.splice(0, pending.length);
       for (const message of backlog) sendToGuest(element, message);
     });
     element.addEventListener("did-start-loading", () => {
       // A reload gives us a new guest; anything queued was for the old one.
-      guestReady = false;
       pending.length = 0;
       lastLoadFailed = false;
     });
@@ -230,28 +231,34 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     document.querySelector<HTMLButtonElement>('.tab[data-tab="ai"]')?.click();
   });
 
+  /**
+   * Delivers to the guest, or holds the message until it can.
+   *
+   * <webview>.send throws while the guest is not ready, and readiness is not
+   * something to track: the events that announce it are not reliably paired
+   * across reloads and in-page navigations. Trying and catching is, so that is
+   * what decides whether a message goes now or waits.
+   */
   const sendToGuest = (
     target: WebviewElement | null,
     message: { type: string; payload?: unknown },
-  ) => {
-    if (!target?.send) {
-      console.warn("[ai-mode] no webview to deliver to:", message.type);
-      return;
-    }
+  ): boolean => {
+    if (!target?.send) return false;
     try {
       target.send(GUEST_CHANNEL, message);
-    } catch (error) {
-      console.warn("[ai-mode] could not reach the webview:", error);
+      return true;
+    } catch {
+      return false;
     }
   };
 
   const deliver = (message: { type: string; payload?: unknown }) => {
-    if (!webview || !GUEST_EVENTS.has(message.type)) return;
-    if (!guestReady) {
-      if (pending.length < MAX_PENDING) pending.push(message);
-      return;
+    if (!GUEST_EVENTS.has(message.type)) return;
+    if ((STICKY_EVENTS as readonly string[]).includes(message.type)) {
+      sticky.set(message.type, message);
     }
-    sendToGuest(webview, message);
+    if (sendToGuest(webview, message)) return;
+    if (pending.length < MAX_PENDING) pending.push(message);
   };
 
   return {

@@ -1396,6 +1396,23 @@ ipcMain.on("tex64", (_event, message) => {
     }
     return;
   }
+  // Answers "what is open?" without touching it. openWorkspace/requestWorkspace
+  // both raise a folder picker, so a surface that only wants to know — the AI
+  // mode, created long after the project was opened — needs its own question.
+  if (type === "workspace:state:get") {
+    const currentRoot = workspace.getRootPath();
+    if (currentRoot) {
+      workspaceHandlers.updateWorkspaceIfNeeded(currentRoot, true);
+    } else {
+      sendToRenderer("updateWorkspace", {
+        rootName: null,
+        rootPath: null,
+        files: [],
+        folders: [],
+      });
+    }
+    return;
+  }
   if (type === "openWorkspace" || type === "requestWorkspace") {
     workspaceHandlers.handleOpenWorkspace(message);
     return;

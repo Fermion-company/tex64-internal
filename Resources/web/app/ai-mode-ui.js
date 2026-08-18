@@ -20,8 +20,7 @@ export const resolveAiEmbedUrl = (base) => {
  * agent — the same things Code mode uses, and nothing else.
  */
 const GUEST_REQUESTS = new Set([
-    "requestWorkspace",
-    "detectRoot",
+    "workspace:state:get",
     "openFile",
     "file:excerpt",
     "file:preview",
@@ -77,11 +76,15 @@ export const initAiModeUi = (deps) => {
     const devHint = document.getElementById("ai-mode-dev-hint");
     const bridge = window.tex64AiWeb;
     let webview = null;
-    // <webview>.send throws until the guest is ready, and the first answers —
-    // the page it asks for the moment it mounts — arrive inside that window.
-    let guestReady = false;
     const pending = [];
     const MAX_PENDING = 200;
+    /**
+     * State a guest joining late still needs: what project is open, and how the
+     * last build went. Both are announced once, and the AI mode is created on
+     * demand — long after.
+     */
+    const STICKY_EVENTS = ["updateWorkspace", "setBuildState"];
+    const sticky = new Map();
     let currentUrl = "";
     let creating = false;
     const showFallback = (message) => {
@@ -114,7 +117,6 @@ export const initAiModeUi = (deps) => {
             element.setAttribute("preload", config.preloadFileUrl);
         }
         element.className = "ai-mode-webview";
-        guestReady = false;
         pending.length = 0;
         // did-finish-load also fires after a failed navigation, so remember the
         // failure until the next load attempt starts.
@@ -122,14 +124,14 @@ export const initAiModeUi = (deps) => {
         element.addEventListener("dom-ready", () => {
             // Deliver to this element, not the module's handle: the handle is only
             // assigned after the element is appended, and dom-ready can beat it.
-            guestReady = true;
+            for (const message of sticky.values())
+                sendToGuest(element, message);
             const backlog = pending.splice(0, pending.length);
             for (const message of backlog)
                 sendToGuest(element, message);
         });
         element.addEventListener("did-start-loading", () => {
             // A reload gives us a new guest; anything queued was for the old one.
-            guestReady = false;
             pending.length = 0;
             lastLoadFailed = false;
         });
@@ -196,27 +198,35 @@ export const initAiModeUi = (deps) => {
             .querySelector('[data-app-mode-tab="code"]')) === null || _a === void 0 ? void 0 : _a.click();
         (_b = document.querySelector('.tab[data-tab="ai"]')) === null || _b === void 0 ? void 0 : _b.click();
     });
+    /**
+     * Delivers to the guest, or holds the message until it can.
+     *
+     * <webview>.send throws while the guest is not ready, and readiness is not
+     * something to track: the events that announce it are not reliably paired
+     * across reloads and in-page navigations. Trying and catching is, so that is
+     * what decides whether a message goes now or waits.
+     */
     const sendToGuest = (target, message) => {
-        if (!(target === null || target === void 0 ? void 0 : target.send)) {
-            console.warn("[ai-mode] no webview to deliver to:", message.type);
-            return;
-        }
+        if (!(target === null || target === void 0 ? void 0 : target.send))
+            return false;
         try {
             target.send(GUEST_CHANNEL, message);
+            return true;
         }
-        catch (error) {
-            console.warn("[ai-mode] could not reach the webview:", error);
+        catch {
+            return false;
         }
     };
     const deliver = (message) => {
-        if (!webview || !GUEST_EVENTS.has(message.type))
+        if (!GUEST_EVENTS.has(message.type))
             return;
-        if (!guestReady) {
-            if (pending.length < MAX_PENDING)
-                pending.push(message);
-            return;
+        if (STICKY_EVENTS.includes(message.type)) {
+            sticky.set(message.type, message);
         }
-        sendToGuest(webview, message);
+        if (sendToGuest(webview, message))
+            return;
+        if (pending.length < MAX_PENDING)
+            pending.push(message);
     };
     return {
         deliver,

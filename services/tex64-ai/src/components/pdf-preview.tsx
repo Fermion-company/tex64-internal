@@ -28,7 +28,26 @@ import {
   type PdfElementRegion,
   type ScrollMetrics,
 } from "./pdf-preview-geometry";
+import {
+  findTextBlockRects,
+  type TextItemLike,
+  type TextRect,
+} from "./pdf-text-blocks";
 import styles from "./pdf-preview.module.css";
+
+/** Composes two 2-D affine transforms, as pdf.js stores them. */
+function applyTransform(outer: number[], inner: number[]): number[] {
+  const [a1 = 1, b1 = 0, c1 = 0, d1 = 1, e1 = 0, f1 = 0] = outer;
+  const [a2 = 1, b2 = 0, c2 = 0, d2 = 1, e2 = 0, f2 = 0] = inner;
+  return [
+    a1 * a2 + c1 * b2,
+    b1 * a2 + d1 * b2,
+    a1 * c2 + c1 * d2,
+    b1 * c2 + d1 * d2,
+    a1 * e2 + c1 * f2 + e1,
+    b1 * e2 + d1 * f2 + f1,
+  ];
+}
 
 export type { PdfElementRegion, PdfRegionRect } from "./pdf-preview-geometry";
 
@@ -48,7 +67,13 @@ export interface PdfPreviewProps {
    * where there is no element map — the workspace's own build — to ask SyncTeX
    * what the reader pointed at.
    */
-  onPointSelect?: (point: { page: number; x: number; y: number }) => void;
+  onPointSelect?: (point: {
+    page: number;
+    x: number;
+    y: number;
+    /** Lines of the text block the click landed in, for outlining it. */
+    rects: TextRect[];
+  }) => void;
   emptyHint?: string;
   /** Card anchored just below the selected region (編集カード). */
   selectionCard?: ReactNode;
@@ -261,7 +286,11 @@ export function PdfPreview({
 
   // Where a point-based selection landed, so its card has a page to sit under
   // when there is no element map to anchor to.
-  const [pointAt, setPointAt] = useState<{ page: number; y: number } | null>(null);
+  const [pointAt, setPointAt] = useState<{
+    page: number;
+    y: number;
+    rects: TextRect[];
+  } | null>(null);
   const regionsByPage = useMemo(() => groupRectsByPage(regions ?? []), [regions]);
   // 編集カードは、選択要素の矩形が載っている最後のページの直下にアンカーする。
   const selectionCardPage = useMemo(() => {
@@ -416,7 +445,11 @@ export function PdfPreview({
                     onPointSelect={
                       onPointSelect
                         ? (point) => {
-                            setPointAt({ page: point.page, y: point.y });
+                            setPointAt({
+                              page: point.page,
+                              y: point.y,
+                              rects: point.rects,
+                            });
                             onPointSelect(point);
                           }
                         : undefined
@@ -432,7 +465,16 @@ export function PdfPreview({
                     // sits where the reader clicked.
                     selectionCardTop={
                       !overlayActive && pointAt?.page === index + 1
-                        ? pointAt.y * scale
+                        ? (pointAt.rects.at(-1)
+                            ? (pointAt.rects.at(-1)!.top +
+                                pointAt.rects.at(-1)!.height) *
+                              scale
+                            : pointAt.y * scale)
+                        : null
+                    }
+                    pointRects={
+                      !overlayActive && pointAt?.page === index + 1
+                        ? pointAt.rects
                         : null
                     }
                     onRendered={handleRendered}
@@ -464,7 +506,14 @@ interface PdfPageViewProps {
   selectedId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
-  onPointSelect?: (point: { page: number; x: number; y: number }) => void;
+  onPointSelect?: (point: {
+    page: number;
+    x: number;
+    y: number;
+    rects: TextRect[];
+  }) => void;
+  /** Outline drawn around what a point selection picked. */
+  pointRects?: TextRect[] | null;
   /** Card to render just below the selected region on this page. */
   selectionCard: ReactNode;
   /** Pixels from the page top for a card with no region to follow. */
@@ -552,14 +601,42 @@ function PdfPageView({
       {!regionRects && onPointSelect ? (
         <div
           className={styles.overlay}
-          onClick={(event) => {            const bounds = event.currentTarget.getBoundingClientRect();
-            onPointSelect({
-              page: index + 1,
-              // The overlay covers the rendered page exactly, so undoing the
-              // render scale gives PDF points from its top-left corner.
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            // The overlay covers the rendered page exactly, so undoing the
+            // render scale gives PDF points from its top-left corner.
+            const point = {
               x: (event.clientX - bounds.left) / scale,
               y: (event.clientY - bounds.top) / scale,
-            });
+            };
+            const answer = (rects: TextRect[]) =>
+              onPointSelect({ page: index + 1, ...point, rects });
+            // Text items come in page space (origin bottom-left); the
+            // viewport transform puts them in the frame the overlay uses.
+            const base = page.getViewport({ scale: 1 });
+            void page
+              .getTextContent()
+              .then((content) =>
+                answer(
+                  findTextBlockRects(
+                    (content.items as unknown as TextItemLike[]).map((item) =>
+                      item.transform
+                        ? {
+                            ...item,
+                            transform: applyTransform(
+                              base.transform,
+                              item.transform,
+                            ),
+                          }
+                        : item,
+                    ),
+                    point,
+                  ),
+                ),
+              )
+              // Without the page's text the click still selects; it just has
+              // nothing to outline.
+              .catch(() => answer([]));
           }}
         />
       ) : null}

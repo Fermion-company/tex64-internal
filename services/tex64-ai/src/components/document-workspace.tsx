@@ -1028,10 +1028,12 @@ export function DocumentWorkspace() {
                   }
                   emptyHint={
                     workspacePdf.native
-                      ? workspacePdf.building
-                        ? "紙面を組み立てています…"
-                        : (workspacePdf.failure ??
-                          "紙面を組み立てています…")
+                      ? !workspacePdf.hasWorkspace
+                        ? "プロジェクトが開かれていません。Code モードで開いてください。"
+                        : workspacePdf.building
+                          ? "紙面を組み立てています…"
+                          : (workspacePdf.failure ??
+                            "紙面を組み立てています…")
                       : agentWorking
                         ? "紙面を準備しています…"
                         : documentHasContent

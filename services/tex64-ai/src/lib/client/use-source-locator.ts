@@ -2,7 +2,12 @@
 
 import { useCallback, useState } from "react";
 
-import { getNativeHost, requestFromHost, type HostMessage } from "./native-host";
+import {
+  getNativeHost,
+  hostMessageBody,
+  requestFromHost,
+  type HostMessage,
+} from "./native-host";
 
 export type SourceLocation = {
   /** Workspace-relative path of the file the click landed in. */
@@ -45,15 +50,7 @@ export function useSourceLocator(): SourceLocator {
     setError(null);
     void (async () => {
       try {
-        const found = await requestFromHost<
-          HostMessage & {
-            ok?: boolean;
-            path?: string;
-            line?: number;
-            confidence?: boolean;
-            error?: string;
-          }
-        >(host, {
+        const answer = await requestFromHost<HostMessage>(host, {
           type: "synctex:reverse",
           resultType: "synctex:reverseResult",
           payload: {
@@ -65,20 +62,28 @@ export function useSourceLocator(): SourceLocator {
             ...(point.pdfPath ? { pdfPath: point.pdfPath } : {}),
           },
         });
-        if (!found.ok || typeof found.path !== "string" || typeof found.line !== "number") {
-          setError(found.error ?? "この場所は本文と結び付けられませんでした。");
+        const found = hostMessageBody(answer);
+        if (
+          found.ok !== true ||
+          typeof found.path !== "string" ||
+          typeof found.line !== "number"
+        ) {
+          setError(
+            typeof found.error === "string"
+              ? found.error
+              : "この場所は本文と結び付けられませんでした。",
+          );
           setLocation(null);
           return;
         }
-        const excerpt = await requestFromHost<
-          HostMessage & { ok?: boolean; lines?: unknown; startLine?: number }
-        >(host, {
+        const excerptAnswer = await requestFromHost<HostMessage>(host, {
           type: "file:excerpt",
           resultType: "file:excerptResult",
           payload: { path: found.path, line: found.line, radius: 0, maxLines: 1 },
         });
+        const excerpt = hostMessageBody(excerptAnswer);
         const text =
-          excerpt.ok && Array.isArray(excerpt.lines)
+          excerpt.ok === true && Array.isArray(excerpt.lines)
             ? String(excerpt.lines[0] ?? "")
             : "";
         setLocation({

@@ -7,14 +7,11 @@
  * directions, so what is reachable here is exactly the workspace surface Code
  * mode uses: its files, its build, SyncTeX, and its agent.
  */
-export type HostMessage = { type: string; [key: string]: unknown };
-
 /**
- * The desktop bus nests every event's fields under `payload` — the same
- * shape Code mode's own dispatcher reads (electron/main.cjs's sendToRenderer
- * wraps every send as `{ type, payload }`). Never read a field off the raw
- * message; read it off this.
+ * The host bus is an envelope: everything the message carries is in `payload`.
  */
+export type HostMessage = { type: string; payload?: Record<string, unknown> };
+
 export function hostMessageBody(message: HostMessage): Record<string, unknown> {
   const body = message.payload;
   return body && typeof body === "object" ? (body as Record<string, unknown>) : {};
@@ -56,7 +53,7 @@ export function requestFromHost<T extends HostMessage>(
     const timer = setTimeout(() => {
       unsubscribe();
       reject(new Error(`Host did not answer ${input.type}.`));
-    }, input.timeoutMs ?? 20_000);
+    }, input.timeoutMs ?? 12_000);
     const unsubscribe = host.onMessage((message) => {
       if (message.type !== input.resultType) return;
       const body = hostMessageBody(message);
@@ -75,19 +72,20 @@ export async function fetchWorkspaceFileUrl(
   relativePath: string,
   mimeType: string,
 ): Promise<string> {
-  const result = await requestFromHost<
-    HostMessage & { ok?: boolean; base64?: string; error?: string }
-  >(host, {
+  const result = await requestFromHost(host, {
     type: "file:bytes",
     resultType: "file:bytesResult",
     payload: { path: relativePath },
-    timeoutMs: 60_000,
+    timeoutMs: 12_000,
   });
   // requestFromHost already unwraps `payload`.
-  if (!result.ok || typeof result.base64 !== "string") {
-    throw new Error(result.error ?? "Could not read the file.");
+  const body = hostMessageBody(result);
+  if (body.ok !== true || typeof body.base64 !== "string") {
+    throw new Error(
+      typeof body.error === "string" ? body.error : "Could not read the file.",
+    );
   }
-  const binary = atob(result.base64);
+  const binary = atob(body.base64);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
