@@ -9,14 +9,44 @@ export const MAX_AGENT_OUTPUT_TOKENS_PER_STEP = 32_000;
 // each tool step re-reading the document model — legitimately passes 120k.
 export const MAX_AGENT_TOTAL_TOKENS_PER_RUN = 400_000;
 
+/**
+ * Token counts arrive either as plain numbers or as a detail object
+ * (`{ total, cacheRead, ... }`) depending on the provider specification the
+ * SDK negotiates. Both shapes are read; neither is assumed.
+ */
+export type AgentTokenCount =
+  | number
+  | { total?: number | undefined; cacheRead?: number | undefined }
+  | undefined;
+
 export type AgentTokenUsage = {
-  totalTokens: number | undefined;
-  inputTokens: number | undefined;
-  outputTokens: number | undefined;
+  totalTokens?: AgentTokenCount;
+  inputTokens?: AgentTokenCount;
+  outputTokens?: AgentTokenCount;
+  cachedInputTokens?: AgentTokenCount;
   inputTokenDetails?: {
-    cacheReadTokens?: number | undefined;
+    cacheReadTokens?: AgentTokenCount;
   };
 };
+
+export function tokenCount(value: AgentTokenCount): number | undefined {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object" && typeof value.total === "number") {
+    return value.total;
+  }
+  return undefined;
+}
+
+function cachedTokenCount(usage: AgentTokenUsage): number {
+  const detail = usage.inputTokenDetails?.cacheReadTokens;
+  const fromDetail = tokenCount(detail);
+  if (fromDetail !== undefined) return fromDetail;
+  const inputs = usage.inputTokens;
+  if (inputs && typeof inputs === "object" && typeof inputs.cacheRead === "number") {
+    return inputs.cacheRead;
+  }
+  return tokenCount(usage.cachedInputTokens) ?? 0;
+}
 
 export type AgentTokenUsageStep = {
   usage?: AgentTokenUsage;
@@ -37,19 +67,13 @@ function measuredStepTokens(step: AgentTokenUsageStep): number | null {
   if (!step.usage) return null;
   // Cached prompt reads re-bill the whole shared prefix on every step; the
   // safety valve measures fresh work, so they do not count against it.
-  const cacheReadTokens = step.usage.inputTokenDetails?.cacheReadTokens;
-  const discount = validTokenCount(cacheReadTokens) ? cacheReadTokens : 0;
-  if (validTokenCount(step.usage.totalTokens)) {
-    return Math.max(0, step.usage.totalTokens - discount);
-  }
-  if (
-    validTokenCount(step.usage.inputTokens) &&
-    validTokenCount(step.usage.outputTokens)
-  ) {
-    return Math.max(
-      0,
-      step.usage.inputTokens + step.usage.outputTokens - discount,
-    );
+  const discount = cachedTokenCount(step.usage);
+  const total = tokenCount(step.usage.totalTokens);
+  if (validTokenCount(total)) return Math.max(0, total - discount);
+  const inputTokens = tokenCount(step.usage.inputTokens);
+  const outputTokens = tokenCount(step.usage.outputTokens);
+  if (validTokenCount(inputTokens) && validTokenCount(outputTokens)) {
+    return Math.max(0, inputTokens + outputTokens - discount);
   }
   return null;
 }
@@ -88,12 +112,18 @@ export function summarizeAgentTokenUsage(
   };
 }
 
-/** Stops the tool loop once its measured usage reaches the assigned budget. */
+/**
+ * Stops the tool loop once its measured usage reaches the assigned budget.
+ *
+ * Unmeasurable usage does NOT stop the turn: the step count is the primary
+ * bound, and a provider that reports usage in a shape this code cannot read
+ * must not silently reduce every turn to a single step.
+ */
 export function isAgentTokenBudget(
   maximumTokens: number,
 ): StopCondition<ToolSet> {
   return ({ steps }) => {
     const usage = summarizeAgentTokenUsage(steps, maximumTokens);
-    return !usage.measurable || usage.budgetReached;
+    return usage.measurable && usage.budgetReached;
   };
 }

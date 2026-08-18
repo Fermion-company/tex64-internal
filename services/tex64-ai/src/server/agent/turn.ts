@@ -17,7 +17,12 @@ import {
   usesDirectOpenAiTransport,
 } from "./language-model";
 import { resolveAgentRuntimeFromProcessEnvironment } from "./runtime";
-import { MAX_AGENT_OUTPUT_TOKENS_PER_STEP } from "./token-budget";
+import {
+  MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
+  MAX_AGENT_TOTAL_TOKENS_PER_RUN,
+  isAgentTokenBudget,
+  summarizeAgentTokenUsage,
+} from "./token-budget";
 import type { ToolScope } from "./tool-handlers";
 
 /** Tool calls one turn may make before it has to answer the user. */
@@ -65,13 +70,33 @@ export type RunDocumentTurnInput = {
   abortSignal: AbortSignal;
 };
 
+/**
+ * How much of the thread one turn replays. Message count alone is a poor
+ * bound: a single tool result can carry the whole document, and every step of
+ * the turn resends the lot. Oldest messages fall off first.
+ */
+const MAX_REPLAYED_THREAD_CHARS = 120_000;
+
 function storedMessagesToModelMessages(
   stored: readonly StoredConversationMessage[],
 ): ModelMessage[] {
-  return stored.map(
-    (message) =>
-      ({ role: message.role, content: message.content }) as ModelMessage,
-  );
+  const replayed: ModelMessage[] = [];
+  let budget = MAX_REPLAYED_THREAD_CHARS;
+  for (let index = stored.length - 1; index >= 0; index -= 1) {
+    const message = stored[index];
+    if (!message) continue;
+    const size = JSON.stringify(message.content ?? null).length;
+    if (size > budget && replayed.length > 0) break;
+    budget -= size;
+    replayed.unshift({
+      role: message.role,
+      content: message.content,
+    } as ModelMessage);
+  }
+  // A thread must not start with a dangling tool result whose call was
+  // dropped; providers reject that.
+  while (replayed[0]?.role === "tool") replayed.shift();
+  return replayed;
 }
 
 /**
@@ -140,8 +165,29 @@ export async function* runDocumentTurn(
     activeTools,
     providerOptions: agentProviderOptions(),
     maxOutputTokens: MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
-    stopWhen: isStepCount(MAX_TURN_STEPS),
+    // Two independent runaway valves: a step count, and measured tokens for
+    // the turn. Without the second one, 24 steps over a long thread can cost
+    // far more than the step count suggests.
+    stopWhen: [
+      isStepCount(MAX_TURN_STEPS),
+      isAgentTokenBudget(MAX_AGENT_TOTAL_TOKENS_PER_RUN),
+    ],
     abortSignal: input.abortSignal,
+    onFinish: ({ steps }) => {
+      // Cost is invisible unless it is written down. Never user-facing.
+      // The SDK's aggregate usage is unreliable across provider
+      // specification versions; summing per-step usage ourselves is what the
+      // budget valve reads, so log exactly that.
+      const measured = summarizeAgentTokenUsage(
+        steps,
+        MAX_AGENT_TOTAL_TOKENS_PER_RUN,
+      );
+      console.info(
+        `[tex64-ai] turn ${input.turnId} steps=${steps.length} ` +
+          `tokens=${measured.measurable ? measured.totalTokens : "unmeasured"} ` +
+          `step0=${JSON.stringify(steps[0]?.usage ?? null)}`,
+      );
+    },
   });
 
   // Accumulated across steps so an interrupted turn still persists what the
