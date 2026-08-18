@@ -456,10 +456,15 @@ const sendLspToRenderer = (channel, data) => {
   }
 };
 
-const sendBuildState = (buildState, message) => {
+const sendBuildState = (buildState, message, extra) => {
   const payload = { state: buildState };
   if (message) {
     payload.message = message;
+  }
+  // AI mode reads the page from the build output, so a successful build says
+  // which file it wrote (workspace-relative). Code mode ignores the field.
+  if (extra && typeof extra === "object") {
+    Object.assign(payload, extra);
   }
   sendToRenderer("setBuildState", payload);
 };
@@ -1465,6 +1470,10 @@ ipcMain.on("tex64", (_event, message) => {
       radius: message.radius,
       maxLines: message.maxLines,
     });
+    return;
+  }
+  if (type === "file:bytes") {
+    workspaceHandlers.handleFileBytes(message.requestId, message.path);
     return;
   }
   if (type === "saveFile") {

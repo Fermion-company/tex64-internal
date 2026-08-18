@@ -161,7 +161,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         } else {
           pdfWindowManager.show(result.pdfPath);
         }
-        sendBuildState("success", result.summary);
+        sendBuildState("success", result.summary, {
+          pdfPath: resolveWorkspaceRelativePath(rootPath, result.pdfPath),
+        });
         // Keep writing flow calm: clear issues and build log on each successful build.
         sendIssues(0, result.summary, "success", []);
         sendBuildLog(null);

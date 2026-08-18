@@ -149,6 +149,56 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
   };
 
+  /**
+   * Hands a workspace file to a caller that cannot read the disk itself — the
+   * AI mode webview, which shows the built PDF. Bounded, and only for formats
+   * a viewer displays; source files go through the text paths.
+   */
+  const MAX_FILE_BYTES_RESULT = 48 * 1024 * 1024;
+  const VIEWABLE_BYTE_FORMATS = new Set(["pdf", "png", "jpg", "jpeg"]);
+
+  const handleFileBytes = async (requestId, relativePath) => {
+    if (!requestId || typeof requestId !== "string") return;
+    const fail = (error) => {
+      sendToRenderer("file:bytesResult", {
+        requestId,
+        ok: false,
+        path: relativePath,
+        error,
+      });
+    };
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      fail("No workspace is selected.");
+      return;
+    }
+    if (typeof relativePath !== "string" || !relativePath.trim()) {
+      fail("No file was requested.");
+      return;
+    }
+    if (!VIEWABLE_BYTE_FORMATS.has(getFileExtension(relativePath))) {
+      fail("Cannot read this format.");
+      return;
+    }
+    try {
+      // resolvePath keeps the read inside the workspace root.
+      const bytes = await workspace.readBinaryFile(relativePath);
+      if (bytes.byteLength > MAX_FILE_BYTES_RESULT) {
+        fail("File is too large to display.");
+        return;
+      }
+      sendToRenderer("file:bytesResult", {
+        requestId,
+        ok: true,
+        path: relativePath,
+        byteSize: bytes.byteLength,
+        base64: bytes.toString("base64"),
+      });
+    } catch (error) {
+      fail(error instanceof Error ? error.message : "Could not read the file.");
+    }
+  };
+
   const handleFileExcerpt = async (requestId, relativePath, options = {}) => {
     const rootPath = ensureWorkspace();
     if (!requestId || typeof requestId !== "string") {
@@ -602,6 +652,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     handleOpenFile,
     handleFilePreview,
     handleFileExcerpt,
+    handleFileBytes,
     handleSaveFile,
     handleFormatFile,
     handleCreateFile,
