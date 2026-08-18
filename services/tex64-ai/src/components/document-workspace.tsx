@@ -28,6 +28,7 @@ import {
 } from "@/lib/client/document-save";
 import { drainPendingSaves } from "@/lib/client/save-drain";
 import { requestWorkspaceBuild, runNativeTurn } from "@/lib/client/native-agent";
+import { useSourceLocator } from "@/lib/client/use-source-locator";
 import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
 import type {
   ChatMessage,
@@ -108,6 +109,7 @@ export function DocumentWorkspace() {
   // Inside the desktop app the page comes from the workspace build, not from
   // this service's own artifact, and the agent keeps its own thread.
   const workspacePdf = useWorkspacePdf();
+  const sourceLocator = useSourceLocator();
   const agentWorking = turnDocumentId !== null;
   // The desktop agent keeps its own thread; this service's document knows
   // nothing about it, so reloading the document must not wipe the chat.
@@ -1015,6 +1017,9 @@ export function DocumentWorkspace() {
                   }
                   interactive
                   onSelect={(id) => setSelectedElementId(id)}
+                  onPointSelect={
+                    workspacePdf.native ? sourceLocator.locate : undefined
+                  }
                   emptyHint={
                     workspacePdf.native
                       ? workspacePdf.building
@@ -1028,7 +1033,36 @@ export function DocumentWorkspace() {
                           : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
                   selectionCard={
-                    selectedElement ? (
+                    workspacePdf.native ? (
+                      sourceLocator.location || sourceLocator.error ? (
+                        <div className="element-card" aria-label="選択中の箇所">
+                          <div className="element-card-head">
+                            <button
+                              type="button"
+                              className="element-card-close"
+                              onClick={sourceLocator.clear}
+                            >
+                              閉じる
+                            </button>
+                            <strong>
+                              {sourceLocator.location
+                                ? sourceLocator.location.confident
+                                  ? "この箇所"
+                                  : "この付近"
+                                : "見つかりません"}
+                            </strong>
+                            <div className="element-card-head-actions" />
+                          </div>
+                          <div className="element-card-editor">
+                            {sourceLocator.location ? (
+                              <p>{sourceLocator.location.text || "（空行）"}</p>
+                            ) : (
+                              <p>{sourceLocator.error}</p>
+                            )}
+                          </div>
+                        </div>
+                      ) : null
+                    ) : selectedElement ? (
                       <div className="element-card" aria-label="選択中の要素">
                         <div className="element-card-head">
                           {/* 閉じる＝編集はそのまま残る。確定＝いま組版まで進める。 */}

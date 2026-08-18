@@ -43,6 +43,12 @@ export interface PdfPreviewProps {
   /** False = plain viewer without the hover/click overlay (e.g. mobile). */
   interactive: boolean;
   onSelect: (id: string | null) => void;
+  /**
+   * A click on the page itself, in PDF points from the page's top-left. Used
+   * where there is no element map — the workspace's own build — to ask SyncTeX
+   * what the reader pointed at.
+   */
+  onPointSelect?: (point: { page: number; x: number; y: number }) => void;
   emptyHint?: string;
   /** Card anchored just below the selected region (編集カード). */
   selectionCard?: ReactNode;
@@ -96,6 +102,7 @@ export function PdfPreview({
   refreshing,
   interactive,
   onSelect,
+  onPointSelect,
   emptyHint = "まだ紙面がありません",
   selectionCard = null,
 }: PdfPreviewProps): JSX.Element {
@@ -252,6 +259,9 @@ export function PdfPreview({
     [pageHeightsPx],
   );
 
+  // Where a point-based selection landed, so its card has a page to sit under
+  // when there is no element map to anchor to.
+  const [pointPage, setPointPage] = useState<number | null>(null);
   const regionsByPage = useMemo(() => groupRectsByPage(regions ?? []), [regions]);
   // 編集カードは、選択要素の矩形が載っている最後のページの直下にアンカーする。
   const selectionCardPage = useMemo(() => {
@@ -403,8 +413,19 @@ export function PdfPreview({
                     selectedId={selectedId}
                     onHover={setHoveredId}
                     onSelect={onSelect}
+                    onPointSelect={
+                      onPointSelect
+                        ? (point) => {
+                            setPointPage(point.page);
+                            onPointSelect(point);
+                          }
+                        : undefined
+                    }
                     selectionCard={
-                      overlayActive && selectionCardPage === index + 1 ? selectionCard : null
+                      (overlayActive && selectionCardPage === index + 1) ||
+                      (!overlayActive && pointPage === index + 1)
+                        ? selectionCard
+                        : null
                     }
                     index={index}
                     onRendered={handleRendered}
@@ -436,6 +457,7 @@ interface PdfPageViewProps {
   selectedId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
+  onPointSelect?: (point: { page: number; x: number; y: number }) => void;
   /** Card to render just below the selected region on this page. */
   selectionCard: ReactNode;
   /** Position of this page in the stack; identifies it to the parent. */
@@ -467,6 +489,7 @@ function PdfPageView({
   selectedId,
   onHover,
   onSelect,
+  onPointSelect,
   selectionCard,
   index,
   onRendered,
@@ -516,6 +539,21 @@ function PdfPageView({
         style={{ width: cssWidth, height: cssHeight }}
         aria-hidden="true"
       />
+      {!regionRects && onPointSelect ? (
+        <div
+          className={styles.overlay}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onPointSelect({
+              page: index + 1,
+              // The overlay covers the rendered page exactly, so undoing the
+              // render scale gives PDF points from its top-left corner.
+              x: (event.clientX - bounds.left) / scale,
+              y: (event.clientY - bounds.top) / scale,
+            });
+          }}
+        />
+      ) : null}
       {regionRects ? (
         <div
           className={styles.overlay}
