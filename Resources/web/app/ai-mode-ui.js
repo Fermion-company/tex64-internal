@@ -77,6 +77,11 @@ export const initAiModeUi = (deps) => {
     const devHint = document.getElementById("ai-mode-dev-hint");
     const bridge = window.tex64AiWeb;
     let webview = null;
+    // <webview>.send throws until the guest is ready, and the first answers —
+    // the page it asks for the moment it mounts — arrive inside that window.
+    let guestReady = false;
+    const pending = [];
+    const MAX_PENDING = 200;
     let currentUrl = "";
     let creating = false;
     const showFallback = (message) => {
@@ -112,7 +117,16 @@ export const initAiModeUi = (deps) => {
         // did-finish-load also fires after a failed navigation, so remember the
         // failure until the next load attempt starts.
         let lastLoadFailed = false;
+        element.addEventListener("dom-ready", () => {
+            guestReady = true;
+            const backlog = pending.splice(0, pending.length);
+            for (const message of backlog)
+                sendToGuest(message);
+        });
         element.addEventListener("did-start-loading", () => {
+            // A reload gives us a new guest; anything queued was for the old one.
+            guestReady = false;
+            pending.length = 0;
             lastLoadFailed = false;
         });
         element.addEventListener("did-fail-load", (event) => {
@@ -178,11 +192,24 @@ export const initAiModeUi = (deps) => {
             .querySelector('[data-app-mode-tab="code"]')) === null || _a === void 0 ? void 0 : _a.click();
         (_b = document.querySelector('.tab[data-tab="ai"]')) === null || _b === void 0 ? void 0 : _b.click();
     });
-    const deliver = (message) => {
+    const sendToGuest = (message) => {
         var _a;
+        try {
+            (_a = webview === null || webview === void 0 ? void 0 : webview.send) === null || _a === void 0 ? void 0 : _a.call(webview, GUEST_CHANNEL, message);
+        }
+        catch (error) {
+            console.warn("[ai-mode] could not reach the webview:", error);
+        }
+    };
+    const deliver = (message) => {
         if (!webview || !GUEST_EVENTS.has(message.type))
             return;
-        (_a = webview.send) === null || _a === void 0 ? void 0 : _a.call(webview, GUEST_CHANNEL, message);
+        if (!guestReady) {
+            if (pending.length < MAX_PENDING)
+                pending.push(message);
+            return;
+        }
+        sendToGuest(message);
     };
     return {
         deliver,
