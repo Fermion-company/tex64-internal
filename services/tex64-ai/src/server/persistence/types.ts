@@ -2,12 +2,8 @@ import type {
   DocumentModel,
   DocumentOperation,
 } from "@/domain/document";
-import type { StoredDocumentAgentSession } from "@/domain/brief";
-import type { ResearchLedger } from "@/server/research/schema";
 import type { SourceRecord } from "@/server/sources/schema";
 
-export type { StoredDocumentAgentSession } from "@/domain/brief";
-export type { ResearchLedger } from "@/server/research/schema";
 export type { SourceRecord } from "@/server/sources/schema";
 
 export type RevisionActor = "user" | "agent" | "system";
@@ -63,47 +59,37 @@ export type StoredRevisionListItem = Pick<
  * (request_input / review clarifications); the approval flow itself was
  * removed. The literal is kept so stored runs remain readable.
  */
-export type AgentRunStatus = "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+export type AgentRunStatus = "running" | "completed" | "failed" | "cancelled";
 
-export type NeedsInputCode = "clarification_required";
 
-export type AgentRunStage =
-  | "understanding"
-  | "planning"
-  | "writing"
-  | "checking"
-  | "formatting"
-  | "ready"
-  | "needs_input"
-  | "failed";
+/**
+ * Coarse lifecycle marker for one turn. The conversation itself carries what
+ * happened; this only distinguishes "in flight" from "finished".
+ */
+export type AgentRunStage = "writing" | "ready" | "failed";
 
 export type StoredAgentRun = {
   id: string;
   userId: string;
   documentId: string;
   prompt: string;
-  replyToRunId: string | null;
   /**
-   * Document node this run's request is scoped to (PDF/element selection).
-   * Advisory context for the agent prompt; never shown in user-facing copy.
+   * Document node this turn's request is scoped to (PDF element selection).
+   * Advisory context for the agent; never shown in user-facing copy.
    */
   targetNodeId: string | null;
   idempotencyKey: string;
-  workflowRunId: string | null;
   status: AgentRunStatus;
   stage: AgentRunStage;
   baseRevision: number;
   resultRevision: number | null;
   /**
-   * Exact PDF accepted by this run. Null means that no artifact is published,
-   * including legacy completed runs created before release binding existed.
+   * Exact PDF accepted by this turn. Null means that no artifact is published,
+   * including turns that only answered a question.
    */
   artifactRelease: ArtifactReleaseBinding | null;
   errorMessage: string | null;
-  /**
-   * Sanitized closing message from the agent for a completed run. Null for
-   * runs completed before this field existed and for non-completed runs.
-   */
+  /** Sanitized closing message from the agent, stored on completed turns. */
   resultNote: string | null;
   stateVersion: number;
   createdAt: string;
@@ -119,6 +105,29 @@ export type StoredRunEvent = {
   message: string;
   detail: Record<string, unknown> | null;
   createdAt: string;
+};
+
+/**
+ * One entry of the model-visible conversation for a document. `content` holds
+ * an AI SDK ModelMessage content payload verbatim (text parts, tool calls,
+ * tool results) so a turn can be resumed by replaying the thread as-is.
+ */
+export type StoredConversationMessage = {
+  userId: string;
+  documentId: string;
+  sequence: number;
+  /** Turn (agent run) that produced this message. */
+  turnId: string;
+  role: "user" | "assistant" | "tool";
+  content: unknown;
+  createdAt: string;
+};
+
+export type AppendConversationMessagesInput = {
+  userId: string;
+  documentId: string;
+  turnId: string;
+  messages: readonly { role: StoredConversationMessage["role"]; content: unknown }[];
 };
 
 export type StoredArtifact = {
@@ -173,29 +182,13 @@ export type CommitDocumentInput = {
   operations: DocumentOperation[];
 };
 
-export type SetRunNeedsInputInput = {
-  userId: string;
-  documentId: string;
-  runId: string;
-  expectedStateVersion: number;
-  code: NeedsInputCode;
-  question: string;
-};
 
-export type ClarificationReplyResult = {
-  sourceRun: StoredAgentRun;
-  question: string;
-};
 
-export type ClarificationSessionSaveBinding = {
-  responseRunId: string;
-  sourceRunId: string;
-};
 
 export type UpdateRunInput = Partial<
   Pick<
     StoredAgentRun,
-    "workflowRunId" | "status" | "stage" | "resultRevision" | "errorMessage" | "resultNote"
+    "status" | "stage" | "resultRevision" | "errorMessage" | "resultNote"
   >
 > & {
   /**
@@ -205,18 +198,7 @@ export type UpdateRunInput = Partial<
   expectedStateVersion?: number;
 };
 
-export type WorkflowStartClaim = {
-  /** True only for the caller holding the unexpired launch lease. */
-  claimed: boolean;
-  leaseExpiresAt: string | null;
-  run: StoredAgentRun;
-};
 
-export type WorkflowRunOwnership = {
-  /** True only for the durable workflow allowed to perform paid work. */
-  owned: boolean;
-  run: StoredAgentRun;
-};
 
 export type CompleteRunForCurrentRevisionInput = {
   userId: string;
@@ -258,25 +240,6 @@ export interface DocumentRepository {
   ): Promise<StoredDocumentListItem[]>;
   createDocument(userId: string, document: DocumentModel): Promise<StoredDocument>;
   getDocument(userId: string, documentId: string): Promise<StoredDocument | null>;
-  getDocumentAgentSession(
-    userId: string,
-    documentId: string,
-  ): Promise<StoredDocumentAgentSession | null>;
-  /**
-   * Persists the next session snapshot. `null` creates version zero; later
-   * writes compare against the supplied version and advance it by one.
-   * Replaying a non-null `lastProcessedRunId` returns the first saved result.
-   */
-  saveDocumentAgentSession(
-    session: StoredDocumentAgentSession,
-    expectedStateVersion: number | null,
-  ): Promise<StoredDocumentAgentSession>;
-  /** Atomically saves an answered session and consumes its source question. */
-  saveDocumentAgentSessionForClarificationReply(
-    session: StoredDocumentAgentSession,
-    expectedStateVersion: number | null,
-    binding: ClarificationSessionSaveBinding,
-  ): Promise<StoredDocumentAgentSession>;
   getRevision(userId: string, documentId: string, revision: number): Promise<StoredRevision | null>;
   listRevisions(
     userId: string,
@@ -285,23 +248,6 @@ export interface DocumentRepository {
   ): Promise<StoredRevisionListItem[]>;
   commitDocument(input: CommitDocumentInput): Promise<StoredDocument>;
   createRun(input: CreateRunInput): Promise<StoredAgentRun>;
-  validateRunReplyTarget(input: CreateRunInput): Promise<void>;
-  claimRunForWorkflowStart(
-    userId: string,
-    runId: string,
-    leaseToken: string,
-    leaseDurationMs: number,
-  ): Promise<WorkflowStartClaim>;
-  releaseRunWorkflowStartClaim(
-    userId: string,
-    runId: string,
-    leaseToken: string,
-  ): Promise<boolean>;
-  activateRunForWorkflow(
-    userId: string,
-    runId: string,
-    workflowRunId: string,
-  ): Promise<WorkflowRunOwnership>;
   getRun(userId: string, runId: string): Promise<StoredAgentRun | null>;
   listRuns(
     userId: string,
@@ -322,13 +268,6 @@ export interface DocumentRepository {
     afterSequence?: number,
     limit?: number,
   ): Promise<StoredRunEvent[]>;
-  setRunNeedsInput(input: SetRunNeedsInputInput): Promise<StoredAgentRun>;
-  consumeClarificationReply(
-    userId: string,
-    documentId: string,
-    responseRunId: string,
-    sourceRunId: string,
-  ): Promise<ClarificationReplyResult>;
   completeRunForCurrentRevision(
     input: CompleteRunForCurrentRevisionInput,
   ): Promise<CompleteRunForCurrentRevisionResult>;
@@ -358,12 +297,16 @@ export interface DocumentRepository {
     documentId: string,
     sourceIds: readonly string[],
   ): Promise<SourceRecord[]>;
-  saveResearchLedger(ledger: ResearchLedger): Promise<ResearchLedger>;
-  getResearchLedger(
+  /** Appends one turn's messages; returns them with their assigned sequence. */
+  appendConversationMessages(
+    input: AppendConversationMessagesInput,
+  ): Promise<StoredConversationMessage[]>;
+  /** Chronological conversation tail, oldest first. */
+  listConversationMessages(
     userId: string,
     documentId: string,
-    ledgerId: string,
-  ): Promise<ResearchLedger | null>;
+    limit?: number,
+  ): Promise<StoredConversationMessage[]>;
 }
 
 export class DocumentNotFoundError extends Error {
@@ -421,23 +364,6 @@ export class AgentRunConflictError extends Error {
   }
 }
 
-export class DocumentAgentSessionConflictError extends Error {
-  readonly expectedStateVersion: number | null;
-  readonly actualStateVersion: number | null;
-
-  constructor(
-    expectedStateVersion: number | null,
-    actualStateVersion: number | null,
-  ) {
-    super(
-      `Document agent session state conflict: expected version ${expectedStateVersion ?? "none"}, current ${actualStateVersion ?? "none"}.`,
-    );
-    this.name = "DocumentAgentSessionConflictError";
-    this.expectedStateVersion = expectedStateVersion;
-    this.actualStateVersion = actualStateVersion;
-  }
-}
-
 export class InvalidAgentRunTransitionError extends Error {
   constructor(message = "Invalid agent run state transition.") {
     super(message);
@@ -449,13 +375,6 @@ export class ArtifactConflictError extends Error {
   constructor() {
     super("Artifact metadata is immutable for a document revision.");
     this.name = "ArtifactConflictError";
-  }
-}
-
-export class RunReplyConflictError extends Error {
-  constructor(message = "The run reply cannot be applied to the requested source run.") {
-    super(message);
-    this.name = "RunReplyConflictError";
   }
 }
 
@@ -476,9 +395,3 @@ export class SourceRecordConflictError extends Error {
   }
 }
 
-export class ResearchLedgerConflictError extends Error {
-  constructor() {
-    super("The research review identifier is already bound to another immutable result.");
-    this.name = "ResearchLedgerConflictError";
-  }
-}

@@ -17,34 +17,24 @@ import {
   createDocument,
   getDocument,
   listDocuments,
-  listRunEvents,
   patchDocument,
   restoreDocument,
-  startRun,
+  sendMessage,
 } from "@/lib/client/api";
 import {
   diffDocumentPatch,
   mergePendingPatch,
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
-import {
-  createRunReplyInput,
-  recoverableReplySource,
-  runRequestIdentity,
-  selectConversationRun,
-} from "@/lib/client/run-input";
 import { drainPendingSaves } from "@/lib/client/save-drain";
-import { startSequentialPolling } from "@/lib/client/sequential-polling";
 import type {
-  AgentRun,
+  ChatMessage,
   CreateDocumentInput,
   DocumentBlock,
   DocumentChanges,
   DocumentDetail,
   DocumentPatch,
   DocumentSummary,
-  RunProgressEvent,
-  StartRunInput,
 } from "@/lib/client/types";
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
@@ -65,25 +55,15 @@ type PendingSave = {
   version: number;
 };
 
-type PendingRunRequest = {
-  logicalKey: string;
-  documentId: string;
-  prompt: string;
-  input: StartRunInput;
-  idempotencyKey: string;
-};
-
 type PendingCreateRequest = CreateDocumentInput & { idempotencyKey: string };
 
 export function DocumentWorkspace() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [documentCache, setDocumentCache] = useState<Record<string, DocumentDetail>>({});
   const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null);
-  const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("conversation");
   const [documentLoading, setDocumentLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [connectionError, setConnectionError] = useState(false);
   const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
@@ -94,15 +74,22 @@ export function DocumentWorkspace() {
   } | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [compileFailed, setCompileFailed] = useState(false);
-  const [progressEvents, setProgressEvents] = useState<RunProgressEvent[]>([]);
+  const [streamingText, setStreamingText] = useState("");
+  const [activityTool, setActivityTool] = useState<string | null>(null);
+  const [turnDocumentId, setTurnDocumentId] = useState<string | null>(null);
+  const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
+  const [turnError, setTurnError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const compileInFlightRef = useRef(false);
   const lastFailedCompileRef = useRef<string | null>(null);
   const flushOutstandingSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const completedRunRef = useRef<string | null>(null);
-  const runSubmissionRef = useRef(false);
+  const turnAbortRef = useRef<AbortController | null>(null);
+  const queuedPromptRef = useRef<string | null>(null);
+  const runTurnRef = useRef<
+    ((document: DocumentDetail, prompt: string, targetNodeId?: string) => Promise<void>) | null
+  >(null);
   const initialLoadRef = useRef(true);
   const navigationVersionRef = useRef(0);
   const selectedDocumentRef = useRef<string | null>(null);
@@ -111,15 +98,12 @@ export function DocumentWorkspace() {
   const pendingSaveRef = useRef<PendingSave | null>(null);
   const saveVersionRef = useRef(0);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
-  const pendingRunRequestsRef = useRef(new Map<string, PendingRunRequest>());
-  const failedRunRequestKeyRef = useRef<string | null>(null);
   const pendingCreateRequestRef = useRef<PendingCreateRequest | null>(null);
-  const conversationRun = useMemo(
-    () => selectConversationRun(activeDocument?.runs ?? [], activeRun),
-    [activeDocument?.runs, activeRun],
+  const agentWorking = turnDocumentId !== null;
+  const messages = useMemo<ChatMessage[]>(
+    () => activeDocument?.messages ?? [],
+    [activeDocument?.messages],
   );
-  const agentWorking =
-    conversationRun?.status === "queued" || conversationRun?.status === "running";
   const selectedElement = useMemo(
     () =>
       activeDocument?.elements.find(
@@ -257,13 +241,6 @@ export function DocumentWorkspace() {
     setHistoryOpen(false);
     setCompileFailed(false);
   }
-  const conversationRunId = conversationRun?.id ?? null;
-  const [progressRunId, setProgressRunId] = useState<string | null>(conversationRunId);
-  if (progressRunId !== conversationRunId) {
-    setProgressRunId(conversationRunId);
-    setProgressEvents([]);
-  }
-
   const runCompile = useCallback(
     async (documentId: string, revision: number) => {
       if (compileInFlightRef.current) return;
@@ -305,7 +282,7 @@ export function DocumentWorkspace() {
   useEffect(() => {
     if (!activeDocumentId || activeRevision === null) return;
     if (hasPreview || !documentHasContent) return;
-    if (saveState !== "saved" || submitting || agentWorking || compiling) return;
+    if (saveState !== "saved" || agentWorking || compiling) return;
     if (
       lastFailedCompileRef.current === `${activeDocumentId}:${activeRevision}`
     ) {
@@ -321,7 +298,6 @@ export function DocumentWorkspace() {
     hasPreview,
     documentHasContent,
     saveState,
-    submitting,
     agentWorking,
     compiling,
     runCompile,
@@ -368,7 +344,6 @@ export function DocumentWorkspace() {
         initialLoadRef.current = false;
         selectedDocumentRef.current = null;
         setActiveDocument(null);
-        setActiveRun(null);
         return;
       }
 
@@ -386,7 +361,6 @@ export function DocumentWorkspace() {
       }
       initialLoadRef.current = false;
       updateStoredDocument(detail.data, true);
-      setActiveRun(detail.data.runs[0] ?? null);
     });
 
     return () => {
@@ -580,15 +554,11 @@ export function DocumentWorkspace() {
       if (saved === false || navigationVersionRef.current !== navigationVersion) return;
       selectedDocumentRef.current = id;
       setDocumentMenuOpen(false);
-      setActiveRun(null);
       setSaveState("saved");
       setMobileView("document");
 
       const cached = documentCache[id];
-      if (cached) {
-        setActiveDocument(cached);
-        setActiveRun(cached.runs[0] ?? null);
-      }
+      if (cached) setActiveDocument(cached);
       setDocumentLoading(!cached);
 
       const requestEpoch = localMutationEpochRef.current[id] ?? 0;
@@ -604,98 +574,121 @@ export function DocumentWorkspace() {
       if (canApply) {
         updateStoredDocument(result.data, selectedDocumentRef.current === id);
       }
-      if (selectedDocumentRef.current === id) {
-        if (canApply) setActiveRun(result.data.runs[0] ?? null);
-        setDocumentLoading(false);
-      }
+      if (selectedDocumentRef.current === id) setDocumentLoading(false);
     },
     [canApplyRemoteDocument, documentCache, flushOutstandingSave, updateStoredDocument],
   );
 
-  const beginRun = useCallback(
-    async (
-      document: DocumentDetail,
-      prompt: string,
-      input: StartRunInput = { prompt },
-      retryPendingRequest = false,
-    ) => {
-      if (runSubmissionRef.current) return;
-      runSubmissionRef.current = true;
-      setSubmitting(true);
-      completedRunRef.current = null;
-      let request: PendingRunRequest | null = null;
-      const showSubmissionFailure = () => {
-        if (selectedDocumentRef.current !== document.id) return;
-        const latestDocument = latestDocumentsRef.current[document.id] ?? document;
-        setMobileView("conversation");
-        setActiveRun(
-          recoverableReplySource(latestDocument.runs, input) ??
-            failedRequest(document.id, prompt),
-        );
-      };
-      try {
-        const saved = await flushOutstandingSave();
-        if (saved === false || selectedDocumentRef.current !== document.id) {
-          if (saved === false && selectedDocumentRef.current === document.id) {
-            showSubmissionFailure();
-          }
-          return;
-        }
-        const logicalKey = runRequestIdentity(document.id, prompt, input);
-        const retryKey = retryPendingRequest ? failedRunRequestKeyRef.current : null;
-        const retryRequest = retryKey
-          ? pendingRunRequestsRef.current.get(retryKey)
-          : undefined;
-        request =
-          retryRequest?.documentId === document.id && retryRequest.prompt === prompt
-            ? retryRequest
-            : (pendingRunRequestsRef.current.get(logicalKey) ?? {
-                logicalKey,
-                documentId: document.id,
-                prompt,
-                input,
-                idempotencyKey: window.crypto.randomUUID(),
-              });
-        rememberPendingRunRequest(pendingRunRequestsRef.current, request);
-        const result = await startRun(
-          document.id,
-          request.input,
-          request.idempotencyKey,
-        );
-
-        if (!result.ok) {
-          failedRunRequestKeyRef.current = request.logicalKey;
-          showSubmissionFailure();
-          return;
-        }
-
-        pendingRunRequestsRef.current.delete(request.logicalKey);
-        const failedRequestKey = failedRunRequestKeyRef.current;
-        if (failedRequestKey) {
-          pendingRunRequestsRef.current.delete(failedRequestKey);
-          failedRunRequestKeyRef.current = null;
-        }
-        if (selectedDocumentRef.current !== document.id) return;
-        setMobileView("conversation");
-
-        setActiveRun(result.data);
-
-        const latestDocument = latestDocumentsRef.current[document.id] ?? document;
-        updateStoredDocument({
-          ...latestDocument,
-          status: "working",
-          runs: [result.data, ...latestDocument.runs.filter((run) => run.id !== result.data.id)],
-        });
-      } catch {
-        if (request) failedRunRequestKeyRef.current = request.logicalKey;
-        showSubmissionFailure();
-      } finally {
-        runSubmissionRef.current = false;
-        setSubmitting(false);
+  const refreshAfterTurn = useCallback(
+    async (documentId: string) => {
+      const requestEpoch = localMutationEpochRef.current[documentId] ?? 0;
+      const result = await getDocument(documentId);
+      if (!result.ok) return;
+      if (canApplyRemoteDocument(documentId, requestEpoch, result.data.revision)) {
+        updateStoredDocument(result.data);
       }
     },
-    [flushOutstandingSave, updateStoredDocument],
+    [canApplyRemoteDocument, updateStoredDocument],
   );
+
+  /**
+   * Runs one conversation turn and renders it as it happens. The reply, the
+   * tool the agent is running, and every new revision arrive on the same
+   * stream; aborting the controller interrupts the turn on the server too.
+   */
+  const runTurn = useCallback(
+    async (document: DocumentDetail, prompt: string, targetNodeId?: string) => {
+      const saved = await flushOutstandingSave();
+      if (saved === false || selectedDocumentRef.current !== document.id) return;
+
+      const controller = new AbortController();
+      turnAbortRef.current = controller;
+      setTurnDocumentId(document.id);
+      setStreamingText("");
+      setActivityTool(null);
+      setTurnError(null);
+      setMobileView("conversation");
+      // The user's own message is shown immediately; the server persists it
+      // as part of the turn.
+      updateStoredDocument({
+        ...(latestDocumentsRef.current[document.id] ?? document),
+        status: "working",
+        messages: [
+          ...(latestDocumentsRef.current[document.id] ?? document).messages,
+          {
+            id: `local:${Date.now()}`,
+            role: "user",
+            text: prompt,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      });
+
+      let revisionChanged = false;
+      const result = await sendMessage(
+        document.id,
+        targetNodeId ? { prompt, targetNodeId } : { prompt },
+        (frame) => {
+          switch (frame.type) {
+            case "text":
+              setStreamingText((current) => current + frame.delta);
+              setActivityTool(null);
+              break;
+            case "tool":
+              if (frame.state === "start") setActivityTool(frame.name);
+              break;
+            case "revision":
+            case "compiled":
+              revisionChanged = true;
+              break;
+            case "error":
+              setTurnError(frame.message);
+              break;
+            default:
+              break;
+          }
+        },
+        controller.signal,
+      );
+
+      turnAbortRef.current = null;
+      setTurnDocumentId(null);
+      setActivityTool(null);
+      setStreamingText("");
+      if (!result.ok) {
+        setTurnError("送信できませんでした。もう一度お試しください。");
+        return;
+      }
+      // The stored thread now holds the assistant's reply; reloading also
+      // picks up the new revision and its page.
+      await refreshAfterTurn(document.id);
+      if (revisionChanged) setCompileFailed(false);
+
+      // A message typed while this turn was running goes next, in order.
+      const queued = queuedPromptRef.current;
+      if (queued) {
+        queuedPromptRef.current = null;
+        setQueuedPrompt(null);
+        const latest = latestDocumentsRef.current[document.id] ?? document;
+        void runTurnRef.current?.(latest, queued);
+      }
+    },
+    [
+      flushOutstandingSave,
+      refreshAfterTurn,
+      updateStoredDocument,
+    ],
+  );
+
+  useEffect(() => {
+    runTurnRef.current = runTurn;
+  }, [runTurn]);
+
+  const stopTurn = useCallback(() => {
+    queuedPromptRef.current = null;
+    setQueuedPrompt(null);
+    turnAbortRef.current?.abort();
+  }, []);
 
   const createNewDocument = useCallback(
     async (prompt: string) => {
@@ -729,113 +722,27 @@ export function DocumentWorkspace() {
       updateStoredDocument(result.data, true);
       setDocumentLoading(false);
       setCreating(false);
-      await beginRun(result.data, prompt);
+      await runTurn(result.data, prompt);
     },
-    [beginRun, cancelSave, updateStoredDocument],
+    [cancelSave, runTurn, updateStoredDocument],
   );
 
   const submitWritingRequest = useCallback(
     (prompt: string) => {
-      if (
-        !activeDocument ||
-        submitting ||
-        conversationRun?.status === "queued" ||
-        conversationRun?.status === "running"
-      ) {
+      if (!activeDocument) return;
+      // A message sent while the agent is working waits its turn instead of
+      // being refused; the composer never locks.
+      if (agentWorking) {
+        queuedPromptRef.current = prompt;
+        setQueuedPrompt(prompt);
         return;
       }
-      const reply = createRunReplyInput(conversationRun, prompt);
-      // Element selection scopes fresh requests only; clarification answers
-      // keep their original scope. selectedElement is resolved against the
-      // CURRENT document, so a selection whose element was deleted in the
-      // meantime scopes nothing.
-      const input: StartRunInput =
-        !reply.replyToRunId && selectedElement
-          ? { ...reply, targetNodeId: selectedElement.id }
-          : reply;
+      const targetNodeId = selectedElement?.id;
       setSelectedElementId(null);
-      void beginRun(
-        activeDocument,
-        prompt,
-        input,
-        failedRunRequestKeyRef.current !== null,
-      );
+      void runTurn(activeDocument, prompt, targetNodeId);
     },
-    [activeDocument, beginRun, conversationRun, selectedElement, submitting],
+    [activeDocument, agentWorking, runTurn, selectedElement],
   );
-
-  useEffect(() => {
-    if (!activeRun) return;
-    if (
-      ["waiting_approval", "completed", "failed", "cancelled"].includes(
-        activeRun.status,
-      ) || activeRun.stage === "needs_input"
-    ) {
-      return;
-    }
-    let cancelled = false;
-    const stopPolling = startSequentialPolling(async () => {
-      const requestEpoch = localMutationEpochRef.current[activeRun.documentId] ?? 0;
-      const [result, events] = await Promise.all([
-        getDocument(activeRun.documentId),
-        listRunEvents(activeRun.documentId, activeRun.id),
-      ]);
-      if (cancelled) return;
-      if (events.ok) setProgressEvents(events.data);
-      if (!result.ok) return;
-
-      if (
-        canApplyRemoteDocument(
-          activeRun.documentId,
-          requestEpoch,
-          result.data.revision,
-        )
-      ) {
-        updateStoredDocument(result.data);
-      }
-      const updatedRun = result.data.runs.find((run) => run.id === activeRun.id);
-      if (updatedRun) {
-        setActiveRun((current) =>
-          current?.id === activeRun.id &&
-          current.documentId === activeRun.documentId
-            ? updatedRun
-            : current,
-        );
-      }
-    }, 2_000);
-    return () => {
-      cancelled = true;
-      stopPolling();
-    };
-  }, [activeRun, canApplyRemoteDocument, updateStoredDocument]);
-
-  useEffect(() => {
-    if (!activeRun || activeRun.status !== "completed") return;
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      if (cancelled || completedRunRef.current === activeRun.id) return;
-      completedRunRef.current = activeRun.id;
-      const requestEpoch = localMutationEpochRef.current[activeRun.documentId] ?? 0;
-
-      void getDocument(activeRun.documentId).then((result) => {
-        if (
-          !cancelled &&
-          result.ok &&
-          canApplyRemoteDocument(
-            activeRun.documentId,
-            requestEpoch,
-            result.data.revision,
-          )
-        ) {
-          updateStoredDocument(result.data);
-        }
-      });
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [activeRun, canApplyRemoteDocument, updateStoredDocument]);
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -870,7 +777,6 @@ export function DocumentWorkspace() {
     selectedDocumentRef.current = null;
     setDocumentMenuOpen(false);
     setActiveDocument(null);
-    setActiveRun(null);
     setDocumentLoading(false);
     setMobileView("conversation");
     setSaveState("saved");
@@ -1005,12 +911,16 @@ export function DocumentWorkspace() {
           {activeDocument ? (
             <AgentPanel
               document={activeDocument}
-              activeRun={conversationRun}
-              progressEvents={progressEvents}
+              messages={messages}
+              streamingText={streamingText}
+              activityTool={activityTool}
+              isWorking={agentWorking}
+              queuedPrompt={queuedPrompt}
+              error={turnError}
               selectedElement={selectedElement}
               composerRef={composerRef}
-              submitting={submitting}
               onSubmit={submitWritingRequest}
+              onStop={stopTurn}
               onClearSelection={() => setSelectedElementId(null)}
             />
           ) : (
@@ -1058,7 +968,7 @@ export function DocumentWorkspace() {
                               <button
                                 type="button"
                                 className="element-card-delete"
-                                disabled={agentWorking || submitting || restoring}
+                                disabled={agentWorking || restoring}
                                 onClick={() => {
                                   if (window.confirm("この部分を削除しますか？")) {
                                     removeBlockById(selectedBlock.id);
@@ -1084,7 +994,7 @@ export function DocumentWorkspace() {
                               headingNumber={selectedHeadingNumber}
                               equationNumber={selectedEquationNumber}
                               onChange={(next) => updateBlockById(selectedBlock.id, next)}
-                              readOnly={agentWorking || submitting || restoring}
+                              readOnly={agentWorking || restoring}
                             />
                           </div>
                         ) : (
@@ -1141,30 +1051,6 @@ function toSummary(document: DocumentDetail): DocumentSummary {
     updatedAt: document.updatedAt,
     preview: document.preview,
   };
-}
-
-function failedRequest(documentId: string, prompt: string): AgentRun {
-  const now = new Date().toISOString();
-  return {
-    id: `request-failed-${window.crypto.randomUUID()}`,
-    documentId,
-    prompt,
-    stage: "failed",
-    status: "failed",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function rememberPendingRunRequest(
-  requests: Map<string, PendingRunRequest>,
-  request: PendingRunRequest,
-): void {
-  if (!requests.has(request.logicalKey) && requests.size >= 100) {
-    const oldestKey = requests.keys().next().value;
-    if (oldestKey !== undefined) requests.delete(oldestKey);
-  }
-  requests.set(request.logicalKey, request);
 }
 
 function preserveLocalEdits(

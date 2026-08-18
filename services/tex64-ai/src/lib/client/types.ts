@@ -1,35 +1,18 @@
-export const RUN_STAGES = [
-  "understanding",
-  "planning",
-  "writing",
-  "checking",
-  "formatting",
-  "ready",
-  "needs_input",
-  "failed",
-] as const;
-
-export type RunStage = (typeof RUN_STAGES)[number];
-
-export const RUN_PROGRESS_STAGES = [
-  "understanding",
-  "planning",
-  "writing",
-  "checking",
-  "formatting",
-  "ready",
-] as const satisfies readonly RunStage[];
-
-export const RUN_STAGE_LABELS: Record<RunStage, string> = {
-  understanding: "依頼を確認しています",
-  planning: "構成を考えています",
-  writing: "本文を書いています",
-  checking: "文書を確認しています",
-  formatting: "紙面を整えています",
-  ready: "仕上がりました",
-  needs_input: "確認したいことがあります",
-  failed: "続けられませんでした",
+/**
+ * What the agent is doing right now, keyed by the tool it just called. The
+ * label is the only thing the reader sees; tool names never surface.
+ */
+export const TOOL_ACTIVITY_LABELS: Record<string, string> = {
+  read_document: "文書を読んでいます",
+  search_sources: "資料を探しています",
+  resolve_source: "資料を確認しています",
+  apply_document_patch: "本文を書いています",
+  format_document: "体裁を整えています",
+  check_document: "文書を確認しています",
+  compile_document: "紙面を組み立てています",
 };
+
+export const DEFAULT_TOOL_ACTIVITY_LABEL = "作業しています";
 
 export type DocumentKind = "proposal" | "report" | "paper" | "memo";
 
@@ -84,35 +67,26 @@ export interface DocumentVersion {
   source: "agent" | "manual";
 }
 
-export interface AgentRun {
+/** One visible turn of the conversation. */
+export interface ChatMessage {
   id: string;
-  documentId: string;
-  prompt: string;
-  stage: RunStage;
-  status:
-    | "queued"
-    | "running"
-    | "waiting_approval"
-    | "completed"
-    | "failed"
-    | "cancelled";
+  role: "user" | "assistant";
+  text: string;
   createdAt: string;
-  updatedAt: string;
-  resultNote?: string;
-  inputKind?: "clarification" | null;
 }
 
 /**
- * One semantic progress step of a run, in occurrence order. Labels are the
- * fixed user-facing copy; repair rounds repeat a stage with attempt >= 1.
+ * What the server sends while a turn runs. Text arrives as it is written;
+ * tool frames say what the agent is doing right now; revision/compiled frames
+ * tell the client the document and its page moved.
  */
-export interface RunProgressEvent {
-  stage: RunStage;
-  label: string;
-  sequence: number;
-  occurredAt: string;
-  attempt?: number;
-}
+export type TurnFrame =
+  | { type: "text"; delta: string }
+  | { type: "tool"; name: string; state: "start" | "ok" | "error" }
+  | { type: "revision"; revision: number }
+  | { type: "compiled"; revision: number; pageCount: number }
+  | { type: "error"; message: string }
+  | { type: "done"; status: "completed" | "aborted" | "failed" };
 
 export interface DocumentSummary {
   id: string;
@@ -162,7 +136,7 @@ export interface DocumentDetail extends DocumentSummary {
   blocks: DocumentBlock[];
   elements: DocumentElement[];
   versions: DocumentVersion[];
-  runs: AgentRun[];
+  messages: ChatMessage[];
 }
 
 export interface DocumentPatch {

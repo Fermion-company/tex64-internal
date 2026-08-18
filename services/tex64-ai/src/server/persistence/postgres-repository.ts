@@ -10,7 +10,6 @@ import {
   SourceRecordSchema,
   type SourceRecord,
 } from "@/server/sources/schema";
-import { parseResearchLedger } from "@/server/research";
 import {
   artifactMatchesRelease,
   releaseBindingsMatch,
@@ -25,6 +24,9 @@ import {
   DEFAULT_DOCUMENT_PAGE_SIZE,
   DEFAULT_REVISION_PAGE_SIZE,
   DEFAULT_RUN_PAGE_SIZE,
+  DEFAULT_CONVERSATION_MESSAGE_LIMIT,
+  MAX_STORED_CONVERSATION_MESSAGES,
+  normalizeConversationLimit,
   assertBatchSize,
   normalizeBatchIds,
   normalizeEventLimit,
@@ -34,34 +36,25 @@ import {
   AgentRunNotFoundError,
   ArtifactConflictError,
   DocumentNotFoundError,
-  ResearchLedgerConflictError,
   RevisionConflictError,
-  RunReplyConflictError,
   SourceRecordConflictError,
   type AgentRunStage,
   type AgentRunStatus,
+  type AppendConversationMessagesInput,
   type AppendRunEventInput,
   type CreateRunInput,
   type DocumentRepository,
-  type ResearchLedger,
+  type StoredConversationMessage,
   type RevisionActor,
   type StoredAgentRun,
   type StoredArtifact,
   type StoredDocument,
-  type StoredDocumentAgentSession,
   type StoredDocumentListItem,
   type StoredRevision,
   type StoredRevisionListItem,
   type StoredRunEvent,
   type UpdateRunInput,
-  type WorkflowRunOwnership,
-  type WorkflowStartClaim,
 } from "./types";
-import {
-  assertDocumentAgentSessionScope,
-  classifyDocumentAgentSessionSave,
-  parseStoredDocumentAgentSession,
-} from "./document-agent-session";
 import {
   assertArtifactReplayMatches,
   assertArtifactScopeMatches,
@@ -71,10 +64,6 @@ import {
   prepareRunUpdate,
   runEventIdempotencyKey,
 } from "./invariants";
-import {
-  assertRunReplyTarget,
-  needsInputQuestion,
-} from "./pending-actions";
 
 type DocumentRow = QueryResultRow & {
   id: string;
@@ -95,14 +84,6 @@ type DocumentListRow = QueryResultRow & {
   preview: string;
   current_revision: number;
   created_at: Date | string;
-  updated_at: Date | string;
-};
-
-type DocumentAgentSessionRow = QueryResultRow & {
-  user_id: string;
-  document_id: string;
-  session: unknown;
-  state_version: number;
   updated_at: Date | string;
 };
 
@@ -132,10 +113,8 @@ type RunRow = QueryResultRow & {
   user_id: string;
   document_id: string;
   prompt: string;
-  reply_to_run_id: string | null;
   target_node_id: string | null;
   idempotency_key: string;
-  workflow_run_id: string | null;
   status: AgentRunStatus;
   stage: AgentRunStage;
   base_revision: number;
@@ -177,10 +156,6 @@ type ArtifactRow = QueryResultRow & {
   created_at: Date | string;
 };
 
-type WorkflowLaunchLeaseRow = QueryResultRow & {
-  expires_at: Date | string;
-};
-
 type SourceRecordRow = QueryResultRow & {
   id: string;
   user_id: string;
@@ -196,16 +171,33 @@ type SourceRecordRow = QueryResultRow & {
   fetched_at: Date | string;
 };
 
-type ResearchLedgerRow = QueryResultRow & {
-  id: string;
+type ConversationMessageRow = QueryResultRow & {
   user_id: string;
   document_id: string;
-  authoring_run_id: string;
-  document_revision: number;
-  ledger_digest: string;
-  ledger: unknown;
+  sequence: string | number;
+  turn_id: string;
+  role: string;
+  content: unknown;
   created_at: Date | string;
 };
+
+function mapConversationMessageRow(
+  row: ConversationMessageRow,
+): StoredConversationMessage {
+  const role = row.role;
+  if (role !== "user" && role !== "assistant" && role !== "tool") {
+    throw new Error("Stored conversation message role is invalid.");
+  }
+  return {
+    userId: row.user_id,
+    documentId: row.document_id,
+    sequence: Number(row.sequence),
+    turnId: row.turn_id,
+    role,
+    content: row.content,
+    createdAt: toIso(row.created_at),
+  };
+}
 
 export class PostgresDocumentRepository implements DocumentRepository {
   private readonly pool: Pool;
@@ -300,260 +292,8 @@ export class PostgresDocumentRepository implements DocumentRepository {
     });
   }
 
-  async getDocumentAgentSession(
-    userId: string,
-    documentId: string,
-  ): Promise<StoredDocumentAgentSession | null> {
-    return this.withUser(userId, async (client) => {
-      const result = await client.query<DocumentAgentSessionRow>(
-        `SELECT user_id, document_id, session, state_version, updated_at
-         FROM public.tex64_document_agent_sessions
-         WHERE user_id = $1 AND document_id = $2`,
-        [userId, documentId],
-      );
-      return result.rows[0] ? toDocumentAgentSession(result.rows[0]) : null;
-    });
-  }
 
-  async saveDocumentAgentSession(
-    session: StoredDocumentAgentSession,
-    expectedStateVersion: number | null,
-  ): Promise<StoredDocumentAgentSession> {
-    const candidate = parseStoredDocumentAgentSession(session);
-    assertDocumentAgentSessionScope(
-      candidate,
-      candidate.userId,
-      candidate.documentId,
-    );
-    return this.withUser(candidate.userId, async (client) => {
-      // The parent row serializes both the first insert and later CAS updates.
-      const document = await client.query<{ id: string }>(
-        `SELECT id FROM public.tex64_documents
-         WHERE user_id = $1 AND id = $2
-         FOR UPDATE`,
-        [candidate.userId, candidate.documentId],
-      );
-      if (!document.rows[0]) throw new DocumentNotFoundError();
 
-      const selected = await client.query<DocumentAgentSessionRow>(
-        `SELECT user_id, document_id, session, state_version, updated_at
-         FROM public.tex64_document_agent_sessions
-         WHERE user_id = $1 AND document_id = $2
-         FOR UPDATE`,
-        [candidate.userId, candidate.documentId],
-      );
-      const current = selected.rows[0]
-        ? toDocumentAgentSession(selected.rows[0])
-        : null;
-      const disposition = classifyDocumentAgentSessionSave({
-        current,
-        candidate,
-        expectedStateVersion,
-      });
-      if (disposition === "replay") return current!;
-
-      if (disposition === "create") {
-        const inserted = await client.query<DocumentAgentSessionRow>(
-          `INSERT INTO public.tex64_document_agent_sessions
-            (user_id, document_id, session, state_version, updated_at)
-           VALUES ($1, $2, $3::jsonb, $4, $5)
-           RETURNING user_id, document_id, session, state_version, updated_at`,
-          [
-            candidate.userId,
-            candidate.documentId,
-            JSON.stringify(candidate.session),
-            candidate.stateVersion,
-            candidate.updatedAt,
-          ],
-        );
-        return toDocumentAgentSession(
-          inserted.rows[0] as DocumentAgentSessionRow,
-        );
-      }
-
-      const updated = await client.query<DocumentAgentSessionRow>(
-        `UPDATE public.tex64_document_agent_sessions
-         SET session = $3::jsonb,
-             state_version = $4,
-             updated_at = $5
-         WHERE user_id = $1
-           AND document_id = $2
-           AND state_version = $6
-         RETURNING user_id, document_id, session, state_version, updated_at`,
-        [
-          candidate.userId,
-          candidate.documentId,
-          JSON.stringify(candidate.session),
-          candidate.stateVersion,
-          candidate.updatedAt,
-          expectedStateVersion,
-        ],
-      );
-      if (!updated.rows[0]) {
-        throw new Error(
-          "Document agent session changed while applying a compare-and-swap update.",
-        );
-      }
-      return toDocumentAgentSession(updated.rows[0]);
-    });
-  }
-
-  async saveDocumentAgentSessionForClarificationReply(
-    session: StoredDocumentAgentSession,
-    expectedStateVersion: number | null,
-    binding: Parameters<
-      DocumentRepository["saveDocumentAgentSessionForClarificationReply"]
-    >[2],
-  ): Promise<StoredDocumentAgentSession> {
-    const candidate = parseStoredDocumentAgentSession(session);
-    assertDocumentAgentSessionScope(
-      candidate,
-      candidate.userId,
-      candidate.documentId,
-    );
-    if (candidate.session.lastProcessedRunId !== binding.responseRunId) {
-      throw new RunReplyConflictError(
-        "Clarification session was not produced by the response run.",
-      );
-    }
-    const activeQuestion = candidate.session.activeQuestionId
-      ? candidate.session.questions.find(
-          (question) => question.id === candidate.session.activeQuestionId,
-        )
-      : null;
-    if (activeQuestion?.sourceRunId === binding.sourceRunId) {
-      throw new RunReplyConflictError(
-        "Clarification session still waits on the consumed question.",
-      );
-    }
-
-    return this.withUser(candidate.userId, async (client) => {
-      const runs = await lockRuns(
-        client,
-        candidate.userId,
-        binding.responseRunId,
-        binding.sourceRunId,
-      );
-      const response = runs.get(binding.responseRunId);
-      const source = runs.get(binding.sourceRunId);
-      if (!response || !source) throw new AgentRunNotFoundError();
-      assertReplyScope(
-        response,
-        source,
-        candidate.documentId,
-        binding.sourceRunId,
-      );
-      const markerKey = `${binding.responseRunId}:clarification-continuation:${binding.sourceRunId}`;
-      const markerResult = await client.query<EventRow>(
-        `SELECT * FROM public.tex64_run_events
-         WHERE user_id = $1 AND run_id = $2 AND idempotency_key = $3`,
-        [candidate.userId, binding.responseRunId, markerKey],
-      );
-      const marker = markerResult.rows[0] ? toEvent(markerResult.rows[0]) : null;
-      if (
-        !marker ||
-        marker.detail?.code !== "clarification_continuation" ||
-        marker.detail?.sourceRunId !== binding.sourceRunId
-      ) {
-        throw new RunReplyConflictError(
-          "Clarification response was not claimed before session save.",
-        );
-      }
-
-      const document = await client.query<{ id: string }>(
-        `SELECT id FROM public.tex64_documents
-         WHERE user_id = $1 AND id = $2
-         FOR UPDATE`,
-        [candidate.userId, candidate.documentId],
-      );
-      if (!document.rows[0]) throw new DocumentNotFoundError();
-      const selected = await client.query<DocumentAgentSessionRow>(
-        `SELECT user_id, document_id, session, state_version, updated_at
-         FROM public.tex64_document_agent_sessions
-         WHERE user_id = $1 AND document_id = $2
-         FOR UPDATE`,
-        [candidate.userId, candidate.documentId],
-      );
-      const current = selected.rows[0]
-        ? toDocumentAgentSession(selected.rows[0])
-        : null;
-      const disposition = classifyDocumentAgentSessionSave({
-        current,
-        candidate,
-        expectedStateVersion,
-      });
-      if (disposition === "replay") {
-        if (source.status !== "cancelled") {
-          throw new RunReplyConflictError(
-            "Clarification replay does not match a consumed source run.",
-          );
-        }
-        return current!;
-      }
-      if (
-        response.status !== "running" ||
-        source.status !== "waiting_approval" ||
-        source.stage !== "needs_input"
-      ) {
-        throw new RunReplyConflictError(
-          "Clarification source is no longer available for this response.",
-        );
-      }
-
-      let saved: StoredDocumentAgentSession;
-      if (disposition === "create") {
-        const inserted = await client.query<DocumentAgentSessionRow>(
-          `INSERT INTO public.tex64_document_agent_sessions
-            (user_id, document_id, session, state_version, updated_at)
-           VALUES ($1, $2, $3::jsonb, $4, $5)
-           RETURNING user_id, document_id, session, state_version, updated_at`,
-          [
-            candidate.userId,
-            candidate.documentId,
-            JSON.stringify(candidate.session),
-            candidate.stateVersion,
-            candidate.updatedAt,
-          ],
-        );
-        saved = toDocumentAgentSession(
-          inserted.rows[0] as DocumentAgentSessionRow,
-        );
-      } else {
-        const updated = await client.query<DocumentAgentSessionRow>(
-          `UPDATE public.tex64_document_agent_sessions
-           SET session = $3::jsonb,
-               state_version = $4,
-               updated_at = $5
-           WHERE user_id = $1
-             AND document_id = $2
-             AND state_version = $6
-           RETURNING user_id, document_id, session, state_version, updated_at`,
-          [
-            candidate.userId,
-            candidate.documentId,
-            JSON.stringify(candidate.session),
-            candidate.stateVersion,
-            candidate.updatedAt,
-            expectedStateVersion,
-          ],
-        );
-        if (!updated.rows[0]) {
-          throw new Error(
-            "Document agent session changed while applying a clarification reply.",
-          );
-        }
-        saved = toDocumentAgentSession(updated.rows[0]);
-      }
-
-      const cancelled = prepareRunUpdate(
-        source,
-        { expectedStateVersion: source.stateVersion, status: "cancelled" },
-        new Date().toISOString(),
-      );
-      await updateRunRecord(client, source, cancelled);
-      return saved;
-    });
-  }
 
   async getRevision(userId: string, documentId: string, revision: number): Promise<StoredRevision | null> {
     return this.withUser(userId, async (client) => {
@@ -664,7 +404,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
         [input.id, input.userId],
       );
       if (sameId.rows[0]) throw new Error("Agent run identifier already exists.");
-      await assertPostgresRunReplyTarget(client, input, "UPDATE");
 
       const document = await client.query<{ current_revision: number }>(
         `SELECT current_revision FROM public.tex64_documents
@@ -679,9 +418,10 @@ export class PostgresDocumentRepository implements DocumentRepository {
 
       const inserted = await client.query<RunRow>(
         `INSERT INTO public.tex64_agent_runs
-          (id, user_id, document_id, prompt, reply_to_run_id,
-           target_node_id, idempotency_key, base_revision)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          (id, user_id, document_id, prompt,
+           target_node_id, idempotency_key, base_revision,
+           status, stage)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', 'writing')
          ON CONFLICT DO NOTHING
          RETURNING *`,
         [
@@ -689,7 +429,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
           input.userId,
           input.documentId,
           input.prompt,
-          input.replyToRunId ?? null,
           input.targetNodeId ?? null,
           input.idempotencyKey,
           input.baseRevision,
@@ -711,120 +450,9 @@ export class PostgresDocumentRepository implements DocumentRepository {
     });
   }
 
-  async validateRunReplyTarget(input: CreateRunInput): Promise<void> {
-    await this.withUser(input.userId, async (client) => {
-      const existing = await client.query<RunRow>(
-        `SELECT * FROM public.tex64_agent_runs
-         WHERE user_id = $1 AND document_id = $2 AND idempotency_key = $3
-         FOR SHARE`,
-        [input.userId, input.documentId, input.idempotencyKey],
-      );
-      if (existing.rows[0]) {
-        assertRunReplayMatches(toRun(existing.rows[0]), input);
-        return;
-      }
-      await assertPostgresRunReplyTarget(client, input, "SHARE");
-    });
-  }
 
-  async claimRunForWorkflowStart(
-    userId: string,
-    runId: string,
-    leaseToken: string,
-    leaseDurationMs: number,
-  ): Promise<WorkflowStartClaim> {
-    assertWorkflowLaunchLease(leaseToken, leaseDurationMs);
-    return this.withUser(userId, async (client) => {
-      const selected = await client.query<RunRow>(
-        `SELECT * FROM public.tex64_agent_runs
-         WHERE id = $1 AND user_id = $2
-         FOR UPDATE`,
-        [runId, userId],
-      );
-      if (!selected.rows[0]) throw new AgentRunNotFoundError();
-      const run = toRun(selected.rows[0]);
-      if (
-        run.workflowRunId !== null ||
-        (run.status !== "queued" && run.status !== "running")
-      ) {
-        return { claimed: false, leaseExpiresAt: null, run };
-      }
 
-      const claimed = await client.query<WorkflowLaunchLeaseRow>(
-        `INSERT INTO public.tex64_workflow_launch_leases
-          (user_id, run_id, lease_token, expires_at)
-         VALUES ($1, $2, $3, now() + ($4 * interval '1 millisecond'))
-         ON CONFLICT (user_id, run_id) DO UPDATE
-           SET lease_token = EXCLUDED.lease_token,
-               expires_at = EXCLUDED.expires_at,
-               updated_at = now()
-           WHERE public.tex64_workflow_launch_leases.expires_at <= now()
-         RETURNING expires_at`,
-        [userId, runId, leaseToken, leaseDurationMs],
-      );
-      return {
-        claimed: Boolean(claimed.rows[0]),
-        leaseExpiresAt: claimed.rows[0]
-          ? toIso(claimed.rows[0].expires_at)
-          : null,
-        run,
-      };
-    });
-  }
 
-  async releaseRunWorkflowStartClaim(
-    userId: string,
-    runId: string,
-    leaseToken: string,
-  ): Promise<boolean> {
-    assertWorkflowLaunchLease(leaseToken, 1);
-    return this.withUser(userId, async (client) => {
-      const released = await client.query(
-        `DELETE FROM public.tex64_workflow_launch_leases
-         WHERE user_id = $1 AND run_id = $2 AND lease_token = $3
-         RETURNING run_id`,
-        [userId, runId, leaseToken],
-      );
-      return (released.rowCount ?? 0) > 0;
-    });
-  }
-
-  async activateRunForWorkflow(
-    userId: string,
-    runId: string,
-    workflowRunId: string,
-  ): Promise<WorkflowRunOwnership> {
-    return this.withUser(userId, async (client) => {
-      const activated = await client.query<RunRow>(
-        `UPDATE public.tex64_agent_runs
-         SET workflow_run_id = $3,
-             status = 'running',
-             stage = CASE WHEN status = 'queued' THEN 'understanding' ELSE stage END,
-             state_version = state_version + 1,
-             updated_at = now()
-         WHERE id = $1
-           AND user_id = $2
-           AND workflow_run_id IS NULL
-           AND status IN ('queued', 'running')
-         RETURNING *`,
-        [runId, userId, workflowRunId],
-      );
-      if (activated.rows[0]) {
-        await deleteWorkflowLaunchLease(client, userId, runId);
-        return { owned: true, run: toRun(activated.rows[0]) };
-      }
-
-      const current = await client.query<RunRow>(
-        "SELECT * FROM public.tex64_agent_runs WHERE id = $1 AND user_id = $2",
-        [runId, userId],
-      );
-      if (!current.rows[0]) throw new AgentRunNotFoundError();
-      const run = toRun(current.rows[0]);
-      const owned = run.workflowRunId === workflowRunId;
-      if (owned) await deleteWorkflowLaunchLease(client, userId, runId);
-      return { owned, run };
-    });
-  }
 
   async getRun(userId: string, runId: string): Promise<StoredAgentRun | null> {
     return this.withUser(userId, async (client) => {
@@ -896,20 +524,18 @@ export class PostgresDocumentRepository implements DocumentRepository {
 
       const updated = await client.query<RunRow>(
         `UPDATE public.tex64_agent_runs
-         SET workflow_run_id = $3,
-             status = $4,
-             stage = $5,
-             result_revision = $6,
-             error_message = $7,
-             result_note = $8,
-             state_version = $9,
-             updated_at = $10
-         WHERE id = $1 AND user_id = $2 AND state_version = $11
+         SET status = $3,
+             stage = $4,
+             result_revision = $5,
+             error_message = $6,
+             result_note = $7,
+             state_version = $8,
+             updated_at = $9
+         WHERE id = $1 AND user_id = $2 AND state_version = $10
          RETURNING *`,
         [
           runId,
           userId,
-          prepared.workflowRunId,
           prepared.status,
           prepared.stage,
           prepared.resultRevision,
@@ -983,150 +609,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
     });
   }
 
-  async setRunNeedsInput(
-    input: Parameters<DocumentRepository["setRunNeedsInput"]>[0],
-  ): Promise<StoredAgentRun> {
-    return this.withUser(input.userId, async (client) => {
-      const selected = await client.query<RunRow>(
-        `SELECT * FROM public.tex64_agent_runs
-         WHERE id = $1 AND user_id = $2
-         FOR UPDATE`,
-        [input.runId, input.userId],
-      );
-      if (!selected.rows[0]) throw new AgentRunNotFoundError();
-      const current = toRun(selected.rows[0]);
-      if (current.documentId !== input.documentId) {
-        throw new RunReplyConflictError("Needs-input run is outside the document scope.");
-      }
 
-      const question = input.question.trim();
-      if (!question || question.length > 500) {
-        throw new RunReplyConflictError("Needs-input question is invalid.");
-      }
-
-      const eventKey = `${input.runId}:needs_input:primary`;
-      const eventResult = await client.query<EventRow>(
-        `SELECT * FROM public.tex64_run_events
-         WHERE user_id = $1 AND run_id = $2 AND idempotency_key = $3`,
-        [input.userId, input.runId, eventKey],
-      );
-      const existingEvent = eventResult.rows[0]
-        ? toEvent(eventResult.rows[0])
-        : null;
-
-      if (current.status === "waiting_approval") {
-        if (
-          current.stage !== "needs_input" ||
-          current.errorMessage !== question ||
-          (existingEvent !== null &&
-            (existingEvent.detail?.code !== input.code ||
-              existingEvent.detail?.question !== question))
-        ) {
-          throw new RunReplyConflictError(
-            "Run is already waiting for a different response.",
-          );
-        }
-        if (!existingEvent) {
-          await insertNeedsInputEvent(
-            client,
-            input,
-            question,
-            eventKey,
-            new Date().toISOString(),
-          );
-        }
-        return current;
-      }
-
-      if (existingEvent) {
-        throw new RunReplyConflictError("Needs-input event already exists.");
-      }
-
-      const now = new Date().toISOString();
-      const prepared = prepareRunUpdate(
-        current,
-        {
-          expectedStateVersion: input.expectedStateVersion,
-          status: "waiting_approval",
-          stage: "needs_input",
-          errorMessage: question,
-        },
-        now,
-      );
-      await insertNeedsInputEvent(client, input, question, eventKey, now);
-      return updateRunRecord(client, current, prepared);
-    });
-  }
-
-  async consumeClarificationReply(
-    userId: string,
-    documentId: string,
-    responseRunId: string,
-    sourceRunId: string,
-  ) {
-    return this.withUser(userId, async (client) => {
-      const runs = await lockRuns(client, userId, responseRunId, sourceRunId);
-      const response = runs.get(responseRunId);
-      const source = runs.get(sourceRunId);
-      if (!response || !source) throw new AgentRunNotFoundError();
-      assertReplyScope(response, source, documentId, sourceRunId);
-
-      const sourceEvents = await selectRunEvents(client, userId, sourceRunId);
-      const question = needsInputQuestion(
-        source,
-        sourceEvents,
-        "clarification_required",
-      );
-      if (!question) {
-        throw new RunReplyConflictError("Source run is not awaiting clarification.");
-      }
-
-      const markerKey = `${responseRunId}:clarification-continuation:${sourceRunId}`;
-      const markerResult = await client.query<EventRow>(
-        `SELECT * FROM public.tex64_run_events
-         WHERE user_id = $1 AND run_id = $2 AND idempotency_key = $3`,
-        [userId, responseRunId, markerKey],
-      );
-      const marker = markerResult.rows[0] ? toEvent(markerResult.rows[0]) : null;
-      if (marker) {
-        if (
-          marker.detail?.code !== "clarification_continuation" ||
-          marker.detail?.sourceRunId !== sourceRunId
-        ) {
-          throw new RunReplyConflictError();
-        }
-        if (
-          source.status !== "cancelled" &&
-          !(source.status === "waiting_approval" && source.stage === "needs_input")
-        ) {
-          throw new RunReplyConflictError();
-        }
-        return { sourceRun: source, question };
-      }
-      if (response.status !== "running") {
-        throw new RunReplyConflictError("Clarification response is not active.");
-      }
-      if (source.status !== "waiting_approval" || source.stage !== "needs_input") {
-        throw new RunReplyConflictError("Clarification was already consumed.");
-      }
-
-      const now = new Date().toISOString();
-      await insertRunEvent(client, {
-        userId,
-        runId: responseRunId,
-        idempotencyKey: markerKey,
-        stage: "understanding",
-        message: "ご要望を整理しています",
-        detail: {
-          eventKey: markerKey,
-          code: "clarification_continuation",
-          sourceRunId,
-        },
-        createdAt: now,
-      });
-      return { sourceRun: source, question };
-    });
-  }
 
   async completeRunForCurrentRevision(
     input: Parameters<DocumentRepository["completeRunForCurrentRevision"]>[0],
@@ -1553,121 +1036,80 @@ export class PostgresDocumentRepository implements DocumentRepository {
     });
   }
 
-  async saveResearchLedger(ledger: ResearchLedger): Promise<ResearchLedger> {
-    const requested = parseResearchLedger(ledger);
-    return this.withUser(requested.userId, async (client) => {
-      await client.query(
-        "SELECT pg_advisory_xact_lock(141510, hashtext($1))",
-        [`${requested.userId}:${requested.documentId}:${requested.id}`],
-      );
-      const scope = await client.query(
-        `SELECT document_row.id
-         FROM public.tex64_documents AS document_row
-         JOIN public.tex64_document_revisions AS revision
-           ON revision.user_id = document_row.user_id
-          AND revision.document_id = document_row.id
-          AND revision.revision = $3
-         JOIN public.tex64_agent_runs AS run
-           ON run.user_id = document_row.user_id
-          AND run.document_id = document_row.id
-          AND run.id = $4
-         WHERE document_row.user_id = $1 AND document_row.id = $2
-         FOR SHARE OF document_row, revision, run`,
-        [
-          requested.userId,
-          requested.documentId,
-          requested.target.documentRevision,
-          requested.authoringRunId,
-        ],
-      );
-      if (scope.rowCount === 0) throw new ResearchLedgerConflictError();
-
-      const inserted = await client.query<ResearchLedgerRow>(
-        `INSERT INTO public.tex64_research_ledgers
-          (id, user_id, document_id, authoring_run_id, document_revision,
-           document_digest, brief_version, brief_digest, plan_id, plan_version,
-           plan_digest, source_snapshot_digest, reviewer_run_id, ledger_digest,
-           ledger, created_at)
-         VALUES
-          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-           $15::jsonb, $16)
-         ON CONFLICT DO NOTHING
-         RETURNING *`,
-        [
-          requested.id,
-          requested.userId,
-          requested.documentId,
-          requested.authoringRunId,
-          requested.target.documentRevision,
-          requested.target.documentDigest,
-          requested.target.briefVersion,
-          requested.target.briefDigest,
-          requested.target.planId,
-          requested.target.planVersion,
-          requested.target.planDigest,
-          requested.target.sourceSnapshotDigest,
-          requested.reviewer.reviewRunId,
-          requested.ledgerDigest,
-          JSON.stringify(requested),
-          requested.createdAt,
-        ],
-      );
-      if (inserted.rows[0]) return toResearchLedger(inserted.rows[0]);
-
-      const existing = await client.query<ResearchLedgerRow>(
-        `SELECT * FROM public.tex64_research_ledgers
-         WHERE user_id = $1
-           AND document_id = $2
-           AND (
-             id = $3
-             OR (
-               authoring_run_id = $4
-               AND document_revision = $5
-               AND document_digest = $6
-               AND brief_digest = $7
-               AND plan_digest = $8
-               AND source_snapshot_digest = $9
-               AND reviewer_run_id = $10
-             )
+  async appendConversationMessages(
+    input: AppendConversationMessagesInput,
+  ): Promise<StoredConversationMessage[]> {
+    if (input.messages.length === 0) return [];
+    return this.withUser(input.userId, async (client) => {
+      const now = new Date().toISOString();
+      const appended: StoredConversationMessage[] = [];
+      for (const message of input.messages) {
+        const inserted = await client.query<ConversationMessageRow>(
+          `INSERT INTO public.tex64_conversation_messages
+             (user_id, document_id, sequence, turn_id, role, content, created_at)
+           SELECT $1, $2,
+                  COALESCE(
+                    (SELECT MAX(existing.sequence) + 1
+                     FROM public.tex64_conversation_messages AS existing
+                     WHERE existing.user_id = $1 AND existing.document_id = $2),
+                    1),
+                  $3, $4, $5::jsonb, $6
+           WHERE EXISTS (
+             SELECT 1 FROM public.tex64_documents AS document_row
+             WHERE document_row.user_id = $1 AND document_row.id = $2
            )
-         FOR SHARE`,
-        [
-          requested.userId,
-          requested.documentId,
-          requested.id,
-          requested.authoringRunId,
-          requested.target.documentRevision,
-          requested.target.documentDigest,
-          requested.target.briefDigest,
-          requested.target.planDigest,
-          requested.target.sourceSnapshotDigest,
-          requested.reviewer.reviewRunId,
-        ],
-      );
-      const winner = existing.rows[0]
-        ? toResearchLedger(existing.rows[0])
-        : null;
-      if (!winner || winner.ledgerDigest !== requested.ledgerDigest) {
-        throw new ResearchLedgerConflictError();
+           RETURNING *`,
+          [
+            input.userId,
+            input.documentId,
+            input.turnId,
+            message.role,
+            JSON.stringify(message.content ?? null),
+            now,
+          ],
+        );
+        const row = inserted.rows[0];
+        if (!row) throw new DocumentNotFoundError();
+        appended.push(mapConversationMessageRow(row));
       }
-      return winner;
+      await client.query(
+        `DELETE FROM public.tex64_conversation_messages AS stale
+         WHERE stale.user_id = $1
+           AND stale.document_id = $2
+           AND stale.sequence <= (
+             SELECT MAX(kept.sequence) - $3
+             FROM public.tex64_conversation_messages AS kept
+             WHERE kept.user_id = $1 AND kept.document_id = $2
+           )`,
+        [input.userId, input.documentId, MAX_STORED_CONVERSATION_MESSAGES],
+      );
+      return appended;
     });
   }
 
-  async getResearchLedger(
+  async listConversationMessages(
     userId: string,
     documentId: string,
-    ledgerId: string,
-  ): Promise<ResearchLedger | null> {
+    limit = DEFAULT_CONVERSATION_MESSAGE_LIMIT,
+  ): Promise<StoredConversationMessage[]> {
+    const bounded = normalizeConversationLimit(limit);
     return this.withUser(userId, async (client) => {
-      const result = await client.query<ResearchLedgerRow>(
-        `SELECT * FROM public.tex64_research_ledgers
-         WHERE user_id = $1 AND document_id = $2 AND id = $3`,
-        [userId, documentId, ledgerId],
+      const result = await client.query<ConversationMessageRow>(
+        `SELECT * FROM (
+           SELECT *
+           FROM public.tex64_conversation_messages
+           WHERE user_id = $1 AND document_id = $2
+           ORDER BY sequence DESC
+           LIMIT $3
+         ) AS tail
+         ORDER BY tail.sequence ASC`,
+        [userId, documentId, bounded],
       );
-      return result.rows[0] ? toResearchLedger(result.rows[0]) : null;
+      return result.rows.map(mapConversationMessageRow);
     });
   }
+
+
 
   private async withUser<T>(userId: string, operation: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
@@ -1687,68 +1129,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
   }
 }
 
-async function assertPostgresRunReplyTarget(
-  client: PoolClient,
-  input: CreateRunInput,
-  lock: "SHARE" | "UPDATE",
-): Promise<void> {
-  if (!input.replyToRunId) return;
 
-  const sourceResult = await client.query<RunRow>(
-    `SELECT * FROM public.tex64_agent_runs
-     WHERE id = $1 AND user_id = $2 AND document_id = $3
-     FOR ${lock}`,
-    [input.replyToRunId, input.userId, input.documentId],
-  );
-  const events = await client.query<EventRow>(
-    `SELECT * FROM public.tex64_run_events
-     WHERE user_id = $1 AND run_id = $2 AND stage = 'needs_input'
-     ORDER BY sequence DESC
-     LIMIT 1`,
-    [input.userId, input.replyToRunId],
-  );
-  const activeResponse = await client.query<RunRow>(
-    `SELECT * FROM public.tex64_agent_runs
-     WHERE user_id = $1
-       AND document_id = $2
-       AND reply_to_run_id = $3
-       AND id <> $4
-       AND status IN ('queued', 'running', 'waiting_approval')
-     LIMIT 1
-     FOR SHARE`,
-    [input.userId, input.documentId, input.replyToRunId, input.id],
-  );
-  assertRunReplyTarget({
-    request: input,
-    source: sourceResult.rows[0] ? toRun(sourceResult.rows[0]) : null,
-    events: events.rows.map(toEvent),
-    activeResponse: activeResponse.rows[0]
-      ? toRun(activeResponse.rows[0])
-      : null,
-  });
-}
-
-async function insertNeedsInputEvent(
-  client: PoolClient,
-  input: Parameters<DocumentRepository["setRunNeedsInput"]>[0],
-  question: string,
-  eventKey: string,
-  now: string,
-): Promise<StoredRunEvent> {
-  return insertRunEvent(client, {
-    userId: input.userId,
-    runId: input.runId,
-    idempotencyKey: eventKey,
-    stage: "needs_input",
-    message: "確認したいことがあります",
-    detail: {
-      eventKey,
-      code: input.code,
-      question,
-    },
-    createdAt: now,
-  });
-}
 
 async function insertRunEvent(
   client: PoolClient,
@@ -1783,12 +1164,11 @@ async function updateRunRecord(
   if (prepared.stateVersion === current.stateVersion) return prepared;
   const updated = await client.query<RunRow>(
     `UPDATE public.tex64_agent_runs
-     SET workflow_run_id = $3,
-         status = $4,
-         stage = $5,
-         result_revision = $6,
-         error_message = $7,
-         result_note = $8,
+     SET status = $3,
+         stage = $4,
+         result_revision = $5,
+         error_message = $6,
+         result_note = $7,
          state_version = $9,
          updated_at = $10,
          result_artifact_revision = $11,
@@ -1802,7 +1182,6 @@ async function updateRunRecord(
     [
       current.id,
       current.userId,
-      prepared.workflowRunId,
       prepared.status,
       prepared.stage,
       prepared.resultRevision,
@@ -1825,70 +1204,8 @@ async function updateRunRecord(
   return toRun(updated.rows[0]);
 }
 
-async function lockRuns(
-  client: PoolClient,
-  userId: string,
-  responseRunId: string,
-  sourceRunId: string,
-): Promise<Map<string, StoredAgentRun>> {
-  const selected = await client.query<RunRow>(
-    `SELECT * FROM public.tex64_agent_runs
-     WHERE user_id = $1 AND id = ANY($2::uuid[])
-     ORDER BY id
-     FOR UPDATE`,
-    [userId, [responseRunId, sourceRunId]],
-  );
-  return new Map(selected.rows.map((row) => [row.id, toRun(row)]));
-}
 
-async function selectRunEvents(
-  client: PoolClient,
-  userId: string,
-  runId: string,
-): Promise<StoredRunEvent[]> {
-  const result = await client.query<EventRow>(
-    `SELECT * FROM public.tex64_run_events
-     WHERE user_id = $1 AND run_id = $2
-     ORDER BY sequence ASC`,
-    [userId, runId],
-  );
-  return result.rows.map(toEvent);
-}
 
-function assertReplyScope(
-  response: StoredAgentRun,
-  source: StoredAgentRun,
-  documentId: string,
-  sourceRunId: string,
-): void {
-  if (
-    response.id === source.id ||
-    response.userId !== source.userId ||
-    response.documentId !== documentId ||
-    source.documentId !== documentId ||
-    response.replyToRunId !== sourceRunId ||
-    source.createdAt > response.createdAt
-  ) {
-    throw new RunReplyConflictError();
-  }
-}
-
-function toDocumentAgentSession(
-  row: DocumentAgentSessionRow,
-): StoredDocumentAgentSession {
-  const stored = parseStoredDocumentAgentSession({
-    userId: row.user_id,
-    documentId: row.document_id,
-    session: row.session,
-    stateVersion: postgresNonnegativeInteger(
-      row.state_version,
-      "document agent session state version",
-    ),
-    updatedAt: toIso(row.updated_at),
-  });
-  assertDocumentAgentSessionScope(stored, row.user_id, row.document_id);
-  return stored;
-}
 
 function toDocument(row: DocumentRow): StoredDocument {
   return {
@@ -1963,10 +1280,8 @@ function toRun(row: RunRow): StoredAgentRun {
     userId: row.user_id,
     documentId: row.document_id,
     prompt: row.prompt,
-    replyToRunId: row.reply_to_run_id,
     targetNodeId: row.target_node_id ?? null,
     idempotencyKey: row.idempotency_key,
-    workflowRunId: row.workflow_run_id,
     status: row.status,
     stage: row.stage,
     baseRevision: row.base_revision,
@@ -2041,21 +1356,6 @@ function toSourceRecord(row: SourceRecordRow): SourceRecord {
   });
 }
 
-function toResearchLedger(row: ResearchLedgerRow): ResearchLedger {
-  const ledger = parseResearchLedger(row.ledger);
-  if (
-    ledger.id !== row.id ||
-    ledger.userId !== row.user_id ||
-    ledger.documentId !== row.document_id ||
-    ledger.authoringRunId !== row.authoring_run_id ||
-    ledger.target.documentRevision !== row.document_revision ||
-    ledger.ledgerDigest !== row.ledger_digest ||
-    Date.parse(ledger.createdAt) !== Date.parse(toIso(row.created_at))
-  ) {
-    throw new Error("Stored research review metadata does not match its immutable payload.");
-  }
-  return ledger;
-}
 
 function postgresNonnegativeInteger(
   value: number | string,
@@ -2072,37 +1372,6 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-async function deleteWorkflowLaunchLease(
-  client: PoolClient,
-  userId: string,
-  runId: string,
-): Promise<void> {
-  await client.query(
-    `DELETE FROM public.tex64_workflow_launch_leases
-     WHERE user_id = $1 AND run_id = $2`,
-    [userId, runId],
-  );
-}
 
-function assertWorkflowLaunchLease(token: string, durationMs: number): void {
-  if (!token.trim() || token.length > 200) {
-    throw new Error("Workflow launch lease token is invalid.");
-  }
-  if (!Number.isSafeInteger(durationMs) || durationMs < 1 || durationMs > 300_000) {
-    throw new Error("Workflow launch lease duration is invalid.");
-  }
-}
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
-}
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, canonicalize(nested)]),
-  );
-}

@@ -10,12 +10,10 @@ import {
   InvalidAgentRunTransitionError,
   RevisionConflictError,
   ResourceLimitExceededError,
-  RunReplyConflictError,
 } from "@/server/persistence";
 import { CompileFailure } from "@/server/compiler";
 import { InvalidOriginError } from "./origin";
 import { InvalidRequestBodyError } from "./request";
-import { WorkflowStartUnavailableError } from "./start-document-run";
 import { ProductionConfigurationError } from "@/server/config/production";
 
 export function jsonError(message: string, status: number, code: string): NextResponse {
@@ -63,13 +61,6 @@ export function handleRouteError(error: unknown): NextResponse {
   if (error instanceof ArtifactConflictError) {
     return jsonError("この版のPDFはすでに作成されています。", 409, "artifact_conflict");
   }
-  if (error instanceof RunReplyConflictError) {
-    return jsonError(
-      "この確認への回答はすでに処理されたか、現在の状態と一致しません。",
-      409,
-      "reply_conflict",
-    );
-  }
   if (error instanceof ResourceLimitExceededError) {
     return jsonError(
       "保存上限に達しました。続けるには管理者にお問い合わせください。",
@@ -87,8 +78,11 @@ export function handleRouteError(error: unknown): NextResponse {
       "document_failed",
     );
   }
-  if (error instanceof WorkflowStartUnavailableError) {
-    return jsonError("文書の作成を開始できませんでした。少し待ってからもう一度お試しください。", 503, "temporarily_unavailable");
+  if (
+    error instanceof Error &&
+    error.name === "AgentRuntimeConfigurationError"
+  ) {
+    return jsonError(error.message, 503, "agent_unconfigured");
   }
   if (error instanceof ProductionConfigurationError) {
     console.error("Production readiness check failed", error.message);

@@ -15,25 +15,16 @@ import {
   type UpdateRunInput,
 } from "./types";
 
-const ACTIVE_STAGES = new Set<AgentRunStage>([
-  "understanding",
-  "planning",
-  "writing",
-  "checking",
-  "formatting",
-]);
+const ACTIVE_STAGES = new Set<AgentRunStage>(["writing"]);
 
 const STATUS_TRANSITIONS: Record<AgentRunStatus, ReadonlySet<AgentRunStatus>> = {
-  queued: new Set(["queued", "running", "failed", "cancelled"]),
-  running: new Set(["running", "waiting_approval", "completed", "failed", "cancelled"]),
-  waiting_approval: new Set(["waiting_approval", "running", "failed", "cancelled"]),
+  running: new Set(["running", "completed", "failed", "cancelled"]),
   completed: new Set(["completed"]),
   failed: new Set(["failed"]),
   cancelled: new Set(["cancelled"]),
 };
 
 const UPDATE_FIELDS = [
-  "workflowRunId",
   "status",
   "stage",
   "resultRevision",
@@ -44,7 +35,6 @@ const UPDATE_FIELDS = [
 export function assertRunReplayMatches(existing: StoredAgentRun, input: CreateRunInput): void {
   if (
     existing.prompt !== input.prompt ||
-    existing.replyToRunId !== (input.replyToRunId ?? null) ||
     existing.targetNodeId !== (input.targetNodeId ?? null)
   ) {
     throw new IdempotencyConflictError("agent_run", input.idempotencyKey);
@@ -171,15 +161,6 @@ function assertRunTransition(current: StoredAgentRun, candidate: StoredAgentRun)
     );
   }
   if (
-    current.workflowRunId !== null &&
-    candidate.workflowRunId !== current.workflowRunId
-  ) {
-    throw new InvalidAgentRunTransitionError("Workflow run identity cannot be changed.");
-  }
-  if (candidate.workflowRunId !== null && candidate.workflowRunId.trim().length === 0) {
-    throw new InvalidAgentRunTransitionError("Workflow run identity cannot be empty.");
-  }
-  if (
     current.resultRevision !== null &&
     (candidate.resultRevision === null || candidate.resultRevision < current.resultRevision)
   ) {
@@ -193,24 +174,14 @@ function assertRunTransition(current: StoredAgentRun, candidate: StoredAgentRun)
   }
 
   const validCombination =
-    (candidate.status === "queued" &&
-      candidate.stage === "understanding" &&
-      candidate.resultRevision === null &&
-      candidate.errorMessage === null &&
-      candidate.resultNote === null) ||
     (candidate.status === "running" &&
       ACTIVE_STAGES.has(candidate.stage) &&
       candidate.errorMessage === null &&
       candidate.resultNote === null) ||
-    (candidate.status === "waiting_approval" &&
-      candidate.stage === "needs_input" &&
-      candidate.resultNote === null &&
-      (candidate.errorMessage === null ||
-        (candidate.errorMessage.trim().length > 0 &&
-          candidate.errorMessage.length <= 500))) ||
+    // A turn that only answered has no result revision, and that is a normal
+    // completion — not every message changes the document.
     (candidate.status === "completed" &&
       candidate.stage === "ready" &&
-      candidate.resultRevision !== null &&
       candidate.errorMessage === null &&
       (candidate.resultNote === null ||
         (candidate.resultNote.trim().length > 0 &&

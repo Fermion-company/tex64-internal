@@ -8,9 +8,7 @@ import {
 } from "@/server/config/runtime-environment";
 
 export * from "./types";
-export * from "./visual-review";
 export * from "./safety";
-export * from "./page-target";
 
 type CompilerBackend = "local" | "sandbox";
 type CompilerEnvironment = Partial<Pick<

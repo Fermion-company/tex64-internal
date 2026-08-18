@@ -26,7 +26,7 @@ function detail(
     blocks,
     elements: [],
     versions: [],
-    runs: [],
+    messages: [],
   };
 }
 

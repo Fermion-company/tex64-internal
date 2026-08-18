@@ -1,4 +1,4 @@
-import { deterministicBriefId } from "@/domain/brief";
+import { deterministicUuid } from "./run-identity";
 
 // Matches zod's uuid() exactly (version 1-8, variant 8/9/a/b): models emit
 // "UUID-shaped" ids with invalid version nibbles, and a laxer pattern here
@@ -289,7 +289,7 @@ export function normalizeModelDocumentPatch(
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
   const mapId = (value: unknown): unknown =>
     typeof value === "string" && value.length > 0 && !UUID_PATTERN.test(value)
-      ? deterministicBriefId(`${documentId}:model-node:${value}`)
+      ? deterministicUuid(`${documentId}:model-node:${value}`)
       : value;
 
   const walk = (node: unknown): unknown => {

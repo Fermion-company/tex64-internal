@@ -10,7 +10,6 @@ import {
   SourceRecordSchema,
   type SourceRecord,
 } from "@/server/sources/schema";
-import { parseResearchLedger } from "@/server/research";
 import {
   artifactMatchesRelease,
   releaseBindingsMatch,
@@ -25,6 +24,9 @@ import {
   DEFAULT_DOCUMENT_PAGE_SIZE,
   DEFAULT_REVISION_PAGE_SIZE,
   DEFAULT_RUN_PAGE_SIZE,
+  DEFAULT_CONVERSATION_MESSAGE_LIMIT,
+  MAX_STORED_CONVERSATION_MESSAGES,
+  normalizeConversationLimit,
   assertBatchSize,
   normalizeBatchIds,
   normalizeEventLimit,
@@ -34,9 +36,7 @@ import {
   AgentRunNotFoundError,
   ArtifactConflictError,
   DocumentNotFoundError,
-  ResearchLedgerConflictError,
   RevisionConflictError,
-  RunReplyConflictError,
   SourceRecordConflictError,
   type AppendRunEventInput,
   type CreateRunInput,
@@ -44,21 +44,14 @@ import {
   type StoredAgentRun,
   type StoredArtifact,
   type StoredDocument,
-  type StoredDocumentAgentSession,
+  type StoredConversationMessage,
+  type AppendConversationMessagesInput,
   type StoredDocumentListItem,
-  type ResearchLedger,
   type StoredRevision,
   type StoredRevisionListItem,
   type StoredRunEvent,
   type UpdateRunInput,
-  type WorkflowRunOwnership,
-  type WorkflowStartClaim,
 } from "./types";
-import {
-  assertDocumentAgentSessionScope,
-  classifyDocumentAgentSessionSave,
-  parseStoredDocumentAgentSession,
-} from "./document-agent-session";
 import {
   assertArtifactReplayMatches,
   assertArtifactScopeMatches,
@@ -68,10 +61,6 @@ import {
   prepareRunUpdate,
   runEventIdempotencyKey,
 } from "./invariants";
-import {
-  assertRunReplyTarget,
-  needsInputQuestion,
-} from "./pending-actions";
 
 // Legacy stores may still contain a "pendingActions" key from the removed
 // approval flow; it is ignored on read and carried through untouched.
@@ -82,17 +71,8 @@ type LocalStoreData = {
   runs: Record<string, StoredAgentRun>;
   events: Record<string, StoredRunEvent[]>;
   artifacts: Record<string, StoredArtifact>;
-  documentAgentSessions: Record<string, StoredDocumentAgentSession>;
   sourceRecords: Record<string, SourceRecord>;
-  researchLedgers: Record<string, ResearchLedger>;
-  workflowLaunchLeases: Record<string, LocalWorkflowLaunchLease>;
-};
-
-type LocalWorkflowLaunchLease = {
-  userId: string;
-  runId: string;
-  token: string;
-  expiresAt: string;
+  conversationMessages: Record<string, StoredConversationMessage[]>;
 };
 
 const EMPTY_STORE: LocalStoreData = {
@@ -102,10 +82,8 @@ const EMPTY_STORE: LocalStoreData = {
   runs: {},
   events: {},
   artifacts: {},
-  documentAgentSessions: {},
   sourceRecords: {},
-  researchLedgers: {},
-  workflowLaunchLeases: {},
+  conversationMessages: {},
 };
 
 const queueGlobal = globalThis as typeof globalThis & {
@@ -184,149 +162,8 @@ export class LocalDocumentRepository implements DocumentRepository {
     return document ? clone(document) : null;
   }
 
-  async getDocumentAgentSession(
-    userId: string,
-    documentId: string,
-  ): Promise<StoredDocumentAgentSession | null> {
-    const data = await this.readAfterWrites();
-    const stored = data.documentAgentSessions[documentKey(userId, documentId)];
-    if (!stored) return null;
-    const parsed = parseStoredDocumentAgentSession(clone(stored));
-    assertDocumentAgentSessionScope(parsed, userId, documentId);
-    return parsed;
-  }
 
-  async saveDocumentAgentSession(
-    session: StoredDocumentAgentSession,
-    expectedStateVersion: number | null,
-  ): Promise<StoredDocumentAgentSession> {
-    const candidate = parseStoredDocumentAgentSession(clone(session));
-    assertDocumentAgentSessionScope(
-      candidate,
-      candidate.userId,
-      candidate.documentId,
-    );
-    return this.write(async (data) => {
-      const key = documentKey(candidate.userId, candidate.documentId);
-      if (!data.documents[key]) throw new DocumentNotFoundError();
-      const currentValue = data.documentAgentSessions[key];
-      const current = currentValue
-        ? parseStoredDocumentAgentSession(clone(currentValue))
-        : null;
-      if (current) {
-        assertDocumentAgentSessionScope(
-          current,
-          candidate.userId,
-          candidate.documentId,
-        );
-      }
-      const disposition = classifyDocumentAgentSessionSave({
-        current,
-        candidate,
-        expectedStateVersion,
-      });
-      if (disposition === "replay") return clone(current!);
-      data.documentAgentSessions[key] = candidate;
-      return clone(candidate);
-    });
-  }
 
-  async saveDocumentAgentSessionForClarificationReply(
-    session: StoredDocumentAgentSession,
-    expectedStateVersion: number | null,
-    binding: Parameters<
-      DocumentRepository["saveDocumentAgentSessionForClarificationReply"]
-    >[2],
-  ): Promise<StoredDocumentAgentSession> {
-    const candidate = parseStoredDocumentAgentSession(clone(session));
-    assertDocumentAgentSessionScope(
-      candidate,
-      candidate.userId,
-      candidate.documentId,
-    );
-    if (candidate.session.lastProcessedRunId !== binding.responseRunId) {
-      throw new RunReplyConflictError(
-        "Clarification session was not produced by the response run.",
-      );
-    }
-    const activeQuestion = candidate.session.activeQuestionId
-      ? candidate.session.questions.find(
-          (question) => question.id === candidate.session.activeQuestionId,
-        )
-      : null;
-    if (activeQuestion?.sourceRunId === binding.sourceRunId) {
-      throw new RunReplyConflictError(
-        "Clarification session still waits on the consumed question.",
-      );
-    }
-
-    return this.write(async (data) => {
-      const key = documentKey(candidate.userId, candidate.documentId);
-      if (!data.documents[key]) throw new DocumentNotFoundError();
-      const responseKey = runKey(candidate.userId, binding.responseRunId);
-      const sourceKey = runKey(candidate.userId, binding.sourceRunId);
-      const response = data.runs[responseKey];
-      const source = data.runs[sourceKey];
-      if (!response || !source) throw new AgentRunNotFoundError();
-      assertReplyScope(
-        response,
-        source,
-        candidate.documentId,
-        binding.sourceRunId,
-      );
-      const markerKey = `${binding.responseRunId}:clarification-continuation:${binding.sourceRunId}`;
-      const marker = (data.events[responseKey] ?? []).find(
-        (event) => event.idempotencyKey === markerKey,
-      );
-      if (
-        !marker ||
-        marker.detail?.code !== "clarification_continuation" ||
-        marker.detail?.sourceRunId !== binding.sourceRunId
-      ) {
-        throw new RunReplyConflictError(
-          "Clarification response was not claimed before session save.",
-        );
-      }
-
-      const currentValue = data.documentAgentSessions[key];
-      const current = currentValue
-        ? parseStoredDocumentAgentSession(clone(currentValue))
-        : null;
-      const disposition = classifyDocumentAgentSessionSave({
-        current,
-        candidate,
-        expectedStateVersion,
-      });
-      if (disposition === "replay") {
-        if (source.status !== "cancelled") {
-          throw new RunReplyConflictError(
-            "Clarification replay does not match a consumed source run.",
-          );
-        }
-        return clone(current!);
-      }
-      if (
-        response.status !== "running" ||
-        source.status !== "waiting_approval" ||
-        source.stage !== "needs_input"
-      ) {
-        throw new RunReplyConflictError(
-          "Clarification source is no longer available for this response.",
-        );
-      }
-
-      data.documentAgentSessions[key] = candidate;
-      data.runs[sourceKey] = prepareRunUpdate(
-        source,
-        {
-          expectedStateVersion: source.stateVersion,
-          status: "cancelled",
-        },
-        new Date().toISOString(),
-      );
-      return clone(candidate);
-    });
-  }
 
   async getRevision(userId: string, documentId: string, revision: number): Promise<StoredRevision | null> {
     const data = await this.readAfterWrites();
@@ -414,7 +251,6 @@ export class LocalDocumentRepository implements DocumentRepository {
       if (sameId) {
         throw new Error("Agent run identifier already exists.");
       }
-      assertLocalRunReplyTarget(data, input);
       const document = data.documents[documentKey(input.userId, input.documentId)];
       if (!document) throw new DocumentNotFoundError();
       if (document.currentRevision !== input.baseRevision) {
@@ -424,11 +260,9 @@ export class LocalDocumentRepository implements DocumentRepository {
       const now = new Date().toISOString();
       const run: StoredAgentRun = {
         ...input,
-        replyToRunId: input.replyToRunId ?? null,
         targetNodeId: input.targetNodeId ?? null,
-        workflowRunId: null,
-        status: "queued",
-        stage: "understanding",
+        status: "running",
+        stage: "writing",
         resultRevision: null,
         artifactRelease: null,
         errorMessage: null,
@@ -442,115 +276,9 @@ export class LocalDocumentRepository implements DocumentRepository {
     });
   }
 
-  async validateRunReplyTarget(input: CreateRunInput): Promise<void> {
-    const data = await this.readAfterWrites();
-    const existing = Object.values(data.runs).find(
-      (run) =>
-        run.userId === input.userId &&
-        run.documentId === input.documentId &&
-        run.idempotencyKey === input.idempotencyKey,
-    );
-    if (existing) {
-      assertRunReplayMatches(existing, input);
-      return;
-    }
-    assertLocalRunReplyTarget(data, input);
-  }
 
-  async claimRunForWorkflowStart(
-    userId: string,
-    runId: string,
-    leaseToken: string,
-    leaseDurationMs: number,
-  ): Promise<WorkflowStartClaim> {
-    assertWorkflowLaunchLease(leaseToken, leaseDurationMs);
-    return this.write(async (data) => {
-      const key = runKey(userId, runId);
-      const current = data.runs[key];
-      if (!current) throw new AgentRunNotFoundError();
-      if (
-        current.workflowRunId !== null ||
-        (current.status !== "queued" && current.status !== "running")
-      ) {
-        return { claimed: false, leaseExpiresAt: null, run: clone(current) };
-      }
 
-      const now = Date.now();
-      const existingLease = data.workflowLaunchLeases[key];
-      if (existingLease && Date.parse(existingLease.expiresAt) > now) {
-        return {
-          claimed: false,
-          leaseExpiresAt: existingLease.expiresAt,
-          run: clone(current),
-        };
-      }
 
-      const lease: LocalWorkflowLaunchLease = {
-        userId,
-        runId,
-        token: leaseToken,
-        expiresAt: new Date(now + leaseDurationMs).toISOString(),
-      };
-      data.workflowLaunchLeases[key] = lease;
-      return {
-        claimed: true,
-        leaseExpiresAt: lease.expiresAt,
-        run: clone(current),
-      };
-    });
-  }
-
-  async releaseRunWorkflowStartClaim(
-    userId: string,
-    runId: string,
-    leaseToken: string,
-  ): Promise<boolean> {
-    assertWorkflowLaunchLease(leaseToken, 1);
-    return this.write(async (data) => {
-      const key = runKey(userId, runId);
-      if (!data.runs[key]) throw new AgentRunNotFoundError();
-      const lease = data.workflowLaunchLeases[key];
-      if (!lease || lease.token !== leaseToken) return false;
-      delete data.workflowLaunchLeases[key];
-      return true;
-    });
-  }
-
-  async activateRunForWorkflow(
-    userId: string,
-    runId: string,
-    workflowRunId: string,
-  ): Promise<WorkflowRunOwnership> {
-    return this.write(async (data) => {
-      const key = runKey(userId, runId);
-      const current = data.runs[key];
-      if (!current) throw new AgentRunNotFoundError();
-      if (current.workflowRunId === workflowRunId) {
-        delete data.workflowLaunchLeases[key];
-        return { owned: true, run: clone(current) };
-      }
-      if (
-        current.workflowRunId !== null ||
-        (current.status !== "queued" && current.status !== "running")
-      ) {
-        return { owned: false, run: clone(current) };
-      }
-
-      const activated = prepareRunUpdate(
-        current,
-        {
-          expectedStateVersion: current.stateVersion,
-          workflowRunId,
-          status: "running",
-          stage: current.status === "queued" ? "understanding" : current.stage,
-        },
-        new Date().toISOString(),
-      );
-      data.runs[key] = activated;
-      delete data.workflowLaunchLeases[key];
-      return { owned: true, run: clone(activated) };
-    });
-  }
 
   async getRun(userId: string, runId: string): Promise<StoredAgentRun | null> {
     const data = await this.readAfterWrites();
@@ -650,143 +378,7 @@ export class LocalDocumentRepository implements DocumentRepository {
       .map(clone);
   }
 
-  async setRunNeedsInput(
-    input: Parameters<DocumentRepository["setRunNeedsInput"]>[0],
-  ): Promise<StoredAgentRun> {
-    return this.write(async (data) => {
-      const runKeyValue = runKey(input.userId, input.runId);
-      const current = data.runs[runKeyValue];
-      if (!current) throw new AgentRunNotFoundError();
-      if (current.documentId !== input.documentId) {
-        throw new RunReplyConflictError("Needs-input run is outside the document scope.");
-      }
-      const question = input.question.trim();
-      if (!question || question.length > 500) {
-        throw new RunReplyConflictError("Needs-input question is invalid.");
-      }
 
-      const events = data.events[runKeyValue] ?? [];
-      const eventKey = `${input.runId}:needs_input:primary`;
-      const existingEvent = events.find(
-        (event) => event.idempotencyKey === eventKey,
-      );
-
-      if (current.status === "waiting_approval") {
-        if (
-          current.stage !== "needs_input" ||
-          current.errorMessage !== question ||
-          (existingEvent !== undefined &&
-            (existingEvent.detail?.code !== input.code ||
-              existingEvent.detail?.question !== question))
-        ) {
-          throw new RunReplyConflictError(
-            "Run is already waiting for a different response.",
-          );
-        }
-        if (!existingEvent) {
-          events.push(
-            createNeedsInputEvent({
-              input,
-              question,
-              events,
-              now: new Date().toISOString(),
-            }),
-          );
-          data.events[runKeyValue] = events;
-        }
-        return clone(current);
-      }
-
-      const now = new Date().toISOString();
-      const updated = prepareRunUpdate(
-        current,
-        {
-          expectedStateVersion: input.expectedStateVersion,
-          status: "waiting_approval",
-          stage: "needs_input",
-          errorMessage: question,
-        },
-        now,
-      );
-
-      if (existingEvent) {
-        throw new RunReplyConflictError("Needs-input event already exists.");
-      }
-      events.push(createNeedsInputEvent({ input, question, events, now }));
-      data.events[runKeyValue] = events;
-      data.runs[runKeyValue] = updated;
-      return clone(updated);
-    });
-  }
-
-  async consumeClarificationReply(
-    userId: string,
-    documentId: string,
-    responseRunId: string,
-    sourceRunId: string,
-  ) {
-    return this.write(async (data) => {
-      const responseKey = runKey(userId, responseRunId);
-      const sourceKey = runKey(userId, sourceRunId);
-      const response = data.runs[responseKey];
-      const source = data.runs[sourceKey];
-      if (!response || !source) throw new AgentRunNotFoundError();
-      assertReplyScope(response, source, documentId, sourceRunId);
-
-      const sourceEvents = data.events[sourceKey] ?? [];
-      const question = needsInputQuestion(
-        source,
-        sourceEvents,
-        "clarification_required",
-      );
-      if (!question) {
-        throw new RunReplyConflictError("Source run is not awaiting clarification.");
-      }
-
-      const markerKey = `${responseRunId}:clarification-continuation:${sourceRunId}`;
-      const responseEvents = data.events[responseKey] ?? [];
-      const marker = responseEvents.find(
-        (event) => event.idempotencyKey === markerKey,
-      );
-      if (marker) {
-        if (
-          marker.detail?.code !== "clarification_continuation" ||
-          marker.detail?.sourceRunId !== sourceRunId ||
-          !(
-            source.status === "cancelled" ||
-            (source.status === "waiting_approval" && source.stage === "needs_input")
-          )
-        ) {
-          throw new RunReplyConflictError();
-        }
-        return { sourceRun: clone(source), question };
-      }
-      if (response.status !== "running") {
-        throw new RunReplyConflictError("Clarification response is not active.");
-      }
-      if (source.status !== "waiting_approval" || source.stage !== "needs_input") {
-        throw new RunReplyConflictError("Clarification was already consumed.");
-      }
-
-      const now = new Date().toISOString();
-      responseEvents.push({
-        userId,
-        runId: responseRunId,
-        idempotencyKey: markerKey,
-        sequence: (responseEvents.at(-1)?.sequence ?? 0) + 1,
-        stage: "understanding",
-        message: "ご要望を整理しています",
-        detail: {
-          eventKey: markerKey,
-          code: "clarification_continuation",
-          sourceRunId,
-        },
-        createdAt: now,
-      });
-      data.events[responseKey] = responseEvents;
-      return { sourceRun: clone(source), question };
-    });
-  }
 
   async completeRunForCurrentRevision(
     input: Parameters<DocumentRepository["completeRunForCurrentRevision"]>[0],
@@ -1044,65 +636,50 @@ export class LocalDocumentRepository implements DocumentRepository {
     });
   }
 
-  async saveResearchLedger(ledger: ResearchLedger): Promise<ResearchLedger> {
-    const requested = parseResearchLedger(clone(ledger));
-    return this.write((data) => {
-      if (!data.documents[documentKey(requested.userId, requested.documentId)]) {
-        throw new DocumentNotFoundError();
+  async appendConversationMessages(
+    input: AppendConversationMessagesInput,
+  ): Promise<StoredConversationMessage[]> {
+    if (input.messages.length === 0) return [];
+    return this.write(async (data) => {
+      const key = documentKey(input.userId, input.documentId);
+      if (!data.documents[key]) throw new DocumentNotFoundError();
+      const thread = (data.conversationMessages[key] ??= []);
+      const now = new Date().toISOString();
+      let sequence = thread.at(-1)?.sequence ?? 0;
+      const appended = input.messages.map((message) => {
+        sequence += 1;
+        return {
+          userId: input.userId,
+          documentId: input.documentId,
+          sequence,
+          turnId: input.turnId,
+          role: message.role,
+          content: clone(message.content),
+          createdAt: now,
+        } satisfies StoredConversationMessage;
+      });
+      thread.push(...appended);
+      // The thread is the model's memory; older turns fall off the front so a
+      // long-lived document cannot grow the store without bound.
+      if (thread.length > MAX_STORED_CONVERSATION_MESSAGES) {
+        thread.splice(0, thread.length - MAX_STORED_CONVERSATION_MESSAGES);
       }
-      if (
-        !data.revisions[
-          revisionKey(
-            requested.userId,
-            requested.documentId,
-            requested.target.documentRevision,
-          )
-        ] ||
-        !data.runs[runKey(requested.userId, requested.authoringRunId)]
-      ) {
-        throw new ResearchLedgerConflictError();
-      }
-
-      const key = researchLedgerKey(requested.userId, requested.id);
-      const existing = data.researchLedgers[key];
-      if (existing) {
-        const parsed = parseResearchLedger(clone(existing));
-        if (parsed.ledgerDigest !== requested.ledgerDigest) {
-          throw new ResearchLedgerConflictError();
-        }
-        return parsed;
-      }
-
-      const targetCollision = Object.values(data.researchLedgers).find(
-        (candidate) =>
-          candidate.userId === requested.userId &&
-          candidate.documentId === requested.documentId &&
-          candidate.authoringRunId === requested.authoringRunId &&
-          candidate.target.documentRevision === requested.target.documentRevision &&
-          candidate.target.documentDigest === requested.target.documentDigest &&
-          candidate.target.briefDigest === requested.target.briefDigest &&
-          candidate.target.planDigest === requested.target.planDigest &&
-          candidate.target.sourceSnapshotDigest ===
-            requested.target.sourceSnapshotDigest &&
-          candidate.reviewer.reviewRunId === requested.reviewer.reviewRunId,
-      );
-      if (targetCollision) throw new ResearchLedgerConflictError();
-
-      data.researchLedgers[key] = clone(requested);
-      return clone(requested);
+      return appended.map(clone);
     });
   }
 
-  async getResearchLedger(
+  async listConversationMessages(
     userId: string,
     documentId: string,
-    ledgerId: string,
-  ): Promise<ResearchLedger | null> {
+    limit = DEFAULT_CONVERSATION_MESSAGE_LIMIT,
+  ): Promise<StoredConversationMessage[]> {
+    const bounded = normalizeConversationLimit(limit);
     const data = await this.readAfterWrites();
-    const ledger = data.researchLedgers[researchLedgerKey(userId, ledgerId)];
-    if (!ledger || ledger.documentId !== documentId) return null;
-    return parseResearchLedger(clone(ledger));
+    const thread = data.conversationMessages[documentKey(userId, documentId)] ?? [];
+    return thread.slice(-bounded).map(clone);
   }
+
+
 
   private async readAfterWrites(): Promise<LocalStoreData> {
     await (repositoryQueues.get(this.filePath) ?? Promise.resolve()).catch(() => undefined);
@@ -1186,27 +763,10 @@ function localDocumentPreview(document: DocumentModel): string {
 }
 
 function normalizeLegacyStore(data: LocalStoreData): void {
-  data.documentAgentSessions ??= {};
   data.sourceRecords ??= {};
-  data.researchLedgers ??= {};
-  data.workflowLaunchLeases ??= {};
-  for (const [key, value] of Object.entries(data.researchLedgers)) {
-    const ledger = parseResearchLedger(value);
-    if (key !== researchLedgerKey(ledger.userId, ledger.id)) {
-      throw new Error("Stored research review key is invalid.");
-    }
-    data.researchLedgers[key] = ledger;
-  }
-  for (const [key, value] of Object.entries(data.documentAgentSessions)) {
-    const stored = parseStoredDocumentAgentSession(value);
-    if (key !== documentKey(stored.userId, stored.documentId)) {
-      throw new Error("Stored document agent session key is invalid.");
-    }
-    data.documentAgentSessions[key] = stored;
-  }
+  data.conversationMessages ??= {};
   for (const run of Object.values(data.runs)) {
     run.stateVersion ??= 0;
-    run.replyToRunId ??= null;
     run.artifactRelease ??= null;
     run.resultNote ??= null;
     run.targetNodeId ??= null;
@@ -1225,41 +785,7 @@ function normalizeLegacyStore(data: LocalStoreData): void {
   }
 }
 
-function assertWorkflowLaunchLease(token: string, durationMs: number): void {
-  if (!token.trim() || token.length > 200) {
-    throw new Error("Workflow launch lease token is invalid.");
-  }
-  if (!Number.isSafeInteger(durationMs) || durationMs < 1 || durationMs > 300_000) {
-    throw new Error("Workflow launch lease duration is invalid.");
-  }
-}
 
-function assertLocalRunReplyTarget(
-  data: LocalStoreData,
-  input: CreateRunInput,
-): void {
-  const source = input.replyToRunId
-    ? data.runs[runKey(input.userId, input.replyToRunId)] ?? null
-    : null;
-  const activeResponse = input.replyToRunId
-    ? Object.values(data.runs).find(
-        (candidate) =>
-          candidate.userId === input.userId &&
-          candidate.documentId === input.documentId &&
-          candidate.replyToRunId === input.replyToRunId &&
-          candidate.id !== input.id &&
-          new Set(["queued", "running", "waiting_approval"]).has(
-            candidate.status,
-          ),
-      ) ?? null
-    : null;
-  assertRunReplyTarget({
-    request: input,
-    source,
-    events: source ? (data.events[runKey(input.userId, source.id)] ?? []) : [],
-    activeResponse,
-  });
-}
 
 function documentKey(userId: string, documentId: string): string {
   return `${userId}:${documentId}`;
@@ -1277,50 +803,6 @@ function sourceRecordKey(userId: string, sourceId: string): string {
   return `${userId}:${sourceId}`;
 }
 
-function researchLedgerKey(userId: string, ledgerId: string): string {
-  return `${userId}:${ledgerId}`;
-}
-
-function createNeedsInputEvent(inputValue: {
-  input: Parameters<DocumentRepository["setRunNeedsInput"]>[0];
-  question: string;
-  events: readonly StoredRunEvent[];
-  now: string;
-}): StoredRunEvent {
-  const eventKey = `${inputValue.input.runId}:needs_input:primary`;
-  return {
-    userId: inputValue.input.userId,
-    runId: inputValue.input.runId,
-    idempotencyKey: eventKey,
-    sequence: (inputValue.events.at(-1)?.sequence ?? 0) + 1,
-    stage: "needs_input",
-    message: "確認したいことがあります",
-    detail: {
-      eventKey,
-      code: inputValue.input.code,
-      question: inputValue.question,
-    },
-    createdAt: inputValue.now,
-  };
-}
-
-function assertReplyScope(
-  response: StoredAgentRun,
-  source: StoredAgentRun,
-  documentId: string,
-  sourceRunId: string,
-): void {
-  if (
-    response.id === source.id ||
-    response.userId !== source.userId ||
-    response.documentId !== documentId ||
-    source.documentId !== documentId ||
-    response.replyToRunId !== sourceRunId ||
-    source.createdAt > response.createdAt
-  ) {
-    throw new RunReplyConflictError();
-  }
-}
 
 function artifactKey(userId: string, documentId: string, revision: number): string {
   return `${documentKey(userId, documentId)}:${revision}`;
@@ -1330,19 +812,7 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
-}
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => [key, canonicalize(nested)]),
-  );
-}
 
 function isMissingFile(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");

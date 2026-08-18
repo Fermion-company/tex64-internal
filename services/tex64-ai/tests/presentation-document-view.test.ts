@@ -1,19 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { SAMPLE_DOCUMENT, SAMPLE_DOCUMENT_IDS } from "@/domain/document";
-import { USER_FACING_QUESTION_FALLBACKS } from "@/lib/user-facing-copy";
 import {
   ClientDocumentPatchSchema,
   createEmptyDocument,
   createDomainPatchFromClient,
   inferDocumentKind,
-  presentAgentRun,
-  presentAgentRuns,
-  toAgentRun,
+  presentConversation,
   toDocumentDetail,
 } from "@/server/presentation/document-view";
-import type { StoredAgentRun, StoredDocument } from "@/server/persistence";
+import type { StoredDocument } from "@/server/persistence";
 
 const USER_ID = "30000000-0000-4000-8000-000000000001";
+const DOCUMENT_ID = SAMPLE_DOCUMENT.id;
+const RUN_ID = "30000000-0000-4000-8000-000000000009";
 
 function storedDocument(): StoredDocument {
   return {
@@ -85,7 +84,7 @@ describe("document presentation", () => {
     const detail = toDocumentDetail({
       stored: current,
       revisions: [],
-      runs: [],
+      messages: [],
       artifact: null,
     });
     const input = ClientDocumentPatchSchema.parse({
@@ -115,7 +114,7 @@ describe("document presentation", () => {
     const detail = toDocumentDetail({
       stored: current,
       revisions: [],
-      runs: [],
+      messages: [],
       artifact: null,
     });
     const input = ClientDocumentPatchSchema.parse({
@@ -142,7 +141,7 @@ describe("document presentation", () => {
     const detail = toDocumentDetail({
       stored: current,
       revisions: [],
-      runs: [],
+      messages: [],
       artifact: null,
     });
     expect(
@@ -171,7 +170,7 @@ describe("document presentation", () => {
     const detail = toDocumentDetail({
       stored: current,
       revisions: [],
-      runs: [],
+      messages: [],
       artifact: null,
     });
     const input = ClientDocumentPatchSchema.parse({
@@ -188,120 +187,61 @@ describe("document presentation", () => {
     );
   });
 
-  it("gives a waiting run an actionable user-facing note", () => {
-    const run: StoredAgentRun = {
-      id: "30000000-0000-4000-8000-000000000002",
-      userId: USER_ID,
-      documentId: SAMPLE_DOCUMENT.id,
-      prompt: "内容を整理して",
-      replyToRunId: null,
-      idempotencyKey: "waiting-run-key",
-      workflowRunId: "workflow-run-id",
-      status: "waiting_approval",
-      stage: "needs_input",
-      baseRevision: 1,
-      resultRevision: null,
-      artifactRelease: null,
-      errorMessage: null,
-      resultNote: null,
-      targetNodeId: null,
-      stateVersion: 1,
-      createdAt: "2026-08-07T00:01:00.000Z",
-      updatedAt: "2026-08-07T00:02:00.000Z",
-    };
+  it("shows the thread as user and assistant turns, hiding tool traffic", () => {
+    const presented = presentConversation([
+      {
+        userId: USER_ID,
+        documentId: DOCUMENT_ID,
+        sequence: 1,
+        turnId: RUN_ID,
+        role: "user",
+        content: "注意機構について書いて",
+        createdAt: "2026-08-07T00:00:00.000Z",
+      },
+      {
+        userId: USER_ID,
+        documentId: DOCUMENT_ID,
+        sequence: 2,
+        turnId: RUN_ID,
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "1", toolName: "read_document", input: {} },
+        ],
+        createdAt: "2026-08-07T00:00:01.000Z",
+      },
+      {
+        userId: USER_ID,
+        documentId: DOCUMENT_ID,
+        sequence: 3,
+        turnId: RUN_ID,
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "1", toolName: "read_document" }],
+        createdAt: "2026-08-07T00:00:02.000Z",
+      },
+      {
+        userId: USER_ID,
+        documentId: DOCUMENT_ID,
+        sequence: 4,
+        turnId: RUN_ID,
+        role: "assistant",
+        content: [{ type: "text", text: "序論を書きました。" }],
+        createdAt: "2026-08-07T00:00:03.000Z",
+      },
+    ]);
 
-    expect(toAgentRun(run)).toMatchObject({
-      status: "waiting_approval",
-      stage: "needs_input",
-      resultNote: USER_FACING_QUESTION_FALLBACKS.clarification_required,
-    });
-
-    expect(
-      toAgentRun({ ...run, errorMessage: "何について書きますか？" }),
-    ).toMatchObject({ resultNote: "何について書きますか？" });
-  });
-
-  it("does not claim that a no-change review updated the document", () => {
-    const run: StoredAgentRun = {
-      id: "30000000-0000-4000-8000-000000000004",
-      userId: USER_ID,
-      documentId: SAMPLE_DOCUMENT.id,
-      prompt: "問題がないか確認して",
-      idempotencyKey: "review-run-key",
-      workflowRunId: "workflow-run-id",
-      replyToRunId: null,
-      status: "completed",
-      stage: "ready",
-      baseRevision: 3,
-      resultRevision: 3,
-      artifactRelease: null,
-      errorMessage: null,
-      resultNote: null,
-      targetNodeId: null,
-      stateVersion: 2,
-      createdAt: "2026-08-07T00:01:00.000Z",
-      updatedAt: "2026-08-07T00:02:00.000Z",
-    };
-
-    expect(toAgentRun(run).resultNote).toBe("文書を確認しました");
-  });
-
-  it("presents waiting run replays with the response kind required by the UI", async () => {
-    const run: StoredAgentRun = {
-      id: "30000000-0000-4000-8000-000000000002",
-      userId: USER_ID,
-      documentId: SAMPLE_DOCUMENT.id,
-      prompt: "内容を整理して",
-      replyToRunId: null,
-      idempotencyKey: "waiting-run-key",
-      workflowRunId: "workflow-run-id",
-      status: "waiting_approval",
-      stage: "needs_input",
-      baseRevision: 1,
-      resultRevision: null,
-      artifactRelease: null,
-      errorMessage: "この内容を削除してよいですか？",
-      resultNote: null,
-      targetNodeId: null,
-      stateVersion: 1,
-      createdAt: "2026-08-07T00:01:00.000Z",
-      updatedAt: "2026-08-07T00:02:00.000Z",
-    };
-
-    expect(presentAgentRun(run)).toMatchObject({
-      inputKind: "clarification",
-    });
-  });
-
-  it("resolves input kinds for a run page with one batch lookup", async () => {
-    const waitingRun: StoredAgentRun = {
-      id: "30000000-0000-4000-8000-000000000012",
-      userId: USER_ID,
-      documentId: SAMPLE_DOCUMENT.id,
-      prompt: "内容を整理して",
-      replyToRunId: null,
-      idempotencyKey: "waiting-run-page-key",
-      workflowRunId: "workflow-run-page-id",
-      status: "waiting_approval",
-      stage: "needs_input",
-      baseRevision: 1,
-      resultRevision: null,
-      artifactRelease: null,
-      errorMessage: "変更してよいですか？",
-      resultNote: null,
-      targetNodeId: null,
-      stateVersion: 1,
-      createdAt: "2026-08-07T00:01:00.000Z",
-      updatedAt: "2026-08-07T00:02:00.000Z",
-    };
-    const clarificationRun = {
-      ...waitingRun,
-      id: "30000000-0000-4000-8000-000000000013",
-      idempotencyKey: "clarification-run-page-key",
-    };
-    expect(presentAgentRuns([waitingRun, clarificationRun])).toMatchObject([
-      { id: waitingRun.id, inputKind: "clarification" },
-      { id: clarificationRun.id, inputKind: "clarification" },
+    expect(presented).toEqual([
+      {
+        id: "1",
+        role: "user",
+        text: "注意機構について書いて",
+        createdAt: "2026-08-07T00:00:00.000Z",
+      },
+      {
+        id: "4",
+        role: "assistant",
+        text: "序論を書きました。",
+        createdAt: "2026-08-07T00:00:03.000Z",
+      },
     ]);
   });
 });

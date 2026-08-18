@@ -144,7 +144,7 @@ describe("LocalDocumentRepository retry invariants", () => {
       await repository.appendRunEvent({
         userId: USER_ID,
         runId: id,
-        stage: "planning",
+        stage: "writing",
         message: `計画 ${index}`,
         detail: { eventKey: `${id}:planning` },
       });
@@ -318,83 +318,41 @@ describe("LocalDocumentRepository retry invariants", () => {
     ).rejects.toBeInstanceOf(RevisionConflictError);
   });
 
-  it("grants the workflow start claim to exactly one concurrent caller", async () => {
-    await repository.createRun(runInput());
-
-    const claims = await Promise.all(
-      Array.from({ length: 16 }, (_, index) =>
-        repository.claimRunForWorkflowStart(
-          USER_ID,
-          RUN_ID,
-          `lease-${index}`,
-          30_000,
-        ),
-      ),
-    );
-
-    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
-    await expect(repository.getRun(USER_ID, RUN_ID)).resolves.toMatchObject({
-      status: "queued",
-      stage: "understanding",
-      stateVersion: 0,
-      workflowRunId: null,
-    });
-  });
-
-  it("binds exactly one paid workflow owner and accepts only its replay", async () => {
-    await repository.createRun(runInput());
-    const ownerships = await Promise.all(
-      Array.from({ length: 16 }, (_, index) =>
-        repository.activateRunForWorkflow(USER_ID, RUN_ID, `workflow-${index}`),
-      ),
-    );
-
-    expect(ownerships.filter((ownership) => ownership.owned)).toHaveLength(1);
-    const stored = await repository.getRun(USER_ID, RUN_ID);
-    expect(stored).toMatchObject({ status: "running" });
-    expect(stored?.workflowRunId).toMatch(/^workflow-\d+$/);
-    await expect(
-      repository.activateRunForWorkflow(USER_ID, RUN_ID, stored!.workflowRunId!),
-    ).resolves.toMatchObject({ owned: true });
-    await expect(
-      repository.activateRunForWorkflow(USER_ID, RUN_ID, "workflow-loser"),
-    ).resolves.toMatchObject({ owned: false });
-  });
-
   it("uses stateVersion as a CAS token and prevents terminal state regression", async () => {
-    const queued = await repository.createRun(runInput());
-    const running = await repository.updateRun(USER_ID, RUN_ID, {
-      expectedStateVersion: queued.stateVersion,
+    const created = await repository.createRun(runInput());
+    expect(created).toMatchObject({
       status: "running",
-      stage: "planning",
-      workflowRunId: "workflow-1",
+      stage: "writing",
+      stateVersion: 0,
     });
-    expect(running).toMatchObject({ status: "running", stage: "planning", stateVersion: 1 });
-
-    const replay = await repository.updateRun(USER_ID, RUN_ID, {
-      expectedStateVersion: queued.stateVersion,
-      status: "running",
-      stage: "planning",
-      workflowRunId: "workflow-1",
-    });
-    expect(replay.stateVersion).toBe(1);
-
-    await expect(
-      repository.updateRun(USER_ID, RUN_ID, {
-        expectedStateVersion: queued.stateVersion,
-        status: "running",
-        stage: "writing",
-      }),
-    ).rejects.toBeInstanceOf(AgentRunConflictError);
 
     const completed = await repository.updateRun(USER_ID, RUN_ID, {
-      expectedStateVersion: running.stateVersion,
+      expectedStateVersion: created.stateVersion,
       status: "completed",
       stage: "ready",
       resultRevision: 1,
       errorMessage: null,
     });
-    expect(completed.stateVersion).toBe(2);
+    expect(completed.stateVersion).toBe(1);
+
+    // Replaying the same write against the same expected version is a no-op.
+    const replay = await repository.updateRun(USER_ID, RUN_ID, {
+      status: "completed",
+      stage: "ready",
+      resultRevision: 1,
+      errorMessage: null,
+    });
+    expect(replay.stateVersion).toBe(1);
+
+    await expect(
+      repository.updateRun(USER_ID, RUN_ID, {
+        expectedStateVersion: created.stateVersion,
+        status: "completed",
+        stage: "ready",
+        resultRevision: 2,
+      }),
+    ).rejects.toBeInstanceOf(AgentRunConflictError);
+
     await expect(
       repository.updateRun(USER_ID, RUN_ID, {
         status: "failed",
@@ -404,40 +362,19 @@ describe("LocalDocumentRepository retry invariants", () => {
     ).rejects.toBeInstanceOf(InvalidAgentRunTransitionError);
   });
 
-  it("rejects inconsistent status/stage combinations and workflow identity replacement", async () => {
+  it("rejects inconsistent status and stage combinations", async () => {
     await repository.createRun(runInput());
     await expect(
-      repository.updateRun(USER_ID, RUN_ID, { status: "running", stage: "needs_input" }),
+      repository.updateRun(USER_ID, RUN_ID, { status: "running", stage: "ready" }),
     ).rejects.toBeInstanceOf(InvalidAgentRunTransitionError);
-
-    await repository.updateRun(USER_ID, RUN_ID, {
-      status: "running",
-      stage: "understanding",
-      workflowRunId: "workflow-1",
-    });
     await expect(
-      repository.updateRun(USER_ID, RUN_ID, { workflowRunId: "workflow-2" }),
+      repository.updateRun(USER_ID, RUN_ID, { status: "failed", stage: "failed" }),
     ).rejects.toBeInstanceOf(InvalidAgentRunTransitionError);
-  });
 
-  it("keeps a concise question on a run that is waiting for an answer", async () => {
-    await repository.createRun(runInput());
-    await repository.updateRun(USER_ID, RUN_ID, {
-      status: "running",
-      stage: "understanding",
-    });
-
-    const waiting = await repository.updateRun(USER_ID, RUN_ID, {
-      status: "waiting_approval",
-      stage: "needs_input",
-      errorMessage: "何について書きますか？",
-    });
-
-    expect(waiting).toMatchObject({
-      status: "waiting_approval",
-      stage: "needs_input",
-      errorMessage: "何について書きますか？",
-    });
+    // A turn that only answered completes with no result revision.
+    await expect(
+      repository.updateRun(USER_ID, RUN_ID, { status: "completed", stage: "ready" }),
+    ).resolves.toMatchObject({ status: "completed", resultRevision: null });
   });
 
   it("deduplicates a retried event and rejects key reuse with different content", async () => {
@@ -445,7 +382,7 @@ describe("LocalDocumentRepository retry invariants", () => {
     const input = {
       userId: USER_ID,
       runId: RUN_ID,
-      stage: "planning" as const,
+      stage: "writing" as const,
       message: "構成を考えています",
       detail: { eventKey: `${RUN_ID}:planning:primary`, attempt: 0 },
     };
@@ -478,7 +415,6 @@ describe("LocalDocumentRepository retry invariants", () => {
 
   it("completes a run and appends its ready event atomically and idempotently", async () => {
     await repository.createRun(runInput());
-    await repository.activateRunForWorkflow(USER_ID, RUN_ID, "workflow-completion");
     await repository.saveArtifact(artifact());
 
     const completions = await Promise.all(
@@ -540,11 +476,6 @@ describe("LocalDocumentRepository retry invariants", () => {
 
   it("rejects a stale completion without changing the run or appending ready", async () => {
     await repository.createRun(runInput());
-    const claim = await repository.activateRunForWorkflow(
-      USER_ID,
-      RUN_ID,
-      "workflow-stale-completion",
-    );
     await repository.saveArtifact(artifact());
 
     const current = await repository.getDocument(USER_ID, SAMPLE_DOCUMENT.id);
@@ -575,7 +506,6 @@ describe("LocalDocumentRepository retry invariants", () => {
     ).rejects.toBeInstanceOf(RevisionConflictError);
     await expect(repository.getRun(USER_ID, RUN_ID)).resolves.toMatchObject({
       status: "running",
-      stateVersion: claim.run.stateVersion,
       resultRevision: null,
     });
     await expect(repository.listRunEvents(USER_ID, RUN_ID)).resolves.toEqual([]);
@@ -583,11 +513,6 @@ describe("LocalDocumentRepository retry invariants", () => {
 
   it("does not complete a run without persisted artifact metadata", async () => {
     await repository.createRun(runInput());
-    const claim = await repository.activateRunForWorkflow(
-      USER_ID,
-      RUN_ID,
-      "workflow-missing-artifact",
-    );
 
     await expect(
       repository.completeRunForCurrentRevision({
@@ -602,7 +527,6 @@ describe("LocalDocumentRepository retry invariants", () => {
     ).rejects.toThrow("Document artifact metadata is unavailable");
     await expect(repository.getRun(USER_ID, RUN_ID)).resolves.toMatchObject({
       status: "running",
-      stateVersion: claim.run.stateVersion,
     });
     await expect(repository.listRunEvents(USER_ID, RUN_ID)).resolves.toEqual([]);
   });

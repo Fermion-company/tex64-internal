@@ -73,7 +73,6 @@ beforeEach(async () => {
     idempotencyKey: "release-boundary",
     baseRevision: 1,
   });
-  await repository.activateRunForWorkflow(USER_ID, RUN_ID, "release-workflow");
   staged = artifactFor(PDF_A, 1);
   await repository.saveArtifact(staged);
 });

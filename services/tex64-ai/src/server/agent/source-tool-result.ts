@@ -1,7 +1,7 @@
 import {
   ResolveSourceResultSchema,
   type ResolveSourceResult,
-} from "@/server/agent/document-tools";
+} from "./document-tools";
 import {
   SourceProvenanceError,
   SourceRecordSchema,

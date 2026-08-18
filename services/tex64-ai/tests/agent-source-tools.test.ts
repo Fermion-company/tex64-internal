@@ -9,7 +9,7 @@ import type { SourceRecord } from "@/server/sources";
 import {
   MAX_SOURCE_TOOL_EXCERPT_CHARS,
   resolvedSourceToolResult,
-} from "@/workflows/document-agent/source-tool-result";
+} from "@/server/agent/source-tool-result";
 
 const USER_ID = "40000000-0000-4000-8000-000000000001";
 const DOCUMENT_ID = "40000000-0000-4000-8000-000000000002";
