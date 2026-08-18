@@ -988,7 +988,8 @@ export function DocumentWorkspace() {
                     workspacePdf.native
                       ? workspacePdf.building
                         ? "紙面を組み立てています…"
-                        : "ワークスペースをビルドすると、その紙面がここに出ます。"
+                        : (workspacePdf.failure ??
+                          "紙面を組み立てています…")
                       : agentWorking
                         ? "紙面を準備しています…"
                         : documentHasContent
