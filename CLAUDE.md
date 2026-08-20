@@ -62,7 +62,7 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 - `electron/services/openprism/` — AI エージェントループ（`run-loop.cjs` / `tools.cjs` / `llm-config.cjs` / `arxiv-service.cjs`）。
 - `electron/services/agent-*.cjs` — エージェントのプロンプト・ツール実行・編集安全ガード（`agent-tools-file.cjs` に編集の決定的ガード）。
-- `electron/services/env.cjs` — managed TeX 環境のインストール（`buildInstallProfile` = `scheme-full`）。
+- `electron/services/env.cjs` — managed TeX 環境のインストール（`INSTALL_VARIANTS` = full / light）と環境判定（`detectEnvironment`）。判定の純粋ロジックは `tex-detect.cjs`、パッケージ集合と欠落パッケージ解決は `tex-packages.cjs`。
 - `electron/services/texlab/` — texlab プロセスの spawn と JSON-RPC over stdio の中継。
 - `electron/services/{build,synctex,spell,math-ocr,terminal,indexer,search}.cjs` — ビルド / SyncTeX / スペル / 数式OCR / ターミナル / 索引 / 検索。
 - `web-src/math/wysiwyg/` — 数式 WYSIWYG サジェスト（コア機能）。`triggers-data/manual-part-*.ts` がトリガー辞書。
@@ -115,9 +115,37 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 ### TeX 環境（managed install）
 
-- **ワンクリックで `scheme-full`（CTAN 全部）を一括導入**する方針で確定。「軽量化」「scheme-small＋オンデマンド」「段階導入」を**蒸し返さない**。
-- 思想: 複雑さゼロで押すだけ、を最優先。速さ/容量より one-click simplicity。長い待ちは「実 % の進捗バー（install-tl/tlmgr の `[n/m]` を解析）」で許容される — **進捗の見せ方を磨く**のが仕事。
-- 実体は `electron/services/env.cjs`（`/Users/Shared/TeX64/texlive/<year>` へ管理者権限なしで導入）。
+**まず自動判定、次に 2 択**（2026-08-20 更新。旧方針の「scheme-full 一択」から変更）。
+設計と実測は [docs/tex-env-detection-and-install-choice.md](docs/tex-env-detection-and-install-choice.md)。
+
+- **既に TeX がある人にはインストールさせない**。`EnvService.detectEnvironment()`
+  （`electron/services/tex-detect.cjs`）が「TeX の有無・所有者（managed / system）・
+  ディストリ種別（MacTeX / MiKTeX / TinyTeX）・パッケージ網羅度」を返し、
+  十分なら選択肢自体を出さずに既存環境をそのまま使う。**ユーザーの TeX には絶対に書き込まない**。
+- **無い人には 2 択**（`INSTALL_VARIANTS` in `env.cjs`）。どちらも
+  `/Users/Shared/TeX64/texlive/<year>` へ管理者権限なしで導入し、ツリー構造は同一:
+  - `light` = `scheme-infraonly` + 厳選パッケージ（約 500 MB / 実測 2 分弱）— **既定・おすすめ**
+  - `full` = `scheme-full`（CTAN 全部、約 5 GB / 30–60 分）
+  - light → full は再インストールではなく `tlmgr install scheme-full` で昇格。
+    どちらで入れたかは managed root の `tex64-install.json` に記録する。
+    **記録が無いツリーを light とみなさない**（marker 以前の full かもしれない）。
+- **light のパッケージ集合の契約**（`tex-packages.cjs`）:
+  TinyTeX の `pkgs-custom.txt` + TeX64 用の追加 + `KK_STYLESHEET_PACKAGES`。
+  最後のものは `kkbookmaker/reference/styles/mainset-expl3tr.sty` の読み込み連鎖を
+  `tlmgr search --file` で TL パッケージ名に解決したもので、**この本のスタイルが
+  light だけでビルドできることが light の合格条件**。減らすときはこの前提を壊さないこと。
+  TeX Live のパッケージ名は LaTeX のパッケージ名と一致しない（empheq→mathtools、
+  subcaption→caption、tabularx→tools、jlreq-trimmarks→jlreq）ので、
+  リスト変更後は `tlmgr install --dry-run` で名前解決を確認する。
+- **`light` が成立する条件は「足りないパッケージの自動取得」**（TinyTeX の
+  `parse_packages()` 相当）。ビルド失敗ログ → `tlmgr search --file` → install →
+  再ビルドを**最大 5 ラウンド**（依存が連鎖するため 1 回では足りない）。
+  配線は `BuildService.setPackageInstaller()`。これを外すなら `light` も外すこと。
+- 思想は据え置き: **複雑さゼロで押すだけ**。2 択は「容量 vs もう二度と考えない」の
+  1 行トレードオフとして見せ、それ以上の設定 UI を足さない。長い待ちは
+  「実 % の進捗バー（install-tl/tlmgr の `[n/m]` を解析）」で許容される。
+- 蒸し返さないこと: **3 択以上への拡張**、パッケージの手動選択 UI、
+  ユーザー自身の TeX Live へ `tlmgr` を走らせること。
 
 ### texlab LSP
 

@@ -17,7 +17,11 @@ const DEFAULT_STATE: ProModeState = {
   ratios: [0.34, 0.33, 0.33],
   collapsed: { preview: false, source: false, reference: false, code: true },
 };
-export const PRO_PANE_MIN_PX = 96;
+// A pane narrower than its own header pushes the header's buttons out of the
+// pane, where overflow: hidden clips them and they stop taking clicks. So the
+// minimum is "the header still fits"; drag past it and the pane collapses to
+// its strip instead of becoming a sliver of dead controls.
+export const PRO_PANE_MIN_PX = 220;
 
 export type ProSplitterDragResult = { ratios: [number, number, number]; collapse: ProPane | null };
 
@@ -86,7 +90,10 @@ export const parseProModeState = (raw: string | null): ProModeState => {
     const collapsed = value.collapsed ?? {} as Record<ProPane, boolean>;
     return {
       enabled: value.enabled === true,
-      layout: value.layout === "source-reference-code" ? value.layout : "preview-source",
+      // Legacy: the 3-pane "source | reference | code" layout is retired with
+      // the reference window, so any stored layout normalizes to preview|source.
+      // Its type, CSS and splitter math are kept for a possible return.
+      layout: "preview-source",
       ratios: clampProRatios(Array.isArray(value.ratios) ? value.ratios : DEFAULT_STATE.ratios),
       collapsed: {
         preview: collapsed.preview === true,
@@ -146,6 +153,11 @@ export const initProModeUi = (deps: ProModeDeps) => {
   const scheduleLayout = () => requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   const apply = () => {
     document.documentElement.dataset.proMode = state.enabled ? "true" : "false";
+    // Pro-only sidebar surfaces (the stash) follow the mode, and the sidebar
+    // owns its own tab visibility, so tell it instead of reaching into it.
+    window.dispatchEvent(
+      new CustomEvent("tex64:pro-mode", { detail: { enabled: state.enabled } })
+    );
     root.dataset.proLayout = state.layout;
     if (switcher instanceof HTMLElement) switcher.hidden = !state.enabled;
     const canvasButton = document.getElementById("pro-canvas-open");

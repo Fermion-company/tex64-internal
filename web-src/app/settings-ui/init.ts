@@ -149,6 +149,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     getSettingsSnapshot,
     applySettingsPatch,
     checkEnvironmentStatus: envOps.checkEnvironmentStatus,
+    handleEnvDetectResult: envOps.handleEnvDetectResult,
     updateEnvStatus: envOps.updateEnvStatus,
     handleEnvInstallStart: envOps.handleEnvInstallStart,
     handleEnvInstallResult: envOps.handleEnvInstallResult,

@@ -388,6 +388,10 @@ export const initMain = () => {
   initProLivePreview({ getActiveGroup: editorSession.getActiveGroup });
   initProStashUi({
     getActiveGroup: editorSession.getActiveGroup,
+    revealStash: () => {
+      setActiveTab("stash");
+      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+    },
   });
   initProCaptureUi({
     getActiveGroup: editorSession.getActiveGroup,
@@ -765,7 +769,21 @@ export const initMain = () => {
   issuesUi = initIssuesUi(appContext, {
     parseIssueDetail: editorSession.parseIssueDetail,
     onFocusIssue: (issue) => {
-      editorSession.focusIssue(issue);
+      // An error opens *beside* what you are writing, not on top of it: the
+      // offending file goes into the other pane. Pro mode runs its own pane
+      // layout and hides the secondary group, so there we jump in place.
+      const detail = editorSession.parseIssueDetail(issue);
+      const proMode = document.documentElement.dataset.proMode === "true";
+      if (proMode || !detail.path) {
+        editorSession.focusIssue(issue);
+        return;
+      }
+      const groupKey =
+        editorSession.getActiveEditorGroupKey() === "secondary" ? "primary" : "secondary";
+      if (groupKey === "secondary" && !editorSession.getSplitViewEnabled()) {
+        editorSession.setSplitViewEnabled(true);
+      }
+      editorSession.focusIssue(issue, { groupKey });
     },
     onOpenRuntimeSettings: () => {
       setActiveTab("settings");

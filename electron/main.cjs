@@ -246,6 +246,10 @@ const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
+// Lets a failed build repair itself by installing the packages its log named.
+// Only ever touches the app-managed TeX Live; a user's own install is read-only
+// to us, and installMissingPackages() bails out when it is not ours.
+buildService.setPackageInstaller((log) => envService.installMissingPackages(log));
 let mathOcrService = null;
 let texizeService = null;
 let fermionEngineService = null;
@@ -1682,8 +1686,12 @@ ipcMain.on("tex64", (_event, message) => {
     miscHandlers.handleEnvCheck(message.command);
     return;
   }
+  if (type === "env:detect") {
+    miscHandlers.handleEnvDetect({ force: message.force === true });
+    return;
+  }
   if (type === "env:install") {
-    miscHandlers.handleEnvInstall(message.target);
+    miscHandlers.handleEnvInstall(message.target, message.variant);
     return;
   }
 });

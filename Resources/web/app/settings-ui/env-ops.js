@@ -2,6 +2,7 @@ import { createEnvStatusManager } from "../settings-env.js";
 import { TEX64_LINKS } from "../platform-links.js";
 import { openExternalUrl } from "./utils.js";
 import { uiText } from "../i18n.js";
+import { describeCoverage, describeDetection, INSTALL_VARIANT_LABELS, } from "../tex-env-report.js";
 // The full-screen Environment screen answers one question for the user: "can I
 // build right now, and if not, what do I press?" Under the hood every install
 // target funnels to the same managed TeX Live install, so the screen exposes a
@@ -14,7 +15,15 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
     const progressEl = document.getElementById("env-progress");
     const progressFill = document.getElementById("env-progress-fill");
     const progressLabel = document.getElementById("env-progress-label");
+    const detailEl = document.getElementById("env-detail");
+    const choiceEl = document.getElementById("env-choice");
+    const fullBtn = document.getElementById("env-choice-full");
+    const lightBtn = document.getElementById("env-choice-light");
     let installing = false;
+    // The structured detection report from the main process. Until it arrives the
+    // screen falls back to the per-command summary, so a detection failure degrades
+    // to the old single-button behaviour instead of an empty screen.
+    let detection = null;
     const setHeroState = (state) => {
         if (!(heroEl instanceof HTMLElement)) {
             return;
@@ -85,6 +94,50 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             progressLabel.textContent = label;
         }
     };
+    const setDetail = (text) => {
+        if (!(detailEl instanceof HTMLElement)) {
+            return;
+        }
+        const value = typeof text === "string" ? text.trim() : "";
+        detailEl.textContent = value;
+        detailEl.classList.toggle("is-hidden", !value);
+        detailEl.setAttribute("aria-hidden", value ? "false" : "true");
+    };
+    const setChoiceVisible = (visible) => {
+        if (!(choiceEl instanceof HTMLElement)) {
+            return;
+        }
+        choiceEl.classList.toggle("is-hidden", !visible);
+        choiceEl.setAttribute("aria-hidden", visible ? "false" : "true");
+    };
+    const renderChoiceLabels = () => {
+        for (const [variant, button] of [
+            ["light", lightBtn],
+            ["full", fullBtn],
+        ]) {
+            if (!(button instanceof HTMLElement)) {
+                continue;
+            }
+            const labels = INSTALL_VARIANT_LABELS[variant];
+            const badge = button.querySelector(".env-choice-badge");
+            const title = button.querySelector(".env-choice-title");
+            const detail = button.querySelector(".env-choice-detail");
+            const size = button.querySelector(".env-choice-size");
+            if (badge) {
+                // Blank keeps the badge row's height so both cards' titles stay aligned.
+                badge.textContent = labels.badge || "\u00a0";
+            }
+            if (title) {
+                title.textContent = labels.title;
+            }
+            if (detail) {
+                detail.textContent = labels.detail;
+            }
+            if (size) {
+                size.textContent = labels.size;
+            }
+        }
+    };
     const hasPromptedRuntimeSetup = () => {
         try {
             return localStorage.getItem(runtime.keys.runtimeSetupPromptedKey) === "1";
@@ -114,11 +167,14 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         markRuntimeSetupPrompted();
         (_b = (_a = runtime.deps).onRuntimeSetupNeeded) === null || _b === void 0 ? void 0 : _b.call(_a, summary);
     };
-    const showInstalling = () => {
+    const showInstalling = (variant = "light") => {
         installing = true;
         setHeroState("installing");
-        setHeroText("Setting up your TeX environment…", "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.");
-        setSetupButton({ visible: true, disabled: true, label: "Setting up…" });
+        setHeroText("Setting up your TeX environment…", variant === "light"
+            ? uiText("Installing the light TeX Live set (about 500 MB). This usually takes a few minutes — you can keep working in the meantime.", "軽量セットの TeX Live を導入中（約 500 MB）。通常は数分で終わります。その間も作業を続けられます。")
+            : uiText("Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.", "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30〜60 分かかります。その間も作業を続けられます。"));
+        setSetupButton({ visible: false });
+        setChoiceVisible(false);
         setInstallNote("");
         showProgress(true);
         setProgress(2, uiText("Starting…", "開始しています…"));
@@ -135,21 +191,63 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             setHeroState("checking");
             setHeroText("Checking your TeX environment…", "This only takes a moment.");
             setSetupButton({ visible: false });
+            setChoiceVisible(false);
+            setDetail("");
             return;
         }
+        const detectionLine = [describeDetection(detection), describeCoverage(detection)]
+            .filter(Boolean)
+            .join("\n");
+        setDetail(detectionLine);
         if (summary.runtimeReady) {
             setHeroState("ready");
             const optionalMissing = summary.missingRecommended.includes("latexindent");
-            setHeroText("Your TeX environment is ready.", optionalMissing
-                ? "You can build, format, and use SyncTeX. (Optional: latexindent was not detected.)"
-                : "You can build, format, and use SyncTeX right away.");
+            // A user who already had MacTeX should be told we are using *their* TeX
+            // rather than being offered a multi-gigabyte download they do not need.
+            const usingExisting = (detection === null || detection === void 0 ? void 0 : detection.source) === "system";
+            setHeroText("Your TeX environment is ready.", usingExisting
+                ? uiText("TeX64 found the TeX already installed on this computer and will use it as it is.", "この環境に既にある TeX を検出しました。そのまま使います。")
+                : optionalMissing
+                    ? "You can build, format, and use SyncTeX. (Optional: latexindent was not detected.)"
+                    : "You can build, format, and use SyncTeX right away.");
             setSetupButton({ visible: false });
             setInstallNote("");
+            setChoiceVisible(false);
+            // A managed light install can be grown into the full set in place.
+            if ((detection === null || detection === void 0 ? void 0 : detection.source) === "managed" &&
+                (detection === null || detection === void 0 ? void 0 : detection.managedVariant) === "light" &&
+                setupBtn instanceof HTMLButtonElement) {
+                setSetupButton({
+                    visible: true,
+                    disabled: false,
+                    label: uiText("Install the full package set", "フルパッケージを追加導入"),
+                });
+                return;
+            }
+            // Their own TeX builds, but it is a thin one (BasicTeX, TinyTeX-0). We
+            // cannot add packages to a tree we do not own, so the honest offer is to
+            // install ours alongside it — their TeX stays exactly as it is.
+            if ((detection === null || detection === void 0 ? void 0 : detection.source) === "system" && detection.recommendation.action === "expand") {
+                setHeroText("Your TeX environment is ready.", uiText("It builds, but its package set is thin. TeX64 can install its own TeX Live alongside it — yours is left untouched.", "ビルドはできますが、パッケージが不足しています。TeX64 専用の TeX Live を別途導入できます（既存の TeX はそのままです）。"));
+                if (choiceEl instanceof HTMLElement) {
+                    renderChoiceLabels();
+                    setChoiceVisible(true);
+                }
+            }
             return;
         }
         setHeroState("missing");
-        setHeroText("TeX environment is not set up yet.", "Press the button below and TeX64 will install everything you need automatically.");
-        setSetupButton({ visible: true, disabled: false, label: "Set up TeX environment" });
+        setHeroText("TeX environment is not set up yet.", uiText("Choose how much of TeX Live to install. Either way TeX64 installs it privately, without admin rights, and never touches any TeX you already have.", "TeX Live をどこまで入れるか選んでください。どちらも管理者権限なしで TeX64 専用の場所に導入し、既存の TeX には触れません。"));
+        // The choice replaces the old single button; the button stays as the fallback
+        // for a renderer whose markup predates the choice block.
+        if (choiceEl instanceof HTMLElement) {
+            renderChoiceLabels();
+            setChoiceVisible(true);
+            setSetupButton({ visible: false });
+        }
+        else {
+            setSetupButton({ visible: true, disabled: false, label: "Set up TeX environment" });
+        }
     };
     // The single environment screen is fully driven by the status summary, so the
     // former onboarding stepper is now a thin alias kept for existing callers.
@@ -168,9 +266,23 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             maybePromptRuntimeSetup(summary);
         },
     });
-    const { checkEnvironmentStatus, updateEnvStatus } = envManager;
-    const handleEnvInstallStart = (_payload) => {
-        showInstalling();
+    const { updateEnvStatus } = envManager;
+    // Per-command availability answers "can I build"; the detection report answers
+    // "with whose TeX, and how complete is it". Both are refreshed together.
+    const checkEnvironmentStatus = () => {
+        envManager.checkEnvironmentStatus();
+        runtime.deps.postToNative({ type: "env:detect" }, true);
+    };
+    const handleEnvDetectResult = (payload) => {
+        detection = payload && payload.report ? payload.report : null;
+        updateRuntimeSetupUi();
+    };
+    const startInstall = (variant) => {
+        showInstalling(variant);
+        runtime.deps.postToNative({ type: "env:install", target: "basictex", variant });
+    };
+    const handleEnvInstallStart = (payload) => {
+        showInstalling((payload === null || payload === void 0 ? void 0 : payload.variant) === "full" ? "full" : "light");
     };
     const handleEnvInstallResult = (payload) => {
         installing = false;
@@ -207,9 +319,19 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             if (setupBtn.disabled) {
                 return;
             }
-            showInstalling();
-            runtime.deps.postToNative({ type: "env:install", target: "basictex" });
+            // Without the choice block this is the only install control, so it runs the
+            // recommended variant — except on a managed light tree, where the button is
+            // relabelled as the upgrade to the full set.
+            startInstall((detection === null || detection === void 0 ? void 0 : detection.source) === "managed" && (detection === null || detection === void 0 ? void 0 : detection.managedVariant) === "light"
+                ? "full"
+                : "light");
         });
+    }
+    if (fullBtn instanceof HTMLButtonElement) {
+        fullBtn.addEventListener("click", () => startInstall("full"));
+    }
+    if (lightBtn instanceof HTMLButtonElement) {
+        lightBtn.addEventListener("click", () => startInstall("light"));
     }
     if (settingsRuntimeOpenTexDocs instanceof HTMLButtonElement) {
         settingsRuntimeOpenTexDocs.addEventListener("click", () => {
@@ -219,6 +341,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
     const getRuntimeStatusSummary = () => runtime.state.runtimeStatusSummary ? { ...runtime.state.runtimeStatusSummary } : null;
     return {
         checkEnvironmentStatus,
+        handleEnvDetectResult,
         updateEnvStatus,
         handleEnvInstallStart,
         handleEnvInstallResult,

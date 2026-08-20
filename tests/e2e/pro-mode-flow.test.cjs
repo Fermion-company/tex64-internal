@@ -3,16 +3,20 @@
  *
  * Drives the real Electron app the way a person does — real mouse clicks and
  * drags at real coordinates, real key presses — through every Pro affordance:
- * the mode switch, both split layouts, pane collapse/expand, the splitter, the
- * structure drawer, the live-preview toggle, the whole figure canvas (each
- * drawing tool, undo/redo, the plot card, the More menu), TikZ insertion, the
- * figure gallery, the stash tray and region capture.
+ * the mode switch, pane collapse/expand, the splitter, the structure drawer,
+ * the live-preview toggle, the whole figure canvas (each drawing tool,
+ * undo/redo, the plot card, the More menu), TikZ insertion, the stash panel
+ * and region capture.
+ *
+ * Retired surfaces it deliberately no longer drives: the layout switcher, the
+ * reference pane / 3-pane layout, the figure gallery and the split button.
  *
  * It also guards two things that hands-on runs kept breaking:
  *   - the canvas must render in the app's locale. The i18n source language is
  *     English and initI18n() defaults every fresh profile to "en", so a
  *     hard-coded Japanese literal is untranslatable AND wrong for the default.
- *   - the stash tray must not start expanded on top of the editor.
+ *   - the stash must be reachable from the sidebar in Pro mode, and gone from
+ *     the sidebar outside it.
  *
  * Run:
  *   TEX64_E2E=1 node --test tests/e2e/pro-mode-flow.test.cjs
@@ -123,9 +127,16 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
         const el = document.getElementById(id);
         return !!el && !el.hidden && getComputedStyle(el).display !== "none";
       };
-      return { draw: shown("pro-canvas-open"), figures: shown("pro-canvas-gallery"), layout: shown("pro-layout-switcher") };
+      return {
+        draw: shown("pro-canvas-open"),
+        // Retired: hidden in every mode now.
+        figures: shown("pro-canvas-gallery"),
+        layout: shown("pro-layout-switcher"),
+        split: shown("editor-split-button"),
+        reference: shown("pro-reference-pane"),
+      };
     });
-    assert.deepEqual(visible, { draw: true, figures: true, layout: true });
+    assert.deepEqual(visible, { draw: true, figures: false, layout: false, split: false, reference: false });
   });
 
   await t.test("layout 1 shows the preview pane, and it collapses and reopens", async () => {
@@ -149,28 +160,47 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     );
   });
 
-  await t.test("dragging the splitter resizes the panes", async () => {
+  await t.test("dragging the splitter resizes the panes, and past the minimum collapses them", async () => {
     const ratio = () =>
       page.evaluate(() => getComputedStyle(document.getElementById("editor-groups")).getPropertyValue("--pro-pane-a"));
+    const isCollapsed = () =>
+      page.evaluate(() => document.getElementById("editor-groups").classList.contains("is-preview-collapsed"));
+    const dragSplitter = async (dx) => {
+      const s = await page.locator("#pro-splitter-primary").boundingBox();
+      await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(s.x + dx, s.y + s.height / 2, { steps: 12 });
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+    };
+
+    // Left widens the preview: a drag that leaves both panes above
+    // PRO_PANE_MIN_PX just moves the boundary.
     const before = await ratio();
-    const s = await page.locator("#pro-splitter-primary").boundingBox();
-    await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(s.x + 200, s.y + s.height / 2, { steps: 12 });
-    await page.mouse.up();
-    await page.waitForTimeout(400);
+    await dragSplitter(-200);
     assert.notEqual((await ratio()).trim(), before.trim(), "splitter drag left the ratio unchanged");
+    assert.equal(await isCollapsed(), false, "a drag that stays above the minimum should not collapse a pane");
+
+    // Past the minimum the pane collapses to its strip rather than becoming a
+    // sliver whose header buttons overflow the pane and stop taking clicks.
+    await dragSplitter(400);
+    assert.equal(await isCollapsed(), true, "dragging past the minimum did not collapse the preview");
+    const strip = await page.locator("#pro-preview-pane").boundingBox();
+    await page.mouse.click(strip.x + strip.width / 2, strip.y + strip.height / 2);
+    await page.waitForTimeout(500);
+    assert.equal(await isCollapsed(), false, "the preview did not reopen from its strip");
+
+    // Whatever the drags did, the header the later subtests click has to fit.
+    const fits = await page.evaluate(() => {
+      const header = document.querySelector("#pro-preview-pane .pro-pane-header");
+      return header.scrollWidth <= header.clientWidth;
+    });
+    assert.ok(fits, "the preview header overflows its pane, so its buttons are unclickable");
   });
 
-  await t.test("layout 2 shows the reference pane, and layout 1 comes back", async () => {
-    await page.click('[data-pro-layout="source-reference-code"]');
-    await page.waitForTimeout(900);
-    const ref = await page.locator("#pro-reference-pane").boundingBox();
-    assert.ok(ref && ref.width > 100, `reference pane not laid out: ${JSON.stringify(ref)}`);
-    assert.equal(await page.evaluate(() => document.getElementById("editor-groups").dataset.proLayout), "source-reference-code");
-
-    await page.click('[data-pro-layout="preview-source"]');
-    await page.waitForTimeout(800);
+  await t.test("Pro mode stays on the preview | source layout", async () => {
+    // The 3-pane layout went out with the reference window: even a stored
+    // "source-reference-code" must normalize back to preview | source.
     assert.equal(await page.evaluate(() => document.getElementById("editor-groups").dataset.proLayout), "preview-source");
   });
 
@@ -200,20 +230,23 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     await page.waitForTimeout(600);
   });
 
-  await t.test("the stash tray starts collapsed instead of covering the editor", async () => {
-    const tray = await page.evaluate(() => {
-      const el = document.querySelector(".pro-stash");
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
+  await t.test("the stash is a Pro-only sidebar tab", async () => {
+    const stash = await page.evaluate(() => {
+      const tab = document.querySelector('.tab[data-tab="stash"]');
+      const panel = document.querySelector('.panel[data-panel="stash"]');
       return {
-        collapsed: el.classList.contains("is-collapsed"),
-        width: Math.round(r.width),
-        label: (el.querySelector("header strong")?.textContent || "").trim(),
+        tabVisible: !!tab && tab.getBoundingClientRect().width > 0,
+        floating: !!document.querySelector("body > .pro-stash"),
+        title: (panel?.querySelector(".panel-title")?.textContent || "").trim(),
+        addSelection: !!panel?.querySelector("button[data-stash-selection]"),
+        retired: Array.from(panel?.querySelectorAll("button[data-stash-copy], button[data-stash-paste], button[data-stash-insert]") || []).length,
       };
     });
-    assert.ok(tray, "the stash tray is missing in Pro mode");
-    assert.ok(tray.collapsed, `the stash tray starts expanded (${tray.width}px) over the editor`);
-    assert.ok(tray.label, "the collapsed tray shows no name, so nobody can find it");
+    assert.ok(stash.tabVisible, "the stash tab is missing from the sidebar in Pro mode");
+    assert.equal(stash.floating, false, "the old floating stash tray is still mounted on <body>");
+    assert.ok(stash.title, "the stash panel has no title, so nobody can tell what it is");
+    assert.ok(stash.addSelection, "the stash panel is missing its add-selection button");
+    assert.equal(stash.retired, 0, "the retired paste / copy-all / insert-all buttons are back in the stash panel");
   });
 
   await t.test("the canvas opens with every drawing tool", async () => {
@@ -422,6 +455,48 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     await page.waitForTimeout(300);
   });
 
+  await t.test("the name prompt lands centred, opaque and styled", async () => {
+    // Cancelling writes nothing, so this is a safe way to open the prompt.
+    // The More button toggles, and the previous subtest may have left it open.
+    const menuOpen = () =>
+      page.evaluate(() => document.querySelector('[data-action="more"]')?.getAttribute("aria-expanded") === "true");
+    if (!(await menuOpen())) {
+      await page.click('[data-action="more"]');
+      await page.waitForTimeout(400);
+    }
+    assert.ok(await menuOpen(), "the More menu would not open");
+    await page.click('[data-action="sty"]');
+    await page.waitForTimeout(500);
+    const prompt = await page.evaluate(() => {
+      const pop = document.querySelector(".pro-canvas-text-popover");
+      if (!pop) return null;
+      const box = pop.getBoundingClientRect();
+      const panel = getComputedStyle(pop);
+      const ok = pop.querySelector("button.is-primary");
+      const okBox = ok?.getBoundingClientRect();
+      const okStyle = ok && getComputedStyle(ok);
+      return {
+        offCentre: Math.abs(box.x + box.width / 2 - window.innerWidth / 2),
+        seeThrough: panel.backgroundColor === "rgba(0, 0, 0, 0)" && panel.backgroundImage === "none",
+        okStyled: !!okStyle && okStyle.borderRadius !== "0px" && okStyle.backgroundColor !== "rgba(0, 0, 0, 0)",
+        okReachable: !!okBox && pop.contains(document.elementFromPoint(okBox.x + okBox.width / 2, okBox.y + okBox.height / 2)),
+      };
+    });
+    assert.ok(prompt, "the .sty export prompt never opened");
+    assert.ok(prompt.offCentre < 2, `the prompt is not centred (off by ${prompt.offCentre}px)`);
+    assert.equal(prompt.seeThrough, false, "the prompt panel renders see-through");
+    assert.ok(prompt.okStyled, "the OK button fell back to unstyled native chrome");
+    assert.ok(prompt.okReachable, "something covers the prompt's OK button");
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+    assert.equal(
+      await page.evaluate(() => !!document.querySelector(".pro-canvas-text-popover")),
+      false,
+      "Escape did not dismiss the prompt"
+    );
+  });
+
   await t.test("inserting TikZ writes the figure into the document and closes the canvas", async () => {
     await page.click('[data-action="tikz"]');
     await page.waitForTimeout(2500);
@@ -437,21 +512,8 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     assert.ok(await page.evaluate(() => !document.querySelector("svg.pro-canvas-svg")), "the canvas stayed open after inserting");
   });
 
-  await t.test("the gallery lists the inserted figure and Esc closes it", async () => {
-    await page.click("#pro-canvas-gallery");
-    await page.waitForTimeout(3000);
-    const rows = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".pro-canvas-gallery-row .pro-canvas-gallery-label"))
-        .map((n) => (n.textContent || "").trim()));
-    assert.ok(rows.length > 0, "the gallery listed no figures right after an insert");
-
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(600);
-    assert.equal(await page.evaluate(() => !!document.querySelector(".pro-canvas-gallery-modal")), false, "Esc did not close the gallery");
-  });
-
-  await t.test("the stash takes an editor selection and clears it", async () => {
-    await page.click(".pro-stash [data-stash-toggle]");
+  await t.test("the stash takes an editor selection, copies it and clears it", async () => {
+    await page.click('.tab[data-tab="stash"]');
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const editor = window.monaco?.editor?.getEditors?.()[0];
@@ -465,6 +527,16 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     assert.ok(
       await page.evaluate(() => document.querySelectorAll(".pro-stash-list > *").length) > 0,
       "the stash stayed empty after + Selection"
+    );
+
+    // The point of the move: fragments go back out to the clipboard. Read the
+    // tray's own status instead of the clipboard, which needs a permission the
+    // headless run does not necessarily grant.
+    await page.click(".pro-stash-item .pro-stash-item-actions button");
+    await page.waitForTimeout(500);
+    assert.ok(
+      (await page.evaluate(() => (document.querySelector("[data-stash-status]")?.textContent || "").trim())).length > 0,
+      "the per-item copy button gave no feedback at all"
     );
 
     await page.click("[data-stash-clear]");

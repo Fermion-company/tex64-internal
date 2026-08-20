@@ -123,8 +123,13 @@
         <div class="top-actions">
           <div class="pro-mode-controls" aria-label="Pro mode layout">
             <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
-            <button id="pro-canvas-gallery" type="button" title="Every figure in this document" hidden>⊞ Figures</button>
-            <div id="pro-layout-switcher" class="pro-layout-switcher" aria-label="Pro layout" hidden>
+            <!-- Legacy: the figure gallery button is hidden (theme.css). The
+                 gallery itself still works if the rule is dropped. -->
+            <button id="pro-canvas-gallery" type="button" data-legacy="true" title="Every figure in this document" hidden>⊞ Figures</button>
+            <!-- Legacy: hidden for now. The two Pro layouts still work and the
+                 chosen one is persisted; only this top-bar control is retired.
+                 Re-enable by restoring the .pro-layout-switcher--legacy class. -->
+            <div id="pro-layout-switcher" class="pro-layout-switcher" data-legacy="true" aria-label="Pro layout" hidden>
               <button type="button" data-pro-layout="preview-source" aria-pressed="true" title="Source | Preview" aria-label="Source and preview">
                 <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
                   <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
@@ -174,10 +179,13 @@
               <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
+          <!-- Legacy: hidden for now (theme.css). The split view still works,
+               it just has no top-bar button any more. -->
           <button
             id="editor-split-button"
             type="button"
             class="topbar-layout-toggle"
+            data-legacy="true"
             aria-label="division"
             title="division"
           >
@@ -285,6 +293,22 @@
                   <path d="M6 20h12"></path>
                   <path d="M7 15l3.5-3.5 4-4a2.5 2.5 0 0 1 3.5 0l.5.5-8 8-3 1z"></path>
                   <path d="M14.5 6.5l3 3"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              data-tab="stash"
+              aria-selected="false"
+              aria-label="Stash"
+              title="Stash"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 13h4l1.5 3h5l1.5-3h4"></path>
+                  <path d="M6.5 5h11l2.5 8v6H4v-6z"></path>
                 </svg>
               </span>
             </button>
@@ -494,6 +518,10 @@
                 </div>
               </div>
             </div>
+          </div>
+          <div class="panel" data-panel="stash">
+            <!-- Header and body are built by web-src/app/pro-stash-ui.ts so the
+                 whole tray stays in one place with its uiText() strings. -->
           </div>
           <div class="panel no-header" data-panel="ai">
             <div class="panel-header">
@@ -1125,6 +1153,21 @@
                         <div class="env-hero-sub" id="env-hero-sub">This only takes a moment.</div>
                       </div>
                     </div>
+                    <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
+                    <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
+                      <button class="env-choice-card is-primary" id="env-choice-light" type="button">
+                        <span class="env-choice-badge">Recommended</span>
+                        <span class="env-choice-title">Light</span>
+                        <span class="env-choice-detail">Ready in minutes. Anything a document needs later installs itself on first use.</span>
+                        <span class="env-choice-size">about 500 MB · a few minutes</span>
+                      </button>
+                      <button class="env-choice-card" id="env-choice-full" type="button">
+                        <span class="env-choice-badge">&nbsp;</span>
+                        <span class="env-choice-title">Everything</span>
+                        <span class="env-choice-detail">Every CTAN package up front, so the machine never needs the network again.</span>
+                        <span class="env-choice-size">about 5 GB · 30–60 min</span>
+                      </button>
+                    </div>
                     <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
                       <div class="env-progress-track">
                         <div class="env-progress-fill" id="env-progress-fill"></div>
@@ -1346,7 +1389,10 @@
               </div>
             </div>
 
-            <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-pro-pane="reference" aria-hidden="true">
+            <!-- Legacy: the reference window is hidden (theme.css) and the
+                 3-pane layout that showed it is retired in parseProModeState.
+                 Markup and viewer wiring are kept for a possible return. -->
+            <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-legacy="true" data-pro-pane="reference" aria-hidden="true">
               <header class="pro-pane-header">
                 <span id="pro-reference-title">Reference</span>
                 <span class="pro-pane-actions">

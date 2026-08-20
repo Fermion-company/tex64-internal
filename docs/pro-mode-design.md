@@ -39,6 +39,12 @@ Pro モードはトップバーのトグルで出入りする。2 つの分割�
 
 - ドラッグでスムーズにリサイズ（既存の `--split-primary`/`--split-secondary` CSS 変数方式を 3 ペインへ拡張）。
 - 各ペインはワンクリックで折り畳み/展開。比率は localStorage に永続化。
+- **開いているペインの最小幅は `PRO_PANE_MIN_PX`（220px）**。これより狭くドラッグしたら
+  細くするのではなく**ストリップへ折り畳む**。基準は「ヘッダが収まること」: ペインが
+  ヘッダより狭いと `.pro-pane-actions` の内容が `justify-content: flex-end` のまま
+  左へはみ出し、`.pro-pane { overflow: hidden }` に切られて **Live / ⌖ Capture が
+  クリックを受け付けなくなる**（実際に起きた不具合。2026-08-20 修正）。
+  保険として `.pro-pane-actions button` は `flex-shrink: 1; min-width: 0` で潰れる側に倒す。
 - 参考ペインは PDF / 画像を開ける（既存 viewer.ts / pdf-viewer.html を流用）。
 
 ## 機能
@@ -55,14 +61,34 @@ macOS のスクリーンショット（Cmd+Shift+4）風の矩形選択を、プ
 - **翻訳**: OCR 結果を任意言語へ翻訳してから挿入（texize の翻訳層と同じ API 系統）。
 - **画像化**: 選択範囲を PNG としてプロジェクトの assets に保存し、`\includegraphics` 断片を
   即挿入できる UI を出す。
-- **スタッシュへ**: 下記トレイに送る。
+- **スタッシュへ**: 下記スタッシュへ送る（サイドバーの Stash タブが自動で開く）。
 
-### 2. スタッシュトレイ + AI 一括編集
+### 2. スタッシュ（サイドバータブ） + AI 一括編集
 
 DropOver のイメージ。選択範囲（キャプチャ画像・TeX 断片・テキスト）を番号付きで一時保持し、
 いくつか揃ったら「1と2を入れ替え、5はもっと短く、6は丸々カット」のような自然言語コメントを
 AI に渡して一括編集した結果を得る。結果は差分表示して挿入/置換できる。
 AI バックエンドは OpenAI 互換 API（既存 `api/v2/ai/openai` プロキシ経由）。
+
+置き場所は**サイドバーの Stash タブ**（`.panel[data-panel="stash"]`、Pro モードのときだけ出る）。
+浮遊トレイは廃止した（エディタを覆う・キャンバスと z-index を争う・畳むと使えないの三重苦だった）。
+
+**クリップボードとの往復が前提**:
+
+- 各項目に **コピー** ボタン。テキストは `writeText`、画像は `ClipboardItem` で PNG のまま渡す
+  （`ClipboardItem` が無い環境は data URL のテキストへフォールバック）。
+- 項目にフォーカスして **Cmd/Ctrl+C** でもコピー。断片の `pre` は `user-select: text` で、
+  部分選択したままのクリックでは展開トグルを発火させない（選択が消えるため）。
+- 並べ替えのドラッグハンドルは**番号バッジ**。行全体を draggable にすると本文が選択できない。
+- **貼り付け**: パネル内の Cmd+V（`paste` イベント）と、ドロップゾーンへの画像ファイル /
+  テキストのドロップ。`＋ 貼り付け` ボタン（`navigator.clipboard.read()`）は**撤去済み**
+  （2026-08-20）— Cmd+V と重複していたため。追加ボタンは **「選択範囲を追加」1 つだけ**。
+- 項目の操作ボタンは 2×2: 左列に コピー / ×（削除、hover で出る）、
+  **右列に ↑ / ↓ を縦に揃える**（`.is-copy` / `.is-remove` / `.is-move-up` / `.is-move-down`
+  の `grid-area` 固定。DOM 順に依存させない）。
+- **全部コピー / 全部をカーソル位置に挿入** のフッターは**撤去済み**（2026-08-20）。
+  項目ごとのコピーで足り、パネル下部を占有していたため。連結ヘルパ `stashClipboardText`
+  （テキストを `\n\n` 連結、画像は「N 件除外」）は AI 編集経路のためエクスポートのまま残す。
 
 ### 3. syntax highlight 強化
 
@@ -98,8 +124,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
   `%% tex64-figure: <base64 シーン JSON>` + シーン外コードのハッシュを埋め、そこから再編集。
   コメント以降が手編集されていたら detached 扱いで警告（マージはしない）。
 - **キャンバス描画はハイブリッド**: ドラッグ等の操作中は自前 SVG 近似、操作確定・アイドル時に
-  fermion-tex-engine で実コンパイルした見た目（プロジェクトのプリアンブル反映可）に差し替える。
-  TikZ レンダラは自作しない。
+  fermion-tex-engine で実コンパイルした見た目に差し替える。TikZ レンダラは自作しない。
+  **トグルは持たない**（2026-08-20）: エンジンがあればプレビューは常時 ON、root 文書の
+  プリアンブルは読めれば常に適用し、それでコンパイルが落ちたら自動でプリアンブルなしに
+  フォールバックして「プリアンブル起因の可能性」と伝える。
 - **スコープは制約しない**。座標スープ回避は語彙制限ではなく、下記の「構造を持った生成」で行う。
 
 #### 綺麗な TikZ を保つための生成規則
@@ -164,9 +192,12 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - texize 側: `ocr2tex/serve.py`（stdio JSONL 常駐サーバー、texize リポジトリ）
    - main 側: `electron/services/texize.cjs` + `tex64:texize:*` IPC + `tex64:files:write-base64`
    - renderer 側: `web-src/app/pro-capture-ui.ts` + pdf-viewer.js の `capture-region`
-3. **P3**: スタッシュトレイ + AI 一括編集 — **完了 (2026-08-12)**
+3. **P3**: スタッシュ + AI 一括編集 — **完了 (2026-08-12)**
    - `web-src/app/pro-stash-ui.ts`、AI は `completeSingleChat`（openprism run-loop から抽出）+ `tex64:ai:complete`
    - エディタ右クリックは monaco `addAction`（`tex64.pro-stash-add-selection`）
+   - 浮遊トレイ → サイドバータブへ移設 + クリップボード往復 (2026-08-20)。タブ登録は
+     `config.ts` の `TAB_KEYS` / `sidebar-ui.ts` の `primarySidebarTabs`、Pro 以外では
+     `tex64:pro-mode` イベント + CSS で消える
 4. **P4**: syntax highlight 強化（expl3・embedded Lua）/ 構造ジャンプメニュー（`pro-structure-ui.ts`、Cmd/Ctrl+Alt+O）— **完了 (2026-08-12)**
 5. **P5**: fermion-tex-engine ライブプレビュー統合 — **完了 (2026-08-12)**
    - エンジンは `/Users/majinkuu/Desktop/fermion-tex-engine`（`node server.js`、POST /edit + SSE /events + 内蔵ビューア、`TEX64_FERMION_ENGINE_DIR` で上書き可）
@@ -175,10 +206,10 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - CSP は `frame-src http://127.0.0.1:*` のみ追加（`connect-src` 不変、編集は IPC 経由）
 6. **C1–C4**: 作図キャンバス（機能 6 参照）— **全フェーズ完了 (2026-08-13)**。
 7. **D1–D3**: キャンバスのプロジェクト連動 — **完了 (2026-08-13)**。仕様:
-   [pro-canvas-d-spec.md](pro-canvas-d-spec.md)。Doc トグル（root 文書のプリアンブルを
-   standalone に verbatim 注入、失敗時は自動でプリアンブルなし再試行）、プロジェクト
-   `\tikzset` スタイルの読み取り専用取り込み（`scene.styles` とは分離、.sty エクスポート
-   非汚染）、二重罫（`double distance`）、X/Y/W/H 数値入力。root 検出は既存
+   [pro-canvas-d-spec.md](pro-canvas-d-spec.md)。root 文書のプリアンブルを standalone に
+   verbatim 注入（失敗時は自動でプリアンブルなし再試行）、二重罫（`double distance`）、
+   X/Y/W/H 数値入力。**Doc トグルと、プロジェクト `\tikzset` スタイルのチップ取り込みは
+   撤去済み（2026-08-20）** — プリアンブルは常時適用に、スタイルチップはインスペクタごと廃止。root 検出は既存
    `WorkspaceManager.rootInfo()` を再利用し、`tex64:files:read-text`（2MiB 上限、
    `workspace.readFile` の既存ガードに委譲）を追加。
 8. **G1–G3**: mathcha 系 UX 全面改修 — **完了 (2026-08-13)**。仕様:
@@ -334,9 +365,9 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
      `dataset` 値・比較対象は置換してはいけない（キーが表示文字列と同一なら `[uiText(...)]:` の
      計算プロパティにする）。`innerHTML` テンプレート内の属性は
      `title="${uiText(...)}"` と `${}` ごと書く（クォートを食うと属性値が壊れる）。
-   - **スタッシュトレイは畳んだ状態で始める**（`parseProStashUiState` の既定 `collapsed: true`）。
-     開いた状態は 340px のパネルがエディタ右下に浮き、初回起動でまさにキャンバスが挿入したコードを覆っていた。
-     畳めば名前と件数だけのピルになり、隠さずに見つけられる。
+   - **スタッシュは浮遊トレイをやめてサイドバータブにした** (2026-08-20)。340px のパネルがエディタ右下に
+     浮くと、初回起動でまさにキャンバスが挿入したコードを覆う・キャンバスと z-index を争う・畳むと使えない。
+     サイドバーなら幅も開閉も既存の仕組みに乗り、`revealStash` でキャプチャ時に自分で開ける。
    - **空のシーンはコンパイルしない**（`compileNow` の早期 return）。組む物が無いのに「コンパイル中…」の
      チップだけが出て何も起きない、という I1 監査残の再現だった。
    - 左ツールレールは 32px 幅で `text-overflow: ellipsis`。**5〜6 文字を超えるラベルは `Rect…` と切れる**ので、

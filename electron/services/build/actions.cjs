@@ -3,6 +3,10 @@ const path = require("path");
 
 const { isEnvMissingMessage, pickJobNameFromLatexmkArgs } = require("./utils.cjs");
 
+// Package dependency chains are short but real; five rounds covers every case we
+// have seen while keeping a pathological document from rebuilding forever.
+const MAX_PACKAGE_REPAIR_ROUNDS = 5;
+
 module.exports = (BuildService) => {
   BuildService.prototype.build = async function (
     rootPath,
@@ -114,6 +118,9 @@ module.exports = (BuildService) => {
 
     const startedAt = Date.now();
     let output = "";
+    // The most recent latexmk run on its own, used to decide what is still
+    // missing after a package repair round.
+    let lastOutput = "";
     let status = 1;
     try {
       const result = await this.runLatexmk(rootPath, mainFileName, engine, {
@@ -122,6 +129,7 @@ module.exports = (BuildService) => {
         hasExplicitOutDirArg,
       });
       output = result.output;
+      lastOutput = result.output;
       status = result.status;
       if (result.cancelled === true || this.cancelRequested) {
         return {
@@ -166,6 +174,7 @@ module.exports = (BuildService) => {
           .filter(Boolean)
           .join("\n");
         status = fallback.status;
+        lastOutput = fallback.output;
         if (fallback.cancelled === true || this.cancelRequested) {
           return {
             kind: "cancelled",
@@ -184,6 +193,68 @@ module.exports = (BuildService) => {
             action: "open-runtime",
           };
           return { kind: "failure", summary: issue.message, issues: [issue] };
+        }
+      }
+    }
+
+    // A light TeX install is only safe if a missing package fixes itself. When the
+    // build failed on a file we can install, fetch it and rebuild — the same
+    // detect/repair/retry shape as the xypdf fallback above. Several rounds are
+    // needed in practice because packages pull in packages (mdframed -> zref ->
+    // needspace), and each round only sees the file LaTeX stopped on.
+    if (typeof this.packageInstaller === "function") {
+      const attempted = new Set();
+      for (let round = 0; round < MAX_PACKAGE_REPAIR_ROUNDS; round += 1) {
+        if (status === 0 || this.cancelRequested) {
+          break;
+        }
+        let repair = null;
+        try {
+          // Only the newest run's log: earlier rounds' errors are already fixed,
+          // and re-resolving them would cost a tlmgr search each time.
+          repair = await this.packageInstaller(lastOutput);
+        } catch {
+          break;
+        }
+        const installed = (Array.isArray(repair?.installed) ? repair.installed : []).filter(
+          (name) => !attempted.has(name)
+        );
+        // No new package means the next rebuild would fail identically.
+        if (installed.length === 0) {
+          break;
+        }
+        for (const name of installed) {
+          attempted.add(name);
+        }
+        let retry = null;
+        try {
+          retry = await this.runLatexmk(rootPath, mainFileName, engine, {
+            outDir,
+            extraArgs,
+            hasExplicitOutDirArg,
+          });
+        } catch {
+          // Keep the original failure; the retry is a bonus, never a new failure
+          // mode.
+          break;
+        }
+        lastOutput = retry.output;
+        output = [
+          output,
+          "",
+          `[tex64] Installed missing package(s): ${installed.join(", ")}. Rebuilding.`,
+          retry.output,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        status = retry.status;
+        if (retry.cancelled === true || this.cancelRequested) {
+          return {
+            kind: "cancelled",
+            summary: "Build cancelled.",
+            issues: [],
+            log: output,
+          };
         }
       }
     }

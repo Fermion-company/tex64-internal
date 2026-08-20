@@ -1,3 +1,4 @@
+import type { TexEnvReport } from "../tex-env-report.js";
 import type { AppSettingsSnapshot, BuildProfile, EditorFormatSettings, FormatSettingsPayload, PlatformAuthSnapshot, PlatformUpdateSnapshot, PlatformUpdateStatusSnapshot } from "../types.js";
 import type { AppearanceTheme } from "../appearance.js";
 import type { EnvRegistryApi } from "../env-registry-ui.js";
@@ -37,8 +38,9 @@ export type SettingsUiApi = {
   getSettingsSnapshot: () => AppSettingsSnapshot;
   applySettingsPatch: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
   checkEnvironmentStatus: () => void;
+  handleEnvDetectResult: (payload: { report?: TexEnvReport | null; error?: string }) => void;
   updateEnvStatus: (command: string, available: boolean) => void;
-  handleEnvInstallStart: (payload: { target?: string }) => void;
+  handleEnvInstallStart: (payload: { target?: string; variant?: string }) => void;
   handleEnvInstallResult: (payload: { target?: string; success?: boolean; message?: string }) => void;
   handleEnvInstallProgress: (payload: {
     phase?: string;

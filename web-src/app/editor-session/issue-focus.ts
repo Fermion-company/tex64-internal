@@ -4,8 +4,13 @@ import type { EditorSessionCoreOps } from "./core-ops.js";
 import type { EditorSessionIssueOps } from "./issue-ops.js";
 import type { EditorSessionNavigationOps } from "./navigation-ops.js";
 
+export type FocusIssueOptions = {
+  /** Where to open the offending file. Defaults to the active group. */
+  groupKey?: "primary" | "secondary";
+};
+
 export type EditorSessionIssueFocusOps = {
-  focusIssue: (issue: IssueItem) => void;
+  focusIssue: (issue: IssueItem, options?: FocusIssueOptions) => void;
 };
 
 export const createEditorSessionIssueFocusOps = (
@@ -17,8 +22,9 @@ export const createEditorSessionIssueFocusOps = (
     requestOpenFile: (path: string, groupKey: "primary" | "secondary", force?: boolean) => boolean;
   }
 ): EditorSessionIssueFocusOps => {
-  const focusIssue = (issue: IssueItem) => {
+  const focusIssue = (issue: IssueItem, options: FocusIssueOptions = {}) => {
     const activeGroup = coreOps.getActiveGroup();
+    const targetKey = options.groupKey ?? coreOps.getActiveEditorGroupKey();
     const monacoApi = runtime.deps.getMonacoApi();
     if (!activeGroup.editor || !monacoApi) {
       return;
@@ -28,7 +34,7 @@ export const createEditorSessionIssueFocusOps = (
       issue.severity === "warning" ? "issue-line-warning" : "issue-line-highlight";
     if (detail.path && detail.line) {
       issueOps.clearIssueHighlight();
-      navigationOps.jumpToFileLine(detail.path, detail.line, coreOps.getActiveEditorGroupKey(), {
+      navigationOps.jumpToFileLine(detail.path, detail.line, targetKey, {
         className,
         force: true,
       });
@@ -36,7 +42,7 @@ export const createEditorSessionIssueFocusOps = (
     }
     if (detail.path && !detail.line) {
       issueOps.clearIssueHighlight();
-      deps.requestOpenFile(detail.path, coreOps.getActiveEditorGroupKey(), true);
+      deps.requestOpenFile(detail.path, targetKey, true);
       return;
     }
     if (!detail.line) {
