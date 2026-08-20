@@ -8,7 +8,7 @@ export const createMathWysiwygRuntime = (deps) => {
         }
         Promise.resolve().then(task);
     };
-    const resolveMruStorageKey = () => { var _a, _b, _c; return (_c = (_b = (_a = deps.getMruStorageKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : deps.mruStorageKey) !== null && _c !== void 0 ? _c : DEFAULT_MRU_STORAGE_KEY; };
+    const resolveMruStorageKey = () => { var _a; var _b, _c; return (_c = (_b = (_a = deps.getMruStorageKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : deps.mruStorageKey) !== null && _c !== void 0 ? _c : DEFAULT_MRU_STORAGE_KEY; };
     const panel = document.createElement("div");
     panel.className = "math-wysiwyg-panel";
     panel.setAttribute("role", "listbox");

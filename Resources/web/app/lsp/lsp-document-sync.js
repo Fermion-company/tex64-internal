@@ -22,13 +22,14 @@ export class LspDocumentSync {
         return id === "bibtex" ? "bibtex" : "latex";
     }
     start() {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
-        const models = (_d = (_c = (_b = (_a = this.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.getModels) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _d !== void 0 ? _d : [];
+        var _a, _b, _c, _d, _e, _f, _g;
+        var _h;
+        const models = (_h = (_c = (_b = (_a = this.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.getModels) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _h !== void 0 ? _h : [];
         models.forEach((model) => this.openModel(model));
-        if ((_f = (_e = this.monaco) === null || _e === void 0 ? void 0 : _e.editor) === null || _f === void 0 ? void 0 : _f.onDidCreateModel) {
+        if ((_e = (_d = this.monaco) === null || _d === void 0 ? void 0 : _d.editor) === null || _e === void 0 ? void 0 : _e.onDidCreateModel) {
             this.disposables.push(this.monaco.editor.onDidCreateModel((model) => this.openModel(model)));
         }
-        if ((_h = (_g = this.monaco) === null || _g === void 0 ? void 0 : _g.editor) === null || _h === void 0 ? void 0 : _h.onWillDisposeModel) {
+        if ((_g = (_f = this.monaco) === null || _f === void 0 ? void 0 : _f.editor) === null || _g === void 0 ? void 0 : _g.onWillDisposeModel) {
             this.disposables.push(this.monaco.editor.onWillDisposeModel((model) => this.closeModel(model)));
         }
     }
@@ -95,7 +96,8 @@ export class LspDocumentSync {
     // Open any file models that exist but haven't been opened yet (used right
     // after the server becomes ready).
     openPending() {
-        var _a, _b, _c, _d;
+        var _a, _b, _c;
+        var _d;
         const models = (_d = (_c = (_b = (_a = this.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.getModels) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _d !== void 0 ? _d : [];
         models.forEach((model) => this.openModel(model));
     }

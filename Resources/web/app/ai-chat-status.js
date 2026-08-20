@@ -18,14 +18,11 @@ export const createAiChatStatusController = (params) => {
     };
     const resolveIntlLocale = () => { var _a; return (_a = INTL_LOCALE_MAP[getUiLocale()]) !== null && _a !== void 0 ? _a : "en-US"; };
     const isAiBlocked = () => Boolean(state.platformAiAccess && state.platformAiAccess.allowed === false);
-    const needsLogin = () => {
-        var _a, _b;
-        return Boolean(!((_a = state.platformAiAccess) === null || _a === void 0 ? void 0 : _a.allowed) &&
-            (!((_b = state.platformAuth) === null || _b === void 0 ? void 0 : _b.authenticated) ||
-                (state.platformAiAccess &&
-                    (state.platformAiAccess.reason === "AUTH_REQUIRED" ||
-                        state.platformAiAccess.reason === "TOKEN_EXPIRED"))));
-    };
+    const needsLogin = () => { var _a, _b; return Boolean(!((_a = state.platformAiAccess) === null || _a === void 0 ? void 0 : _a.allowed) &&
+        (!((_b = state.platformAuth) === null || _b === void 0 ? void 0 : _b.authenticated) ||
+            (state.platformAiAccess &&
+                (state.platformAiAccess.reason === "AUTH_REQUIRED" ||
+                    state.platformAiAccess.reason === "TOKEN_EXPIRED")))); };
     const withUtilityActions = (actions) => {
         return Array.isArray(actions) ? [...actions] : [];
     };
@@ -168,14 +165,15 @@ export const createAiChatStatusController = (params) => {
         return `${Math.floor(m)}M`;
     };
     const updateUsageMeter = () => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c;
+        var _d, _e;
         if (!(aiUsageMeter instanceof HTMLElement)) {
             return;
         }
         // Usage is metered internally in dollars (real provider cost), but the
         // user sees TOKENS — we never surface the internal budget/cost. The token
         // figures are a blended-rate estimate of the monthly budget.
-        const quota = (_d = (_b = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _b !== void 0 ? _b : (_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.quota) !== null && _d !== void 0 ? _d : null;
+        const quota = (_e = (_d = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _d !== void 0 ? _d : (_b = state.platformAiAccess) === null || _b === void 0 ? void 0 : _b.quota) !== null && _e !== void 0 ? _e : null;
         const limitTokens = typeof (quota === null || quota === void 0 ? void 0 : quota.limitTokens) === "number" && Number.isFinite(quota.limitTokens)
             ? Math.max(0, Math.round(quota.limitTokens))
             : 0;
@@ -229,7 +227,7 @@ export const createAiChatStatusController = (params) => {
         setField("used", `${formatTokenCount(usedTokens)} ${tokensUnit}`);
         setField("limit", `${formatTokenCount(limitTokens)} ${tokensUnit}`);
         setField("remaining", `${remainingPct.toFixed(1)}% (${formatTokenCompact(remainingTokens)})`);
-        const periodEnd = typeof ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
+        const periodEnd = typeof ((_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
         if (periodEnd && Number.isFinite(Date.parse(periodEnd))) {
             setField("reset", new Date(periodEnd).toLocaleDateString(resolveIntlLocale()));
         }
@@ -260,20 +258,21 @@ export const createAiChatStatusController = (params) => {
         return pricingFallbackUrl;
     };
     const updateStatusDisplay = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        var _k, _l;
         updateTopbarAuthButton();
         updateUsageMeter();
         const pricingUrl = resolvePricingUrl();
-        const quota = (_d = (_b = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _b !== void 0 ? _b : (_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.quota) !== null && _d !== void 0 ? _d : null;
-        const periodEnd = typeof ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
+        const quota = (_l = (_k = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _k !== void 0 ? _k : (_b = state.platformAiAccess) === null || _b === void 0 ? void 0 : _b.quota) !== null && _l !== void 0 ? _l : null;
+        const periodEnd = typeof ((_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
         const periodEndLabel = periodEnd && Number.isFinite(Date.parse(periodEnd))
             ? new Date(periodEnd).toLocaleDateString(resolveIntlLocale())
             : "";
-        if ((_f = state.platformError) === null || _f === void 0 ? void 0 : _f.message) {
+        if ((_d = state.platformError) === null || _d === void 0 ? void 0 : _d.message) {
             renderStatus(aiText("login_failed"), state.platformError.message, withUtilityActions([{ action: "login", label: aiText("login_with_google") }]));
             return;
         }
-        if ((_g = state.platformAuth) === null || _g === void 0 ? void 0 : _g.pending) {
+        if ((_e = state.platformAuth) === null || _e === void 0 ? void 0 : _e.pending) {
             renderStatus(aiText("login_processing"));
             return;
         }
@@ -282,9 +281,9 @@ export const createAiChatStatusController = (params) => {
             return;
         }
         if (isAiBlocked()) {
-            const reason = typeof ((_h = state.platformAiAccess) === null || _h === void 0 ? void 0 : _h.reason) === "string" && state.platformAiAccess.reason
+            const reason = typeof ((_f = state.platformAiAccess) === null || _f === void 0 ? void 0 : _f.reason) === "string" && state.platformAiAccess.reason
                 ? state.platformAiAccess.reason
-                : typeof ((_j = state.platformUsage) === null || _j === void 0 ? void 0 : _j.errorCode) === "string" && state.platformUsage.errorCode
+                : typeof ((_g = state.platformUsage) === null || _g === void 0 ? void 0 : _g.errorCode) === "string" && state.platformUsage.errorCode
                     ? state.platformUsage.errorCode
                     : "";
             if (reason === "QUOTA_EXCEEDED") {
@@ -306,9 +305,9 @@ export const createAiChatStatusController = (params) => {
                 renderStatus(aiText("status_unavailable"), aiText("status_plan_check"), withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
                 return;
             }
-            const fallbackMessage = typeof ((_k = state.platformAiAccess) === null || _k === void 0 ? void 0 : _k.message) === "string" && state.platformAiAccess.message.trim()
+            const fallbackMessage = typeof ((_h = state.platformAiAccess) === null || _h === void 0 ? void 0 : _h.message) === "string" && state.platformAiAccess.message.trim()
                 ? state.platformAiAccess.message.trim()
-                : typeof ((_l = state.platformUsage) === null || _l === void 0 ? void 0 : _l.message) === "string" && state.platformUsage.message.trim()
+                : typeof ((_j = state.platformUsage) === null || _j === void 0 ? void 0 : _j.message) === "string" && state.platformUsage.message.trim()
                     ? state.platformUsage.message.trim()
                     : aiText("status_unavailable");
             renderStatus(fallbackMessage, "", withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
@@ -321,14 +320,15 @@ export const createAiChatStatusController = (params) => {
         renderStatus("", "", withUtilityActions());
     };
     const handlePlatformAuth = (payload) => {
-        var _a, _b, _c, _d, _e, _f;
-        state.platformAuth = (_a = payload === null || payload === void 0 ? void 0 : payload.auth) !== null && _a !== void 0 ? _a : null;
-        state.platformError = normalizeAuthError((_b = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _b !== void 0 ? _b : null);
-        if (!((_c = state.platformAuth) === null || _c === void 0 ? void 0 : _c.authenticated)) {
-            if (!((_d = state.platformAiAccess) === null || _d === void 0 ? void 0 : _d.allowed)) {
+        var _a, _b, _c, _d;
+        var _e, _f;
+        state.platformAuth = (_e = payload === null || payload === void 0 ? void 0 : payload.auth) !== null && _e !== void 0 ? _e : null;
+        state.platformError = normalizeAuthError((_f = payload === null || payload === void 0 ? void 0 : payload.error) !== null && _f !== void 0 ? _f : null);
+        if (!((_a = state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated)) {
+            if (!((_b = state.platformAiAccess) === null || _b === void 0 ? void 0 : _b.allowed)) {
                 requestAiAccessCheck(false);
             }
-            if ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.allowed) {
+            if ((_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.allowed) {
                 updateStatusDisplay();
                 onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
                 return;
@@ -337,7 +337,7 @@ export const createAiChatStatusController = (params) => {
             state.platformUsage = null;
             state.requestedInitialUsage = false;
         }
-        else if (!state.platformAuth.pending && !state.requestedInitialUsage && !((_f = payload === null || payload === void 0 ? void 0 : payload.error) === null || _f === void 0 ? void 0 : _f.message)) {
+        else if (!state.platformAuth.pending && !state.requestedInitialUsage && !((_d = payload === null || payload === void 0 ? void 0 : payload.error) === null || _d === void 0 ? void 0 : _d.message)) {
             state.requestedInitialUsage = true;
             requestAiAccessCheck(false);
             requestPlatformUsage(false);
@@ -346,8 +346,9 @@ export const createAiChatStatusController = (params) => {
         onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
     };
     const handlePlatformAiAccess = (payload) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
-        const access = (_a = payload === null || payload === void 0 ? void 0 : payload.access) !== null && _a !== void 0 ? _a : null;
+        var _a, _b, _c;
+        var _d, _e, _f, _g, _h, _j;
+        const access = (_d = payload === null || payload === void 0 ? void 0 : payload.access) !== null && _d !== void 0 ? _d : null;
         if (!access) {
             return;
         }
@@ -356,22 +357,22 @@ export const createAiChatStatusController = (params) => {
             state.platformError = null;
         }
         if (access.quota &&
-            (!((_b = state.platformUsage) === null || _b === void 0 ? void 0 : _b.summary) ||
+            (!((_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) ||
                 (payload === null || payload === void 0 ? void 0 : payload.source) === "auth" ||
                 (payload === null || payload === void 0 ? void 0 : payload.source) === "manual" ||
                 (payload === null || payload === void 0 ? void 0 : payload.source) === "chat")) {
             const usageFromAccess = normalizeUsageSnapshot({
                 authenticated: Boolean(access.authenticated),
-                plan: (_c = access.plan) !== null && _c !== void 0 ? _c : null,
+                plan: (_e = access.plan) !== null && _e !== void 0 ? _e : null,
                 period: null,
                 summary: access.quota,
-                byFeature: (_e = (_d = state.platformUsage) === null || _d === void 0 ? void 0 : _d.byFeature) !== null && _e !== void 0 ? _e : null,
-                errorCode: access.allowed ? null : (_f = access.reason) !== null && _f !== void 0 ? _f : null,
-                message: (_g = access.message) !== null && _g !== void 0 ? _g : null,
-                fetchedAt: (_h = access.fetchedAt) !== null && _h !== void 0 ? _h : Date.now(),
+                byFeature: (_f = (_b = state.platformUsage) === null || _b === void 0 ? void 0 : _b.byFeature) !== null && _f !== void 0 ? _f : null,
+                errorCode: access.allowed ? null : (_g = access.reason) !== null && _g !== void 0 ? _g : null,
+                message: (_h = access.message) !== null && _h !== void 0 ? _h : null,
+                fetchedAt: (_j = access.fetchedAt) !== null && _j !== void 0 ? _j : Date.now(),
             });
             if (usageFromAccess) {
-                const currentFetchedAt = typeof ((_j = state.platformUsage) === null || _j === void 0 ? void 0 : _j.fetchedAt) === "number" && Number.isFinite(state.platformUsage.fetchedAt)
+                const currentFetchedAt = typeof ((_c = state.platformUsage) === null || _c === void 0 ? void 0 : _c.fetchedAt) === "number" && Number.isFinite(state.platformUsage.fetchedAt)
                     ? state.platformUsage.fetchedAt
                     : 0;
                 const nextFetchedAt = typeof usageFromAccess.fetchedAt === "number" &&
@@ -387,9 +388,10 @@ export const createAiChatStatusController = (params) => {
         onStatusUpdate === null || onStatusUpdate === void 0 ? void 0 : onStatusUpdate();
     };
     const handlePlatformUsage = (payload) => {
-        var _a, _b;
-        state.platformUsage = normalizeUsageSnapshot((_a = payload === null || payload === void 0 ? void 0 : payload.usage) !== null && _a !== void 0 ? _a : null);
-        if (!((_b = state.platformUsage) === null || _b === void 0 ? void 0 : _b.errorCode)) {
+        var _a;
+        var _b;
+        state.platformUsage = normalizeUsageSnapshot((_b = payload === null || payload === void 0 ? void 0 : payload.usage) !== null && _b !== void 0 ? _b : null);
+        if (!((_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.errorCode)) {
             state.platformError = null;
         }
         updateStatusDisplay();

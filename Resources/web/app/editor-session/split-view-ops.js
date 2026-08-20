@@ -1,10 +1,11 @@
 export const createEditorSessionSplitViewOps = (runtime, coreOps) => {
     const getSplitSizing = () => {
-        var _a, _b, _c, _d;
+        var _a;
+        var _b, _c, _d;
         const style = runtime.dom.editorGroupsRootEl ? getComputedStyle(runtime.dom.editorGroupsRootEl) : null;
-        const min = Number.parseFloat((_a = style === null || style === void 0 ? void 0 : style.getPropertyValue("--split-min")) !== null && _a !== void 0 ? _a : "");
-        const handle = Number.parseFloat((_b = style === null || style === void 0 ? void 0 : style.getPropertyValue("--split-handle")) !== null && _b !== void 0 ? _b : "");
-        const width = (_d = (_c = runtime.dom.editorGroupsRootEl) === null || _c === void 0 ? void 0 : _c.getBoundingClientRect().width) !== null && _d !== void 0 ? _d : 0;
+        const min = Number.parseFloat((_b = style === null || style === void 0 ? void 0 : style.getPropertyValue("--split-min")) !== null && _b !== void 0 ? _b : "");
+        const handle = Number.parseFloat((_c = style === null || style === void 0 ? void 0 : style.getPropertyValue("--split-handle")) !== null && _c !== void 0 ? _c : "");
+        const width = (_d = (_a = runtime.dom.editorGroupsRootEl) === null || _a === void 0 ? void 0 : _a.getBoundingClientRect().width) !== null && _d !== void 0 ? _d : 0;
         return {
             min: Number.isFinite(min) && min > 0 ? min : 280,
             handle: Number.isFinite(handle) && handle > 0 ? handle : 8,

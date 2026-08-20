@@ -25,7 +25,8 @@ export class SpellChecker {
             (model.getLanguageId ? model.getLanguageId() === "latex" : true));
     }
     start() {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         ((_c = (_b = (_a = this.monaco.editor).getModels) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : []).forEach((model) => this.attach(model));
         if (this.monaco.editor.onDidCreateModel) {
             this.disposables.push(this.monaco.editor.onDidCreateModel((model) => this.attach(model)));
@@ -90,7 +91,8 @@ export class SpellChecker {
         this.monaco.editor.setModelMarkers(model, OWNER, []);
     }
     clearAll() {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         ((_c = (_b = (_a = this.monaco.editor).getModels) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : []).forEach((model) => {
             if (this.isTarget(model)) {
                 this.clearMarkers(model);
@@ -98,7 +100,8 @@ export class SpellChecker {
         });
     }
     recheckAll() {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         ((_c = (_b = (_a = this.monaco.editor).getModels) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : []).forEach((model) => {
             if (this.isTarget(model)) {
                 this.run(model);
@@ -106,7 +109,8 @@ export class SpellChecker {
         });
     }
     async run(model) {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d;
+        var _e;
         if ((_a = model.isDisposed) === null || _a === void 0 ? void 0 : _a.call(model)) {
             return;
         }

@@ -4045,7 +4045,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: none;
 }
 
-.pro-mode-controls { display: inline-flex; align-items: center; gap: 6px; }
+.pro-mode-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
+:root:not([data-pro-mode="true"]) .pro-mode-controls { display: none; }
+.pro-figure-tools { display: inline-flex; align-items: center; gap: 6px; }
+.pro-layout-control { position: relative; display: inline-flex; align-items: center; }
 .pro-mode-toggle { display: inline-flex; align-items: center; gap: 6px; }
 .pro-mode-toggle-track { width: 28px; height: 16px; padding: 2px; border-radius: 999px; background: var(--panel-border-strong); transition: background .2s ease; }
 .pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
@@ -4082,16 +4085,32 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 #pro-canvas-open:active,
 #pro-canvas-gallery:active { transform: translateY(1px); }
-/* Legacy: the Pro layout switcher is kept wired up but hidden for now — the
-   persisted layout still applies, there is just no top-bar control for it. */
-.pro-layout-switcher { display: none !important; }
-.pro-layout-switcher--legacy { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--control-bg); }
-.pro-layout-switcher--legacy[hidden] { display: none; }
-.pro-layout-switcher--legacy button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; margin: 0; padding: 0 4px; border: none; border-radius: calc(var(--radius-sm) - 2px); background: transparent; color: var(--muted); cursor: pointer; transition: background var(--duration-fast) ease, color var(--duration-fast) ease; }
-.pro-layout-switcher--legacy button:hover { color: var(--text-soft); }
-.pro-layout-switcher--legacy button svg { display: block; }
-.pro-layout-switcher--legacy button[aria-pressed="true"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 1px var(--panel-border-strong); }
+.pro-layout-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--control-bg); font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.pro-layout-trigger:hover, .pro-layout-trigger[aria-expanded="true"] { border-color: var(--panel-border-strong); background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%); }
+.pro-layout-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pro-layout-chevron { margin-left: 1px; transition: transform .14s ease; }
+.pro-layout-trigger[aria-expanded="true"] .pro-layout-chevron { transform: rotate(180deg); }
+.pro-layout-control.is-open::after { content: ""; position: absolute; z-index: 79; top: 100%; right: 0; width: 218px; height: 6px; }
+.pro-layout-switcher { position: absolute; z-index: 80; top: calc(100% + 5px); right: 0; display: none; flex-direction: column; gap: 2px; min-width: 218px; padding: 4px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow); }
+.pro-layout-switcher[hidden] { display: none !important; }
+.pro-layout-control.is-open .pro-layout-switcher { display: flex; }
+.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-height: 32px; border: 0; border-radius: var(--radius-sm); padding: 5px 8px; color: var(--text-soft); background: transparent; white-space: nowrap; }
+.pro-layout-switcher button:hover, .pro-layout-switcher button:focus-visible { color: var(--text); background: var(--control-bg); outline: none; }
+.pro-layout-switcher button svg { display: block; }
+.pro-layout-button-label { font-size: 10px; font-weight: 600; letter-spacing: .01em; }
+.pro-layout-switcher button[aria-checked="true"] { color: var(--accent); background: var(--panel-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
+
+/* Pro already owns the editor arrangement through the labeled layout picker. */
+:root[data-pro-mode="true"] #editor-split-button { display: none; }
+:root[data-pro-mode="true"] #toggle-bottom-panel-button { width: auto; padding: 0 7px; gap: 5px; }
+.topbar-layout-label { display: none; color: currentColor; font-size: 10px; font-weight: 600; white-space: nowrap; }
+:root[data-pro-mode="true"] .topbar-layout-label { display: inline; }
+
+@media (max-width: 1100px) {
+  :root[data-pro-mode="true"] .topbar-layout-label { display: none; }
+  :root[data-pro-mode="true"] #toggle-bottom-panel-button { width: 30px; padding: 0; }
+}
 
 :root[data-pro-mode="true"] .editor-groups {
   --pro-handle: 8px;
@@ -4247,7 +4266,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
    below are dead but kept; delete these three rules to bring them back. */
 .pro-reference-pane { display: none !important; }
 #pro-splitter-secondary { display: none !important; }
-#pro-canvas-gallery { display: none !important; }
 /* Layout 1 puts the source on the LEFT and the preview on the RIGHT (the
    convention every LaTeX editor shares), even though the DOM keeps the preview
    pane first — hence the explicit grid-column assignments. */
@@ -4501,8 +4519,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 #build-button {
-  width: 30px;
-  padding: 0;
+  min-width: 30px;
+  padding: 0 8px;
+  gap: 4px;
   margin-left: 2px;
   border-color: rgba(121, 126, 249, 0.45);
   background: rgba(121, 126, 249, 0.18);
@@ -4596,6 +4615,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   border: 2px solid currentColor;
   border-top-color: transparent;
   animation: build-spin 0.8s linear infinite;
+}
+
+.build-button-label {
+  white-space: nowrap;
 }
 
 #save-file-button {

@@ -55,8 +55,9 @@ export const resolveTexIncludeCandidates = (activeFilePath, rawPath, workspaceFi
     return candidates.filter((candidate) => workspaceSet.has(candidate));
 };
 export const isPreviewableImagePath = (pathValue) => {
-    var _a, _b, _c;
-    const ext = (_c = (_b = ((_a = pathValue.split("/").pop()) !== null && _a !== void 0 ? _a : "").split(".").pop()) === null || _b === void 0 ? void 0 : _b.toLowerCase()) !== null && _c !== void 0 ? _c : "";
+    var _a;
+    var _b, _c;
+    const ext = (_c = (_a = ((_b = pathValue.split("/").pop()) !== null && _b !== void 0 ? _b : "").split(".").pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase()) !== null && _c !== void 0 ? _c : "";
     return ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "tif", "tiff", "ico"].includes(ext);
 };
-export const isPdfPath = (pathValue) => { var _a, _b, _c; return ((_c = (_b = ((_a = pathValue.split("/").pop()) !== null && _a !== void 0 ? _a : "").split(".").pop()) === null || _b === void 0 ? void 0 : _b.toLowerCase()) !== null && _c !== void 0 ? _c : "") === "pdf"; };
+export const isPdfPath = (pathValue) => { var _a; var _b, _c; return ((_c = (_a = ((_b = pathValue.split("/").pop()) !== null && _b !== void 0 ? _b : "").split(".").pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase()) !== null && _c !== void 0 ? _c : "") === "pdf"; };

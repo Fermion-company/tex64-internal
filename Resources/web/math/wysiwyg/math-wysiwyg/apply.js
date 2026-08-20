@@ -5,16 +5,13 @@ import { findContainingEnvironmentAtCursor, hasEnvironmentInContext, isCursorIns
 import { setMathfieldMode } from "../../mathfield-private-adapter.js";
 import { AUX_COMMAND_BARE_RE, AUX_COMMAND_BLOCKED_ENV_NAMES, AUX_COMMAND_TEMPLATE_RE, INTERTEXT_TEMPLATE_RE, PLACEHOLDER_TOKEN_REGEX, } from "./constants.js";
 import { clearEditAnchor, nowMs, readMathfieldLatex, resolveCursorOffset, syncMathfieldMode } from "./mathfield.js";
-const toLiteralInsertKey = (key) => {
-    var _a;
-    return ({
-        label: (_a = key.label) !== null && _a !== void 0 ? _a : key.latex,
-        latex: key.latex,
-        fallback: key.fallback,
-        displayLatex: key.displayLatex,
-        hint: key.hint,
-    });
-};
+const toLiteralInsertKey = (key) => { var _a; return ({
+    label: (_a = key.label) !== null && _a !== void 0 ? _a : key.latex,
+    latex: key.latex,
+    fallback: key.fallback,
+    displayLatex: key.displayLatex,
+    hint: key.hint,
+}); };
 const findLiteralPlaceholderRange = (mathfieldApi, anchorOffset) => {
     var _a;
     const lastOffset = typeof (mathfieldApi === null || mathfieldApi === void 0 ? void 0 : mathfieldApi.lastOffset) === "number" && mathfieldApi.lastOffset > 0 ? mathfieldApi.lastOffset : null;
@@ -206,7 +203,8 @@ export const createMathWysiwygApplyOps = (runtime, deps) => {
         };
         const insertedLatex = typeof candidate.key.latex === "string" ? normalizeLatexKey(candidate.key.latex) : "";
         const clearTriggerRange = () => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+            var _a, _b, _c, _d, _e, _f, _g;
+            var _h, _j, _k, _l, _m, _o, _p, _q;
             if (typeof mathfieldApi.executeCommand !== "function") {
                 return;
             }
@@ -263,14 +261,14 @@ export const createMathWysiwygApplyOps = (runtime, deps) => {
                 const m = /^\\([A-Za-z*]+)/.exec(insertedLatex);
                 return m ? m[1] : null;
             };
-            const beforeCursor = (_a = readMathfieldLatex(mathfieldApi, 0, cursorOffset, "latex")) !== null && _a !== void 0 ? _a : "";
+            const beforeCursor = (_h = readMathfieldLatex(mathfieldApi, 0, cursorOffset, "latex")) !== null && _h !== void 0 ? _h : "";
             // Safety check: when the current token is a plain word (no leading
             // backslash) and the candidate is a LaTeX command, only delete the
             // portion of the word that matches the command's base name instead of
             // the entire word.  This prevents "sumsin" → select \sin from wiping
             // out the preceding "sum" characters, and "sumsin" → select \sum from
             // wiping out the trailing "sin" characters.
-            if (((_b = runtime.currentTokenMatch) === null || _b === void 0 ? void 0 : _b.kind) === "word") {
+            if (((_a = runtime.currentTokenMatch) === null || _a === void 0 ? void 0 : _a.kind) === "word") {
                 const baseName = extractCandidateBaseName();
                 if (baseName) {
                     const token = runtime.currentTokenMatch.token;
@@ -314,7 +312,7 @@ export const createMathWysiwygApplyOps = (runtime, deps) => {
                         explicitBuffer = beforeCursor.slice(relaxedPrefix.length);
                     }
                 }
-                const trailingToken = (_h = (_f = (_d = (_c = /(\\?[A-Za-z*]+)$/.exec(explicitBuffer)) === null || _c === void 0 ? void 0 : _c[1]) !== null && _d !== void 0 ? _d : (_e = /(\/\/[A-Za-z*]*)$/.exec(explicitBuffer)) === null || _e === void 0 ? void 0 : _e[1]) !== null && _f !== void 0 ? _f : (_g = /([+\-*/=<>:;,!?.]+)$/.exec(explicitBuffer)) === null || _g === void 0 ? void 0 : _g[1]) !== null && _h !== void 0 ? _h : "";
+                const trailingToken = (_l = (_k = (_j = (_b = /(\\?[A-Za-z*]+)$/.exec(explicitBuffer)) === null || _b === void 0 ? void 0 : _b[1]) !== null && _j !== void 0 ? _j : (_c = /(\/\/[A-Za-z*]*)$/.exec(explicitBuffer)) === null || _c === void 0 ? void 0 : _c[1]) !== null && _k !== void 0 ? _k : (_d = /([+\-*/=<>:;,!?.]+)$/.exec(explicitBuffer)) === null || _d === void 0 ? void 0 : _d[1]) !== null && _l !== void 0 ? _l : "";
                 if (trailingToken && deleteBackwardChars(trailingToken.length)) {
                     return;
                 }
@@ -323,11 +321,11 @@ export const createMathWysiwygApplyOps = (runtime, deps) => {
                 return;
             }
             const rangeContainsCursor = cursorOffset >= runtime.currentRange.start && cursorOffset <= runtime.currentRange.end + 1;
-            const rangeText = (_j = readMathfieldLatex(mathfieldApi, runtime.currentRange.start, runtime.currentRange.end, "latex")) !== null && _j !== void 0 ? _j : "";
+            const rangeText = (_m = readMathfieldLatex(mathfieldApi, runtime.currentRange.start, runtime.currentRange.end, "latex")) !== null && _m !== void 0 ? _m : "";
             if (rangeContainsCursor && clearSuffixFromBuffer(beforeCursor, rangeText)) {
                 return;
             }
-            const fallbackToken = (_q = (_o = (_l = (_k = /(\\?[A-Za-z*]+)$/.exec(beforeCursor)) === null || _k === void 0 ? void 0 : _k[1]) !== null && _l !== void 0 ? _l : (_m = /(\/\/[A-Za-z*]*)$/.exec(beforeCursor)) === null || _m === void 0 ? void 0 : _m[1]) !== null && _o !== void 0 ? _o : (_p = /([+\-*/=<>:;,!?.]+)$/.exec(beforeCursor)) === null || _p === void 0 ? void 0 : _p[1]) !== null && _q !== void 0 ? _q : "";
+            const fallbackToken = (_q = (_p = (_o = (_e = /(\\?[A-Za-z*]+)$/.exec(beforeCursor)) === null || _e === void 0 ? void 0 : _e[1]) !== null && _o !== void 0 ? _o : (_f = /(\/\/[A-Za-z*]*)$/.exec(beforeCursor)) === null || _f === void 0 ? void 0 : _f[1]) !== null && _p !== void 0 ? _p : (_g = /([+\-*/=<>:;,!?.]+)$/.exec(beforeCursor)) === null || _g === void 0 ? void 0 : _g[1]) !== null && _q !== void 0 ? _q : "";
             if (fallbackToken) {
                 deleteBackwardChars(fallbackToken.length);
             }

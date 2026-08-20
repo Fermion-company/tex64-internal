@@ -81,16 +81,17 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         }
     });
     (_b = editor.onDidChangeCursorPosition) === null || _b === void 0 ? void 0 : _b.call(editor, (event) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d;
+        var _e;
         if (!editorSettings.isEnabled("ergo.typewriterScroll")) {
             return;
         }
-        const position = (_a = event === null || event === void 0 ? void 0 : event.position) !== null && _a !== void 0 ? _a : (_b = editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor);
+        const position = (_e = event === null || event === void 0 ? void 0 : event.position) !== null && _e !== void 0 ? _e : (_a = editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor);
         if (!position) {
             return;
         }
-        const scrollType = (_d = (_c = monaco === null || monaco === void 0 ? void 0 : monaco.editor) === null || _c === void 0 ? void 0 : _c.ScrollType) === null || _d === void 0 ? void 0 : _d.Immediate;
-        (_e = editor.revealPositionInCenter) === null || _e === void 0 ? void 0 : _e.call(editor, position, scrollType);
+        const scrollType = (_c = (_b = monaco === null || monaco === void 0 ? void 0 : monaco.editor) === null || _b === void 0 ? void 0 : _b.ScrollType) === null || _c === void 0 ? void 0 : _c.Immediate;
+        (_d = editor.revealPositionInCenter) === null || _d === void 0 ? void 0 : _d.call(editor, position, scrollType);
     });
     // Wrap-selection actions. Registered once; the run handler checks the flag so
     // it can be toggled live.

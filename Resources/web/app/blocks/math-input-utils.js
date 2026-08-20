@@ -276,12 +276,13 @@ const findAtomLeftOfCursor = (text, cursor) => {
     return { baseStart, baseEnd, sub, sup };
 };
 const findAtomRangeLeftOfCursor = (text, cursor) => {
-    var _a, _b, _c, _d;
+    var _a, _b;
+    var _c, _d;
     const atom = findAtomLeftOfCursor(text, cursor);
     if (!atom) {
         return null;
     }
-    const atomEnd = Math.max(atom.baseEnd, (_b = (_a = atom.sub) === null || _a === void 0 ? void 0 : _a.end) !== null && _b !== void 0 ? _b : atom.baseEnd, (_d = (_c = atom.sup) === null || _c === void 0 ? void 0 : _c.end) !== null && _d !== void 0 ? _d : atom.baseEnd);
+    const atomEnd = Math.max(atom.baseEnd, (_c = (_a = atom.sub) === null || _a === void 0 ? void 0 : _a.end) !== null && _c !== void 0 ? _c : atom.baseEnd, (_d = (_b = atom.sup) === null || _b === void 0 ? void 0 : _b.end) !== null && _d !== void 0 ? _d : atom.baseEnd);
     return { start: atom.baseStart, end: atomEnd };
 };
 const insertAt = (text, index, value) => text.slice(0, index) + value + text.slice(index);

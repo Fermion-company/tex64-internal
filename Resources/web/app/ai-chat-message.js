@@ -263,7 +263,8 @@ const renderMarkdownHtml = (text) => {
 const attachCopyHandlers = (container) => {
     container.querySelectorAll("[data-copy]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
-            var _a, _b, _c;
+            var _a, _b;
+            var _c;
             e.stopPropagation();
             const code = (_c = (_b = (_a = btn.closest(".ai-code-block")) === null || _a === void 0 ? void 0 : _a.querySelector("code")) === null || _b === void 0 ? void 0 : _b.textContent) !== null && _c !== void 0 ? _c : "";
             navigator.clipboard.writeText(code).then(() => {

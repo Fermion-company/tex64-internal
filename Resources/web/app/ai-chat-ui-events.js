@@ -94,7 +94,8 @@ export const initAiChatEventBindings = (params) => {
             }
         });
         aiInput.addEventListener("paste", (event) => {
-            var _a, _b;
+            var _a;
+            var _b;
             const files = (_b = (_a = event.clipboardData) === null || _a === void 0 ? void 0 : _a.files) !== null && _b !== void 0 ? _b : null;
             if (!files || files.length === 0)
                 return;
@@ -140,7 +141,8 @@ export const initAiChatEventBindings = (params) => {
             event.preventDefault();
         });
         attachDropHost.addEventListener("drop", (event) => {
-            var _a, _b;
+            var _a;
+            var _b;
             const files = (_b = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.files) !== null && _b !== void 0 ? _b : null;
             if (!files || files.length === 0)
                 return;

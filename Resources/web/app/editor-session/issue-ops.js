@@ -104,13 +104,15 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
             });
         });
         runtime.monacoModels.forEach((entry, path) => {
-            var _a, _b, _c;
-            const markers = (_a = markersByPath.get(path)) !== null && _a !== void 0 ? _a : [];
-            (_c = (_b = monacoApiAny.editor) === null || _b === void 0 ? void 0 : _b.setModelMarkers) === null || _c === void 0 ? void 0 : _c.call(_b, entry.model, "tex64", markers);
+            var _a, _b;
+            var _c;
+            const markers = (_c = markersByPath.get(path)) !== null && _c !== void 0 ? _c : [];
+            (_b = (_a = monacoApiAny.editor) === null || _a === void 0 ? void 0 : _a.setModelMarkers) === null || _b === void 0 ? void 0 : _b.call(_a, entry.model, "tex64", markers);
         });
     };
     const revealLine = (group, line, options = {}) => {
-        var _a, _b, _c, _d;
+        var _a;
+        var _b, _c, _d;
         const monacoApi = runtime.deps.getMonacoApi();
         if (!group.editor || !monacoApi) {
             return;
@@ -119,12 +121,12 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
         const monacoApiAny = monacoApi;
         const editor = group.editor;
         const normalizedLine = Number.isFinite(line) ? Math.max(1, Math.trunc(line)) : 1;
-        const normalizedColumn = Number.isFinite(options.column) && ((_a = options.column) !== null && _a !== void 0 ? _a : 0) > 0
-            ? Math.trunc((_b = options.column) !== null && _b !== void 0 ? _b : 1)
+        const normalizedColumn = Number.isFinite(options.column) && ((_b = options.column) !== null && _b !== void 0 ? _b : 0) > 0
+            ? Math.trunc((_c = options.column) !== null && _c !== void 0 ? _c : 1)
             : 1;
         let lineNumber = normalizedLine;
         let columnNumber = normalizedColumn;
-        const model = (_c = editor.getModel) === null || _c === void 0 ? void 0 : _c.call(editor);
+        const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
         if (model) {
             const maxLine = model.getLineCount();
             if (Number.isFinite(maxLine) && maxLine >= 1) {

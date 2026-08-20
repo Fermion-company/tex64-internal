@@ -180,7 +180,8 @@ const rules = [
     },
 ];
 export const diagnoseIssue = (issue) => {
-    var _a, _b, _c, _d;
+    var _a;
+    var _b, _c, _d;
     const raw = (_b = (_a = issue.message) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
     const message = cleanIssueMessage(raw);
     for (const rule of rules) {

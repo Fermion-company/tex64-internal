@@ -117,7 +117,8 @@ const rules = [
     },
 ];
 export const getIssueResolution = (issue) => {
-    var _a, _b;
+    var _a;
+    var _b;
     const message = (_b = (_a = issue.message) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
     if (!message) {
         return null;

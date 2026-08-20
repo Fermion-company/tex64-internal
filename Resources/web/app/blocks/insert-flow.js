@@ -7,7 +7,7 @@ export const initBlockInsertFlow = (context, deps) => {
             return 1;
         return text.split(/\r?\n/).length;
     };
-    const countLineBreaks = (text) => { var _a, _b; return (_b = (_a = text.match(/\r?\n/g)) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0; };
+    const countLineBreaks = (text) => { var _a; var _b; return (_b = (_a = text.match(/\r?\n/g)) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0; };
     const buildDiffPreviewContext = (model, startOffset, endOffset, replacement, contextLineCount = 3) => {
         const originalText = model.getValue();
         const totalLines = typeof model.getLineCount === "function" ? model.getLineCount() : countLines(originalText);
@@ -109,12 +109,13 @@ export const initBlockInsertFlow = (context, deps) => {
         return normalized;
     };
     const applyBlockInsert = (payload) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+        var _a, _b, _c, _d, _e;
+        var _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
         const applyPayload = payload !== null && payload !== void 0 ? payload : deps.getPendingBlockApply();
         if (!applyPayload && !deps.getBlockPreviewActive()) {
             return;
         }
-        const draft = (_a = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.draft) !== null && _a !== void 0 ? _a : deps.getBlockDraft();
+        const draft = (_f = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.draft) !== null && _f !== void 0 ? _f : deps.getBlockDraft();
         if (!draft) {
             return;
         }
@@ -132,22 +133,21 @@ export const initBlockInsertFlow = (context, deps) => {
         const editor = activeGroup.editor;
         const monacoApiAny = deps.getMonacoApi();
         let range;
-        const model = (_b = editor.getModel) === null || _b === void 0 ? void 0 : _b.call(editor);
-        const blockMode = (_d = (_c = deps.getBlockMode) === null || _c === void 0 ? void 0 : _c.call(deps)) !== null && _d !== void 0 ? _d : "insert";
-        const mode = (_e = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.mode) !== null && _e !== void 0 ? _e : (blockMode === "edit" ? "detected" : "new");
-        let snippet = (_f = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceSnippet) !== null && _f !== void 0 ? _f : draft.snippet;
-        const preferredRange = (_g = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceRange) !== null && _g !== void 0 ? _g : null;
+        const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
+        const blockMode = (_g = (_b = deps.getBlockMode) === null || _b === void 0 ? void 0 : _b.call(deps)) !== null && _g !== void 0 ? _g : "insert";
+        const mode = (_h = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.mode) !== null && _h !== void 0 ? _h : (blockMode === "edit" ? "detected" : "new");
+        let snippet = (_j = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceSnippet) !== null && _j !== void 0 ? _j : draft.snippet;
+        const preferredRange = (_k = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.replaceRange) !== null && _k !== void 0 ? _k : null;
         let insertPosition = null;
         let insertRange = applyPayload
-            ? (_h = applyPayload.insertRange) !== null && _h !== void 0 ? _h : null
-            : mode === "new"
-                ? resolveEmptyLineInsertRange(editor)
-                : null;
+            ? (_l = applyPayload.insertRange) !== null && _l !== void 0 ? _l : null : mode === "new"
+            ? resolveEmptyLineInsertRange(editor)
+            : null;
         if (preferredRange) {
             range = new monacoApiAny.Range(preferredRange.startLineNumber, preferredRange.startColumn, preferredRange.endLineNumber, preferredRange.endColumn);
         }
         else if (mode === "detected") {
-            const snapshot = (_j = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.detectedSnapshot) !== null && _j !== void 0 ? _j : deps.getDetectedBlockSnapshot();
+            const snapshot = (_m = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.detectedSnapshot) !== null && _m !== void 0 ? _m : deps.getDetectedBlockSnapshot();
             if (!snapshot || !(model === null || model === void 0 ? void 0 : model.getPositionAt)) {
                 return;
             }
@@ -169,7 +169,7 @@ export const initBlockInsertFlow = (context, deps) => {
                 range = new monacoApiAny.Range(insertRange.startLineNumber, insertRange.startColumn, insertRange.endLineNumber, insertRange.endColumn);
             }
             else {
-                insertPosition = (_m = (_k = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.insertPosition) !== null && _k !== void 0 ? _k : (_l = editor.getPosition) === null || _l === void 0 ? void 0 : _l.call(editor)) !== null && _m !== void 0 ? _m : null;
+                insertPosition = (_p = (_o = applyPayload === null || applyPayload === void 0 ? void 0 : applyPayload.insertPosition) !== null && _o !== void 0 ? _o : (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _p !== void 0 ? _p : null;
                 const insertAt = insertPosition !== null && insertPosition !== void 0 ? insertPosition : { lineNumber: 1, column: 1 };
                 range = new monacoApiAny.Range(insertAt.lineNumber, insertAt.column, insertAt.lineNumber, insertAt.column);
             }
@@ -179,14 +179,14 @@ export const initBlockInsertFlow = (context, deps) => {
                 });
             }
         }
-        (_o = editor.executeEdits) === null || _o === void 0 ? void 0 : _o.call(editor, "block-insert", [
+        (_d = editor.executeEdits) === null || _d === void 0 ? void 0 : _d.call(editor, "block-insert", [
             {
                 range,
                 text: snippet,
                 forceMoveMarkers: true,
             },
         ]);
-        (_p = editor.focus) === null || _p === void 0 ? void 0 : _p.call(editor);
+        (_e = editor.focus) === null || _e === void 0 ? void 0 : _e.call(editor);
         if (typeof deps.postToNative === "function") {
             deps.postToNative({
                 type: "blocks:save",
@@ -204,7 +204,8 @@ export const initBlockInsertFlow = (context, deps) => {
         deps.resetBlockSession({ applyMode: mode });
     };
     const triggerInsert = async () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+        var _a, _b, _c, _d, _e, _f;
+        var _g, _h, _j, _k;
         const triggerSeq = ++triggerInsertSeq;
         const activeGroup = deps.getActiveGroup();
         if (!activeGroup.editor) {
@@ -217,9 +218,9 @@ export const initBlockInsertFlow = (context, deps) => {
             return;
         }
         const editorForDetect = activeGroup.editor;
-        const blockMode = (_b = (_a = deps.getBlockMode) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : "insert";
-        const detectPosition = (_d = (_c = editorForDetect.getPosition) === null || _c === void 0 ? void 0 : _c.call(editorForDetect)) !== null && _d !== void 0 ? _d : null;
-        const model = (_e = editorForDetect.getModel) === null || _e === void 0 ? void 0 : _e.call(editorForDetect);
+        const blockMode = (_g = (_a = deps.getBlockMode) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _g !== void 0 ? _g : "insert";
+        const detectPosition = (_h = (_b = editorForDetect.getPosition) === null || _b === void 0 ? void 0 : _b.call(editorForDetect)) !== null && _h !== void 0 ? _h : null;
+        const model = (_c = editorForDetect.getModel) === null || _c === void 0 ? void 0 : _c.call(editorForDetect);
         let detectedSnapshot = blockMode === "edit" ? deps.getDetectedBlockSnapshot() : null;
         if (blockMode === "edit") {
             const shouldResync = !!detectedSnapshot &&
@@ -251,7 +252,7 @@ export const initBlockInsertFlow = (context, deps) => {
             }
             mode = "detected";
         }
-        let insertPosition = mode === "new" ? (_g = (_f = editorForDetect.getPosition) === null || _f === void 0 ? void 0 : _f.call(editorForDetect)) !== null && _g !== void 0 ? _g : null : null;
+        let insertPosition = mode === "new" ? (_j = (_d = editorForDetect.getPosition) === null || _d === void 0 ? void 0 : _d.call(editorForDetect)) !== null && _j !== void 0 ? _j : null : null;
         const insertRange = mode === "new" ? resolveEmptyLineInsertRange(editorForDetect) : null;
         if (insertRange) {
             insertPosition = {
@@ -260,12 +261,12 @@ export const initBlockInsertFlow = (context, deps) => {
             };
         }
         let formattedSnippet = mode === "new"
-            ? formatSnippetForInsert(draft.snippet, (_h = editorForDetect.getModel) === null || _h === void 0 ? void 0 : _h.call(editorForDetect), insertPosition, {
+            ? formatSnippetForInsert(draft.snippet, (_e = editorForDetect.getModel) === null || _e === void 0 ? void 0 : _e.call(editorForDetect), insertPosition, {
                 alignEnv: deps.getEditorAlignEnvEnabled(),
             })
             : draft.snippet;
         let resolvedDraft = { ...draft, snippet: formattedSnippet };
-        const editorModel = (_j = editorForDetect.getModel) === null || _j === void 0 ? void 0 : _j.call(editorForDetect);
+        const editorModel = (_f = editorForDetect.getModel) === null || _f === void 0 ? void 0 : _f.call(editorForDetect);
         const hasPositionAt = (model) => typeof model.getValue === "function" && typeof model.getPositionAt === "function";
         if (editorModel && hasPositionAt(editorModel)) {
             const model = editorModel;

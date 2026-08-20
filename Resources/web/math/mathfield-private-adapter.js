@@ -6,7 +6,8 @@ const normalizeMode = (value) => {
     return null;
 };
 const resolveMathfieldVersion = (mathfieldApi) => {
-    var _a, _b;
+    var _a;
+    var _b;
     const globalScope = globalThis;
     const candidate = (_b = (mathfieldApi && typeof mathfieldApi.version === "string"
         ? mathfieldApi.version

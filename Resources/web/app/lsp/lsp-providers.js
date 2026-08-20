@@ -22,11 +22,12 @@ export const registerLspProviders = (monaco, client, languages = ["latex", "bibt
     // register based on server capability; each invocation re-checks the flag.
     const gate = (flag) => client.isReady() && editorSettings.isEnabled(flag);
     languages.forEach((languageId) => {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         // Completion
         if (caps.completionProvider) {
-            const triggerCharacters = (_b = (_a = caps.completionProvider) === null || _a === void 0 ? void 0 : _a.triggerCharacters) !== null && _b !== void 0 ? _b : DEFAULT_TRIGGER_CHARACTERS;
-            const canResolve = Boolean((_c = caps.completionProvider) === null || _c === void 0 ? void 0 : _c.resolveProvider);
+            const triggerCharacters = (_c = (_a = caps.completionProvider) === null || _a === void 0 ? void 0 : _a.triggerCharacters) !== null && _c !== void 0 ? _c : DEFAULT_TRIGGER_CHARACTERS;
+            const canResolve = Boolean((_b = caps.completionProvider) === null || _b === void 0 ? void 0 : _b.resolveProvider);
             register(() => langs.registerCompletionItemProvider(languageId, {
                 triggerCharacters,
                 provideCompletionItems: async (model, position, _ctx, token) => {
@@ -261,24 +262,22 @@ export const registerDiagnostics = (monaco, client, owner = "texlab") => {
             return;
         }
         const diagnostics = Array.isArray(params.diagnostics) ? params.diagnostics : [];
-        const markers = diagnostics.map((d) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
-            return ({
-                severity: toMonacoMarkerSeverity(monaco, d.severity),
-                message: (_a = d.message) !== null && _a !== void 0 ? _a : "",
-                startLineNumber: ((_d = (_c = (_b = d.range) === null || _b === void 0 ? void 0 : _b.start) === null || _c === void 0 ? void 0 : _c.line) !== null && _d !== void 0 ? _d : 0) + 1,
-                startColumn: ((_g = (_f = (_e = d.range) === null || _e === void 0 ? void 0 : _e.start) === null || _f === void 0 ? void 0 : _f.character) !== null && _g !== void 0 ? _g : 0) + 1,
-                endLineNumber: ((_k = (_j = (_h = d.range) === null || _h === void 0 ? void 0 : _h.end) === null || _j === void 0 ? void 0 : _j.line) !== null && _k !== void 0 ? _k : 0) + 1,
-                endColumn: ((_o = (_m = (_l = d.range) === null || _l === void 0 ? void 0 : _l.end) === null || _m === void 0 ? void 0 : _m.character) !== null && _o !== void 0 ? _o : 0) + 1,
-                source: (_p = d.source) !== null && _p !== void 0 ? _p : "texlab",
-                code: d.code && typeof d.code === "object" ? d.code.value : d.code,
-            });
-        });
+        const markers = diagnostics.map((d) => { var _a, _b, _c, _d, _e, _f, _g, _h; var _j, _k, _l, _m, _o, _p; return ({
+            severity: toMonacoMarkerSeverity(monaco, d.severity),
+            message: (_j = d.message) !== null && _j !== void 0 ? _j : "",
+            startLineNumber: ((_k = (_b = (_a = d.range) === null || _a === void 0 ? void 0 : _a.start) === null || _b === void 0 ? void 0 : _b.line) !== null && _k !== void 0 ? _k : 0) + 1,
+            startColumn: ((_l = (_d = (_c = d.range) === null || _c === void 0 ? void 0 : _c.start) === null || _d === void 0 ? void 0 : _d.character) !== null && _l !== void 0 ? _l : 0) + 1,
+            endLineNumber: ((_m = (_f = (_e = d.range) === null || _e === void 0 ? void 0 : _e.end) === null || _f === void 0 ? void 0 : _f.line) !== null && _m !== void 0 ? _m : 0) + 1,
+            endColumn: ((_o = (_h = (_g = d.range) === null || _g === void 0 ? void 0 : _g.end) === null || _h === void 0 ? void 0 : _h.character) !== null && _o !== void 0 ? _o : 0) + 1,
+            source: (_p = d.source) !== null && _p !== void 0 ? _p : "texlab",
+            code: d.code && typeof d.code === "object" ? d.code.value : d.code,
+        }); });
         monaco.editor.setModelMarkers(model, owner, markers);
     });
     // Clear existing texlab markers immediately when diagnostics are toggled off.
     const offFlag = editorSettings.subscribe((change) => {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         if (change.kind === "flag" && change.id === "lsp.diagnostics" && !change.value) {
             ((_c = (_b = (_a = monaco.editor).getModels) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : []).forEach((model) => monaco.editor.setModelMarkers(model, owner, []));
         }

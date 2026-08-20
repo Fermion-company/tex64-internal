@@ -247,7 +247,8 @@ export const createMathfieldMatrixOps = (params) => {
         return { body, selectionIndex: 0 };
     };
     const tryApplyMatrixEdit = (mode) => {
-        var _a, _b;
+        var _a;
+        var _b;
         const mathfieldApi = mathfield;
         if (typeof mathfieldApi.getValue !== "function") {
             return false;
@@ -256,7 +257,7 @@ export const createMathfieldMatrixOps = (params) => {
         // MathLive can represent placeholder focus as a non-collapsed selection range.
         // Allow those (and only those) so Enter can still add a matrix row/column.
         if (selection.start !== selection.end) {
-            const selected = (_a = readMathFieldLatex(mathfieldApi, selection.start, selection.end, "latex")) !== null && _a !== void 0 ? _a : "";
+            const selected = (_b = readMathFieldLatex(mathfieldApi, selection.start, selection.end, "latex")) !== null && _b !== void 0 ? _b : "";
             if (!selected.includes("\\placeholder")) {
                 return false;
             }
@@ -317,7 +318,7 @@ export const createMathfieldMatrixOps = (params) => {
         const startOffset = indexToOffset(mathfieldApi, env.start);
         const endOffset = indexToOffset(mathfieldApi, env.end);
         setSelectionRange(mathfieldApi, startOffset, endOffset);
-        (_b = mathfieldApi.focus) === null || _b === void 0 ? void 0 : _b.call(mathfieldApi);
+        (_a = mathfieldApi.focus) === null || _a === void 0 ? void 0 : _a.call(mathfieldApi);
         let replaced = false;
         if (typeof mathfieldApi.executeCommand === "function") {
             const beforeValue = readMathFieldLatex(mathfieldApi, "latex");

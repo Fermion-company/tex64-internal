@@ -13,7 +13,8 @@ export const createContextPayloadBuilder = (deps) => {
         return value <= 0 ? Number.POSITIVE_INFINITY : value;
     };
     const buildActiveFileContext = (agentSettings) => {
-        var _a, _b;
+        var _a;
+        var _b;
         const maxChars = resolveMaxChars(agentSettings === null || agentSettings === void 0 ? void 0 : agentSettings.openFileMaxChars, MAX_ACTIVE_FILE_CONTEXT_CHARS);
         const snapshot = (_b = (_a = deps.getActiveFileSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
         const fallbackPath = deps.getActiveFilePath();
@@ -34,7 +35,8 @@ export const createContextPayloadBuilder = (deps) => {
         };
     };
     const buildSelectionContext = (agentSettings) => {
-        var _a, _b;
+        var _a;
+        var _b;
         const maxChars = resolveMaxChars(agentSettings === null || agentSettings === void 0 ? void 0 : agentSettings.openFileMaxChars, MAX_SELECTION_CONTEXT_CHARS);
         const selection = (_b = (_a = deps.getActiveSelectionSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
         if (!selection || !selection.text) {

@@ -94,11 +94,8 @@ export const getFileExtension = (value) => {
     return name.slice(index + 1).toLowerCase();
 };
 export const isTextFilePath = (path) => TEXT_FILE_EXTENSIONS.has(getFileExtension(path));
-export const isProTextFilePath = (path) => {
-    var _a;
-    return PRO_TEXT_FILE_EXTENSIONS.has(getFileExtension(path)) ||
-        PRO_TEXT_FILE_NAMES.has(((_a = path.split("/").pop()) !== null && _a !== void 0 ? _a : path).toLowerCase());
-};
+export const isProTextFilePath = (path) => { var _a; return PRO_TEXT_FILE_EXTENSIONS.has(getFileExtension(path)) ||
+    PRO_TEXT_FILE_NAMES.has(((_a = path.split("/").pop()) !== null && _a !== void 0 ? _a : path).toLowerCase()); };
 export const isEditableTextFilePath = (path) => isTextFilePath(path) || isProTextFilePath(path);
 export const isImageFilePath = (path) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(path));
 export const isPdfFilePath = (path) => getFileExtension(path) === "pdf";

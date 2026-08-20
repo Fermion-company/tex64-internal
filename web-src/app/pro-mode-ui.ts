@@ -132,9 +132,17 @@ export const createProSplitViewCoordinator = (deps: ProModeDeps) => {
 export const initProModeUi = (deps: ProModeDeps) => {
   const root = document.getElementById("editor-groups");
   const switcher = document.getElementById("pro-layout-switcher");
+  const layoutControl = document.getElementById("pro-layout-control");
+  const layoutTrigger = document.getElementById("pro-layout-trigger");
   if (!(root instanceof HTMLElement)) return null;
 
   let state = parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY));
+  let suppressLayoutFocusOpen = false;
+  const setLayoutMenuOpen = (open: boolean) => {
+    const next = open && state.enabled;
+    layoutControl?.classList.toggle("is-open", next);
+    layoutTrigger?.setAttribute("aria-expanded", String(next));
+  };
   const previewViewer = createViewer({
     editorViewer: document.getElementById("pro-preview-viewer"),
     editorViewerImage: document.getElementById("pro-preview-image") as HTMLImageElement | null,
@@ -160,6 +168,7 @@ export const initProModeUi = (deps: ProModeDeps) => {
     );
     root.dataset.proLayout = state.layout;
     if (switcher instanceof HTMLElement) switcher.hidden = !state.enabled;
+    if (!state.enabled) setLayoutMenuOpen(false);
     const canvasButton = document.getElementById("pro-canvas-open");
     if (canvasButton instanceof HTMLButtonElement) canvasButton.hidden = !state.enabled;
     const galleryButton = document.getElementById("pro-canvas-gallery");
@@ -186,7 +195,7 @@ export const initProModeUi = (deps: ProModeDeps) => {
       });
     });
     root.querySelectorAll<HTMLButtonElement>("[data-pro-layout]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.proLayout === state.layout));
+      button.setAttribute("aria-checked", String(button.dataset.proLayout === state.layout));
     });
     syncSplitView(state.enabled, state.layout);
     scheduleLayout();
@@ -198,11 +207,48 @@ export const initProModeUi = (deps: ProModeDeps) => {
     apply();
   };
 
-  document.querySelectorAll<HTMLButtonElement>("[data-pro-layout]").forEach((button) => {
+  const layoutButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-pro-layout]"));
+  layoutButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const layout = button.dataset.proLayout as ProLayout;
       if (layout === "preview-source" || layout === "source-reference-code") update({ layout });
+      setLayoutMenuOpen(false);
+      suppressLayoutFocusOpen = true;
+      if (layoutTrigger instanceof HTMLButtonElement) layoutTrigger.focus({ preventScroll: true });
+      queueMicrotask(() => { suppressLayoutFocusOpen = false; });
     });
+  });
+  layoutControl?.addEventListener("pointerenter", () => setLayoutMenuOpen(true));
+  layoutControl?.addEventListener("pointerleave", () => setLayoutMenuOpen(false));
+  layoutTrigger?.addEventListener("focus", () => {
+    if (!suppressLayoutFocusOpen) setLayoutMenuOpen(true);
+  });
+  layoutTrigger?.addEventListener("click", () => {
+    setLayoutMenuOpen(true);
+  });
+  layoutTrigger?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown") return;
+    event.preventDefault();
+    setLayoutMenuOpen(true);
+    layoutButtons[0]?.focus();
+  });
+  switcher?.addEventListener("keydown", (event) => {
+    const current = layoutButtons.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setLayoutMenuOpen(false);
+      suppressLayoutFocusOpen = true;
+      if (layoutTrigger instanceof HTMLButtonElement) layoutTrigger.focus({ preventScroll: true });
+      queueMicrotask(() => { suppressLayoutFocusOpen = false; });
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const offset = event.key === "ArrowDown" ? 1 : -1;
+    layoutButtons[(current + offset + layoutButtons.length) % layoutButtons.length]?.focus();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (layoutControl && !layoutControl.contains(event.target as Node)) setLayoutMenuOpen(false);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-pro-collapse]").forEach((button) => {
     button.addEventListener("click", () => {

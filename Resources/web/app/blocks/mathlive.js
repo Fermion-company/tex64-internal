@@ -36,7 +36,8 @@ export const initMathLive = (context, deps) => {
         applyMathfieldLocale(currentMathfield);
     });
     const setupMathField = async () => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b;
+        var _c, _d, _e;
         if (setupInFlight) {
             return;
         }
@@ -253,7 +254,8 @@ export const initMathLive = (context, deps) => {
             containerPointerDownHandler = (event) => {
                 const path = typeof event.composedPath === "function" ? event.composedPath() : [];
                 const clickedMenuToggle = path.some((node) => {
-                    var _a, _b, _c, _d;
+                    var _a, _b, _c;
+                    var _d;
                     if (!(node instanceof HTMLElement))
                         return false;
                     if ((_a = node.classList) === null || _a === void 0 ? void 0 : _a.contains("block-math-menu-toggle"))
@@ -308,7 +310,7 @@ export const initMathLive = (context, deps) => {
             const supportsDirectOptions = "smartMode" in mathfield;
             if (supportsDirectOptions) {
                 const mf = mathfield;
-                const constructor = ((_b = mathfield.constructor) !== null && _b !== void 0 ? _b : {});
+                const constructor = ((_c = mathfield.constructor) !== null && _c !== void 0 ? _c : {});
                 const assign = (target, key, value) => {
                     try {
                         if (key in target)
@@ -368,7 +370,7 @@ export const initMathLive = (context, deps) => {
             try {
                 if ("macros" in mathfield) {
                     mathfield.macros = {
-                        ...((_c = mathfield.macros) !== null && _c !== void 0 ? _c : {}),
+                        ...((_d = mathfield.macros) !== null && _d !== void 0 ? _d : {}),
                         mathds: { def: "\\mathbb{#1}", args: 1 },
                     };
                 }
@@ -478,7 +480,7 @@ export const initMathLive = (context, deps) => {
                             .filter(Boolean);
                         return cleanDividers(filtered);
                     };
-                    const currentMenuItems = (_d = mathfield.menuItems) !== null && _d !== void 0 ? _d : [];
+                    const currentMenuItems = (_e = mathfield.menuItems) !== null && _e !== void 0 ? _e : [];
                     mathfield.menuItems = filterMenuItems(currentMenuItems);
                 }
             }
@@ -627,7 +629,7 @@ export const initMathLive = (context, deps) => {
             // Try immediate injection first, then retry after a frame in case the
             // shadowRoot isn't available yet (custom element upgrade timing).
             injectStyles();
-            if (!((_e = mathfield.shadowRoot) === null || _e === void 0 ? void 0 : _e.querySelector("style[data-tex64-style]"))) {
+            if (!((_b = mathfield.shadowRoot) === null || _b === void 0 ? void 0 : _b.querySelector("style[data-tex64-style]"))) {
                 requestAnimationFrame(() => {
                     var _a;
                     injectStyles();

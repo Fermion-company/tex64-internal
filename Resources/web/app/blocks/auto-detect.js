@@ -162,7 +162,8 @@ export const initBlockAutoDetection = (deps) => {
         }
     };
     const activateDetectedBlock = () => {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         if (!currentCandidate) {
             return;
         }
@@ -213,7 +214,8 @@ export const initBlockAutoDetection = (deps) => {
         deps.setAutoDetectedUi(false);
     };
     const syncDetectedBlockAtPosition = (position, options) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d;
+        var _e, _f, _g, _h;
         const activeGroup = deps.getActiveGroup();
         if (!activeGroup.editor || !position) {
             return null;

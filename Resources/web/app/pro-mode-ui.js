@@ -114,9 +114,17 @@ export const createProSplitViewCoordinator = (deps) => {
 export const initProModeUi = (deps) => {
     const root = document.getElementById("editor-groups");
     const switcher = document.getElementById("pro-layout-switcher");
+    const layoutControl = document.getElementById("pro-layout-control");
+    const layoutTrigger = document.getElementById("pro-layout-trigger");
     if (!(root instanceof HTMLElement))
         return null;
     let state = parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY));
+    let suppressLayoutFocusOpen = false;
+    const setLayoutMenuOpen = (open) => {
+        const next = open && state.enabled;
+        layoutControl === null || layoutControl === void 0 ? void 0 : layoutControl.classList.toggle("is-open", next);
+        layoutTrigger === null || layoutTrigger === void 0 ? void 0 : layoutTrigger.setAttribute("aria-expanded", String(next));
+    };
     const previewViewer = createViewer({
         editorViewer: document.getElementById("pro-preview-viewer"),
         editorViewerImage: document.getElementById("pro-preview-image"),
@@ -140,6 +148,8 @@ export const initProModeUi = (deps) => {
         root.dataset.proLayout = state.layout;
         if (switcher instanceof HTMLElement)
             switcher.hidden = !state.enabled;
+        if (!state.enabled)
+            setLayoutMenuOpen(false);
         const canvasButton = document.getElementById("pro-canvas-open");
         if (canvasButton instanceof HTMLButtonElement)
             canvasButton.hidden = !state.enabled;
@@ -162,7 +172,7 @@ export const initProModeUi = (deps) => {
             });
         });
         root.querySelectorAll("[data-pro-layout]").forEach((button) => {
-            button.setAttribute("aria-pressed", String(button.dataset.proLayout === state.layout));
+            button.setAttribute("aria-checked", String(button.dataset.proLayout === state.layout));
         });
         syncSplitView(state.enabled, state.layout);
         scheduleLayout();
@@ -172,12 +182,57 @@ export const initProModeUi = (deps) => {
         persist();
         apply();
     };
-    document.querySelectorAll("[data-pro-layout]").forEach((button) => {
+    const layoutButtons = Array.from(document.querySelectorAll("[data-pro-layout]"));
+    layoutButtons.forEach((button) => {
         button.addEventListener("click", () => {
             const layout = button.dataset.proLayout;
             if (layout === "preview-source" || layout === "source-reference-code")
                 update({ layout });
+            setLayoutMenuOpen(false);
+            suppressLayoutFocusOpen = true;
+            if (layoutTrigger instanceof HTMLButtonElement)
+                layoutTrigger.focus({ preventScroll: true });
+            queueMicrotask(() => { suppressLayoutFocusOpen = false; });
         });
+    });
+    layoutControl === null || layoutControl === void 0 ? void 0 : layoutControl.addEventListener("pointerenter", () => setLayoutMenuOpen(true));
+    layoutControl === null || layoutControl === void 0 ? void 0 : layoutControl.addEventListener("pointerleave", () => setLayoutMenuOpen(false));
+    layoutTrigger === null || layoutTrigger === void 0 ? void 0 : layoutTrigger.addEventListener("focus", () => {
+        if (!suppressLayoutFocusOpen)
+            setLayoutMenuOpen(true);
+    });
+    layoutTrigger === null || layoutTrigger === void 0 ? void 0 : layoutTrigger.addEventListener("click", () => {
+        setLayoutMenuOpen(true);
+    });
+    layoutTrigger === null || layoutTrigger === void 0 ? void 0 : layoutTrigger.addEventListener("keydown", (event) => {
+        var _a;
+        if (event.key !== "ArrowDown")
+            return;
+        event.preventDefault();
+        setLayoutMenuOpen(true);
+        (_a = layoutButtons[0]) === null || _a === void 0 ? void 0 : _a.focus();
+    });
+    switcher === null || switcher === void 0 ? void 0 : switcher.addEventListener("keydown", (event) => {
+        var _a;
+        const current = layoutButtons.indexOf(document.activeElement);
+        if (event.key === "Escape") {
+            event.preventDefault();
+            setLayoutMenuOpen(false);
+            suppressLayoutFocusOpen = true;
+            if (layoutTrigger instanceof HTMLButtonElement)
+                layoutTrigger.focus({ preventScroll: true });
+            queueMicrotask(() => { suppressLayoutFocusOpen = false; });
+            return;
+        }
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp")
+            return;
+        event.preventDefault();
+        const offset = event.key === "ArrowDown" ? 1 : -1;
+        (_a = layoutButtons[(current + offset + layoutButtons.length) % layoutButtons.length]) === null || _a === void 0 ? void 0 : _a.focus();
+    });
+    document.addEventListener("pointerdown", (event) => {
+        if (layoutControl && !layoutControl.contains(event.target))
+            setLayoutMenuOpen(false);
     });
     root.querySelectorAll("[data-pro-collapse]").forEach((button) => {
         button.addEventListener("click", () => {

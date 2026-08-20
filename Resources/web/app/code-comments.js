@@ -65,12 +65,13 @@ const rangeContainsPosition = (range, position) => comparePosition(position, ran
 const rangesIntersect = (a, b) => comparePosition(rangeStart(a), rangeEnd(b)) <= 0 && comparePosition(rangeStart(b), rangeEnd(a)) <= 0;
 const lineIntersectsRange = (range, lineNumber) => lineNumber >= range.startLineNumber && lineNumber <= range.endLineNumber;
 const clampRangeToModel = (range, model) => {
-    var _a, _b, _c, _d, _e, _f;
-    const lineCount = Math.max(1, (_b = (_a = model === null || model === void 0 ? void 0 : model.getLineCount) === null || _a === void 0 ? void 0 : _a.call(model)) !== null && _b !== void 0 ? _b : range.endLineNumber);
+    var _a, _b, _c;
+    var _d, _e, _f;
+    const lineCount = Math.max(1, (_d = (_a = model === null || model === void 0 ? void 0 : model.getLineCount) === null || _a === void 0 ? void 0 : _a.call(model)) !== null && _d !== void 0 ? _d : range.endLineNumber);
     const startLineNumber = clamp(Math.floor(range.startLineNumber), 1, lineCount);
     const endLineNumber = clamp(Math.floor(range.endLineNumber), startLineNumber, lineCount);
-    const startMaxColumn = Math.max(1, (_d = (_c = model === null || model === void 0 ? void 0 : model.getLineMaxColumn) === null || _c === void 0 ? void 0 : _c.call(model, startLineNumber)) !== null && _d !== void 0 ? _d : range.startColumn);
-    const endMaxColumn = Math.max(1, (_f = (_e = model === null || model === void 0 ? void 0 : model.getLineMaxColumn) === null || _e === void 0 ? void 0 : _e.call(model, endLineNumber)) !== null && _f !== void 0 ? _f : range.endColumn);
+    const startMaxColumn = Math.max(1, (_e = (_b = model === null || model === void 0 ? void 0 : model.getLineMaxColumn) === null || _b === void 0 ? void 0 : _b.call(model, startLineNumber)) !== null && _e !== void 0 ? _e : range.startColumn);
+    const endMaxColumn = Math.max(1, (_f = (_c = model === null || model === void 0 ? void 0 : model.getLineMaxColumn) === null || _c === void 0 ? void 0 : _c.call(model, endLineNumber)) !== null && _f !== void 0 ? _f : range.endColumn);
     const startColumn = clamp(Math.floor(range.startColumn), 1, startMaxColumn);
     const endColumn = clamp(Math.floor(range.endColumn), 1, endMaxColumn);
     return {
@@ -81,7 +82,8 @@ const clampRangeToModel = (range, model) => {
     };
 };
 const getSelectionRange = (editor, model) => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d;
+    var _e, _f;
     const selection = (_a = editor.getSelection) === null || _a === void 0 ? void 0 : _a.call(editor);
     if (selection &&
         isFiniteNumber(selection.startLineNumber) &&
@@ -100,8 +102,8 @@ const getSelectionRange = (editor, model) => {
     if (!position) {
         return null;
     }
-    const lineNumber = clamp(position.lineNumber, 1, Math.max(1, (_d = (_c = model === null || model === void 0 ? void 0 : model.getLineCount) === null || _c === void 0 ? void 0 : _c.call(model)) !== null && _d !== void 0 ? _d : position.lineNumber));
-    const endColumn = Math.max(1, (_f = (_e = model === null || model === void 0 ? void 0 : model.getLineMaxColumn) === null || _e === void 0 ? void 0 : _e.call(model, lineNumber)) !== null && _f !== void 0 ? _f : position.column);
+    const lineNumber = clamp(position.lineNumber, 1, Math.max(1, (_e = (_c = model === null || model === void 0 ? void 0 : model.getLineCount) === null || _c === void 0 ? void 0 : _c.call(model)) !== null && _e !== void 0 ? _e : position.lineNumber));
+    const endColumn = Math.max(1, (_f = (_d = model === null || model === void 0 ? void 0 : model.getLineMaxColumn) === null || _d === void 0 ? void 0 : _d.call(model, lineNumber)) !== null && _f !== void 0 ? _f : position.column);
     return {
         startLineNumber: lineNumber,
         startColumn: 1,
@@ -297,13 +299,14 @@ export const createCodeCommentManager = (monaco, deps) => {
         state.records = [];
     };
     const refreshGroup = (group) => {
-        var _a, _b, _c, _d;
+        var _a, _b, _c;
+        var _d;
         const state = getState(group);
         state.refreshRafId = null;
         syncRangesFromDecorations(state);
         clearDecorations(group, state);
         const editor = group.editor;
-        const model = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
+        const model = (_d = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _d !== void 0 ? _d : null;
         const path = group.currentFilePath;
         state.path = path;
         state.model = model;
@@ -314,7 +317,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         if (comments.length === 0 || !monaco.Range || !editor.deltaDecorations) {
             return;
         }
-        const stickiness = (_d = (_c = monaco.editor) === null || _c === void 0 ? void 0 : _c.TrackedRangeStickiness) === null || _d === void 0 ? void 0 : _d.NeverGrowsWhenTypingAtEdges;
+        const stickiness = (_c = (_b = monaco.editor) === null || _b === void 0 ? void 0 : _b.TrackedRangeStickiness) === null || _c === void 0 ? void 0 : _c.NeverGrowsWhenTypingAtEdges;
         const decorations = comments.map((comment) => {
             const range = clampRangeToModel(comment, model);
             const hoverMessage = createHoverMessage(comment);
@@ -351,15 +354,16 @@ export const createCodeCommentManager = (monaco, deps) => {
         });
     };
     const findCommentAtCurrentContext = (group) => {
-        var _a, _b, _c, _d;
+        var _a, _b;
+        var _c, _d;
         const editor = group.editor;
-        const model = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
+        const model = (_c = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _c !== void 0 ? _c : null;
         const path = group.currentFilePath;
         if (!editor || !path) {
             return null;
         }
         const selectionRange = getSelectionRange(editor, model);
-        const position = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
+        const position = (_b = editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor);
         return ((_d = loadComments().find((comment) => {
             if (comment.filePath !== path) {
                 return false;
@@ -392,9 +396,10 @@ export const createCodeCommentManager = (monaco, deps) => {
         (_b = (_a = group.editor) === null || _a === void 0 ? void 0 : _a.focus) === null || _b === void 0 ? void 0 : _b.call(_a);
     };
     const addOrEditComment = async (group) => {
-        var _a, _b, _c;
+        var _a, _b;
+        var _c;
         const editor = group.editor;
-        const model = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
+        const model = (_c = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _c !== void 0 ? _c : null;
         const filePath = group.currentFilePath;
         if (!editor || !model || !filePath) {
             return;
@@ -428,7 +433,7 @@ export const createCodeCommentManager = (monaco, deps) => {
         });
         saveComments(comments);
         refreshGroupsForPath(filePath);
-        (_c = editor.focus) === null || _c === void 0 ? void 0 : _c.call(editor);
+        (_b = editor.focus) === null || _b === void 0 ? void 0 : _b.call(editor);
     };
     const deleteCommentAtCursor = (group) => {
         var _a, _b;
@@ -478,7 +483,8 @@ export const createCodeCommentManager = (monaco, deps) => {
             scheduleRefreshGroup(group);
         });
         (_d = editor.onMouseDown) === null || _d === void 0 ? void 0 : _d.call(editor, (event) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+            var _l;
             const target = event === null || event === void 0 ? void 0 : event.target;
             const glyphTargetType = (_b = (_a = monaco.editor) === null || _a === void 0 ? void 0 : _a.MouseTargetType) === null || _b === void 0 ? void 0 : _b.GUTTER_GLYPH_MARGIN;
             const isGlyphTarget = (target === null || target === void 0 ? void 0 : target.type) === glyphTargetType ||
@@ -486,12 +492,12 @@ export const createCodeCommentManager = (monaco, deps) => {
             if (!isGlyphTarget) {
                 return;
             }
-            const lineNumber = (_f = (_e = target === null || target === void 0 ? void 0 : target.position) === null || _e === void 0 ? void 0 : _e.lineNumber) !== null && _f !== void 0 ? _f : (_g = target === null || target === void 0 ? void 0 : target.range) === null || _g === void 0 ? void 0 : _g.startLineNumber;
+            const lineNumber = (_l = (_e = target === null || target === void 0 ? void 0 : target.position) === null || _e === void 0 ? void 0 : _e.lineNumber) !== null && _l !== void 0 ? _l : (_f = target === null || target === void 0 ? void 0 : target.range) === null || _f === void 0 ? void 0 : _f.startLineNumber;
             if (!isFiniteNumber(lineNumber)) {
                 return;
             }
-            event && ((_j = (_h = event.event) === null || _h === void 0 ? void 0 : _h.preventDefault) === null || _j === void 0 ? void 0 : _j.call(_h));
-            event && ((_l = (_k = event.event) === null || _k === void 0 ? void 0 : _k.stopPropagation) === null || _l === void 0 ? void 0 : _l.call(_k));
+            event && ((_h = (_g = event.event) === null || _g === void 0 ? void 0 : _g.preventDefault) === null || _h === void 0 ? void 0 : _h.call(_g));
+            event && ((_k = (_j = event.event) === null || _j === void 0 ? void 0 : _j.stopPropagation) === null || _k === void 0 ? void 0 : _k.call(_j));
             void editCommentAtLine(group, lineNumber);
         });
         (_e = editor.addAction) === null || _e === void 0 ? void 0 : _e.call(editor, {

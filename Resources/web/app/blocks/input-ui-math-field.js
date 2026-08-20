@@ -254,11 +254,12 @@ const getPromptRanges = (mathfieldApi) => {
 export const createPlaceholderNavigator = () => {
     let lastPlaceholderIndex = null;
     const moveMathFieldPlaceholder = (mathfieldHost, direction) => {
-        var _a, _b, _c, _d;
+        var _a, _b;
+        var _c, _d;
         const mathfieldApi = mathfieldHost;
         const selection = readSelectionRange(mathfieldApi);
-        const selectionStart = (_a = selection === null || selection === void 0 ? void 0 : selection.start) !== null && _a !== void 0 ? _a : (typeof mathfieldApi.position === "number" ? mathfieldApi.position : 0);
-        const selectionEnd = (_b = selection === null || selection === void 0 ? void 0 : selection.end) !== null && _b !== void 0 ? _b : selectionStart;
+        const selectionStart = (_c = selection === null || selection === void 0 ? void 0 : selection.start) !== null && _c !== void 0 ? _c : (typeof mathfieldApi.position === "number" ? mathfieldApi.position : 0);
+        const selectionEnd = (_d = selection === null || selection === void 0 ? void 0 : selection.end) !== null && _d !== void 0 ? _d : selectionStart;
         const snapshotRange = readSelectionRange(mathfieldApi);
         const snapshotPosition = typeof mathfieldApi.position === "number" ? mathfieldApi.position : null;
         const restoreSnapshot = () => {
@@ -421,12 +422,12 @@ export const createPlaceholderNavigator = () => {
         }
         const charCommand = direction === "backward" ? "moveToPreviousChar" : "moveToNextChar";
         if (moveByCommandSkippingFull(charCommand, direction)) {
-            (_c = mathfieldApi.focus) === null || _c === void 0 ? void 0 : _c.call(mathfieldApi);
+            (_a = mathfieldApi.focus) === null || _a === void 0 ? void 0 : _a.call(mathfieldApi);
             return true;
         }
         const command = direction === "backward" ? "moveToPreviousPlaceholder" : "moveToNextPlaceholder";
         if (moveByCommandSkippingFull(command, direction)) {
-            (_d = mathfieldApi.focus) === null || _d === void 0 ? void 0 : _d.call(mathfieldApi);
+            (_b = mathfieldApi.focus) === null || _b === void 0 ? void 0 : _b.call(mathfieldApi);
             return true;
         }
         if (direction === "forward") {

@@ -222,14 +222,15 @@ export const createEditorSessionFileOps = (ctx) => {
             bar.remove();
     };
     const applyFormattedContent = (group, path, content, options) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c;
+        var _d, _e, _f, _g, _h;
         if (!group.editor) {
             return;
         }
         const editor = group.editor;
         const entry = monacoModels.get(path);
-        const currentValue = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
-        const viewState = (_d = editor.saveViewState) === null || _d === void 0 ? void 0 : _d.call(editor);
+        const currentValue = (_e = (_d = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _d !== void 0 ? _d : (_a = editor.getValue) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _e !== void 0 ? _e : "";
+        const viewState = (_b = editor.saveViewState) === null || _b === void 0 ? void 0 : _b.call(editor);
         if (currentValue !== content) {
             // Compute changed line numbers BEFORE replacing (for diff decorations).
             // Use LCS-based diff so that only truly added/modified lines are marked,
@@ -250,7 +251,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 }
             }
             group.isApplyingFile = true;
-            replaceContentViaEdits(editor, (_e = entry === null || entry === void 0 ? void 0 : entry.model) !== null && _e !== void 0 ? _e : null, content, (options === null || options === void 0 ? void 0 : options.showAiDiff) ? "ai-apply" : "format-on-save");
+            replaceContentViaEdits(editor, (_f = entry === null || entry === void 0 ? void 0 : entry.model) !== null && _f !== void 0 ? _f : null, content, (options === null || options === void 0 ? void 0 : options.showAiDiff) ? "ai-apply" : "format-on-save");
             group.isApplyingFile = false;
             if (viewState && editor.restoreViewState) {
                 editor.restoreViewState(viewState);
@@ -269,7 +270,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 const ids = editor.deltaDecorations([], decorations);
                 aiDiffDecorations.set(group.key, ids);
                 // Show Undo/Confirm bar
-                const editorDom = (_f = editor.getDomNode) === null || _f === void 0 ? void 0 : _f.call(editor);
+                const editorDom = (_c = editor.getDomNode) === null || _c === void 0 ? void 0 : _c.call(editor);
                 const editorContainer = editorDom === null || editorDom === void 0 ? void 0 : editorDom.parentElement;
                 if (editorContainer) {
                     const existing = document.getElementById("ai-undo-keep-bar");
@@ -441,7 +442,8 @@ export const createEditorSessionFileOps = (ctx) => {
             return a.localeCompare(b, getUiLocale());
         });
         const readBuffer = (path) => {
-            var _a, _b, _c;
+            var _a, _b;
+            var _c;
             const entry = monacoModels.get(path);
             if ((_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) {
                 return entry.model.getValue();
@@ -626,9 +628,10 @@ export const createEditorSessionFileOps = (ctx) => {
         applyFileContent(targetGroup, path, content, content);
     };
     const handleSaveResult = (payload) => {
-        var _a, _b;
+        var _a;
+        var _b;
         let savedContent = null;
-        const saveErrorMessage = (_a = payload.error) !== null && _a !== void 0 ? _a : "Saving failed.";
+        const saveErrorMessage = (_b = payload.error) !== null && _b !== void 0 ? _b : "Saving failed.";
         if (state.pendingSave) {
             if (state.pendingSave.path === payload.path) {
                 if (payload.ok) {
@@ -654,7 +657,7 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         if (lastSaveErrorMessage !== null) {
-            const snapshot = (_b = deps.getRecentIssuesSnapshot) === null || _b === void 0 ? void 0 : _b.call(deps);
+            const snapshot = (_a = deps.getRecentIssuesSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps);
             const stillOurs = !snapshot ||
                 (snapshot.status === "error" &&
                     snapshot.issues.length === 1 &&
