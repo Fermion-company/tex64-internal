@@ -5,27 +5,16 @@ import { INSTALL_VARIANT_LABELS, type TexInstallVariant } from "./tex-env-report
 // straight into the editor; if it is not, this is the only thing the user sees
 // until an install finishes.
 
-// How long each variant takes end to end, measured on an M-series Mac with a
-// normal connection (light: 2:08, full: the CTAN mirror dominates). Used until
-// the run's own pace is known.
+// Typical end-to-end duration for scheme-full on an M-series Mac. Used until
+// the current run's own pace is known.
 export const VARIANT_TOTAL_MS: Record<TexInstallVariant, number> = {
-  light: 2 * 60 * 1000,
   full: 45 * 60 * 1000,
 };
 
-// The progress bar is NOT linear in time: for the light install the whole
-// install-tl phase (bar 0->80%) is ~15s while the package phase (80->98%) is
-// ~95s, and for the full install it is the other way round. Mapping bar percent
-// onto elapsed-time fraction is what makes the remaining-time estimate honest
-// instead of collapsing from "5 minutes" to "done" at 80%.
+// The progress bar is not linear in time: scheme-full spends almost all of its
+// time inside install-tl (bar 0->80%). Mapping bar percent onto elapsed-time
+// fraction keeps the remaining-time estimate useful.
 const TIME_CURVE: Record<TexInstallVariant, Array<[number, number]>> = {
-  light: [
-    [0, 0],
-    [8, 0.05],
-    [80, 0.13],
-    [98, 0.92],
-    [100, 1],
-  ],
   full: [
     [0, 0],
     [8, 0.02],
@@ -40,7 +29,7 @@ export const timeFractionForPercent = (
   variant: TexInstallVariant
 ): number => {
   const p = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : 0));
-  const curve = TIME_CURVE[variant] ?? TIME_CURVE.light;
+  const curve = TIME_CURVE[variant] ?? TIME_CURVE.full;
   for (let i = 1; i < curve.length; i += 1) {
     const [prevP, prevF] = curve[i - 1];
     const [nextP, nextF] = curve[i];
@@ -82,7 +71,7 @@ export const nextEtaState = (
   );
   const elapsed = Math.max(0, input.now - startedAt);
   const fraction = timeFractionForPercent(percent, input.variant);
-  const fallbackTotal = VARIANT_TOTAL_MS[input.variant] ?? VARIANT_TOTAL_MS.light;
+  const fallbackTotal = VARIANT_TOTAL_MS[input.variant] ?? VARIANT_TOTAL_MS.full;
   // Only trust the measured pace once enough of the run has happened for the
   // ratio to mean anything.
   const measuredTotal =
@@ -161,15 +150,12 @@ export type OnboardingUiApi = {
 
 export const initOnboardingUi = (deps: {
   startInstall: (variant: TexInstallVariant) => void;
-  onSkip: () => void;
   onFinished: () => void;
 }): OnboardingUiApi => {
   const root = document.getElementById("onboarding");
   const choiceStep = document.getElementById("onboarding-choice");
   const progressStep = document.getElementById("onboarding-progress");
-  const lightBtn = document.getElementById("onboarding-choice-light");
   const fullBtn = document.getElementById("onboarding-choice-full");
-  const skipBtn = document.getElementById("onboarding-skip");
   const fill = document.getElementById("onboarding-gauge-fill");
   const percentEl = document.getElementById("onboarding-percent");
   const etaEl = document.getElementById("onboarding-eta");
@@ -196,7 +182,6 @@ export const initOnboardingUi = (deps: {
 
   const renderChoiceLabels = () => {
     for (const [variant, button] of [
-      ["light", lightBtn],
       ["full", fullBtn],
     ] as Array<[TexInstallVariant, HTMLElement | null]>) {
       if (!(button instanceof HTMLElement)) {
@@ -216,8 +201,6 @@ export const initOnboardingUi = (deps: {
       if (detail) {
         detail.textContent = labels.detail;
       }
-      // The size is not decoration: it is half of what the choice is about, so
-      // it is always rendered, never truncated away.
       if (size) {
         size.textContent = labels.size;
       }
@@ -262,10 +245,10 @@ export const initOnboardingUi = (deps: {
       phaseEl.textContent = `${installPhaseLabel(input.phase)}${counts}`;
     }
     if (progressTitle instanceof HTMLElement) {
-      progressTitle.textContent =
-        input.variant === "light"
-          ? uiText("Setting up TeX (light)…", "TeX をセットアップ中（ライト）…")
-          : uiText("Setting up TeX (everything)…", "TeX をセットアップ中（フル）…");
+      progressTitle.textContent = uiText(
+        "Setting up TeX…",
+        "TeX をセットアップ中…"
+      );
     }
   };
 
@@ -288,12 +271,7 @@ export const initOnboardingUi = (deps: {
     deps.onFinished();
   };
 
-  lightBtn?.addEventListener("click", () => deps.startInstall("light"));
   fullBtn?.addEventListener("click", () => deps.startInstall("full"));
-  skipBtn?.addEventListener("click", () => {
-    setVisible(false);
-    deps.onSkip();
-  });
 
   return { showChoice, showProgress, showFailure, finish, isVisible: () => visible };
 };

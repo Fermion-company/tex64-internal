@@ -162,13 +162,13 @@
 
 4. **`% requires` 行を挿入ブロックから外す**: `encodeFigureBlock` 内で `generateTikz(scene).code` から `/^% requires(?::|\s|$)/` の行を落とす（`buildStandaloneDoc` と同じフィルタ）。`generateTikz` 自体は変更しない（既存テストが `% requires` を assert している）。ハッシュ対象の body は**落とした後**のテキスト。
 
-5. **v1 の復号は残す**（既存文書が開けなくなるのを防ぐ）。`decodeFigureBlockAt` / `listFigureBlocks` のヘッダ検出正規表現を `/^%% tex64-figure v[12]\b/` にし（ネスト検出の 3 箇所すべて）、v1 は従来の `%% tex64-figure+` チャンク経路、v2 はヘッダ行から直接 payload を取る経路に分岐する。v1 ブロックを canvas で開いて保存し直すと v2 で書き戻る（＝古い巨大ブロックは編集のたびに縮む）。
+5. **v1 の復号は残す**（既存文書が開けなくなるのを防ぐ）。`decodeFigureBlockAt` は v1 の従来の `%% tex64-figure+` チャンク経路と、v2 のヘッダ行から直接 payload を取る経路に分岐する。v1 ブロックを canvas で開いて保存し直すと v2 で書き戻る（＝古い巨大ブロックは編集のたびに縮む）。
 
 ### L2 のテスト（`tests/pro-canvas-codec.test.mjs` を更新 + 追加）
 
 - `encodeFigureBlock(scene)` の出力に含まれる `%%` 始まりの行が**ちょうど 1 行**であること（40 セグメントの曲線を含む scene でも 1 行）。
 - v2 ブロックの round-trip: `decodeFigureBlockAt` が元 scene と deep-equal（テスト用 scene の数値は 6 桁以内にする）、`detached === false`。
-- **v1 固定文字列**（このコミット以前の形式のリテラル）を decode できること・`listFigureBlocks` が拾えること。
+- **v1 固定文字列**（このコミット以前の形式のリテラル）を decode できること。
 - 既存の「broken base64 returns null」は v2 のヘッダ行を壊す形に書き換え。
 - `lzssCompress`/`lzssDecompress` の round-trip: (a) 実 scene の JSON、(b) 疑似乱数バイト列（seed 固定・自前 LCG、`Math.random` は使わない）、(c) 空・1 バイト・同一バイト 5000 個の縮退ケース。
 - 挿入ブロックに `% requires` 行が含まれないこと（`arrows.meta` を要求する scene で確認）。`generateTikz` 側の既存テストは変更しないこと。

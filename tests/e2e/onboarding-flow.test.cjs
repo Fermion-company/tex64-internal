@@ -84,7 +84,6 @@ const gateState = (page) =>
       progressShown: !document
         .getElementById("onboarding-progress")
         ?.classList.contains("is-hidden"),
-      light: card("onboarding-choice-light"),
       full: card("onboarding-choice-full"),
       percent: text("onboarding-percent"),
       eta: text("onboarding-eta"),
@@ -119,7 +118,7 @@ test("a machine with TeX never sees the gate", async () => {
   }
 });
 
-test("a machine without TeX is asked to choose, with both sizes on screen", async () => {
+test("a machine without TeX gets one complete-install action", async () => {
   const { electronApp, page, tmpDir } = await launch({ missingTools: true });
   try {
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
@@ -128,14 +127,14 @@ test("a machine without TeX is asked to choose, with both sizes on screen", asyn
     assert.equal(state.progressShown, false);
     assert.equal(state.bodyGated, true, "the launcher must not show through the gate");
 
-    // The size is half of what the choice is about; neither card may ship without it.
-    assert.match(state.light.size, /\d/, `light card has no size: ${JSON.stringify(state.light)}`);
     assert.match(state.full.size, /\d/, `full card has no size: ${JSON.stringify(state.full)}`);
-    assert.match(state.light.size, /MB|GB/);
     assert.match(state.full.size, /GB/);
-    // Light is the recommended one.
-    assert.ok(state.light.badge.length > 0, "light should carry the recommendation");
     assert.equal(state.full.badge.replace(/ /g, "").trim(), "");
+    assert.equal(
+      await page.locator("#onboarding-choice .env-choice-card").count(),
+      1,
+      "there must not be a partial-install choice"
+    );
   } finally {
     await closeElectronApp(electronApp);
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -167,7 +166,6 @@ const injectMissingTex = async (electronApp) => {
       ready: false,
       distribution: { kind: "unknown", name: "", year: "", root: "", isTinytex: false },
       managedVariant: null,
-      canAutoInstallPackages: false,
       engines: {},
       tools: {},
       coverage: {
@@ -193,7 +191,7 @@ test("the gauge shows progress and a remaining time, then hands over to the app"
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
 
     // Same events a real install emits, without the download.
-    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "light" });
+    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "full" });
     await page.waitForTimeout(400);
     let state = await gateState(page);
     assert.equal(state.progressShown, true, "starting an install should show the gauge");
@@ -216,7 +214,7 @@ test("the gauge shows progress and a remaining time, then hands over to the app"
     // re-detection keeps it closed.
     await sendFromMain(electronApp, "env:installResult", {
       target: "basictex",
-      variant: "light",
+      variant: "full",
       success: true,
       message: "ready",
     });
@@ -237,11 +235,11 @@ test("an install that leaves no usable TeX puts the user back in front of the ch
   const { electronApp, page, tmpDir } = await launch({ missingTools: true });
   try {
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
-    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "light" });
+    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "full" });
     await page.waitForTimeout(300);
     await sendFromMain(electronApp, "env:installResult", {
       target: "basictex",
-      variant: "light",
+      variant: "full",
       success: true,
       message: "ready",
     });
@@ -274,25 +272,6 @@ test("a failed install says so and offers the choice again", async () => {
       () => document.getElementById("onboarding-note")?.textContent?.trim() ?? ""
     );
     assert.match(note, /Download failed/);
-  } finally {
-    await closeElectronApp(electronApp);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
-});
-
-test("skipping leaves the gate for good and reveals the launcher", async () => {
-  const { electronApp, page, tmpDir } = await launch({ missingTools: true });
-  try {
-    await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
-    await page.click("#onboarding-skip");
-    await page.waitForTimeout(800);
-    const state = await gateState(page);
-    assert.equal(state.visible, false);
-    assert.equal(state.launcherVisible, true);
-    const skipped = await page.evaluate(() =>
-      localStorage.getItem("tex64.onboarding.texSetupSkipped.v1")
-    );
-    assert.equal(skipped, "1", "the skip must be remembered so it stops asking");
   } finally {
     await closeElectronApp(electronApp);
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -18,7 +18,6 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
     const detailEl = document.getElementById("env-detail");
     const choiceEl = document.getElementById("env-choice");
     const fullBtn = document.getElementById("env-choice-full");
-    const lightBtn = document.getElementById("env-choice-light");
     let installing = false;
     // The structured detection report from the main process. Until it arrives the
     // screen falls back to the per-command summary, so a detection failure degrades
@@ -112,7 +111,6 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
     };
     const renderChoiceLabels = () => {
         for (const [variant, button] of [
-            ["light", lightBtn],
             ["full", fullBtn],
         ]) {
             if (!(button instanceof HTMLElement)) {
@@ -167,12 +165,10 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         markRuntimeSetupPrompted();
         (_b = (_a = runtime.deps).onRuntimeSetupNeeded) === null || _b === void 0 ? void 0 : _b.call(_a, summary);
     };
-    const showInstalling = (variant = "light") => {
+    const showInstalling = (_variant = "full") => {
         installing = true;
         setHeroState("installing");
-        setHeroText("Setting up your TeX environment…", variant === "light"
-            ? uiText("Installing the light TeX Live set (about 500 MB). This usually takes a few minutes — you can keep working in the meantime.", "軽量セットの TeX Live を導入中（約 500 MB）。通常は数分で終わります。その間も作業を続けられます。")
-            : uiText("Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.", "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30〜60 分かかります。その間も作業を続けられます。"));
+        setHeroText("Setting up your TeX environment…", uiText("Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.", "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30〜60 分かかります。その間も作業を続けられます。"));
         setSetupButton({ visible: false });
         setChoiceVisible(false);
         setInstallNote("");
@@ -213,7 +209,8 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             setSetupButton({ visible: false });
             setInstallNote("");
             setChoiceVisible(false);
-            // A managed light install can be grown into the full set in place.
+            // Retired development builds may have left a partial managed tree. Offer
+            // the in-place scheme-full upgrade until its marker is rewritten.
             if ((detection === null || detection === void 0 ? void 0 : detection.source) === "managed" &&
                 (detection === null || detection === void 0 ? void 0 : detection.managedVariant) === "light" &&
                 setupBtn instanceof HTMLButtonElement) {
@@ -237,7 +234,7 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             return;
         }
         setHeroState("missing");
-        setHeroText("TeX environment is not set up yet.", uiText("Choose how much of TeX Live to install. Either way TeX64 installs it privately, without admin rights, and never touches any TeX you already have.", "TeX Live をどこまで入れるか選んでください。どちらも管理者権限なしで TeX64 専用の場所に導入し、既存の TeX には触れません。"));
+        setHeroText("TeX environment is not set up yet.", uiText("TeX64 installs the complete TeX Live privately, without admin rights, and never touches any TeX you already have.", "TeX64 専用の場所に完全な TeX Live を管理者権限なしで導入します。既存の TeX には触れません。"));
         // The choice replaces the old single button; the button stays as the fallback
         // for a renderer whose markup predates the choice block.
         if (choiceEl instanceof HTMLElement) {
@@ -285,10 +282,10 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
     };
     // The gate needs the variant on every packet (the estimate depends on it) but
     // the main process only names it on start, so it is remembered here.
-    let installingVariant = "light";
+    let installingVariant = "full";
     const handleEnvInstallStart = (payload) => {
         var _a, _b;
-        installingVariant = (payload === null || payload === void 0 ? void 0 : payload.variant) === "full" ? "full" : "light";
+        installingVariant = "full";
         showInstalling(installingVariant);
         (_b = (_a = runtime.deps).onRuntimeInstallEvent) === null || _b === void 0 ? void 0 : _b.call(_a, { kind: "start", variant: installingVariant });
     };
@@ -343,19 +340,11 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
             if (setupBtn.disabled) {
                 return;
             }
-            // Without the choice block this is the only install control, so it runs the
-            // recommended variant — except on a managed light tree, where the button is
-            // relabelled as the upgrade to the full set.
-            startInstall((detection === null || detection === void 0 ? void 0 : detection.source) === "managed" && (detection === null || detection === void 0 ? void 0 : detection.managedVariant) === "light"
-                ? "full"
-                : "light");
+            startInstall("full");
         });
     }
     if (fullBtn instanceof HTMLButtonElement) {
         fullBtn.addEventListener("click", () => startInstall("full"));
-    }
-    if (lightBtn instanceof HTMLButtonElement) {
-        lightBtn.addEventListener("click", () => startInstall("light"));
     }
     if (settingsRuntimeOpenTexDocs instanceof HTMLButtonElement) {
         settingsRuntimeOpenTexDocs.addEventListener("click", () => {

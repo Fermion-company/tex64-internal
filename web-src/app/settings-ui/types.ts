@@ -13,7 +13,6 @@ export type SettingsUiDeps = {
   onEditorWordWrapChange?: (enabled: boolean) => void;
   onUpdateAttentionChange?: (hasAttention: boolean) => void;
   onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
-  onPackagesPageActive?: () => void;
   // The environment ops own every piece of TeX state, so the first-run gate
   // listens through them rather than tapping the IPC bridge a second time.
   onRuntimeDetection?: (report: TexEnvReport | null, summary: EnvStatusSummary | null) => void;

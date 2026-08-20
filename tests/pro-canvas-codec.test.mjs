@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createEmptyScene } from "../Resources/web/app/pro-canvas/scene.js";
-import { decodeFigureBlockAt, encodeFigureBlock, fnv1a32, listFigureBlocks, lzssCompress, lzssDecompress } from "../Resources/web/app/pro-canvas/figure-codec.js";
+import { decodeFigureBlockAt, encodeFigureBlock, fnv1a32, lzssCompress, lzssDecompress } from "../Resources/web/app/pro-canvas/figure-codec.js";
 
 /** 旧形式（v1）のブロック。後方互換の回帰用に固定文字列で持つ。 */
 const v1Block = [
@@ -74,24 +74,6 @@ test("fnv1a32 has the standard empty-string value", () => {
   assert.equal(fnv1a32(""), "811c9dc5");
 });
 
-test("listFigureBlocks finds two blocks separated by ordinary text", () => {
-  const first = createEmptyScene();
-  const second = createEmptyScene();
-  second.objects.push({ id: "r", type: "rect", from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, style: {} });
-  const lines = ["before", ...encodeFigureBlock(first).trimEnd().split("\n"), "between", ...encodeFigureBlock(second).trimEnd().split("\n"), "after"];
-  const blocks = listFigureBlocks(lines);
-  assert.equal(blocks.length, 2);
-  assert.deepEqual(blocks.map((block) => block.scene), [first, second]);
-  assert.ok(blocks[1].startLine > blocks[0].endLine);
-});
-
-test("listFigureBlocks skips a broken header and continues scanning", () => {
-  const valid = encodeFigureBlock(createEmptyScene()).trimEnd().split("\n");
-  const blocks = listFigureBlocks(["%% tex64-figure v1 broken", "ordinary", ...valid]);
-  assert.equal(blocks.length, 1);
-  assert.equal(blocks[0].startLine, 2);
-});
-
 test("a figure carries exactly one comment line, however long the curve", () => {
   for (const count of [1, 8, 40, 120]) {
     const comments = encodeFigureBlock(curveScene(count)).split("\n").filter((line) => line.startsWith("%"));
@@ -112,12 +94,10 @@ test("the inserted block carries no % requires line", () => {
   assert.doesNotMatch(encodeFigureBlock(scene), /^% requires/m);
 });
 
-test("v1 blocks still decode, alone and mixed with v2", () => {
+test("v1 blocks still decode", () => {
   const decoded = decodeFigureBlockAt(v1Block, 5);
   assert.equal(decoded?.scene.objects[0].type, "rect");
   assert.equal(decoded?.detached, false);
-  const v2 = encodeFigureBlock(curveScene(3)).trimEnd().split("\n");
-  assert.equal(listFigureBlocks(["before", ...v1Block, "between", ...v2, "after"]).length, 2);
 });
 
 test("lzss round-trips text, bytes, and degenerate inputs", () => {
@@ -128,11 +108,4 @@ test("lzss round-trips text, bytes, and degenerate inputs", () => {
   roundTrip(new TextEncoder().encode(JSON.stringify(curveScene(40))));
   let seed = 12345;
   roundTrip(Uint8Array.from({ length: 4096 }, () => (seed = (seed * 1103515245 + 12345) % 2147483648) >> 16 & 255));
-});
-
-test("listFigureBlocks reports detached blocks", () => {
-  const lines = encodeFigureBlock(createEmptyScene()).trimEnd().split("\n");
-  const begin = lines.findIndex((line) => line.startsWith("\\begin{tikzpicture}"));
-  lines[begin] += " ";
-  assert.equal(listFigureBlocks(lines)[0]?.detached, true);
 });

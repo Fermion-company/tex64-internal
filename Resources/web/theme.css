@@ -417,23 +417,6 @@ body.has-onboarding .launcher {
   display: none;
 }
 
-.onboarding-skip {
-  align-self: flex-start;
-  margin-top: 2px;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-soft);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-.onboarding-skip:hover {
-  color: var(--text);
-}
-
 .onboarding-gauge {
   display: flex;
   flex-direction: column;
@@ -3336,381 +3319,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 /* =============================================================================
-   Packages screen — one list, installed vs not readable at a glance
-   ============================================================================= */
-
-.panel[data-panel="settings"] .settings-group.pkg-group {
-  padding: 18px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.pkg-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.pkg-scope {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-soft);
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* A tree that will ask for a password is worth flagging before the click, not
-   after the dialog appears. */
-.pkg-scope.needs-admin {
-  color: var(--warning-text, var(--text-soft));
-}
-
-.panel[data-panel="settings"] .pkg-update-btn {
-  flex: 0 0 auto;
-  height: 30px;
-  padding: 0 14px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.pkg-search {
-  width: 100%;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-sm);
-  background: var(--control-bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-}
-.pkg-search:focus {
-  outline: none;
-  border-color: var(--accent-soft-strong);
-}
-
-/* A tab bar, not pills: these are three views of one list, and rounded badges
-   read as status rather than navigation. */
-.pkg-filters {
-  display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--panel-border);
-}
-
-.pkg-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  background: transparent;
-  color: var(--text-soft);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.pkg-filter:hover {
-  color: var(--text);
-}
-.pkg-filter[aria-selected="true"] {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
-.pkg-filter-count {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-}
-
-.pkg-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 52vh;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.pkg-row {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.pkg-row:hover {
-  border-color: var(--panel-border);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-/* The whole point of one merged list: state is carried by the dot, the name's
-   weight and the action's shape, so it reads without looking at the label. */
-.pkg-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid var(--panel-border-strong);
-  background: transparent;
-}
-.pkg-row.is-installed .pkg-dot {
-  border-color: var(--success-text, #7dd3a8);
-  background: var(--success-text, #7dd3a8);
-}
-
-.pkg-main {
-  min-width: 0;
-}
-
-.pkg-name-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.pkg-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pkg-row.is-installed .pkg-name {
-  color: var(--text);
-}
-
-.pkg-state {
-  flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--text-soft);
-  opacity: 0.7;
-}
-.pkg-row.is-installed .pkg-state {
-  color: var(--success-text, #7dd3a8);
-  opacity: 1;
-}
-
-.pkg-kind {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--panel-border);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-soft);
-}
-
-.pkg-desc {
-  margin-top: 2px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-soft);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pkg-files,
-.pkg-file-hit {
-  margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
-  font-family: var(--mono-font, ui-monospace, monospace);
-  font-size: 10px;
-  line-height: 1.6;
-  color: var(--text-soft);
-  /* A path is one long word: wrapping it snaps names in half
-     (LatinModernMathCompanion-Regula / r.otf). One line each, scroll sideways. */
-  white-space: pre;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.pkg-size {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-soft);
-  white-space: nowrap;
-}
-
-.pkg-action {
-  flex: 0 0 auto;
-  height: 24px;
-  min-width: 62px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.pkg-action.is-install {
-  color: #fff;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-}
-.pkg-action.is-install:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
-}
-.pkg-action:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-/* Removing and reading the docs are per-row verbs, not primary actions: small
-   icon buttons, with the destructive one carrying the only colour. */
-.pkg-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  /* Each row is its own grid, so without a shared width the size column and the
-     right edge go ragged between an Install button and two icons. */
-  min-width: 62px;
-}
-
-.pkg-icon-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
-}
-.pkg-icon-action:hover {
-  color: var(--text);
-  border-color: var(--panel-border);
-  background: rgba(255, 255, 255, 0.04);
-}
-.pkg-icon-action.is-remove {
-  color: var(--danger-text, #f2a2a2);
-}
-.pkg-icon-action.is-remove:hover {
-  color: var(--danger-text, #f2a2a2);
-  border-color: var(--danger-border, rgba(248, 81, 73, 0.4));
-  background: var(--danger-faint, rgba(248, 81, 73, 0.05));
-}
-.pkg-icon-action:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.pkg-section {
-  margin: 10px 0 2px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-soft);
-}
-
-.pkg-empty,
-.pkg-truncated {
-  padding: 10px 2px;
-  font-size: 12px;
-  color: var(--text-soft);
-}
-.pkg-truncated.is-hidden {
-  display: none;
-}
-
-.pkg-extra {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 30vh;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.pkg-extra.is-hidden {
-  display: none;
-}
-.pkg-extra .pkg-section:first-child {
-  margin-top: 0;
-}
-
-/* Framed like the search field, this read as a second text input sitting above
-   the real one. It is a message, so it looks like one. */
-.pkg-note {
-  padding: 2px 2px 4px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-soft);
-  white-space: pre-line;
-}
-.pkg-note.is-error {
-  color: var(--warning-text, var(--text-soft));
-}
-.pkg-note.is-hidden {
-  display: none;
-}
-
-.pkg-op {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.pkg-op.is-hidden {
-  display: none;
-}
-.pkg-op-track {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--panel-border);
-  overflow: hidden;
-}
-.pkg-op-fill {
-  width: 0%;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-  transition: width 0.25s ease;
-}
-.pkg-op-label {
-  font-size: 11px;
-  color: var(--text-soft);
-  font-variant-numeric: tabular-nums;
-}
-
-.pkg-more {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  padding-top: 4px;
-  font-size: 12px;
-  color: var(--text-soft);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pkg-op-fill {
-    transition: none;
-  }
-}
-
-/* =============================================================================
    Environment screen — status-first, one-click setup
    ============================================================================= */
 
@@ -3851,11 +3459,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   word-break: break-word;
 }
 
-/* The two install choices sit side by side so the trade-off (size vs. never
-   thinking about packages again) is read in one glance. */
 .env-choice {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(220px, 1fr);
   gap: 12px;
   margin-top: 14px;
 }
@@ -4606,8 +4212,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
 .pro-mode-toggle.is-active .pro-mode-toggle-track { background: var(--accent); }
 .pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
-#pro-canvas-open,
-#pro-canvas-gallery {
+#pro-canvas-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4627,16 +4232,13 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   cursor: pointer;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
-#pro-canvas-open[hidden],
-#pro-canvas-gallery[hidden] { display: none; }
-#pro-canvas-open:hover,
-#pro-canvas-gallery:hover {
+#pro-canvas-open[hidden] { display: none; }
+#pro-canvas-open:hover {
   color: var(--text);
   border-color: var(--panel-border-strong);
   background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
 }
-#pro-canvas-open:active,
-#pro-canvas-gallery:active { transform: translateY(1px); }
+#pro-canvas-open:active { transform: translateY(1px); }
 .pro-layout-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--control-bg); font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
 .pro-layout-trigger:hover, .pro-layout-trigger[aria-expanded="true"] { border-color: var(--panel-border-strong); background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%); }
 .pro-layout-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -4680,21 +4282,12 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 :root[data-pro-mode="true"] .pro-pane { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 .pro-pane-header { height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--panel-border); color: var(--text-soft); font-size: 12px; }
 .pro-pane-header > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The live status only ever takes the header's spare width (flex-basis 0), so
-   it can never push the buttons out of the pane. */
 .pro-pane-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; flex: 1 1 auto; min-width: 0; }
 /* Safety net for the same failure: even if the header runs out of room, the
    buttons squash instead of spilling out of the pane and going dead. */
 .pro-pane-actions button { flex-shrink: 1; min-width: 0; overflow: hidden; }
-.pro-live-status { align-self: center; flex: 1 1 0; max-width: 150px; min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.pro-live-status.is-error { color: var(--danger); }
-#pro-preview-live-toggle.is-active { color: white; background: var(--accent); }
-.pro-preview-live { display: none; width: 100%; height: 100%; border: 0; background: white; }
-.pro-preview-live.is-visible { display: block; }
-.editor-viewer.is-live-hidden { display: none !important; }
 /* Quiet ghost buttons for pane chrome — match .topbar-layout-toggle rather than
-   the UA default bevel. The Live toggle's accent .is-active state (above, by id)
-   still wins over these. */
+   the UA default bevel. */
 .pro-pane-actions button, .pro-pane-collapse, :root[data-pro-mode="true"] .pro-structure-button {
   margin: 0;
   border: 1px solid transparent;
@@ -4812,12 +4405,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
    still works — the Pro layouts drive it — there is just no button for it.
    Restore by deleting this rule. */
 #editor-split-button { display: none !important; }
-/* Legacy: the reference window and the 3-pane layout that hosted it are
-   retired, as is the figure gallery button. Pro mode is preview | source.
-   parseProModeState() normalizes the stored layout, so the layout-2 rules
-   below are dead but kept; delete these three rules to bring them back. */
-.pro-reference-pane { display: none !important; }
-#pro-splitter-secondary { display: none !important; }
 /* Layout 1 puts the source on the LEFT and the preview on the RIGHT (the
    convention every LaTeX editor shares), even though the DOM keeps the preview
    pane first — hence the explicit grid-column assignments. */
@@ -6237,8 +5824,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 /* The card is a quiet surface on the panel, not a sticker floating over it:
    an even faint tint carries the severity on its own — no accent bar, no
-   hover lift. The raw log lives behind the disclosure so the three lines
-   above it can be read by someone who has never opened a TeX log. */
+   hover lift. */
 .issue-item {
   display: grid;
   gap: 6px;
@@ -6324,38 +5910,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.issue-disclosure {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
-}
-
-.issue-disclosure svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.15s ease;
-}
-
-.issue-disclosure:hover {
-  background: color-mix(in srgb, var(--text-soft) 16%, transparent);
-  color: var(--text);
-}
-
-.issue-item.is-log-open .issue-disclosure svg { transform: rotate(180deg); }
 
 .issue-main {
   display: grid;
@@ -9996,7 +9550,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-more-menu button { border: 0; text-align: left; background: transparent; }
 .pro-canvas-ghost { border-color: transparent !important; background: transparent !important; }
 .pro-canvas-secondary { background: transparent !important; }
-.pro-canvas-gallery-modal { z-index: 10005; }
 /* These two popovers are modal prompts, so pin them to one predictable spot --
    centred just under the top bar -- instead of letting `left: 50%` with no
    transform push them off to the right. `var(--panel-bg)` was never defined,
@@ -10020,13 +9573,3 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-code-popover button.is-primary { color: white; border-color: var(--accent); background: var(--accent); }
 .pro-canvas-text-popover label { color: var(--text-soft); font-size: 11px; }
 .pro-canvas-text-popover label, .pro-canvas-text-popover input { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
-/* 一覧の行（auto トラック）は min-content より縮まないので、明示的に
-   minmax(0, 1fr) を与えないとカードの max-height を突き抜けて「閉じる」まで
-   画面外へ流れる。中身が伸びるのは真ん中の一覧だけ。 */
-.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); grid-template-rows: auto minmax(0, 1fr) auto; }
-.pro-canvas-gallery-list { display: grid; gap: 8px; align-content: start; overflow: auto; min-height: 0; }
-.pro-canvas-gallery-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 6px; }
-.pro-canvas-gallery-thumbnail { display: grid; place-items: center; width: 160px; min-height: 90px; overflow: hidden; color: var(--text-soft); background: white; }
-.pro-canvas-gallery-thumbnail img { display: block; max-width: 160px; max-height: 120px; }
-.pro-canvas-gallery-label { min-width: 0; }
-.pro-canvas-gallery-detached { padding: 2px 5px; border-radius: 999px; color: var(--danger, #dc2626); background: color-mix(in srgb, var(--danger, #dc2626) 12%, transparent); font-size: 10px; }

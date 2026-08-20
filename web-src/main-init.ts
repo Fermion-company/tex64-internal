@@ -15,7 +15,6 @@ import { initMathCaptureUi } from "./app/math-capture-ui.js";
 import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
 import { initOnboardingUi } from "./app/onboarding-ui.js";
-import { initSettingsPackagesUi } from "./app/settings-packages-ui.js";
 import type { TexInstallVariant } from "./app/tex-env-report.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 
@@ -56,10 +55,8 @@ import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./ap
 import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCaptureUi } from "./app/pro-capture-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
-import { initProCanvasGallery } from "./app/pro-canvas/gallery-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
-import { initProLivePreview } from "./app/pro-live-preview.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -243,13 +240,6 @@ export const initMain = () => {
       blockEditSession?.refreshDetectedBlock(allowTabSwitch);
     },
   });
-  // Package management talks to tlmgr through the main process; the UI is created
-  // up front so the settings page can hand it the "you are looking at me now"
-  // signal that triggers the first catalogue read.
-  const packagesUi = initSettingsPackagesUi({
-    postToNative: (payload, silent) => postToNative(payload, silent),
-  });
-
   const settingsUi = initSettingsUi(appContext, {
     envRegistry,
     getWorkspaceRootKey: appActions.getWorkspaceRootKey,
@@ -263,10 +253,7 @@ export const initMain = () => {
     onUpdateAttentionChange: (hasAttention) => {
       setSettingsTabAlert(hasAttention);
     },
-    onPackagesPageActive: () => packagesUi.onPageActive(),
     onRuntimeSetupNeeded: () => {
-      // Only relevant once the user is past the gate (they skipped, or TeX broke
-      // later); otherwise the gate itself is what they are looking at.
       if (onboardingUi.isVisible()) {
         return;
       }
@@ -284,13 +271,13 @@ export const initMain = () => {
         }
         return;
       }
-      if (onboardingUi.isVisible() || hasSkippedTexSetup()) {
+      if (onboardingUi.isVisible()) {
         return;
       }
       onboardingUi.showChoice();
     },
     onRuntimeInstallEvent: (event) => {
-      const variant: TexInstallVariant = event.variant === "full" ? "full" : "light";
+      const variant: TexInstallVariant = "full";
       if (!onboardingUi.isVisible()) {
         return;
       }
@@ -348,14 +335,6 @@ export const initMain = () => {
   // environment so the very first detection result can raise it, and it sits
   // above the launcher: a machine without TeX answers this before picking a
   // project.
-  const onboardingSkippedKey = "tex64.onboarding.texSetupSkipped.v1";
-  const hasSkippedTexSetup = () => {
-    try {
-      return localStorage.getItem(onboardingSkippedKey) === "1";
-    } catch {
-      return false;
-    }
-  };
   const revealAppBehindOnboarding = () => {
     if (!getWorkspaceRootKey()) {
       launcherUi.setVisible(true);
@@ -365,14 +344,6 @@ export const initMain = () => {
   const onboardingUi = initOnboardingUi({
     startInstall: (variant: TexInstallVariant) => {
       postToNative({ type: "env:install", target: "basictex", variant });
-    },
-    onSkip: () => {
-      try {
-        localStorage.setItem(onboardingSkippedKey, "1");
-      } catch {
-        // A browser that refuses storage just gets asked again next launch.
-      }
-      revealAppBehindOnboarding();
     },
     onFinished: revealAppBehindOnboarding,
   });
@@ -472,7 +443,6 @@ export const initMain = () => {
     setSplitViewEnabled: editorSession.setSplitViewEnabled,
     getSplitViewEnabled: editorSession.getSplitViewEnabled,
   });
-  initProLivePreview({ getActiveGroup: editorSession.getActiveGroup });
   initProStashUi({
     getActiveGroup: editorSession.getActiveGroup,
     revealStash: () => {
@@ -487,9 +457,7 @@ export const initMain = () => {
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
     getWorkspaceFiles,
-    getRootFilePath,
   });
-  initProCanvasGallery({ getActiveGroup: editorSession.getActiveGroup });
   const aiModeApi = initAiModeUi();
   initAppModeUi({
     initialMode: resolveInitialAppMode(
@@ -1127,7 +1095,6 @@ export const initMain = () => {
         updateIssuesProxy(1, errorMessage, "error", [issue]);
       },
     },
-    packages: packagesUi,
     settings: {
       updateEnvStatus: (command, available) => settingsUi.updateEnvStatus(command, available),
       handleEnvDetectResult: (payload) => settingsUi.handleEnvDetectResult(payload),

@@ -156,16 +156,14 @@ const describeDistribution = ({
   return label;
 };
 
-// Coverage tiers mirror the two install choices, so "what you have" and "what
-// we would install" are expressed on the same scale.
+// Coverage tiers describe an existing installation. TeX64's own installer is
+// always scheme-full; these tiers are only diagnostic.
 const classifyCoverage = (found, kind = "texlive", options = {}) => {
   const has = (name) => found.has(String(name).toLowerCase());
   const missingCore = PROBE_CORE.filter((name) => !has(name));
   const missingRecommended = PROBE_RECOMMENDED.filter((name) => !has(name));
   const missingFull = PROBE_FULL.filter((name) => !has(name));
-  // MiKTeX installs missing packages on demand at build time, and TeX64 does the
-  // same for any tlmgr-driven tree it is allowed to write to, so a kpsewhich miss
-  // there is a gap that closes itself on first use rather than one to nag about.
+  // MiKTeX installs missing packages on demand at build time.
   if (
     missingCore.length === 0 &&
     (kind === "miktex" || options.autoInstallsOnDemand === true)

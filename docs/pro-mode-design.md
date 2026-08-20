@@ -7,7 +7,7 @@ Pro はコードを書くこと（TeX/LaTeX/expl3/Lua を直接編集するこ�
 ## 決定事項（2026-08-12）
 
 - 実装先はこのリポジトリ（tex64-internal / Electron アプリ本体）。
-- プレビューは fermion-tex-engine（常駐インクリメンタル LuaLaTeX ランタイム）によるライブプレビューを目標とし、既存 latexmk ビルドとは共存させる。
+- プレビューは通常の latexmk ビルド結果を表示する。Pro 専用の常駐 TeX エンジンは持たない。
 - OCR / TeX 化 / 翻訳は texize（ローカルの Python パイプライン、`ocr2tex` パッケージ）の機構を使う。
 - スタッシュの AI 一括編集は texize と同じ OpenAI 互換 API に統一する。
 - 開発体制: 設計・レビューは Claude、コード実装は Codex CLI（gpt-5.6-sol、軽め）に委譲する。
@@ -42,8 +42,8 @@ Pro モードはトップバーのトグルで出入りする。2 つの分割�
 - **開いているペインの最小幅は `PRO_PANE_MIN_PX`（220px）**。これより狭くドラッグしたら
   細くするのではなく**ストリップへ折り畳む**。基準は「ヘッダが収まること」: ペインが
   ヘッダより狭いと `.pro-pane-actions` の内容が `justify-content: flex-end` のまま
-  左へはみ出し、`.pro-pane { overflow: hidden }` に切られて **Live / ⌖ Capture が
-  クリックを受け付けなくなる**（実際に起きた不具合。2026-08-20 修正）。
+  左へはみ出し、`.pro-pane { overflow: hidden }` に切られて操作ボタンが
+  クリックを受け付けなくなる。
   保険として `.pro-pane-actions button` は `flex-shrink: 1; min-width: 0` で潰れる側に倒す。
 - 参考ペインは PDF / 画像を開ける（既存 viewer.ts / pdf-viewer.html を流用）。
 
@@ -104,10 +104,10 @@ monaco の言語定義（`web-src/app/monaco-language.ts`）を強化する。�
 から引き出せるようにし、項目クリックでエディタの該当行へジャンプする。
 既存の outline（`web-src/app/outline-ui.ts`、texlab ベース）を流用する。
 
-### 5. fermion-tex-engine ライブプレビュー
+### 5. プレビュー
 
-常駐インクリメンタル LuaLaTeX ランタイムを electron service としてホストし、編集に追従する
-ライブプレビューをレイアウト①のプレビューペインに出す。最終確認は従来の latexmk ビルド。
+レイアウト①のプレビューペインは通常のビルドボタンで生成した PDF を表示する。
+編集追従の常駐エンジンや専用 localhost iframe は使用しない。
 
 ### 6. 作図キャンバス（ベクタ描画 → TikZ / 画像挿入）
 
@@ -123,11 +123,8 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
 - **round-trip はコメント埋め込み**（quiver 方式）: 生成 tikzpicture の先頭に
   `%% tex64-figure: <base64 シーン JSON>` + シーン外コードのハッシュを埋め、そこから再編集。
   コメント以降が手編集されていたら detached 扱いで警告（マージはしない）。
-- **キャンバス描画はハイブリッド**: ドラッグ等の操作中は自前 SVG 近似、操作確定・アイドル時に
-  fermion-tex-engine で実コンパイルした見た目に差し替える。TikZ レンダラは自作しない。
-  **トグルは持たない**（2026-08-20）: エンジンがあればプレビューは常時 ON、root 文書の
-  プリアンブルは読めれば常に適用し、それでコンパイルが落ちたら自動でプリアンブルなしに
-  フォールバックして「プリアンブル起因の可能性」と伝える。
+- **キャンバス描画は自前 SVG の編集用近似**。正確な出力は生成した TikZ を通常の
+  文書ビルドで確認する。キャンバス内に別 TeX エンジンや Live トグルは持たない。
 - **スコープは制約しない**。座標スープ回避は語彙制限ではなく、下記の「構造を持った生成」で行う。
 
 #### 綺麗な TikZ を保つための生成規則
@@ -142,7 +139,7 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
 - フリーハンドベジェは `.. controls ..` のまま許容。オブジェクト単位でグループ化し
   コメントを付す。座標は精度を丸める（既定 3 桁）。
 - **コードオブジェクト**: シーンモデルで表現できない任意の TikZ 断片をキャンバスに
-  オブジェクトとして配置できる（fermion で描画、移動・変換のみ可、中身は不透明）。
+  オブジェクトとして配置できる（キャンバスではプレースホルダ、移動・変換のみ可、中身は不透明）。
   表現力の穴を塞ぐ恒久的な逃げ道。
 
 #### ブックデザイナー向けの追加出力
@@ -159,18 +156,14 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    `web-src/app/pro-canvas/{scene,tikz-generate,figure-codec,canvas-math,canvas-ui}.ts` +
    `tests/pro-canvas-*.test.mjs`。ノードの MathLive 入力（C1 では生 LaTeX テキスト入力）と
    レイヤ UI は C2 以降に送った。
-2. **C2**: fermion 実コンパイル差し替え（操作中は近似、確定時に実レンダリング）—
-   **完了 (2026-08-13)**。仕様: [pro-canvas-c2-spec.md](pro-canvas-c2-spec.md)。キャンバス専用の
-   第2 fermion インスタンス + `tex64:fermion:canvas-render` IPC + Live トグル。実エンジンで
-   E2E 確認済み（100mm 角 standalone が 283.46bp 角 PDF になることを実走検証）。
+2. **C2**: 専用エンジンによる実コンパイル差し替えは **撤去 (2026-08-20)**。
+   キャンバスは C1 の SVG 近似を使い、正確な出力は通常ビルドで確認する。
 3. **C3**: シンボル/`\pic`・鏡映/回転インスタンス・パスに沿ってリピート・.sty エクスポート —
    **完了 (2026-08-13)**。仕様: [pro-canvas-c3-spec.md](pro-canvas-c3-spec.md)。リピートは
-   弧長等間隔サンプリング（`samplePathPoints`）を `\foreach \p/\a` に展開。実エンジンで
-   pic/foreach 生成コードのコンパイルを実走確認済み。
+   弧長等間隔サンプリング（`samplePathPoints`）を `\foreach \p/\a` に展開。
 4. **C4**: コードオブジェクト・AI 経路（画像/下絵 → texize → コードオブジェクト）・
    SVG インポート — **完了 (2026-08-13)**。仕様: [pro-canvas-c4-spec.md](pro-canvas-c4-spec.md)。
-   SVG は style="" インライン CSS も解釈。コードオブジェクトの scope 出力を実エンジンで
-   コンパイル確認済み。
+   SVG は style="" インライン CSS も解釈。
 
 ## texize ブリッジ
 
@@ -199,19 +192,11 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
      `config.ts` の `TAB_KEYS` / `sidebar-ui.ts` の `primarySidebarTabs`、Pro 以外では
      `tex64:pro-mode` イベント + CSS で消える
 4. **P4**: syntax highlight 強化（expl3・embedded Lua）/ 構造ジャンプメニュー（`pro-structure-ui.ts`、Cmd/Ctrl+Alt+O）— **完了 (2026-08-12)**
-5. **P5**: fermion-tex-engine ライブプレビュー統合 — **完了 (2026-08-12)**
-   - エンジンは `/Users/majinkuu/Desktop/fermion-tex-engine`（`node server.js`、POST /edit + SSE /events + 内蔵ビューア、`TEX64_FERMION_ENGINE_DIR` で上書き可）
-   - `electron/services/fermion-engine.cjs`（遅延spawn・空きポート選択・クラッシュ後再起動・quit時kill）+ `tex64:fermion:*` IPC
-   - `web-src/app/pro-live-preview.ts`: プレビューペインの Live トグル + 専用 iframe + 300ms デバウンス。push は main 側が毎回 `/doc` でサーバー実テキストを取得してから全文置換を送るため再接続でずれない
-   - CSP は `frame-src http://127.0.0.1:*` のみ追加（`connect-src` 不変、編集は IPC 経由）
+5. **P5**: Pro 専用ライブプレビュー — **撤去 (2026-08-20)**。通常のビルドと PDF 表示へ統一。
 6. **C1–C4**: 作図キャンバス（機能 6 参照）— **全フェーズ完了 (2026-08-13)**。
 7. **D1–D3**: キャンバスのプロジェクト連動 — **完了 (2026-08-13)**。仕様:
-   [pro-canvas-d-spec.md](pro-canvas-d-spec.md)。root 文書のプリアンブルを standalone に
-   verbatim 注入（失敗時は自動でプリアンブルなし再試行）、二重罫（`double distance`）、
-   X/Y/W/H 数値入力。**Doc トグルと、プロジェクト `\tikzset` スタイルのチップ取り込みは
-   撤去済み（2026-08-20）** — プリアンブルは常時適用に、スタイルチップはインスペクタごと廃止。root 検出は既存
-   `WorkspaceManager.rootInfo()` を再利用し、`tex64:files:read-text`（2MiB 上限、
-   `workspace.readFile` の既存ガードに委譲）を追加。
+   [pro-canvas-d-spec.md](pro-canvas-d-spec.md)。二重罫（`double distance`）と X/Y/W/H 数値入力。
+   専用エンジン向けの root 文書プリアンブル注入と Doc トグルは撤去済み。
 8. **G1–G3**: mathcha 系 UX 全面改修 — **完了 (2026-08-13)**。仕様:
    [pro-canvas-g1-spec.md](pro-canvas-g1-spec.md) /
    [pro-canvas-g2-spec.md](pro-canvas-g2-spec.md) /
@@ -221,11 +206,9 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    寸法チップ・Shift 制約・ペンプレビュー・インラインノード編集（prompt 全廃）・
    パスアンカー編集。native dblclick は再描画で不安定なため pointerup ベースの自前
    ダブルクリック検出を採用。Esc はキャンバスを閉じない。
-9. **E0–E2**: 対称オーナメント配置 + 図ギャラリー — **完了 (2026-08-13)**。仕様:
-   [pro-canvas-e-spec.md](pro-canvas-e-spec.md)。対称シンボル化（鏡映ペア `tx=W, sx=-1`）、
-   四隅配置（シンボル bounds + inset から 4 変換を導出）、`%% tex64-figure` ブロックの
-   文書内ギャラリー（`gallery-ui.ts`、fermion 逐次サムネイル）。前提修正として
-   `renderPdf` をサービス内 Promise キューで直列化（Live コンパイルとサムネイルの競合防止）。
+9. **E0–E1**: 対称オーナメント配置 — **完了 (2026-08-13)**。仕様:
+   [pro-canvas-e-spec.md](pro-canvas-e-spec.md)。対称シンボル化（鏡映ペア `tx=W, sx=-1`）と、
+   四隅配置（シンボル bounds + inset から 4 変換を導出）。
 10. **H1–H2**: chrome 修正 + 直線選択 + pgfplots グラフツール — **完了 (2026-08-13)**。仕様:
    [pro-canvas-h-spec.md](pro-canvas-h-spec.md)。H1a: topbar に hiddenInset 信号機ぶんの
    `padding-left: 84px` + `-webkit-app-region: drag`。H1b: パスの選択/ホバーは bbox でなく
@@ -346,7 +329,6 @@ Illustrator 的なベクタ描画キャンバスを Pro モードに追加する
    - **端点から続きを描く**（`penSeedFromEnd` + `pen.base`）。既存セグメントは `base` として手前に残し、後ろに足すだけ。`buildPenSegments` はノード列から全再構築するので、既存パスをノードに戻して作り直すと**非対称ハンドルが潰れて曲線が歪む**。始点側を掴んだときは `reversePath` で向きを揃え、見た目を保つため矢頭も入れ替える。
    - **pointer capture 中の pointerup は `e.target` が svg になる**（K の gotcha の再来）。頂点ダブルクリックでの削除は `e.target.dataset.anchorIndex` ではなく、pointerdown 時に記録した `drag.anchorIndex` から取る。
    - ＋−の予告は**実際に効く操作とだけ**結びつける（追加の当たり判定 8px はダブルクリック側と同じ値、削除は退化しない場合のみ）。印を出しておいて効かないのが一番たちが悪い。
-   - `display: grid` のモーダルは、行トラックが `auto` のままだと **`max-height` を突き抜ける**（`auto` トラックは min-content より縮まない。中の要素に `min-height: 0` を書いても効かない）。伸びる行に `minmax(0, 1fr)` を与える。図ギャラリーがこれで「閉じる」ボタンごと画面外へ流れていた。
 
 19. **初見ユーザー視点の実走監査（N, 2026-08-16）** — 「開発者でない初見の人が画面だけを見て使えるか」を
    `tests/e2e/pro-mode-flow.test.cjs`（Playwright `_electron`、実マウス座標・実キー入力）で全操作を通しながら詰めた。

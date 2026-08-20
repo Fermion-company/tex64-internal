@@ -1,5 +1,4 @@
 import type { TexEnvReport } from "./tex-env-report.js";
-import type { PackagesUiApi } from "./settings-packages-ui.js";
 import type {
   BuildState,
   BridgeWindow,
@@ -117,7 +116,6 @@ type BridgeHandlersDeps = {
       pdfPath?: string | null;
     }) => void;
   };
-  packages?: Partial<PackagesUiApi>;
   settings?: {
     updateEnvStatus: (command: string, available: boolean) => void;
     handleEnvDetectResult?: (payload: { report?: TexEnvReport | null; error?: string }) => void;
@@ -441,30 +439,6 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           (message.payload as { command?: string }).command ?? "",
           Boolean((message.payload as { available?: boolean }).available)
         );
-        break;
-      case "packages:catalogResult":
-        deps.packages?.handleCatalog?.(message.payload as never);
-        break;
-      case "packages:filesResult":
-        deps.packages?.handleFiles?.(message.payload as never);
-        break;
-      case "packages:ctanResult":
-        deps.packages?.handleCtan?.(message.payload as never);
-        break;
-      case "packages:detailResult":
-        deps.packages?.handleDetail?.(message.payload as never);
-        break;
-      case "packages:texdocResult":
-        deps.packages?.handleTexdoc?.(message.payload as never);
-        break;
-      case "packages:opStart":
-        deps.packages?.handleOpStart?.(message.payload as never);
-        break;
-      case "packages:opProgress":
-        deps.packages?.handleOpProgress?.(message.payload as never);
-        break;
-      case "packages:opResult":
-        deps.packages?.handleOpResult?.(message.payload as never);
         break;
       case "env:detectResult":
         deps.settings?.handleEnvDetectResult?.(

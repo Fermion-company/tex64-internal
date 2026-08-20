@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*;"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https:;"
     >
     <title>TeX64</title>
     <link rel="stylesheet" href="./theme.css">
@@ -27,25 +27,16 @@
 
         <div class="onboarding-step" id="onboarding-choice">
           <div class="onboarding-headline">TeX is not installed yet</div>
-          <div class="onboarding-sub" id="onboarding-sub">
-            Choose how much of TeX Live to install. TeX64 installs it privately, without admin rights.
-          </div>
+          <div class="onboarding-sub" id="onboarding-sub">TeX64 installs its own complete TeX Live.</div>
           <div class="env-choice onboarding-choices">
-            <button class="env-choice-card is-primary" id="onboarding-choice-light" type="button">
-              <span class="env-choice-badge">Recommended</span>
-              <span class="env-choice-title">Light</span>
-              <span class="env-choice-detail">Ready in minutes. Anything a document needs later installs itself on first use.</span>
-              <span class="env-choice-size">about 500 MB · a few minutes</span>
-            </button>
-            <button class="env-choice-card" id="onboarding-choice-full" type="button">
+            <button class="env-choice-card is-primary" id="onboarding-choice-full" type="button">
               <span class="env-choice-badge">&nbsp;</span>
-              <span class="env-choice-title">Everything</span>
-              <span class="env-choice-detail">Every CTAN package up front, so the machine never needs the network again.</span>
+              <span class="env-choice-title">Install TeX Live</span>
+              <span class="env-choice-detail">Every CTAN package, managed privately by TeX64.</span>
               <span class="env-choice-size">about 5 GB · 30–60 min</span>
             </button>
           </div>
           <div class="onboarding-note is-hidden" id="onboarding-note"></div>
-          <button class="onboarding-skip" id="onboarding-skip" type="button">Skip for now</button>
         </div>
 
         <div class="onboarding-step is-hidden" id="onboarding-progress">
@@ -172,7 +163,6 @@
           <div class="pro-mode-controls" role="toolbar" aria-label="Pro tools">
             <div class="pro-figure-tools" role="group" aria-label="Figure tools">
               <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
-              <button id="pro-canvas-gallery" type="button" title="Every figure in this document" hidden>⊞ Figures</button>
             </div>
             <div id="pro-layout-control" class="pro-layout-control">
               <button id="pro-layout-trigger" class="pro-layout-trigger" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="pro-layout-switcher" title="Choose split layout">
@@ -813,9 +803,6 @@
                 <button class="settings-nav-item" data-settings-target="format" type="button">
                   <span class="settings-nav-title">Format</span>
                 </button>
-                <button class="settings-nav-item" data-settings-target="packages" type="button">
-                  <span class="settings-nav-title">Packages</span>
-                </button>
                 <button class="settings-nav-item" data-settings-target="env" type="button">
                   <span class="settings-nav-title">Environment</span>
                 </button>
@@ -1203,58 +1190,6 @@
                     </div>
                   </div>
                 </div>
-                <div class="settings-page is-hidden" data-settings-page="packages" aria-hidden="true">
-                  <div class="settings-page-header">
-                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
-                    <div class="settings-page-title">Packages</div>
-                  </div>
-                  <div class="settings-group pkg-group">
-                    <div class="pkg-toolbar">
-                      <div class="pkg-scope" id="pkg-scope"></div>
-                      <button class="panel-button pkg-update-btn" id="pkg-update" type="button">Update all</button>
-                    </div>
-
-                    <div class="pkg-op is-hidden" id="pkg-op" aria-hidden="true">
-                      <div class="pkg-op-track"><div class="pkg-op-fill" id="pkg-op-fill"></div></div>
-                      <div class="pkg-op-label" id="pkg-op-label"></div>
-                    </div>
-
-                    <input
-                      class="pkg-search"
-                      id="pkg-search"
-                      type="search"
-                      autocomplete="off"
-                      spellcheck="false"
-                      placeholder="Search by package name, description or file name"
-                    >
-
-                    <div class="pkg-filters" id="pkg-filters" role="tablist" aria-label="Filter packages">
-                      <button class="pkg-filter is-active" data-pkg-filter="all" type="button" role="tab" aria-selected="true">
-                        <span class="pkg-filter-label">All</span>
-                        <span class="pkg-filter-count" data-pkg-count="all"></span>
-                      </button>
-                      <button class="pkg-filter" data-pkg-filter="installed" type="button" role="tab" aria-selected="false">
-                        <span class="pkg-filter-label">Installed</span>
-                        <span class="pkg-filter-count" data-pkg-count="installed"></span>
-                      </button>
-                      <button class="pkg-filter" data-pkg-filter="available" type="button" role="tab" aria-selected="false">
-                        <span class="pkg-filter-label">Not installed</span>
-                        <span class="pkg-filter-count" data-pkg-count="available"></span>
-                      </button>
-                    </div>
-
-                    <div class="pkg-note is-hidden" id="pkg-note" aria-hidden="true"></div>
-
-                    <div class="pkg-list" id="pkg-list"></div>
-                    <div class="pkg-truncated is-hidden" id="pkg-truncated" aria-hidden="true"></div>
-                    <div class="pkg-extra is-hidden" id="pkg-extra" aria-hidden="true"></div>
-
-                    <div class="pkg-more" id="pkg-more">
-                      <span class="pkg-more-text">Not what you were looking for?</span>
-                      <button class="env-link" id="pkg-ctan" type="button">Search CTAN directly</button>
-                    </div>
-                  </div>
-                </div>
                 <div class="settings-page is-hidden" data-settings-page="env" aria-hidden="true">
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
@@ -1270,16 +1205,10 @@
                     </div>
                     <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
                     <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
-                      <button class="env-choice-card is-primary" id="env-choice-light" type="button">
-                        <span class="env-choice-badge">Recommended</span>
-                        <span class="env-choice-title">Light</span>
-                        <span class="env-choice-detail">Ready in minutes. Anything a document needs later installs itself on first use.</span>
-                        <span class="env-choice-size">about 500 MB · a few minutes</span>
-                      </button>
-                      <button class="env-choice-card" id="env-choice-full" type="button">
+                      <button class="env-choice-card is-primary" id="env-choice-full" type="button">
                         <span class="env-choice-badge">&nbsp;</span>
-                        <span class="env-choice-title">Everything</span>
-                        <span class="env-choice-detail">Every CTAN package up front, so the machine never needs the network again.</span>
+                        <span class="env-choice-title">Install TeX Live</span>
+                        <span class="env-choice-detail">Every CTAN package, managed privately by TeX64.</span>
                         <span class="env-choice-size">about 5 GB · 30–60 min</span>
                       </button>
                     </div>
@@ -1442,8 +1371,6 @@
               <header class="pro-pane-header">
                 <span id="pro-preview-title">Preview</span>
                 <span class="pro-pane-actions">
-                  <span id="pro-preview-live-status" class="pro-live-status" aria-live="polite"></span>
-                  <button id="pro-preview-live-toggle" type="button" aria-pressed="false" title="Toggle live preview">Live</button>
                   <button type="button" data-pro-capture="preview" title="Capture a region: turn it into TeX, translate it, or insert it as an image" aria-label="Capture a region of the preview">⌖ Capture</button>
                   <button type="button" data-pro-open="preview" title="Open PDF">Open</button>
                   <button type="button" data-pro-collapse="preview" aria-label="Collapse preview">›</button>
@@ -1454,10 +1381,9 @@
                   <div class="editor-viewer-body">
                     <img id="pro-preview-image" class="editor-viewer-media editor-viewer-image" alt="preview" />
                     <iframe id="pro-preview-pdf" class="editor-viewer-media editor-viewer-pdf" title="PDF preview"></iframe>
-                    <div class="editor-viewer-message"><h2>Preview</h2><p>Turn on Live above to typeset as you write, or press Open to show a PDF beside the source.</p></div>
+                    <div class="editor-viewer-message"><h2>Preview</h2></div>
                   </div>
                 </div>
-                <iframe id="pro-preview-live" class="pro-preview-live" title="Live TeX preview" aria-hidden="true"></iframe>
               </div>
             </section>
             <div class="pro-splitter" id="pro-splitter-primary" role="separator" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" title="Drag to resize or collapse; double-click to reset"></div>
@@ -1504,10 +1430,7 @@
               </div>
             </div>
 
-            <!-- Legacy: the reference window is hidden (theme.css) and the
-                 3-pane layout that showed it is retired in parseProModeState.
-                 Markup and viewer wiring are kept for a possible return. -->
-            <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-legacy="true" data-pro-pane="reference" aria-hidden="true">
+            <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-pro-pane="reference" aria-hidden="true">
               <header class="pro-pane-header">
                 <span id="pro-reference-title">Reference</span>
                 <span class="pro-pane-actions">

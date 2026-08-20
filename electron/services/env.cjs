@@ -29,15 +29,6 @@ const {
   buildRecommendation,
 } = require("./tex-detect.cjs");
 
-const {
-  LIGHT_INSTALL_PACKAGES,
-  FULL_INSTALL_PACKAGES,
-  extractMissingFiles,
-  parseTlmgrSearchOutput,
-  parseUnavailablePackages,
-  searchTermForFile,
-} = require("./tex-packages.cjs");
-
 const shouldForceMissingTool = (toolName) => {
   const raw = process.env.TEX64_E2E_FORCE_MISSING_TOOLS;
   if (!raw || typeof raw !== "string") {
@@ -67,71 +58,26 @@ const INSTALLER_URLS = {
   win32: "https://mirror.ctan.org/systems/texlive/tlnet/install-tl.zip",
 };
 
-const DEFAULT_EXTRA_PACKAGES = [
-  ...FULL_INSTALL_PACKAGES,
-  "collection-latexrecommended",
-  "collection-fontsrecommended",
-  "collection-luatex",
-  "collection-xetex",
-  "collection-langjapanese",
-];
-
-// The two install choices. "full" is every CTAN package and stays the default
-// recommendation; "light" follows the TinyTeX model (scheme-infraonly plus a
-// curated list) and relies on build-time on-demand installs to close the gaps.
+// TeX64 deliberately has one managed install profile: the complete CTAN set.
 const INSTALL_VARIANTS = {
   full: {
     id: "full",
     scheme: "scheme-full",
-    packages: DEFAULT_EXTRA_PACKAGES,
     approxBytes: 5 * 1024 * 1024 * 1024,
   },
-  light: {
-    id: "light",
-    scheme: "scheme-infraonly",
-    packages: LIGHT_INSTALL_PACKAGES,
-    approxBytes: 500 * 1024 * 1024,
-  },
 };
 
-// The recommended choice. Light wins because it is minutes instead of an hour and
-// missing packages install themselves on first use; full stays for people who
-// want the machine to never touch the network again.
-const DEFAULT_INSTALL_VARIANT = "light";
+const DEFAULT_INSTALL_VARIANT = "full";
 
-// Accepts both the historical target names ("basictex", "synctex") and the new
-// explicit variant ids, so existing callers (the agent tool, the old renderer
-// build) keep working while the UI moves to the two-way choice.
-const normalizeInstallVariant = (value) => {
-  const text = String(value || "").trim().toLowerCase();
-  if (text === "light" || text === "tinytex" || text === "minimal" || text === "texlive-light") {
-    return "light";
-  }
-  if (text === "full" || text === "texlive-full" || text === "scheme-full") {
-    return "full";
-  }
-  return DEFAULT_INSTALL_VARIANT;
-};
+// Legacy callers may still send an old target/variant string. They all normalize
+// to the single supported profile instead of silently creating a partial tree.
+const normalizeInstallVariant = () => DEFAULT_INSTALL_VARIANT;
 
-const getInstallVariant = (value) => INSTALL_VARIANTS[normalizeInstallVariant(value)];
-
-const parseExtraPackages = (variant = DEFAULT_INSTALL_VARIANT) => {
-  const raw = process.env.TEX64_MANAGED_TEXLIVE_EXTRA_PACKAGES;
-  if (typeof raw === "string" && raw.trim()) {
-    return raw
-      .split(/[,\s]+/)
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  return getInstallVariant(variant).packages;
-};
-
-// Written into the managed tree so later sessions know which choice produced it
-// (and can offer the upgrade to the full set instead of a reinstall).
+// Written into the managed tree so later sessions can identify TeX64's profile.
 const INSTALL_MARKER_FILE = "tex64-install.json";
 
-// Every one of these means "set up the managed TeX Live"; which packages land is
-// decided by the variant, not by the target name.
+// Every one of these means "set up the complete managed TeX Live". Old aliases
+// remain accepted for compatibility with older renderer builds.
 const TEXLIVE_INSTALL_TARGETS = new Set([
   "basictex",
   "synctex",
@@ -353,11 +299,7 @@ class EnvService {
       if (this.platform !== "darwin" && this.platform !== "win32") {
         return { success: false, message: "Unsupported platform." };
       }
-      // The variant may arrive either as the target itself ("light") or beside
-      // it; the target names predate the choice and all mean "set up TeX".
-      const variant = normalizeInstallVariant(
-        options.variant || (target === "basictex" || target === "synctex" ? "" : target)
-      );
+      const variant = normalizeInstallVariant(options.variant || target);
       if (TEXLIVE_INSTALL_TARGETS.has(String(target || "").trim().toLowerCase())) {
         return await this.installManagedTexlive(variant);
       }
@@ -384,7 +326,6 @@ class EnvService {
     }
     const variant = this.readInstallMarker().variant ?? DEFAULT_INSTALL_VARIANT;
     await this.ensureManagedTexliveInstalled(variant);
-    await this.ensureDefaultPackages(variant);
     if (!(await this.checkCommand(target))) {
       await this.runTlmgr(["install", packageName], {
         allowFailure: false,
@@ -402,29 +343,17 @@ class EnvService {
 
   async installManagedTexlive(variant = DEFAULT_INSTALL_VARIANT) {
     const resolved = normalizeInstallVariant(variant);
-    const previous = this.readInstallMarker();
     const alreadyInstalled = Boolean(this.findManagedCommand("tlmgr"));
-    const existingIsFull = alreadyInstalled && previous.variant === "full";
-    let unavailable = [];
-    // An existing full tree already contains every light package, so a light
-    // request (including the legacy targets, which now default to light) must
-    // neither reinstall anything nor relabel the tree as light.
-    if (existingIsFull && resolved === "light") {
-      // nothing to do
-    } else if (alreadyInstalled && resolved === "full" && previous.variant === "light") {
-      // Choosing light is never a dead end: asking for the full set on top of an
-      // existing managed tree upgrades it in place instead of re-downloading TeX
-      // Live from scratch.
+    if (alreadyInstalled && this.readInstallMarker().variant === "light") {
+      // Upgrade any development build that created the retired partial profile.
       this.emitProgress("packages");
       await this.runTlmgr(["install", "scheme-full"], {
-        allowFailure: true,
+        allowFailure: false,
         timeoutMs: this.installTimeoutMs(),
       });
     } else {
       await this.ensureManagedTexliveInstalled(resolved);
-      unavailable = await this.ensureDefaultPackages(resolved);
     }
-    const recorded = existingIsFull ? "full" : resolved;
     this.emitProgress("finalize");
     const [lualatex, latexmk, synctex] = await Promise.all([
       this.checkCommand("lualatex"),
@@ -433,17 +362,14 @@ class EnvService {
     ]);
     const success = Boolean(lualatex && latexmk && synctex);
     if (success) {
-      this.writeInstallMarker(recorded);
+      this.writeInstallMarker(resolved);
     }
     this.detectCache = null;
     return {
       success,
-      variant: recorded,
-      unavailable,
+      variant: resolved,
       message: success
-        ? recorded === "light"
-          ? `TeX64 managed TeX Live ${getManagedTexliveYear()} (light) is ready. Missing packages install themselves on first use.`
-          : `TeX64 managed TeX Live ${getManagedTexliveYear()} is ready.`
+        ? `TeX64 managed TeX Live ${getManagedTexliveYear()} is ready.`
         : "TeX Live installation finished, but required commands were not detected.",
     };
   }
@@ -453,9 +379,8 @@ class EnvService {
     return root ? path.join(root, INSTALL_MARKER_FILE) : "";
   }
 
-  // `variant: null` means "there is no record", which is different from either
-  // choice: callers must not treat an unlabelled tree as light (it may predate
-  // the marker and hold the full CTAN set).
+  // `variant: null` means there is no record. "light" is only returned for a
+  // retired development marker so callers can upgrade that tree in place.
   readInstallMarker() {
     const unknown = { variant: null, installedAt: null, known: false };
     const markerPath = this.installMarkerPath();
@@ -467,8 +392,11 @@ class EnvService {
       if (typeof parsed?.variant !== "string" || !parsed.variant.trim()) {
         return unknown;
       }
+      const storedVariant = parsed.variant.trim().toLowerCase();
       return {
-        variant: normalizeInstallVariant(parsed.variant),
+        // Preserve the retired partial-profile marker long enough to trigger
+        // the one-time scheme-full upgrade. New markers are always "full".
+        variant: storedVariant === "light" ? "light" : "full",
         installedAt: typeof parsed?.installedAt === "string" ? parsed.installedAt : null,
         known: true,
       };
@@ -587,7 +515,7 @@ class EnvService {
     return installer;
   }
 
-  buildInstallProfile(root, variant = DEFAULT_INSTALL_VARIANT) {
+  buildInstallProfile(root) {
     const texdir = normalizeProfilePath(root);
     const texmfLocal = normalizeProfilePath(path.join(root, "texmf-local"));
     const texmfConfig = normalizeProfilePath(path.join(root, "texmf-config"));
@@ -596,10 +524,9 @@ class EnvService {
     const texmfUserConfig = normalizeProfilePath(path.join(root, "texmf-user-config"));
     const texmfUserVar = normalizeProfilePath(path.join(root, "texmf-user-var"));
     return [
-      // scheme-full installs every CTAN package, so anything that compiles under a
-      // system MacTeX also compiles here (parity). scheme-infraonly is the light
-      // path: tlmgr and nothing else, with the package list layered on after.
-      `selected_scheme ${getInstallVariant(variant).scheme}`,
+      // Full scheme: install every CTAN package so anything that compiles under a
+      // system MacTeX also compiles through TeX64's managed TeX Live (parity).
+      "selected_scheme scheme-full",
       `TEXDIR ${texdir}`,
       `TEXMFLOCAL ${texmfLocal}`,
       `TEXMFSYSCONFIG ${texmfConfig}`,
@@ -782,11 +709,7 @@ class EnvService {
         timeoutMs: 30000,
       }).catch(() => null);
       if (probe) {
-        coverage = classifyCoverage(parseKpsewhichOutput(probe.output), banner.kind, {
-          // We can only add packages to a tree we own, so on-demand repair is
-          // promised for the managed install and never for the user's own TeX.
-          autoInstallsOnDemand: source === "managed",
-        });
+        coverage = classifyCoverage(parseKpsewhichOutput(probe.output), banner.kind);
       }
     }
 
@@ -819,7 +742,6 @@ class EnvService {
         isTinytex,
       },
       managedVariant: marker && marker.known ? marker.variant : null,
-      canAutoInstallPackages: source === "managed" && Boolean(tools.tlmgr),
       engines,
       tools,
       coverage,
@@ -830,78 +752,6 @@ class EnvService {
     return report;
   }
 
-  // TinyTeX's parse_packages() in TeX64 form: read the failed build's log, ask
-  // tlmgr which package owns each missing file, install those. Only ever runs
-  // against the managed tree — a user's own TeX Live is never written to.
-  async installMissingPackages(log, options = {}) {
-    const files = extractMissingFiles(log);
-    if (files.length === 0) {
-      return { installed: [], files: [], reason: "no-missing-files" };
-    }
-    if (!this.findManagedCommand("tlmgr")) {
-      return { installed: [], files, reason: "no-managed-tlmgr" };
-    }
-    const maxFiles = Number.isFinite(options.maxFiles) ? options.maxFiles : 8;
-    const packages = [];
-    for (const file of files.slice(0, maxFiles)) {
-      const term = searchTermForFile(file);
-      if (!term) {
-        continue;
-      }
-      const result = await this.runTlmgr(["search", "--global", "--file", term], {
-        allowFailure: true,
-        timeoutMs: 120000,
-      }).catch(() => null);
-      if (!result || !result.output) {
-        continue;
-      }
-      // Cap the hits per file: a font file can match a dozen packages and we
-      // want the owners, not a shopping spree.
-      for (const name of parseTlmgrSearchOutput(result.output).slice(0, 2)) {
-        if (!packages.includes(name)) {
-          packages.push(name);
-        }
-      }
-    }
-    if (packages.length === 0) {
-      return { installed: [], files, reason: "no-package-match" };
-    }
-    const install = await this.runTlmgr(["install", ...packages], {
-      allowFailure: true,
-      timeoutMs: this.installTimeoutMs(),
-    });
-    this.detectCache = null;
-    return {
-      installed: packages,
-      files,
-      ok: Boolean(install && install.ok),
-      reason: "installed",
-    };
-  }
-
-  async ensureDefaultPackages(variant = DEFAULT_INSTALL_VARIANT) {
-    const packages = parseExtraPackages(variant);
-    if (packages.length === 0) {
-      return [];
-    }
-    // A curated list of ~175 names will always drift against the repository
-    // (renames, retirements). tlmgr keeps going past the ones it cannot find, so
-    // a non-zero exit must not sink an otherwise complete install — the real
-    // verdict comes from the command checks in installManagedTexlive(). The
-    // names it skipped are reported back rather than swallowed, so a bad entry
-    // shows up here instead of as a missing .sty weeks later.
-    const result = await this.runTlmgr(["install", ...packages], {
-      allowFailure: true,
-      timeoutMs: this.installTimeoutMs(),
-    });
-    const unavailable = parseUnavailablePackages(result?.output);
-    if (unavailable.length > 0) {
-      console.warn(
-        `[tex64] tlmgr could not install ${unavailable.length} package(s) from the ${variant} set: ${unavailable.join(", ")}`
-      );
-    }
-    return unavailable;
-  }
 }
 
 module.exports = {
@@ -909,6 +759,4 @@ module.exports = {
   INSTALL_VARIANTS,
   DEFAULT_INSTALL_VARIANT,
   normalizeInstallVariant,
-  getInstallVariant,
-  parseExtraPackages,
 };

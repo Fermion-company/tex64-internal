@@ -20,8 +20,6 @@ export type IssuesUiApi = {
   render: (issues: IssueItem[]) => void;
 };
 
-const CHEVRON = '<svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="4,6.5 8,10.5 12,6.5"/></svg>';
-
 // A filled sign, not a worded pill: a red disc for something that stopped the
 // build, an amber triangle for something that did not. The shape carries the
 // difference on its own, so the two never rely on colour alone.
@@ -36,16 +34,8 @@ const SEVERITY_ICON = {
     '<circle class="issue-icon-dot" cx="10" cy="15.1" r="1.1"/></svg>',
 } as const;
 
-/** The log line as the build reported it, location included. */
-const rawLogText = (issue: IssueItem, detail: IssueDetail) => {
-  const where = [detail.path, detail.line, detail.column].filter(Boolean).join(":");
-  const message = issue.message?.trim() ?? "";
-  return where && !message.startsWith(where) ? `${where}\n${message}` : message;
-};
-
 export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiApi => {
   const { issuesList, issuesEmpty } = context.dom;
-  let cardId = 0;
 
   const render = (issues: IssueItem[]) => {
     if (!(issuesList instanceof HTMLElement) || !(issuesEmpty instanceof HTMLElement)) {
@@ -90,19 +80,6 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
       kind.className = "issue-kind";
       kind.dataset.noI18n = "";
       kind.textContent = diagnosis.kind;
-
-      // The log itself is opt-in: everything above it is written for someone
-      // who has never read a TeX log.
-      cardId += 1;
-      const logId = `issue-log-${cardId}`;
-      const disclosure = document.createElement("button");
-      disclosure.type = "button";
-      disclosure.className = "issue-disclosure";
-      disclosure.innerHTML = CHEVRON;
-      disclosure.setAttribute("aria-expanded", "false");
-      disclosure.setAttribute("aria-controls", logId);
-      disclosure.title = uiText("Show the build log for this issue", "この問題のビルドログを表示");
-      disclosure.setAttribute("aria-label", disclosure.title);
 
       head.append(icon, kind);
 
@@ -152,27 +129,6 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
         body.append(action);
       }
 
-      head.append(disclosure);
-
-      const log = document.createElement("pre");
-      log.className = "issue-log";
-      log.id = logId;
-      log.dataset.noI18n = "";
-      log.hidden = true;
-      log.textContent = rawLogText(issue, detail);
-
-      disclosure.addEventListener("click", () => {
-        // `hidden` is typed wider than boolean in modern DOM lib, so normalize.
-        const open = log.hidden !== false;
-        log.hidden = !open;
-        disclosure.setAttribute("aria-expanded", String(open));
-        item.classList.toggle("is-log-open", open);
-        disclosure.title = open
-          ? uiText("Hide the build log", "ビルドログを隠す")
-          : uiText("Show the build log for this issue", "この問題のビルドログを表示");
-        disclosure.setAttribute("aria-label", disclosure.title);
-      });
-
       body.addEventListener("click", () => {
         if (isRuntimeAction) {
           deps.onOpenRuntimeSettings?.();
@@ -184,7 +140,7 @@ export const initIssuesUi = (context: AppContext, deps: IssuesUiDeps): IssuesUiA
         deps.onFocusIssue(issue);
       });
 
-      item.append(head, body, log);
+      item.append(head, body);
       issuesList.appendChild(item);
     });
   };

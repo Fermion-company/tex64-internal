@@ -34,7 +34,6 @@ export const initSettingsUi = (context, deps) => {
     });
     const pageNavOps = createSettingsPageNavOps(runtime, attentionOps, {
         checkEnvironmentStatus: envOps.checkEnvironmentStatus,
-        onPackagesPageActive: () => { var _a; return (_a = deps.onPackagesPageActive) === null || _a === void 0 ? void 0 : _a.call(deps); },
         updateRuntimeOnboardingUi: envOps.updateRuntimeOnboardingUi,
         maybeRequestPlatformUpdateCheck: platformUpdateOps.maybeRequestPlatformUpdateCheck,
     });

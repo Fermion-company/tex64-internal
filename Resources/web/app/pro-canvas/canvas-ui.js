@@ -7,11 +7,9 @@ import { generateTikz } from "./tikz-generate.js";
 import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
 import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, nearestOnPath, pathTightPoints, PEN_RESUME_PX, penClickAction, removeAnchor, reversePath, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
-import { buildStandaloneDoc } from "./standalone.js";
 import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
 import { importSvg } from "./svg-import.js";
-import { extractPreamble } from "./project-context.js";
 import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
@@ -24,31 +22,6 @@ const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 const GRID_PULL = 0.25;
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const HINT_STORAGE_KEY = "tex64.proCanvas.hints.v1";
-let pdfjsLibPromise = null;
-export const loadPdfjs = async () => {
-    if (!pdfjsLibPromise)
-        pdfjsLibPromise = (async () => {
-            const lib = await import(new URL("../../pdfjs/pdf.min.mjs", import.meta.url).href);
-            try {
-                lib.GlobalWorkerOptions.workerSrc = new URL("../../pdfjs/pdf.worker.min.mjs", import.meta.url).href;
-            }
-            catch { }
-            return lib;
-        })();
-    return pdfjsLibPromise;
-};
-const pdfOptions = (data) => ({ data, cMapUrl: new URL("../../pdfjs/cmaps/", import.meta.url).href, cMapPacked: true, standardFontDataUrl: new URL("../../pdfjs/standard_fonts/", import.meta.url).href, wasmUrl: new URL("../../pdfjs/wasm/", import.meta.url).href, useSystemFonts: true, disableFontFace: false });
-const firstReportError = (report) => {
-    var _a, _b, _c, _d;
-    if (!report || typeof report !== "object")
-        return null;
-    const value = report, candidate = (_c = (_b = (_a = value.errors) !== null && _a !== void 0 ? _a : value.diagnostics) !== null && _b !== void 0 ? _b : value.error) !== null && _c !== void 0 ? _c : value.log;
-    if (Array.isArray(candidate) && candidate.length) {
-        const first = candidate[0];
-        return String(typeof first === "object" && first ? (_d = first.message) !== null && _d !== void 0 ? _d : JSON.stringify(first) : first).split(/\r?\n/)[0];
-    }
-    return typeof candidate === "string" && candidate.trim() ? candidate.trim().split(/\r?\n/)[0] : null;
-};
 const pathOutlineD = (item) => { let d = `M ${item.start.x} ${item.start.y}`; item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; }); return item.closed ? d + " Z" : d; };
 const isStraightLine = (item) => item.type === "path" && !item.closed && item.segments.length === 1 && item.segments[0].type === "line";
 const plotKind = (series) => series.kind || "fn";
@@ -291,12 +264,6 @@ export const initProCanvasUi = (deps) => {
             return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
         [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T'], ['code', 'TikZ', uiText("Write TikZ code directly", "TikZ コードを直接書く"), 'C'], ['plot', uiText("Graph", "グラフ"), uiText("Graph", "グラフ"), 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
-        const fermion = window.tex64Fermion;
-        // トグルは撤去。プレビューはエンジンがあれば常時 ON、プリアンブルは読めれば常に適用する
-        // （プリアンブルでコンパイルが落ちたら compileNow が自動で素の状態にフォールバックする）。
-        const live = Boolean(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender);
-        let preamble = null;
-        let compiledImage = null, compileTimer = null, compileSequence = 0;
         let coachKind = null, coachTimer = null;
         let coachPersistTimer = null, coachSuppressUntil = 0;
         let shownHints = {};
@@ -315,77 +282,11 @@ export const initProCanvasUi = (deps) => {
             clearTimeout(coachPersistTimer);
             coachPersistTimer = null;
         } coachKind = null; coach.hidden = true; coach.classList.remove("is-fading"); };
-        const invalidateCompiled = () => { if (compiledImage === null)
-            setStatus(""); compileSequence += 1; compiledImage = null; };
-        const renderPdf = async (pdfBase64) => { var _a; const binary = atob(pdfBase64), data = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1)
-            data[i] = binary.charCodeAt(i); const lib = await loadPdfjs(); const doc = await lib.getDocument(pdfOptions(data)).promise; try {
-            const page = await doc.getPage(1), base = page.getViewport({ scale: 1 }), rect = svg.getBoundingClientRect(), artScale = Math.min(rect.width / scene.width, rect.height / scene.height) * zoom, viewport = page.getViewport({ scale: Math.max(.1, scene.width * artScale * 2 / base.width) }), canvas = document.createElement("canvas");
-            canvas.width = Math.max(1, Math.ceil(viewport.width));
-            canvas.height = Math.max(1, Math.ceil(viewport.height));
-            const context = canvas.getContext("2d");
-            if (!context)
-                throw new Error("Canvas is unavailable.");
-            await page.render({ canvasContext: context, viewport }).promise;
-            return canvas.toDataURL("image/png");
-        }
-        finally {
-            await ((_a = doc.destroy) === null || _a === void 0 ? void 0 : _a.call(doc));
-        } };
-        // An empty scene has nothing to typeset: compiling it only produced a
-        // "Compiling…" chip that never resolved into anything visible.
-        const compileNow = async () => {
-            if (!live || editingSymbolId || !(fermion === null || fermion === void 0 ? void 0 : fermion.canvasRender))
-                return;
-            if (!scene.objects.length) {
-                compileSequence += 1;
-                compiledImage = null;
-                setStatus("");
-                render();
-                return;
-            }
-            const sequence = ++compileSequence;
-            setStatus(uiText("Compiling…", "コンパイル中…")); // 初回は TeX エンジンの起動で 10 秒超かかる。無言で待たせず、何が起きているかを出す。
-            const slowNotice = setTimeout(() => { if (sequence === compileSequence)
-                setStatus(compiledImage ? uiText("Updating the TeX preview…", "TeX プレビューを更新中…") : uiText("Preparing the TeX preview… the first run waits for the TeX engine to start", "TeX プレビューを準備中… 初回は TeX エンジンの起動を待ちます")); }, 3000);
-            const run = async (usePreamble) => { const result = await fermion.canvasRender({ source: buildStandaloneDoc(scene, usePreamble && preamble ? { preamble } : undefined) }); const reportError = firstReportError(result === null || result === void 0 ? void 0 : result.report); if (!(result === null || result === void 0 ? void 0 : result.ok) || !result.pdfBase64 || reportError)
-                throw new Error(reportError || (result === null || result === void 0 ? void 0 : result.error) || uiText("Compile error", "コンパイルエラー")); return renderPdf(result.pdfBase64); };
-            try {
-                let image;
-                try {
-                    image = await run(Boolean(preamble));
-                }
-                catch (first) {
-                    if (!preamble)
-                        throw first;
-                    const firstLine = first instanceof Error ? first.message.split(/\r?\n/)[0] : uiText("Compile error", "コンパイルエラー");
-                    image = await run(false);
-                    if (sequence !== compileSequence)
-                        return;
-                    compiledImage = image;
-                    setStatus(uiText(`The preamble may be causing this error: ${firstLine}`, `プリアンブル起因のエラーの可能性: ${firstLine}`));
-                    render();
-                    return;
-                }
-                if (sequence !== compileSequence)
-                    return;
-                compiledImage = image;
-                setStatus("");
-                render();
-            }
-            catch (error) {
-                if (sequence !== compileSequence)
-                    return;
-                compiledImage = null;
-                setStatus(error instanceof Error ? error.message.split(/\r?\n/)[0] : uiText("Compile error", "コンパイルエラー"), true);
-                render();
-            }
-            finally {
-                clearTimeout(slowNotice);
-            }
-        };
-        const scheduleCompile = () => { invalidateCompiled(); if (compileTimer)
-            clearTimeout(compileTimer); if (live && !editingSymbolId)
-            compileTimer = setTimeout(() => { compileTimer = null; void compileNow(); }, 600); };
+        // The canvas is self-contained: its SVG approximation is the preview.
+        // Keep this hook while the editing code is compact so callers do not need
+        // engine-specific branches.
+        const invalidateCompiled = () => { };
+        const scheduleCompile = () => { };
         const snapshot = (compile = true) => { undo.push(cloneScene(scene)); if (undo.length > 80)
             undo.shift(); redo = []; if (compile)
             queueMicrotask(scheduleCompile); };
@@ -1010,8 +911,6 @@ export const initProCanvasUi = (deps) => {
             for (let y = 0; y <= scene.height; y += scene.grid.size)
                 guides.append(svgEl("line", { x1: 0, y1: y, x2: scene.width, y2: y }));
             guides.append(svgEl("rect", { x: 0, y: 0, width: scene.width, height: scene.height, class: "pro-canvas-boundary" }));
-            if (compiledImage)
-                root.append(svgEl("image", { href: compiledImage, x: 0, y: -scene.height, width: scene.width, height: scene.height, transform: "scale(1,-1)", class: "pro-canvas-live-image", "pointer-events": "none" }));
             const paintDefs = svgEl("defs"), paintIds = new Set();
             root.append(paintDefs);
             const safeColor = (value) => value.replace(/[^0-9a-z]/gi, "").toLowerCase(), paint = (style) => { if (style.shading) {
@@ -1053,7 +952,7 @@ export const initProCanvasUi = (deps) => {
                 }
                 return { base: style.fill || "none", pattern: `url(#${id})` };
             } return { base: style.fill || "none", pattern: null }; };
-            const objects = svgEl("g", { class: "pro-canvas-objects", opacity: compiledImage ? 0 : 1, "pointer-events": "all" });
+            const objects = svgEl("g", { class: "pro-canvas-objects", "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
                 var _a, _b, _c, _d, _e, _f;
@@ -1940,10 +1839,9 @@ export const initProCanvasUi = (deps) => {
         svg.addEventListener("pointerleave", () => { if (drag || penDrag)
             return; const had = hoveredId || penResume || pathHint || (!pen && penCursor); if (!had)
             return; hoveredId = null; svg.style.cursor = "default"; clearPointerMarkers(); render(); });
-        const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (compileTimer)
-            clearTimeout(compileTimer); if (plotCompileTimer)
+        const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); if (wheelUndoTimer)
-            clearTimeout(wheelUndoTimer); hideCoach(); compileSequence += 1; overlay.remove(); if (closeCurrent === close)
+            clearTimeout(wheelUndoTimer); hideCoach(); overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
         const finishPen = () => { if (!pen)
@@ -2395,22 +2293,6 @@ export const initProCanvasUi = (deps) => {
             activateForEdit(object);
             e.preventDefault();
         } });
-        const loadProjectContext = async () => {
-            var _a;
-            const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.readText, rootPath = deps.getRootFilePath();
-            if (!api || !rootPath)
-                return;
-            // プリアンブルが読めなければ素の状態でプレビューする。理由の表示先（トグルの title）は撤去済み。
-            try {
-                const root = await api({ path: rootPath });
-                if (root.ok)
-                    preamble = extractPreamble(root.text || "");
-            }
-            catch { /* ignore */ }
-            render();
-            if (preamble)
-                scheduleCompile();
-        };
         svg.addEventListener("pointermove", e => { var _a; if (!drag || !["move", "resize", "draw"].includes(drag.kind) || !drag.moved)
             return; drag.client = { x: e.clientX, y: e.clientY }; const object = drag.id ? currentObjects().find(o => o.id === drag.id) : null, origin = (_a = drag.anchor) !== null && _a !== void 0 ? _a : drag.start; let bounds = drag.kind === "move" ? selectionBounds() : object ? objectBounds(object, scene) : null; if (e.shiftKey && drag.kind === "draw" && object) {
             const raw = rawPoint(e), dx = raw.x - origin.x, dy = raw.y - origin.y;
@@ -2478,8 +2360,6 @@ export const initProCanvasUi = (deps) => {
         stageObserver = new ResizeObserver(render);
         stageObserver.observe(stage);
         render();
-        scheduleCompile();
-        void loadProjectContext();
     };
     window.addEventListener("tex64:pro-canvas-open", ((event) => open(event.detail || {})));
     return { open, cancel: () => closeCurrent === null || closeCurrent === void 0 ? void 0 : closeCurrent() };

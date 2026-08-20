@@ -78,10 +78,7 @@ export const parseProModeState = (raw) => {
         const collapsed = (_a = value.collapsed) !== null && _a !== void 0 ? _a : {};
         return {
             enabled: value.enabled === true,
-            // Legacy: the 3-pane "source | reference | code" layout is retired with
-            // the reference window, so any stored layout normalizes to preview|source.
-            // Its type, CSS and splitter math are kept for a possible return.
-            layout: "preview-source",
+            layout: value.layout === "source-reference-code" ? value.layout : "preview-source",
             ratios: clampProRatios(Array.isArray(value.ratios) ? value.ratios : DEFAULT_STATE.ratios),
             collapsed: {
                 preview: collapsed.preview === true,
@@ -153,9 +150,6 @@ export const initProModeUi = (deps) => {
         const canvasButton = document.getElementById("pro-canvas-open");
         if (canvasButton instanceof HTMLButtonElement)
             canvasButton.hidden = !state.enabled;
-        const galleryButton = document.getElementById("pro-canvas-gallery");
-        if (galleryButton instanceof HTMLButtonElement)
-            galleryButton.hidden = !state.enabled;
         const previewPane = document.getElementById("pro-preview-pane");
         const referencePane = document.getElementById("pro-reference-pane");
         previewPane === null || previewPane === void 0 ? void 0 : previewPane.setAttribute("aria-hidden", String(!state.enabled || state.layout !== "preview-source"));

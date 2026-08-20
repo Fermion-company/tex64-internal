@@ -8,76 +8,67 @@ import {
   timeFractionForPercent,
 } from "../Resources/web/app/onboarding-ui.js";
 
-// The progress bar is not linear in time, so a naive "elapsed / percent"
-// estimate would promise the light install is nearly done at 80% when in fact
-// the long package phase has not started. These cover the mapping that fixes it.
-test("the light install spends most of its time after the bar reaches 80%", () => {
-  // install-tl finishes around bar 80% but only ~13% of the wall clock.
-  assert.ok(timeFractionForPercent(80, "light") < 0.2);
-  assert.ok(timeFractionForPercent(98, "light") > 0.85);
-  assert.equal(timeFractionForPercent(0, "light"), 0);
-  assert.equal(timeFractionForPercent(100, "light"), 1);
-});
-
-test("the full install is the opposite: the bar and the clock nearly agree", () => {
+// The full install spends almost all of its time in install-tl, which ends at
+// bar 80%; the final package/finalize steps are short.
+test("the full-install progress curve matches its work distribution", () => {
   assert.ok(timeFractionForPercent(80, "full") > 0.9);
+  assert.ok(timeFractionForPercent(98, "full") > 0.99);
+  assert.equal(timeFractionForPercent(0, "full"), 0);
+  assert.equal(timeFractionForPercent(100, "full"), 1);
 });
 
 test("the curve never goes backwards", () => {
-  for (const variant of ["light", "full"]) {
-    let previous = -1;
-    for (let p = 0; p <= 100; p += 1) {
-      const value = timeFractionForPercent(p, variant);
-      assert.ok(value >= previous, `${variant} dipped at ${p}%`);
-      previous = value;
-    }
+  let previous = -1;
+  for (let p = 0; p <= 100; p += 1) {
+    const value = timeFractionForPercent(p, "full");
+    assert.ok(value >= previous, `full dipped at ${p}%`);
+    previous = value;
   }
 });
 
 test("percent outside 0-100 is clamped instead of producing nonsense", () => {
-  assert.equal(timeFractionForPercent(-20, "light"), 0);
-  assert.equal(timeFractionForPercent(400, "light"), 1);
-  assert.equal(timeFractionForPercent(Number.NaN, "light"), 0);
+  assert.equal(timeFractionForPercent(-20, "full"), 0);
+  assert.equal(timeFractionForPercent(400, "full"), 1);
+  assert.equal(timeFractionForPercent(Number.NaN, "full"), 0);
 });
 
-test("before any real progress the estimate is the variant's known duration", () => {
+test("before any real progress the estimate uses the known full-install duration", () => {
   const state = nextEtaState(initialEtaState(), {
     percent: 0,
     now: 1000,
-    variant: "light",
+    variant: "full",
   });
   assert.equal(state.startedAt, 1000);
-  assert.equal(Math.round(state.remainingMs), VARIANT_TOTAL_MS.light);
+  assert.equal(Math.round(state.remainingMs), VARIANT_TOTAL_MS.full);
 });
 
 test("a run slower than the estimate is reported as slower", () => {
   const start = 0;
-  let state = nextEtaState(initialEtaState(), { percent: 0, now: start, variant: "light" });
-  // Bar at 80% but five minutes gone: this machine is far slower than the
+  let state = nextEtaState(initialEtaState(), { percent: 0, now: start, variant: "full" });
+  // Bar at 10% but fifteen minutes gone: this machine is far slower than the
   // reference run, so the remaining time must exceed the static estimate.
   for (let i = 0; i < 12; i += 1) {
-    state = nextEtaState(state, { percent: 80, now: start + 5 * 60 * 1000, variant: "light" });
+    state = nextEtaState(state, { percent: 10, now: start + 15 * 60 * 1000, variant: "full" });
   }
-  const projectedTotal = (5 * 60 * 1000) / timeFractionForPercent(80, "light");
+  const projectedRemaining =
+    (15 * 60 * 1000) / timeFractionForPercent(10, "full") - 15 * 60 * 1000;
   assert.ok(
-    state.remainingMs > VARIANT_TOTAL_MS.light,
+    state.remainingMs > VARIANT_TOTAL_MS.full,
     `expected a slow run to read slower, got ${state.remainingMs}`
   );
-  assert.ok(state.remainingMs < projectedTotal);
+  assert.ok(state.remainingMs < projectedRemaining);
 });
 
 test("a run at the reference pace counts down, and the bar never rewinds", () => {
-  let state = nextEtaState(initialEtaState(), { percent: 0, now: 0, variant: "light" });
+  let state = nextEtaState(initialEtaState(), { percent: 0, now: 0, variant: "full" });
   const first = state.remainingMs;
-  // Replay the shape of a real light install: the clock advances in step with
+  // Replay the shape of a full install: the clock advances in step with
   // the time curve, not with the bar. 60 is a late packet arriving out of order.
   const samples = [5, 20, 40, 80, 80, 60, 85, 90, 95, 98];
   for (const percent of samples) {
-    const now = timeFractionForPercent(percent, "light") * VARIANT_TOTAL_MS.light;
-    state = nextEtaState(state, { percent, now, variant: "light" });
+    const now = timeFractionForPercent(percent, "full") * VARIANT_TOTAL_MS.full;
+    state = nextEtaState(state, { percent, now, variant: "full" });
   }
-  // 110s into a 128s run: the estimate must be down to seconds, not still
-  // quoting most of the original duration.
   assert.ok(state.remainingMs < first / 3, `expected a countdown, got ${state.remainingMs}`);
   assert.ok(state.remainingMs < 45_000);
   // A late, lower packet must not rewind the bar.
@@ -85,10 +76,10 @@ test("a run at the reference pace counts down, and the bar never rewinds", () =>
 });
 
 test("a rise in the estimate is damped, not a lurch", () => {
-  let state = nextEtaState(initialEtaState(), { percent: 0, now: 0, variant: "light" });
+  let state = nextEtaState(initialEtaState(), { percent: 0, now: 0, variant: "full" });
   const before = state.remainingMs;
   // One packet saying the run is ten times slower than expected.
-  state = nextEtaState(state, { percent: 8, now: 60_000, variant: "light" });
+  state = nextEtaState(state, { percent: 10, now: 6 * 60_000, variant: "full" });
   assert.ok(state.remainingMs > before, "a slower run should read slower");
   assert.ok(
     state.remainingMs < before * 3,

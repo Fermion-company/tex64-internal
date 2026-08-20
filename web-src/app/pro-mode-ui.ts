@@ -90,10 +90,8 @@ export const parseProModeState = (raw: string | null): ProModeState => {
     const collapsed = value.collapsed ?? {} as Record<ProPane, boolean>;
     return {
       enabled: value.enabled === true,
-      // Legacy: the 3-pane "source | reference | code" layout is retired with
-      // the reference window, so any stored layout normalizes to preview|source.
-      // Its type, CSS and splitter math are kept for a possible return.
-      layout: "preview-source",
+      layout:
+        value.layout === "source-reference-code" ? value.layout : "preview-source",
       ratios: clampProRatios(Array.isArray(value.ratios) ? value.ratios : DEFAULT_STATE.ratios),
       collapsed: {
         preview: collapsed.preview === true,
@@ -171,8 +169,6 @@ export const initProModeUi = (deps: ProModeDeps) => {
     if (!state.enabled) setLayoutMenuOpen(false);
     const canvasButton = document.getElementById("pro-canvas-open");
     if (canvasButton instanceof HTMLButtonElement) canvasButton.hidden = !state.enabled;
-    const galleryButton = document.getElementById("pro-canvas-gallery");
-    if (galleryButton instanceof HTMLButtonElement) galleryButton.hidden = !state.enabled;
     const previewPane = document.getElementById("pro-preview-pane");
     const referencePane = document.getElementById("pro-reference-pane");
     previewPane?.setAttribute(

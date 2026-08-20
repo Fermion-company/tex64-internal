@@ -29,7 +29,6 @@ const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
 const { TexizeService } = require("./services/texize.cjs");
-const { FermionEngineService } = require("./services/fermion-engine.cjs");
 const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
@@ -49,12 +48,10 @@ const {
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
-const { registerFermionEngineHandlers } = require("./handlers/fermion-engine.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
-const { TexPackageService } = require("./services/tex-package-manager.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
 const { createApplicationMenuTemplate } = require("./app-menu.cjs");
 
@@ -247,15 +244,8 @@ const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
-const packageService = new TexPackageService(envService);
-// Lets a failed build repair itself by installing the packages its log named.
-// Only ever touches the app-managed TeX Live; a user's own install is read-only
-// to us, and installMissingPackages() bails out when it is not ours.
-buildService.setPackageInstaller((log) => envService.installMissingPackages(log));
 let mathOcrService = null;
 let texizeService = null;
-let fermionEngineService = null;
-let canvasFermionEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
@@ -290,15 +280,6 @@ const getAiWebService = () => {
   }
   return aiWebService;
 };
-const getFermionEngineService = () => {
-  if (!fermionEngineService) fermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
-  return fermionEngineService;
-};
-const getCanvasFermionEngineService = () => {
-  if (!canvasFermionEngineService) canvasFermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
-  return canvasFermionEngineService;
-};
-
 const getTexlabService = () => {
   if (!texlabService) {
     texlabService = new TexlabService({
@@ -600,7 +581,6 @@ const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
 
 const miscHandlers = createMiscHandlers({
   envService,
-  packageService,
   ensureUserSettings,
   workspace,
   shell,
@@ -859,12 +839,6 @@ app.on("window-all-closed", () => {
   if (texizeService) {
     texizeService.shutdown();
   }
-  if (fermionEngineService) {
-    fermionEngineService.shutdown();
-  }
-  if (canvasFermionEngineService) {
-    canvasFermionEngineService.shutdown();
-  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
@@ -877,12 +851,6 @@ app.on("before-quit", () => {
   }
   if (texizeService) {
     texizeService.shutdown();
-  }
-  if (fermionEngineService) {
-    fermionEngineService.shutdown();
-  }
-  if (canvasFermionEngineService) {
-    canvasFermionEngineService.shutdown();
   }
 });
 
@@ -1047,7 +1015,6 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
-registerFermionEngineHandlers({ ipcMain, getFermionEngineService, getCanvasFermionEngineService });
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 
 // AI-mode webview guests: window.open / target=_blank goes to the system
@@ -1698,39 +1665,6 @@ ipcMain.on("tex64", (_event, message) => {
     return;
   }
 
-  // Package management
-  if (type === "packages:catalog") {
-    miscHandlers.handlePackagesCatalog({ force: message.force === true });
-    return;
-  }
-  if (type === "packages:searchFiles") {
-    miscHandlers.handlePackagesSearchFiles(message.term);
-    return;
-  }
-  if (type === "packages:ctanSearch") {
-    miscHandlers.handlePackagesCtanSearch(message.term);
-    return;
-  }
-  if (type === "packages:detail") {
-    miscHandlers.handlePackagesDetail(message.name);
-    return;
-  }
-  if (type === "packages:install") {
-    miscHandlers.handlePackagesInstall(message.names);
-    return;
-  }
-  if (type === "packages:remove") {
-    miscHandlers.handlePackagesRemove(message.names, { force: message.force === true });
-    return;
-  }
-  if (type === "packages:update") {
-    miscHandlers.handlePackagesUpdate();
-    return;
-  }
-  if (type === "packages:texdoc") {
-    miscHandlers.handlePackagesTexdoc(message.name);
-    return;
-  }
 });
 
 ipcMain.on("tex64:pdf", (_event, message) => {

@@ -345,13 +345,6 @@ export type TexizeBridge = {
   snippet?: (payload: { imageBase64: string; translate?: string; assetsDir?: string }) => Promise<{ ok: boolean; tex?: string; assets?: string[]; error?: string }>;
   status?: () => Promise<unknown>;
 };
-export type FermionBridge = {
-  start?: () => Promise<{ ok: boolean; url?: string; backend?: string; error?: string }>;
-  status?: () => Promise<unknown>;
-  stop?: () => Promise<{ ok: boolean; error?: string }>;
-  push?: (payload: { source: string; edit?: { start: number; end: number; text: string } }) => Promise<{ ok: boolean; url?: string; backend?: string; error?: string }>;
-  canvasRender?: (payload: { source: string }) => Promise<{ ok: boolean; report?: unknown; pdfBase64?: string; error?: string }>;
-};
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
 };
@@ -377,7 +370,6 @@ export type BridgeWindow = Window &
     tex64Capture?: CaptureBridge;
     tex64MathOcr?: MathOcrBridge;
     tex64Texize?: TexizeBridge;
-    tex64Fermion?: FermionBridge;
     tex64Ai?: AiCompletionBridge;
     tex64Files?: FilesBridge;
     tex64AiWeb?: AiWebBridge;

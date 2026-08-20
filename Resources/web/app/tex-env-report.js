@@ -18,8 +18,8 @@ export const describeDetection = (report) => {
     }
     return detail;
 };
-// What the coverage probe means in words. "on-demand" is the light install's
-// promise: the gaps are real but they close themselves on first build.
+// What the coverage probe means in words. "on-demand" can still describe an
+// externally installed MiKTeX tree; TeX64's own tree is always scheme-full.
 export const describeCoverage = (report) => {
     if (!report || !report.hasEngine) {
         return "";
@@ -43,17 +43,9 @@ export const INSTALL_VARIANT_LABELS = {
     get full() {
         return {
             badge: "",
-            title: uiText("Everything", "フル"),
-            detail: uiText("Every CTAN package up front, so the machine never needs the network again.", "最初に CTAN の全パッケージを入れる。以後ネットワーク不要。"),
+            title: uiText("Install TeX Live", "TeX Live を導入"),
+            detail: uiText("Every CTAN package, managed privately by TeX64.", "CTAN の全パッケージを TeX64 専用の場所に導入します。"),
             size: uiText("about 5 GB · 30–60 min", "約 5 GB・30〜60 分"),
-        };
-    },
-    get light() {
-        return {
-            badge: uiText("Recommended", "おすすめ"),
-            title: uiText("Light", "ライト"),
-            detail: uiText("Ready in minutes. Anything a document needs later installs itself on first use.", "数分で使える。後から必要になったパッケージは初回使用時に自動で入る。"),
-            size: uiText("about 500 MB · a few minutes", "約 500 MB・数分"),
         };
     },
 };

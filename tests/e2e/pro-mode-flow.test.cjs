@@ -4,12 +4,12 @@
  * Drives the real Electron app the way a person does — real mouse clicks and
  * drags at real coordinates, real key presses — through every Pro affordance:
  * the mode switch, pane collapse/expand, the splitter, the structure drawer,
- * the live-preview toggle, the whole figure canvas (each drawing tool,
+ * the whole figure canvas (each drawing tool,
  * undo/redo, the plot card, the More menu), TikZ insertion, the stash panel
  * and region capture.
  *
- * Retired surfaces it deliberately no longer drives: the layout switcher, the
- * reference pane / 3-pane layout, the figure gallery and the split button.
+ * The separate editor split button is retired; Pro's own layout menu owns the
+ * two- and three-pane arrangements.
  *
  * It also guards two things that hands-on runs kept breaking:
  *   - the canvas must render in the app's locale. The i18n source language is
@@ -127,9 +127,9 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
         const el = document.getElementById(id);
         return !!el && !el.hidden && getComputedStyle(el).display !== "none";
       };
-      return { draw: shown("pro-canvas-open"), figures: shown("pro-canvas-gallery"), split: shown("pro-layout-trigger") };
+      return { draw: shown("pro-canvas-open"), split: shown("pro-layout-trigger") };
     });
-    assert.deepEqual(visible, { draw: true, figures: true, split: true });
+    assert.deepEqual(visible, { draw: true, split: true });
   });
 
   await t.test("layout 1 shows the preview pane, and it collapses and reopens", async () => {
@@ -219,18 +219,6 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     await page.keyboard.press("Escape");
     await page.waitForTimeout(400);
     assert.equal(await page.evaluate(() => document.getElementById("pro-structure-drawer")?.hidden), true);
-  });
-
-  await t.test("the live-preview toggle answers a click", async () => {
-    await page.click("#pro-preview-live-toggle");
-    await page.waitForTimeout(2500);
-    const state = await page.evaluate(() => ({
-      pressed: document.getElementById("pro-preview-live-toggle")?.getAttribute("aria-pressed"),
-      status: (document.getElementById("pro-preview-live-status")?.textContent || "").trim(),
-    }));
-    assert.ok(state.pressed === "true" || state.status.length > 0, `no feedback from the Live toggle: ${JSON.stringify(state)}`);
-    await page.click("#pro-preview-live-toggle");
-    await page.waitForTimeout(600);
   });
 
   await t.test("the stash is a Pro-only sidebar tab", async () => {
@@ -561,7 +549,6 @@ test("Pro mode: every affordance responds to real input", { timeout: 420_000 }, 
     const chrome = await page.evaluate(() => ({
       draw: (document.getElementById("pro-canvas-open")?.textContent || "").trim(),
       structure: (document.getElementById("pro-structure-button")?.textContent || "").trim(),
-      previewEmpty: (document.querySelector("#pro-preview-viewer .editor-viewer-message p")?.textContent || "").trim(),
     }));
     const JP_RE = /[぀-ゟ゠-ヿ一-龯]/;
     for (const [key, value] of Object.entries(chrome)) {
