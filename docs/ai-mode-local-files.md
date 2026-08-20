@@ -109,9 +109,9 @@ SyncTeX の逆引きで段落の範囲を取り、その範囲の `.tex` を **�
 
 ---
 
-## 現状（2026-08-19 時点）と引き継ぎ
+## 現状（2026-08-20 時点）と引き継ぎ
 
-ブランチ `fix/issue-17-ai-mode-codex`、最新 `2eb189d`。作業ツリーはクリーン。
+ブランチ `fix/issue-17-ai-mode-codex`。
 
 ### 動いているもの（実機で確認済み）
 
@@ -122,20 +122,33 @@ SyncTeX の逆引きで段落の範囲を取り、その範囲の `.tex` を **�
   ワークスペースの `.tex` を直接編集する。
 - **クリック → 段落の囲み** — PDF 自身のテキストから段落を組み立てて矩形を描く
   （`src/components/pdf-text-blocks.ts`、単体テスト 8 件）。
-- **クリック → 本文の位置** — SyncTeX 逆引きで `main.tex` の行を返す。**不安定**（下記）。
+- **クリック → 本文の位置** — SyncTeX 逆引きで `main.tex` の行を返す。
+
+### 解決済み: SyncTeX 逆引きの「時々失敗」（2026-08-20）
+
+「この場所は本文と結び付けられませんでした」の原因は **main 側ではなくゲスト側の
+二重アンラップ**だった。`requestFromHost` は listener 内で封筒を剥がして
+**中身（payload）を resolve する**のに、`use-source-locator.ts` が戻り値へ
+もう一度 `hostMessageBody()` を掛けていた。中身に `payload` キーは無いので
+`found` は常に `{}` になり、成功応答も失敗に見えた（`error` も無いので常に既定文言）。
+abac59a のリファクタで混入。
+
+- 直し: `use-source-locator.ts` は戻り値をそのまま読む。`requestFromHost` の
+  戻り型を `Promise<Record<string, unknown>>` に改め、「戻り値も封筒」という
+  型の嘘を排除（`tests/native-host.test.ts` に回帰テスト）。
+- 同じ二重アンラップを抱えた未使用の `fetchWorkspaceFileUrl` は削除
+  （紙面は HTTP 直読みに移行済みのため死コードだった）。
+- main 側は健全と実測で確認: `SynctexService.reverse()` を headless で
+  AI モードと同条件（`bypassHint: true`・expanded なし）で実走し、3 点とも
+  `ok: true`・約 350ms。doc 旧版の「`reverse()` が `ok` を含まない値を返す」は
+  誤診だった（ゲストが何を受け取っても `{}` に潰していたため）。
+- ゲストの打ち切りは 6 秒 → 20 秒に。逆引きは近傍グリッド掃引
+  （synctex プロセス多数起動）なので、大きい文書ではミリ秒では済まない。
 
 ### 未解決（次に着手すべき順）
 
-1. **SyncTeX 逆引きが時々失敗する**。「この場所は本文と結び付けられませんでした」
-   が出る。切り分け済み:
-   - 座標は正しい。同じ値を CLI に渡すと正解を返す
-     （`synctex edit -o "1:270:253:main.pdf"` → `main.tex:25`）。
-   - 原因は main 側。`SynctexService.reverse()` が `ok` を含まない値を返す経路がある
-     （`electron/services/synctex/reverse-core.cjs`）。ハンドラ側は理由付きで返すよう
-     修正済みだが、`reverse()` がその値を返す条件は未特定。
-   - ゲスト側は `bypassHint: true`（このモードは前方ヒントを持たない）＋ 6 秒で打ち切り。
-2. **本文だけの直接編集**（文章は編集可、`\emph{}` `$...$` はチップ）は未着手。
-3. **S5 の撤去**（tex64-ai の文書モデル・パッチ・レンダラ・組版・永続化・API を削除、
+1. **本文だけの直接編集**（文章は編集可、`\emph{}` `$...$` はチップ）は未着手。
+2. **S5 の撤去**（tex64-ai の文書モデル・パッチ・レンダラ・組版・永続化・API を削除、
    履歴を git へ）は未着手。
 
 ### 動かし方

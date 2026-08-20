@@ -2,12 +2,7 @@
 
 import { useCallback, useState } from "react";
 
-import {
-  getNativeHost,
-  hostMessageBody,
-  requestFromHost,
-  type HostMessage,
-} from "./native-host";
+import { getNativeHost, requestFromHost } from "./native-host";
 
 export type SourceLocation = {
   /** Workspace-relative path of the file the click landed in. */
@@ -45,12 +40,14 @@ export function useSourceLocator(): SourceLocator {
     y: number;
     pdfPath: string | null;
   }) => {
-    const host = getNativeHost();    if (!host) return;
+    const host = getNativeHost();
+    if (!host) return;
     setLocating(true);
     setError(null);
     void (async () => {
       try {
-        const answer = await requestFromHost<HostMessage>(host, {
+        // requestFromHost resolves with the reply's body, already unwrapped.
+        const found = await requestFromHost(host, {
           type: "synctex:reverse",
           resultType: "synctex:reverseResult",
           payload: {
@@ -64,11 +61,11 @@ export function useSourceLocator(): SourceLocator {
             // nothing for it and can only answer for somewhere else.
             bypassHint: true,
           },
-          // The lookup itself takes milliseconds. Waiting longer than this
-          // means the answer is not coming, and saying so beats a spinner.
-          timeoutMs: 6_000,
+          // The reverse lookup sweeps a grid of nearby points, each a synctex
+          // process of its own, so it is seconds — not milliseconds — on a
+          // slow day. Give up only when the answer is clearly not coming.
+          timeoutMs: 20_000,
         });
-        const found = hostMessageBody(answer);
         if (
           found.ok !== true ||
           typeof found.path !== "string" ||
@@ -86,13 +83,12 @@ export function useSourceLocator(): SourceLocator {
         // must not throw away a lookup that succeeded.
         let text = "";
         try {
-          const excerptAnswer = await requestFromHost<HostMessage>(host, {
+          const excerpt = await requestFromHost(host, {
             type: "file:excerpt",
             resultType: "file:excerptResult",
             payload: { path: found.path, line: found.line, radius: 0, maxLines: 1 },
             timeoutMs: 8_000,
           });
-          const excerpt = hostMessageBody(excerptAnswer);
           if (excerpt.ok === true && Array.isArray(excerpt.lines)) {
             text = String(excerpt.lines[0] ?? "");
           }

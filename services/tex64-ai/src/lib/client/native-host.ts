@@ -37,8 +37,12 @@ let requestCounter = 0;
  * One request/response round trip over the host bus, which is otherwise a
  * one-way message stream: the request carries an id and the matching reply
  * carries it back.
+ *
+ * Resolves with the reply's *body* — the letter, not the envelope. The
+ * payload is already unwrapped here; unwrapping it again yields `{}` and
+ * makes every reply look like a failure.
  */
-export function requestFromHost<T extends HostMessage>(
+export function requestFromHost(
   host: NativeHost,
   input: {
     type: string;
@@ -46,10 +50,10 @@ export function requestFromHost<T extends HostMessage>(
     payload?: Record<string, unknown>;
     timeoutMs?: number;
   },
-): Promise<T> {
+): Promise<Record<string, unknown>> {
   requestCounter += 1;
   const requestId = `ai-${Date.now().toString(36)}-${requestCounter}`;
-  return new Promise<T>((resolve, reject) => {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
     const timer = setTimeout(() => {
       unsubscribe();
       reject(new Error(`Host did not answer ${input.type}.`));
@@ -60,35 +64,8 @@ export function requestFromHost<T extends HostMessage>(
       if (body.requestId !== requestId) return;
       clearTimeout(timer);
       unsubscribe();
-      resolve(body as T);
+      resolve(body);
     });
     host.send(input.type, { ...input.payload, requestId });
   });
-}
-
-/** Reads a workspace file as an object URL the viewer can load. */
-export async function fetchWorkspaceFileUrl(
-  host: NativeHost,
-  relativePath: string,
-  mimeType: string,
-): Promise<string> {
-  const result = await requestFromHost(host, {
-    type: "file:bytes",
-    resultType: "file:bytesResult",
-    payload: { path: relativePath },
-    timeoutMs: 12_000,
-  });
-  // requestFromHost already unwraps `payload`.
-  const body = hostMessageBody(result);
-  if (body.ok !== true || typeof body.base64 !== "string") {
-    throw new Error(
-      typeof body.error === "string" ? body.error : "Could not read the file.",
-    );
-  }
-  const binary = atob(body.base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
