@@ -111,7 +111,7 @@ test("Issues panel: a build error reads without the log", { timeout: 300_000 }, 
         kind: (card.querySelector(".issue-kind")?.textContent || "").trim(),
         summary: (card.querySelector(".issue-summary")?.textContent || "").trim(),
         fix: (card.querySelector(".issue-fix")?.textContent || "").trim(),
-        jump: (card.querySelector(".issue-jump")?.textContent || "").trim(),
+        location: (card.querySelector(".issue-location")?.textContent || "").trim(),
         hasDisclosure: !!card.querySelector(".issue-disclosure"),
       }))
     );
@@ -172,16 +172,38 @@ test("Issues panel: a build error reads without the log", { timeout: 300_000 }, 
     );
   });
 
-  await t.test("a card with no location shows no location line", async () => {
-    const mismatched = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("#issues-list .issue-item")).filter((card) => {
-        const jump = card.querySelector(".issue-jump");
+  await t.test("a card with no location shows no location line, and cards never squash", async () => {
+    const cards = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#issues-list .issue-item")).map((card) => {
+        const location = card.querySelector(".issue-location");
         const log = (card.querySelector(".issue-log")?.textContent || "").trim();
-        const hasLocation = /\.(tex|sty|cls|bib)(:\d+)?/.test(log.split("\n")[0] || "");
-        return !hasLocation && jump && !/Settings|設定/.test(jump.textContent || "");
-      }).length
+        return {
+          claimsLocation: (location?.textContent || "").trim(),
+          logHasLocation: /\.(tex|sty|cls|bib)(:\d+)?/.test(log.split("\n")[0] || ""),
+          height: card.getBoundingClientRect().height,
+          // The last line must sit inside the card, not under its border.
+          lastLineBottom: (() => {
+            const kids = Array.from(card.querySelectorAll(".issue-fix, .issue-jump"));
+            const last = kids[kids.length - 1];
+            return last ? last.getBoundingClientRect().bottom : 0;
+          })(),
+          cardBottom: card.getBoundingClientRect().bottom,
+          // A call to action is gone: the card itself is the button now.
+          jumpButtons: card.querySelectorAll(".issue-jump").length,
+        };
+      })
     );
-    assert.equal(mismatched, 0, "a card without a location still renders a location line");
+    for (const card of cards) {
+      if (card.claimsLocation) {
+        assert.ok(card.logHasLocation, `a card invented a location: ${card.claimsLocation}`);
+      }
+      assert.ok(card.height >= 76, `a card was squashed to ${card.height}px`);
+      assert.ok(
+        card.lastLineBottom <= card.cardBottom,
+        `the card's last line overflows its box by ${card.lastLineBottom - card.cardBottom}px`
+      );
+      assert.equal(card.jumpButtons, 0, "the retired 'open beside this' line is back");
+    }
   });
 
   await t.test("a warning does not look like an error", async () => {
@@ -246,10 +268,10 @@ test("Issues panel: a build error reads without the log", { timeout: 300_000 }, 
   await t.test("clicking a card opens the error in the split pane", async () => {
     const target = await page.evaluate(() => {
       const card = Array.from(document.querySelectorAll("#issues-list .issue-item"))
-        .find((item) => item.querySelector("button.issue-main .issue-jump"));
+        .find((item) => item.querySelector(".issue-location") && item.querySelector("button.issue-main"));
       if (!card) return null;
       card.querySelector("button.issue-main").click();
-      return (card.querySelector(".issue-jump")?.textContent || "").trim();
+      return (card.querySelector(".issue-location")?.textContent || "").trim();
     });
     assert.ok(target, "no card offered a jump target");
     await page.waitForTimeout(1500);

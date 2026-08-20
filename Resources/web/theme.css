@@ -5644,6 +5644,10 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .issue-item {
   display: grid;
   gap: 6px;
+  /* The list is a flex column, so without this the cards shrink to fit instead
+     of the list scrolling — which squashed their last line into the border. */
+  flex: 0 0 auto;
+  min-height: 76px;
   padding: 10px 12px;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
@@ -5711,6 +5715,18 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   overflow-wrap: anywhere;
 }
 
+/* Where it happened, stated rather than offered: the card itself is the button. */
+.issue-location {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .issue-disclosure {
   flex: 0 0 auto;
   display: grid;
@@ -5776,7 +5792,6 @@ button.issue-main { cursor: pointer; }
 .issue-jump {
   justify-self: start;
   margin-top: 2px;
-  font-family: "SF Mono", Menlo, monospace;
   font-size: 11px;
   color: var(--accent-strong);
   overflow-wrap: anywhere;
@@ -5785,6 +5800,8 @@ button.issue-main { cursor: pointer; }
 button.issue-main:hover .issue-jump { text-decoration: underline; }
 
 button.issue-main:hover .issue-summary { color: var(--accent-strong); }
+
+.issue-item:has(button.issue-main:hover) .issue-location { color: var(--accent-strong); }
 
 .issue-log {
   margin: 2px 0 0;

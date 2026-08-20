@@ -71,7 +71,7 @@ export const initIssuesUi = (context, deps) => {
             disclosure.setAttribute("aria-controls", logId);
             disclosure.title = uiText("Show the build log for this issue", "この問題のビルドログを表示");
             disclosure.setAttribute("aria-label", disclosure.title);
-            head.append(icon, kind, disclosure);
+            head.append(icon, kind);
             const isRuntimeAction = issue.action === "open-runtime" && typeof deps.onOpenRuntimeSettings === "function";
             const hasJumpTarget = Boolean(detail.path || detail.line);
             const actionable = isRuntimeAction || hasJumpTarget;
@@ -89,25 +89,30 @@ export const initIssuesUi = (context, deps) => {
             fix.dataset.noI18n = "";
             fix.textContent = diagnosis.fix;
             body.append(summary, fix);
-            // No location for this kind of problem? Then no location line at all.
-            if (isRuntimeAction) {
+            // The whole card is the button, so the location does not need a call to
+            // action of its own — it just says where, up in the header. No location
+            // for this kind of problem means no location shown at all.
+            if (hasJumpTarget) {
+                const where = document.createElement("span");
+                where.className = "issue-location";
+                where.dataset.noI18n = "";
+                where.textContent =
+                    detail.path && detail.line
+                        ? `${detail.path}:${detail.line}`
+                        : detail.path
+                            ? detail.path
+                            : uiText(`Line ${detail.line}`, `${detail.line} 行目`);
+                where.title = uiText("Click the card to open it beside this", "カードをクリックすると横に開きます");
+                head.append(where);
+            }
+            else if (isRuntimeAction) {
+                // No location to show, but there is still somewhere to go.
                 const action = document.createElement("span");
                 action.className = "issue-jump";
                 action.textContent = uiText("Open Settings > Environment", "設定 > 環境 を開く");
                 body.append(action);
             }
-            else if (hasJumpTarget) {
-                const jump = document.createElement("span");
-                jump.className = "issue-jump";
-                jump.dataset.noI18n = "";
-                const where = detail.path && detail.line
-                    ? `${detail.path}:${detail.line}`
-                    : detail.path
-                        ? detail.path
-                        : uiText(`Line ${detail.line}`, `${detail.line} 行目`);
-                jump.textContent = uiText(`Open ${where} beside this`, `${where} を横に開く`);
-                body.append(jump);
-            }
+            head.append(disclosure);
             const log = document.createElement("pre");
             log.className = "issue-log";
             log.id = logId;
