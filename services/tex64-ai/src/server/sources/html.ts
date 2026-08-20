@@ -61,7 +61,7 @@ export function htmlToPlainText(html: string): string {
   return normalizePlainText(decodeEntities(withBreaks));
 }
 
-export function extractHtmlTitle(html: string): string | undefined {
+function extractHtmlTitle(html: string): string | undefined {
   const match = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(html);
   if (!match?.[1]) return undefined;
   const title = htmlToPlainText(match[1]);

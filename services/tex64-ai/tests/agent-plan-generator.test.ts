@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
-  advanceElicitation,
   applyBriefExtraction,
   applyExplicitDelegation,
   confirmDocumentBrief,
@@ -31,7 +30,6 @@ describe("document plan generation", () => {
       session,
       extraction: extractBriefRequirementsDeterministically({
         prompt: answer,
-        activeQuestion: null,
       }),
       answerText: answer,
       runId: subjectRunId,
@@ -94,7 +92,6 @@ describe("document plan generation", () => {
       session,
       extraction: extractBriefRequirementsDeterministically({
         prompt: request,
-        activeQuestion: null,
       }),
       answerText: request,
       runId: rootRunId,
@@ -114,26 +111,16 @@ describe("document plan generation", () => {
       now,
     });
 
-    const objectiveQuestion = advanceElicitation({
-      session,
-      sourceRunId: randomUUID(),
-      now,
-    });
-    expect(objectiveQuestion.question?.targetPaths).toEqual([
-      "equations.items",
-    ]);
     const objectiveAnswer =
-      "マクスウェル方程式から真空中の電磁波動方程式を導出、ポインティングの定理を証明";
+      "扱う数式は：マクスウェル方程式から真空中の電磁波動方程式を導出、ポインティングの定理を証明";
     session = applyBriefExtraction({
-      session: objectiveQuestion.session,
+      session,
       extraction: extractBriefRequirementsDeterministically({
         prompt: objectiveAnswer,
-        activeQuestion: objectiveQuestion.question,
       }),
       answerText: objectiveAnswer,
       runId: randomUUID(),
       now,
-      questionId: objectiveQuestion.question?.id,
     });
     session = applyExplicitDelegation({
       session,

@@ -169,7 +169,6 @@ describe("document presentation", () => {
       documentId: SAMPLE_DOCUMENT.id,
       prompt: "内容を整理して",
       replyToRunId: null,
-      decision: null,
       idempotencyKey: "waiting-run-key",
       workflowRunId: "workflow-run-id",
       status: "waiting_approval",
@@ -205,7 +204,6 @@ describe("document presentation", () => {
       idempotencyKey: "review-run-key",
       workflowRunId: "workflow-run-id",
       replyToRunId: null,
-      decision: null,
       status: "completed",
       stage: "ready",
       baseRevision: 3,
@@ -229,7 +227,6 @@ describe("document presentation", () => {
       documentId: SAMPLE_DOCUMENT.id,
       prompt: "内容を整理して",
       replyToRunId: null,
-      decision: null,
       idempotencyKey: "waiting-run-key",
       workflowRunId: "workflow-run-id",
       status: "waiting_approval",
@@ -245,20 +242,9 @@ describe("document presentation", () => {
       updatedAt: "2026-08-07T00:02:00.000Z",
     };
 
-    await expect(
-      presentAgentRun(
-        { getPendingDocumentAction: async () => ({}) as never },
-        USER_ID,
-        run,
-      ),
-    ).resolves.toMatchObject({ inputKind: "approval" });
-    await expect(
-      presentAgentRun(
-        { getPendingDocumentAction: async () => null },
-        USER_ID,
-        run,
-      ),
-    ).resolves.toMatchObject({ inputKind: "clarification" });
+    expect(presentAgentRun(run)).toMatchObject({
+      inputKind: "clarification",
+    });
   });
 
   it("resolves input kinds for a run page with one batch lookup", async () => {
@@ -268,7 +254,6 @@ describe("document presentation", () => {
       documentId: SAMPLE_DOCUMENT.id,
       prompt: "内容を整理して",
       replyToRunId: null,
-      decision: null,
       idempotencyKey: "waiting-run-page-key",
       workflowRunId: "workflow-run-page-id",
       status: "waiting_approval",
@@ -288,24 +273,9 @@ describe("document presentation", () => {
       id: "30000000-0000-4000-8000-000000000013",
       idempotencyKey: "clarification-run-page-key",
     };
-    const listPendingDocumentActions = vi.fn(async () => [
-      { sourceRunId: waitingRun.id } as never,
-    ]);
-
-    await expect(
-      presentAgentRuns(
-        { listPendingDocumentActions },
-        USER_ID,
-        [waitingRun, clarificationRun],
-      ),
-    ).resolves.toMatchObject([
-      { id: waitingRun.id, inputKind: "approval" },
+    expect(presentAgentRuns([waitingRun, clarificationRun])).toMatchObject([
+      { id: waitingRun.id, inputKind: "clarification" },
       { id: clarificationRun.id, inputKind: "clarification" },
-    ]);
-    expect(listPendingDocumentActions).toHaveBeenCalledTimes(1);
-    expect(listPendingDocumentActions).toHaveBeenCalledWith(USER_ID, [
-      waitingRun.id,
-      clarificationRun.id,
     ]);
   });
 });

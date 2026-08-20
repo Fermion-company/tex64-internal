@@ -22,7 +22,7 @@ const COMMON_REQUIRED = {
   presentation: "required",
 } as const;
 
-export const DOCUMENT_REQUIREMENT_PROFILES: Readonly<
+const DOCUMENT_REQUIREMENT_PROFILES: Readonly<
   Record<Deliverable, DocumentRequirementProfile>
 > = {
   article: {

@@ -216,7 +216,6 @@ function isRun(value: unknown): value is AgentRun {
     (value.resultNote === undefined || typeof value.resultNote === "string") &&
     (value.inputKind === undefined ||
       value.inputKind === null ||
-      value.inputKind === "approval" ||
       value.inputKind === "clarification")
   );
 }
@@ -301,21 +300,6 @@ export async function startRun(
       "run",
     );
     if (!isRun(payload)) throw new InvalidResponseError();
-    return { data: payload, source: "remote", ok: true };
-  } catch (error) {
-    return requestFailure(error);
-  }
-}
-
-export async function listRuns(documentId: string): Promise<ClientResult<AgentRun[]>> {
-  try {
-    const payload = getEnvelopeValue(
-      await requestJson(`/api/documents/${encodeURIComponent(documentId)}/runs`),
-      "runs",
-    );
-    if (!Array.isArray(payload) || !payload.every(isRun)) {
-      throw new InvalidResponseError();
-    }
     return { data: payload, source: "remote", ok: true };
   } catch (error) {
     return requestFailure(error);

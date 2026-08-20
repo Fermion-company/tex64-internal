@@ -177,13 +177,18 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // the choice and shows Axiom 1.0 Pro as a locked row for non-Pro plans.
   const DEFAULT_MODEL = "Axiom1.0";
   const PRO_MODEL = "Axiom1.0-pro";
+  // Runs on the user's own ChatGPT/Codex subscription via the local Codex
+  // app-server — no TeX64 platform quota involved.
+  const CODEX_MODEL = "codex";
   const MODEL_LABELS: Record<string, string> = {
     [DEFAULT_MODEL]: "Axiom 1.0",
     [PRO_MODEL]: "Axiom 1.0 Pro",
+    [CODEX_MODEL]: "Codex (ChatGPT)",
   };
   const MODEL_OPTIONS: Array<{ id: string; name: string; descKey: string; pro: boolean }> = [
     { id: DEFAULT_MODEL, name: "Axiom 1.0", descKey: "model_efficient", pro: false },
     { id: PRO_MODEL, name: "Axiom 1.0 Pro", descKey: "model_autonomous", pro: true },
+    { id: CODEX_MODEL, name: "Codex (ChatGPT)", descKey: "model_codex", pro: false },
   ];
   const migrateLegacyModelId = (model: string) =>
     model === "Axiom0.9.1"
@@ -367,7 +372,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     pricingFallbackUrl: TEX64_LINKS.pricing,
     state: platformState,
     onStatusUpdate: () => {
-      if (needsLogin()) showLoginOverlay();
+      if (gatedNeedsLogin()) showLoginOverlay();
       else hideLoginOverlay();
       // Plan may have changed (e.g. AI access refreshed) — re-gate the Pro option.
       persistCompatibleModelSelection();
@@ -375,10 +380,16 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     },
   });
 
+  // The Codex backend authenticates against the user's own ChatGPT account, so
+  // the platform (Google) login and token-quota gates do not apply to it.
+  const isCodexModelSelected = () => currentModelId() === CODEX_MODEL;
+  const gatedNeedsLogin = () => !isCodexModelSelected() && needsLogin();
+  const gatedAiBlocked = () => !isCodexModelSelected() && isAiBlocked();
+
   const _rawUpdateStatusDisplay = updateStatusDisplay;
   const wrappedUpdateStatusDisplay = () => {
     _rawUpdateStatusDisplay();
-    if (needsLogin()) showLoginOverlay();
+    if (gatedNeedsLogin()) showLoginOverlay();
     else hideLoginOverlay();
     syncModelSelect();
   };
@@ -789,8 +800,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     restorePendingAiDraft({ chatId, request, activeChatId, aiInput, autoGrow, appendMessage, setPendingAttachments });
 
   const { requestAgentRun } = createAiChatRunner({
-    isAiBlocked,
-    needsLogin,
+    isAiBlocked: gatedAiBlocked,
+    needsLogin: gatedNeedsLogin,
     requestAiAccessCheck,
     requestPlatformUsage,
     updateStatusDisplay: wrappedUpdateStatusDisplay,
@@ -837,8 +848,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       ? () => mentionController.clearExplicitPaths()
       : undefined,
     addImageFiles,
-    isAiBlocked,
-    needsLogin,
+    isAiBlocked: gatedAiBlocked,
+    needsLogin: gatedNeedsLogin,
     requestAiAccessCheck,
     requestPlatformUsage,
     updateStatusDisplay: wrappedUpdateStatusDisplay,

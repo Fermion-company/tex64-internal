@@ -63,7 +63,7 @@ function ipv4FromMappedIpv6(bytes: Uint8Array): string | undefined {
   return `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
 }
 
-export function isPublicIpv4(address: string): boolean {
+function isPublicIpv4(address: string): boolean {
   const numeric = ipv4Number(unwrapAddress(address));
   if (numeric === undefined) return false;
   const blocked: ReadonlyArray<readonly [number, number]> = [
@@ -86,7 +86,7 @@ export function isPublicIpv4(address: string): boolean {
   return !blocked.some(([network, prefix]) => inIpv4Cidr(numeric, network, prefix));
 }
 
-export function isPublicIpv6(address: string): boolean {
+function isPublicIpv6(address: string): boolean {
   const bytes = ipv6Bytes(unwrapAddress(address));
   if (!bytes) return false;
   const mapped = ipv4FromMappedIpv6(bytes);

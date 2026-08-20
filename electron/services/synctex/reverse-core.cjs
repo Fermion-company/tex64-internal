@@ -13,7 +13,7 @@ module.exports = (SynctexService) => {
   }) {
     const synctexPath = this.findSynctex();
     if (!synctexPath) {
-      return { ok: false, error: "synctex がnot found。" };
+      return { ok: false, error: "synctex was not found." };
     }
     if (!fs.existsSync(pdfPath)) {
       return { ok: false, error: "PDF not found." };
@@ -103,7 +103,7 @@ module.exports = (SynctexService) => {
       candidates = this.mergeReverseCandidates(candidates, expandedCandidates);
     }
     if (!candidates.length) {
-      return { ok: false, error: "SyncTeX の参照先がnot found。" };
+      return { ok: false, error: "The SyncTeX target was not found." };
     }
     let selected = await this.selectReverseCandidate({
       candidates,
@@ -140,7 +140,7 @@ module.exports = (SynctexService) => {
       }
     }
     if (!selected) {
-      return { ok: false, error: "SyncTeX の参照先がnot found。" };
+      return { ok: false, error: "The SyncTeX target was not found." };
     }
     const range = Number.isFinite(refineLines)
       ? Math.min(10, Math.max(0, Math.floor(refineLines)))

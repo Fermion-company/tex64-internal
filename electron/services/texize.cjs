@@ -124,7 +124,7 @@ class TexizeService {
     const allowed = await this.fileAccess.ensureAccess(this.texizeDir, { reason: "texize" });
     if (!allowed) {
       const root = this.fileAccess.classify(this.texizeDir)?.root || this.texizeDir;
-      const error = new Error(`TeX64 に ${root} へのアクセス許可がないため texize を起動できません。`);
+      const error = new Error(`TeX64 cannot start texize because it has no permission to access ${root}.`);
       this.lastError = error.message;
       this.state = "unavailable";
       throw error;

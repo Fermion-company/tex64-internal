@@ -20,9 +20,9 @@ import {
   assessDocumentBriefStep,
   createDocumentPlanStep,
   failDocumentRunStep,
-  markDocumentRunNeedsInputStep,
   resolveDocumentRunPromptStep,
 } from "@/workflows/document-agent/steps";
+import { AGENT_RUNTIME_UNCONFIGURED_MESSAGE } from "@/workflows/document-agent/helpers";
 import type {
   DocumentAgentWorkflowInput,
   DocumentBriefAssessment,
@@ -96,7 +96,6 @@ async function createRunningRun(input: {
     documentId: DOCUMENT_ID,
     prompt: input.prompt,
     replyToRunId: input.replyToRunId ?? null,
-    decision: null,
     idempotencyKey: `brief-run-${input.index}`,
     baseRevision: document.currentRevision,
   });
@@ -108,7 +107,6 @@ async function createRunningRun(input: {
     prompt: run.prompt,
     baseRevision: run.baseRevision,
     replyToRunId: run.replyToRunId,
-    decision: run.decision,
   };
 }
 
@@ -249,38 +247,43 @@ async function assess(input: {
     promptContext,
     runtime: { provider: "deterministic_fallback", model: null },
   });
-  if (assessment.status === "needs_input") {
-    await markDocumentRunNeedsInputStep({
-      workflow,
-      code: "clarification_required",
-      question: assessment.question,
-    });
-  }
   return { workflow, assessment };
 }
 
 describe.sequential("typed document brief workflow", () => {
-  it("asks for the subject once, then self-confirms with delegated defaults", async () => {
-    const first = await assess({
+  it("autopilots a sparse request using the prompt itself as the subject", async () => {
+    // Build-first: intake never asks. Even "論文を書いて" starts writing with
+    // the raw prompt as the subject and every other requirement delegated.
+    const result = await assess({
       index: 0,
       prompt: "論文を書いて",
     });
-    expect(first.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("主題"),
-    });
-    await expect(repository.getDocument(USER_ID, DOCUMENT_ID)).resolves.toMatchObject({
-      currentRevision: 1,
+    expect(result.assessment).toMatchObject({
+      status: "ready",
+      legacyDocument: false,
     });
 
-    // Build-first intake: the subject answer resolves everything else by
-    // delegation and the brief confirms itself — no interrogation rounds.
-    const second = await assess({
-      index: 1,
-      prompt: "Transformerの注意機構についてです",
-      replyToRunId: first.workflow.runId,
+    const stored = await repository.getDocumentAgentSession(
+      USER_ID,
+      DOCUMENT_ID,
+    );
+    expect(stored?.session).toMatchObject({
+      phase: "drafting",
+      confirmedBriefVersion: stored?.session.briefVersion,
     });
-    expect(second.assessment).toMatchObject({
+    expect(stored?.session.brief.goal.subject).toMatchObject({
+      status: "provided",
+      value: "論文を書いて",
+    });
+    expect(stored?.session.questions).toHaveLength(0);
+  });
+
+  it("self-confirms a subject-bearing request with delegated defaults and plans it", async () => {
+    const result = await assess({
+      index: 0,
+      prompt: "Transformerの注意機構について論文を書いて",
+    });
+    expect(result.assessment).toMatchObject({
       status: "ready",
       legacyDocument: false,
     });
@@ -302,7 +305,7 @@ describe.sequential("typed document brief workflow", () => {
     );
     expect(stored?.session.brief.figures.policy.status).toBe("delegated");
     const plan = await createDocumentPlanStep({
-      workflow: second.workflow,
+      workflow: result.workflow,
       runtime: { provider: "deterministic_fallback", model: null },
     });
     expect(plan.sections.map((section) => section.title)).toEqual(
@@ -313,10 +316,10 @@ describe.sequential("typed document brief workflow", () => {
     });
   });
 
-  it("replays the same intake run without duplicating a question", async () => {
+  it("replays the same intake run with an identical ready assessment", async () => {
     const workflow = await createRunningRun({
       index: 0,
-      prompt: "論文を書いて",
+      prompt: "注意機構について論文を書いて",
     });
     const promptContext = await resolveDocumentRunPromptStep(workflow);
     const input = {
@@ -332,119 +335,42 @@ describe.sequential("typed document brief workflow", () => {
       USER_ID,
       DOCUMENT_ID,
     );
-    expect(stored?.session.questions).toHaveLength(1);
+    expect(stored?.session.questions).toHaveLength(0);
     expect(stored?.stateVersion).toBe(0);
   });
 
-  it("heals a saved active question instead of failing its source run", async () => {
+  it("stores the configuration failure message on the failed run", async () => {
     const workflow = await createRunningRun({
       index: 0,
       prompt: "論文を書いて",
     });
-    const promptContext = await resolveDocumentRunPromptStep(workflow);
-    const assessment = await assessDocumentBriefStep({
+
+    await failDocumentRunStep({
       workflow,
-      promptContext,
-      runtime: { provider: "deterministic_fallback", model: null },
+      code: "agent_runtime_unconfigured",
+      message: AGENT_RUNTIME_UNCONFIGURED_MESSAGE,
     });
-    expect(assessment.status).toBe("needs_input");
+
     await expect(repository.getRun(USER_ID, workflow.runId)).resolves.toMatchObject({
-      status: "running",
-    });
-
-    // This is the workflow catch path after presenting the question failed.
-    await failDocumentRunStep({ workflow, code: "injected_needs_input_failure" });
-
-    const storedRun = await repository.getRun(USER_ID, workflow.runId);
-    expect(storedRun).toMatchObject({
-      status: "waiting_approval",
-      stage: "needs_input",
-    });
-    if (assessment.status !== "needs_input") return;
-    expect(storedRun?.errorMessage).toBe(assessment.question);
-  });
-
-  it("keeps an unanswered question live when reply extraction fails", async () => {
-    const first = await assess({
-      index: 0,
-      prompt: "論文を書いて",
-    });
-    expect(first.assessment.status).toBe("needs_input");
-
-    const failedReply = await createRunningRun({
-      index: 1,
-      prompt: "Transformerの注意機構についてです",
-      replyToRunId: first.workflow.runId,
-    });
-    await resolveDocumentRunPromptStep(failedReply);
-    const claimedReply = await repository.getRun(USER_ID, failedReply.runId);
-    if (!claimedReply) throw new Error("Missing claimed reply fixture.");
-    await repository.updateRun(USER_ID, failedReply.runId, {
-      expectedStateVersion: claimedReply.stateVersion,
       status: "failed",
       stage: "failed",
-      errorMessage: "文書の条件を読み取れませんでした。",
+      errorMessage: AGENT_RUNTIME_UNCONFIGURED_MESSAGE,
     });
-
-    // Claiming a reply is deliberately non-destructive: no extracted brief was
-    // saved, so both the source run and its persisted active question survive.
-    await expect(
-      repository.getRun(USER_ID, first.workflow.runId),
-    ).resolves.toMatchObject({ status: "waiting_approval", stage: "needs_input" });
-    const beforeRecovery = await repository.getDocumentAgentSession(
-      USER_ID,
-      DOCUMENT_ID,
-    );
-    const activeBefore = beforeRecovery?.session.questions.find(
-      (question) => question.id === beforeRecovery.session.activeQuestionId,
-    );
-    expect(activeBefore?.sourceRunId).toBe(first.workflow.runId);
-
-    // A fresh reply still lands: it answers the surviving question, and the
-    // build-first intake then completes with delegated defaults.
-    const recovered = await assess({
-      index: 2,
-      prompt: "Transformerの注意機構についてです",
-      replyToRunId: first.workflow.runId,
-    });
-    expect(recovered.assessment.status).toBe("ready");
-    await expect(
-      repository.getRun(USER_ID, first.workflow.runId),
-    ).resolves.toMatchObject({ status: "cancelled" });
-    const afterRecovery = await repository.getDocumentAgentSession(
-      USER_ID,
-      DOCUMENT_ID,
-    );
-    expect(afterRecovery?.session.lastProcessedRunId).toBe(
-      recovered.workflow.runId,
-    );
-    expect(afterRecovery?.session.activeQuestionId).toBeNull();
-    expect(afterRecovery?.session.confirmedBriefVersion).toBe(
-      afterRecovery?.session.briefVersion,
-    );
   });
 
-  it("accepts only a reply to the persisted active question", async () => {
-    const first = await assess({ index: 0, prompt: "論文を書いて" });
-    expect(first.assessment.status).toBe("needs_input");
-
-    await expect(
-      createRunningRun({ index: 1, prompt: "別の文書を書いて" }),
-    ).rejects.toBeInstanceOf(RunReplyConflictError);
+  it("rejects a reply that does not target an awaiting-input run", async () => {
     await expect(
       createRunningRun({
-        index: 2,
+        index: 0,
         prompt: "この回答です",
         replyToRunId: RUN_IDS[8],
       }),
     ).rejects.toBeInstanceOf(RunReplyConflictError);
+
+    // Standalone prompts are never blocked by intake state anymore.
     await expect(
-      createRunningRun({
-        index: 3,
-        prompt: "注意機構についてです",
-        replyToRunId: first.workflow.runId,
-      }),
-    ).resolves.toMatchObject({ replyToRunId: first.workflow.runId });
+      createRunningRun({ index: 1, prompt: "別の文書を書いて" }),
+    ).resolves.toMatchObject({ replyToRunId: null });
   });
 
   it.each([
@@ -484,42 +410,20 @@ describe.sequential("typed document brief workflow", () => {
     },
   );
 
-  it("reopens a stored provided-only figure choice before writing", async () => {
+  it("resolves a stored provided-only figure choice to agent proposals without asking", async () => {
     await seedConfirmedPaperSession({ figurePolicy: "provided_only" });
 
-    const first = await assess({ index: 0, prompt: "続けて" });
-    expect(first.assessment).toMatchObject({
-      status: "needs_input",
-      question: expect.stringContaining("内容に合う図を作るか"),
-    });
-    if (first.assessment.status !== "needs_input") return;
-    expect(first.assessment.question).not.toContain("取り込めません");
-    const reopened = await repository.getDocumentAgentSession(
-      USER_ID,
-      DOCUMENT_ID,
-    );
-    expect(reopened?.session.confirmedBriefVersion).toBeNull();
-    expect(reopened?.session.phase).toBe("awaiting_answer");
-    expect(reopened?.session.questions.at(-1)?.options.map(({ id }) => id)).toEqual([
-      "agent_proposes",
-      "none",
-    ]);
-    await expect(
-      repository.getDocument(USER_ID, DOCUMENT_ID),
-    ).resolves.toMatchObject({ currentRevision: 1 });
+    const result = await assess({ index: 0, prompt: "続けて" });
+    expect(result.assessment).toMatchObject({ status: "ready" });
 
-    // Answering the reopened figure question completes intake directly.
-    const switched = await assess({
-      index: 1,
-      prompt: "内容に合う図を作る",
-      replyToRunId: first.workflow.runId,
-    });
-    expect(switched.assessment).toMatchObject({ status: "ready" });
     const stored = await repository.getDocumentAgentSession(
       USER_ID,
       DOCUMENT_ID,
     );
-    expect(stored?.session.brief.figures.policy.value).toBe("agent_proposes");
+    expect(stored?.session.brief.figures.policy).toMatchObject({
+      status: "delegated",
+      value: "agent_proposes",
+    });
     expect(stored?.session.confirmedBriefVersion).toBe(
       stored?.session.briefVersion,
     );

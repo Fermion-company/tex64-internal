@@ -10,7 +10,6 @@ import {
   SAMPLE_DOCUMENT_REVISION,
   applyDocumentPatch,
   assertDocumentFiguresRenderable,
-  countRenderableFigures,
   renderDocumentToLatex,
   safeValidateDocument,
   validateDocument,
@@ -141,7 +140,6 @@ describe("structured figures", () => {
     const latex = renderDocumentToLatex(document);
 
     expect(renderDocumentToLatex(document)).toBe(latex);
-    expect(countRenderableFigures(document)).toBe(3);
     expect(() => assertDocumentFiguresRenderable(document)).not.toThrow();
     expect(latex.match(/\\usepackage\{tikz\}/gu)).toHaveLength(1);
     expect(latex.match(/\\usepackage\{pgfplots\}/gu)).toHaveLength(1);
@@ -212,7 +210,6 @@ describe("structured figures", () => {
   });
 
   it("does not allow new fake figures and exposes the strict completion gate", () => {
-    expect(countRenderableFigures(SAMPLE_DOCUMENT)).toBe(0);
     expect(() => assertDocumentFiguresRenderable(SAMPLE_DOCUMENT)).toThrow(
       DocumentValidationError,
     );
@@ -272,7 +269,6 @@ describe("structured figures", () => {
     });
 
     expect(result.document.schemaVersion).toBe(2);
-    expect(countRenderableFigures(result.document)).toBe(1);
     expect(() => assertDocumentFiguresRenderable(result.document)).not.toThrow();
   });
 

@@ -25,10 +25,6 @@ export async function trustedSourcePromptForRun(
   repository: DocumentRepository,
   currentRun: StoredAgentRun,
 ): Promise<string> {
-  if (currentRun.decision !== null) {
-    throw new FatalError("確認履歴を安全に読み取れませんでした。");
-  }
-
   const newestFirst = [currentRun.prompt];
   const visited = new Set<string>([currentRun.id]);
   let cursor = currentRun;
@@ -49,8 +45,7 @@ export async function trustedSourcePromptForRun(
     );
     if (
       parent.userId !== currentRun.userId ||
-      parent.documentId !== currentRun.documentId ||
-      parent.decision !== null
+      parent.documentId !== currentRun.documentId
     ) {
       throw new FatalError("確認履歴が現在の文書と一致しません。");
     }

@@ -5,5 +5,4 @@ export * from "./custom-template";
 export * from "./extract";
 export * from "./fingerprint";
 export * from "./initialize";
-export * from "./questions";
 export * from "./reducer";

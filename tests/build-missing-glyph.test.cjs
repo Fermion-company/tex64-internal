@@ -25,7 +25,7 @@ test("parseIssues reports missing glyphs as blocking errors", () => {
   assert.equal(issues[0].code, "missing-glyph");
   assert.equal(issues[0].character, "日");
   assert.equal(issues[0].codePoint, "U+65E5");
-  assert.match(issues[0].message, /PDFで表示できない文字/);
+  assert.match(issues[0].message, /The PDF cannot display the character/);
   assert.equal(issues[1].character, "한");
   assert.equal(issues[1].codePoint, "U+D55C");
 });
@@ -49,7 +49,7 @@ test("runBuild fails instead of showing a PDF with missing glyphs", async () => 
   const result = await service.runBuild(rootPath, "main.tex", "lualatex", null);
 
   assert.equal(result.kind, "failure");
-  assert.match(result.summary, /PDFで表示できない文字/);
+  assert.match(result.summary, /characters it cannot display/);
   assert.equal(result.issues.length, 2);
   assert.equal(result.issues[0].code, "missing-glyph");
 });

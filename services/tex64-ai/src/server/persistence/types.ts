@@ -1,7 +1,6 @@
 import type {
   DocumentModel,
   DocumentOperation,
-  DocumentPatch,
 } from "@/domain/document";
 import type { StoredDocumentAgentSession } from "@/domain/brief";
 import type { ResearchLedger } from "@/server/research/schema";
@@ -58,10 +57,15 @@ export type StoredRevisionListItem = Pick<
   "userId" | "documentId" | "revision" | "actor" | "summary" | "createdAt"
 >;
 
+/**
+ * "waiting_approval" is the historical name of the awaiting-input status. It
+ * now only ever means "waiting for the user's answer to a question"
+ * (request_input / review clarifications); the approval flow itself was
+ * removed. The literal is kept so stored runs remain readable.
+ */
 export type AgentRunStatus = "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
 
-export type RunDecision = "approve" | "reject";
-export type NeedsInputCode = "clarification_required" | "approval_required";
+export type NeedsInputCode = "clarification_required";
 
 export type AgentRunStage =
   | "understanding"
@@ -79,7 +83,6 @@ export type StoredAgentRun = {
   documentId: string;
   prompt: string;
   replyToRunId: string | null;
-  decision: RunDecision | null;
   /**
    * Document node this run's request is scoped to (PDF/element selection).
    * Advisory context for the agent prompt; never shown in user-facing copy.
@@ -146,35 +149,11 @@ export type ArtifactReleaseBinding = Pick<
   pageCount: number;
 };
 
-export type PendingDocumentActionStatus =
-  | "pending"
-  | "applied"
-  | "rejected"
-  | "cancelled";
-
-export type StoredPendingDocumentAction = {
-  id: string;
-  userId: string;
-  documentId: string;
-  sourceRunId: string;
-  status: PendingDocumentActionStatus;
-  baseRevision: number;
-  patch: DocumentPatch;
-  patchDigest: string;
-  summary: string;
-  question: string;
-  resolvedByRunId: string | null;
-  appliedRevision: number | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type CreateRunInput = Pick<
   StoredAgentRun,
   "id" | "userId" | "documentId" | "prompt" | "idempotencyKey" | "baseRevision"
 > & {
   replyToRunId?: string | null;
-  decision?: RunDecision | null;
   targetNodeId?: string | null;
 };
 
@@ -194,11 +173,6 @@ export type CommitDocumentInput = {
   operations: DocumentOperation[];
 };
 
-export type PendingDocumentActionDraft = Pick<
-  StoredPendingDocumentAction,
-  "id" | "patch" | "patchDigest" | "summary"
->;
-
 export type SetRunNeedsInputInput = {
   userId: string;
   documentId: string;
@@ -206,7 +180,6 @@ export type SetRunNeedsInputInput = {
   expectedStateVersion: number;
   code: NeedsInputCode;
   question: string;
-  pendingAction?: PendingDocumentActionDraft;
 };
 
 export type ClarificationReplyResult = {
@@ -218,22 +191,6 @@ export type ClarificationSessionSaveBinding = {
   responseRunId: string;
   sourceRunId: string;
 };
-
-export type PendingDocumentDecisionResult =
-  | {
-      status: "applied";
-      revision: number;
-      action: StoredPendingDocumentAction;
-    }
-  | {
-      status: "rejected";
-      action: StoredPendingDocumentAction;
-    }
-  | {
-      status: "stale";
-      action: StoredPendingDocumentAction;
-      message: string;
-    };
 
 export type UpdateRunInput = Partial<
   Pick<
@@ -372,20 +329,6 @@ export interface DocumentRepository {
     responseRunId: string,
     sourceRunId: string,
   ): Promise<ClarificationReplyResult>;
-  resolvePendingDocumentDecision(
-    userId: string,
-    documentId: string,
-    responseRunId: string,
-    sourceRunId: string,
-  ): Promise<PendingDocumentDecisionResult>;
-  getPendingDocumentAction(
-    userId: string,
-    sourceRunId: string,
-  ): Promise<StoredPendingDocumentAction | null>;
-  listPendingDocumentActions(
-    userId: string,
-    sourceRunIds: readonly string[],
-  ): Promise<StoredPendingDocumentAction[]>;
   completeRunForCurrentRevision(
     input: CompleteRunForCurrentRevisionInput,
   ): Promise<CompleteRunForCurrentRevisionResult>;
@@ -513,13 +456,6 @@ export class RunReplyConflictError extends Error {
   constructor(message = "The run reply cannot be applied to the requested source run.") {
     super(message);
     this.name = "RunReplyConflictError";
-  }
-}
-
-export class PendingDocumentActionConflictError extends Error {
-  constructor(message = "The pending document action no longer matches this decision.") {
-    super(message);
-    this.name = "PendingDocumentActionConflictError";
   }
 }
 

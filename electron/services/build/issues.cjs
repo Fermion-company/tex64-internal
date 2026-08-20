@@ -22,6 +22,13 @@ module.exports = (BuildService) => {
     };
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index] ?? "";
+      // latexmk narrates its own run ("Summary of warnings from last run of
+      // *latex:", "Errors, so I did not complete making targets"). Those lines
+      // carry no location and no advice, and whatever they are summarising is
+      // already in the list on its own, so they only add empty cards.
+      if (this.isLatexmkMetaLine(line)) {
+        continue;
+      }
       const contextPath = this.extractContextTexPath(line, rootPath);
       if (contextPath) {
         activeTexPath = contextPath;
@@ -59,6 +66,10 @@ module.exports = (BuildService) => {
     return errors.concat(warnings).slice(0, maxIssues);
   };
 
+  BuildService.prototype.isLatexmkMetaLine = function (line) {
+    return typeof line === "string" && /^\s*latexmk:/i.test(line);
+  };
+
   BuildService.prototype.extractMissingGlyphIssues = function (line, activeTexPath = null) {
     if (typeof line !== "string" || !line.includes("Missing character:")) {
       return [];
@@ -72,7 +83,7 @@ module.exports = (BuildService) => {
       const codePoint = `U+${String(match[2] ?? "").toUpperCase()}`;
       const font = String(match[3] ?? "").trim().replace(/[;:]+$/, "");
       const character = rawCharacter || codePoint;
-      const fontPart = font ? `現在のフォント ${font} にこのグリフがありません。` : "";
+      const fontPart = font ? `The current font ${font} has no glyph for it. ` : "";
       issues.push({
         severity: "error",
         code: "missing-glyph",
@@ -83,9 +94,9 @@ module.exports = (BuildService) => {
         column: null,
         path: activeTexPath ?? null,
         message:
-          `PDFで表示できない文字があります: ${character} (${codePoint})。` +
+          `The PDF cannot display the character ${character} (${codePoint}). ` +
           `${fontPart}` +
-          "Unicode 対応の文書クラス/パッケージ（日本語: ltjsarticle または luatexja、中国語: ctex、韓国語: kotex、その他: fontspec + 対応フォント）を使ってください。",
+          "Use a Unicode-aware document class/package (Japanese: ltjsarticle or luatexja, Chinese: ctex, Korean: kotex, otherwise: fontspec with a suitable font).",
       });
     }
     return issues;
@@ -99,10 +110,15 @@ module.exports = (BuildService) => {
   };
 
   BuildService.prototype.extractIssueSeverity = function (line) {
-    const text = typeof line === "string" ? line.trim() : "";
-    if (!text) {
+    const raw = typeof line === "string" ? line.trim() : "";
+    if (!raw) {
       return null;
     }
+    // The build runs with -file-line-error, so a real error reaches us as
+    // "./main.tex:31: Package luatex.def Error: ...". Without dropping that
+    // prefix the anchored patterns below never fire and a fatal error is
+    // silently downgraded to nothing.
+    const text = raw.replace(/^(?:\.[\\/])?[^\s:]+:\d+(?::\d+)?:\s*/, "") || raw;
     const lower = text.toLowerCase();
     if (
       text.startsWith("!") ||
@@ -221,6 +237,14 @@ module.exports = (BuildService) => {
     if (!normalized || normalized === ".") {
       return null;
     }
+    // A distribution file (TeX Live's keyval.tex and friends) is not something
+    // the user can open and fix, and TeX names them constantly while loading
+    // packages. Treating one as the issue's location sends the reader into
+    // /usr/local/texlive instead of their own document, so refuse it and let
+    // the caller fall back to a path inside the project.
+    if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
+      return null;
+    }
     return normalized;
   };
 
@@ -305,10 +329,10 @@ module.exports = (BuildService) => {
       lower.includes("'latexmk' is not recognized") ||
       lower.includes('"latexmk" is not recognized');
     if (latexmkMissing) {
-      return "latexmk がnot found。TeX environmentを確認してください。";
+      return "latexmk not found. Check the TeX environment.";
     }
     if (output.includes(mainFileName) && output.includes("No such file")) {
-      return `${mainFileName} がnot found。`;
+      return `${mainFileName} was not found.`;
     }
     const firstError = issues.find((issue) => issue.severity === "error");
     if (firstError) {
@@ -317,6 +341,6 @@ module.exports = (BuildService) => {
     if (issues[0]) {
       return issues[0].message;
     }
-    return "build failed。Issuesを確認してください。";
+    return "Build failed. Check the Issues panel.";
   };
 };

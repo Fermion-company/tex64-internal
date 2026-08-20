@@ -4,6 +4,7 @@ export const createSettingsPageNavOps = (runtime, attentionOps, deps) => {
     // First nav category is the default page shown when the overlay opens.
     const defaultPageId = (_d = (_b = (_a = settingsNavItems[0]) === null || _a === void 0 ? void 0 : _a.dataset.settingsTarget) !== null && _b !== void 0 ? _b : (_c = settingsPageItems[0]) === null || _c === void 0 ? void 0 : _c.dataset.settingsPage) !== null && _d !== void 0 ? _d : null;
     const setSettingsPage = (pageId) => {
+        var _a;
         // Full-screen side-by-side layout: the category nav stays visible and a
         // page is always shown in the content pane (no drill-in / back button).
         const resolved = pageId !== null && pageId !== void 0 ? pageId : defaultPageId;
@@ -38,6 +39,11 @@ export const createSettingsPageNavOps = (runtime, attentionOps, deps) => {
         if (resolved === "env") {
             deps.updateRuntimeOnboardingUi();
             deps.checkEnvironmentStatus();
+        }
+        // The catalogue is thousands of rows and a tlmgr call, so it is read the
+        // first time the page is actually looked at, not at startup.
+        if (resolved === "packages") {
+            (_a = deps.onPackagesPageActive) === null || _a === void 0 ? void 0 : _a.call(deps);
         }
         if (resolved === "env" || resolved === "account") {
             deps.maybeRequestPlatformUpdateCheck(false);

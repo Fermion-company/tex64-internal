@@ -6,14 +6,15 @@ import {
   DocumentAgentSessionSchema,
   DocumentBriefSchema,
   StoredDocumentAgentSessionSchema,
-  advanceElicitation,
   applyBriefExtraction,
   autopilotDocumentBrief,
+  clearPendingElicitation,
   createDocumentAgentSession,
+  evaluateBriefCoverage,
+  provideBriefSubjectFallback,
   resolveSafeCustomTemplatePreset,
   type DocumentBrief,
   type DocumentAgentSession,
-  type ElicitationQuestion,
 } from "@/domain/brief";
 import {
   DocumentCitationStyleSchema,
@@ -54,10 +55,8 @@ import {
   extractBriefRequirements,
   createDocumentPlan,
   reviewDocumentIndependently,
+  type BriefExtractionRuntime,
   type IndependentDocumentReview,
-  planDocumentDeterministically,
-  workflowNeedsApproval,
-  type DeterministicFallbackPlan,
   type DocumentCheckResult,
   type DocumentMutationResult,
   type ResolveSourceResult,
@@ -79,10 +78,7 @@ import {
   type StoredAgentRun,
   type StoredDocument,
 } from "@/server/persistence";
-import {
-  documentPatchDigest,
-  needsInputQuestion,
-} from "@/server/persistence/pending-actions";
+import { needsInputQuestion } from "@/server/persistence/pending-actions";
 import {
   SourceAuthorizationError,
   SourceProvenanceError,
@@ -127,7 +123,6 @@ import type {
   DocumentRunPromptContext,
   DocumentAgentArtifactSummary,
   DocumentAgentWorkflowInput,
-  DocumentDecisionRunResult,
   RunDocumentRevisionResult,
   WorkflowLoadResult,
 } from "./types";
@@ -150,15 +145,6 @@ type RequestInputInput = Parameters<
 type ResolveSourceInput = Parameters<
   DocumentToolHandlers["resolveSource"]
 >[0];
-type DeleteDocumentInput = Parameters<
-  DocumentToolHandlers["deleteDocument"]
->[0];
-type PublishDocumentInput = Parameters<
-  DocumentToolHandlers["publishDocument"]
->[0];
-type RunExpensiveTaskInput = Parameters<
-  DocumentToolHandlers["runExpensiveTask"]
->[0];
 
 const WorkflowInputSchema = z
   .object({
@@ -168,19 +154,9 @@ const WorkflowInputSchema = z
     prompt: z.string().trim().min(1).max(MAX_DOCUMENT_AGENT_PROMPT_CHARS),
     baseRevision: z.number().int().nonnegative(),
     replyToRunId: z.string().uuid().nullable().default(null),
-    decision: z.enum(["approve", "reject"]).nullable().default(null),
     targetNodeId: z.string().uuid().nullable().default(null),
   })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.decision !== null && input.replyToRunId === null) {
-      context.addIssue({
-        code: "custom",
-        path: ["replyToRunId"],
-        message: "A decision must target a pending run.",
-      });
-    }
-  });
+  .strict();
 
 const SemanticStageSchema = z.enum([
   "understanding",
@@ -408,30 +384,19 @@ function safeValidationMessage(code: string): string {
 async function persistNeedsInput(
   repository: DocumentRepository,
   run: StoredAgentRun,
-  code: "clarification_required" | "approval_required",
   question: string,
-  pendingAction?: { patch: DocumentPatch; summary: string },
 ): Promise<void> {
-  const safeQuestion = normalizeUserFacingQuestion(question, code);
+  const safeQuestion = normalizeUserFacingQuestion(
+    question,
+    "clarification_required",
+  );
   await repository.setRunNeedsInput({
     userId: run.userId,
     documentId: run.documentId,
     runId: run.id,
     expectedStateVersion: run.stateVersion,
-    code,
+    code: "clarification_required",
     question: safeQuestion,
-    ...(pendingAction
-      ? {
-          pendingAction: {
-            id: deterministicUuid(
-              `${run.id}:pending-document-action:${pendingAction.patch.id}`,
-            ),
-            patch: pendingAction.patch,
-            patchDigest: documentPatchDigest(pendingAction.patch),
-            summary: pendingAction.summary,
-          },
-        }
-      : {}),
   });
 }
 
@@ -508,7 +473,7 @@ async function buildClarificationHistory(input: {
       input.userId,
       cursor.replyToRunId,
     );
-    if (source.documentId !== input.documentId || source.decision !== null) {
+    if (source.documentId !== input.documentId) {
       throw new FatalError("確認履歴が現在の文書と一致しません。");
     }
     const question = needsInputQuestion(
@@ -552,6 +517,29 @@ async function buildClarificationHistory(input: {
 export async function resolveAgentRuntimeStep(): Promise<AgentRuntimeSelection> {
   "use step";
 
+  return resolveAgentRuntimeFromProcessEnvironment();
+}
+
+/**
+ * Missing configuration is not retryable: rethrow as a FatalError carrying
+ * the same user-facing copy so the workflow fails fast into a failed run —
+ * in development too — instead of the engine retrying the step.
+ */
+function resolveAgentRuntimeFromProcessEnvironment(): AgentRuntimeSelection {
+  try {
+    return selectAgentRuntimeFromEnvironment();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.name === "AgentRuntimeConfigurationError"
+    ) {
+      throw new FatalError(error.message);
+    }
+    throw error;
+  }
+}
+
+function selectAgentRuntimeFromEnvironment(): AgentRuntimeSelection {
   return selectAgentRuntime({
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
     VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN,
@@ -583,7 +571,6 @@ export async function loadDocumentRunStep(
     run.prompt !== input.prompt ||
     run.baseRevision !== input.baseRevision ||
     run.replyToRunId !== input.replyToRunId ||
-    run.decision !== input.decision ||
     run.targetNodeId !== input.targetNodeId
   ) {
     throw new FatalError("文書作成リクエストを確認できません。");
@@ -665,9 +652,6 @@ export async function resolveDocumentRunPromptStep(
   const run = await requireRun(repository, input.userId, input.runId);
   assertRunScope(run, input.documentId);
 
-  if (input.decision !== null) {
-    throw new FatalError("承認の回答を本文として処理できません。");
-  }
   if (input.replyToRunId === null) {
     return standalonePromptContext(input.prompt);
   }
@@ -694,55 +678,36 @@ export async function resolveDocumentRunPromptStep(
   });
 }
 
-const AgentRuntimeSelectionSchema = z.discriminatedUnion("provider", [
-  z.strictObject({
-    provider: z.literal("ai_gateway"),
-    model: z.string().trim().min(1).max(500),
-  }),
+const AgentRuntimeSelectionSchema = z.strictObject({
+  provider: z.literal("ai_gateway"),
+  model: z.string().trim().min(1).max(500),
+});
+
+/**
+ * Brief extraction and plan generation keep a provider union so hermetic
+ * tests can exercise their deterministic paths; the live workflow only ever
+ * passes the ai_gateway runtime.
+ */
+const BriefExtractionRuntimeSchema = z.discriminatedUnion("provider", [
+  AgentRuntimeSelectionSchema,
   z.strictObject({
     provider: z.literal("deterministic_fallback"),
     model: z.null(),
   }),
 ]);
 
-const DocumentBriefAssessmentSchema = z.discriminatedUnion("status", [
-  z.strictObject({
-    status: z.literal("needs_input"),
-    question: z.string().trim().min(1).max(500),
-    briefSummary: z.string().max(500),
-  }),
-  z.strictObject({
-    status: z.literal("ready"),
-    brief: DocumentBriefSchema.nullable(),
-    briefVersion: z.number().int().positive().nullable(),
-    legacyDocument: z.boolean(),
-  }),
-]);
-
-function sessionActiveQuestion(
-  session: DocumentAgentSession,
-): ElicitationQuestion | null {
-  if (!session.activeQuestionId) return null;
-  return (
-    session.questions.find(
-      (question) => question.id === session.activeQuestionId,
-    ) ?? null
-  );
-}
+const DocumentBriefAssessmentSchema = z.strictObject({
+  status: z.literal("ready"),
+  brief: DocumentBriefSchema.nullable(),
+  briefVersion: z.number().int().positive().nullable(),
+  legacyDocument: z.boolean(),
+});
 
 function replayedBriefAssessment(
   session: DocumentAgentSession,
   runId: string,
 ): DocumentBriefAssessment | null {
   if (session.lastProcessedRunId !== runId) return null;
-  const question = sessionActiveQuestion(session);
-  if (question?.sourceRunId === runId) {
-    return DocumentBriefAssessmentSchema.parse({
-      status: "needs_input",
-      question: question.prompt,
-      briefSummary: "",
-    });
-  }
   if (
     session.confirmedBriefVersion === session.briefVersion &&
     (session.phase === "planning" ||
@@ -795,7 +760,7 @@ function prepareStoredAgentSession(input: {
 export async function assessDocumentBriefStep(inputValue: {
   workflow: DocumentAgentWorkflowInput;
   promptContext: DocumentRunPromptContext;
-  runtime: AgentRuntimeSelection;
+  runtime: BriefExtractionRuntime;
 }): Promise<DocumentBriefAssessment> {
   "use step";
 
@@ -803,7 +768,7 @@ export async function assessDocumentBriefStep(inputValue: {
   const promptContext = DocumentRunPromptContextSchema.parse(
     inputValue.promptContext,
   );
-  const runtime = AgentRuntimeSelectionSchema.parse(inputValue.runtime);
+  const runtime = BriefExtractionRuntimeSchema.parse(inputValue.runtime);
   const repository = getDocumentRepository();
   const [run, document, stored] = await Promise.all([
     requireRun(repository, input.userId, input.runId),
@@ -852,9 +817,17 @@ export async function assessDocumentBriefStep(inputValue: {
       now,
     });
 
+  // Question elicitation no longer exists. A session persisted mid-intake may
+  // still carry a pending question; resolve it so autopilot can continue.
+  session = clearPendingElicitation({
+    session,
+    runId: input.runId,
+    now,
+  });
+
   // Older sessions could confirm a figures mode that the current runtime
-  // cannot execute because file ingestion is not available yet. Reopen that
-  // single requirement before any planning or writing tool becomes usable.
+  // cannot execute because file ingestion is not available. Reopen that
+  // single requirement; autopilot resolves it to agent proposals below.
   if (
     session.brief.figures.policy.value === "provided_only" &&
     session.confirmedBriefVersion === session.briefVersion
@@ -866,39 +839,27 @@ export async function assessDocumentBriefStep(inputValue: {
     });
   }
 
-  const activeQuestion = sessionActiveQuestion(session);
-  if (activeQuestion) {
-    if (
-      input.replyToRunId !== activeQuestion.sourceRunId ||
-      promptContext.clarification?.sourceRunId !== activeQuestion.sourceRunId
-    ) {
-      throw new FatalError(
-        "回答先の確認内容が現在の文書と一致しません。最新の質問からもう一度お答えください。",
-      );
-    }
-  } else if (input.replyToRunId !== null && stored) {
+  if (
+    input.replyToRunId !== null &&
+    stored &&
+    session.confirmedBriefVersion === session.briefVersion
+  ) {
     // A question discovered during writing is not part of intake. Its answer
     // uses the already-confirmed brief and continues the writer unchanged.
-    if (session.confirmedBriefVersion === session.briefVersion) {
-      session = DocumentAgentSessionSchema.parse({
-        ...session,
-        phase: "drafting",
-      });
-    } else {
-      throw new FatalError("確認内容がすでに更新されています。");
-    }
+    session = DocumentAgentSessionSchema.parse({
+      ...session,
+      phase: "drafting",
+    });
   }
 
   if (
     session.confirmedBriefVersion !== session.briefVersion ||
-    activeQuestion !== null ||
     !stored ||
     input.replyToRunId === null
   ) {
     const extraction = await extractBriefRequirements({
       prompt: input.prompt,
       runtime,
-      activeQuestion,
     });
     session = applyBriefExtraction({
       session,
@@ -906,30 +867,39 @@ export async function assessDocumentBriefStep(inputValue: {
       answerText: input.prompt,
       runId: input.runId,
       now,
-      ...(activeQuestion ? { questionId: activeQuestion.id } : {}),
     });
   }
 
-  // Build-first: with the subject in hand, remaining requirements delegate to
-  // their defaults and the brief self-confirms so writing starts immediately.
-  const autopilot = autopilotDocumentBrief({
-    session,
-    runId: input.runId,
-    now,
-  });
-  if (autopilot) session = autopilot;
+  // Build-first autopilot, always: when no subject was extractable, the raw
+  // prompt itself becomes the subject; every remaining requirement delegates
+  // to its typed default and the brief self-confirms. Intake never asks.
+  if (session.confirmedBriefVersion !== session.briefVersion) {
+    session = provideBriefSubjectFallback({
+      session,
+      rawPrompt: promptContext.effectivePrompt,
+      runId: input.runId,
+      now,
+    });
+    const autopilot = autopilotDocumentBrief({
+      session,
+      runId: input.runId,
+      now,
+    });
+    if (autopilot) session = autopilot;
+    if (session.confirmedBriefVersion !== session.briefVersion) {
+      const coverage = evaluateBriefCoverage(session.brief);
+      throw new Error(
+        `Build-first autopilot could not resolve the brief (open groups: ${coverage.gaps
+          .map((gap) => gap.group)
+          .join(", ")}).`,
+      );
+    }
+  }
 
-  const advanced = advanceElicitation({
-    session,
-    sourceRunId: input.runId,
-    now,
+  const executionSession = DocumentAgentSessionSchema.parse({
+    ...session,
+    phase: "drafting",
   });
-  const executionSession = advanced.ready
-    ? DocumentAgentSessionSchema.parse({
-        ...advanced.session,
-        phase: "drafting",
-      })
-    : advanced.session;
   const candidate = prepareStoredAgentSession({
     userId: input.userId,
     documentId: input.documentId,
@@ -952,17 +922,6 @@ export async function assessDocumentBriefStep(inputValue: {
         stored?.stateVersion ?? null,
       );
 
-  if (!advanced.ready) {
-    const question = sessionActiveQuestion(saved.session);
-    if (!question) {
-      throw new Error("An incomplete document brief has no active question.");
-    }
-    return DocumentBriefAssessmentSchema.parse({
-      status: "needs_input",
-      question: question.prompt,
-      briefSummary: advanced.briefSummary,
-    });
-  }
   return DocumentBriefAssessmentSchema.parse({
     status: "ready",
     brief: saved.session.brief,
@@ -974,12 +933,12 @@ export async function assessDocumentBriefStep(inputValue: {
 /** Creates a durable typed plan only from the persisted confirmed brief. */
 export async function createDocumentPlanStep(inputValue: {
   workflow: DocumentAgentWorkflowInput;
-  runtime: AgentRuntimeSelection;
+  runtime: BriefExtractionRuntime;
 }): Promise<DocumentPlan> {
   "use step";
 
   const input = parseWorkflowInput(inputValue.workflow);
-  const runtime = AgentRuntimeSelectionSchema.parse(inputValue.runtime);
+  const runtime = BriefExtractionRuntimeSchema.parse(inputValue.runtime);
   const repository = getDocumentRepository();
   const [run, stored] = await Promise.all([
     requireRun(repository, input.userId, input.runId),
@@ -1338,7 +1297,6 @@ async function applyPatchDurably(
     // Recomputed from the persisted run so tool-step replays agree.
     contentEditRun: isContentEditRun({
       replyToRunId: run.replyToRunId,
-      decision: run.decision,
       documentHasContent: document.document.root.length > 0,
     }),
   });
@@ -1403,7 +1361,6 @@ async function applyPatchDurably(
     await persistNeedsInput(
       repository,
       run,
-      "clarification_required",
       "確認できる出典がないため、この引用は追加できません。別の出典を指定するか、出典なしの下書きとして進めますか？",
     );
     throw new FatalError(
@@ -1427,24 +1384,10 @@ async function applyPatchDurably(
     await persistNeedsInput(
       repository,
       run,
-      "clarification_required",
       "確認できる出典がないため、この引用は追加できません。別の出典を指定するか、出典なしの下書きとして進めますか？",
     );
     throw new FatalError(
       "確認済みの出典に結び付かない引用情報は変更できません。",
-    );
-  }
-
-  if (workflowNeedsApproval("apply_document_patch", { ...input, patch })) {
-    await persistNeedsInput(
-      repository,
-      run,
-      "approval_required",
-      "この内容を削除してよいですか？",
-      { patch, summary: input.summary },
-    );
-    throw new FatalError(
-      "この変更には明示的な承認が必要です。現在の実行では変更しません。",
     );
   }
 
@@ -1885,12 +1828,7 @@ export async function applyConfirmedBriefLayoutStep(inputValue: {
     metadata = confirmedDocumentMetadata(stored.session.brief);
   } catch (error) {
     if (!(error instanceof ConfirmedLayoutNeedsInput)) throw error;
-    await persistNeedsInput(
-      scope.repository,
-      scope.run,
-      "clarification_required",
-      error.question,
-    );
+    await persistNeedsInput(scope.repository, scope.run, error.question);
     return { status: "needs_input", question: error.question };
   }
   const result = await formatDocumentDurably(
@@ -1925,110 +1863,8 @@ export async function requestInputToolStep(
   assertRunScope(run, context.documentId);
   await requireDocument(repository, context.actorId, context.documentId);
   await claimToolMutation(repository, run, "request_input", execution);
-  await persistNeedsInput(
-    repository,
-    run,
-    "clarification_required",
-    input.question,
-  );
+  await persistNeedsInput(repository, run, input.question);
   return { ok: true };
-}
-
-export async function deleteDocumentToolStep(
-  _input: DeleteDocumentInput,
-  contextValue: DocumentToolContext,
-  execution?: DocumentToolExecution,
-): Promise<{ ok: true }> {
-  "use step";
-
-  const { repository, run } = await loadToolScope(contextValue);
-  await claimToolMutation(repository, run, "delete_document", execution);
-  throw new FatalError(
-    "文書全体の削除は現在利用できません。",
-  );
-}
-
-export async function publishDocumentToolStep(
-  _input: PublishDocumentInput,
-  contextValue: DocumentToolContext,
-  execution?: DocumentToolExecution,
-): Promise<never> {
-  "use step";
-
-  const { repository, run } = await loadToolScope(contextValue);
-  await claimToolMutation(repository, run, "publish_document", execution);
-  throw new FatalError(
-    "文書の公開は現在利用できません。自動では実行しません。",
-  );
-}
-
-export async function runExpensiveTaskToolStep(
-  _input: RunExpensiveTaskInput,
-  contextValue: DocumentToolContext,
-  execution?: DocumentToolExecution,
-): Promise<never> {
-  "use step";
-
-  const { repository, run } = await loadToolScope(contextValue);
-  await claimToolMutation(repository, run, "run_expensive_task", execution);
-  throw new FatalError(
-    "この高コスト処理は現在利用できません。自動では実行しません。",
-  );
-}
-
-export async function planFallbackDocumentStep(
-  inputValue: {
-    workflow: DocumentAgentWorkflowInput;
-    promptContext: DocumentRunPromptContext;
-  },
-): Promise<DeterministicFallbackPlan> {
-  "use step";
-
-  const input = parseWorkflowInput(inputValue.workflow);
-  const promptContext = DocumentRunPromptContextSchema.parse(
-    inputValue.promptContext,
-  );
-  const repository = getDocumentRepository();
-  const [run, document] = await Promise.all([
-    requireRun(repository, input.userId, input.runId),
-    requireDocument(repository, input.userId, input.documentId),
-  ]);
-  assertRunScope(run, input.documentId);
-
-  return planDocumentDeterministically({
-    prompt: promptContext.effectivePrompt,
-    currentDocument: document.document,
-    baseRevision: document.currentRevision,
-    now: run.createdAt,
-  });
-}
-
-/** Applies or rejects only the exact patch persisted by the targeted run. */
-export async function resolveDocumentRunDecisionStep(
-  inputValue: DocumentAgentWorkflowInput,
-): Promise<DocumentDecisionRunResult> {
-  "use step";
-
-  const input = parseWorkflowInput(inputValue);
-  if (input.decision === null) {
-    return { status: "not_requested" };
-  }
-  if (input.replyToRunId === null) {
-    throw new FatalError("承認対象を確認できません。");
-  }
-
-  const repository = getDocumentRepository();
-  const result = await repository.resolvePendingDocumentDecision(
-    input.userId,
-    input.documentId,
-    input.runId,
-    input.replyToRunId,
-  );
-  if (result.status === "applied") {
-    return { status: "applied", revision: result.revision };
-  }
-  if (result.status === "rejected") return { status: "rejected" };
-  return { status: "stale", message: result.message };
 }
 
 export async function getRunDocumentRevisionStep(
@@ -2103,13 +1939,21 @@ export async function validateRenderCompileAndStoreStep(inputValue: {
     targetLength = storedSession.session.brief.scope.targetLength.value;
   }
 
-  const runtime = selectAgentRuntime(process.env);
+  // Compilation itself needs no model. When no runtime is configured (the
+  // run would already have failed fast before writing), the optional PDF
+  // visual review is skipped instead of failing the compile step.
+  let visualReviewRuntime: AgentRuntimeSelection | null = null;
+  try {
+    visualReviewRuntime = selectAgentRuntimeFromEnvironment();
+  } catch {
+    visualReviewRuntime = null;
+  }
   return compileDocumentRevision({
     userId: input.userId,
     documentId: input.documentId,
     revision: revisionNumber,
     targetLength,
-    visualReviewRuntime: runtime.provider === "ai_gateway" ? runtime : null,
+    visualReviewRuntime,
   });
 }
 
@@ -2147,9 +1991,7 @@ export async function completeDocumentRunStep(inputValue: {
 
 export async function markDocumentRunNeedsInputStep(inputValue: {
   workflow: DocumentAgentWorkflowInput;
-  code: "clarification_required" | "approval_required";
   question: string;
-  pendingAction?: { patch: DocumentPatch; summary: string };
 }): Promise<void> {
   "use step";
 
@@ -2157,18 +1999,14 @@ export async function markDocumentRunNeedsInputStep(inputValue: {
   const repository = getDocumentRepository();
   const run = await requireRun(repository, input.userId, input.runId);
   assertRunScope(run, input.documentId);
-  await persistNeedsInput(
-    repository,
-    run,
-    inputValue.code,
-    inputValue.question,
-    inputValue.pendingAction,
-  );
+  await persistNeedsInput(repository, run, inputValue.question);
 }
 
 export async function failDocumentRunStep(inputValue: {
   workflow: DocumentAgentWorkflowInput;
   code: string;
+  /** Optional user-facing failure copy; falls back to the generic message. */
+  message?: string | null;
 }): Promise<void> {
   "use step";
 
@@ -2181,35 +2019,11 @@ export async function failDocumentRunStep(inputValue: {
   if (run.documentId !== input.documentId) return;
   if (run.status === "waiting_approval" || run.stage === "needs_input") return;
 
-  // Brief assessment persists the next active question before the workflow
-  // presents it. If that presentation step exhausts its retries, heal the run
-  // into the persisted question instead of making its reply target impossible.
-  const storedSession = await repository.getDocumentAgentSession(
-    input.userId,
-    input.documentId,
-  );
-  const activeQuestion = storedSession?.session.activeQuestionId
-    ? storedSession.session.questions.find(
-        (question) => question.id === storedSession.session.activeQuestionId,
-      )
-    : null;
-  if (
-    activeQuestion?.status === "pending" &&
-    activeQuestion.sourceRunId === run.id
-  ) {
-    await persistNeedsInput(
-      repository,
-      run,
-      "clarification_required",
-      activeQuestion.prompt,
-    );
-    return;
-  }
-
   await repository.updateRun(input.userId, input.runId, {
     status: "failed",
     stage: "failed",
-    errorMessage: "文書の作成を完了できませんでした。",
+    errorMessage:
+      inputValue.message?.trim() || "文書の作成を完了できませんでした。",
   });
   const eventKey = semanticEventKey(input.runId, "failed");
   const events = await repository.listRunEvents(input.userId, input.runId);

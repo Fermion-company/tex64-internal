@@ -32,7 +32,7 @@ npm run dev
 このアプリは独立した Web サービスであると同時に、TeX64 デスクトップアプリの **AI モード**（トップバーの Code | AI | Pro 切り替え）に `<webview>` として埋め込まれます。単一のコードベースが両方の顔を持ちます。
 
 - デスクトップ側は `electron/ai-web-preload.cjs` が `window.tex64Native` を注入し、`<html data-platform="native">` が立ちます。
-- ネイティブ分岐は必ず [`src/lib/platform.ts`](./src/lib/platform.ts) と `[data-platform="native"]` CSS に集約してください。それ以外の場所に散らさないこと。
+- ネイティブ判定は `src/app/layout.tsx` のインラインスクリプトが `window.tex64Native` を見て `data-platform="native"` を立てる方式です。ネイティブ分岐は必ず `[data-platform="native"]` CSS に集約してください。それ以外の場所に散らさないこと。
 - 接続先 URL は デスクトップ側の設定 `aiWeb.url`（`tex64-user-settings.json`）→ 環境変数 `TEX64_AI_WEB_URL` → 既定値（開発: `http://localhost:3100`、パッケージ版: `https://ai.tex64.com`）の順で解決されます。本番 URL が決まったら `electron/services/ai-web.cjs` の `DEFAULT_HOSTED_URL` を更新してください。
 - 開発時は `npm run dev` でこのサーバーを起動しておけば、デスクトップの AI モードがそのまま接続します。
 

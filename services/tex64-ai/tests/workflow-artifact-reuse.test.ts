@@ -114,7 +114,6 @@ beforeEach(async () => {
     prompt: run.prompt,
     baseRevision: 1,
     replyToRunId: null,
-    decision: null,
   };
 });
 

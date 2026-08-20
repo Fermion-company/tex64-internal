@@ -54,6 +54,7 @@ const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
+const { TexPackageService } = require("./services/tex-package-manager.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
 const { createApplicationMenuTemplate } = require("./app-menu.cjs");
 
@@ -122,12 +123,18 @@ const state = {
   userSettings: null,
   lastBuildPdfPath: null,
   formatWarningShown: false,
+  // The renderer's in-app language, pushed via the "uiLocale" message. Native
+  // surfaces (dialogs, menu, notifications) read this instead of the OS locale.
+  uiLocale: "en",
 };
 const macFileAccess = new MacFileAccessService({
-  dialog,
+  // E2E runs must never block on the native permission dialog; the denied
+  // state still reaches the renderer through the normal status reporting.
+  dialog: isE2EContext ? null : dialog,
   shell,
   getWindow: () => state.mainWindow,
-  locale: () => app.getLocale(),
+  // The in-app language wins over the OS locale once the renderer has pushed it.
+  locale: () => state.uiLocale || app.getLocale(),
 });
 
 // ---------------------------------------------------------------------------
@@ -240,6 +247,11 @@ const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
+const packageService = new TexPackageService(envService);
+// Lets a failed build repair itself by installing the packages its log named.
+// Only ever touches the app-managed TeX Live; a user's own install is read-only
+// to us, and installMissingPackages() bails out when it is not ours.
+buildService.setPackageInstaller((log) => envService.installMissingPackages(log));
 let mathOcrService = null;
 let texizeService = null;
 let fermionEngineService = null;
@@ -419,6 +431,7 @@ const installApplicationMenu = () => {
       focusMainWindow();
       sendToRenderer("app:command", { command });
     },
+    locale: state.uiLocale,
   });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };
@@ -587,10 +600,12 @@ const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
 
 const miscHandlers = createMiscHandlers({
   envService,
+  packageService,
   ensureUserSettings,
   workspace,
   shell,
   Notification,
+  getUiLocale: () => state.uiLocale,
   sendToRenderer,
   blocksStore,
   apiUsageService: getApiUsageService(),
@@ -1370,6 +1385,19 @@ ipcMain.on("tex64", (_event, message) => {
     workspaceHandlers.requestIndex(rootPath);
     return;
   }
+  if (type === "uiLocale") {
+    // The renderer pushes its language setting on startup and on every change,
+    // so native surfaces (dialogs, menu, notifications) can follow the in-app
+    // language instead of the OS locale.
+    if (typeof message.locale === "string" && message.locale) {
+      const previous = state.uiLocale;
+      state.uiLocale = message.locale;
+      if (previous !== state.uiLocale) {
+        installApplicationMenu();
+      }
+    }
+    return;
+  }
   if (type === "openWorkspace" || type === "requestWorkspace") {
     workspaceHandlers.handleOpenWorkspace(message);
     return;
@@ -1661,8 +1689,42 @@ ipcMain.on("tex64", (_event, message) => {
     miscHandlers.handleEnvCheck(message.command);
     return;
   }
+  if (type === "env:detect") {
+    miscHandlers.handleEnvDetect({ force: message.force === true });
+    return;
+  }
   if (type === "env:install") {
-    miscHandlers.handleEnvInstall(message.target);
+    miscHandlers.handleEnvInstall(message.target, message.variant);
+    return;
+  }
+
+  // Package management
+  if (type === "packages:catalog") {
+    miscHandlers.handlePackagesCatalog({ force: message.force === true });
+    return;
+  }
+  if (type === "packages:searchFiles") {
+    miscHandlers.handlePackagesSearchFiles(message.term);
+    return;
+  }
+  if (type === "packages:ctanSearch") {
+    miscHandlers.handlePackagesCtanSearch(message.term);
+    return;
+  }
+  if (type === "packages:detail") {
+    miscHandlers.handlePackagesDetail(message.name);
+    return;
+  }
+  if (type === "packages:install") {
+    miscHandlers.handlePackagesInstall(message.names);
+    return;
+  }
+  if (type === "packages:remove") {
+    miscHandlers.handlePackagesRemove(message.names, { force: message.force === true });
+    return;
+  }
+  if (type === "packages:update") {
+    miscHandlers.handlePackagesUpdate();
     return;
   }
 });

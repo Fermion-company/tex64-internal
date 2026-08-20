@@ -6,18 +6,24 @@ const DEFAULT_STATE = {
     ratios: [0.34, 0.33, 0.33],
     collapsed: { preview: false, source: false, reference: false, code: true },
 };
-export const PRO_PANE_MIN_PX = 96;
+// A pane narrower than its own header pushes the header's buttons out of the
+// pane, where overflow: hidden clips them and they stop taking clicks. So the
+// minimum is "the header still fits"; drag past it and the pane collapses to
+// its strip instead of becoming a sliver of dead controls.
+export const PRO_PANE_MIN_PX = 220;
 export const calculateProSplitterDrag = (layout, boundary, pointerRatio, ratios, minRatio) => {
     const ratio = Math.min(Math.max(pointerRatio, 0), 1);
     const minimum = Math.min(Math.max(minRatio, 0), 1 / 3);
     const current = clampProRatios(ratios, 0);
     if (layout === "preview-source") {
+        // The source pane sits left of the preview, so the pointer ratio at the
+        // splitter is the source's share; ratios[0] stays the preview's share.
         if (ratio < minimum)
-            return { ratios: current, collapse: "preview" };
-        if (1 - ratio < minimum)
             return { ratios: current, collapse: "source" };
+        if (1 - ratio < minimum)
+            return { ratios: current, collapse: "preview" };
         const tail = Math.max(current[1] + current[2], 0.001);
-        return { ratios: [ratio, (1 - ratio) * current[1] / tail, (1 - ratio) * current[2] / tail], collapse: null };
+        return { ratios: [1 - ratio, ratio * current[1] / tail, ratio * current[2] / tail], collapse: null };
     }
     if (boundary === 0) {
         if (ratio < minimum)
@@ -72,7 +78,10 @@ export const parseProModeState = (raw) => {
         const collapsed = (_a = value.collapsed) !== null && _a !== void 0 ? _a : {};
         return {
             enabled: value.enabled === true,
-            layout: value.layout === "source-reference-code" ? value.layout : "preview-source",
+            // Legacy: the 3-pane "source | reference | code" layout is retired with
+            // the reference window, so any stored layout normalizes to preview|source.
+            // Its type, CSS and splitter math are kept for a possible return.
+            layout: "preview-source",
             ratios: clampProRatios(Array.isArray(value.ratios) ? value.ratios : DEFAULT_STATE.ratios),
             collapsed: {
                 preview: collapsed.preview === true,
@@ -133,6 +142,9 @@ export const initProModeUi = (deps) => {
     const scheduleLayout = () => requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     const apply = () => {
         document.documentElement.dataset.proMode = state.enabled ? "true" : "false";
+        // Pro-only sidebar surfaces (the stash) follow the mode, and the sidebar
+        // owns its own tab visibility, so tell it instead of reaching into it.
+        window.dispatchEvent(new CustomEvent("tex64:pro-mode", { detail: { enabled: state.enabled } }));
         root.dataset.proLayout = state.layout;
         if (switcher instanceof HTMLElement)
             switcher.hidden = !state.enabled;

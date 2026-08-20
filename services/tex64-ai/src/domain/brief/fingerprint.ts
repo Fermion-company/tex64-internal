@@ -1,8 +1,3 @@
-import type {
-  ElicitationTarget,
-  RequirementPath,
-} from "./schema";
-
 function hash32(value: string, seed: number): number {
   let hash = (0x811c9dc5 ^ seed) >>> 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -10,32 +5,6 @@ function hash32(value: string, seed: number): number {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash >>> 0;
-}
-
-/** Stable 256-bit-shaped digest for deduplication; it is not an auth token. */
-export function stableBriefFingerprint(value: string): string {
-  const normalized = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
-  return Array.from({ length: 8 }, (_, index) =>
-    hash32(`${normalized}:${index}`, index * 0x9e3779b9)
-      .toString(16)
-      .padStart(8, "0"),
-  ).join("");
-}
-
-export function createQuestionFingerprint(input: {
-  target: ElicitationTarget;
-  targetPaths: readonly RequirementPath[];
-  prompt: string;
-  options?: readonly { id: string; label: string }[];
-}): string {
-  return stableBriefFingerprint(
-    JSON.stringify({
-      target: input.target,
-      targetPaths: [...input.targetPaths].sort(),
-      prompt: input.prompt.normalize("NFKC").replace(/\s+/gu, " ").trim(),
-      options: (input.options ?? []).map((option) => [option.id, option.label]),
-    }),
-  );
 }
 
 export function deterministicBriefId(seed: string): string {

@@ -74,7 +74,7 @@ export async function POST(
     });
     if (!compiled.ok) {
       return jsonError(
-        "紙面を組み立てられませんでした。内容を見直すか、AIに修正を頼んでください。",
+        "紙面を組み立てられませんでした。内容を見直して、もう一度お試しください。",
         422,
         "compile_failed",
       );

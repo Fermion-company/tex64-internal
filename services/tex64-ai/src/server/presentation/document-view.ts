@@ -80,9 +80,9 @@ export const ClientDocumentPatchSchema = z
   })
   .strict();
 
-export type ClientDocumentPatchInput = z.infer<typeof ClientDocumentPatchSchema>;
+type ClientDocumentPatchInput = z.infer<typeof ClientDocumentPatchSchema>;
 
-export type ApiDocumentDetail = DocumentDetail & {
+type ApiDocumentDetail = DocumentDetail & {
   revision: number;
   artifactUrl?: string;
 };
@@ -418,7 +418,7 @@ function newNodeFromBlock(block: DocumentBlock): DocumentNode {
  * counters. Nodes that never typeset standalone (citations, footnotes,
  * page breaks) are omitted.
  */
-export function documentToElements(document: DocumentModel): DocumentElement[] {
+function documentToElements(document: DocumentModel): DocumentElement[] {
   const nodeById = new Map(document.nodes.map((node) => [node.id, node]));
   const elements: DocumentElement[] = [];
   let sectionNumber = 0;
@@ -869,19 +869,33 @@ function toVersion(revision: StoredRevisionListItem): DocumentVersion {
   };
 }
 
-function userFacingNeedsInputNote(
-  run: StoredAgentRun,
-  inputKind: "approval" | "clarification",
-): string {
+function userFacingNeedsInputNote(run: StoredAgentRun): string {
   return normalizeUserFacingQuestion(
     run.errorMessage,
-    inputKind === "approval"
-      ? "approval_required"
-      : "clarification_required",
+    "clarification_required",
   );
 }
 
+/**
+ * Failed runs may carry a user-facing explanation (for example the
+ * missing-model configuration message). Anything that trips the internal-copy
+ * filter falls back to the client's fixed failure copy instead.
+ */
+function userFacingFailureNote(run: StoredAgentRun): string | undefined {
+  const message = run.errorMessage?.trim();
+  if (
+    !message ||
+    message.length > 500 ||
+    containsUnsafeUserFacingCopy(message)
+  ) {
+    return undefined;
+  }
+  return message;
+}
+
 export function toAgentRun(run: StoredAgentRun): AgentRun {
+  // Historical runs persisted by the removed approval flow also stored
+  // status "waiting_approval"; both render as an awaiting-answer question.
   const needsInput = run.status === "waiting_approval" || run.stage === "needs_input";
   return {
     id: run.id,
@@ -898,32 +912,21 @@ export function toAgentRun(run: StoredAgentRun): AgentRun {
             ? "文書を確認しました"
             : "文書を更新しました"))
         : needsInput
-          ? userFacingNeedsInputNote(run, "clarification")
+          ? userFacingNeedsInputNote(run)
         : run.status === "failed"
-          ? undefined
+          ? userFacingFailureNote(run)
           : undefined,
   };
 }
 
-export async function presentAgentRun(
-  repository: Pick<DocumentRepository, "getPendingDocumentAction">,
-  userId: string,
-  run: StoredAgentRun,
-): Promise<AgentRun> {
-  const inputKind =
-    run.status === "waiting_approval" && run.stage === "needs_input"
-      ? (await repository.getPendingDocumentAction(userId, run.id))
-        ? "approval"
-        : "clarification"
-      : null;
+export function presentAgentRun(run: StoredAgentRun): AgentRun {
   const presented = toAgentRun(run);
   return {
     ...presented,
-    resultNote:
-      inputKind === null
-        ? presented.resultNote
-        : userFacingNeedsInputNote(run, inputKind),
-    inputKind,
+    inputKind:
+      run.status === "waiting_approval" && run.stage === "needs_input"
+        ? "clarification"
+        : null,
   };
 }
 
@@ -952,38 +955,10 @@ export function presentRunEvents(
   });
 }
 
-export async function presentAgentRuns(
-  repository: Pick<DocumentRepository, "listPendingDocumentActions">,
-  userId: string,
+export function presentAgentRuns(
   runs: readonly StoredAgentRun[],
-): Promise<AgentRun[]> {
-  const waitingRunIds = runs
-    .filter(
-      (run) => run.status === "waiting_approval" && run.stage === "needs_input",
-    )
-    .map((run) => run.id);
-  const approvalRunIds = new Set(
-    (
-      await repository.listPendingDocumentActions(userId, waitingRunIds)
-    ).map((action) => action.sourceRunId),
-  );
-  return runs.map((run) => {
-    const presented = toAgentRun(run);
-    const inputKind =
-      run.status === "waiting_approval" && run.stage === "needs_input"
-        ? approvalRunIds.has(run.id)
-          ? "approval"
-          : "clarification"
-        : null;
-    return {
-      ...presented,
-      resultNote:
-        inputKind === null
-          ? presented.resultNote
-          : userFacingNeedsInputNote(run, inputKind),
-      inputKind,
-    };
-  });
+): AgentRun[] {
+  return runs.map(presentAgentRun);
 }
 
 function stableRevisionId(documentId: string, revision: number): string {

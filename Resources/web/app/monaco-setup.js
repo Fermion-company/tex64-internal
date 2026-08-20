@@ -277,7 +277,7 @@ export const initMonacoSetup = (context, deps) => {
             });
             (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
                 id: "tex64.pro-canvas-edit",
-                label: "Edit figure in canvas / 図をキャンバスで編集",
+                label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
                 contextMenuGroupId: "9_ai",
                 contextMenuOrder: 3,
                 run: () => {
@@ -286,7 +286,7 @@ export const initMonacoSetup = (context, deps) => {
                     const position = (_c = editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
                     const lines = (_d = model === null || model === void 0 ? void 0 : model.getValue) === null || _d === void 0 ? void 0 : _d.call(model).split(/\r?\n/);
                     const decoded = lines && position ? decodeFigureBlockAt(lines, position.lineNumber - 1) : null;
-                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm("この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？"))
+                    if ((decoded === null || decoded === void 0 ? void 0 : decoded.detached) && !window.confirm(uiText("This figure's code has been edited by hand. Updating it from the canvas will discard those edits. Continue?", "この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？")))
                         return;
                     window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", {
                         detail: decoded ? {

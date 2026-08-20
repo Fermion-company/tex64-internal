@@ -1,5 +1,4 @@
 import { createDocumentWorkflowAgent } from "@/server/agent/workflow-agent";
-import type { DeterministicFallbackPlan } from "@/server/agent/fallback-planner";
 import type {
   DocumentToolContext,
   DocumentToolHandlers,
@@ -15,7 +14,6 @@ import {
   MAX_AGENT_STEPS,
   MAX_CONTENT_REVIEW_REVISIONS,
   allowsUnchangedDocumentCompletion,
-  buildBriefBackedFallbackPrompt,
   buildInitialAgentPrompt,
   buildRepairAgentPrompt,
   documentAgentExecutionEvidence,
@@ -24,6 +22,7 @@ import {
   nextContentReviewAction,
   nextCompileFailureAction,
   safeWorkflowFailureCode,
+  safeWorkflowFailureMessage,
   semanticEventKey,
 } from "./helpers";
 import { normalizeUserFacingResultNote } from "@/lib/user-facing-copy";
@@ -36,23 +35,18 @@ import {
   checkDocumentToolStep,
   completeDocumentRunStep,
   createDocumentPlanStep,
-  deleteDocumentToolStep,
   failDocumentRunStep,
   formatDocumentToolStep,
   getRunDocumentRevisionStep,
   loadDocumentRunStep,
   markDocumentRunNeedsInputStep,
-  planFallbackDocumentStep,
-  publishDocumentToolStep,
   readDocumentToolStep,
   resolveSourceToolStep,
   reviewDocumentStep,
   recordSemanticStageStep,
-  resolveDocumentRunDecisionStep,
   resolveDocumentRunPromptStep,
   requestInputToolStep,
   resolveAgentRuntimeStep,
-  runExpensiveTaskToolStep,
   validateRenderCompileAndStoreStep,
 } from "./steps";
 import type {
@@ -69,9 +63,6 @@ const durableToolHandlers = {
   checkDocument: checkDocumentToolStep,
   formatDocument: formatDocumentToolStep,
   requestInput: requestInputToolStep,
-  deleteDocument: deleteDocumentToolStep,
-  publishDocument: publishDocumentToolStep,
-  runExpensiveTask: runExpensiveTaskToolStep,
 } satisfies DocumentToolHandlers;
 
 function documentToolContext(
@@ -99,46 +90,9 @@ function unresolvedReviewQuestion(
   );
 }
 
-async function applyFallbackPlan(
-  input: DocumentAgentWorkflowInput,
-  plan: DeterministicFallbackPlan,
-): Promise<
-  | { status: "applied"; revision: number }
-  | { status: "needs_input"; question: string }
-> {
-  if (plan.status === "needs_input") {
-    await markDocumentRunNeedsInputStep({
-      workflow: input,
-      code: "clarification_required",
-      question: plan.question,
-    });
-    return { status: "needs_input", question: plan.question };
-  }
-
-  if (plan.requiresApproval) {
-    const question = "この内容を削除してよいですか？";
-    await markDocumentRunNeedsInputStep({
-      workflow: input,
-      code: "approval_required",
-      question,
-      pendingAction: { patch: plan.patch, summary: plan.summary },
-    });
-    return {
-      status: "needs_input",
-      question,
-    };
-  }
-
-  const applied = await applyDocumentPatchToolStep(
-    { patch: plan.patch, summary: plan.summary },
-    documentToolContext(input),
-  );
-  return { status: "applied", revision: applied.revision };
-}
-
 function createDurableAgent(
   input: DocumentAgentWorkflowInput,
-  runtime: Extract<AgentRuntimeSelection, { provider: "ai_gateway" }>,
+  runtime: AgentRuntimeSelection,
   totalTokenBudget: number,
 ) {
   return createDocumentWorkflowAgent({
@@ -151,11 +105,8 @@ function createDurableAgent(
       totalTokenBudget,
     ),
     maxTotalTokens: totalTokenBudget,
-    approvalMode: "external_run",
     additionalInstructions: [
       "この実行では対象文書だけを扱い、少なくとも一度は現在の文書を読んでから判断する。",
-      "承認が必要な操作はこの実行内で待機せず保留し、承認を回避する別操作も試みない。",
-      "文書全体の削除、公開、高コスト処理は未提供であり、自動実行しない。",
     ],
   });
 }
@@ -317,25 +268,6 @@ export async function runDocumentAgentWorkflow(
       semanticEventKey(input.runId, "understanding"),
     );
     let revision = loaded.currentRevision;
-    const decision = await resolveDocumentRunDecisionStep(input);
-    if (decision.status === "rejected") {
-      return {
-        status: "cancelled",
-        runId: input.runId,
-        documentId: input.documentId,
-      };
-    }
-    if (decision.status === "stale") {
-      return {
-        status: "failed",
-        runId: input.runId,
-        documentId: input.documentId,
-        message: decision.message,
-      };
-    }
-    if (decision.status === "applied") {
-      revision = decision.revision;
-    }
 
     const runtime = await resolveAgentRuntimeStep();
     let consumedAgentTokens = 0;
@@ -343,49 +275,24 @@ export async function runDocumentAgentWorkflow(
     // reply. Repair rounds overwrite it so the note matches the final state.
     let closingNote: string | null = null;
 
-    const promptContext =
-      decision.status === "not_requested"
-        ? await resolveDocumentRunPromptStep(input)
-        : null;
-    const briefAssessment =
-      decision.status === "not_requested" && promptContext
-        ? await assessDocumentBriefStep({
-            workflow: input,
-            promptContext,
-            runtime,
-          })
-        : null;
+    const promptContext = await resolveDocumentRunPromptStep(input);
+    // Build-first autopilot: the brief always resolves without asking intake
+    // questions, so the assessment is always ready.
+    const briefAssessment = await assessDocumentBriefStep({
+      workflow: input,
+      promptContext,
+      runtime,
+    });
 
-    if (briefAssessment?.status === "needs_input") {
-      await markDocumentRunNeedsInputStep({
-        workflow: input,
-        code: "clarification_required",
-        question: briefAssessment.question,
-      });
-      return {
-        status: "needs_input",
-        runId: input.runId,
-        documentId: input.documentId,
-        stage: "needs_input",
-        question: briefAssessment.question,
-      };
-    }
-
-    if (decision.status === "not_requested") {
-      await recordSemanticStageStep(
-        input,
-        "planning",
-        semanticEventKey(input.runId, "planning"),
-      );
-    }
-    const documentPlan =
-      decision.status === "not_requested" &&
-      briefAssessment?.status === "ready" &&
-      briefAssessment.brief
-        ? await createDocumentPlanStep({ workflow: input, runtime })
-        : null;
+    await recordSemanticStageStep(
+      input,
+      "planning",
+      semanticEventKey(input.runId, "planning"),
+    );
+    const documentPlan = briefAssessment.brief
+      ? await createDocumentPlanStep({ workflow: input, runtime })
+      : null;
     if (
-      briefAssessment?.status === "ready" &&
       briefAssessment.brief &&
       briefAssessment.briefVersion !== null
     ) {
@@ -411,125 +318,80 @@ export async function runDocumentAgentWorkflow(
       semanticEventKey(input.runId, "writing"),
     );
 
-    if (
-      decision.status === "not_requested" &&
-      runtime.provider === "ai_gateway"
-    ) {
-      const initialTokenBudget = remainingAgentTokenBudget(consumedAgentTokens);
-      const durableAgent = createDurableAgent(
-        input,
-        runtime,
-        initialTokenBudget,
-      );
-      const agentResult = await durableAgent.stream({
-        prompt: buildInitialAgentPrompt({
-          promptContext:
-            promptContext ?? {
-              effectivePrompt: input.prompt,
-              clarification: null,
-            },
-          documentId: input.documentId,
-          currentRevision: revision,
-          confirmedBrief:
-            briefAssessment?.status === "ready" && briefAssessment.brief
-              ? {
-                  version: briefAssessment.briefVersion ?? 1,
-                  brief: briefAssessment.brief,
-                }
-              : null,
-          documentPlan,
-          targetNodeId: input.targetNodeId ?? null,
-        }),
-      });
+    const initialTokenBudget = remainingAgentTokenBudget(consumedAgentTokens);
+    const durableAgent = createDurableAgent(
+      input,
+      runtime,
+      initialTokenBudget,
+    );
+    const agentResult = await durableAgent.stream({
+      prompt: buildInitialAgentPrompt({
+        promptContext,
+        documentId: input.documentId,
+        currentRevision: revision,
+        confirmedBrief: briefAssessment.brief
+          ? {
+              version: briefAssessment.briefVersion ?? 1,
+              brief: briefAssessment.brief,
+            }
+          : null,
+        documentPlan,
+        targetNodeId: input.targetNodeId ?? null,
+      }),
+    });
 
-      const current = await getRunDocumentRevisionStep(input);
-      revision = current.revision;
-      const evidence = inspectAgentExecution(agentResult, initialTokenBudget);
-      consumedAgentTokens += evidence.totalTokens;
-      closingNote =
-        normalizeUserFacingResultNote(finalAssistantText(agentResult.steps)) ??
-        closingNote;
+    const current = await getRunDocumentRevisionStep(input);
+    revision = current.revision;
+    const evidence = inspectAgentExecution(agentResult, initialTokenBudget);
+    consumedAgentTokens += evidence.totalTokens;
+    closingNote =
+      normalizeUserFacingResultNote(finalAssistantText(agentResult.steps)) ??
+      closingNote;
 
-      if (current.needsInput) {
-        return {
-          status: "needs_input",
-          runId: input.runId,
-          documentId: input.documentId,
-          stage: "needs_input",
-          question:
-            current.question ??
-            "この内容を変更してよいですか？",
-        };
-      }
+    if (current.needsInput) {
+      return {
+        status: "needs_input",
+        runId: input.runId,
+        documentId: input.documentId,
+        stage: "needs_input",
+        question:
+          current.question ??
+          "続けるために必要な条件を教えてください。",
+      };
+    }
 
-      const conversationalEditRun =
-        briefAssessment?.status === "ready" && briefAssessment.brief === null;
-      if (!current.changed) {
-        // Conversational edit runs may legitimately answer without editing;
-        // everything else still needs an explicit no-change contract.
-        if (conversationalEditRun) {
-          assertAnswerOnlyAgentExecution(evidence);
-        } else {
-          assertCompletedAgentExecution(evidence);
-        }
-        const effectivePrompt =
-          promptContext?.effectivePrompt ?? input.prompt;
-        if (
-          revision < 1 ||
-          (!conversationalEditRun &&
-            !allowsUnchangedDocumentCompletion(effectivePrompt))
-        ) {
-          throw new Error(
-            "Document agent completed without an applicable document change.",
-          );
-        }
+    const conversationalEditRun = briefAssessment.brief === null;
+    if (!current.changed) {
+      // Conversational edit runs may legitimately answer without editing;
+      // everything else still needs an explicit no-change contract.
+      if (conversationalEditRun) {
+        assertAnswerOnlyAgentExecution(evidence);
       } else {
         assertCompletedAgentExecution(evidence);
-        if (
-          !evidence.patchObserved &&
-          !(current.hasContent && evidence.formatObserved)
-        ) {
-          throw new Error(
-            "Document revision changed without an observed document patch.",
-          );
-        }
       }
-    } else if (decision.status === "not_requested") {
-      const fallback = await applyFallbackPlan(
-        input,
-        await planFallbackDocumentStep({
-          workflow: input,
-          promptContext:
-            briefAssessment?.status === "ready" && briefAssessment.brief
-              ? {
-                  ...(promptContext ?? {
-                    effectivePrompt: input.prompt,
-                    clarification: null,
-                  }),
-                  effectivePrompt: buildBriefBackedFallbackPrompt(
-                    briefAssessment.brief,
-                  ),
-                }
-              : (promptContext ?? {
-                  effectivePrompt: input.prompt,
-                  clarification: null,
-                }),
-        }),
-      );
-      if (fallback.status === "needs_input") {
-        return {
-          status: "needs_input",
-          runId: input.runId,
-          documentId: input.documentId,
-          stage: "needs_input",
-          question: fallback.question,
-        };
+      const effectivePrompt = promptContext.effectivePrompt;
+      if (
+        revision < 1 ||
+        (!conversationalEditRun &&
+          !allowsUnchangedDocumentCompletion(effectivePrompt))
+      ) {
+        throw new Error(
+          "Document agent completed without an applicable document change.",
+        );
       }
-      revision = fallback.revision;
+    } else {
+      assertCompletedAgentExecution(evidence);
+      if (
+        !evidence.patchObserved &&
+        !(current.hasContent && evidence.formatObserved)
+      ) {
+        throw new Error(
+          "Document revision changed without an observed document patch.",
+        );
+      }
     }
 
     if (
-      briefAssessment?.status === "ready" &&
       briefAssessment.brief &&
       briefAssessment.briefVersion !== null
     ) {
@@ -558,12 +420,7 @@ export async function runDocumentAgentWorkflow(
     await verifyDocumentRevision(input, revision);
 
     let lastIndependentlyReviewedRevision: number | null = null;
-    if (
-      runtime.provider === "ai_gateway" &&
-      documentPlan &&
-      briefAssessment?.status === "ready" &&
-      briefAssessment.brief
-    ) {
+    if (documentPlan && briefAssessment.brief) {
       let reviewRevisionAttempt = 0;
       while (true) {
         const independentReview = await reviewDocumentStep({
@@ -585,7 +442,6 @@ export async function runDocumentAgentWorkflow(
           const question = unresolvedReviewQuestion(independentReview);
           await markDocumentRunNeedsInputStep({
             workflow: input,
-            code: "clarification_required",
             question,
           });
           return {
@@ -700,12 +556,7 @@ export async function runDocumentAgentWorkflow(
         },
       );
 
-      if (
-        nextCompileFailureAction({
-          provider: runtime.provider,
-          repairAttempt,
-        }) === "fail"
-      ) {
+      if (nextCompileFailureAction({ repairAttempt }) === "fail") {
         throw new Error("Document preparation failed after safe retries.");
       }
 
@@ -717,9 +568,6 @@ export async function runDocumentAgentWorkflow(
         { attempt: repairAttempt },
       );
 
-      if (runtime.provider !== "ai_gateway") {
-        throw new Error("Document repair provider is unavailable.");
-      }
       const repairTokenBudget = remainingAgentTokenBudget(consumedAgentTokens);
       const durableAgent = createDurableAgent(
         input,
@@ -732,13 +580,12 @@ export async function runDocumentAgentWorkflow(
           documentId: input.documentId,
           currentRevision: revision,
           repairAttempt,
-          confirmedBrief:
-            briefAssessment?.status === "ready" && briefAssessment.brief
-              ? {
-                  version: briefAssessment.briefVersion ?? 1,
-                  brief: briefAssessment.brief,
-                }
-              : null,
+          confirmedBrief: briefAssessment.brief
+            ? {
+                version: briefAssessment.briefVersion ?? 1,
+                brief: briefAssessment.brief,
+              }
+            : null,
           documentPlan,
           failure: {
             code: compileResult.code,
@@ -806,12 +653,9 @@ export async function runDocumentAgentWorkflow(
     }
 
     if (
-      runtime.provider === "ai_gateway" &&
       documentPlan &&
-      briefAssessment?.status === "ready" &&
       briefAssessment.brief &&
       needsIndependentReviewAfterCompilation({
-        reviewEnabled: true,
         lastReviewedRevision: lastIndependentlyReviewedRevision,
         compiledRevision: compileResult.revision,
       })
@@ -826,7 +670,6 @@ export async function runDocumentAgentWorkflow(
         const question = unresolvedReviewQuestion(finalReview);
         await markDocumentRunNeedsInputStep({
           workflow: input,
-          code: "clarification_required",
           question,
         });
         return {
@@ -859,6 +702,7 @@ export async function runDocumentAgentWorkflow(
       await failDocumentRunStep({
         workflow: input,
         code: safeWorkflowFailureCode(error),
+        message: safeWorkflowFailureMessage(error),
       });
     } catch {
       // Preserve the original workflow error if failure persistence is down.

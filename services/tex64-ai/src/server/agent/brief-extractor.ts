@@ -3,11 +3,7 @@ import { generateText, Output } from "ai";
 import {
   BriefExtractionSchema,
   explicitlyDelegatedGroups,
-  isExplicitBriefConfirmation,
-  isExplicitDelegationAnswer,
   type BriefExtraction,
-  type ElicitationQuestion,
-  type RequirementGroup,
   type RequirementPath,
 } from "@/domain/brief";
 import { agentLanguageModel, agentOutputJson, agentProviderOptions, structuredAgentModel } from "./language-model";
@@ -300,71 +296,26 @@ function isExplicitNone(value: string): boolean {
   );
 }
 
-function targetGroup(question: ElicitationQuestion | null): RequirementGroup | null {
-  if (
-    !question ||
-    question.target === "brief_confirmation" ||
-    question.target === "brief_revision" ||
-    question.target === "delegation_offer"
-  ) {
-    return null;
-  }
-  return question.target;
-}
-
-function isDelegation(prompt: string): boolean {
-  return isExplicitDelegationAnswer(prompt);
-}
-
 function deterministicExtraction(input: {
   prompt: string;
-  activeQuestion: ElicitationQuestion | null;
 }): BriefExtraction {
   const prompt = normalized(input.prompt);
-  const group = targetGroup(input.activeQuestion);
-  const targetPath = group ? input.activeQuestion?.targetPaths[0] ?? null : null;
-  const delegatedGroups = explicitlyDelegatedGroups(
-    prompt,
-    input.activeQuestion?.target ?? null,
-  );
-  const delegatesGroup = (candidate: RequirementGroup): boolean =>
-    delegatedGroups.includes(candidate);
+  const delegatedGroups = explicitlyDelegatedGroups(prompt);
+  const delegatesGroup = (candidate: string): boolean =>
+    (delegatedGroups as readonly string[]).includes(candidate);
 
-  const confirmsBrief =
-    input.activeQuestion?.target === "brief_confirmation" &&
-    isExplicitBriefConfirmation(prompt);
-
-  const subject =
-    subjectFromRequest(prompt) ??
-    ((group === "subject" || targetPath === "goal.subject") &&
-    !isDelegation(prompt)
-      ? prompt
-      : null);
+  const subject = subjectFromRequest(prompt);
   const audience =
     capture(prompt, /([^。！？]{1,160}?)(?:向け|を対象(?:に|とする)?)/u) ??
-    capture(prompt, /(?:対象読者|読み手|読者)(?:は|:|：)\s*([^。！？]{1,160})/u) ??
-    (targetPath === "goal.audience" && !isExplicitNone(prompt)
-      ? prompt
-      : group === "purpose_audience" && /(?:学生|研究者|専門家|一般|経営|顧客|社内|教員|査読)/u.test(prompt)
-        ? prompt
-      : null);
-  const purpose =
-    capture(prompt, /(?:目的|狙い)(?:は|:|：)\s*([^。！？]{1,500})/u) ??
-    (targetPath === "goal.purpose" && !delegatesGroup("purpose_audience")
-      ? prompt
-      : group === "purpose_audience" &&
-          !audience &&
-          !delegatesGroup("purpose_audience")
-      ? prompt
-      : null);
-  const intendedOutcome =
-    capture(
-      prompt,
-      /(?:読後|最終的に|読み手に)(?:は|、)?\s*([^。！？]{1,500})/u,
-    ) ??
-    (targetPath === "goal.intendedOutcome" && !isExplicitNone(prompt)
-      ? prompt
-      : null);
+    capture(prompt, /(?:対象読者|読み手|読者)(?:は|:|：)\s*([^。！？]{1,160})/u);
+  const purpose = capture(
+    prompt,
+    /(?:目的|狙い)(?:は|:|：)\s*([^。！？]{1,500})/u,
+  );
+  const intendedOutcome = capture(
+    prompt,
+    /(?:読後|最終的に|読み手に)(?:は|、)?\s*([^。！？]{1,500})/u,
+  );
   const targetLength =
     capture(
       prompt,
@@ -385,30 +336,11 @@ function deterministicExtraction(input: {
     /(?:含めない|扱わない|除外する|省く)(?:内容|範囲|項目)?(?:は|を|:|：)?\s*([^。！？]{1,500})/u,
   );
 
-  const activeIncludedTopics =
-    targetPath === "scope.includedTopics"
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : [];
-  const activeExcludedTopics =
-    targetPath === "scope.excludedTopics"
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : [];
-
   const equationNone =
-    /(?:数式|式変形|計算)(?:は|を)?(?:なし|不要|入れない|省く)/u.test(
-      prompt,
-    ) ||
-    (targetPath === "equations.policy" && /数式なし|入れない/u.test(prompt));
-  const equationAsNeeded =
-    /必要に応じて数式/u.test(prompt) ||
-    (targetPath === "equations.policy" && /必要な箇所だけ/u.test(prompt));
+    /(?:数式|式変形|計算)(?:は|を)?(?:なし|不要|入れない|省く)/u.test(prompt);
+  const equationAsNeeded = /必要に応じて数式/u.test(prompt);
   const equationRequested =
-    /(?:数式|式変形|導出|証明|計算過程|途中式)/u.test(prompt) ||
-    (targetPath === "equations.policy" && /主要部分|必ず入れる/u.test(prompt));
+    /(?:数式|式変形|導出|証明|計算過程|途中式)/u.test(prompt);
   const namedEquationItemsText = capture(
     prompt,
     /(?:扱う数式|数式の項目|導出する内容|証明する内容)(?:は|:|：)\s*([^。！？]{1,500})/u,
@@ -418,42 +350,23 @@ function deterministicExtraction(input: {
   )?.[1]?.trim() ?? null;
   const equationItems = namedEquationItemsText
     ? listFromDelimitedText(namedEquationItemsText)
-    : targetPath === "equations.items" && !delegatesGroup("mathematics")
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : standaloneEquationObjective
-        ? [standaloneEquationObjective]
-        : [];
+    : standaloneEquationObjective
+      ? [standaloneEquationObjective]
+      : [];
   const figureNone =
-    /(?:図|図表|グラフ|表)(?:は|を)?(?:なし|不要|入れない|省く)/u.test(
-      prompt,
-    ) ||
-    ((targetPath === "figures.policy" || targetPath === "figures.items") &&
-      /^(?:特に)?(?:なし|図表なし)$/u.test(prompt));
-  const figureProvidedOnly =
-    targetPath === "figures.policy" && /提供.*(?:だけ|のみ)/u.test(prompt);
-  const figureProposed =
-    targetPath === "figures.policy" &&
-    /提案|必要に応じて|必要なら|内容に合う図を作る/u.test(prompt);
+    /(?:図|図表|グラフ|表)(?:は|を)?(?:なし|不要|入れない|省く)/u.test(prompt);
   const figureRequired =
-    /(?:図|図表|グラフ|表)(?:を|は|に).*(?:入れ|含め|必須|必要)/u.test(
-      prompt,
-    ) ||
-    (targetPath === "figures.policy" && /指定.*(?:図|図表)|必ず/u.test(prompt));
+    /(?:図|図表|グラフ|表)(?:を|は|に).*(?:入れ|含め|必須|必要)/u.test(prompt);
   const sourceNone =
-    /(?:出典|引用|参考文献)(?:は|を)?(?:なし|不要|付けない)/u.test(prompt) ||
-    (targetPath === "sources.policy" && /出典なし/u.test(prompt));
+    /(?:出典|引用|参考文献)(?:は|を)?(?:なし|不要|付けない)/u.test(prompt);
   const sourceMixed =
     /(?:指定資料|手元資料).*(?:調べ|検索)|指定資料と調査/u.test(prompt);
   const sourceUserOnly =
     /(?:渡した|添付|指定した|手元の?)(?:資料|文献|出典).*(?:だけ|のみ)/u.test(
       prompt,
-    ) ||
-    (targetPath === "sources.policy" && /指定資料のみ/u.test(prompt));
+    );
   const sourceRequested =
-    /(?:出典|引用|参考文献|査読論文|文献調査|文献を調べ)/u.test(prompt) ||
-    (targetPath === "sources.policy" && /文献を調べる/u.test(prompt));
+    /(?:出典|引用|参考文献|査読論文|文献調査|文献を調べ)/u.test(prompt);
 
   const rawPageSize =
     capture(prompt, /\b(A[345]|B[45]|letter)\b/iu) ??
@@ -463,34 +376,14 @@ function deterministicExtraction(input: {
       ? "letter"
       : rawPageSize.toUpperCase()
     : null;
-  const minimumSourceCountText =
-    capture(
-      prompt,
-      /(?:参考文献|出典|引用)(?:を|は)?\s*(\d+)\s*(?:件|本|個|以上)/u,
-    ) ??
-    (targetPath === "sources.minimumCount"
-      ? capture(prompt, /(\d+)\s*(?:件|本|個)?/u)
-      : null);
-  const matchedSourceDateRange = capture(
+  const minimumSourceCountText = capture(
+    prompt,
+    /(?:参考文献|出典|引用)(?:を|は)?\s*(\d+)\s*(?:件|本|個|以上)/u,
+  );
+  const sourceDateRange = capture(
     prompt,
     /((?:直近|過去)\s*\d+\s*年|\d{4}\s*年(?:以降|から)|\d{4}\s*[-〜～]\s*\d{4}\s*年?)/u,
   );
-  const sourceDateRange =
-    matchedSourceDateRange ??
-    (targetPath === "sources.dateRange"
-      ? isExplicitNone(prompt)
-        ? "指定なし"
-        : prompt
-      : null);
-
-  const activeScopeAnswer =
-    group === "scope_structure" &&
-    targetPath === null &&
-    !targetLength &&
-    !sectionText &&
-    !delegatesGroup("scope_structure")
-      ? listFromDelimitedText(prompt)
-      : [];
 
   const depth = /網羅|徹底|詳細にすべて/u.test(prompt)
     ? "exhaustive"
@@ -508,9 +401,6 @@ function deterministicExtraction(input: {
       /(?:テンプレート|フォーマット)(?:は|を|:|：)\s*([^。！？]{1,500})/u,
     ) ??
     prompt.match(/([^。！？]{1,120}(?:テンプレート|フォーマット))/u)?.[1] ??
-    (targetPath === "template.customTemplate" && !isExplicitNone(prompt)
-      ? prompt
-      : null) ??
     null;
   const templateFamily = /学術|論文形式/u.test(prompt)
       ? "academic"
@@ -518,13 +408,10 @@ function deterministicExtraction(input: {
         ? "business"
         : /コンパクト/u.test(prompt)
           ? "compact"
-          : targetPath === "template.family" && /標準|一般/u.test(prompt)
-            ? "general"
-            : !delegatesGroup("presentation") &&
-                (/(?:独自|指定|添付).{0,12}(?:テンプレート|形式)/u.test(
-                  prompt,
-                ) || namedCustomTemplate !== null)
-              ? "custom"
+          : !delegatesGroup("presentation") &&
+              (/(?:独自|指定|添付).{0,12}(?:テンプレート|形式)/u.test(prompt) ||
+                namedCustomTemplate !== null)
+            ? "custom"
             : null;
 
   const derivationDetail = /(?:全て|すべて|完全な?|省略せず).{0,12}(?:途中式|式変形|導出)|(?:途中式|式変形|導出).{0,12}(?:全て|すべて|完全|省略しない|省略せず)/u.test(
@@ -543,28 +430,18 @@ function deterministicExtraction(input: {
     ? "formal"
     : /直感的|直感を重視/u.test(prompt)
       ? "intuitive"
-      : targetPath === "equations.proofRigor" && /標準的/u.test(prompt)
-        ? "standard"
-        : null;
-  const notationConvention =
-    capture(
-      prompt,
-      /(?:記法|記号)(?:は|を|:|：)\s*([^。！？]{1,500})/u,
-    ) ??
-    (targetPath === "equations.notationConvention"
-      ? isExplicitNone(prompt)
-        ? "指定なし"
-        : prompt
-      : null);
+      : null;
+  const notationConvention = capture(
+    prompt,
+    /(?:記法|記号)(?:は|を|:|：)\s*([^。！？]{1,500})/u,
+  );
   const equationNumbering = /(?:全て|すべて|全式).{0,8}(?:番号|式番号)/u.test(
     prompt,
   )
     ? "all"
     : /重要な式.{0,8}(?:番号|式番号)|重要な式だけ/u.test(prompt)
       ? "important_only"
-      : targetPath === "equations.numbering" && /付けない|番号なし/u.test(prompt)
-        ? "none"
-        : null;
+      : null;
 
   const rawCitationStyle = prompt.match(
     /APA(?:第?7版)?|IEEE|著者年(?:方式)?|author[- ]?year|番号方式|numeric/iu,
@@ -580,7 +457,6 @@ function deterministicExtraction(input: {
     : null;
 
   const toneContext =
-    targetPath?.startsWith("tone.") === true ||
     /文体|口調|文章|書き方|(?:学術的|分析的|説得的|簡潔|丁寧).{0,12}(?:書いて|まとめて)/u.test(
       prompt,
     );
@@ -599,27 +475,17 @@ function deterministicExtraction(input: {
       ? "persuasive"
       : toneContext && /断定的|自信を持|明確に言い切/u.test(prompt)
         ? "assertive"
-        : targetPath === "tone.voice" && /中立|客観/u.test(prompt)
-          ? "neutral"
-          : null;
-  const jargonLevel = /専門用語.{0,8}(?:多め|積極的)|高度な専門/u.test(
-    prompt,
-  ) ||
-    (targetPath === "tone.jargonLevel" && /多め/u.test(prompt))
-    ? "high"
-    : /専門用語.{0,8}(?:少な|避け)|平易/u.test(prompt) ||
-        (targetPath === "tone.jargonLevel" && /少なめ/u.test(prompt))
-      ? "low"
-      : targetPath === "tone.jargonLevel" && /必要な範囲|ほどほど|適度/u.test(prompt)
-        ? "moderate"
         : null;
+  const jargonLevel = /専門用語.{0,8}(?:多め|積極的)|高度な専門/u.test(prompt)
+    ? "high"
+    : /専門用語.{0,8}(?:少な|避け)|平易/u.test(prompt)
+      ? "low"
+      : null;
   const sentenceStyle = toneContext && /簡潔|短文/u.test(prompt)
     ? "concise"
     : toneContext && /詳しく|丁寧に/u.test(prompt)
       ? "detailed"
-      : targetPath === "tone.sentenceStyle" && /両方|バランス/u.test(prompt)
-        ? "balanced"
-        : null;
+      : null;
 
   const mustIncludeText = capture(
     prompt,
@@ -631,18 +497,10 @@ function deterministicExtraction(input: {
   );
   const mustInclude = mustIncludeText
     ? listFromDelimitedText(mustIncludeText)
-    : targetPath === "constraints.mustInclude"
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : [];
+    : [];
   const mustExclude = mustExcludeText
     ? listFromDelimitedText(mustExcludeText)
-    : targetPath === "constraints.mustExclude"
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : [];
+    : [];
   const factualUncertaintyPolicy = /不明(?:点|なこと).{0,8}(?:質問|聞いて)|その都度確認|確認して/u.test(
     prompt,
   )
@@ -652,35 +510,14 @@ function deterministicExtraction(input: {
       : /不確実.{0,8}(?:明記|示す)|不確実と明記/u.test(prompt)
         ? "mark_uncertainty"
         : null;
-  const additionalConstraints =
-    targetPath === "constraints.additional"
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : [];
-  const acceptanceCriteria =
-    targetPath === "acceptanceCriteria" && !delegatesGroup("acceptance")
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : capture(
-            prompt,
-            /(?:完成条件|合格条件)(?:は|を|:|：)?\s*([^。！？]{1,500})/u,
-          )
-        ? listFromDelimitedText(
-            capture(
-              prompt,
-              /(?:完成条件|合格条件)(?:は|を|:|：)?\s*([^。！？]{1,500})/u,
-            ) ?? "",
-          )
-        : [];
+  const acceptanceCriteriaText = capture(
+    prompt,
+    /(?:完成条件|合格条件)(?:は|を|:|：)?\s*([^。！？]{1,500})/u,
+  );
+  const acceptanceCriteria = acceptanceCriteriaText
+    ? listFromDelimitedText(acceptanceCriteriaText)
+    : [];
 
-  const figureItems =
-    targetPath === "figures.items" && !delegatesGroup("visuals")
-      ? isExplicitNone(prompt)
-        ? []
-        : listFromDelimitedText(prompt)
-      : [];
   const requiredLocators = unique(
     prompt.match(
       /https?:\/\/[^\s)\]】」』]+|10\.\d{4,9}\/[\-._;()/:A-Z0-9]+/giu,
@@ -697,25 +534,19 @@ function deterministicExtraction(input: {
       ? isExplicitNone(includedText)
         ? []
         : listFromDelimitedText(includedText)
-      : targetPath === "scope.includedTopics"
-        ? activeIncludedTopics
-        : activeScopeAnswer,
+      : [],
     excludedTopics: excludedText
       ? isExplicitNone(excludedText)
         ? []
         : listFromDelimitedText(excludedText)
-      : activeExcludedTopics,
+      : [],
     depth,
     targetLength,
     language: documentLanguage,
     templateFamily,
     customTemplate:
       templateFamily === "custom" ? namedCustomTemplate : null,
-    sectionOrder: sectionText
-      ? listFromDelimitedText(sectionText)
-      : targetPath === "template.sectionOrder" && !isExplicitNone(prompt)
-        ? listFromDelimitedText(prompt)
-        : [],
+    sectionOrder: sectionText ? listFromDelimitedText(sectionText) : [],
     pageSize,
     columns: /(?:2|二)段(?:組(?:み)?)?/u.test(prompt)
       ? 2
@@ -724,22 +555,17 @@ function deterministicExtraction(input: {
         : null,
     figurePolicy: figureNone
       ? "none"
-      : figureProvidedOnly
-        ? "provided_only"
-        : figureRequired
+      : figureRequired
         ? "required"
-        : figureProposed ||
-            (group === "visuals" && /提案|必要なら|効果的なら/u.test(prompt))
-          ? "agent_proposes"
-          : null,
-    figureItems,
+        : null,
+    figureItems: [],
     equationPolicy: equationNone
       ? "none"
       : equationAsNeeded
         ? "as_needed"
         : equationRequested
-        ? "required"
-        : null,
+          ? "required"
+          : null,
     equationItems,
     derivationDetail,
     proofRigor,
@@ -750,10 +576,10 @@ function deterministicExtraction(input: {
       : sourceMixed
         ? "mixed"
         : sourceUserOnly
-        ? "user_only"
-        : sourceRequested
-          ? "agent_research"
-          : null,
+          ? "user_only"
+          : sourceRequested
+            ? "agent_research"
+            : null,
     citationStyle,
     minimumSourceCount: minimumSourceCountText
       ? Number.parseInt(minimumSourceCountText, 10)
@@ -767,10 +593,10 @@ function deterministicExtraction(input: {
     mustInclude,
     mustExclude,
     factualUncertaintyPolicy,
-    additionalConstraints,
+    additionalConstraints: [],
     acceptanceCriteria,
     delegatedGroups: unique(delegatedGroups),
-    confirmsBrief,
+    confirmsBrief: false,
   });
 
   const evidencePaths: RequirementPath[] = [];
@@ -783,37 +609,24 @@ function deterministicExtraction(input: {
   addEvidence("goal.intendedOutcome", extraction.intendedOutcome !== null);
   addEvidence(
     "scope.includedTopics",
-    extraction.includedTopics.length > 0 ||
-      includedText !== null ||
-      targetPath === "scope.includedTopics",
+    extraction.includedTopics.length > 0 || includedText !== null,
   );
   addEvidence(
     "scope.excludedTopics",
-    extraction.excludedTopics.length > 0 ||
-      excludedText !== null ||
-      targetPath === "scope.excludedTopics",
+    extraction.excludedTopics.length > 0 || excludedText !== null,
   );
   addEvidence("scope.depth", extraction.depth !== null);
   addEvidence("scope.targetLength", extraction.targetLength !== null);
   addEvidence("scope.language", extraction.language !== null);
   addEvidence("template.family", extraction.templateFamily !== null);
   addEvidence("template.customTemplate", extraction.customTemplate !== null);
-  addEvidence(
-    "template.sectionOrder",
-    extraction.sectionOrder.length > 0 || targetPath === "template.sectionOrder",
-  );
+  addEvidence("template.sectionOrder", extraction.sectionOrder.length > 0);
   addEvidence("template.pageSize", extraction.pageSize !== null);
   addEvidence("template.columns", extraction.columns !== null);
   addEvidence("figures.policy", extraction.figurePolicy !== null);
-  addEvidence(
-    "figures.items",
-    extraction.figureItems.length > 0 || targetPath === "figures.items",
-  );
+  addEvidence("figures.items", extraction.figureItems.length > 0);
   addEvidence("equations.policy", extraction.equationPolicy !== null);
-  addEvidence(
-    "equations.items",
-    extraction.equationItems.length > 0 || targetPath === "equations.items",
-  );
+  addEvidence("equations.items", extraction.equationItems.length > 0);
   addEvidence(
     "equations.derivationDetail",
     extraction.derivationDetail !== null,
@@ -839,26 +652,19 @@ function deterministicExtraction(input: {
   addEvidence("tone.voice", extraction.toneVoice !== null);
   addEvidence("tone.jargonLevel", extraction.jargonLevel !== null);
   addEvidence("tone.sentenceStyle", extraction.sentenceStyle !== null);
-  addEvidence(
-    "constraints.mustInclude",
-    extraction.mustInclude.length > 0 || targetPath === "constraints.mustInclude",
-  );
-  addEvidence(
-    "constraints.mustExclude",
-    extraction.mustExclude.length > 0 || targetPath === "constraints.mustExclude",
-  );
+  addEvidence("constraints.mustInclude", extraction.mustInclude.length > 0);
+  addEvidence("constraints.mustExclude", extraction.mustExclude.length > 0);
   addEvidence(
     "constraints.factualUncertaintyPolicy",
     extraction.factualUncertaintyPolicy !== null,
   );
   addEvidence(
     "constraints.additional",
-    extraction.additionalConstraints.length > 0 ||
-      targetPath === "constraints.additional",
+    extraction.additionalConstraints.length > 0,
   );
   addEvidence(
     "acceptanceCriteria",
-    extraction.acceptanceCriteria.length > 0 || targetPath === "acceptanceCriteria",
+    extraction.acceptanceCriteria.length > 0,
   );
 
   return BriefExtractionSchema.parse({
@@ -873,23 +679,18 @@ function deterministicExtraction(input: {
   });
 }
 
-const EXTRACTION_INSTRUCTIONS = `ユーザーの文書作成依頼または聞き取りへの回答から、明示された要件だけを抽出してください。
+const EXTRACTION_INSTRUCTIONS = `ユーザーの文書作成依頼から、明示された要件だけを抽出してください。
 推測、一般的な既定値、常識による補完は禁止です。明示されていない値はnullまたは空配列にします。
 抽出した各値には、その値を直接裏付けるユーザーメッセージの原文部分をevidenceへ入れます。quoteは原文に完全一致する連続部分だけを使います。
 「任せる」「推奨で」のような明示的委任だけをdelegatedGroupsへ入れます。
-brief確認への肯定が明確な場合だけconfirmsBriefをtrueにします。
 pageSizeはA3/A4/A5/B4/B5/letterだけ、citationStyleはauthor-year/apa7/ieee/numericだけを使います。対応外の指定を別の値へ置き換えません。
-一つの回答に複数の要件が含まれる場合はすべて抽出します。パッケージ名やTeXコードを生成しません。`;
+一つの依頼に複数の要件が含まれる場合はすべて抽出します。パッケージ名やTeXコードを生成しません。`;
 
 export async function extractBriefRequirements(input: {
   prompt: string;
   runtime: BriefExtractionRuntime;
-  activeQuestion: ElicitationQuestion | null;
 }): Promise<BriefExtraction> {
-  const fallback = deterministicExtraction({
-    prompt: input.prompt,
-    activeQuestion: input.activeQuestion,
-  });
+  const fallback = deterministicExtraction({ prompt: input.prompt });
   if (input.runtime.provider !== "ai_gateway") return fallback;
 
   try {
@@ -899,27 +700,16 @@ export async function extractBriefRequirements(input: {
       system: EXTRACTION_INSTRUCTIONS,
       output: Output.object({ schema: BriefExtractionSchema }),
       maxOutputTokens: 4_000,
-      prompt: JSON.stringify({
-        userMessage: input.prompt,
-        activeQuestion: input.activeQuestion
-          ? {
-              target: input.activeQuestion.target,
-              prompt: input.activeQuestion.prompt,
-              options: input.activeQuestion.options.map((option) => ({
-                id: option.id,
-                label: option.label,
-              })),
-            }
-          : null,
-      }),
+      prompt: JSON.stringify({ userMessage: input.prompt }),
     });
     return mergeEvidenceBackedExtraction(
       BriefExtractionSchema.parse(agentOutputJson(result)),
       fallback,
     );
   } catch {
-    // Failing closed means asking another deterministic question, never
-    // silently inventing a missing requirement because extraction failed.
+    // Failing closed means keeping only the conservative deterministic
+    // extraction, never silently inventing a missing requirement because
+    // extraction failed. Autopilot fills the rest with typed defaults.
     return fallback;
   }
 }

@@ -4,15 +4,11 @@ import { z } from "zod";
 import { start } from "workflow/api";
 import { requireSession } from "@/server/auth";
 import { handleRouteError, rateLimitResponse } from "@/server/http/responses";
-import { pageMetadata, parsePageRequest } from "@/server/http/pagination";
 import { assertSameOrigin } from "@/server/http/origin";
 import { readJsonBody } from "@/server/http/request";
 import { createAndStartDocumentRun } from "@/server/http/start-document-run";
 import { DocumentNotFoundError, getDocumentRepository } from "@/server/persistence";
-import {
-  presentAgentRun,
-  presentAgentRuns,
-} from "@/server/presentation/document-view";
+import { presentAgentRun } from "@/server/presentation/document-view";
 import {
   MAX_DOCUMENT_AGENT_PROMPT_CHARS,
   runDocumentAgentWorkflow,
@@ -36,59 +32,12 @@ const StartRunSchema = z
       .string()
       .trim()
       .min(1)
-      .max(MAX_DOCUMENT_AGENT_PROMPT_CHARS)
-      .optional(),
+      .max(MAX_DOCUMENT_AGENT_PROMPT_CHARS),
     replyToRunId: z.string().uuid().optional(),
-    decision: z.enum(["approve", "reject"]).optional(),
     targetNodeId: z.string().uuid().optional(),
     idempotencyKey: IdempotencyKeySchema.optional(),
   })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.decision && !input.replyToRunId) {
-      context.addIssue({
-        code: "custom",
-        path: ["replyToRunId"],
-        message: "A decision must target a pending run.",
-      });
-    }
-    if (!input.decision && !input.prompt) {
-      context.addIssue({
-        code: "custom",
-        path: ["prompt"],
-        message: "A writing request or answer is required.",
-      });
-    }
-    if (input.targetNodeId && input.decision) {
-      context.addIssue({
-        code: "custom",
-        path: ["targetNodeId"],
-        message: "A decision cannot scope a document element.",
-      });
-    }
-  });
-
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ documentId: string }> },
-) {
-  try {
-    const { userId } = await requireSession();
-    const { documentId } = await context.params;
-    z.string().uuid().parse(documentId);
-    const repository = getDocumentRepository();
-    if (!(await repository.getDocument(userId, documentId))) throw new DocumentNotFoundError();
-    const page = parsePageRequest(request);
-    const runs = await repository.listRuns(userId, documentId, page);
-    const presentedRuns = await presentAgentRuns(repository, userId, runs);
-    return NextResponse.json({
-      runs: presentedRuns,
-      page: pageMetadata(page, presentedRuns.length),
-    });
-  } catch (error) {
-    return handleRouteError(error);
-  }
-}
+  .strict();
 
 export async function POST(
   request: Request,
@@ -111,11 +60,7 @@ export async function POST(
     const idempotencyKey = headerKey
       ? IdempotencyKeySchema.parse(headerKey)
       : (input.idempotencyKey ?? requestedRunId);
-    const prompt = input.decision
-      ? input.decision === "approve"
-        ? "変更を承認"
-        : "変更を取り消す"
-      : (input.prompt as string);
+    const prompt = input.prompt;
     await repository.validateRunReplyTarget({
       id: requestedRunId,
       userId,
@@ -124,7 +69,6 @@ export async function POST(
       idempotencyKey,
       baseRevision: document.currentRevision,
       replyToRunId: input.replyToRunId ?? null,
-      decision: input.decision ?? null,
       targetNodeId: input.targetNodeId ?? null,
     });
     const limit = await takeRateLimits(
@@ -146,7 +90,6 @@ export async function POST(
       idempotencyKey,
       baseRevision: document.currentRevision,
       replyToRunId: input.replyToRunId ?? null,
-      decision: input.decision ?? null,
       targetNodeId: input.targetNodeId ?? null,
       startWorkflow: async (workflowInput) => {
         const workflowRun = await start(runDocumentAgentWorkflow, [workflowInput]);
@@ -154,7 +97,7 @@ export async function POST(
       },
     });
     return NextResponse.json(
-      { run: await presentAgentRun(repository, userId, run) },
+      { run: presentAgentRun(run) },
       { status: 202 },
     );
   } catch (error) {

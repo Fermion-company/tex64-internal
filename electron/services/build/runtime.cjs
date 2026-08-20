@@ -41,6 +41,13 @@ module.exports = (BuildService) => {
     return extendTexlivePath(existingPath);
   };
 
+  // Optional hook (wired to the env service in main.cjs) that turns a failed
+  // build's log into "install the packages it was missing". Left unset the build
+  // behaves exactly as before.
+  BuildService.prototype.setPackageInstaller = function (installer) {
+    this.packageInstaller = typeof installer === "function" ? installer : null;
+  };
+
   BuildService.prototype.findLatexmk = function () {
     if (shouldForceMissingTool("latexmk")) {
       return null;

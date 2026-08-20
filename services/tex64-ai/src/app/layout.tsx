@@ -34,8 +34,9 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <head>
         <script
           dangerouslySetInnerHTML={{
+            // 配色は OS 設定に追従（アプリ内トグルは持たない）。
             __html:
-              '(function(){try{var t=localStorage.getItem("tex64-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}try{if(window.tex64Native)document.documentElement.setAttribute("data-platform","native")}catch(e){}})()',
+              '(function(){try{var m=window.matchMedia("(prefers-color-scheme: light)");var a=function(){document.documentElement.setAttribute("data-theme",m.matches?"light":"dark")};a();m.addEventListener("change",a)}catch(e){}try{if(window.tex64Native)document.documentElement.setAttribute("data-platform","native")}catch(e){}})()',
           }}
         />
       </head>

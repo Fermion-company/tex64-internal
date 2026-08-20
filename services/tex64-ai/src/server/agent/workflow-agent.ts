@@ -6,7 +6,6 @@ import {
   createDocumentToolsContext,
   type DocumentToolContext,
   type DocumentToolHandlers,
-  type DocumentWorkflowApprovalMode,
 } from "./document-tools";
 import { createDocumentAgentInstructions } from "./instructions";
 import {
@@ -49,7 +48,6 @@ export interface CreateDocumentWorkflowAgentOptions {
   maxSteps?: number;
   maxOutputTokens?: number;
   maxTotalTokens?: number;
-  approvalMode?: DocumentWorkflowApprovalMode;
 }
 
 /** The first model turn must observe the persisted document, not infer it. */
@@ -87,9 +85,7 @@ export function prepareDocumentAgentStep(input: {
 export function createDocumentWorkflowAgent(
   options: CreateDocumentWorkflowAgentOptions,
 ) {
-  const tools = createDocumentTools(options.handlers, {
-    approvalMode: options.approvalMode,
-  });
+  const tools = createDocumentTools(options.handlers);
 
   const activeTools = availableDocumentTools();
   const additionalRules = activeTools.includes("search_sources")

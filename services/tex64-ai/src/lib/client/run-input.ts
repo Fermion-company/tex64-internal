@@ -17,27 +17,13 @@ export function createRunReplyInput(
   if (!run || !isRunAwaitingInput(run)) {
     return { prompt };
   }
-
-  const input: StartRunInput = { prompt, replyToRunId: run.id };
-  if (run.inputKind !== "approval") return input;
-
-  const normalized = prompt.normalize("NFKC").trim();
-  if (
-    /^(?:はい|承認します|この変更を承認します|削除してください|実行してください)[。！!\s]*$/u.test(
-      normalized,
-    )
-  ) {
-    input.decision = "approve";
-  } else if (
-    /^(?:いいえ|承認しません|取り消します|やめてください|キャンセルします)[。！!\s]*$/u.test(
-      normalized,
-    )
-  ) {
-    input.decision = "reject";
-  }
-  return input;
+  return { prompt, replyToRunId: run.id };
 }
 
+/**
+ * "waiting_approval" is the historical status literal for awaiting-input
+ * runs; today it only ever means an open question (request_input / review).
+ */
 export function isRunAwaitingInput(run: AgentRun): boolean {
   return run.status === "waiting_approval" && run.stage === "needs_input";
 }
@@ -101,7 +87,6 @@ export function runRequestIdentity(
     prompt,
     input.prompt ?? null,
     input.replyToRunId ?? null,
-    input.decision ?? null,
     input.targetNodeId ?? null,
   ]);
 }

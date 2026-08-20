@@ -262,7 +262,6 @@ function storedRun(
     documentId: DOCUMENT_ID,
     prompt,
     replyToRunId,
-    decision: null,
     idempotencyKey: `idempotency-${id}`,
     workflowRunId: "workflow-test",
     status: "running",

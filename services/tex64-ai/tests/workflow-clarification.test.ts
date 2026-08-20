@@ -3,21 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  applyDocumentPatch,
-  DocumentSchema,
-  type DocumentPatch,
-} from "@/domain/document";
+import { DocumentSchema } from "@/domain/document";
 import { LocalDocumentRepository } from "@/server/persistence/local-repository";
-import {
-  RunReplyConflictError,
-  type DocumentRepository,
-  type RunDecision,
-} from "@/server/persistence";
-import { documentPatchDigest } from "@/server/persistence/pending-actions";
+import { type DocumentRepository } from "@/server/persistence";
 import {
   markDocumentRunNeedsInputStep,
-  planFallbackDocumentStep,
   requestInputToolStep,
   resolveDocumentRunPromptStep,
 } from "@/workflows/document-agent/steps";
@@ -75,7 +65,6 @@ async function createRunningRun(input: {
   prompt: string;
   idempotencyKey: string;
   replyToRunId?: string | null;
-  decision?: RunDecision | null;
 }): Promise<DocumentAgentWorkflowInput> {
   const run = await repository.createRun({
     id: input.id,
@@ -83,7 +72,6 @@ async function createRunningRun(input: {
     documentId: DOCUMENT_ID,
     prompt: input.prompt,
     replyToRunId: input.replyToRunId ?? null,
-    decision: input.decision ?? null,
     idempotencyKey: input.idempotencyKey,
     baseRevision: 1,
   });
@@ -99,31 +87,6 @@ async function createRunningRun(input: {
     prompt: run.prompt,
     baseRevision: run.baseRevision,
     replyToRunId: run.replyToRunId,
-    decision: run.decision,
-  };
-}
-
-function destructivePatch(): DocumentPatch {
-  return {
-    id: "50000000-0000-4000-8000-000000000001",
-    documentId: DOCUMENT_ID,
-    baseRevision: 1,
-    createdAt: NOW,
-    operations: [
-      {
-        op: "insert",
-        node: {
-          id: "50000000-0000-4000-8000-000000000002",
-          type: "paragraph",
-          content: [{ type: "text", text: "削除対象", marks: [] }],
-        },
-        position: { kind: "root", index: 0 },
-      },
-      {
-        op: "delete",
-        nodeId: "50000000-0000-4000-8000-000000000002",
-      },
-    ],
   };
 }
 
@@ -156,7 +119,6 @@ describe.sequential("durable clarification continuation", () => {
     });
     await markDocumentRunNeedsInputStep({
       workflow: questionRun,
-      code: "clarification_required",
       question: "どの条件を反映しますか？",
     });
 
@@ -227,7 +189,6 @@ describe.sequential("durable clarification continuation", () => {
     });
     await markDocumentRunNeedsInputStep({
       workflow: questionRun,
-      code: "clarification_required",
       question: "何について書きますか？",
     });
 
@@ -270,39 +231,6 @@ describe.sequential("durable clarification continuation", () => {
     await expect(resolveDocumentRunPromptStep(answerRun)).resolves.toEqual(
       context,
     );
-
-    const plan = await planFallbackDocumentStep({
-      workflow: answerRun,
-      promptContext: context,
-    });
-    expect(plan.status).toBe("planned");
-    if (plan.status !== "planned") return;
-    expect(plan.title).toBe("注意機構");
-    expect(plan.initialDocument.metadata.documentType).toBe("paper");
-
-    const base = await repository.getRevision(USER_ID, DOCUMENT_ID, 1);
-    expect(base).not.toBeNull();
-    if (!base) return;
-    const written = applyDocumentPatch(
-      {
-        revisionId: "50000000-0000-4000-8000-000000000001",
-        revision: 1,
-        parentRevisionId: null,
-        committedAt: NOW,
-        document: base.document,
-      },
-      plan.patch,
-    ).document;
-    expect(written.root).toHaveLength(3);
-    expect(
-      written.nodes.some(
-        (node) =>
-          node.type === "paragraph" &&
-          node.content.some(
-            (part) => part.type === "text" && part.text.includes("注意機構"),
-          ),
-      ),
-    ).toBe(true);
   });
 
   it("preserves the originating request and every bounded answer across repeated questions", async () => {
@@ -313,7 +241,6 @@ describe.sequential("durable clarification continuation", () => {
     });
     await markDocumentRunNeedsInputStep({
       workflow: firstQuestionRun,
-      code: "clarification_required",
       question: "何について書きますか？",
     });
 
@@ -326,7 +253,6 @@ describe.sequential("durable clarification continuation", () => {
     await resolveDocumentRunPromptStep(secondQuestionRun);
     await markDocumentRunNeedsInputStep({
       workflow: secondQuestionRun,
-      code: "clarification_required",
       question: "対象読者は誰ですか？",
     });
 
@@ -357,38 +283,21 @@ describe.sequential("durable clarification continuation", () => {
     expect(context.effectivePrompt).toContain("学部生です");
   });
 
-  it("does not consume any pending input without an explicit reply target", async () => {
-    const approvalRun = await createRunningRun({
+  it("does not consume any pending question without an explicit reply target", async () => {
+    const questionRun = await createRunningRun({
       id: QUESTION_RUN_ID,
-      prompt: "考察を削除して",
-      idempotencyKey: "approval-question-1",
+      prompt: "論文を書いて",
+      idempotencyKey: "pending-question-1",
     });
-    const patch = destructivePatch();
-    const storedApprovalRun = await repository.getRun(
-      USER_ID,
-      approvalRun.runId,
-    );
-    expect(storedApprovalRun).not.toBeNull();
-    if (!storedApprovalRun) return;
-    await repository.setRunNeedsInput({
-      userId: USER_ID,
-      documentId: DOCUMENT_ID,
-      runId: approvalRun.runId,
-      expectedStateVersion: storedApprovalRun.stateVersion,
-      code: "approval_required",
-      question: "この内容を削除してよいですか？",
-      pendingAction: {
-        id: "50000000-0000-4000-8000-000000000003",
-        patch,
-        patchDigest: documentPatchDigest(patch),
-        summary: "承認対象の変更",
-      },
+    await markDocumentRunNeedsInputStep({
+      workflow: questionRun,
+      question: "何について書きますか？",
     });
 
     const nextRun = await createRunningRun({
       id: ANSWER_RUN_ID,
       prompt: "注意機構について",
-      idempotencyKey: "approval-answer-1",
+      idempotencyKey: "pending-answer-1",
     });
     const context = await resolveDocumentRunPromptStep(nextRun);
 
@@ -399,7 +308,7 @@ describe.sequential("durable clarification continuation", () => {
     });
     expect(await repository.getRun(USER_ID, QUESTION_RUN_ID)).toMatchObject({
       status: "waiting_approval",
-      errorMessage: "この内容を削除してよいですか？",
+      errorMessage: "何について書きますか？",
     });
   });
 
@@ -411,7 +320,6 @@ describe.sequential("durable clarification continuation", () => {
     });
     await markDocumentRunNeedsInputStep({
       workflow: oldQuestion,
-      code: "clarification_required",
       question: "何について書きますか？",
     });
 
@@ -444,40 +352,51 @@ describe.sequential("durable clarification continuation", () => {
     });
   });
 
-  it("rejects an explicit clarification reply that targets an approval request", async () => {
-    const approvalRun = await createRunningRun({
+  it("answers a historical approval-waiting run as an ordinary clarification", async () => {
+    // Runs persisted by the removed approval flow stored an
+    // "approval_required" needs-input event. They must stay answerable: the
+    // free-text reply is treated as a plain clarification answer.
+    const legacyRun = await createRunningRun({
       id: QUESTION_RUN_ID,
       prompt: "考察を削除して",
-      idempotencyKey: "approval-target-1",
+      idempotencyKey: "legacy-approval-1",
     });
-    const patch = destructivePatch();
-    const source = await repository.getRun(USER_ID, approvalRun.runId);
-    expect(source).not.toBeNull();
-    if (!source) return;
-    await repository.setRunNeedsInput({
+    const stored = await repository.getRun(USER_ID, legacyRun.runId);
+    expect(stored).not.toBeNull();
+    if (!stored) return;
+    await repository.updateRun(USER_ID, legacyRun.runId, {
+      expectedStateVersion: stored.stateVersion,
+      status: "waiting_approval",
+      stage: "needs_input",
+      errorMessage: "この内容を削除してよいですか？",
+    });
+    await repository.appendRunEvent({
       userId: USER_ID,
-      documentId: DOCUMENT_ID,
-      runId: approvalRun.runId,
-      expectedStateVersion: source.stateVersion,
-      code: "approval_required",
-      question: "この内容を削除してよいですか？",
-      pendingAction: {
-        id: "50000000-0000-4000-8000-000000000003",
-        patch,
-        patchDigest: documentPatchDigest(patch),
-        summary: "承認対象の変更",
+      runId: legacyRun.runId,
+      idempotencyKey: `${legacyRun.runId}:needs_input:primary`,
+      stage: "needs_input",
+      message: "確認したいことがあります",
+      detail: {
+        eventKey: `${legacyRun.runId}:needs_input:primary`,
+        code: "approval_required",
+        question: "この内容を削除してよいですか？",
       },
     });
+
+    const answerRun = await createRunningRun({
+      id: ANSWER_RUN_ID,
+      prompt: "はい、削除してください",
+      replyToRunId: QUESTION_RUN_ID,
+      idempotencyKey: "legacy-approval-answer-1",
+    });
     await expect(
-      createRunningRun({
-        id: ANSWER_RUN_ID,
-        prompt: "はい",
-        replyToRunId: QUESTION_RUN_ID,
-        idempotencyKey: "approval-target-answer-1",
-      }),
-    ).rejects.toBeInstanceOf(RunReplyConflictError);
-    await expect(repository.getRun(USER_ID, QUESTION_RUN_ID)).resolves.toMatchObject({
-      status: "waiting_approval",
+      resolveDocumentRunPromptStep(answerRun),
+    ).resolves.toMatchObject({
+      clarification: {
+        sourceRunId: QUESTION_RUN_ID,
+        question: "この内容を削除してよいですか？",
+        answer: "はい、削除してください",
+      },
     });
   });
 });

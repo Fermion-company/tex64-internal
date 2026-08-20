@@ -10,7 +10,6 @@ import {
   createAndStartDocumentRun,
 } from "@/server/http/start-document-run";
 import { LocalDocumentRepository } from "@/server/persistence/local-repository";
-import { documentPatchDigest } from "@/server/persistence/pending-actions";
 
 const USER_ID = "40000000-0000-4000-8000-000000000001";
 const IDEMPOTENCY_KEY = "run-request-parallel-1";
@@ -230,67 +229,48 @@ describe("document workflow launch boundary", () => {
     expect(starts).toBe(1);
   });
 
-  it("forwards an explicit decision and its reply target to the durable workflow", async () => {
+  it("forwards a clarification answer and its reply target to the durable workflow", async () => {
     const sourceRunId = randomUUID();
     const source = await repository.createRun({
       id: sourceRunId,
       userId: USER_ID,
       documentId: SAMPLE_DOCUMENT.id,
-      prompt: "この内容を削除して",
-      idempotencyKey: "decision-source-1",
+      prompt: "論文を書いて",
+      idempotencyKey: "clarification-source-1",
       baseRevision: 1,
     });
     const activeSource = await repository.activateRunForWorkflow(
       USER_ID,
       source.id,
-      "workflow-decision-source",
+      "workflow-clarification-source",
     );
-    const patch = {
-      id: randomUUID(),
-      documentId: SAMPLE_DOCUMENT.id,
-      baseRevision: 1,
-      createdAt: new Date().toISOString(),
-      operations: [
-        { op: "delete" as const, nodeId: SAMPLE_DOCUMENT_IDS.pageBreak },
-      ],
-    };
     await repository.setRunNeedsInput({
       userId: USER_ID,
       documentId: SAMPLE_DOCUMENT.id,
       runId: source.id,
       expectedStateVersion: activeSource.run.stateVersion,
-      code: "approval_required",
-      question: "この内容を削除してよいですか？",
-      pendingAction: {
-        id: randomUUID(),
-        patch,
-        patchDigest: documentPatchDigest(patch),
-        summary: "内容を削除",
-      },
+      code: "clarification_required",
+      question: "対象読者を教えてください。",
     });
-    let startedInput:
-      | { replyToRunId: string | null; decision: "approve" | "reject" | null }
-      | undefined;
+    let startedInput: { replyToRunId: string | null } | undefined;
 
     await createAndStartDocumentRun({
       repository,
       requestedRunId: randomUUID(),
       userId: USER_ID,
       documentId: SAMPLE_DOCUMENT.id,
-      prompt: "変更を承認",
+      prompt: "学部生向けです",
       replyToRunId: sourceRunId,
-      decision: "approve",
-      idempotencyKey: "decision-response-1",
+      idempotencyKey: "clarification-response-1",
       baseRevision: 1,
       startWorkflow: async (input) => {
         startedInput = input;
-        return { runId: "workflow-decision-1" };
+        return { runId: "workflow-clarification-1" };
       },
     });
 
     expect(startedInput).toMatchObject({
       replyToRunId: sourceRunId,
-      decision: "approve",
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   type JSX,
+  type ReactNode,
 } from "react";
 import {
   MAX_ZOOM_PERCENT,
@@ -43,6 +44,8 @@ export interface PdfPreviewProps {
   interactive: boolean;
   onSelect: (id: string | null) => void;
   emptyHint?: string;
+  /** Card anchored just below the selected region (編集カード). */
+  selectionCard?: ReactNode;
 }
 
 /** Gap between pages inside the scroller (kept in JS so scroll math matches). */
@@ -94,6 +97,7 @@ export function PdfPreview({
   interactive,
   onSelect,
   emptyHint = "まだ紙面がありません",
+  selectionCard = null,
 }: PdfPreviewProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   /** Loading task backing the currently displayed document. */
@@ -242,6 +246,17 @@ export function PdfPreview({
   );
 
   const regionsByPage = useMemo(() => groupRectsByPage(regions ?? []), [regions]);
+  // 編集カードは、選択要素の矩形が載っている最後のページの直下にアンカーする。
+  const selectionCardPage = useMemo(() => {
+    if (!selectedId || !selectionCard) return null;
+    let host: number | null = null;
+    for (const [pageNumber, rects] of regionsByPage) {
+      if (rects.some((entry) => entry.regionId === selectedId)) {
+        host = host === null ? pageNumber : Math.max(host, pageNumber);
+      }
+    }
+    return host;
+  }, [selectedId, selectionCard, regionsByPage]);
   const overlayActive =
     interactive && regions !== null && regions.length > 0 && loaded !== null;
   // While refreshing the overlay stays visible (selected outline included) but
@@ -368,6 +383,9 @@ export function PdfPreview({
                     disabled={refreshing}
                     onHover={setHoveredId}
                     onSelect={onSelect}
+                    selectionCard={
+                      overlayActive && selectionCardPage === index + 1 ? selectionCard : null
+                    }
                   />
                 );
               })}
@@ -397,6 +415,8 @@ interface PdfPageViewProps {
   disabled: boolean;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
+  /** Card to render just below the selected region on this page. */
+  selectionCard: ReactNode;
 }
 
 function PdfPageView({
@@ -411,6 +431,7 @@ function PdfPageView({
   disabled,
   onHover,
   onSelect,
+  selectionCard,
 }: PdfPageViewProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -485,6 +506,33 @@ function PdfPageView({
               </button>
             );
           })}
+          {selectionCard
+            ? (() => {
+                const selectedPx = regionRects
+                  .filter((entry) => entry.regionId === selectedId)
+                  .map((entry) => bpRectToPx(entry.rect, scale));
+                if (selectedPx.length === 0) return null;
+                const anchorTop = Math.min(...selectedPx.map((r) => r.top));
+                const anchorBottom = Math.max(...selectedPx.map((r) => r.top + r.height));
+                const anchorLeft = Math.min(...selectedPx.map((r) => r.left));
+                const width = Math.min(430, cssWidth - 16);
+                const left = Math.max(8, Math.min(anchorLeft, cssWidth - width - 8));
+                // ページ下端に収まらないときは要素の上側に反転配置する。
+                const flip = anchorBottom + 340 > cssHeight && anchorTop > 340;
+                const position = flip
+                  ? { bottom: cssHeight - anchorTop + 8, left, width }
+                  : { top: anchorBottom + 8, left, width };
+                return (
+                  <div
+                    className={styles.selectionCard}
+                    style={position}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {selectionCard}
+                  </div>
+                );
+              })()
+            : null}
         </div>
       ) : null}
     </div>

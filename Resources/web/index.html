@@ -16,6 +16,54 @@
   </head>
   <body>
 
+    <!-- First-run gate. Only ever shown when TeX is missing; when it is present
+         the app goes straight to the launcher/editor and this stays hidden. -->
+    <div class="onboarding" id="onboarding" aria-hidden="true">
+      <div class="onboarding-card">
+        <div class="onboarding-brand">
+          <img src="./assets/icon.jpg" class="onboarding-icon" alt="" />
+          <div class="onboarding-brand-name">TeX64</div>
+        </div>
+
+        <div class="onboarding-step" id="onboarding-choice">
+          <div class="onboarding-headline">TeX is not installed yet</div>
+          <div class="onboarding-sub" id="onboarding-sub">
+            Choose how much of TeX Live to install. TeX64 installs it privately, without admin rights.
+          </div>
+          <div class="env-choice onboarding-choices">
+            <button class="env-choice-card is-primary" id="onboarding-choice-light" type="button">
+              <span class="env-choice-badge">Recommended</span>
+              <span class="env-choice-title">Light</span>
+              <span class="env-choice-detail">Ready in minutes. Anything a document needs later installs itself on first use.</span>
+              <span class="env-choice-size">about 500 MB · a few minutes</span>
+            </button>
+            <button class="env-choice-card" id="onboarding-choice-full" type="button">
+              <span class="env-choice-badge">&nbsp;</span>
+              <span class="env-choice-title">Everything</span>
+              <span class="env-choice-detail">Every CTAN package up front, so the machine never needs the network again.</span>
+              <span class="env-choice-size">about 5 GB · 30–60 min</span>
+            </button>
+          </div>
+          <div class="onboarding-note is-hidden" id="onboarding-note"></div>
+          <button class="onboarding-skip" id="onboarding-skip" type="button">Skip for now</button>
+        </div>
+
+        <div class="onboarding-step is-hidden" id="onboarding-progress">
+          <div class="onboarding-headline" id="onboarding-progress-title">Setting up TeX…</div>
+          <div class="onboarding-gauge">
+            <div class="onboarding-gauge-track">
+              <div class="onboarding-gauge-fill" id="onboarding-gauge-fill"></div>
+            </div>
+            <div class="onboarding-gauge-row">
+              <span class="onboarding-gauge-percent" id="onboarding-percent">0%</span>
+              <span class="onboarding-gauge-eta" id="onboarding-eta"></span>
+            </div>
+            <div class="onboarding-gauge-phase" id="onboarding-phase"></div>
+          </div>
+          <div class="onboarding-sub">You can leave this running — the editor opens as soon as it finishes.</div>
+        </div>
+      </div>
+    </div>
     <div class="launcher" id="launcher" aria-hidden="true">
       <div class="launcher-lang-wrap">
         <button
@@ -31,7 +79,7 @@
             <path d="M2 12h20"/>
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/>
           </svg>
-          <span class="launcher-lang-toggle-label" id="launcher-lang-toggle-label">日本語</span>
+          <span class="launcher-lang-toggle-label" id="launcher-lang-toggle-label">English</span>
         </button>
         <div
           class="launcher-lang-menu is-hidden"
@@ -96,20 +144,20 @@
             </svg>
           </button>
           <nav class="mode-switcher" id="mode-switcher" role="tablist" aria-label="App mode">
-            <button id="mode-tab-code" class="mode-tab" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" title="Code — LaTeXエディタ">
+            <button id="mode-tab-code" class="mode-tab" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" title="Code — LaTeX editor">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m8 8-4 4 4 4"></path>
                 <path d="m16 8 4 4-4 4"></path>
               </svg>
               <span>Code</span>
             </button>
-            <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" title="AI — 文書エージェント">
+            <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" title="AI — Document agent">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"></path>
               </svg>
               <span>AI</span>
             </button>
-            <button id="mode-tab-pro" class="mode-tab" type="button" role="tab" data-app-mode-tab="pro" aria-selected="false" title="Pro — 分割レイアウトと執筆ツール">
+            <button id="mode-tab-pro" class="mode-tab" type="button" role="tab" data-app-mode-tab="pro" aria-selected="false" title="Pro — Split layouts and writing tools">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="3" y="5" width="18" height="14" rx="2"></rect>
                 <path d="M11 5v14"></path>
@@ -191,6 +239,8 @@
             </svg>
             <span class="topbar-layout-label">Blocks / Terminal</span>
           </button>
+          <!-- Legacy: hidden for now (theme.css). The split view still works,
+               it just has no top-bar button any more. -->
           <button
             id="editor-split-button"
             type="button"
@@ -303,6 +353,22 @@
                   <path d="M6 20h12"></path>
                   <path d="M7 15l3.5-3.5 4-4a2.5 2.5 0 0 1 3.5 0l.5.5-8 8-3 1z"></path>
                   <path d="M14.5 6.5l3 3"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              data-tab="stash"
+              aria-selected="false"
+              aria-label="Stash"
+              title="Stash"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 13h4l1.5 3h5l1.5-3h4"></path>
+                  <path d="M6.5 5h11l2.5 8v6H4v-6z"></path>
                 </svg>
               </span>
             </button>
@@ -512,6 +578,10 @@
                 </div>
               </div>
             </div>
+          </div>
+          <div class="panel" data-panel="stash">
+            <!-- Header and body are built by web-src/app/pro-stash-ui.ts so the
+                 whole tray stays in one place with its uiText() strings. -->
           </div>
           <div class="panel no-header" data-panel="ai">
             <div class="panel-header">
@@ -743,6 +813,9 @@
                 <button class="settings-nav-item" data-settings-target="format" type="button">
                   <span class="settings-nav-title">Format</span>
                 </button>
+                <button class="settings-nav-item" data-settings-target="packages" type="button">
+                  <span class="settings-nav-title">Packages</span>
+                </button>
                 <button class="settings-nav-item" data-settings-target="env" type="button">
                   <span class="settings-nav-title">Environment</span>
                 </button>
@@ -843,8 +916,8 @@
                       </div>
                       <div class="settings-control">
                         <select class="settings-select" id="editor-font-family">
-                          <option value="">既定（Latin Modern Mono）</option>
-                          <option value="&quot;Latin Modern Mono&quot;, monospace">Latin Modern Mono（TeX のタイプライター体）</option>
+                          <option value="">Default (Latin Modern Mono)</option>
+                          <option value="&quot;Latin Modern Mono&quot;, monospace">Latin Modern Mono (TeX's typewriter face)</option>
                           <option value="&quot;SF Mono&quot;, Menlo, Monaco, monospace">SF Mono</option>
                           <option value="&quot;Courier New&quot;, monospace">Courier New</option>
                           <option value="&quot;PT Mono&quot;, monospace">PT Mono</option>
@@ -1130,6 +1203,58 @@
                     </div>
                   </div>
                 </div>
+                <div class="settings-page is-hidden" data-settings-page="packages" aria-hidden="true">
+                  <div class="settings-page-header">
+                    <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
+                    <div class="settings-page-title">Packages</div>
+                  </div>
+                  <div class="settings-group pkg-group">
+                    <div class="pkg-toolbar">
+                      <div class="pkg-scope" id="pkg-scope"></div>
+                      <button class="panel-button pkg-update-btn" id="pkg-update" type="button">Update all</button>
+                    </div>
+
+                    <div class="pkg-op is-hidden" id="pkg-op" aria-hidden="true">
+                      <div class="pkg-op-track"><div class="pkg-op-fill" id="pkg-op-fill"></div></div>
+                      <div class="pkg-op-label" id="pkg-op-label"></div>
+                    </div>
+
+                    <input
+                      class="pkg-search"
+                      id="pkg-search"
+                      type="search"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="Search by package name, description or file name"
+                    >
+
+                    <div class="pkg-filters" id="pkg-filters" role="group" aria-label="Filter packages">
+                      <button class="pkg-filter" data-pkg-filter="all" type="button" aria-pressed="true">
+                        <span class="pkg-filter-label">All</span>
+                        <span class="pkg-filter-count" data-pkg-count="all"></span>
+                      </button>
+                      <button class="pkg-filter" data-pkg-filter="installed" type="button" aria-pressed="false">
+                        <span class="pkg-filter-label">Installed</span>
+                        <span class="pkg-filter-count" data-pkg-count="installed"></span>
+                      </button>
+                      <button class="pkg-filter" data-pkg-filter="available" type="button" aria-pressed="false">
+                        <span class="pkg-filter-label">Not installed</span>
+                        <span class="pkg-filter-count" data-pkg-count="available"></span>
+                      </button>
+                    </div>
+
+                    <div class="pkg-note is-hidden" id="pkg-note" aria-hidden="true"></div>
+
+                    <div class="pkg-list" id="pkg-list"></div>
+                    <div class="pkg-truncated is-hidden" id="pkg-truncated" aria-hidden="true"></div>
+                    <div class="pkg-extra is-hidden" id="pkg-extra" aria-hidden="true"></div>
+
+                    <div class="pkg-more" id="pkg-more">
+                      <span class="pkg-more-text">Not what you were looking for?</span>
+                      <button class="env-link" id="pkg-ctan" type="button">Search CTAN directly</button>
+                    </div>
+                  </div>
+                </div>
                 <div class="settings-page is-hidden" data-settings-page="env" aria-hidden="true">
                   <div class="settings-page-header">
                     <button class="settings-back" data-settings-back type="button" aria-label="Back"></button>
@@ -1142,6 +1267,21 @@
                         <div class="env-hero-title" id="settings-runtime-setup-status">Checking your TeX environment…</div>
                         <div class="env-hero-sub" id="env-hero-sub">This only takes a moment.</div>
                       </div>
+                    </div>
+                    <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
+                    <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
+                      <button class="env-choice-card is-primary" id="env-choice-light" type="button">
+                        <span class="env-choice-badge">Recommended</span>
+                        <span class="env-choice-title">Light</span>
+                        <span class="env-choice-detail">Ready in minutes. Anything a document needs later installs itself on first use.</span>
+                        <span class="env-choice-size">about 500 MB · a few minutes</span>
+                      </button>
+                      <button class="env-choice-card" id="env-choice-full" type="button">
+                        <span class="env-choice-badge">&nbsp;</span>
+                        <span class="env-choice-title">Everything</span>
+                        <span class="env-choice-detail">Every CTAN package up front, so the machine never needs the network again.</span>
+                        <span class="env-choice-size">about 5 GB · 30–60 min</span>
+                      </button>
                     </div>
                     <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
                       <div class="env-progress-track">
@@ -1306,7 +1446,7 @@
                   <button id="pro-preview-live-toggle" type="button" aria-pressed="false" title="Toggle live preview">Live</button>
                   <button type="button" data-pro-capture="preview" title="Capture a region: turn it into TeX, translate it, or insert it as an image" aria-label="Capture a region of the preview">⌖ Capture</button>
                   <button type="button" data-pro-open="preview" title="Open PDF">Open</button>
-                  <button type="button" data-pro-collapse="preview" aria-label="Collapse preview">‹</button>
+                  <button type="button" data-pro-collapse="preview" aria-label="Collapse preview">›</button>
                 </span>
               </header>
               <div class="pro-pane-body">
@@ -1364,7 +1504,10 @@
               </div>
             </div>
 
-            <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-pro-pane="reference" aria-hidden="true">
+            <!-- Legacy: the reference window is hidden (theme.css) and the
+                 3-pane layout that showed it is retired in parseProModeState.
+                 Markup and viewer wiring are kept for a possible return. -->
+            <section class="pro-pane pro-reference-pane" id="pro-reference-pane" data-legacy="true" data-pro-pane="reference" aria-hidden="true">
               <header class="pro-pane-header">
                 <span id="pro-reference-title">Reference</span>
                 <span class="pro-pane-actions">
@@ -1478,14 +1621,14 @@
         <div class="ai-mode-fallback is-hidden" id="ai-mode-fallback">
           <div class="ai-mode-fallback-card">
             <h2>TeX64 AI</h2>
-            <p id="ai-mode-fallback-status">AIワークスペースに接続しています…</p>
+            <p id="ai-mode-fallback-status">Connecting to the AI workspace…</p>
             <div class="ai-mode-fallback-actions">
-              <button id="ai-mode-retry" type="button">再接続</button>
-              <button id="ai-mode-open-browser" type="button">ブラウザで開く</button>
+              <button id="ai-mode-retry" type="button">Reconnect</button>
+              <button id="ai-mode-open-browser" type="button">Open in browser</button>
             </div>
             <p class="ai-mode-dev-hint" id="ai-mode-dev-hint" hidden>
-              開発環境: <code>cd services/tex64-ai &amp;&amp; npm run dev</code> でローカルサーバー
-              (<code>http://localhost:3100</code>) を起動してください。
+              Dev server: <code>cd services/tex64-ai &amp;&amp; npm run dev</code>
+              (<code>http://localhost:3100</code>)
             </p>
           </div>
         </div>

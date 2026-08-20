@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import {
-  applyDocumentPatch,
   assertDocumentResourceBudget,
   type DocumentModel,
   type DocumentOperation,
@@ -35,7 +34,6 @@ import {
   AgentRunNotFoundError,
   ArtifactConflictError,
   DocumentNotFoundError,
-  PendingDocumentActionConflictError,
   ResearchLedgerConflictError,
   RevisionConflictError,
   RunReplyConflictError,
@@ -45,7 +43,6 @@ import {
   type AppendRunEventInput,
   type CreateRunInput,
   type DocumentRepository,
-  type PendingDocumentDecisionResult,
   type ResearchLedger,
   type RevisionActor,
   type StoredAgentRun,
@@ -53,7 +50,6 @@ import {
   type StoredDocument,
   type StoredDocumentAgentSession,
   type StoredDocumentListItem,
-  type StoredPendingDocumentAction,
   type StoredRevision,
   type StoredRevisionListItem,
   type StoredRunEvent,
@@ -62,7 +58,6 @@ import {
   type WorkflowStartClaim,
 } from "./types";
 import {
-  assertDocumentAgentSessionReplyTarget,
   assertDocumentAgentSessionScope,
   classifyDocumentAgentSessionSave,
   parseStoredDocumentAgentSession,
@@ -77,9 +72,7 @@ import {
   runEventIdempotencyKey,
 } from "./invariants";
 import {
-  assertPendingActionDraft,
   assertRunReplyTarget,
-  assertStoredPendingAction,
   needsInputQuestion,
 } from "./pending-actions";
 
@@ -140,7 +133,6 @@ type RunRow = QueryResultRow & {
   document_id: string;
   prompt: string;
   reply_to_run_id: string | null;
-  decision: StoredAgentRun["decision"];
   target_node_id: string | null;
   idempotency_key: string;
   workflow_run_id: string | null;
@@ -157,23 +149,6 @@ type RunRow = QueryResultRow & {
   error_message: string | null;
   result_note: string | null;
   state_version: number;
-  created_at: Date | string;
-  updated_at: Date | string;
-};
-
-type PendingActionRow = QueryResultRow & {
-  id: string;
-  user_id: string;
-  document_id: string;
-  source_run_id: string;
-  status: StoredPendingDocumentAction["status"];
-  base_revision: number;
-  patch: StoredPendingDocumentAction["patch"];
-  patch_digest: string;
-  summary: string;
-  question: string;
-  resolved_by_run_id: string | null;
-  applied_revision: number | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -467,7 +442,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
         source,
         candidate.documentId,
         binding.sourceRunId,
-        null,
       );
       const markerKey = `${binding.responseRunId}:clarification-continuation:${binding.sourceRunId}`;
       const markerResult = await client.query<EventRow>(
@@ -705,9 +679,9 @@ export class PostgresDocumentRepository implements DocumentRepository {
 
       const inserted = await client.query<RunRow>(
         `INSERT INTO public.tex64_agent_runs
-          (id, user_id, document_id, prompt, reply_to_run_id, decision,
+          (id, user_id, document_id, prompt, reply_to_run_id,
            target_node_id, idempotency_key, base_revision)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT DO NOTHING
          RETURNING *`,
         [
@@ -716,7 +690,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
           input.documentId,
           input.prompt,
           input.replyToRunId ?? null,
-          input.decision ?? null,
           input.targetNodeId ?? null,
           input.idempotencyKey,
           input.baseRevision,
@@ -1030,49 +1003,16 @@ export class PostgresDocumentRepository implements DocumentRepository {
       if (!question || question.length > 500) {
         throw new RunReplyConflictError("Needs-input question is invalid.");
       }
-      if (input.code === "approval_required" && !input.pendingAction) {
-        throw new PendingDocumentActionConflictError(
-          "Approval requires an exact pending document patch.",
-        );
-      }
-      if (input.code === "clarification_required" && input.pendingAction) {
-        throw new PendingDocumentActionConflictError(
-          "Clarification cannot carry a destructive pending action.",
-        );
-      }
 
       const eventKey = `${input.runId}:needs_input:primary`;
-      const [eventResult, actionResult] = await Promise.all([
-        client.query<EventRow>(
-          `SELECT * FROM public.tex64_run_events
-           WHERE user_id = $1 AND run_id = $2 AND idempotency_key = $3`,
-          [input.userId, input.runId, eventKey],
-        ),
-        client.query<PendingActionRow>(
-          `SELECT * FROM public.tex64_pending_document_actions
-           WHERE user_id = $1 AND source_run_id = $2
-           FOR UPDATE`,
-          [input.userId, input.runId],
-        ),
-      ]);
+      const eventResult = await client.query<EventRow>(
+        `SELECT * FROM public.tex64_run_events
+         WHERE user_id = $1 AND run_id = $2 AND idempotency_key = $3`,
+        [input.userId, input.runId, eventKey],
+      );
       const existingEvent = eventResult.rows[0]
         ? toEvent(eventResult.rows[0])
         : null;
-      const existingAction = actionResult.rows[0]
-        ? assertStoredPendingAction(toPendingAction(actionResult.rows[0]))
-        : null;
-      const patch = input.pendingAction
-        ? assertPendingActionDraft({
-            documentId: input.documentId,
-            draft: input.pendingAction,
-          })
-        : null;
-      const expectedPatchBase = current.resultRevision ?? current.baseRevision;
-      if (patch && patch.baseRevision !== expectedPatchBase) {
-        throw new PendingDocumentActionConflictError(
-          "Pending patch base does not match the run revision.",
-        );
-      }
 
       if (current.status === "waiting_approval") {
         if (
@@ -1086,30 +1026,14 @@ export class PostgresDocumentRepository implements DocumentRepository {
             "Run is already waiting for a different response.",
           );
         }
-        if (input.pendingAction && existingAction) {
-          if (
-            existingAction.status !== "pending" ||
-            existingAction.id !== input.pendingAction.id ||
-            existingAction.documentId !== input.documentId ||
-            existingAction.sourceRunId !== input.runId ||
-            existingAction.patchDigest !== input.pendingAction.patchDigest ||
-            existingAction.summary !== input.pendingAction.summary ||
-            existingAction.question !== question
-          ) {
-            throw new PendingDocumentActionConflictError();
-          }
-        } else if (!input.pendingAction && existingAction) {
-          throw new PendingDocumentActionConflictError(
-            "Clarification replay cannot claim a pending document action.",
-          );
-        }
-
-        const replayedAt = new Date().toISOString();
-        if (input.pendingAction && patch && !existingAction) {
-          await insertPendingAction(client, input, patch, question, replayedAt);
-        }
         if (!existingEvent) {
-          await insertNeedsInputEvent(client, input, question, eventKey, replayedAt);
+          await insertNeedsInputEvent(
+            client,
+            input,
+            question,
+            eventKey,
+            new Date().toISOString(),
+          );
         }
         return current;
       }
@@ -1117,7 +1041,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
       if (existingEvent) {
         throw new RunReplyConflictError("Needs-input event already exists.");
       }
-      if (existingAction) throw new PendingDocumentActionConflictError();
 
       const now = new Date().toISOString();
       const prepared = prepareRunUpdate(
@@ -1130,9 +1053,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
         },
         now,
       );
-      if (input.pendingAction && patch) {
-        await insertPendingAction(client, input, patch, question, now);
-      }
       await insertNeedsInputEvent(client, input, question, eventKey, now);
       return updateRunRecord(client, current, prepared);
     });
@@ -1149,7 +1069,7 @@ export class PostgresDocumentRepository implements DocumentRepository {
       const response = runs.get(responseRunId);
       const source = runs.get(sourceRunId);
       if (!response || !source) throw new AgentRunNotFoundError();
-      assertReplyScope(response, source, documentId, sourceRunId, null);
+      assertReplyScope(response, source, documentId, sourceRunId);
 
       const sourceEvents = await selectRunEvents(client, userId, sourceRunId);
       const question = needsInputQuestion(
@@ -1205,277 +1125,6 @@ export class PostgresDocumentRepository implements DocumentRepository {
         createdAt: now,
       });
       return { sourceRun: source, question };
-    });
-  }
-
-  async resolvePendingDocumentDecision(
-    userId: string,
-    documentId: string,
-    responseRunId: string,
-    sourceRunId: string,
-  ): Promise<PendingDocumentDecisionResult> {
-    return this.withUser(userId, async (client) => {
-      const runs = await lockRuns(client, userId, responseRunId, sourceRunId);
-      let response = runs.get(responseRunId);
-      let source = runs.get(sourceRunId);
-      if (!response || !source) throw new AgentRunNotFoundError();
-      if (!response.decision) {
-        throw new RunReplyConflictError("A structured approval decision is required.");
-      }
-      assertReplyScope(
-        response,
-        source,
-        documentId,
-        sourceRunId,
-        response.decision,
-      );
-
-      const actionResult = await client.query<PendingActionRow>(
-        `SELECT * FROM public.tex64_pending_document_actions
-         WHERE user_id = $1 AND document_id = $2 AND source_run_id = $3
-         FOR UPDATE`,
-        [userId, documentId, sourceRunId],
-      );
-      if (!actionResult.rows[0]) throw new PendingDocumentActionConflictError();
-      let action = assertStoredPendingAction(toPendingAction(actionResult.rows[0]));
-      if (
-        action.userId !== userId ||
-        action.documentId !== documentId ||
-        action.sourceRunId !== sourceRunId
-      ) {
-        throw new PendingDocumentActionConflictError();
-      }
-
-      if (action.resolvedByRunId === responseRunId) {
-        if (
-          (action.status === "rejected" && response.decision !== "reject") ||
-          ((action.status === "applied" || action.status === "cancelled") &&
-            response.decision !== "approve")
-        ) {
-          throw new PendingDocumentActionConflictError(
-            "Resolved action does not match the stored decision.",
-          );
-        }
-        ({ source, response } = await healResolvedDecisionRuns(
-          client,
-          source,
-          response,
-          action,
-        ));
-        if (action.status === "applied" && action.appliedRevision !== null) {
-          return { status: "applied", revision: action.appliedRevision, action };
-        }
-        if (action.status === "rejected") return { status: "rejected", action };
-        if (action.status === "cancelled") {
-          return {
-            status: "stale",
-            action,
-            message:
-              response.errorMessage ??
-              "文書が更新されたため、この変更は適用しませんでした。",
-          };
-        }
-      }
-      if (action.status !== "pending" || action.resolvedByRunId !== null) {
-        throw new PendingDocumentActionConflictError();
-      }
-      if (response.status !== "running") {
-        throw new PendingDocumentActionConflictError(
-          "Decision response is not active.",
-        );
-      }
-      if (source.status !== "waiting_approval" || source.stage !== "needs_input") {
-        throw new PendingDocumentActionConflictError();
-      }
-      const approvalQuestion = needsInputQuestion(
-        source,
-        await selectRunEvents(client, userId, sourceRunId),
-        "approval_required",
-      );
-      if (!approvalQuestion || approvalQuestion !== action.question) {
-        throw new PendingDocumentActionConflictError();
-      }
-
-      const now = new Date().toISOString();
-      if (response.decision === "reject") {
-        action = await updatePendingActionResolution(client, action, {
-          status: "rejected",
-          resolvedByRunId: responseRunId,
-          appliedRevision: null,
-          updatedAt: now,
-        });
-        source = await cancelRun(client, source, now);
-        response = await cancelRun(client, response, now);
-        return { status: "rejected", action };
-      }
-
-      const documentResult = await client.query<DocumentRow>(
-        `SELECT * FROM public.tex64_documents
-         WHERE id = $1 AND user_id = $2
-         FOR UPDATE`,
-        [documentId, userId],
-      );
-      const documentRow = documentResult.rows[0];
-      if (!documentRow) throw new DocumentNotFoundError();
-
-      const priorCommitResult = await client.query<RevisionRow>(
-        `SELECT * FROM public.tex64_document_revisions
-         WHERE user_id = $1 AND document_id = $2 AND commit_id = $3
-         FOR SHARE`,
-        [userId, documentId, action.patch.id],
-      );
-      const priorCommit = priorCommitResult.rows[0]
-        ? toRevision(priorCommitResult.rows[0])
-        : null;
-      if (priorCommit) {
-        if (response.baseRevision !== action.baseRevision) {
-          throw new PendingDocumentActionConflictError(
-            "Approval run does not share the pending patch base revision.",
-          );
-        }
-        await assertPriorPatchCommit(client, action, priorCommit);
-        action = await updatePendingActionResolution(client, action, {
-          status: "applied",
-          resolvedByRunId: responseRunId,
-          appliedRevision: priorCommit.revision,
-          updatedAt: now,
-        });
-        source = await cancelRun(client, source, now);
-        response = await markDecisionRunApplied(
-          client,
-          response,
-          priorCommit.revision,
-          now,
-        );
-        return { status: "applied", revision: priorCommit.revision, action };
-      }
-
-      if (
-        documentRow.current_revision !== action.baseRevision ||
-        response.baseRevision !== action.baseRevision
-      ) {
-        const message = "文書が更新されたため、この変更は適用しませんでした。";
-        action = await updatePendingActionResolution(client, action, {
-          status: "cancelled",
-          resolvedByRunId: responseRunId,
-          appliedRevision: null,
-          updatedAt: now,
-        });
-        source = await cancelRun(client, source, now);
-        response = await markDecisionRunStale(client, response, message, now);
-        return { status: "stale", action, message };
-      }
-
-      const revisionResult = await client.query<RevisionRow>(
-        `SELECT * FROM public.tex64_document_revisions
-         WHERE user_id = $1 AND document_id = $2 AND revision = $3
-         FOR SHARE`,
-        [userId, documentId, documentRow.current_revision],
-      );
-      const currentRevision = revisionResult.rows[0]
-        ? toRevision(revisionResult.rows[0])
-        : null;
-      if (!currentRevision) throw new DocumentNotFoundError();
-      assertRevisionWithinLimit(documentRow.current_revision);
-      const next = applyDocumentPatch(
-        {
-          revisionId: currentRevision.commitId,
-          revision: currentRevision.revision,
-          parentRevisionId: null,
-          committedAt: currentRevision.createdAt,
-          document: documentRow.document,
-        },
-        action.patch,
-      );
-      const nextRevision = documentRow.current_revision + 1;
-      await client.query(
-        `INSERT INTO public.tex64_document_revisions
-          (user_id, document_id, commit_id, revision, document, actor, summary,
-           operations, created_at)
-         VALUES ($1, $2, $3, $4, $5::jsonb, 'agent', $6, $7::jsonb, $8)`,
-        [
-          userId,
-          documentId,
-          action.patch.id,
-          nextRevision,
-          JSON.stringify(next.document),
-          action.summary,
-          JSON.stringify(action.patch.operations),
-          now,
-        ],
-      );
-      const updatedDocument = await client.query<DocumentRow>(
-        `UPDATE public.tex64_documents
-         SET title = $3,
-             document = $4::jsonb,
-             current_revision = $5,
-             updated_at = $6
-         WHERE id = $1 AND user_id = $2 AND current_revision = $7
-         RETURNING *`,
-        [
-          documentId,
-          userId,
-          next.document.metadata.title,
-          JSON.stringify(next.document),
-          nextRevision,
-          now,
-          action.baseRevision,
-        ],
-      );
-      if (!updatedDocument.rows[0]) {
-        throw new RevisionConflictError(
-          action.baseRevision,
-          documentRow.current_revision,
-        );
-      }
-      action = await updatePendingActionResolution(client, action, {
-        status: "applied",
-        resolvedByRunId: responseRunId,
-        appliedRevision: nextRevision,
-        updatedAt: now,
-      });
-      source = await cancelRun(client, source, now);
-      response = await markDecisionRunApplied(
-        client,
-        response,
-        nextRevision,
-        now,
-      );
-      return { status: "applied", revision: nextRevision, action };
-    });
-  }
-
-  async getPendingDocumentAction(
-    userId: string,
-    sourceRunId: string,
-  ): Promise<StoredPendingDocumentAction | null> {
-    return this.withUser(userId, async (client) => {
-      const result = await client.query<PendingActionRow>(
-        `SELECT * FROM public.tex64_pending_document_actions
-         WHERE user_id = $1 AND source_run_id = $2`,
-        [userId, sourceRunId],
-      );
-      return result.rows[0]
-        ? assertStoredPendingAction(toPendingAction(result.rows[0]))
-        : null;
-    });
-  }
-
-  async listPendingDocumentActions(
-    userId: string,
-    sourceRunIds: readonly string[],
-  ): Promise<StoredPendingDocumentAction[]> {
-    const ids = normalizeBatchIds(sourceRunIds);
-    if (ids.length === 0) return [];
-    return this.withUser(userId, async (client) => {
-      const result = await client.query<PendingActionRow>(
-        `SELECT * FROM public.tex64_pending_document_actions
-         WHERE user_id = $1 AND source_run_id = ANY($2::uuid[])`,
-        [userId, ids],
-      );
-      return result.rows.map((row) =>
-        assertStoredPendingAction(toPendingAction(row)),
-      );
     });
   }
 
@@ -2043,30 +1692,7 @@ async function assertPostgresRunReplyTarget(
   input: CreateRunInput,
   lock: "SHARE" | "UPDATE",
 ): Promise<void> {
-  const sessionResult = await client.query<DocumentAgentSessionRow>(
-    `SELECT user_id, document_id, session, state_version, updated_at
-     FROM public.tex64_document_agent_sessions
-     WHERE user_id = $1 AND document_id = $2
-     FOR ${lock}`,
-    [input.userId, input.documentId],
-  );
-  assertDocumentAgentSessionReplyTarget(
-    sessionResult.rows[0]
-      ? toDocumentAgentSession(sessionResult.rows[0])
-      : null,
-    input,
-  );
-
-  if (!input.replyToRunId) {
-    assertRunReplyTarget({
-      request: input,
-      source: null,
-      events: [],
-      pendingAction: null,
-      activeResponse: null,
-    });
-    return;
-  }
+  if (!input.replyToRunId) return;
 
   const sourceResult = await client.query<RunRow>(
     `SELECT * FROM public.tex64_agent_runs
@@ -2079,12 +1705,6 @@ async function assertPostgresRunReplyTarget(
      WHERE user_id = $1 AND run_id = $2 AND stage = 'needs_input'
      ORDER BY sequence DESC
      LIMIT 1`,
-    [input.userId, input.replyToRunId],
-  );
-  const pendingAction = await client.query<PendingActionRow>(
-    `SELECT * FROM public.tex64_pending_document_actions
-     WHERE user_id = $1 AND source_run_id = $2
-     FOR SHARE`,
     [input.userId, input.replyToRunId],
   );
   const activeResponse = await client.query<RunRow>(
@@ -2102,45 +1722,10 @@ async function assertPostgresRunReplyTarget(
     request: input,
     source: sourceResult.rows[0] ? toRun(sourceResult.rows[0]) : null,
     events: events.rows.map(toEvent),
-    pendingAction: pendingAction.rows[0]
-      ? toPendingAction(pendingAction.rows[0])
-      : null,
     activeResponse: activeResponse.rows[0]
       ? toRun(activeResponse.rows[0])
       : null,
   });
-}
-
-async function insertPendingAction(
-  client: PoolClient,
-  input: Parameters<DocumentRepository["setRunNeedsInput"]>[0],
-  patch: StoredPendingDocumentAction["patch"],
-  question: string,
-  now: string,
-): Promise<StoredPendingDocumentAction> {
-  if (!input.pendingAction) throw new PendingDocumentActionConflictError();
-  const inserted = await client.query<PendingActionRow>(
-    `INSERT INTO public.tex64_pending_document_actions
-      (id, user_id, document_id, source_run_id, status, base_revision, patch,
-       patch_digest, summary, question, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, 'pending', $5, $6::jsonb, $7, $8, $9, $10, $10)
-     RETURNING *`,
-    [
-      input.pendingAction.id,
-      input.userId,
-      input.documentId,
-      input.runId,
-      patch.baseRevision,
-      JSON.stringify(patch),
-      input.pendingAction.patchDigest,
-      input.pendingAction.summary,
-      question,
-      now,
-    ],
-  );
-  return assertStoredPendingAction(
-    toPendingAction(inserted.rows[0] as PendingActionRow),
-  );
 }
 
 async function insertNeedsInputEvent(
@@ -2160,12 +1745,6 @@ async function insertNeedsInputEvent(
       eventKey,
       code: input.code,
       question,
-      ...(input.pendingAction
-        ? {
-            pendingActionId: input.pendingAction.id,
-            patchDigest: input.pendingAction.patchDigest,
-          }
-        : {}),
     },
     createdAt: now,
   });
@@ -2281,7 +1860,6 @@ function assertReplyScope(
   source: StoredAgentRun,
   documentId: string,
   sourceRunId: string,
-  decision: StoredAgentRun["decision"],
 ): void {
   if (
     response.id === source.id ||
@@ -2289,212 +1867,9 @@ function assertReplyScope(
     response.documentId !== documentId ||
     source.documentId !== documentId ||
     response.replyToRunId !== sourceRunId ||
-    response.decision !== decision ||
     source.createdAt > response.createdAt
   ) {
     throw new RunReplyConflictError();
-  }
-}
-
-async function updatePendingActionResolution(
-  client: PoolClient,
-  current: StoredPendingDocumentAction,
-  update: Pick<
-    StoredPendingDocumentAction,
-    "status" | "resolvedByRunId" | "appliedRevision" | "updatedAt"
-  >,
-): Promise<StoredPendingDocumentAction> {
-  const updated = await client.query<PendingActionRow>(
-    `UPDATE public.tex64_pending_document_actions
-     SET status = $5,
-         resolved_by_run_id = $6,
-         applied_revision = $7,
-         updated_at = $8
-     WHERE id = $1
-       AND user_id = $2
-       AND document_id = $3
-       AND source_run_id = $4
-       AND status = 'pending'
-       AND resolved_by_run_id IS NULL
-     RETURNING *`,
-    [
-      current.id,
-      current.userId,
-      current.documentId,
-      current.sourceRunId,
-      update.status,
-      update.resolvedByRunId,
-      update.appliedRevision,
-      update.updatedAt,
-    ],
-  );
-  if (!updated.rows[0]) throw new PendingDocumentActionConflictError();
-  return assertStoredPendingAction(toPendingAction(updated.rows[0]));
-}
-
-async function cancelRun(
-  client: PoolClient,
-  current: StoredAgentRun,
-  now: string,
-): Promise<StoredAgentRun> {
-  if (current.status === "cancelled") return current;
-  const prepared = prepareRunUpdate(
-    current,
-    { expectedStateVersion: current.stateVersion, status: "cancelled" },
-    now,
-  );
-  return updateRunRecord(client, current, prepared);
-}
-
-async function markDecisionRunApplied(
-  client: PoolClient,
-  current: StoredAgentRun,
-  revision: number,
-  now: string,
-): Promise<StoredAgentRun> {
-  if (current.status === "completed") {
-    if (current.resultRevision === revision) return current;
-    throw new PendingDocumentActionConflictError(
-      "Completed decision run points to a different revision.",
-    );
-  }
-  if (current.status === "cancelled" || current.status === "failed") {
-    throw new PendingDocumentActionConflictError(
-      "Applied decision run is already terminal with another outcome.",
-    );
-  }
-  if (current.resultRevision !== null) {
-    if (current.resultRevision === revision && current.status === "running") {
-      return current;
-    }
-    throw new PendingDocumentActionConflictError(
-      "Decision run points to a different document revision.",
-    );
-  }
-  const prepared = prepareRunUpdate(
-    current,
-    {
-      expectedStateVersion: current.stateVersion,
-      status: "running",
-      stage: "writing",
-      resultRevision: revision,
-      errorMessage: null,
-    },
-    now,
-  );
-  return updateRunRecord(client, current, prepared);
-}
-
-async function markDecisionRunStale(
-  client: PoolClient,
-  current: StoredAgentRun,
-  message: string,
-  now: string,
-): Promise<StoredAgentRun> {
-  if (
-    current.status === "failed" &&
-    current.stage === "failed" &&
-    current.errorMessage === message
-  ) {
-    return current;
-  }
-  if (
-    current.status === "completed" ||
-    current.status === "cancelled" ||
-    current.status === "failed"
-  ) {
-    throw new PendingDocumentActionConflictError(
-      "Stale decision run is already terminal with another outcome.",
-    );
-  }
-  const prepared = prepareRunUpdate(
-    current,
-    {
-      expectedStateVersion: current.stateVersion,
-      status: "failed",
-      stage: "failed",
-      errorMessage: message,
-    },
-    now,
-  );
-  return updateRunRecord(client, current, prepared);
-}
-
-async function healResolvedDecisionRuns(
-  client: PoolClient,
-  sourceValue: StoredAgentRun,
-  responseValue: StoredAgentRun,
-  action: StoredPendingDocumentAction,
-): Promise<{ source: StoredAgentRun; response: StoredAgentRun }> {
-  const now = new Date().toISOString();
-  const source = await cancelRun(client, sourceValue, now);
-  if (action.status === "applied" && action.appliedRevision !== null) {
-    return {
-      source,
-      response: await markDecisionRunApplied(
-        client,
-        responseValue,
-        action.appliedRevision,
-        now,
-      ),
-    };
-  }
-  if (action.status === "rejected") {
-    return {
-      source,
-      response: await cancelRun(client, responseValue, now),
-    };
-  }
-  if (action.status === "cancelled") {
-    return {
-      source,
-      response: await markDecisionRunStale(
-        client,
-        responseValue,
-        responseValue.errorMessage ??
-          "文書が更新されたため、この変更は適用しませんでした。",
-        now,
-      ),
-    };
-  }
-  throw new PendingDocumentActionConflictError();
-}
-
-async function assertPriorPatchCommit(
-  client: PoolClient,
-  action: StoredPendingDocumentAction,
-  priorCommit: StoredRevision,
-): Promise<void> {
-  const baseResult = await client.query<RevisionRow>(
-    `SELECT * FROM public.tex64_document_revisions
-     WHERE user_id = $1 AND document_id = $2 AND revision = $3
-     FOR SHARE`,
-    [action.userId, action.documentId, action.baseRevision],
-  );
-  const base = baseResult.rows[0] ? toRevision(baseResult.rows[0]) : null;
-  if (!base) throw new DocumentNotFoundError();
-  const expected = applyDocumentPatch(
-    {
-      revisionId: base.commitId,
-      revision: base.revision,
-      parentRevisionId: null,
-      committedAt: base.createdAt,
-      document: base.document,
-    },
-    action.patch,
-  );
-  if (
-    priorCommit.commitId !== action.patch.id ||
-    priorCommit.revision !== action.baseRevision + 1 ||
-    priorCommit.actor !== "agent" ||
-    priorCommit.summary !== action.summary ||
-    canonicalJson(priorCommit.operations) !==
-      canonicalJson(action.patch.operations) ||
-    canonicalJson(priorCommit.document) !== canonicalJson(expected.document)
-  ) {
-    throw new PendingDocumentActionConflictError(
-      "Existing patch commit does not match the pending action.",
-    );
   }
 }
 
@@ -2589,7 +1964,6 @@ function toRun(row: RunRow): StoredAgentRun {
     documentId: row.document_id,
     prompt: row.prompt,
     replyToRunId: row.reply_to_run_id,
-    decision: row.decision,
     targetNodeId: row.target_node_id ?? null,
     idempotencyKey: row.idempotency_key,
     workflowRunId: row.workflow_run_id,
@@ -2616,25 +1990,6 @@ function toRun(row: RunRow): StoredAgentRun {
     errorMessage: row.error_message,
     resultNote: row.result_note ?? null,
     stateVersion: row.state_version,
-    createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at),
-  };
-}
-
-function toPendingAction(row: PendingActionRow): StoredPendingDocumentAction {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    documentId: row.document_id,
-    sourceRunId: row.source_run_id,
-    status: row.status,
-    baseRevision: row.base_revision,
-    patch: row.patch,
-    patchDigest: row.patch_digest,
-    summary: row.summary,
-    question: row.question,
-    resolvedByRunId: row.resolved_by_run_id,
-    appliedRevision: row.applied_revision,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };

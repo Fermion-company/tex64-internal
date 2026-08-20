@@ -2,11 +2,7 @@ import {
   StoredDocumentAgentSessionSchema,
   type StoredDocumentAgentSession,
 } from "@/domain/brief";
-import {
-  DocumentAgentSessionConflictError,
-  RunReplyConflictError,
-  type CreateRunInput,
-} from "./types";
+import { DocumentAgentSessionConflictError } from "./types";
 
 export type DocumentAgentSessionSaveDisposition =
   | "create"
@@ -40,29 +36,6 @@ export function assertDocumentAgentSessionScope(
 ): void {
   if (stored.userId !== userId || stored.documentId !== documentId) {
     throw new Error("Stored document agent session is outside its tenant scope.");
-  }
-}
-
-/**
- * An unanswered intake question is the document's only valid next turn.
- * Enforcing this before run creation keeps unrelated standalone prompts from
- * being accepted and then failing later inside the durable workflow.
- */
-export function assertDocumentAgentSessionReplyTarget(
-  stored: StoredDocumentAgentSession | null,
-  input: Pick<CreateRunInput, "replyToRunId">,
-): void {
-  if (!stored?.session.activeQuestionId) return;
-  const activeQuestion = stored.session.questions.find(
-    (question) => question.id === stored.session.activeQuestionId,
-  );
-  if (!activeQuestion) {
-    throw new Error("The active document question is missing.");
-  }
-  if (input.replyToRunId !== activeQuestion.sourceRunId) {
-    throw new RunReplyConflictError(
-      "The current document question must be answered before another request.",
-    );
   }
 }
 

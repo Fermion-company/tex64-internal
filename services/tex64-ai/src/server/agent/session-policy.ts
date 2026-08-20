@@ -20,21 +20,16 @@ export type DocumentMutationReadiness =
     };
 
 /**
- * A conversational edit run: a fresh prompt (not a clarification answer or an
- * approval decision) against a document that already has content. Derivable
- * from persisted run/document state alone so durable tool steps can recompute
- * it identically on replay.
+ * A conversational edit run: a fresh prompt (not a clarification answer)
+ * against a document that already has content. Derivable from persisted
+ * run/document state alone so durable tool steps can recompute it
+ * identically on replay.
  */
 export function isContentEditRun(input: {
   replyToRunId: string | null;
-  decision: unknown;
   documentHasContent: boolean;
 }): boolean {
-  return (
-    input.decision === null &&
-    input.replyToRunId === null &&
-    input.documentHasContent
-  );
+  return input.replyToRunId === null && input.documentHasContent;
 }
 
 const CONTRACT_CHANGING_EDIT_PATTERN =
@@ -94,14 +89,6 @@ export function parseStronglyScopedLegacyEdit(
   return ordinal === null
     ? null
     : { kind: "section_punctuation", sectionOrdinal: ordinal };
-}
-
-/**
- * Only edits whose target and operation are completely determined may bypass
- * intake for a pre-existing document. Ambiguity deliberately returns false.
- */
-export function isStronglyScopedLegacyEdit(promptValue: string): boolean {
-  return parseStronglyScopedLegacyEdit(promptValue) !== null;
 }
 
 function mapInlineText(value: unknown, transform: (text: string) => string): unknown {

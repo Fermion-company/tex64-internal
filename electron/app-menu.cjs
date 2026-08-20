@@ -1,10 +1,25 @@
 "use strict";
 
+// Custom menu items follow the in-app language (pushed from the renderer via
+// the "uiLocale" message). `role:` items are localized by Electron itself from
+// the OS locale — that part cannot follow the in-app setting.
+const MENU_LABELS = {
+  en: { settings: "Settings…", file: "File", newFile: "New File", newProject: "New Project…", openFolder: "Open Folder…", save: "Save", build: "Build" },
+  ja: { settings: "設定…", file: "ファイル", newFile: "新規ファイル", newProject: "新規プロジェクト…", openFolder: "フォルダを開く…", save: "保存", build: "ビルド" },
+  zh: { settings: "设置…", file: "文件", newFile: "新建文件", newProject: "新建项目…", openFolder: "打开文件夹…", save: "保存", build: "构建" },
+  ko: { settings: "설정…", file: "파일", newFile: "새 파일", newProject: "새 프로젝트…", openFolder: "폴더 열기…", save: "저장", build: "빌드" },
+  fr: { settings: "Réglages…", file: "Fichier", newFile: "Nouveau fichier", newProject: "Nouveau projet…", openFolder: "Ouvrir un dossier…", save: "Enregistrer", build: "Compiler" },
+  de: { settings: "Einstellungen…", file: "Datei", newFile: "Neue Datei", newProject: "Neues Projekt…", openFolder: "Ordner öffnen…", save: "Sichern", build: "Build" },
+  es: { settings: "Ajustes…", file: "Archivo", newFile: "Nuevo archivo", newProject: "Nuevo proyecto…", openFolder: "Abrir carpeta…", save: "Guardar", build: "Compilar" },
+};
+
 const createApplicationMenuTemplate = ({
   appName = "TeX64",
   isMac = process.platform === "darwin",
   sendCommand = () => {},
+  locale = "en",
 } = {}) => {
+  const labels = MENU_LABELS[locale] || MENU_LABELS.en;
   const commandItem = (label, command, accelerator) => ({
     label,
     ...(accelerator ? { accelerator } : {}),
@@ -19,7 +34,7 @@ const createApplicationMenuTemplate = ({
       submenu: [
         { role: "about" },
         { type: "separator" },
-        commandItem("Settings…", "settings:open", "CmdOrCtrl+,"),
+        commandItem(labels.settings, "settings:open", "CmdOrCtrl+,"),
         { type: "separator" },
         { role: "services" },
         { type: "separator" },
@@ -34,15 +49,15 @@ const createApplicationMenuTemplate = ({
 
   template.push(
     {
-      label: "File",
+      label: labels.file,
       submenu: [
-        commandItem("New File", "file:new", "CmdOrCtrl+N"),
+        commandItem(labels.newFile, "file:new", "CmdOrCtrl+N"),
         { type: "separator" },
-        commandItem("New Project…", "project:new", "CmdOrCtrl+Shift+N"),
-        commandItem("Open Folder…", "project:open", "CmdOrCtrl+O"),
+        commandItem(labels.newProject, "project:new", "CmdOrCtrl+Shift+N"),
+        commandItem(labels.openFolder, "project:open", "CmdOrCtrl+O"),
         { type: "separator" },
-        commandItem("Save", "file:save", "CmdOrCtrl+S"),
-        commandItem("Build", "document:build", "CmdOrCtrl+Enter"),
+        commandItem(labels.save, "file:save", "CmdOrCtrl+S"),
+        commandItem(labels.build, "document:build", "CmdOrCtrl+Enter"),
         { type: "separator" },
         { role: isMac ? "close" : "quit" },
       ],

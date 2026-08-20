@@ -14,10 +14,6 @@ import {
   type DocumentModel,
   type DocumentPatch,
 } from "./document-contract";
-import {
-  toolLoopDocumentApproval,
-  workflowNeedsApproval,
-} from "./policy";
 import { serializableToolSchema } from "./language-model";
 
 const gatewayTools = gateway.tools;
@@ -281,31 +277,6 @@ export const ResolveSourceResultSchema = z.discriminatedUnion("status", [
 
 export type ResolveSourceResult = z.infer<typeof ResolveSourceResultSchema>;
 
-export const DeleteDocumentInputSchema = z
-  .object({
-    reason: z.string().min(1).max(500),
-  })
-  .strict();
-
-export const PublishDocumentInputSchema = z
-  .object({
-    revision: z.number().int().nonnegative(),
-    visibility: z.enum(["private_link", "public"]),
-  })
-  .strict();
-
-export const RunExpensiveTaskInputSchema = z
-  .object({
-    task: z.enum([
-      "deep_research",
-      "full_document_rewrite",
-      "visual_quality_review",
-      "bulk_citation_check",
-    ]),
-    objective: z.string().min(1).max(2_000),
-  })
-  .strict();
-
 export const DocumentMutationResultSchema = z
   .object({
     ok: z.literal(true),
@@ -337,26 +308,6 @@ export const DocumentCheckResultSchema = z
   .strict();
 
 export type DocumentCheckResult = z.infer<typeof DocumentCheckResultSchema>;
-
-export const PublicationResultSchema = z
-  .object({
-    ok: z.literal(true),
-    revision: z.number().int().nonnegative(),
-    url: z.string().url(),
-  })
-  .strict();
-
-export type PublicationResult = z.infer<typeof PublicationResultSchema>;
-
-export const ExpensiveTaskResultSchema = z
-  .object({
-    ok: z.literal(true),
-    summary: z.string().min(1).max(2_000),
-    suggestedPatch: DocumentPatchSchema.optional(),
-  })
-  .strict();
-
-export type ExpensiveTaskResult = z.infer<typeof ExpensiveTaskResultSchema>;
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
@@ -393,34 +344,6 @@ export interface DocumentToolHandlers {
     context: DocumentToolContext,
     execution?: DocumentToolExecution,
   ): MaybePromise<ResolveSourceResult>;
-  deleteDocument(
-    input: z.infer<typeof DeleteDocumentInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<{ ok: true }>;
-  publishDocument(
-    input: z.infer<typeof PublishDocumentInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<PublicationResult>;
-  runExpensiveTask(
-    input: z.infer<typeof RunExpensiveTaskInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<ExpensiveTaskResult>;
-}
-
-export type DocumentWorkflowApprovalMode =
-  | "workflow_suspend"
-  | "external_run";
-
-export interface CreateDocumentToolsOptions {
-  /**
-   * Suspending approval is only safe after its response API is connected.
-   * External-run mode leaves approval persistence to the durable handlers.
-   * @default "external_run"
-   */
-  approvalMode?: DocumentWorkflowApprovalMode;
 }
 
 function assertDocumentScope(
@@ -432,17 +355,9 @@ function assertDocumentScope(
   }
 }
 
-/**
- * Shared AI SDK tool set. WorkflowAgent reads `needsApproval`; ToolLoopAgent
- * uses the exported `documentToolLoopApproval` policy below.
- */
-export function createDocumentTools(
-  handlers: DocumentToolHandlers,
-  options: CreateDocumentToolsOptions = {},
-) {
-  const usesWorkflowSuspension =
-    (options.approvalMode ?? "external_run") === "workflow_suspend";
-
+/** Shared AI SDK tool set. Every edit executes autonomously; undo is the
+ * document revision history. */
+export function createDocumentTools(handlers: DocumentToolHandlers) {
   return {
     read_document: tool({
       description:
@@ -472,9 +387,6 @@ export function createDocumentTools(
       inputSchema: ApplyDocumentPatchModelInputSchema,
       outputSchema: DocumentMutationResultSchema,
       contextSchema: DocumentToolContextSchema,
-      needsApproval: usesWorkflowSuspension
-        ? (input) => workflowNeedsApproval("apply_document_patch", input)
-        : false,
       execute: (input, { context, toolCallId, messages }) => {
         assertDocumentScope(input.patch, context);
         return handlers.applyDocumentPatch(input, context, {
@@ -512,52 +424,10 @@ export function createDocumentTools(
       execute: (input, { context, toolCallId, messages }) =>
         handlers.requestInput(input, context, { toolCallId, messages }),
     }),
-
-    delete_document: tool({
-      description: "現在の文書全体を削除する。必ずユーザー承認を受ける。",
-      inputSchema: serializableToolSchema(DeleteDocumentInputSchema),
-      outputSchema: z.object({ ok: z.literal(true) }).strict(),
-      contextSchema: DocumentToolContextSchema,
-      needsApproval: usesWorkflowSuspension,
-      execute: (input, { context, toolCallId, messages }) =>
-        handlers.deleteDocument(input, context, { toolCallId, messages }),
-    }),
-
-    publish_document: tool({
-      description: "確定した文書版を公開する。必ずユーザー承認を受ける。",
-      inputSchema: serializableToolSchema(PublishDocumentInputSchema),
-      outputSchema: PublicationResultSchema,
-      contextSchema: DocumentToolContextSchema,
-      needsApproval: usesWorkflowSuspension,
-      execute: (input, { context, toolCallId, messages }) =>
-        handlers.publishDocument(input, context, { toolCallId, messages }),
-    }),
-
-    run_expensive_task: tool({
-      description:
-        "深い調査、全文改稿、全ページ視覚検査など高コスト処理を行う。必ずユーザー承認を受ける。",
-      inputSchema: serializableToolSchema(RunExpensiveTaskInputSchema),
-      outputSchema: ExpensiveTaskResultSchema,
-      contextSchema: DocumentToolContextSchema,
-      needsApproval: usesWorkflowSuspension,
-      execute: (input, { context, toolCallId, messages }) =>
-        handlers.runExpensiveTask(input, context, { toolCallId, messages }),
-    }),
   } as const;
 }
 
 export type DocumentTools = ReturnType<typeof createDocumentTools>;
-
-export const documentToolLoopApproval = toolLoopDocumentApproval;
-
-export function createDocumentToolLoopSettings(
-  handlers: DocumentToolHandlers,
-) {
-  return {
-    tools: createDocumentTools(handlers),
-    toolApproval: documentToolLoopApproval,
-  } as const;
-}
 
 export function createDocumentToolsContext(context: DocumentToolContext) {
   const parsed = DocumentToolContextSchema.parse(context);
@@ -568,9 +438,6 @@ export function createDocumentToolsContext(context: DocumentToolContext) {
     check_document: parsed,
     format_document: parsed,
     request_input: parsed,
-    delete_document: parsed,
-    publish_document: parsed,
-    run_expensive_task: parsed,
   } satisfies Record<
     Exclude<keyof DocumentTools, "search_sources">,
     DocumentToolContext

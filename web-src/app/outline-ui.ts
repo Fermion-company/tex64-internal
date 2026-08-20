@@ -60,10 +60,12 @@ export const initOutlineUi = (context: AppContext, deps: OutlineDeps): OutlineUi
     return filterEntriesForCurrent(entries);
   };
 
+  // English for every locale except Japanese: the old non-en branch served
+  // machine-mangled English ("measure", "small paragraph") to all six locales.
   const resolveSectionLabels = () =>
-    getUiLocale() === "en"
-      ? ["Chapter", "Section", "Subsection", "Item", "Subitem", "Paragraph", "Subparagraph"]
-      : ["chapter", "section", "measure", "term", "subsection", "paragraph", "small paragraph"];
+    getUiLocale() === "ja"
+      ? ["章", "節", "小節", "項", "小項", "段落", "小段落"]
+      : ["Chapter", "Section", "Subsection", "Item", "Subitem", "Paragraph", "Subparagraph"];
 
   const renderModeButtons = () => {
     if (outlineModeCurrent instanceof HTMLButtonElement) {

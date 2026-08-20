@@ -21,29 +21,6 @@ const DOCUMENT_KINDS: Array<{
   { value: "memo", label: "メモ", icon: FilePenLine },
 ];
 
-const STARTERS: Record<DocumentKind, readonly string[]> = {
-  proposal: [
-    "新規事業の企画を1枚で伝わる提案書にする",
-    "研究助成の申請に向けた提案書を作る",
-    "業務改善の施策を意思決定者向けにまとめる",
-  ],
-  report: [
-    "実験結果を図表つきの報告書にまとめる",
-    "メモから読みやすい調査報告書にまとめる",
-    "月次の進捗を簡潔な報告書にする",
-  ],
-  paper: [
-    "研究テーマから論文の骨子を作る",
-    "手法と実験結果を学術論文の形式でまとめる",
-    "定理と証明を含む数学のノートを書く",
-  ],
-  memo: [
-    "打ち合わせの内容を決定事項中心のメモにする",
-    "読んだ論文の要点を整理したメモを作る",
-    "アイデアを構造化した検討メモにする",
-  ],
-};
-
 export function NewDocumentPanel({ creating, connectionError, onSubmit }: NewDocumentPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [kind, setKind] = useState<DocumentKind>("paper");
@@ -107,24 +84,11 @@ export function NewDocumentPanel({ creating, connectionError, onSubmit }: NewDoc
         </button>
       </div>
 
-      <div className="starter-prompts" aria-label="入力例">
-        {connectionError ? (
+      {connectionError ? (
+        <div className="starter-prompts">
           <span role="alert">接続できません。少し待ってから、もう一度お試しください。</span>
-        ) : (
-          STARTERS[kind].map((starter) => (
-            <button
-              key={starter}
-              type="button"
-              onClick={() => {
-                setPrompt(starter);
-                textareaRef.current?.focus();
-              }}
-            >
-              {starter}
-            </button>
-          ))
-        )}
-      </div>
+        </div>
+      ) : null}
     </section>
   );
 }
