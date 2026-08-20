@@ -54,6 +54,8 @@ Code モードの設定トグルで有効化する、書きながら組版され
 
 ## 解決済みの問題
 
+- **編集中に旧行と新行が同時に表示される（行の重複・欠落・混在）**（2026-08-20 解決、tdom-core 03c72a3）: クライアントは「canonical 画像を全面に重ね、編集で変わった y 帯だけ窓を開けて provisional を見せる」帯スプライスをしていたが、この合成は帯の外で provisional と canonical のレイアウトが一致している前提で、その検証がどこにもなかった。float/脚注の近似・改ページの相違・入力途中の壊れた文書などでレイアウトがドリフトすると、canonical の旧行と provisional の編集行が同時に見える（実機で provisional と canonical の改ページが 1 ページ近くずれる状態まで再現・確認）。**ページの収束を二値化**（そのページを現ソースの canonical が保証していれば canonical 全面、編集後は provisional 全面）して構造的に混在を排除した。帯最適化を戻す場合はエンジンが canonical の行座標を保証する仕組みが前提（将来課題）。
+
 - **\maketitle 直下の編集が canonical 待ちになる**（2026-08-20 解決、tdom-core 082439a）: 空行を挟まず `\maketitle` の次の行に書いた本文が同一ブロックに併合され、そのブロックの常駐組版がタイムアウト（`timeout waiting for galley:bNN`）→ rescue もタイムアウト → 空ギャレーで凍結すると、以降の打鍵が「空→空」の再組版になり dirtyPages [] / patches 0（表示は canonical 到着まで更新されない）となっていた。対処は 2 層:
   1. **segmenter**: 単独行の生成系コマンド（\maketitle / \tableofcontents / \listoffigures / \listoftables）を前後両側で独立ブロック化。直下の本文は別ブロックになり、打鍵でタイトルブロックが再キーされない。
   2. **エンジンの自己修復**: fork() 失敗は daemon が `FORKFAIL` を即時通知（従来は無通知で 12 秒タイムアウト、しかも `FORKED -1` を送って kill(-1) を誘発し得た）。「fork 失敗」「子プロセスが一度も名乗らないタイムアウト」はブロック凍結ではなく**全面再構築リトライ（root 再ブート）へエスカレート**し数秒で治癒。タイムアウト二連発の凍結時は当該 checkpoint lineage を退役させ、次の編集は健全な snapshot から fork。子が名乗った後に黙るハング（ユーザーの壊れた TeX による無限ループの形）は従来どおりブロック単位の封じ込め。galley タイムアウトには forensics（ckpt 番号・FORKED 有無）が diagnostics に残る。fault 注入テスト `tests/infra-escalation.test.js`（`--test-force-exit` で実行）で 3 経路とも検証済み。
