@@ -14,6 +14,8 @@ import { initFileTreeUi } from "./app/file-tree-ui.js";
 import { initMathCaptureUi } from "./app/math-capture-ui.js";
 import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
+import { initOnboardingUi } from "./app/onboarding-ui.js";
+import type { TexInstallVariant } from "./app/tex-env-report.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 
 import { createFilePreviewBroker } from "./app/file-preview.js";
@@ -53,10 +55,8 @@ import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./ap
 import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCaptureUi } from "./app/pro-capture-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
-import { initProCanvasGallery } from "./app/pro-canvas/gallery-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
-import { initProLivePreview } from "./app/pro-live-preview.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -254,8 +254,49 @@ export const initMain = () => {
       setSettingsTabAlert(hasAttention);
     },
     onRuntimeSetupNeeded: () => {
+      if (onboardingUi.isVisible()) {
+        return;
+      }
       setActiveTab("settings");
       settingsUi.openSettingsPage("env");
+    },
+    onRuntimeDetection: (report, summary) => {
+      // Trust the per-command sweep when it has finished, and the detection
+      // report on its own before that — right after an install the sweep is
+      // momentarily empty, and the gate must not flash back to the choice.
+      const ready = summary?.hasAnyResult ? summary.runtimeReady : Boolean(report?.ready);
+      if (ready) {
+        if (onboardingUi.isVisible()) {
+          onboardingUi.finish();
+        }
+        return;
+      }
+      if (onboardingUi.isVisible()) {
+        return;
+      }
+      onboardingUi.showChoice();
+    },
+    onRuntimeInstallEvent: (event) => {
+      const variant: TexInstallVariant = "full";
+      if (!onboardingUi.isVisible()) {
+        return;
+      }
+      if (event.kind === "result") {
+        if (event.success) {
+          // The whole point of the gate: the editor appears the moment TeX works.
+          onboardingUi.finish();
+        } else {
+          onboardingUi.showFailure(event.message ?? "");
+        }
+        return;
+      }
+      onboardingUi.showProgress({
+        variant,
+        percent: event.kind === "start" ? 0 : event.percent ?? null,
+        phase: event.phase ?? "",
+        current: event.current ?? null,
+        total: event.total ?? null,
+      });
     },
     onRequestFirstBuild: () => {
       setActiveTab("files");
@@ -290,6 +331,23 @@ export const initMain = () => {
     },
   });
   
+  // First-run gate for TeX. It is created before anything asks about the
+  // environment so the very first detection result can raise it, and it sits
+  // above the launcher: a machine without TeX answers this before picking a
+  // project.
+  const revealAppBehindOnboarding = () => {
+    if (!getWorkspaceRootKey()) {
+      launcherUi.setVisible(true);
+      launcherUi.setStatus({ isBusy: false, message: null });
+    }
+  };
+  const onboardingUi = initOnboardingUi({
+    startInstall: (variant: TexInstallVariant) => {
+      postToNative({ type: "env:install", target: "basictex", variant });
+    },
+    onFinished: revealAppBehindOnboarding,
+  });
+
   // Request recent projects on startup
   postToNative({ type: "getRecentProjects" });
   const fileTreeUi = initFileTreeUi(appContext, {
@@ -385,9 +443,12 @@ export const initMain = () => {
     setSplitViewEnabled: editorSession.setSplitViewEnabled,
     getSplitViewEnabled: editorSession.getSplitViewEnabled,
   });
-  initProLivePreview({ getActiveGroup: editorSession.getActiveGroup });
   initProStashUi({
     getActiveGroup: editorSession.getActiveGroup,
+    revealStash: () => {
+      setActiveTab("stash");
+      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
+    },
   });
   initProCaptureUi({
     getActiveGroup: editorSession.getActiveGroup,
@@ -396,9 +457,7 @@ export const initMain = () => {
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
     getWorkspaceFiles,
-    getRootFilePath,
   });
-  initProCanvasGallery({ getActiveGroup: editorSession.getActiveGroup });
   const aiModeApi = initAiModeUi();
   initAppModeUi({
     initialMode: resolveInitialAppMode(
@@ -765,7 +824,21 @@ export const initMain = () => {
   issuesUi = initIssuesUi(appContext, {
     parseIssueDetail: editorSession.parseIssueDetail,
     onFocusIssue: (issue) => {
-      editorSession.focusIssue(issue);
+      // An error opens *beside* what you are writing, not on top of it: the
+      // offending file goes into the other pane. Pro mode runs its own pane
+      // layout and hides the secondary group, so there we jump in place.
+      const detail = editorSession.parseIssueDetail(issue);
+      const proMode = document.documentElement.dataset.proMode === "true";
+      if (proMode || !detail.path) {
+        editorSession.focusIssue(issue);
+        return;
+      }
+      const groupKey =
+        editorSession.getActiveEditorGroupKey() === "secondary" ? "primary" : "secondary";
+      if (groupKey === "secondary" && !editorSession.getSplitViewEnabled()) {
+        editorSession.setSplitViewEnabled(true);
+      }
+      editorSession.focusIssue(issue, { groupKey });
     },
     onOpenRuntimeSettings: () => {
       setActiveTab("settings");
@@ -1024,7 +1097,11 @@ export const initMain = () => {
     },
     settings: {
       updateEnvStatus: (command, available) => settingsUi.updateEnvStatus(command, available),
+      handleEnvDetectResult: (payload) => settingsUi.handleEnvDetectResult(payload),
       handleEnvInstallStart: (payload) => settingsUi.handleEnvInstallStart(payload),
+      // Without this the install progress bar never moves: the events arrive on
+      // the bridge and land on an undefined handler.
+      handleEnvInstallProgress: (payload) => settingsUi.handleEnvInstallProgress(payload),
       handleEnvInstallResult: (payload) => settingsUi.handleEnvInstallResult(payload),
       getSettingsSnapshot: () => settingsUi.getSettingsSnapshot(),
       applySettingsPatch: (patch) => settingsUi.applySettingsPatch(patch),

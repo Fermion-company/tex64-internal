@@ -17,7 +17,11 @@ const DEFAULT_STATE: ProModeState = {
   ratios: [0.34, 0.33, 0.33],
   collapsed: { preview: false, source: false, reference: false, code: true },
 };
-export const PRO_PANE_MIN_PX = 96;
+// A pane narrower than its own header pushes the header's buttons out of the
+// pane, where overflow: hidden clips them and they stop taking clicks. So the
+// minimum is "the header still fits"; drag past it and the pane collapses to
+// its strip instead of becoming a sliver of dead controls.
+export const PRO_PANE_MIN_PX = 220;
 
 export type ProSplitterDragResult = { ratios: [number, number, number]; collapse: ProPane | null };
 
@@ -86,7 +90,8 @@ export const parseProModeState = (raw: string | null): ProModeState => {
     const collapsed = value.collapsed ?? {} as Record<ProPane, boolean>;
     return {
       enabled: value.enabled === true,
-      layout: value.layout === "source-reference-code" ? value.layout : "preview-source",
+      layout:
+        value.layout === "source-reference-code" ? value.layout : "preview-source",
       ratios: clampProRatios(Array.isArray(value.ratios) ? value.ratios : DEFAULT_STATE.ratios),
       collapsed: {
         preview: collapsed.preview === true,
@@ -125,9 +130,17 @@ export const createProSplitViewCoordinator = (deps: ProModeDeps) => {
 export const initProModeUi = (deps: ProModeDeps) => {
   const root = document.getElementById("editor-groups");
   const switcher = document.getElementById("pro-layout-switcher");
+  const layoutControl = document.getElementById("pro-layout-control");
+  const layoutTrigger = document.getElementById("pro-layout-trigger");
   if (!(root instanceof HTMLElement)) return null;
 
   let state = parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY));
+  let suppressLayoutFocusOpen = false;
+  const setLayoutMenuOpen = (open: boolean) => {
+    const next = open && state.enabled;
+    layoutControl?.classList.toggle("is-open", next);
+    layoutTrigger?.setAttribute("aria-expanded", String(next));
+  };
   const previewViewer = createViewer({
     editorViewer: document.getElementById("pro-preview-viewer"),
     editorViewerImage: document.getElementById("pro-preview-image") as HTMLImageElement | null,
@@ -146,12 +159,16 @@ export const initProModeUi = (deps: ProModeDeps) => {
   const scheduleLayout = () => requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   const apply = () => {
     document.documentElement.dataset.proMode = state.enabled ? "true" : "false";
+    // Pro-only sidebar surfaces (the stash) follow the mode, and the sidebar
+    // owns its own tab visibility, so tell it instead of reaching into it.
+    window.dispatchEvent(
+      new CustomEvent("tex64:pro-mode", { detail: { enabled: state.enabled } })
+    );
     root.dataset.proLayout = state.layout;
     if (switcher instanceof HTMLElement) switcher.hidden = !state.enabled;
+    if (!state.enabled) setLayoutMenuOpen(false);
     const canvasButton = document.getElementById("pro-canvas-open");
     if (canvasButton instanceof HTMLButtonElement) canvasButton.hidden = !state.enabled;
-    const galleryButton = document.getElementById("pro-canvas-gallery");
-    if (galleryButton instanceof HTMLButtonElement) galleryButton.hidden = !state.enabled;
     const previewPane = document.getElementById("pro-preview-pane");
     const referencePane = document.getElementById("pro-reference-pane");
     previewPane?.setAttribute(
@@ -174,7 +191,7 @@ export const initProModeUi = (deps: ProModeDeps) => {
       });
     });
     root.querySelectorAll<HTMLButtonElement>("[data-pro-layout]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.proLayout === state.layout));
+      button.setAttribute("aria-checked", String(button.dataset.proLayout === state.layout));
     });
     syncSplitView(state.enabled, state.layout);
     scheduleLayout();
@@ -186,11 +203,48 @@ export const initProModeUi = (deps: ProModeDeps) => {
     apply();
   };
 
-  document.querySelectorAll<HTMLButtonElement>("[data-pro-layout]").forEach((button) => {
+  const layoutButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-pro-layout]"));
+  layoutButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const layout = button.dataset.proLayout as ProLayout;
       if (layout === "preview-source" || layout === "source-reference-code") update({ layout });
+      setLayoutMenuOpen(false);
+      suppressLayoutFocusOpen = true;
+      if (layoutTrigger instanceof HTMLButtonElement) layoutTrigger.focus({ preventScroll: true });
+      queueMicrotask(() => { suppressLayoutFocusOpen = false; });
     });
+  });
+  layoutControl?.addEventListener("pointerenter", () => setLayoutMenuOpen(true));
+  layoutControl?.addEventListener("pointerleave", () => setLayoutMenuOpen(false));
+  layoutTrigger?.addEventListener("focus", () => {
+    if (!suppressLayoutFocusOpen) setLayoutMenuOpen(true);
+  });
+  layoutTrigger?.addEventListener("click", () => {
+    setLayoutMenuOpen(true);
+  });
+  layoutTrigger?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown") return;
+    event.preventDefault();
+    setLayoutMenuOpen(true);
+    layoutButtons[0]?.focus();
+  });
+  switcher?.addEventListener("keydown", (event) => {
+    const current = layoutButtons.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setLayoutMenuOpen(false);
+      suppressLayoutFocusOpen = true;
+      if (layoutTrigger instanceof HTMLButtonElement) layoutTrigger.focus({ preventScroll: true });
+      queueMicrotask(() => { suppressLayoutFocusOpen = false; });
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const offset = event.key === "ArrowDown" ? 1 : -1;
+    layoutButtons[(current + offset + layoutButtons.length) % layoutButtons.length]?.focus();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (layoutControl && !layoutControl.contains(event.target as Node)) setLayoutMenuOpen(false);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-pro-collapse]").forEach((button) => {
     button.addEventListener("click", () => {

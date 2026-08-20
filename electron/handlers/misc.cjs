@@ -70,11 +70,29 @@ const createMiscHandlers = (deps) => {
     sendToRenderer("env:checkResult", { command, available: result });
   };
 
-  const handleEnvInstall = async (target) => {
-    sendToRenderer("env:installStart", { target });
-    const result = await envService.installEnvironment(target, (progress) => {
-      sendToRenderer("env:installProgress", { target, ...progress });
-    });
+  // One structured probe of the whole machine, used by the setup screen to decide
+  // between "you are already set" and which install to offer.
+  const handleEnvDetect = async (options = {}) => {
+    try {
+      const report = await envService.detectEnvironment({ force: options?.force === true });
+      sendToRenderer("env:detectResult", { report });
+    } catch (error) {
+      sendToRenderer("env:detectResult", {
+        report: null,
+        error: typeof error?.message === "string" ? error.message : "Detection failed.",
+      });
+    }
+  };
+
+  const handleEnvInstall = async (target, variant) => {
+    sendToRenderer("env:installStart", { target, variant });
+    const result = await envService.installEnvironment(
+      target,
+      (progress) => {
+        sendToRenderer("env:installProgress", { target, ...progress });
+      },
+      { variant }
+    );
     sendToRenderer("env:installResult", { target, ...result });
     const commands =
       target === "basictex" || target === "synctex"
@@ -88,6 +106,7 @@ const createMiscHandlers = (deps) => {
       const available = await envService.checkCommand(command);
       sendToRenderer("env:checkResult", { command, available });
     }
+    await handleEnvDetect({ force: true });
   };
 
   const handleBlocksSave = async (entry) => {
@@ -167,6 +186,7 @@ const createMiscHandlers = (deps) => {
 
   return {
     handleEnvCheck,
+    handleEnvDetect,
     handleEnvInstall,
     handleBlocksSave,
     handleApiUsageGet,

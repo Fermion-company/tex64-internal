@@ -29,7 +29,6 @@ const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
 const { TexizeService } = require("./services/texize.cjs");
-const { FermionEngineService } = require("./services/fermion-engine.cjs");
 const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
@@ -49,7 +48,6 @@ const {
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
-const { registerFermionEngineHandlers } = require("./handlers/fermion-engine.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 
@@ -248,8 +246,6 @@ const blocksStore = new BlocksStore();
 const envService = new EnvService();
 let mathOcrService = null;
 let texizeService = null;
-let fermionEngineService = null;
-let canvasFermionEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
@@ -284,15 +280,6 @@ const getAiWebService = () => {
   }
   return aiWebService;
 };
-const getFermionEngineService = () => {
-  if (!fermionEngineService) fermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
-  return fermionEngineService;
-};
-const getCanvasFermionEngineService = () => {
-  if (!canvasFermionEngineService) canvasFermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
-  return canvasFermionEngineService;
-};
-
 const getTexlabService = () => {
   if (!texlabService) {
     texlabService = new TexlabService({
@@ -852,12 +839,6 @@ app.on("window-all-closed", () => {
   if (texizeService) {
     texizeService.shutdown();
   }
-  if (fermionEngineService) {
-    fermionEngineService.shutdown();
-  }
-  if (canvasFermionEngineService) {
-    canvasFermionEngineService.shutdown();
-  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
@@ -870,12 +851,6 @@ app.on("before-quit", () => {
   }
   if (texizeService) {
     texizeService.shutdown();
-  }
-  if (fermionEngineService) {
-    fermionEngineService.shutdown();
-  }
-  if (canvasFermionEngineService) {
-    canvasFermionEngineService.shutdown();
   }
 });
 
@@ -1040,7 +1015,6 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
-registerFermionEngineHandlers({ ipcMain, getFermionEngineService, getCanvasFermionEngineService });
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 
 // AI-mode webview guests: window.open / target=_blank goes to the system
@@ -1682,10 +1656,15 @@ ipcMain.on("tex64", (_event, message) => {
     miscHandlers.handleEnvCheck(message.command);
     return;
   }
-  if (type === "env:install") {
-    miscHandlers.handleEnvInstall(message.target);
+  if (type === "env:detect") {
+    miscHandlers.handleEnvDetect({ force: message.force === true });
     return;
   }
+  if (type === "env:install") {
+    miscHandlers.handleEnvInstall(message.target, message.variant);
+    return;
+  }
+
 });
 
 ipcMain.on("tex64:pdf", (_event, message) => {

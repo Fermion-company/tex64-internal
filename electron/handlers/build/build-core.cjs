@@ -158,9 +158,19 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           pdfWindowManager.show(result.pdfPath);
         }
         sendBuildState("success", result.summary);
-        // Keep writing flow calm: clear issues and build log on each successful build.
-        sendIssues(0, result.summary, "success", []);
-        sendBuildLog(null);
+        // A build can succeed and still have plenty to say — undefined
+        // references, missing images, overfull lines. Those used to be thrown
+        // away along with the log, which left the panel empty on exactly the
+        // runs where a reader wants to look something up. Keep them; the panel
+        // renders a non-fatal run differently from a stopped one.
+        const successIssues = result.issues ?? [];
+        sendIssues(
+          successIssues.length,
+          result.summary,
+          successIssues.length > 0 ? "info" : "success",
+          successIssues
+        );
+        sendBuildLog(result.log ?? null);
         return;
       }
       sendBuildState("failed", "PDF not found.");
@@ -170,18 +180,13 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       return;
     }
     if (result.kind === "failure") {
+      // A failed build used to send errors only, so everything non-fatal the run
+      // reported (undefined references, missing images, overfull lines) was
+      // thrown away and the panel could not tell the two apart. Send both, with
+      // the blockers first; the panel styles them differently.
       const errorIssues = result.issues.filter((issue) => issue.severity === "error");
       const warningIssues = result.issues.filter((issue) => issue.severity === "warning");
-      const shouldIncludeWarnings =
-        errorIssues.length === 1 &&
-        warningIssues.length > 0 &&
-        /Warnings alone cannot identify the cause/.test(errorIssues[0]?.message ?? "");
-      const displayIssues =
-        errorIssues.length > 0
-          ? shouldIncludeWarnings
-            ? [errorIssues[0], ...warningIssues].slice(0, 20)
-            : errorIssues
-          : result.issues;
+      const displayIssues = [...errorIssues, ...warningIssues].slice(0, 20);
       const count = Math.max(displayIssues.length, 1);
       const summaryText = displayIssues[0]?.message ?? result.summary;
       sendBuildState("failed", result.summary);

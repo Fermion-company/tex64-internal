@@ -176,20 +176,3 @@ export const decodeFigureBlockAt = (lines, cursorLine) => {
     const body = `${lines.slice(bodyStart, endLine + 1).join("\n")}\n`;
     return { scene, startLine, endLine, detached: fnv1a32(body) !== ((v2 === null || v2 === void 0 ? void 0 : v2[1]) || v1[1].toLowerCase()) };
 };
-export const listFigureBlocks = (lines) => {
-    const blocks = [];
-    for (let line = 0; line < lines.length;) {
-        if (!isFigureHeaderLine(lines[line])) {
-            line++;
-            continue;
-        }
-        const decoded = decodeFigureBlockAt(lines, line);
-        if (!decoded) {
-            line++;
-            continue;
-        }
-        blocks.push(decoded);
-        line = decoded.endLine + 1;
-    }
-    return blocks;
-};

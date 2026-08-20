@@ -1,7 +1,5 @@
 import { uiText } from "./i18n.js";
-import { insertAtEditorCursor } from "./pro-editor-insert.js";
 export const PRO_STASH_STORAGE_KEY = "tex64.proStash.v1";
-export const PRO_STASH_UI_STORAGE_KEY = "tex64.proStashUi.v1";
 export const PRO_STASH_MAX_BYTES = 8 * 1024 * 1024;
 export const reorderStashItems = (items, from, to) => {
     const next = [...items];
@@ -11,20 +9,11 @@ export const reorderStashItems = (items, from, to) => {
     next.splice(to, 0, item);
     return next;
 };
-export const snapStashSide = (clientX, viewportWidth) => clientX < viewportWidth / 2 ? "left" : "right";
-export const clampStashWidth = (width, viewportWidth, min = 260, max = 560) => Math.round(Math.min(Math.max(width, min), Math.min(max, Math.max(min, viewportWidth - 32))));
-// The tray starts collapsed: expanded, it is a 340px panel floating over the
-// bottom-right of the editor, and on first run it covered the very code the
-// canvas had just inserted. Collapsed it is a pill that still shows its name
-// and count, so it stays discoverable without hiding the document.
-export const parseProStashUiState = (raw, viewportWidth = 1024) => {
-    try {
-        const value = JSON.parse(raw || "{}");
-        return { side: value.side === "left" ? "left" : "right", width: clampStashWidth(Number(value.width) || 340, viewportWidth), collapsed: value.collapsed !== false };
-    }
-    catch {
-        return { side: "right", width: 340, collapsed: true };
-    }
+// "Copy all" is plain text, so images have nothing to contribute: report how
+// many were left out instead of pasting base64 blobs into someone's document.
+export const stashClipboardText = (items) => {
+    const texts = items.filter((item) => item.kind === "text");
+    return { text: texts.map((item) => item.content).join("\n\n"), skipped: items.length - texts.length };
 };
 export const buildStashEditPrompt = (items, instruction) => ({
     system: 'You are a LaTeX editing assistant. Apply the user\'s instruction to the numbered fragments and return the results, still numbered. Omit any fragment the instruction says to delete. Keep each fragment in its own language. Reply with JSON only: {"items": [{"n": <number>, "text": "..."}]}.',
@@ -75,44 +64,58 @@ export const runStashAiEdit = async (items, instruction, deps) => {
         createdAt: now + index,
     }));
 };
+const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => { var _a; return reject((_a = reader.error) !== null && _a !== void 0 ? _a : new Error("clipboard image could not be read")); };
+    reader.readAsDataURL(blob);
+});
+const dataTransferImages = (data) => { var _a; return Array.from((_a = data === null || data === void 0 ? void 0 : data.files) !== null && _a !== void 0 ? _a : []).filter((file) => file.type.startsWith("image/")); };
 export const initProStashUi = (deps) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e;
     const bridge = window;
+    const panel = document.querySelector('.panel[data-panel="stash"]');
+    if (!panel)
+        return { add: () => { } };
     let items = [];
     let result = null;
-    let uiState = parseProStashUiState(localStorage.getItem(PRO_STASH_UI_STORAGE_KEY), window.innerWidth);
     try {
         const saved = JSON.parse(localStorage.getItem(PRO_STASH_STORAGE_KEY) || "[]");
         if (Array.isArray(saved))
             items = saved.filter((x) => x && (x.kind === "image" || x.kind === "text") && typeof x.content === "string");
     }
     catch { /* ignore corrupt storage */ }
-    const root = document.createElement("aside");
-    root.className = "pro-stash";
-    root.innerHTML = `<div class="pro-stash-resizer" aria-hidden="true"></div><header><button data-stash-toggle aria-expanded="true">▾</button><strong>${uiText("Stash", "スタッシュ")}</strong><span data-stash-count></span><button data-stash-clear>${uiText("Clear", "全クリア")}</button></header><div class="pro-stash-body"><div class="pro-stash-list"></div><div class="pro-stash-dropzone">${uiText("Drop selected text here", "選択テキストをここへドロップ")}</div><button data-stash-selection>＋ ${uiText("Selection", "選択範囲")}</button><textarea data-stash-instruction rows="3" placeholder="${uiText("Swap 1 and 2, shorten 5, remove 6", "1と2を入れ替え、5はもっと短く、6は丸々カット")}"></textarea><div class="pro-stash-actions"><button data-stash-ai>${uiText("AI edit", "AI編集")}</button><span data-stash-status></span></div><div class="pro-stash-output" hidden><button data-stash-apply>${uiText("Apply", "適用")}</button><button data-stash-discard>${uiText("Discard", "破棄")}</button><button data-stash-insert>${uiText("Insert all at cursor", "全部をカーソル位置に挿入")}</button><button data-stash-copy>${uiText("Copy", "コピー")}</button></div></div>`;
-    document.body.appendChild(root);
-    const list = root.querySelector(".pro-stash-list");
-    const status = root.querySelector("[data-stash-status]");
-    const output = root.querySelector(".pro-stash-output");
-    const persistUi = () => localStorage.setItem(PRO_STASH_UI_STORAGE_KEY, JSON.stringify(uiState));
-    const applyUi = () => {
-        var _a;
-        root.dataset.side = uiState.side;
-        root.style.width = `${uiState.width}px`;
-        root.classList.toggle("is-collapsed", uiState.collapsed);
-        (_a = root.querySelector("[data-stash-toggle]")) === null || _a === void 0 ? void 0 : _a.setAttribute("aria-expanded", String(!uiState.collapsed));
-    };
+    panel.innerHTML = `<div class="panel-header"><span class="panel-title">${uiText("Stash", "スタッシュ")}</span><div class="panel-header-actions"><span data-stash-count>0</span><button class="panel-button ghost" data-stash-clear type="button">${uiText("Clear", "全クリア")}</button></div></div><div class="panel-body pro-stash" tabindex="0"><div class="pro-stash-list"></div><div class="pro-stash-dropzone">${uiText("Drop or paste text and images here", "テキストや画像をここへドロップ / 貼り付け")}</div><div class="pro-stash-add"><button data-stash-selection type="button">${uiText("Add selection", "選択範囲を追加")}</button></div><textarea data-stash-instruction rows="3" placeholder="${uiText("Swap 1 and 2, shorten 5, remove 6", "1と2を入れ替え、5はもっと短く、6は丸々カット")}"></textarea><div class="pro-stash-actions"><button data-stash-ai type="button">${uiText("AI edit", "AI編集")}</button><span data-stash-status></span></div><div class="pro-stash-output" hidden><button data-stash-apply type="button">${uiText("Apply", "適用")}</button><button data-stash-discard type="button">${uiText("Discard", "破棄")}</button></div></div>`;
+    const body = panel.querySelector(".pro-stash");
+    const list = panel.querySelector(".pro-stash-list");
+    const status = panel.querySelector("[data-stash-status]");
+    const output = panel.querySelector(".pro-stash-output");
+    const setStatus = (text) => { status.textContent = text; };
     const persist = () => localStorage.setItem(PRO_STASH_STORAGE_KEY, JSON.stringify(items));
+    const copyItem = async (item) => {
+        var _a;
+        try {
+            if (item.kind === "image" && typeof ClipboardItem !== "undefined" && ((_a = navigator.clipboard) === null || _a === void 0 ? void 0 : _a.write)) {
+                const blob = await (await fetch(item.content)).blob();
+                await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+            }
+            else
+                await navigator.clipboard.writeText(item.content);
+            setStatus(uiText("Copied.", "コピーしました。"));
+        }
+        catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error));
+        }
+    };
     const render = () => {
         const shown = result !== null && result !== void 0 ? result : items;
-        root.querySelector("[data-stash-count]").textContent = String(shown.length);
-        root.classList.toggle("is-result", result !== null);
+        panel.querySelector("[data-stash-count]").textContent = String(shown.length);
+        body.classList.toggle("is-result", result !== null);
         output.hidden = result === null;
         list.replaceChildren(...shown.map((item, index) => {
             const row = document.createElement("article");
             row.className = "pro-stash-item";
             row.tabIndex = 0;
-            row.draggable = result === null;
             row.dataset.stashIndex = String(index);
             const badge = document.createElement("b");
             badge.textContent = String(index + 1);
@@ -124,37 +127,64 @@ export const initProStashUi = (deps) => {
             else
                 preview.textContent = item.content.split("\n").slice(0, 3).join("\n");
             row.addEventListener("click", (event) => {
+                var _a, _b;
                 if (event.target.closest("button"))
+                    return;
+                // A click that ends a text selection is someone copying, not someone
+                // asking for the full fragment: re-rendering here would drop it.
+                if (((_b = (_a = window.getSelection()) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : "").length > 0)
                     return;
                 row.classList.toggle("is-expanded");
                 if (preview instanceof HTMLPreElement)
                     preview.textContent = row.classList.contains("is-expanded") ? item.content : item.content.split("\n").slice(0, 3).join("\n");
             });
+            row.addEventListener("keydown", (event) => {
+                var _a, _b;
+                if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "c")
+                    return;
+                if (((_b = (_a = window.getSelection()) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : "").length > 0)
+                    return;
+                event.preventDefault();
+                void copyItem(item);
+            });
             row.append(badge, preview);
+            const controls = document.createElement("span");
+            controls.className = "pro-stash-item-actions";
+            const copy = document.createElement("button");
+            copy.type = "button";
+            copy.className = "is-copy";
+            copy.textContent = "⧉";
+            copy.title = uiText("Copy", "コピー");
+            copy.onclick = () => { void copyItem(item); };
+            controls.appendChild(copy);
             if (!result) {
-                row.addEventListener("dragstart", (event) => { var _a; (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.setData("application/x-tex64-stash-index", String(index)); row.classList.add("is-dragging"); });
-                row.addEventListener("dragend", () => row.classList.remove("is-dragging"));
+                // The number badge is the drag handle so the fragment itself stays
+                // selectable — a draggable row swallows text selection.
+                badge.draggable = true;
+                badge.title = uiText("Drag to reorder", "ドラッグで並べ替え");
+                badge.addEventListener("dragstart", (event) => { var _a, _b; (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.setData("application/x-tex64-stash-index", String(index)); (_b = event.dataTransfer) === null || _b === void 0 ? void 0 : _b.setDragImage(row, 12, 12); row.classList.add("is-dragging"); });
+                badge.addEventListener("dragend", () => row.classList.remove("is-dragging"));
                 row.addEventListener("dragover", (event) => { var _a; if ((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.types.includes("application/x-tex64-stash-index")) {
                     event.preventDefault();
                     row.classList.add("is-drag-over");
                 } });
                 row.addEventListener("dragleave", () => row.classList.remove("is-drag-over"));
-                row.addEventListener("drop", (event) => { var _a; const from = Number((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("application/x-tex64-stash-index")); if (Number.isInteger(from)) {
+                row.addEventListener("drop", (event) => { var _a; const from = Number((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("application/x-tex64-stash-index")); row.classList.remove("is-drag-over"); if (Number.isInteger(from)) {
                     event.preventDefault();
                     items = reorderStashItems(items, from, index);
                     persist();
                     render();
                 } });
-                const controls = document.createElement("span");
-                controls.className = "pro-stash-item-actions";
-                [["↑", -1], ["↓", 1]].forEach(([label, delta]) => { const button = document.createElement("button"); button.textContent = String(label); button.disabled = index + Number(delta) < 0 || index + Number(delta) >= items.length; button.onclick = () => { const next = index + Number(delta); [items[index], items[next]] = [items[next], items[index]]; persist(); render(); }; controls.appendChild(button); });
+                [["↑", -1, "is-move-up"], ["↓", 1, "is-move-down"]].forEach(([label, delta, cls]) => { const button = document.createElement("button"); button.type = "button"; button.className = cls; button.textContent = String(label); button.disabled = index + Number(delta) < 0 || index + Number(delta) >= items.length; button.onclick = () => { const next = index + Number(delta); [items[index], items[next]] = [items[next], items[index]]; persist(); render(); }; controls.appendChild(button); });
                 const remove = document.createElement("button");
+                remove.type = "button";
+                remove.className = "is-remove";
                 remove.textContent = "×";
                 remove.title = uiText("Remove", "削除");
                 remove.onclick = () => { items.splice(index, 1); persist(); render(); };
                 controls.appendChild(remove);
-                row.appendChild(controls);
             }
+            row.appendChild(controls);
             return row;
         }));
     };
@@ -165,18 +195,20 @@ export const initProStashUi = (deps) => {
         const limited = enforceStashCapacity(items);
         items = limited.items;
         if (limited.removed.length)
-            status.textContent = uiText(`${limited.removed.length} oldest item(s) removed (8 MB limit).`, `8MB制限のため古い項目を${limited.removed.length}件削除しました。`);
+            setStatus(uiText(`${limited.removed.length} oldest item(s) removed (8 MB limit).`, `8MB制限のため古い項目を${limited.removed.length}件削除しました。`));
         persist();
         render();
     };
     window.addEventListener("tex64:pro-stash-add", (event) => {
+        var _a;
         const detail = event.detail;
-        if (detail)
-            add(detail.kind, detail.content);
+        if (!detail)
+            return;
+        add(detail.kind, detail.content);
+        (_a = deps.revealStash) === null || _a === void 0 ? void 0 : _a.call(deps);
     });
-    (_a = root.querySelector("[data-stash-toggle]")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => { uiState = { ...uiState, collapsed: !uiState.collapsed }; applyUi(); persistUi(); });
-    (_b = root.querySelector("[data-stash-clear]")) === null || _b === void 0 ? void 0 : _b.addEventListener("click", () => { items = []; result = null; persist(); render(); });
-    (_c = root.querySelector("[data-stash-selection]")) === null || _c === void 0 ? void 0 : _c.addEventListener("click", () => {
+    (_a = panel.querySelector("[data-stash-clear]")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => { items = []; result = null; persist(); render(); });
+    (_b = panel.querySelector("[data-stash-selection]")) === null || _b === void 0 ? void 0 : _b.addEventListener("click", () => {
         var _a, _b, _c, _d;
         const editor = deps.getActiveGroup().editor;
         const selection = (_a = editor === null || editor === void 0 ? void 0 : editor.getSelection) === null || _a === void 0 ? void 0 : _a.call(editor);
@@ -184,15 +216,30 @@ export const initProStashUi = (deps) => {
         if (text)
             add("text", text);
         else
-            status.textContent = uiText("Select text in the editor first.", "先にエディタでテキストを選択してください。");
+            setStatus(uiText("Select text in the editor first.", "先にエディタでテキストを選択してください。"));
     });
-    (_d = root.querySelector("[data-stash-ai]")) === null || _d === void 0 ? void 0 : _d.addEventListener("click", async () => {
-        const instruction = root.querySelector("[data-stash-instruction]").value.trim();
+    // Cmd+V anywhere in the tray stashes the clipboard; the instruction box keeps
+    // its own native paste.
+    body.addEventListener("paste", (event) => {
+        var _a, _b, _c;
+        if ((_a = event.target) === null || _a === void 0 ? void 0 : _a.closest("textarea, input"))
+            return;
+        const images = dataTransferImages(event.clipboardData);
+        const text = ((_c = (_b = event.clipboardData) === null || _b === void 0 ? void 0 : _b.getData("text/plain")) !== null && _c !== void 0 ? _c : "").trim();
+        if (!images.length && !text)
+            return;
+        event.preventDefault();
+        images.forEach((file) => { void blobToDataUrl(file).then((url) => add("image", url)); });
+        if (text)
+            add("text", text);
+    });
+    (_c = panel.querySelector("[data-stash-ai]")) === null || _c === void 0 ? void 0 : _c.addEventListener("click", async () => {
+        const instruction = panel.querySelector("[data-stash-instruction]").value.trim();
         if (!items.length || !instruction) {
-            status.textContent = uiText("Add items and enter an instruction.", "項目を追加して指示を入力してください。");
+            setStatus(uiText("Add items and enter an instruction.", "項目を追加して指示を入力してください。"));
             return;
         }
-        const button = root.querySelector("[data-stash-ai]");
+        const button = panel.querySelector("[data-stash-ai]");
         button.disabled = true;
         try {
             result = await runStashAiEdit(items, instruction, {
@@ -200,80 +247,46 @@ export const initProStashUi = (deps) => {
                     throw new Error((response === null || response === void 0 ? void 0 : response.error) || "texize failed."); return response.tex || ""; },
                 complete: async (prompt) => { var _a, _b; const response = await ((_b = (_a = bridge.tex64Ai) === null || _a === void 0 ? void 0 : _a.complete) === null || _b === void 0 ? void 0 : _b.call(_a, prompt)); if (!(response === null || response === void 0 ? void 0 : response.ok))
                     throw new Error((response === null || response === void 0 ? void 0 : response.error) || "AI edit failed."); return response.text || ""; },
-                onConverting: (index) => { status.textContent = uiText(`Converting image ${index + 1}…`, `画像${index + 1}をTeX化中…`); },
+                onConverting: (index) => { setStatus(uiText(`Converting image ${index + 1}…`, `画像${index + 1}をTeX化中…`)); },
             });
-            status.textContent = uiText("Review the result.", "結果を確認してください。");
+            setStatus(uiText("Review the result.", "結果を確認してください。"));
             render();
         }
         catch (error) {
-            status.textContent = error instanceof Error ? error.message : String(error);
+            setStatus(error instanceof Error ? error.message : String(error));
         }
         finally {
             button.disabled = false;
         }
     });
-    (_e = root.querySelector("[data-stash-apply]")) === null || _e === void 0 ? void 0 : _e.addEventListener("click", () => { if (result) {
+    (_d = panel.querySelector("[data-stash-apply]")) === null || _d === void 0 ? void 0 : _d.addEventListener("click", () => { if (result) {
         items = result;
         result = null;
         persist();
         render();
     } });
-    (_f = root.querySelector("[data-stash-discard]")) === null || _f === void 0 ? void 0 : _f.addEventListener("click", () => { result = null; render(); });
-    const resultText = () => (result !== null && result !== void 0 ? result : items).map((item) => item.content).join("\n\n");
-    (_g = root.querySelector("[data-stash-insert]")) === null || _g === void 0 ? void 0 : _g.addEventListener("click", () => { try {
-        insertAtEditorCursor(deps.getActiveGroup().editor, resultText());
-    }
-    catch (error) {
-        status.textContent = error instanceof Error ? error.message : String(error);
-    } });
-    (_h = root.querySelector("[data-stash-copy]")) === null || _h === void 0 ? void 0 : _h.addEventListener("click", async () => { await navigator.clipboard.writeText(resultText()); status.textContent = uiText("Copied.", "コピーしました。"); });
-    const header = root.querySelector("header");
-    let headerStartX = 0;
-    header.addEventListener("pointerdown", (event) => {
-        if (event.target.closest("button"))
+    (_e = panel.querySelector("[data-stash-discard]")) === null || _e === void 0 ? void 0 : _e.addEventListener("click", () => { result = null; render(); });
+    const dropzone = panel.querySelector(".pro-stash-dropzone");
+    dropzone.addEventListener("dragover", (event) => {
+        var _a;
+        if (!((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.types.some((type) => type === "text/plain" || type === "Files")))
             return;
-        headerStartX = event.clientX;
-        header.setPointerCapture(event.pointerId);
-        root.classList.add("is-positioning");
-    });
-    header.addEventListener("pointerup", (event) => {
-        if (!header.hasPointerCapture(event.pointerId))
-            return;
-        header.releasePointerCapture(event.pointerId);
-        root.classList.remove("is-positioning");
-        if (Math.abs(event.clientX - headerStartX) >= 8)
-            uiState = { ...uiState, side: snapStashSide(event.clientX, window.innerWidth) };
-        else if (uiState.collapsed)
-            uiState = { ...uiState, collapsed: false };
-        applyUi();
-        persistUi();
-    });
-    header.addEventListener("pointercancel", () => root.classList.remove("is-positioning"));
-    const resizer = root.querySelector(".pro-stash-resizer");
-    let resizeStartX = 0;
-    let resizeStartWidth = 0;
-    resizer.addEventListener("pointerdown", (event) => { resizeStartX = event.clientX; resizeStartWidth = root.getBoundingClientRect().width; resizer.setPointerCapture(event.pointerId); root.classList.add("is-resizing"); });
-    resizer.addEventListener("pointermove", (event) => {
-        if (!resizer.hasPointerCapture(event.pointerId))
-            return;
-        uiState = { ...uiState, width: clampStashWidth(resizeStartWidth + resizeStartX - event.clientX, window.innerWidth) };
-        applyUi();
-    });
-    const stopResize = (event) => { if (!resizer.hasPointerCapture(event.pointerId))
-        return; resizer.releasePointerCapture(event.pointerId); root.classList.remove("is-resizing"); persistUi(); };
-    resizer.addEventListener("pointerup", stopResize);
-    resizer.addEventListener("pointercancel", stopResize);
-    const dropzone = root.querySelector(".pro-stash-dropzone");
-    dropzone.addEventListener("dragover", (event) => { var _a; if ((_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.types.includes("text/plain")) {
         event.preventDefault();
         dropzone.classList.add("is-drag-over");
-    } });
+    });
     dropzone.addEventListener("dragleave", () => dropzone.classList.remove("is-drag-over"));
-    dropzone.addEventListener("drop", (event) => { var _a; const text = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("text/plain").trim(); dropzone.classList.remove("is-drag-over"); if (text) {
+    dropzone.addEventListener("drop", (event) => {
+        var _a, _b;
+        const images = dataTransferImages(event.dataTransfer);
+        const text = ((_b = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("text/plain")) !== null && _b !== void 0 ? _b : "").trim();
+        dropzone.classList.remove("is-drag-over");
+        if (!images.length && !text)
+            return;
         event.preventDefault();
-        add("text", text);
-    } });
-    applyUi();
+        images.forEach((file) => { void blobToDataUrl(file).then((url) => add("image", url)); });
+        if (text)
+            add("text", text);
+    });
     render();
     return { add };
 };

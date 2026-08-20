@@ -2,13 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildStashEditPrompt,
-  clampStashWidth,
   enforceStashCapacity,
-  parseProStashUiState,
   parseStashEditResponse,
   reorderStashItems,
   runStashAiEdit,
-  snapStashSide,
+  stashClipboardText,
 } from "../Resources/web/app/pro-stash-ui.js";
 
 test("stash reorder is immutable and moves an item to the drop index", () => {
@@ -17,20 +15,18 @@ test("stash reorder is immutable and moves an item to the drop index", () => {
   assert.deepEqual(source, ["a", "b", "c"]);
 });
 
-test("stash snapping and persisted width stay within viewport bounds", () => {
-  assert.equal(snapStashSide(199, 800), "left");
-  assert.equal(snapStashSide(600, 800), "right");
-  assert.equal(clampStashWidth(100, 800), 260);
-  assert.equal(clampStashWidth(900, 800), 560);
-  assert.deepEqual(parseProStashUiState('{"side":"left","width":420,"collapsed":true}', 800), { side: "left", width: 420, collapsed: true });
-  // Opening the tray is remembered; with nothing stored it starts collapsed so
-  // it never covers the editor on first run.
-  assert.deepEqual(parseProStashUiState('{"side":"left","width":420,"collapsed":false}', 800), { side: "left", width: 420, collapsed: false });
-  assert.equal(parseProStashUiState(null).collapsed, true);
-  assert.equal(parseProStashUiState("not json").collapsed, true);
-});
-
 const textItem = (id, content, createdAt = 1) => ({ id, kind: "text", content, createdAt });
+
+test("copy/insert text joins the text fragments and reports skipped images", () => {
+  const copied = stashClipboardText([
+    textItem("a", "alpha"),
+    { id: "img", kind: "image", content: "data:image/png;base64,AAAA", createdAt: 2 },
+    textItem("b", "beta", 3),
+  ]);
+  assert.equal(copied.text, "alpha\n\nbeta");
+  assert.equal(copied.skipped, 1);
+  assert.deepEqual(stashClipboardText([]), { text: "", skipped: 0 });
+});
 
 test("stash prompt numbers every fragment and includes the instruction", () => {
   const prompt = buildStashEditPrompt([textItem("a", "alpha"), textItem("b", "beta")], "1と2を入れ替え");

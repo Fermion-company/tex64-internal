@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*;"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; worker-src 'self' blob:; frame-src 'self' data: blob: https:;"
     >
     <title>TeX64</title>
     <link rel="stylesheet" href="./theme.css">
@@ -16,6 +16,45 @@
   </head>
   <body>
 
+    <!-- First-run gate. Only ever shown when TeX is missing; when it is present
+         the app goes straight to the launcher/editor and this stays hidden. -->
+    <div class="onboarding" id="onboarding" aria-hidden="true">
+      <div class="onboarding-card">
+        <div class="onboarding-brand">
+          <img src="./assets/icon.jpg" class="onboarding-icon" alt="" />
+          <div class="onboarding-brand-name">TeX64</div>
+        </div>
+
+        <div class="onboarding-step" id="onboarding-choice">
+          <div class="onboarding-headline">TeX is not installed yet</div>
+          <div class="onboarding-sub" id="onboarding-sub">TeX64 installs its own complete TeX Live.</div>
+          <div class="env-choice onboarding-choices">
+            <button class="env-choice-card is-primary" id="onboarding-choice-full" type="button">
+              <span class="env-choice-badge">&nbsp;</span>
+              <span class="env-choice-title">Install TeX Live</span>
+              <span class="env-choice-detail">Every CTAN package, managed privately by TeX64.</span>
+              <span class="env-choice-size">about 5 GB · 30–60 min</span>
+            </button>
+          </div>
+          <div class="onboarding-note is-hidden" id="onboarding-note"></div>
+        </div>
+
+        <div class="onboarding-step is-hidden" id="onboarding-progress">
+          <div class="onboarding-headline" id="onboarding-progress-title">Setting up TeX…</div>
+          <div class="onboarding-gauge">
+            <div class="onboarding-gauge-track">
+              <div class="onboarding-gauge-fill" id="onboarding-gauge-fill"></div>
+            </div>
+            <div class="onboarding-gauge-row">
+              <span class="onboarding-gauge-percent" id="onboarding-percent">0%</span>
+              <span class="onboarding-gauge-eta" id="onboarding-eta"></span>
+            </div>
+            <div class="onboarding-gauge-phase" id="onboarding-phase"></div>
+          </div>
+          <div class="onboarding-sub">You can leave this running — the editor opens as soon as it finishes.</div>
+        </div>
+      </div>
+    </div>
     <div class="launcher" id="launcher" aria-hidden="true">
       <div class="launcher-lang-wrap">
         <button
@@ -121,25 +160,40 @@
         </div>
         <div class="topbar-drag"></div>
         <div class="top-actions">
-          <div class="pro-mode-controls" aria-label="Pro mode layout">
-            <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
-            <button id="pro-canvas-gallery" type="button" title="Every figure in this document" hidden>⊞ Figures</button>
-            <div id="pro-layout-switcher" class="pro-layout-switcher" aria-label="Pro layout" hidden>
-              <button type="button" data-pro-layout="preview-source" aria-pressed="true" title="Source | Preview" aria-label="Source and preview">
+          <div class="pro-mode-controls" role="toolbar" aria-label="Pro tools">
+            <div class="pro-figure-tools" role="group" aria-label="Figure tools">
+              <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
+            </div>
+            <div id="pro-layout-control" class="pro-layout-control">
+              <button id="pro-layout-trigger" class="pro-layout-trigger" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="pro-layout-switcher" title="Choose split layout">
                 <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
                   <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
                   <path d="M12 1.5v13"></path>
-                  <rect class="pro-layout-fill" x="12" y="1.5" width="10.5" height="13" rx="1.5" fill="currentColor" stroke="none" opacity="0.32"></rect>
+                </svg>
+                <span>Split</span>
+                <svg class="pro-layout-chevron" viewBox="0 0 10 6" width="8" height="5" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                  <path d="m1 1 4 4 4-4"></path>
                 </svg>
               </button>
-              <button type="button" data-pro-layout="source-reference-code" aria-pressed="false" title="Source | Reference | Code" aria-label="Source, reference and code">
-                <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
-                  <path d="M10 1.5v13"></path>
-                  <path d="M18 1.5v13"></path>
-                  <rect class="pro-layout-fill" x="1.5" y="1.5" width="8.5" height="13" rx="1.5" fill="currentColor" stroke="none" opacity="0.32"></rect>
-                </svg>
-              </button>
+              <div id="pro-layout-switcher" class="pro-layout-switcher" role="menu" aria-label="Choose split layout" hidden>
+                <button type="button" role="menuitemradio" data-pro-layout="preview-source" aria-checked="true" title="Preview | Source" aria-label="Preview and source">
+                  <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
+                    <path d="M12 1.5v13"></path>
+                    <rect class="pro-layout-fill" x="1.5" y="1.5" width="10.5" height="13" rx="1.5" fill="currentColor" stroke="none" opacity="0.32"></rect>
+                  </svg>
+                  <span class="pro-layout-button-label">Preview | Source</span>
+                </button>
+                <button type="button" role="menuitemradio" data-pro-layout="source-reference-code" aria-checked="false" title="Source | Reference | Code" aria-label="Source, reference and code">
+                  <svg viewBox="0 0 24 16" width="24" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="1.5" y="1.5" width="21" height="13" rx="1.5"></rect>
+                    <path d="M10 1.5v13"></path>
+                    <path d="M18 1.5v13"></path>
+                    <rect class="pro-layout-fill" x="1.5" y="1.5" width="8.5" height="13" rx="1.5" fill="currentColor" stroke="none" opacity="0.32"></rect>
+                  </svg>
+                  <span class="pro-layout-button-label">Source | Reference | Code</span>
+                </button>
+              </div>
             </div>
           </div>
           <button
@@ -164,8 +218,8 @@
             id="toggle-bottom-panel-button"
             type="button"
             class="topbar-layout-toggle"
-            aria-label="bottom panel"
-            title="bottom panel"
+            aria-label="Blocks and Terminal panel"
+            title="Show or hide Blocks and Terminal"
             aria-pressed="false"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -173,13 +227,16 @@
               <path d="M3 15h18"></path>
               <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
+            <span class="topbar-layout-label">Blocks / Terminal</span>
           </button>
+          <!-- Legacy: hidden for now (theme.css). The split view still works,
+               it just has no top-bar button any more. -->
           <button
             id="editor-split-button"
             type="button"
             class="topbar-layout-toggle"
-            aria-label="division"
-            title="division"
+            aria-label="Split editor"
+            title="Split editor into two columns"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="5" width="18" height="14" rx="2"></rect>
@@ -217,6 +274,7 @@
               </svg>
             </span>
             <span class="build-button-spinner" aria-hidden="true"></span>
+            <span class="build-button-label">Build</span>
           </button>
         </div>
       </header>
@@ -285,6 +343,22 @@
                   <path d="M6 20h12"></path>
                   <path d="M7 15l3.5-3.5 4-4a2.5 2.5 0 0 1 3.5 0l.5.5-8 8-3 1z"></path>
                   <path d="M14.5 6.5l3 3"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              data-tab="stash"
+              aria-selected="false"
+              aria-label="Stash"
+              title="Stash"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 13h4l1.5 3h5l1.5-3h4"></path>
+                  <path d="M6.5 5h11l2.5 8v6H4v-6z"></path>
                 </svg>
               </span>
             </button>
@@ -494,6 +568,10 @@
                 </div>
               </div>
             </div>
+          </div>
+          <div class="panel" data-panel="stash">
+            <!-- Header and body are built by web-src/app/pro-stash-ui.ts so the
+                 whole tray stays in one place with its uiText() strings. -->
           </div>
           <div class="panel no-header" data-panel="ai">
             <div class="panel-header">
@@ -1125,6 +1203,15 @@
                         <div class="env-hero-sub" id="env-hero-sub">This only takes a moment.</div>
                       </div>
                     </div>
+                    <div class="env-detail is-hidden" id="env-detail" aria-hidden="true"></div>
+                    <div class="env-choice is-hidden" id="env-choice" aria-hidden="true">
+                      <button class="env-choice-card is-primary" id="env-choice-full" type="button">
+                        <span class="env-choice-badge">&nbsp;</span>
+                        <span class="env-choice-title">Install TeX Live</span>
+                        <span class="env-choice-detail">Every CTAN package, managed privately by TeX64.</span>
+                        <span class="env-choice-size">about 5 GB · 30–60 min</span>
+                      </button>
+                    </div>
                     <div class="env-progress is-hidden" id="env-progress" aria-hidden="true">
                       <div class="env-progress-track">
                         <div class="env-progress-fill" id="env-progress-fill"></div>
@@ -1284,8 +1371,6 @@
               <header class="pro-pane-header">
                 <span id="pro-preview-title">Preview</span>
                 <span class="pro-pane-actions">
-                  <span id="pro-preview-live-status" class="pro-live-status" aria-live="polite"></span>
-                  <button id="pro-preview-live-toggle" type="button" aria-pressed="false" title="Toggle live preview">Live</button>
                   <button type="button" data-pro-capture="preview" title="Capture a region: turn it into TeX, translate it, or insert it as an image" aria-label="Capture a region of the preview">⌖ Capture</button>
                   <button type="button" data-pro-open="preview" title="Open PDF">Open</button>
                   <button type="button" data-pro-collapse="preview" aria-label="Collapse preview">›</button>
@@ -1296,10 +1381,9 @@
                   <div class="editor-viewer-body">
                     <img id="pro-preview-image" class="editor-viewer-media editor-viewer-image" alt="preview" />
                     <iframe id="pro-preview-pdf" class="editor-viewer-media editor-viewer-pdf" title="PDF preview"></iframe>
-                    <div class="editor-viewer-message"><h2>Preview</h2><p>Turn on Live above to typeset as you write, or press Open to show a PDF beside the source.</p></div>
+                    <div class="editor-viewer-message"><h2>Preview</h2></div>
                   </div>
                 </div>
-                <iframe id="pro-preview-live" class="pro-preview-live" title="Live TeX preview" aria-hidden="true"></iframe>
               </div>
             </section>
             <div class="pro-splitter" id="pro-splitter-primary" role="separator" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" title="Drag to resize or collapse; double-click to reset"></div>

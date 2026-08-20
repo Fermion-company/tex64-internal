@@ -96,7 +96,53 @@ const getManagedTexliveBinDirs = (
   return [];
 };
 
-const getSystemTexliveBinDirs = (platform = process.platform) => {
+// TinyTeX (https://yihui.org/tinytex) installs a user-owned TeX Live outside the
+// usual system prefixes and only symlinks into PATH via `tlmgr path add`, which
+// the user may have skipped. Probing its fixed home makes detection reliable.
+const getTinytexRoot = (platform = process.platform, env = process.env) => {
+  if (typeof env?.TINYTEX_DIR === "string" && env.TINYTEX_DIR.trim()) {
+    return env.TINYTEX_DIR.trim();
+  }
+  if (platform === "win32") {
+    const appData = typeof env?.APPDATA === "string" ? env.APPDATA.trim() : "";
+    return appData ? path.win32.join(appData, "TinyTeX") : "";
+  }
+  const home = typeof env?.HOME === "string" ? env.HOME.trim() : "";
+  if (!home) {
+    return "";
+  }
+  return platform === "darwin"
+    ? path.join(home, "Library", "TinyTeX")
+    : path.join(home, ".TinyTeX");
+};
+
+const getTinytexBinDirs = (
+  platform = process.platform,
+  arch = process.arch,
+  env = process.env
+) => {
+  const root = getTinytexRoot(platform, env);
+  if (!root) {
+    return [];
+  }
+  if (platform === "win32") {
+    return [path.win32.join(root, "bin", "windows")];
+  }
+  if (platform === "darwin") {
+    const archSpecific = arch === "arm64" ? "aarch64-darwin" : "x86_64-darwin";
+    return [
+      path.join(root, "bin", "universal-darwin"),
+      path.join(root, "bin", archSpecific),
+    ];
+  }
+  const archSpecific = arch === "arm64" ? "aarch64-linux" : "x86_64-linux";
+  return [path.join(root, "bin", archSpecific)];
+};
+
+const getSystemTexliveBinDirs = (
+  platform = process.platform,
+  arch = process.arch
+) => {
   const year = getManagedTexliveYear();
   if (platform === "darwin") {
     return [
@@ -104,6 +150,7 @@ const getSystemTexliveBinDirs = (platform = process.platform) => {
       "/usr/local/bin",
       "/opt/homebrew/bin",
       "/usr/bin",
+      ...getTinytexBinDirs(platform, arch),
     ];
   }
   if (platform === "win32") {
@@ -115,9 +162,10 @@ const getSystemTexliveBinDirs = (platform = process.platform) => {
       "C:\\texlive\\2023\\bin\\windows",
       "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64",
       "C:\\Program Files (x86)\\MiKTeX\\miktex\\bin\\x64",
+      ...getTinytexBinDirs(platform, arch),
     ];
   }
-  return ["/usr/local/bin", "/usr/bin"];
+  return ["/usr/local/bin", "/usr/bin", ...getTinytexBinDirs(platform, arch)];
 };
 
 const unique = (items) => {
@@ -140,7 +188,7 @@ const unique = (items) => {
 const getPreferredTexliveBinDirs = (platform = process.platform, arch = process.arch) =>
   unique([
     ...getManagedTexliveBinDirs(platform, arch),
-    ...getSystemTexliveBinDirs(platform),
+    ...getSystemTexliveBinDirs(platform, arch),
   ]);
 
 const extendTexlivePath = (
@@ -210,6 +258,8 @@ module.exports = {
   getWindowsLocalAppData,
   getManagedTexliveRoot,
   getManagedTexliveBinDirs,
+  getTinytexRoot,
+  getTinytexBinDirs,
   getSystemTexliveBinDirs,
   getPreferredTexliveBinDirs,
   extendTexlivePath,

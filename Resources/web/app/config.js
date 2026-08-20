@@ -3,6 +3,7 @@ export const TAB_KEYS = [
     "files",
     "outline",
     "blocks",
+    "stash",
     "ai",
     "project",
     "search",
@@ -30,6 +31,13 @@ const EN_TAB_CONFIG = {
         title: "Blocks",
         desc: "Insert formulas as blocks.",
         hint: "Confirm after previewing.",
+    },
+    stash: {
+        label: "Stash",
+        outline: "Stashed fragments",
+        title: "Stash",
+        desc: "Hold captures, snippets and selections until you need them.",
+        hint: "Copy, paste, reorder, then insert or edit them with AI.",
     },
     ai: {
         label: "Axiom",
@@ -90,6 +98,13 @@ const JA_TAB_CONFIG = {
         title: "ブロック",
         desc: "数式をブロックとして挿入します。",
         hint: "プレビューを確認してから確定します。",
+    },
+    stash: {
+        label: "スタッシュ",
+        outline: "スタッシュした断片",
+        title: "スタッシュ",
+        desc: "キャプチャ・断片・選択範囲を必要になるまで置いておきます。",
+        hint: "コピー・貼り付け・並べ替えの後、挿入や AI 編集ができます。",
     },
     ai: {
         label: "Axiom",
