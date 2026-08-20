@@ -337,6 +337,22 @@ body.is-embedded .pdf-scroll {
   left: 0;
 }
 
+/* Live preview (real-time engine): only the page canvas is swapped for the
+   engine's embedded frame — toolbar and the rest of the viewer chrome stay. */
+.pdf-live-frame {
+  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+  z-index: 5;
+}
+body.is-live .pdf-live-frame { display: block; }
+body.is-live .pdf-sidebar,
+body.is-live #pdf-sidebar-toggle { display: none; }
+
 .pdf-pages {
   margin: 0 auto;
 }

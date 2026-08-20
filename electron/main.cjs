@@ -30,6 +30,7 @@ const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
 const { TexizeService } = require("./services/texize.cjs");
 const { FermionEngineService } = require("./services/fermion-engine.cjs");
+const { TdomEngineService } = require("./services/tdom-engine.cjs");
 const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
@@ -50,6 +51,7 @@ const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
 const { registerFermionEngineHandlers } = require("./handlers/fermion-engine.cjs");
+const { registerTdomEngineHandlers } = require("./handlers/tdom-engine.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 
@@ -250,6 +252,7 @@ let mathOcrService = null;
 let texizeService = null;
 let fermionEngineService = null;
 let canvasFermionEngineService = null;
+let tdomEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
@@ -291,6 +294,16 @@ const getFermionEngineService = () => {
 const getCanvasFermionEngineService = () => {
   if (!canvasFermionEngineService) canvasFermionEngineService = new FermionEngineService({ fileAccess: macFileAccess });
   return canvasFermionEngineService;
+};
+const getTdomEngineService = () => {
+  if (!tdomEngineService) {
+    tdomEngineService = new TdomEngineService({
+      fileAccess: macFileAccess,
+      resourcesPath: app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), "Resources"),
+      userDataPath: app.getPath("userData"),
+    });
+  }
+  return tdomEngineService;
 };
 
 const getTexlabService = () => {
@@ -863,6 +876,9 @@ app.on("window-all-closed", () => {
   if (canvasFermionEngineService) {
     canvasFermionEngineService.shutdown();
   }
+  if (tdomEngineService) {
+    tdomEngineService.shutdown();
+  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
@@ -881,6 +897,9 @@ app.on("before-quit", () => {
   }
   if (canvasFermionEngineService) {
     canvasFermionEngineService.shutdown();
+  }
+  if (tdomEngineService) {
+    tdomEngineService.shutdown();
   }
 });
 
@@ -1046,6 +1065,7 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
 registerFermionEngineHandlers({ ipcMain, getFermionEngineService, getCanvasFermionEngineService });
+registerTdomEngineHandlers({ ipcMain, getTdomEngineService, getPdfWindowManager: () => pdfWindowManager });
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 
 // AI-mode webview guests: window.open / target=_blank goes to the system
@@ -1454,11 +1474,16 @@ ipcMain.on("tex64", (_event, message) => {
     return;
   }
   if (type === "build") {
-    buildHandlers.handleBuild(message.mainFile, {
+    // targetFile (AI mode) builds exactly that document; mainFile (Code mode)
+    // keeps deferring to the workspace's designated root.
+    const exactTarget =
+      typeof message.targetFile === "string" && message.targetFile.trim() !== "";
+    buildHandlers.handleBuild(exactTarget ? message.targetFile : message.mainFile, {
       format: message.format,
       formatSettings: message.formatSettings,
       engine: message.engine,
       pdfViewerMode: message.pdfViewerMode,
+      exactTarget,
     });
     return;
   }
@@ -1499,6 +1524,48 @@ ipcMain.on("tex64", (_event, message) => {
       formatSource: message.formatSource,
       formatSettings: message.formatSettings,
     });
+    return;
+  }
+  if (type === "file:replaceLines") {
+    void workspaceHandlers
+      .handleReplaceLines(message.requestId, message.path, {
+        startLine: message.startLine,
+        endLine: message.endLine,
+        expectedText: message.expectedText,
+        replacementText: message.replacementText,
+      })
+      .then((outcome) => {
+        // The page must follow the paragraph that just changed. Rebuilding
+        // here, off the write itself, cannot be lost the way a second
+        // build request from the guest can.
+        if (outcome && outcome.ok === true) {
+          // The edited file's own document builds — its folder's main.tex
+          // when it has one, the workspace root otherwise.
+          const editedPath = typeof message.path === "string" ? message.path : "";
+          const folder = editedPath.includes("/")
+            ? editedPath.slice(0, editedPath.lastIndexOf("/"))
+            : "";
+          const candidate = folder ? `${folder}/main.tex` : null;
+          const rootPath = workspaceHandlers.ensureWorkspace();
+          const documentMain =
+            candidate && rootPath && fs.existsSync(path.join(rootPath, candidate))
+              ? candidate
+              : null;
+          return buildHandlers.handleBuild(documentMain ?? undefined, {
+            pdfViewerMode: "none",
+            exactTarget: documentMain !== null,
+          });
+        }
+        return undefined;
+      });
+    return;
+  }
+  if (type === "document:create") {
+    workspaceHandlers.handleDocumentCreate(message.requestId, message.title);
+    return;
+  }
+  if (type === "document:list") {
+    workspaceHandlers.handleDocumentList(message.requestId);
     return;
   }
   if (type === "formatFile") {

@@ -29,6 +29,12 @@ type Line = { top: number; bottom: number; left: number; right: number };
 
 /** A vertical gap this much larger than the line height starts a new block. */
 const BLOCK_GAP_RATIO = 0.6;
+/**
+ * How much of the text size sits above the baseline. transform[5] is the
+ * baseline, not the top: subtracting the full height hung every box a
+ * descent too high, with its bottom edge cutting through the glyphs.
+ */
+const ASCENT_RATIO = 0.78;
 /** A first line indented at least this far (points) starts a paragraph. */
 const INDENT_THRESHOLD = 4;
 /** Items whose baselines differ by less than this share a line. */
@@ -46,7 +52,7 @@ function itemRect(item: TextItemLike): TextRect | null {
   const height = Math.abs(item.height || d || 0);
   if (!Number.isFinite(e) || !Number.isFinite(f) || height <= 0) return null;
   if (width <= 0) return null;
-  return { left: e, top: f - height, width, height };
+  return { left: e, top: f - height * ASCENT_RATIO, width, height };
 }
 
 function toLines(items: readonly TextItemLike[]): Line[] {

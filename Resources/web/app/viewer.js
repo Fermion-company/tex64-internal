@@ -6,6 +6,10 @@ export const createViewer = (deps) => {
     let pdfViewerPath = null;
     let pendingPdfOpen = null;
     let pendingPdfSync = null;
+    // Real-time preview: when set, the pdf viewer swaps its page canvas for the
+    // live engine frame (same chrome). Re-sent on every viewer "ready" so it
+    // survives the pdf iframe being torn down and recreated.
+    let livePreviewUrl = null;
     const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
     const postPdfMessage = (payload) => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
@@ -53,6 +57,9 @@ export const createViewer = (deps) => {
             if (pendingPdfSync) {
                 postPdfMessage({ type: "sync", payload: pendingPdfSync });
                 pendingPdfSync = null;
+            }
+            if (livePreviewUrl) {
+                postPdfMessage({ type: "live", payload: { url: livePreviewUrl } });
             }
             return;
         }
@@ -197,6 +204,14 @@ export const createViewer = (deps) => {
         }
         postPdfMessage({ type: "sync", payload });
     };
+    const setLivePreview = (url) => {
+        if (livePreviewUrl === url)
+            return;
+        livePreviewUrl = url;
+        if (pdfViewerReady) {
+            postPdfMessage({ type: "live", payload: url ? { url } : null });
+        }
+    };
     return {
         hideViewer,
         showImageViewer,
@@ -206,5 +221,6 @@ export const createViewer = (deps) => {
         getViewerMode: () => viewerMode,
         getPdfPath: () => pdfViewerPath,
         syncPdf,
+        setLivePreview,
     };
 };

@@ -34,4 +34,12 @@ export const initEditorSettingsControls = (): void => {
       editorSettings.setFlag("ergo.typewriterScroll", typewriterScrollInput.checked);
     });
   }
+
+  const realtimePreviewInput = document.getElementById("editor-realtime-preview");
+  if (realtimePreviewInput instanceof HTMLInputElement) {
+    realtimePreviewInput.checked = editorSettings.isEnabled("preview.realtime");
+    realtimePreviewInput.addEventListener("change", () => {
+      editorSettings.setFlag("preview.realtime", realtimePreviewInput.checked);
+    });
+  }
 };

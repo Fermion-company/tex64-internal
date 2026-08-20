@@ -33,6 +33,8 @@ const EN_TO_JA = {
     "What's new in TeX64": "TeX64 の新着情報",
     "From TeX64": "TeX64 からのお知らせ",
     "Typewriter Scrolling": "固定スクロール",
+    "Real-time Preview (Beta)": "リアルタイムプレビュー（ベータ）",
+    "Typeset as you write: the PDF viewer follows every edit in real time. Requires LuaLaTeX.": "書きながら組版します。PDF ビューアの表示が編集にリアルタイムで追従します。LuaLaTeX が必要です。",
     "Keep the cursor near the center while writing.": "執筆中のカーソル位置を画面中央付近に保ちます。",
     "Build (Cmd+Enter)": "ビルド（Cmd+Enter）",
     "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.": "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。",

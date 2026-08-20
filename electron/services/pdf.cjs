@@ -47,6 +47,10 @@ class PDFWindowManager {
     this.isReady = false;
     this.pendingOpen = null;
     this.pendingSync = null;
+    // Real-time preview: while set, the viewer swaps its page canvas for the
+    // live engine frame. Kept across window close/reopen so a re-shown
+    // window comes back live.
+    this.liveUrl = null;
   }
 
   close() {
@@ -109,6 +113,16 @@ class PDFWindowManager {
       const payload = this.pendingSync;
       this.pendingSync = null;
       this.send("sync", payload);
+    }
+    if (this.liveUrl) {
+      this.send("live", { url: this.liveUrl });
+    }
+  }
+
+  setLive(url) {
+    this.liveUrl = typeof url === "string" && url ? url : null;
+    if (this.isReady) {
+      this.send("live", this.liveUrl ? { url: this.liveUrl } : null);
     }
   }
 

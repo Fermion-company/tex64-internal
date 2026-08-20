@@ -55,6 +55,7 @@ import { initProCanvasGallery } from "./app/pro-canvas/gallery-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
 import { initProLivePreview } from "./app/pro-live-preview.js";
+import { initCodeLivePreview } from "./app/code-live-preview.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
         var _a, _b, _c, _d;
@@ -350,13 +351,18 @@ export const initMain = () => {
         // by its own allowlist. Registering a second listener keeps the existing
         // dispatcher untouched.
         (_b = (_a = bridgeWindow.tex64Bridge) === null || _a === void 0 ? void 0 : _a.onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, (message) => aiModeApi.deliver(message));
-        initAppModeUi({
+        const appModeApi = initAppModeUi({
             initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY), parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled),
             onModeChange: (mode) => {
                 proModeApi === null || proModeApi === void 0 ? void 0 : proModeApi.setEnabled(mode === "pro");
                 if (mode === "ai")
                     aiModeApi.activate();
             },
+        });
+        initCodeLivePreview({
+            getActiveGroup: editorSession.getActiveGroup,
+            getEditorGroups: editorSession.getEditorGroups,
+            getAppMode: () => appModeApi.getMode(),
         });
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInSecondaryEditor = (path, line) => {

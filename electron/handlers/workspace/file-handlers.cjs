@@ -351,6 +351,76 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
   };
 
+  // AI mode's direct paragraph edit: replace exactly the lines the guest
+  // read, and only while they are still what it read. The whole file never
+  // crosses the bridge (large messages are dropped there), and a stale card
+  // cannot overwrite an edit that happened in between.
+  const handleReplaceLines = async (requestId, relativePath, options = {}) => {
+    if (!requestId || typeof requestId !== "string") {
+      return { ok: false };
+    }
+    // Returns the outcome as well as replying, so the caller can chain what
+    // must follow a successful write (the rebuild) without a second message
+    // from the guest.
+    const reply = (payload) => {
+      sendToRenderer("file:replaceLinesResult", {
+        requestId,
+        path: relativePath,
+        ...payload,
+      });
+      return payload;
+    };
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      return reply({ ok: false, error: "No workspace is selected." });
+    }
+    await updateWorkspaceIfNeeded(rootPath);
+    if (!isTextFilePath(relativePath) && !isExtendedTextFilePath(relativePath)) {
+      return reply({ ok: false, error: "Cannot edit this format." });
+    }
+    const startLine = Number.parseInt(options.startLine, 10);
+    const endLine = Number.parseInt(options.endLine, 10);
+    const expectedText =
+      typeof options.expectedText === "string" ? options.expectedText : null;
+    const replacementText =
+      typeof options.replacementText === "string" ? options.replacementText : null;
+    if (
+      !Number.isFinite(startLine) ||
+      !Number.isFinite(endLine) ||
+      startLine < 1 ||
+      endLine < startLine ||
+      expectedText === null ||
+      replacementText === null
+    ) {
+      return reply({ ok: false, error: "Invalid replacement request." });
+    }
+    try {
+      const content = await workspace.readFile(relativePath);
+      const newline = content.includes("\r\n") ? "\r\n" : "\n";
+      const allLines = content.split(/\r?\n/);
+      if (endLine > allLines.length) {
+        return reply({ ok: false, stale: true, error: "The file changed since it was read." });
+      }
+      const current = allLines.slice(startLine - 1, endLine).join("\n");
+      if (current !== expectedText) {
+        return reply({ ok: false, stale: true, error: "The file changed since it was read." });
+      }
+      const replaced = [
+        ...allLines.slice(0, startLine - 1),
+        ...replacementText.split(/\r?\n/),
+        ...allLines.slice(endLine),
+      ].join(newline);
+      await workspace.writeFile(relativePath, replaced);
+      const outcome = reply({ ok: true });
+      if (workspace.isIndexTarget(relativePath)) {
+        requestIndex(rootPath);
+      }
+      return outcome;
+    } catch (error) {
+      return reply({ ok: false, error: error.message });
+    }
+  };
+
   const handleFormatFile = async (relativePath, content, source, formatSettings) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
@@ -654,6 +724,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     handleFileExcerpt,
     handleFileBytes,
     handleSaveFile,
+    handleReplaceLines,
     handleFormatFile,
     handleCreateFile,
     handleCreateFolder,

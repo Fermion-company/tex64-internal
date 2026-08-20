@@ -1,0 +1,61 @@
+# リアルタイムプレビュー（ベータ）
+
+Code モードの設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、TeX64 本体には同梱せずプロセスとして起動する。
+
+- 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
+- **新しいペインは作らない。** ON のあいだ、ビルド済み PDF を表示している既存のビューア — タブ内の PDF ビューア（`pdf-viewer.html`）と**別ウィンドウの PDF ビューア** — の**ページ描画部分だけ**がエンジンのライブ表示（`?embed=1` の iframe）に置き換わる。ツールバー等のクロームはそのまま。OFF で従来の静的 PDF 表示に戻り、エンジンプロセスも終了する。
+
+## 配線
+
+| 層 | ファイル | 役割 |
+| --- | --- | --- |
+| main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy |
+| main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,window-live}` |
+| main | `electron/services/pdf.cjs` | `PDFWindowManager.setLive(url)` — 別ウィンドウのライブ状態（再表示時に再適用） |
+| preload | `electron/preload.cjs` | `window.tex64Tdom` |
+| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（300ms debounce・IME 中は送らない）・ライブ状態の配信 |
+| renderer | `web-src/app/viewer.ts` | `setLivePreview(url)` — タブ内 pdf-viewer への live メッセージ中継（ready 時に再送） |
+| viewer | `Resources/web/pdf-viewer.{html,js,css}` | `live` メッセージでページ領域を iframe に切替。ツールバーのズーム/ページ移動は postMessage でエンジン側クライアントを操作。CSP `frame-src` に `http://127.0.0.1:*` を許可 |
+
+エディタ全文を main に送り、main 側が前回ソースとの共通 prefix/suffix を削った**最小レンジ編集**にして `POST /edit` する。ファイル切替時は `POST /open` で開き直す。編集が食い違ったら `/open` で再同期。
+
+**レイテンシ実測**（2026-08-20、e2e-paper-test 4 ページ文書）: renderer デバウンス 80ms（tdom 自身のクライアントと同値。当初 300ms だったのを短縮）＋ POST→SSE update 到達が本文 56〜104ms・数式 62ms・\maketitle 直下 206ms（新規ブロック生成分）。打鍵から画面反映まで概ね **150〜250ms**。数式行そのものの画像（exact chunk）と canonical は入力が止まってから数秒で追いつく（「本物の LuaLaTeX 出力だけを正とする」エンジン設計）。
+
+## エンジンの解決順序（tdom-engine.cjs）
+
+1. `TEX64_TDOM_ENGINE_DIR`（env）
+2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-core` → `~/Developer/tdom-core` → `~/tdom-core` → `~/Desktop/tdom-core`
+3. vendored copy: `Resources/tdom-engine/`（パッケージ版フォールバック）
+
+**開発フロー**: checkout が vendored より優先されるので、`~/tdom-core` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
+
+**配布**: `npm run tdom:sync` が checkout の最小構成（engine/・server.js・web/（pdfjs 除く）・templates/・samples/、約 900KB）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。gitignore 済み。パッケージ前に実行する（`files` は `Resources/**` を含み、`asarUnpack` に `Resources/tdom-engine/**` を追加済み）。
+
+## 実行時の前提と保護
+
+- 必須バイナリ: `lualatex`（managed TeX / システム texbin を PATH に前置）、poppler の `pdftocairo` / `pdftotext` / `pdfinfo`、fork shim 初回ビルド用の `cc`（PATH に `/opt/homebrew/bin` `/usr/local/bin` を追加して spawn）。欠けるとエンジンが起動せず console にエラーが出る（ビューアは静的表示のまま）。従来ビルドには影響しない。
+- `TDOM_MAX_CHECKPOINTS=8`（checkpoint 1 個 ≒ 常駐 lualatex fork 1 個 ≒ 100–300MB。エンジン既定の 64 は踏まない）。
+- `TDOM_WORKDIR` は userData 配下の絶対パス（tdom-core 側に絶対パス対応を追加済み）。
+- boot サンプルは `samples/` の実在ファイルから選ぶ（`demo-lua.tex` 優先）。既定の stress-test-ja は起動に数分かかるため使わない。
+- トグル OFF・アプリ終了で SIGTERM → エンジン側の shutdown が常駐 lualatex ツリーを回収する。
+- ポートは 4646 起点で空きを探す（tdom 開発サーバーの 4633 とは衝突させない）。
+
+## tdom-core 側に入れた変更
+
+- `web/app.js` / `web/style.css`: `?embed=1` — ページのみ表示（topbar・エディタ・インスペクタ・ペインタイトル・page ラベルを隠す）。`?bg=%23rrggbb`・`?theme=light|dark` でホストの配色に合わせる。ホストのツールバー操作（zoom-in/out/fit・goto-page/page-prev/next）を postMessage で受け、`{source:'tdom-embed', pageCount, zoom, page}` を 400ms 間隔で親へ通知。
+- `server.js`: `TDOM_WORKDIR` の絶対パス受け入れ（PID lock・stale sweep も親ディレクトリ基準に対応）。
+
+## 既知の制限（ベータ）
+
+- ライブ表示が出るのは「PDF を表示しているビューア」= 一度ビルド（または PDF を開く）してビューア/ウィンドウが存在している場所。
+- 単一 `.tex` バッファが対象（`\input` 分割プロジェクトはエンジンの docDir 連携が未配線）。
+- ライブ表示中は SyncTeX（Ctrl/Cmd+クリックでソースへ）・検索・回転・サムネイルは効かない（pdfjs は下で保持され、OFF で即復帰）。ズーム・ページ移動はツールバーから操作可能。
+- Windows 不可（エンジンが fork 依存。POSIX のみ）。
+
+## 解決済みの問題
+
+- **\maketitle 直下の編集が canonical 待ちになる**（2026-08-20 解決、tdom-core 082439a）: 空行を挟まず `\maketitle` の次の行に書いた本文が同一ブロックに併合され、そのブロックの常駐組版がタイムアウト（`timeout waiting for galley:bNN`）→ rescue もタイムアウト → 空ギャレーで凍結すると、以降の打鍵が「空→空」の再組版になり dirtyPages [] / patches 0（表示は canonical 到着まで更新されない）となっていた。対処は 2 層:
+  1. **segmenter**: 単独行の生成系コマンド（\maketitle / \tableofcontents / \listoffigures / \listoftables）を前後両側で独立ブロック化。直下の本文は別ブロックになり、打鍵でタイトルブロックが再キーされない。
+  2. **エンジンの自己修復**: fork() 失敗は daemon が `FORKFAIL` を即時通知（従来は無通知で 12 秒タイムアウト、しかも `FORKED -1` を送って kill(-1) を誘発し得た）。「fork 失敗」「子プロセスが一度も名乗らないタイムアウト」はブロック凍結ではなく**全面再構築リトライ（root 再ブート）へエスカレート**し数秒で治癒。タイムアウト二連発の凍結時は当該 checkpoint lineage を退役させ、次の編集は健全な snapshot から fork。子が名乗った後に黙るハング（ユーザーの壊れた TeX による無限ループの形）は従来どおりブロック単位の封じ込め。galley タイムアウトには forensics（ckpt 番号・FORKED 有無）が diagnostics に残る。fault 注入テスト `tests/infra-escalation.test.js`（`--test-force-exit` で実行）で 3 経路とも検証済み。
+
+テスト: `tests/tdom-engine-service.test.cjs`（diff・解決順序・boot サンプル選択・spawn env・fake エンジンとの start/push 統合）。

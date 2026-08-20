@@ -22,6 +22,10 @@ export const createViewer = (deps: ViewerDeps) => {
   let pdfViewerPath: string | null = null;
   let pendingPdfOpen: { url: string; path: string | null } | null = null;
   let pendingPdfSync: { page: number; x: number; y: number } | null = null;
+  // Real-time preview: when set, the pdf viewer swaps its page canvas for the
+  // live engine frame (same chrome). Re-sent on every viewer "ready" so it
+  // survives the pdf iframe being torn down and recreated.
+  let livePreviewUrl: string | null = null;
   const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
 
   const postPdfMessage = (payload: { type: string; payload?: unknown }) => {
@@ -71,6 +75,9 @@ export const createViewer = (deps: ViewerDeps) => {
       if (pendingPdfSync) {
         postPdfMessage({ type: "sync", payload: pendingPdfSync });
         pendingPdfSync = null;
+      }
+      if (livePreviewUrl) {
+        postPdfMessage({ type: "live", payload: { url: livePreviewUrl } });
       }
       return;
     }
@@ -224,6 +231,14 @@ export const createViewer = (deps: ViewerDeps) => {
     postPdfMessage({ type: "sync", payload });
   };
 
+  const setLivePreview = (url: string | null) => {
+    if (livePreviewUrl === url) return;
+    livePreviewUrl = url;
+    if (pdfViewerReady) {
+      postPdfMessage({ type: "live", payload: url ? { url } : null });
+    }
+  };
+
   return {
     hideViewer,
     showImageViewer,
@@ -233,5 +248,6 @@ export const createViewer = (deps: ViewerDeps) => {
     getViewerMode: () => viewerMode,
     getPdfPath: () => pdfViewerPath,
     syncPdf,
+    setLivePreview,
   };
 };

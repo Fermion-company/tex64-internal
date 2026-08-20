@@ -1624,6 +1624,75 @@ const initPdfViewer = () => {
     return output.toDataURL("image/png");
   };
 
+  // ---- live preview (real-time engine) --------------------------------
+  // When the host turns live mode on, the engine's embedded client replaces
+  // only the page canvas; the toolbar stays and drives the frame over
+  // postMessage (the frame is cross-origin, http://127.0.0.1).
+  const liveFrame = document.getElementById("pdf-live-frame");
+  const isLive = () => document.body.classList.contains("is-live");
+  const postLive = (action, extra) => {
+    const target = liveFrame && liveFrame.contentWindow;
+    if (target) target.postMessage({ source: "tdom-host", action, ...(extra || {}) }, "*");
+  };
+  const setLiveMode = (payload) => {
+    const url = payload && typeof payload.url === "string" ? payload.url : null;
+    document.body.classList.toggle("is-live", Boolean(url));
+    if (!liveFrame) return;
+    if (url) {
+      const params = new URLSearchParams({ embed: "1", theme: "dark" });
+      const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+      if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
+      const src = `${url}/?${params.toString()}`;
+      if (liveFrame.src !== src) liveFrame.src = src;
+      liveFrame.setAttribute("aria-hidden", "false");
+      setStatus("Live");
+    } else {
+      liveFrame.src = "about:blank";
+      liveFrame.setAttribute("aria-hidden", "true");
+      setStatus(uiString("ready"));
+    }
+  };
+  const pageInputForLive = document.getElementById("pdf-page-input");
+  window.addEventListener("message", (event) => {
+    if (!liveFrame || event.source !== liveFrame.contentWindow) return;
+    const data = event.data;
+    if (!data || data.source !== "tdom-embed" || !isLive()) return;
+    if (Number.isFinite(data.pageCount)) {
+      const el = document.getElementById("pdf-page-count");
+      if (el) el.textContent = `/ ${data.pageCount}`;
+    }
+    if (Number.isFinite(data.zoom)) {
+      const el = document.getElementById("pdf-zoom-label");
+      if (el) el.textContent = `${Math.round(data.zoom * 100)}%`;
+    }
+    if (Number.isFinite(data.page) && pageInputForLive && document.activeElement !== pageInputForLive) {
+      pageInputForLive.value = String(data.page);
+    }
+  });
+  // Capture-phase routing: when live, the toolbar talks to the engine frame
+  // and pdf.js never sees the event.
+  const routeLiveClick = (id, action) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", (event) => {
+      if (!isLive()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      postLive(action);
+    }, true);
+  };
+  routeLiveClick("pdf-zoom-in", "zoom-in");
+  routeLiveClick("pdf-zoom-out", "zoom-out");
+  routeLiveClick("pdf-fit-width", "zoom-fit");
+  routeLiveClick("pdf-fit-page", "zoom-fit");
+  routeLiveClick("pdf-prev", "page-prev");
+  routeLiveClick("pdf-next", "page-next");
+  pageInputForLive?.addEventListener("change", (event) => {
+    if (!isLive()) return;
+    event.stopImmediatePropagation();
+    postLive("goto-page", { page: Number(pageInputForLive.value) });
+  }, true);
+
   if (bridge && typeof bridge.onMessage === "function") {
     bridge.onMessage(async (message) => {
       if (!message || typeof message !== "object") return;
@@ -1635,6 +1704,9 @@ const initPdfViewer = () => {
       }
       if (message.type === "sync" && message.payload) {
         applySync(message.payload);
+      }
+      if (message.type === "live") {
+        setLiveMode(message.payload || null);
       }
       if (message.type === "capture-scroll-state") {
         postCaptureScrollState();

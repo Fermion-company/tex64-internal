@@ -105,6 +105,13 @@ const fermionApi = {
   push: async (payload) => ipcRenderer.invoke("tex64:fermion:push", payload),
   canvasRender: async (payload) => ipcRenderer.invoke("tex64:fermion:canvas-render", payload),
 };
+const tdomApi = {
+  start: async () => ipcRenderer.invoke("tex64:tdom:start"),
+  status: async () => ipcRenderer.invoke("tex64:tdom:status"),
+  stop: async () => ipcRenderer.invoke("tex64:tdom:stop"),
+  push: async (payload) => ipcRenderer.invoke("tex64:tdom:push", payload),
+  windowLive: async (payload) => ipcRenderer.invoke("tex64:tdom:window-live", payload),
+};
 const aiApi = {
   complete: async (payload) => ipcRenderer.invoke("tex64:ai:complete", payload),
 };
@@ -320,6 +327,7 @@ contextBridge.exposeInMainWorld("tex64Capture", captureApi);
 contextBridge.exposeInMainWorld("tex64MathOcr", mathOcrApi);
 contextBridge.exposeInMainWorld("tex64Texize", texizeApi);
 contextBridge.exposeInMainWorld("tex64Fermion", fermionApi);
+contextBridge.exposeInMainWorld("tex64Tdom", tdomApi);
 contextBridge.exposeInMainWorld("tex64Ai", aiApi);
 contextBridge.exposeInMainWorld("tex64Files", filesApi);
 contextBridge.exposeInMainWorld("tex64AiWeb", aiWebApi);

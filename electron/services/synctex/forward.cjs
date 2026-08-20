@@ -236,7 +236,10 @@ module.exports = (SynctexService) => {
     cwd,
     env,
   }) {
-    const maxBoxWidth = 200;
+    // Height alone decides whether a block is a text line. A line box is as
+    // wide as the paragraph — one source line can be a whole paragraph — and
+    // capping width used to demote such boxes to distance-from-left-edge,
+    // which pulled clicks to whichever neighbor's edge happened to be nearer.
     const maxBoxHeight = 60;
     const target = `${line}:${column}:${sourcePath}`;
     let result;
@@ -262,13 +265,18 @@ module.exports = (SynctexService) => {
         Number.isFinite(block.height) &&
         block.width > 0 &&
         block.height > 0 &&
-        block.width <= maxBoxWidth &&
         block.height <= maxBoxHeight
       ) {
-        const left = Math.min(block.x, block.x + block.width);
-        const right = Math.max(block.x, block.x + block.width);
-        const top = Math.min(block.y, block.y + block.height);
-        const bottom = Math.max(block.y, block.y + block.height);
+        // synctex reports the box by its baseline: (h, v) is the bottom-left
+        // corner and H rises above it. The visual row band is [v-H, v+depth];
+        // depth is not reported, so estimate it the way the forward path does.
+        const DEPTH_ESTIMATE = 3;
+        const originX = Number.isFinite(block.h) ? block.h : block.x;
+        const baseline = Number.isFinite(block.v) ? block.v : block.y;
+        const left = Math.min(originX, originX + block.width);
+        const right = Math.max(originX, originX + block.width);
+        const top = baseline - block.height;
+        const bottom = baseline + DEPTH_ESTIMATE;
         const dx = click.x < left ? left - click.x : click.x > right ? click.x - right : 0;
         const dy = click.y < top ? top - click.y : click.y > bottom ? click.y - bottom : 0;
         const dist = dx * dx + dy * dy;

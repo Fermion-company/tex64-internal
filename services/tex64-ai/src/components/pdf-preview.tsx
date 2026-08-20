@@ -77,6 +77,8 @@ export interface PdfPreviewProps {
   emptyHint?: string;
   /** Card anchored just below the selected region (編集カード). */
   selectionCard?: ReactNode;
+  /** Extra control at the toolbar's right end (e.g. the build button). */
+  toolbarAction?: ReactNode;
 }
 
 /** Gap between pages inside the scroller (kept in JS so scroll math matches). */
@@ -130,6 +132,7 @@ export function PdfPreview({
   onPointSelect,
   emptyHint = "まだ紙面がありません",
   selectionCard = null,
+  toolbarAction = null,
 }: PdfPreviewProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   /** Loading task backing the currently displayed document. */
@@ -393,6 +396,7 @@ export function PdfPreview({
         <span className={styles.pageIndicator} aria-label="ページ位置">
           {loaded ? `${currentPage} / ${loaded.pages.length}` : "– / –"}
         </span>
+        {toolbarAction}
       </div>
 
       <div className={styles.stage}>
@@ -556,6 +560,10 @@ function PdfPageView({
   onRenderFailed,
 }: PdfPageViewProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The card scrolls itself into view once, when it appears. An inline ref
+  // callback runs again on every render, and re-scrolling each time pins the
+  // viewport to the card — the reader could not scroll away while it was open.
+  const scrolledCardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -659,9 +667,15 @@ function PdfPageView({
       ) : null}
       {!regionRects && selectionCard && selectionCardTop !== null ? (
         <div
-          ref={(node) =>
-            node?.scrollIntoView({ block: "nearest", behavior: "smooth" })
-          }
+          ref={(node) => {
+            // An inline ref detaches (null) and reattaches on EVERY render,
+            // so the null call must not clear the guard — resetting there
+            // re-scrolls each render and pins the viewport to the card. The
+            // stored node only differs when the card genuinely remounts.
+            if (!node || scrolledCardRef.current === node) return;
+            scrolledCardRef.current = node;
+            node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }}
           className={styles.selectionCard}
           style={{
             top: Math.min(selectionCardTop + 12, Math.max(8, cssHeight - 260)),

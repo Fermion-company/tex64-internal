@@ -30,6 +30,7 @@ xcuserdata/
 !/Resources/icons/appx/
 !/Resources/icons/appx/*.png
 /Resources/texlab/
+/Resources/tdom-engine/
 /.venv/
 /.venv-ocr/
 /.claude/

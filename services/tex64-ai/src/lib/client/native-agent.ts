@@ -6,13 +6,22 @@ import type { TurnFrame } from "./types";
 /** The AI mode's own thread on the desktop agent, separate from Code mode's. */
 export const AI_MODE_CONVERSATION_ID = "tex64-ai-mode";
 
+/** Each document keeps its own thread; the folder names it. */
+export function conversationIdFor(folder: string): string {
+  return folder ? `${AI_MODE_CONVERSATION_ID}:${folder}` : AI_MODE_CONVERSATION_ID;
+}
+
 /**
  * Typesets the workspace so the page catches up with whatever the turn wrote.
  * The agent may build on its own; latexmk skips the work when nothing changed,
  * so asking again is cheap and makes the page reliable rather than hopeful.
  */
-export function requestWorkspaceBuild(): void {
-  getNativeHost()?.send("build", {});
+export function requestWorkspaceBuild(targetFile?: string): void {
+  // "none": the AI mode is its own viewer; the Code-mode PDF window stays shut.
+  getNativeHost()?.send("build", {
+    ...(targetFile ? { targetFile } : {}),
+    pdfViewerMode: "none",
+  });
 }
 
 /**
@@ -40,9 +49,14 @@ export function runNativeTurn(input: {
   prompt: string;
   onFrame: (frame: TurnFrame) => void;
   signal: AbortSignal;
+  /** Thread to speak on; defaults to the mode's shared one. */
+  conversationId?: string;
+  /** The document the turn is about, as its workspace-relative main.tex. */
+  activeFilePath?: string;
 }): Promise<void> {
   const host = getNativeHost();
   if (!host) return Promise.reject(new Error("No desktop host is available."));
+  const conversationId = input.conversationId ?? AI_MODE_CONVERSATION_ID;
 
   // A run the host refuses reports agent:error, but a host that answers
   // nothing at all would leave the composer spinning forever.
@@ -62,7 +76,7 @@ export function runNativeTurn(input: {
     };
 
     const onAbort = () => {
-      host.send("agent:abort", { conversationId: AI_MODE_CONVERSATION_ID });
+      host.send("agent:abort", { conversationId });
       finish("aborted");
     };
 
@@ -79,7 +93,7 @@ export function runNativeTurn(input: {
       const body = hostMessageBody(raw) as AgentEventBody;
       if (
         typeof body.conversationId === "string" &&
-        body.conversationId !== AI_MODE_CONVERSATION_ID
+        body.conversationId !== conversationId
       ) {
         return;
       }
@@ -124,8 +138,10 @@ export function runNativeTurn(input: {
     input.signal.addEventListener("abort", onAbort);
     host.send("agent:run", {
       message: input.prompt,
-      conversationId: AI_MODE_CONVERSATION_ID,
-      context: {},
+      conversationId,
+      // The agent works on the whole workspace; the active file tells it
+      // which document this conversation is about.
+      context: input.activeFilePath ? { activeFilePath: input.activeFilePath } : {},
     });
   });
 }

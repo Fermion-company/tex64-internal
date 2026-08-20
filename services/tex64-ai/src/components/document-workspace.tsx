@@ -27,9 +27,18 @@ import {
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
 import { drainPendingSaves } from "@/lib/client/save-drain";
-import { requestWorkspaceBuild, runNativeTurn } from "@/lib/client/native-agent";
+import { segmentParagraph } from "@/domain/source/paragraph-editing";
+import {
+  conversationIdFor,
+  requestWorkspaceBuild,
+  runNativeTurn,
+} from "@/lib/client/native-agent";
+import { useAiDocuments } from "@/lib/client/use-ai-documents";
+import { useParagraphEditor } from "@/lib/client/use-paragraph-editor";
 import { useSourceLocator } from "@/lib/client/use-source-locator";
 import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
+import { NativeNewDocumentPanel } from "@/components/native-new-document-panel";
+import { ParagraphEditCard } from "@/components/paragraph-edit-card";
 import type {
   ChatMessage,
   CreateDocumentInput,
@@ -107,9 +116,13 @@ export function DocumentWorkspace() {
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const pendingCreateRequestRef = useRef<PendingCreateRequest | null>(null);
   // Inside the desktop app the page comes from the workspace build, not from
-  // this service's own artifact, and the agent keeps its own thread.
-  const workspacePdf = useWorkspacePdf();
+  // this service's own artifact, and the agent keeps its own thread. Each
+  // document is a folder in the workspace; the page follows the current one.
+  const aiDocs = useAiDocuments();
+  const workspacePdf = useWorkspacePdf(aiDocs.current);
   const sourceLocator = useSourceLocator();
+  const paragraphEditor = useParagraphEditor();
+  const [nativeNewOpen, setNativeNewOpen] = useState(false);
   const agentWorking = turnDocumentId !== null;
   // The desktop agent keeps its own thread; this service's document knows
   // nothing about it, so reloading the document must not wipe the chat.
@@ -627,13 +640,6 @@ export function DocumentWorkspace() {
       setActivityTool(null);
       setTurnError(null);
       setMobileView("conversation");
-      const shownAt = new Date().toISOString();
-      if (workspacePdf.native) {
-        setNativeMessages((current) => [
-          ...current,
-          { id: `local:${shownAt}`, role: "user", text: prompt, createdAt: shownAt },
-        ]);
-      } else
       // The user's own message is shown immediately; the server persists it
       // as part of the turn.
       updateStoredDocument({
@@ -651,11 +657,9 @@ export function DocumentWorkspace() {
       });
 
       let revisionChanged = false;
-      let replyText = "";
       const onFrame = (frame: TurnFrame) => {
           switch (frame.type) {
             case "text":
-              replyText += frame.delta;
               setStreamingText((current) => current + frame.delta);
               setActivityTool(null);
               break;
@@ -674,18 +678,12 @@ export function DocumentWorkspace() {
           }
       };
 
-      // In the desktop app the turn runs against the workspace's own files
-      // through the host agent; in a browser it runs against this service.
-      const result = workspacePdf.native
-        ? await runNativeTurn({ prompt, onFrame, signal: controller.signal })
-            .then(() => ({ ok: true }) as const)
-            .catch(() => ({ ok: false }) as const)
-        : await sendMessage(
-            document.id,
-            targetNodeId ? { prompt, targetNodeId } : { prompt },
-            onFrame,
-            controller.signal,
-          );
+      const result = await sendMessage(
+        document.id,
+        targetNodeId ? { prompt, targetNodeId } : { prompt },
+        onFrame,
+        controller.signal,
+      );
 
       turnAbortRef.current = null;
       setTurnDocumentId(null);
@@ -695,28 +693,9 @@ export function DocumentWorkspace() {
         setTurnError("送信できませんでした。もう一度お試しください。");
         return;
       }
-      if (workspacePdf.native) {
-        // The page must reflect what the turn wrote, whether or not the agent
-        // typeset it itself.
-        requestWorkspaceBuild();
-        // Nothing on this service stores the turn, so the reply is kept here.
-        if (replyText.trim()) {
-          const repliedAt = new Date().toISOString();
-          setNativeMessages((current) => [
-            ...current,
-            {
-              id: `local:${repliedAt}`,
-              role: "assistant",
-              text: replyText,
-              createdAt: repliedAt,
-            },
-          ]);
-        }
-      } else {
-        // The stored thread now holds the assistant's reply; reloading also
-        // picks up the new revision and its page.
-        await refreshAfterTurn(document.id);
-      }
+      // The stored thread now holds the assistant's reply; reloading also
+      // picks up the new revision and its page.
+      await refreshAfterTurn(document.id);
       if (revisionChanged) setCompileFailed(false);
 
       // A message typed while this turn was running goes next, in order.
@@ -728,17 +707,123 @@ export function DocumentWorkspace() {
         void runTurnRef.current?.(latest, queued);
       }
     },
-    [
-      flushOutstandingSave,
-      refreshAfterTurn,
-      updateStoredDocument,
-      workspacePdf.native,
-    ],
+    [flushOutstandingSave, refreshAfterTurn, updateStoredDocument],
   );
 
   useEffect(() => {
     runTurnRef.current = runTurn;
   }, [runTurn]);
+
+  /**
+   * One turn on the desktop agent, scoped to the current document: its own
+   * thread (the folder names it), its own main.tex as the active file, and a
+   * typeset of that document once the turn is done.
+   */
+  const runNativeDocTurnRef = useRef<((prompt: string) => Promise<void>) | null>(null);
+  const nativeDocument = aiDocs.current;
+  const runNativeDocTurn = useCallback(
+    async (prompt: string) => {
+      const document = nativeDocument;
+      if (!document) return;
+      const controller = new AbortController();
+      turnAbortRef.current = controller;
+      setTurnDocumentId(`native:${document.folder || "root"}`);
+      setStreamingText("");
+      setActivityTool(null);
+      setTurnError(null);
+      setMobileView("conversation");
+      const shownAt = new Date().toISOString();
+      setNativeMessages((current) => [
+        ...current,
+        { id: `local:${shownAt}`, role: "user", text: prompt, createdAt: shownAt },
+      ]);
+
+      let replyText = "";
+      const onFrame = (frame: TurnFrame) => {
+        switch (frame.type) {
+          case "text":
+            replyText += frame.delta;
+            setStreamingText((current) => current + frame.delta);
+            setActivityTool(null);
+            break;
+          case "tool":
+            if (frame.state === "start") setActivityTool(frame.name);
+            break;
+          case "error":
+            setTurnError(frame.message);
+            break;
+          default:
+            break;
+        }
+      };
+
+      const result = await runNativeTurn({
+        prompt,
+        onFrame,
+        signal: controller.signal,
+        conversationId: conversationIdFor(document.folder),
+        activeFilePath: document.mainFile,
+      })
+        .then(() => ({ ok: true }) as const)
+        .catch(() => ({ ok: false }) as const);
+
+      turnAbortRef.current = null;
+      setTurnDocumentId(null);
+      setActivityTool(null);
+      setStreamingText("");
+      if (!result.ok) {
+        setTurnError("送信できませんでした。もう一度お試しください。");
+        return;
+      }
+      // The page must reflect what the turn wrote, whether or not the agent
+      // typeset it itself.
+      requestWorkspaceBuild(document.mainFile);
+      // Nothing on this service stores the turn, so the reply is kept here.
+      if (replyText.trim()) {
+        const repliedAt = new Date().toISOString();
+        setNativeMessages((current) => [
+          ...current,
+          {
+            id: `local:${repliedAt}`,
+            role: "assistant",
+            text: replyText,
+            createdAt: repliedAt,
+          },
+        ]);
+      }
+      // A message typed while this turn was running goes next, in order.
+      const queued = queuedPromptRef.current;
+      if (queued) {
+        queuedPromptRef.current = null;
+        setQueuedPrompt(null);
+        void runNativeDocTurnRef.current?.(queued);
+      }
+    },
+    [nativeDocument],
+  );
+
+  useEffect(() => {
+    runNativeDocTurnRef.current = runNativeDocTurn;
+  }, [runNativeDocTurn]);
+
+  // Moving to another document changes the subject entirely: the visible
+  // thread, the queue, and any error belonged to the previous one. Adjusted
+  // during render, the same way selections reset on document switches.
+  const nativeFolder = nativeDocument?.folder ?? null;
+  const [threadFolder, setThreadFolder] = useState<string | null>(nativeFolder);
+  if (threadFolder !== nativeFolder) {
+    setThreadFolder(nativeFolder);
+    setNativeMessages([]);
+    setTurnError(null);
+    setQueuedPrompt(null);
+    setNativeNewOpen(false);
+  }
+
+  /** Leaves the current document: whatever ran there stops following us. */
+  const leaveNativeThread = useCallback(() => {
+    turnAbortRef.current?.abort();
+    queuedPromptRef.current = null;
+  }, []);
 
   const confirmSelectionEdit = useCallback(async () => {
     const documentId = selectedDocumentRef.current;
@@ -795,9 +880,19 @@ export function DocumentWorkspace() {
 
   const submitWritingRequest = useCallback(
     (prompt: string) => {
+      if (workspacePdf.native) {
+        if (!nativeDocument) return;
+        // A message sent while the agent is working waits its turn instead of
+        // being refused; the composer never locks.
+        if (agentWorking) {
+          queuedPromptRef.current = prompt;
+          setQueuedPrompt(prompt);
+          return;
+        }
+        void runNativeDocTurn(prompt);
+        return;
+      }
       if (!activeDocument) return;
-      // A message sent while the agent is working waits its turn instead of
-      // being refused; the composer never locks.
       if (agentWorking) {
         queuedPromptRef.current = prompt;
         setQueuedPrompt(prompt);
@@ -807,7 +902,15 @@ export function DocumentWorkspace() {
       setSelectedElementId(null);
       void runTurn(activeDocument, prompt, targetNodeId);
     },
-    [activeDocument, agentWorking, runTurn, selectedElement],
+    [
+      activeDocument,
+      agentWorking,
+      nativeDocument,
+      runNativeDocTurn,
+      runTurn,
+      selectedElement,
+      workspacePdf.native,
+    ],
   );
 
   useEffect(() => {
@@ -869,16 +972,44 @@ export function DocumentWorkspace() {
               onClick={() => setDocumentMenuOpen((open) => !open)}
             >
               <span className="document-switcher-titles">
-                <strong>{activeDocument?.title ?? "新しい文書"}</strong>
+                <strong>
+                  {workspacePdf.native
+                    ? (nativeDocument?.name ?? "文書がありません")
+                    : (activeDocument?.title ?? "新しい文書")}
+                </strong>
                 <small>
-                  {activeDocument
-                    ? (KIND_LABELS[activeDocument.kind] ?? "文書")
-                    : "TeX64"}
+                  {workspacePdf.native
+                    ? "文書"
+                    : activeDocument
+                      ? (KIND_LABELS[activeDocument.kind] ?? "文書")
+                      : "TeX64"}
                 </small>
               </span>
-              {documents.length ? <ChevronDown aria-hidden="true" size={14} /> : null}
+              {(workspacePdf.native ? aiDocs.documents.length : documents.length) ? (
+                <ChevronDown aria-hidden="true" size={14} />
+              ) : null}
             </button>
-            {documentMenuOpen && documents.length ? (
+            {documentMenuOpen && workspacePdf.native && aiDocs.documents.length ? (
+              <div className="document-menu" aria-label="文書を選ぶ">
+                {aiDocs.documents.map((item) => (
+                  <button
+                    key={item.folder || "(root)"}
+                    type="button"
+                    aria-current={
+                      nativeDocument?.folder === item.folder ? "page" : undefined
+                    }
+                    onClick={() => {
+                      setDocumentMenuOpen(false);
+                      leaveNativeThread();
+                      aiDocs.select(item);
+                    }}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {documentMenuOpen && !workspacePdf.native && documents.length ? (
               <div className="document-menu" aria-label="文書を選ぶ">
                 {documents.map((item) => (
                   <button
@@ -896,7 +1027,7 @@ export function DocumentWorkspace() {
         </div>
 
         <div className="topbar-actions">
-          {activeDocument && activeDocument.versions.length > 0 ? (
+          {!workspacePdf.native && activeDocument && activeDocument.versions.length > 0 ? (
             <div className="history-anchor">
               <button
                 type="button"
@@ -944,7 +1075,15 @@ export function DocumentWorkspace() {
             type="button"
             className="topbar-new-button"
             aria-label="新規"
-            onClick={() => void showNewDocument()}
+            onClick={() => {
+              if (workspacePdf.native) {
+                setDocumentMenuOpen(false);
+                setNativeNewOpen(true);
+                setMobileView("conversation");
+                return;
+              }
+              void showNewDocument();
+            }}
           >
             <Plus aria-hidden="true" size={16} />
             <span>新規</span>
@@ -974,7 +1113,38 @@ export function DocumentWorkspace() {
           className="workspace-pane pane-conversation"
           data-mobile-hidden={mobileView !== "conversation"}
         >
-          {activeDocument ? (
+          {workspacePdf.native ? (
+            nativeNewOpen || (!nativeDocument && !aiDocs.loading) ? (
+              <NativeNewDocumentPanel
+                creating={aiDocs.creating}
+                error={aiDocs.error}
+                canCancel={Boolean(nativeDocument)}
+                onCancel={() => setNativeNewOpen(false)}
+                onSubmit={(title) => {
+                  leaveNativeThread();
+                  void aiDocs.create(title).then((created) => {
+                    if (created) setNativeNewOpen(false);
+                  });
+                }}
+              />
+            ) : (
+              <AgentPanel
+                document={null}
+                ready={Boolean(nativeDocument)}
+                messages={messages}
+                streamingText={streamingText}
+                activityTool={activityTool}
+                isWorking={agentWorking}
+                queuedPrompt={queuedPrompt}
+                error={turnError}
+                selectedElement={null}
+                composerRef={composerRef}
+                onSubmit={submitWritingRequest}
+                onStop={stopTurn}
+                onClearSelection={() => setSelectedElementId(null)}
+              />
+            )
+          ) : activeDocument ? (
             <AgentPanel
               document={activeDocument}
               messages={messages}
@@ -1002,9 +1172,9 @@ export function DocumentWorkspace() {
           className="workspace-pane pane-document"
           data-mobile-hidden={mobileView !== "document"}
         >
-          {documentLoading ? (
+          {documentLoading && !workspacePdf.native ? (
             <DocumentSkeleton />
-          ) : activeDocument ? (
+          ) : workspacePdf.native || activeDocument ? (
             <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
@@ -1019,38 +1189,88 @@ export function DocumentWorkspace() {
                   onSelect={(id) => setSelectedElementId(id)}
                   onPointSelect={
                     workspacePdf.native
-                      ? (point) =>
+                      ? (point) => {
+                          // A new click is a new spot; drop any edit in progress.
+                          paragraphEditor.close();
                           sourceLocator.locate({
                             ...point,
                             pdfPath: workspacePdf.path,
-                          })
+                          });
+                        }
                       : undefined
                   }
                   emptyHint={
                     workspacePdf.native
                       ? !workspacePdf.hasWorkspace
                         ? "プロジェクトが開かれていません。Code モードで開いてください。"
-                        : workspacePdf.building
-                          ? "紙面を組み立てています…"
-                          : (workspacePdf.failure ??
-                            "紙面を組み立てています…")
+                        : !nativeDocument && !aiDocs.loading
+                          ? "右上の「新規」から文書を作りましょう。"
+                          : workspacePdf.building
+                            ? "紙面を組み立てています…"
+                            : (workspacePdf.failure ??
+                              "紙面を組み立てています…")
                       : agentWorking
                         ? "紙面を準備しています…"
                         : documentHasContent
                           ? "紙面を組み立てています…"
                           : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
+                  toolbarAction={
+                    workspacePdf.native ? (
+                      <button
+                        type="button"
+                        className="paper-build-button"
+                        disabled={
+                          !workspacePdf.hasWorkspace ||
+                          !nativeDocument ||
+                          workspacePdf.building
+                        }
+                        onClick={() => requestWorkspaceBuild(nativeDocument?.mainFile)}
+                      >
+                        {workspacePdf.building ? "組版中…" : "組版"}
+                      </button>
+                    ) : activeDocument ? (
+                      <button
+                        type="button"
+                        className="paper-build-button"
+                        disabled={compiling}
+                        onClick={() =>
+                          void runCompile(activeDocument.id, activeDocument.revision)
+                        }
+                      >
+                        {compiling ? "組版中…" : "組版"}
+                      </button>
+                    ) : null
+                  }
                   selectionCard={
                     workspacePdf.native ? (
-                      sourceLocator.location ||
-                      sourceLocator.error ||
-                      sourceLocator.locating ? (
+                      paragraphEditor.paragraph ? (
+                        <ParagraphEditCard
+                          segments={paragraphEditor.paragraph.segments}
+                          saving={paragraphEditor.saving}
+                          onCancel={paragraphEditor.close}
+                          onSave={(replacementText) => {
+                            void paragraphEditor
+                              .save(replacementText)
+                              .then((saved) => {
+                                if (saved) sourceLocator.clear();
+                              });
+                          }}
+                        />
+                      ) : sourceLocator.location ||
+                        sourceLocator.error ||
+                        sourceLocator.locating ||
+                        paragraphEditor.loading ||
+                        paragraphEditor.error ? (
                         <div className="element-card" aria-label="選択中の箇所">
                           <div className="element-card-head">
                             <button
                               type="button"
                               className="element-card-close"
-                              onClick={sourceLocator.clear}
+                              onClick={() => {
+                                paragraphEditor.close();
+                                sourceLocator.clear();
+                              }}
                             >
                               閉じる
                             </button>
@@ -1063,15 +1283,52 @@ export function DocumentWorkspace() {
                                     : "この付近"
                                   : "見つかりません"}
                             </strong>
-                            <div className="element-card-head-actions" />
+                            <div className="element-card-head-actions">
+                              {sourceLocator.location ? (
+                                <button
+                                  type="button"
+                                  className="element-card-confirm"
+                                  disabled={paragraphEditor.loading}
+                                  onClick={() => {
+                                    const location = sourceLocator.location;
+                                    if (location) {
+                                      paragraphEditor.open({
+                                        path: location.path,
+                                        line: location.line,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {paragraphEditor.loading
+                                    ? "読み出しています…"
+                                    : "文章を直す"}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                           <div className="element-card-editor">
                             {sourceLocator.locating ? (
                               <p>本文のどこかを確かめています。</p>
+                            ) : paragraphEditor.error ? (
+                              <p>{paragraphEditor.error}</p>
                             ) : sourceLocator.location ? (
-                              <p>
-                                {sourceLocator.location.text ||
-                                  `${sourceLocator.location.path} の ${sourceLocator.location.line} 行目`}
+                              <p className="source-line-preview">
+                                {sourceLocator.location.text
+                                  ? // 原則どおり既定の視界は文章。命令はチップで示す。
+                                    segmentParagraph(sourceLocator.location.text).map(
+                                      (segment, segmentIndex) =>
+                                        segment.kind === "chip" ? (
+                                          <span
+                                            key={segmentIndex}
+                                            className="paragraph-chip"
+                                          >
+                                            {segment.label}
+                                          </span>
+                                        ) : (
+                                          <span key={segmentIndex}>{segment.latex}</span>
+                                        ),
+                                    )
+                                  : `${sourceLocator.location.path} の ${sourceLocator.location.line} 行目`}
                               </p>
                             ) : (
                               <p>{sourceLocator.error}</p>
@@ -1137,7 +1394,7 @@ export function DocumentWorkspace() {
                     ) : null
                   }
                 />
-                {compileFailed ? (
+                {compileFailed && activeDocument ? (
                   <div className="compile-banner" role="alert">
                     <span>紙面を更新できませんでした。</span>
                     <button

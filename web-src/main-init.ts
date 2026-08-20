@@ -57,6 +57,7 @@ import { initProCanvasGallery } from "./app/pro-canvas/gallery-ui.js";
 import { initProStashUi } from "./app/pro-stash-ui.js";
 import { initProStructureUi } from "./app/pro-structure-ui.js";
 import { initProLivePreview } from "./app/pro-live-preview.js";
+import { initCodeLivePreview } from "./app/code-live-preview.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -406,7 +407,7 @@ export const initMain = () => {
   // by its own allowlist. Registering a second listener keeps the existing
   // dispatcher untouched.
   bridgeWindow.tex64Bridge?.onMessage?.((message) => aiModeApi.deliver(message));
-  initAppModeUi({
+  const appModeApi = initAppModeUi({
     initialMode: resolveInitialAppMode(
       localStorage.getItem(APP_MODE_STORAGE_KEY),
       parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled
@@ -415,6 +416,11 @@ export const initMain = () => {
       proModeApi?.setEnabled(mode === "pro");
       if (mode === "ai") aiModeApi.activate();
     },
+  });
+  initCodeLivePreview({
+    getActiveGroup: editorSession.getActiveGroup,
+    getEditorGroups: editorSession.getEditorGroups,
+    getAppMode: () => appModeApi.getMode(),
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 

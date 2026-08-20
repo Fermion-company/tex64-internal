@@ -352,6 +352,13 @@ export type FermionBridge = {
   push?: (payload: { source: string; edit?: { start: number; end: number; text: string } }) => Promise<{ ok: boolean; url?: string; backend?: string; error?: string }>;
   canvasRender?: (payload: { source: string }) => Promise<{ ok: boolean; report?: unknown; pdfBase64?: string; error?: string }>;
 };
+export type TdomBridge = {
+  start?: () => Promise<{ ok: boolean; url?: string; error?: string }>;
+  status?: () => Promise<unknown>;
+  stop?: () => Promise<{ ok: boolean; error?: string }>;
+  push?: (payload: { source: string; fresh?: boolean }) => Promise<{ ok: boolean; url?: string; error?: string }>;
+  windowLive?: (payload: { url: string | null }) => Promise<{ ok: boolean; error?: string }>;
+};
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
 };
@@ -378,6 +385,7 @@ export type BridgeWindow = Window &
     tex64MathOcr?: MathOcrBridge;
     tex64Texize?: TexizeBridge;
     tex64Fermion?: FermionBridge;
+    tex64Tdom?: TdomBridge;
     tex64Ai?: AiCompletionBridge;
     tex64Files?: FilesBridge;
     tex64AiWeb?: AiWebBridge;

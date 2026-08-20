@@ -145,10 +145,122 @@ abac59a のリファクタで混入。
 - ゲストの打ち切りは 6 秒 → 20 秒に。逆引きは近傍グリッド掃引
   （synctex プロセス多数起動）なので、大きい文書ではミリ秒では済まない。
 
+### 実装済み・実機未検証: 本文だけの直接編集（2026-08-20）
+
+「この付近」カードに **文章を直す** ボタンが付き、押すと段落がその場で編集できる。
+文章は打ち直せて、命令はチップ（強調・数式・引用…）のまま保たれる。
+
+仕組み（設計の要はひとつ: **TeX の特殊文字は全部チップにする**。だから文章
+セグメントに特殊文字は残らず、書き戻し時に「編集された文章」を機械的に
+エスケープしても未編集部分は恒等変換になり、往復が壊れない）:
+
+- `src/domain/source/paragraph-editing.ts` — 純ロジック。
+  `findParagraphRange`（空行・構造行で段落境界）、`segmentParagraph`
+  （文章/チップ分解、連結＝原文のバイト一致を保証）、`escapeParagraphText`、
+  `serializeSegments`。`tests/paragraph-editing.test.ts`（14 件）。
+- `src/lib/client/use-paragraph-editor.ts` — 読み出し（`file:excerpt`
+  radius 60）→ 分解 → 書き戻し → `build`。
+- `src/components/paragraph-edit-card.tsx` — contenteditable。チップは
+  `contenteditable=false` の不透明要素（削除可・中は打てない）。保存時に
+  DOM を辿って再構成。
+- 書き戻しは新設の **`file:replaceLines`**（main 側
+  `electron/handlers/workspace/file-handlers.cjs` の `handleReplaceLines`、
+  `tests/file-replace-lines.test.cjs` 5 件）。**読んだ行がまだ同じときだけ
+  置換する compare-and-swap** で、エージェントや Code モードが先に触って
+  いたら `stale` で拒否する。全文はブリッジを渡らない（大きいメッセージは
+  落ちるため）。embedder の allowlist（`web-src/app/ai-mode-ui.ts`）に
+  request/result を追加済み。
+
+わかっている制限（v1 として意図的）:
+
+- チップは削除のみ。移動（切り取り→貼り付け）は plaintext 貼り付けで
+  チップが失われる。
+- 数式チップから MathLive エディタへの受け渡しは未実装（次の改善）。
+- 段落が抜粋（radius 60 / 12KB）より長い場合は見えている範囲だけが対象
+  （compare-and-swap により正しさは保たれる）。
+
+### 実機フィードバックで直したもの（2026-08-20 午後）
+
+スクリーンショット報告の 4 件。
+
+1. **カードを開くとスクロールできない** — `pdf-preview.tsx` の selectionCard が
+   inline ref コールバックで `scrollIntoView` していた。ref は再レンダーごとに
+   呼び直されるので、スクロール→再レンダー→カードへ引き戻しの綱引きになる。
+   「現れた最初の 1 回だけ」スクロールするようガード。
+2. **段落の囲みが上にずれる** — `pdf-text-blocks.ts` の `itemRect` が
+   `transform[5]`（ベースライン）から height を丸ごと引いていた。上端は
+   `f - height * 0.78`（アセント分）が正しい。
+3. **クリックした段落の隣に結び付く** — main 側 2 箇所:
+   - `measureForwardDistance` の `maxBoxWidth = 200` を撤廃（高さだけで行ボックス
+     判定）。1 ソース行=1 段落だと行ボックスは幅 453pt あり、上限で本来の箱判定が
+     スキップされ「行頭の点との距離」に退化 → `refineReverseCandidate` が正解を
+     隣の行へ動かしていた。あわせて箱の縦範囲を `[v-H, v+depth]` に修正
+     （`v` はベースライン。旧実装は `[y, y+H]` で 1 行分下にずれていた）。
+   - 厳密ヒットの**ハードフィルタを廃止**しスコアボーナス化
+     （`reverse-core.cjs`）。synctex は段落間グルーを空行の行番号に帰属させる
+     ので、クリック点そのものの答えが空行のことがあり、それが候補を独占していた。
+   - 検証: e2e-paper の synctex view から行バンドを機械生成した 96 点評価で
+     **top-1 38.5% → 97.9%**（confident 35 → 96）。残る 2 点は「段落最終行 vs
+     直後の \section 見出し」の synctex 自体が曖昧な帯。回帰テスト
+     `tests/synctex-reverse-scoring.test.cjs`（3 件）。Code モードの逆引きも
+     同じ実装なので同様に良くなる。
+4. **カードに生 TeX が漏れる** — 抜粋を `segmentParagraph` に通し、命令はチップ
+   表示に（既定の視界は文章、の原則どおり）。長い段落用に 6 行でクランプ。
+
+### 実機フィードバック第2弾（2026-08-20 夕方）
+
+1. **スクロールがまだ戻る** — 前回のガードに穴。inline ref は毎レンダーで
+   `ref(null)` → `ref(node)` と呼び直されるのに、`null` でガードをリセット
+   していたため毎回 `scrollIntoView` が再発火していた。`null` では何もしない
+   （ノードの同一性だけで判定。カードが本当に作り直されたときだけスクロール）。
+2. **保存したのに紙面が変わらず、抜粋と食い違って見える** — 「This」消失は
+   ユーザー編集が正しく保存された結果（単語選択→スペース）。壊れていたのは
+   **保存後の再組版**で、ゲストからの 2 通目の `build` メッセージが実機で
+   届かなかった（latexmk の副産物 mtime で確認: 保存 14:12:32、最終ビルド
+   14:12:18）。対策として**再組版を main 側に移した**: `handleReplaceLines`
+   が結果を返し、ディスパッチが成功時に `handleBuild` を直接呼ぶ
+   （`electron/main.cjs`）。ゲストの `build` 送信は撤去。紙面は既存の
+   `setBuildState: success` 購読で自動再読込される。
+3. **AI モードの組版で Code モードの PDF 窓が開く問題** — `handleBuild` に
+   `pdfViewerMode: "none"`（ビューアを一切開かない）を追加し、AI モード発の
+   組版依頼（`use-workspace-pdf` / `requestWorkspaceBuild` / 保存後の main 直呼び）
+   は全て "none" で通す。
+4. テストワークスペースの `main.tex` は「This」を復元済み（`git checkout`）。
+
+### 文書 = ワークスペース内のフォルダ（2026-08-20 決定・実装、実機未確認）
+
+AI モードは**新しい文書を作ることに特化**する（Base44 と同じ思想）。ユーザーは
+ファイルを一切意識せず、題名 → チャットだけで書き進める。
+
+- **新規** — トップバーの「新規」→ 題名 1 入力 → main 側 `document:create` が
+  ワークスペース直下にフォルダを作る（名前は題名をサニタイズ・重複は「名前 2」…、
+  `electron/handlers/workspace/ai-documents.cjs`）。中に `ltjsarticle` +
+  `\maketitle` の最小 main.tex を置き、即組版して 1 ページ目（題名）を出す。
+- **切替** — スイッチャーは**作った文書（フォルダ）の一覧**（`document:list`。
+  ルート直下の `<フォルダ>/main.tex` を列挙、ルート直置き main.tex も
+  プロジェクト名の文書として含める）。選ぶとその文書へ移動（紙面・スレッド・
+  組版ターゲットが全部切り替わる）。旧文書サービスの一覧・新規・変更履歴は
+  native では非表示（履歴は git 化の際に別途）。
+- **組版のターゲット** — `build` メッセージに `targetFile`（AI モード用、
+  `exactTarget` でワークスペースの root 指定より優先）。保存後の main 側
+  リビルドも編集ファイルの属するフォルダの main.tex を狙う。
+- **エージェントのスコープ** — 会話は文書ごと（`tex64-ai-mode:<フォルダ>`）、
+  `context.activeFilePath = <フォルダ>/main.tex`（run-loop が「Active file」
+  としてモデルへ渡す既存経路）。
+- **紙面** — `use-workspace-pdf` は「今の文書のビルド成果だけ」を表示する
+  派生状態に書き換え（他文書や Code モードのビルドは素通し）。文書ごとに
+  最後の紙面を記憶して再訪時に即表示。
+- ゲスト側: `use-ai-documents.ts` / `native-new-document-panel.tsx` /
+  `document-workspace.tsx` の native 分岐（web モードの挙動は不変）。
+  テスト: `tests/ai-documents.test.cjs`（5 件）。
+
 ### 未解決（次に着手すべき順）
 
-1. **本文だけの直接編集**（文章は編集可、`\emph{}` `$...$` はチップ）は未着手。
-2. **S5 の撤去**（tex64-ai の文書モデル・パッチ・レンダラ・組版・永続化・API を削除、
+1. **新フロー一式の実機確認**（main を触ったので Electron 再起動が必要）:
+   新規 → 題名だけで紙面が出る / 切替 / チャットが文書スコープで編集 /
+   組版ボタン / 段落の直接編集 → 自動再組版。
+2. **数式チップ → MathLive** の受け渡し。
+3. **S5 の撤去**（tex64-ai の文書モデル・パッチ・レンダラ・組版・永続化・API を削除、
    履歴を git へ）は未着手。
 
 ### 動かし方

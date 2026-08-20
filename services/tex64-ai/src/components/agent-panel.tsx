@@ -13,6 +13,8 @@ import {
 
 interface AgentPanelProps {
   document: DocumentDetail | null;
+  /** Overrides the document gate: the desktop mode has no DocumentDetail. */
+  ready?: boolean;
   messages: ChatMessage[];
   /** Assistant text of the turn in flight, as it is being written. */
   streamingText: string;
@@ -30,6 +32,7 @@ interface AgentPanelProps {
 
 export function AgentPanel({
   document,
+  ready,
   messages,
   streamingText,
   activityTool,
@@ -44,6 +47,7 @@ export function AgentPanel({
 }: AgentPanelProps) {
   const [prompt, setPrompt] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const canSubmit = ready ?? document !== null;
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -52,7 +56,7 @@ export function AgentPanel({
 
   const submit = (value = prompt) => {
     const trimmed = value.trim();
-    if (!document || !trimmed) return;
+    if (!canSubmit || !trimmed) return;
     onSubmit(trimmed);
     setPrompt("");
   };
@@ -109,7 +113,7 @@ export function AgentPanel({
             ref={composerRef}
             rows={3}
             value={prompt}
-            disabled={!document}
+            disabled={!canSubmit}
             placeholder={
               selectedElement
                 ? `${selectedElement.label}をどう変えますか？`
@@ -141,7 +145,7 @@ export function AgentPanel({
             <button
               type="button"
               className="composer-submit"
-              disabled={!document || !prompt.trim()}
+              disabled={!canSubmit || !prompt.trim()}
               aria-label="送る"
               onClick={() => submit()}
             >

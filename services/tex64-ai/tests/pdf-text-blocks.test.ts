@@ -5,14 +5,17 @@ import {
   type TextItemLike,
 } from "@/components/pdf-text-blocks";
 
-/** A line of text at `top`, 10pt tall, from x=100 to x=100+width. */
+/**
+ * A line of text at `top`, 10pt tall, from x=100 to x=100+width.
+ * transform[5] is the baseline, which sits 0.78 of the height below the top.
+ */
 function line(top: number, width: number, str = "text"): TextItemLike {
-  return { transform: [10, 0, 0, 10, 100, top + 10], width, height: 10, str };
+  return { transform: [10, 0, 0, 10, 100, top + 10 * 0.78], width, height: 10, str };
 }
 
 /** A first line, indented the way LaTeX indents a new paragraph. */
 function indented(top: number, width: number): TextItemLike {
-  return { transform: [10, 0, 0, 10, 115, top + 10], width, height: 10, str: "text" };
+  return { transform: [10, 0, 0, 10, 115, top + 10 * 0.78], width, height: 10, str: "text" };
 }
 
 describe("text block from a click", () => {
@@ -62,7 +65,7 @@ describe("text block from a click", () => {
     // An abstract is inset as a whole: every one of its lines sits right of
     // the page margin the body below it uses.
     const body = (top: number, left: number, width: number): TextItemLike => ({
-      transform: [10, 0, 0, 10, left, top + 10],
+      transform: [10, 0, 0, 10, left, top + 10 * 0.78],
       width,
       height: 10,
       str: "text",
