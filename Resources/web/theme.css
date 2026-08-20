@@ -5558,19 +5558,33 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .issues-panel-body {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* The log row must be allowed to shrink (minmax(0, auto), not auto), or an
+     open transcript pushes its own content out past the bottom of the panel
+     where .panel-body's overflow: hidden simply cuts it off. */
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, auto);
   gap: 8px;
   height: 100%;
   min-height: 0;
 }
 
 .issues-log {
+  display: grid;
+  grid-template-rows: auto;
+  min-height: 0;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
   background: var(--panel-strong);
   padding: 8px 10px;
   color: var(--text-soft);
   font-size: 11px;
+}
+
+/* Open: summary on top, transcript filling every pixel below it. The cap lives
+   on the box, not on the <pre>, so the text runs to the bottom of the card
+   instead of stopping short and leaving dead space under itself. */
+.issues-log[open] {
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(340px, 46vh);
 }
 
 .issues-log-summary {
@@ -5586,6 +5600,8 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: inline-block;
   width: 100%;
   box-sizing: border-box;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   padding: 1px 5px;
   border-radius: 4px;
   border-left: 2px solid transparent;
@@ -5610,9 +5626,16 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 .issues-log-content {
+  /* Positioned so a marked line's offsetTop is measured against the scroll box
+     itself — otherwise the jump-to-mark offset is computed against whatever
+     positioned ancestor happens to be outside it. */
+  position: relative;
   margin: 8px 0 0;
-  max-height: 260px;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
   font-family: "SF Mono", Menlo, monospace;
   font-size: 10px;
   line-height: 1.5;

@@ -245,15 +245,63 @@ test("Issues panel: a build error reads without the log", { timeout: 300_000 }, 
     const log = await page.evaluate(() => {
       const details = document.getElementById("issues-log");
       const content = document.getElementById("issues-log-content");
+      const panel = document.querySelector('.panel[data-panel="issues"] .panel-body');
+      const panelBox = panel.getBoundingClientRect();
+      const contentBox = content.getBoundingClientRect();
+      const firstMark = content.querySelector(".build-log-line");
       return {
         hidden: details.classList.contains("is-hidden"),
+        open: details.hasAttribute("open"),
         summary: (details.querySelector(".issues-log-summary")?.textContent || "").trim(),
         text: content.textContent || "",
         errorMarks: content.querySelectorAll(".build-log-line.is-error").length,
         contextMarks: content.querySelectorAll(".build-log-line.is-context").length,
+        contentBottom: contentBox.bottom,
+        contentRight: contentBox.right,
+        panelBottom: panelBox.bottom,
+        panelRight: panelBox.right,
+        // A transcript is thousands of lines; landing on line 1 means the jump
+        // never happened.
+        contentHeight: contentBox.height,
+        boxInnerHeight:
+          details.getBoundingClientRect().bottom -
+          details.querySelector(".issues-log-summary").getBoundingClientRect().bottom -
+          16,
+        scrollDebug: firstMark
+          ? {
+              scrollTop: content.scrollTop,
+              offsetTop: firstMark.offsetTop,
+              clientHeight: content.clientHeight,
+              scrollHeight: content.scrollHeight,
+            }
+          : null,
+        // What matters is that the marked line is on screen, not the exact
+        // scroll offset it landed on.
+        scrolledToMark:
+          !firstMark ||
+          (firstMark.offsetTop >= content.scrollTop &&
+            firstMark.offsetTop <= content.scrollTop + content.clientHeight),
       };
     });
     assert.equal(log.hidden, false, "the detailed log is hidden after a failed build");
+    assert.equal(log.open, true, "the detailed log did not open on its own");
+    assert.ok(
+      log.contentBottom <= log.panelBottom + 1,
+      `the transcript runs ${Math.round(log.contentBottom - log.panelBottom)}px past the bottom of the panel`
+    );
+    assert.ok(
+      log.contentRight <= log.panelRight + 1,
+      `the transcript runs ${Math.round(log.contentRight - log.panelRight)}px past the right of the panel`
+    );
+    assert.ok(
+      log.scrolledToMark,
+      `the first marked line is off screen after opening the log: ${JSON.stringify(log.scrollDebug)}`
+    );
+    // The transcript has to reach the bottom of its card, not stop short.
+    assert.ok(
+      log.contentHeight >= log.boxInnerHeight - 2,
+      `the transcript leaves ${Math.round(log.boxInnerHeight - log.contentHeight)}px of dead space below it`
+    );
     assert.ok(log.text.trim().length > 0, "the detailed log is empty");
     // The .log file is the compiler's transcript; latexmk's console output is
     // its own narration. Only one of them opens with the engine banner and
