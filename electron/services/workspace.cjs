@@ -1991,9 +1991,27 @@ const readUtf8File = async (filePath) => {
   return content;
 };
 
+// Atomic replace: a crash or kill mid-write must never leave a truncated
+// document on disk (observed live: a killed session left a 105-line
+// main.tex empty on disk). Same-directory tmp keeps the rename on one
+// filesystem so the swap is atomic.
+const writeFileAtomic = async (filePath, buffer) => {
+  const tmpPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
+  );
+  await fsp.writeFile(tmpPath, buffer);
+  try {
+    await fsp.rename(tmpPath, filePath);
+  } catch (error) {
+    await fsp.rm(tmpPath, { force: true }).catch(() => {});
+    throw error;
+  }
+};
+
 const writeUtf8File = async (filePath, content) => {
   const buffer = Buffer.from(content, "utf8");
-  await fsp.writeFile(filePath, buffer);
+  await writeFileAtomic(filePath, buffer);
 };
 
 const extractTexMagicRoot = (content) => {
@@ -2178,7 +2196,7 @@ class WorkspaceManager {
   async writeBinaryFile(relativePath, content) {
     const resolved = this.resolvePath(relativePath);
     await ensureDirectory(path.dirname(resolved));
-    await fsp.writeFile(resolved, content);
+    await writeFileAtomic(resolved, content);
   }
 
   async createFile(relativePath) {
