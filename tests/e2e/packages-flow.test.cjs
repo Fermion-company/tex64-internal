@@ -81,10 +81,18 @@ const rows = (page) =>
       installed: row.classList.contains("is-installed"),
       state: row.querySelector(".pkg-state")?.textContent?.trim() ?? "",
       size: row.querySelector(".pkg-size")?.textContent?.trim() ?? "",
-      action: row.querySelector(".pkg-action")?.textContent?.trim() ?? "",
-      actionKind: row.querySelector(".pkg-action")?.classList.contains("is-install")
+      // Install stays a labelled button; remove is a small red icon, so its
+      // name lives in the accessible label.
+      action:
+        row.querySelector(".pkg-action")?.textContent?.trim() ||
+        row.querySelector(".pkg-icon-action.is-remove")?.getAttribute("aria-label") ||
+        "",
+      actionKind: row.querySelector(".pkg-action.is-install")
         ? "install"
-        : "remove",
+        : row.querySelector(".pkg-icon-action.is-remove")
+          ? "remove"
+          : "",
+      hasDoc: Boolean(row.querySelector(".pkg-icon-action.is-doc")),
     }))
   );
 
@@ -246,7 +254,13 @@ test("Packages screen", async (t) => {
     assert.ok(target);
     assert.ok(target.action.length > 0);
     assert.equal(target.actionKind, target.installed ? "remove" : "install");
+    // Documentation is only on disk for what is installed.
+    assert.equal(target.hasDoc, target.installed);
     });
+
+    // Clicking the documentation button hands the file to the OS viewer, so the
+    // suite stops at asserting the button is there for installed packages only.
+    // The path resolution itself is covered in tests/tex-package-manager.test.cjs.
   } finally {
     await closeElectronApp(electronApp);
     fs.rmSync(tmpDir, { recursive: true, force: true });

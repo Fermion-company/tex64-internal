@@ -454,6 +454,9 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
       case "packages:detailResult":
         deps.packages?.handleDetail?.(message.payload as never);
         break;
+      case "packages:texdocResult":
+        deps.packages?.handleTexdoc?.(message.payload as never);
+        break;
       case "packages:opStart":
         deps.packages?.handleOpStart?.(message.payload as never);
         break;

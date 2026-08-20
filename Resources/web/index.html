@@ -1228,16 +1228,16 @@
                       placeholder="Search by package name, description or file name"
                     >
 
-                    <div class="pkg-filters" id="pkg-filters" role="group" aria-label="Filter packages">
-                      <button class="pkg-filter" data-pkg-filter="all" type="button" aria-pressed="true">
+                    <div class="pkg-filters" id="pkg-filters" role="tablist" aria-label="Filter packages">
+                      <button class="pkg-filter is-active" data-pkg-filter="all" type="button" role="tab" aria-selected="true">
                         <span class="pkg-filter-label">All</span>
                         <span class="pkg-filter-count" data-pkg-count="all"></span>
                       </button>
-                      <button class="pkg-filter" data-pkg-filter="installed" type="button" aria-pressed="false">
+                      <button class="pkg-filter" data-pkg-filter="installed" type="button" role="tab" aria-selected="false">
                         <span class="pkg-filter-label">Installed</span>
                         <span class="pkg-filter-count" data-pkg-count="installed"></span>
                       </button>
-                      <button class="pkg-filter" data-pkg-filter="available" type="button" aria-pressed="false">
+                      <button class="pkg-filter" data-pkg-filter="available" type="button" role="tab" aria-selected="false">
                         <span class="pkg-filter-label">Not installed</span>
                         <span class="pkg-filter-count" data-pkg-count="available"></span>
                       </button>

@@ -9,6 +9,7 @@
 // fragment.
 
 const { spawn } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 
 const {
@@ -388,6 +389,23 @@ class TexPackageService {
     return names;
   }
 
+  // texdoc's own default is to launch a viewer itself. Asking it for the machine
+  // readable list instead keeps the choice here: the app opens the file, and a
+  // package with no local documentation gets a real answer rather than silence.
+  async docPath(name) {
+    const [clean] = this.assertNames(name);
+    const texdoc = findManagedTexCommand("texdoc") || findTexCommand("texdoc");
+    if (!texdoc) {
+      throw new Error("texdoc was not found in this TeX installation.");
+    }
+    const result = await runCommand(texdoc, ["-l", "-M", clean], { timeoutMs: 30000 });
+    const found = parseTexdocList(result.output).find((entry) => fs.existsSync(entry.path));
+    if (!found) {
+      throw new Error(`No local documentation for ${clean}.`);
+    }
+    return found.path;
+  }
+
   async getDetail(name) {
     const [clean] = this.assertNames(name);
     const result = await this.runRead(["info", "--list", clean], { timeoutMs: 60000 });
@@ -469,8 +487,28 @@ const progressReporter = (onProgress) => {
   };
 };
 
+// `texdoc -l -M` prints one tab-separated row per candidate, best match first:
+// name, score, absolute path, ?, description. Anything else it says (such as the
+// "Sorry, no local documentation" note) has no tabs and is skipped.
+const parseTexdocList = (stdout) => {
+  const rows = [];
+  for (const line of String(stdout || "").split("\n")) {
+    const parts = line.split("\t");
+    if (parts.length < 3) {
+      continue;
+    }
+    const file = parts[2].trim();
+    if (!file || !path.isAbsolute(file)) {
+      continue;
+    }
+    rows.push({ name: parts[0].trim(), path: file, description: (parts[4] ?? "").trim() });
+  }
+  return rows;
+};
+
 module.exports = {
   TexPackageService,
+  parseTexdocList,
   PACKAGE_NAME_PATTERN,
   isValidPackageName,
   isArchPackage,

@@ -1727,6 +1727,10 @@ ipcMain.on("tex64", (_event, message) => {
     miscHandlers.handlePackagesUpdate();
     return;
   }
+  if (type === "packages:texdoc") {
+    miscHandlers.handlePackagesTexdoc(message.name);
+    return;
+  }
 });
 
 ipcMain.on("tex64:pdf", (_event, message) => {

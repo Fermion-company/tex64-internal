@@ -3357,6 +3357,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-soft);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* A tree that will ask for a password is worth flagging before the click, not
    after the dialog appears. */
@@ -3388,34 +3392,36 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   border-color: var(--accent-soft-strong);
 }
 
+/* A tab bar, not pills: these are three views of one list, and rounded badges
+   read as status rather than navigation. */
 .pkg-filters {
   display: flex;
-  gap: 6px;
+  gap: 2px;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .pkg-filter {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--panel-border);
-  border-radius: 999px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   background: transparent;
   color: var(--text-soft);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 .pkg-filter:hover {
   color: var(--text);
-  border-color: var(--panel-border-strong);
 }
-.pkg-filter[aria-pressed="true"] {
+.pkg-filter[aria-selected="true"] {
   color: var(--text);
-  border-color: var(--accent-soft-strong);
-  background: var(--accent-soft);
+  border-bottom-color: var(--accent);
 }
 
 .pkg-filter-count {
@@ -3563,16 +3569,51 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
 }
-.pkg-action.is-remove {
-  color: var(--text-soft);
-  border: 1px solid var(--panel-border);
-  background: transparent;
-}
-.pkg-action.is-remove:hover {
-  color: var(--danger-text, #f2a2a2);
-  border-color: var(--danger-text, #f2a2a2);
-}
 .pkg-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Removing and reading the docs are per-row verbs, not primary actions: small
+   icon buttons, with the destructive one carrying the only colour. */
+.pkg-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  /* Each row is its own grid, so without a shared width the size column and the
+     right edge go ragged between an Install button and two icons. */
+  min-width: 62px;
+}
+
+.pkg-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+.pkg-icon-action:hover {
+  color: var(--text);
+  border-color: var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+.pkg-icon-action.is-remove {
+  color: var(--danger-text, #f2a2a2);
+}
+.pkg-icon-action.is-remove:hover {
+  color: var(--danger-text, #f2a2a2);
+  border-color: var(--danger-border, rgba(248, 81, 73, 0.4));
+  background: var(--danger-faint, rgba(248, 81, 73, 0.05));
+}
+.pkg-icon-action:disabled {
   opacity: 0.45;
   cursor: default;
 }

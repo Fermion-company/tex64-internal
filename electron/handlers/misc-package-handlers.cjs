@@ -4,7 +4,7 @@
 // Reads are cheap and local; writes may put a macOS administrator prompt in
 // front of the user (when the TeX being managed is a system installation), so
 // they always report back — including when the user cancels the prompt.
-const createPackageHandlers = ({ packageService, sendToRenderer }) => {
+const createPackageHandlers = ({ packageService, sendToRenderer, openPath }) => {
   const guard = async (channel, run, extra = {}) => {
     if (!packageService) {
       sendToRenderer(channel, { ...extra, ok: false, error: "Package management is unavailable." });
@@ -81,8 +81,26 @@ const createPackageHandlers = ({ packageService, sendToRenderer }) => {
     );
   };
 
+  // texdoc's documentation is a PDF (sometimes a README) already on disk. The
+  // service resolves the path so a package with no local doc can say so instead
+  // of a viewer opening on nothing.
+  const handlePackagesTexdoc = (name) =>
+    guard(
+      "packages:texdocResult",
+      async () => {
+        const file = await packageService.docPath(name);
+        const failure = await openPath(file);
+        if (failure) {
+          throw new Error(failure);
+        }
+        return { path: file };
+      },
+      { name }
+    );
+
   return {
     handlePackagesCatalog,
+    handlePackagesTexdoc,
     handlePackagesSearchFiles,
     handlePackagesCtanSearch,
     handlePackagesDetail,

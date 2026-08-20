@@ -67,7 +67,11 @@ const createMiscHandlers = (deps) => {
     storeManagedUpdates,
   });
 
-  const packageHandlers = createPackageHandlers({ packageService, sendToRenderer });
+  const packageHandlers = createPackageHandlers({
+    packageService,
+    sendToRenderer,
+    openPath: (file) => shell.openPath(file),
+  });
 
   const handleEnvCheck = async (command) => {
     const result = await envService.checkCommand(command);

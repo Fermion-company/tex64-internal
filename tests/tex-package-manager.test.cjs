@@ -221,3 +221,25 @@ test("a read never asks for privileges, whichever tree it reads", async () => {
   await service.getCatalog({ force: true });
   assert.equal(privileged, false, "listing packages must not prompt for a password");
 });
+
+test("texdoc's machine-readable list yields real file paths, best match first", () => {
+  const { parseTexdocList } = require("../electron/services/tex-package-manager.cjs");
+  const stdout = [
+    "tikz-cd\t7.5\t/usr/local/texlive/2026/texmf-dist/doc/latex/tikz-cd/tikz-cd-doc.pdf\t\tPackage documentation",
+    "tikz-cd\t1.8\t/usr/local/texlive/2026/texmf-dist/doc/latex/tikz-cd/README.md\t\tReadme",
+    "",
+  ].join("\n");
+  const rows = parseTexdocList(stdout);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].path, "/usr/local/texlive/2026/texmf-dist/doc/latex/tikz-cd/tikz-cd-doc.pdf");
+  assert.equal(rows[0].description, "Package documentation");
+});
+
+test("texdoc's prose answer for an unknown package parses as no documentation", () => {
+  const { parseTexdocList } = require("../electron/services/tex-package-manager.cjs");
+  const stdout = [
+    'Sorry, no local documentation found for "nosuchpkgxyz".',
+    "You can try the online version of Texdoc at <https://texdoc.org>.",
+  ].join("\n");
+  assert.deepEqual(parseTexdocList(stdout), []);
+});

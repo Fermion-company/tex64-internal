@@ -80,10 +80,21 @@ export const describeScope = (catalog) => {
         return uiText("No TeX Live found.", "TeX Live が見つかりません。");
     }
     if (catalog.scope === "managed") {
-        return uiText("Managing TeX64's own TeX Live. No password needed.", "TeX64 専用の TeX Live を管理しています。パスワードは不要です。");
+        return uiText("TeX64's own TeX Live — no password needed.", "TeX64 専用の TeX Live — パスワードは不要です。");
     }
-    return uiText("Managing the TeX Live already on this computer. Changes ask for your administrator password.", "この環境に既にある TeX Live を管理しています。変更には管理者パスワードが必要です。");
+    return uiText("System TeX Live — changes ask for your administrator password.", "システムの TeX Live — 変更には管理者パスワードが必要です。");
 };
+const DOC_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H5.5A1.5 1.5 0 0 1 4 15.5z"/>' +
+    '<path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h4.5a1.5 1.5 0 0 0 1.5-1.5z"/>' +
+    "</svg>";
+const TRASH_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M4 7h16"/><path d="M10 4h4a1 1 0 0 1 1 1v2H9V5a1 1 0 0 1 1-1z"/>' +
+    '<path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>' +
+    '<path d="M10 11v6M14 11v6"/>' +
+    "</svg>";
 export const initSettingsPackagesUi = (deps) => {
     const scopeEl = document.getElementById("pkg-scope");
     const updateBtn = document.getElementById("pkg-update");
@@ -192,13 +203,39 @@ export const initSettingsPackagesUi = (deps) => {
         size.className = "pkg-size";
         size.textContent = formatBytes(entry.sizeBytes);
         row.appendChild(size);
+        const actions = document.createElement("div");
+        actions.className = "pkg-actions";
+        // The documentation is already on disk for anything installed; texdoc knows
+        // where. Nothing to read for a package that is not here yet.
+        if (entry.installed) {
+            const doc = document.createElement("button");
+            doc.type = "button";
+            doc.className = "pkg-icon-action is-doc";
+            doc.innerHTML = DOC_ICON;
+            const docLabel = uiText("Open documentation", "ドキュメントを開く");
+            doc.title = docLabel;
+            doc.setAttribute("aria-label", docLabel);
+            doc.addEventListener("click", (event) => {
+                event.stopPropagation();
+                setNote(uiText("Opening documentation…", "ドキュメントを開いています…"));
+                deps.postToNative({ type: "packages:texdoc", name: entry.name }, true);
+            });
+            actions.appendChild(doc);
+        }
         const action = document.createElement("button");
         action.type = "button";
-        action.className = `pkg-action${entry.installed ? " is-remove" : " is-install"}`;
-        action.textContent = entry.installed
-            ? uiText("Remove", "削除")
-            : uiText("Install", "導入");
         action.disabled = busy;
+        if (entry.installed) {
+            action.className = "pkg-icon-action is-remove";
+            action.innerHTML = TRASH_ICON;
+            const label = uiText("Remove", "削除");
+            action.title = label;
+            action.setAttribute("aria-label", label);
+        }
+        else {
+            action.className = "pkg-action is-install";
+            action.textContent = uiText("Install", "導入");
+        }
         action.addEventListener("click", (event) => {
             event.stopPropagation();
             if (busy) {
@@ -212,7 +249,8 @@ export const initSettingsPackagesUi = (deps) => {
                 deps.postToNative({ type: "packages:install", names: [entry.name] }, true);
             }
         });
-        row.appendChild(action);
+        actions.appendChild(action);
+        row.appendChild(actions);
         // Opening a row answers "what is actually in this package?" — the file list
         // is the honest answer, and it is what the file search matches against.
         row.addEventListener("click", () => {
@@ -245,7 +283,9 @@ export const initSettingsPackagesUi = (deps) => {
                 const button = filtersEl.querySelector(`[data-pkg-filter="${key}"]`);
                 const count = filtersEl.querySelector(`[data-pkg-count="${key}"]`);
                 if (button instanceof HTMLElement) {
-                    button.setAttribute("aria-pressed", key === filter ? "true" : "false");
+                    const active = key === filter;
+                    button.setAttribute("aria-selected", active ? "true" : "false");
+                    button.classList.toggle("is-active", active);
                 }
                 if (count instanceof HTMLElement) {
                     count.textContent = String(counts[key]);
@@ -446,6 +486,14 @@ export const initSettingsPackagesUi = (deps) => {
                 setNote(uiText("CTAN had nothing either.", "CTAN にも見つかりませんでした。"));
             }
             render();
+        },
+        handleTexdoc: (payload) => {
+            var _a;
+            if ((payload === null || payload === void 0 ? void 0 : payload.ok) === false) {
+                setNote((_a = payload.error) !== null && _a !== void 0 ? _a : uiText("No documentation found.", "ドキュメントが見つかりません。"), "error");
+                return;
+            }
+            setNote("");
         },
         handleDetail: (payload) => {
             var _a, _b;
