@@ -96,6 +96,13 @@ export const attachEditorErgonomics = (
     if (!editorSettings.isEnabled("ergo.typewriterScroll")) {
       return;
     }
+    // "Keep the cursor near the center WHILE WRITING": recentering must
+    // never fire for mouse-originated cursor moves — with it, every click
+    // yanked the clicked line to the vertical center and the whole view
+    // visibly jumped (~12 lines for a click near the bottom edge).
+    if (event?.source === "mouse") {
+      return;
+    }
     const position = event?.position ?? editor.getPosition?.();
     if (!position) {
       return;

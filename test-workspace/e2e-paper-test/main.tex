@@ -15,7 +15,7 @@
 \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
 
 \title{Attention Mechanisms in Transformer Architectures: A Brief Survey}
-\author{Wedd}
+\author{幸川卓実}
 
 
 \begin{document}
@@ -26,17 +26,17 @@
 
   The survey covers the main attention formulations used in Transformer architectures, including scaled dot-product attention, multi-head attention, self-attention, and cross-attention. It also discusses sparse and other efficient variants designed to reduce the quadratic cost of full attention while preserving expressive power. Across these families, we compare their computational trade-offs, representational strengths, and typical use cases in language, vision, and multimodal settings.
 
-  Our main takeaway is that attention is both the defining strength and the primary bottleneck of Transformers: it provides flexible global context modeling, but its cost motivates continual innovation in approximation, sparsity, and architectural design. Understanding these mechanisms is essential for interpreting current Transformer models and for developing more scalable future systems.
+  Our takeaway is that attention is both the defining strength and the primary bottleneck of Transformers: it provides flexible global context modeling, but its cost motivates continual innovation in approximation, sparsity, and architectural design. Understanding these mechanisms is essential for interpreting current Transformer models and for developing more scalable future systems.
 \end{abstract}
 
 \section{Introduction}
 
-Transformers have become the dominant architecture for sequence modeling because they replace recurrence with attention~\cite{vaswani2017attention}, a mechanism that directly compares all elements in a sequence and learns how much each element should influence every other element. This design makes it possible to model long-range dependencies more effectively than many earlier neural approaches, while also enabling highly parallel computation during training.
+a have become the dominant architecture for sequence modeling because they replace recurrence with attention~\cite{vaswani2017attention}, a mechanism that directly compares all elements in a sequence and learns how much each element should influence every other element. This design makes it possible to model long-range dependencies more effectively than many earlier neural approaches, while also enabling highly parallel computation during training.
 
 The purpose of this paper is to provide a compact survey of the attention mechanisms that make Transformer models work. Rather than focusing on a single application, we emphasize the common mathematical structure shared by attention variants and explain how different design choices affect expressiveness, efficiency, and scalability. In particular, we highlight the trade-off between global context modeling and computational cost, which has driven much of the recent research in this area.
 
 The remainder of the paper is organized as follows. Section~\ref{sec:preliminaries} introduces the notation and the sequence-to-sequence setting. Section~\ref{sec:scaled} presents scaled dot-product attention and its complexity. Section~\ref{sec:multihead} discusses multi-head attention, while Section~\ref{sec:selfcross} contrasts self-attention and cross-attention. Section~\ref{sec:sparse} reviews sparse and efficient variants, and the final sections summarize the main lessons and conclude the survey.
-\section{Preliminaries}\label{sec:preliminaries}
+\section{Preliminaries}\label{sec:preliとnminaries}
 \subsection{Notation}
 
 Attention-base models operate on sequences of vectors. We write an input sequence as $X = (x_1, x_2, \dots, x_n)$, where each $x_i \in \mathbb{R}^d$ is a token representation. In practice, these vectors may come from learned embeddings, image patches, audio frames, or other modality-specific encoders. The goal is to transform the input into contextualized representations that incorporate information from the entire sequence.
@@ -55,7 +55,7 @@ Scaled dot-product attention computes similarity scores between a query and a se
 \end{equation}
 As shown in Equation~\eqref{eq:sdpa}, the scaling factor $\sqrt{d_k}$ stabilizes optimization by preventing the dot products from growing too large as the dimensionality increases.
 The dominant cost of full attention comes from forming the $n_q \times n_k$ similarity matrix, which requires $O(n_q n_k d_k)$ operations, and from storing that matrix during training. In the common self-attention case where $n_q = n_k = n$, this becomes quadratic in sequence length, both in time and memory.
-
+asdfsdfsdfsfafsf
 This quadratic scaling is acceptable for moderate sequence lengths, but it becomes a major limitation for long documents, high-resolution images, and other settings with many tokens. The search for more efficient attention mechanisms is therefore largely a search for ways to approximate or restructure this computation without losing the ability to model rich dependencies.
 \section{Multi-Head Attention}\label{sec:multihead}
 
@@ -70,7 +70,7 @@ This design lets the model attend to different types of relationships simultaneo
 
 Self-attention is the special case in which queries, keys, and values all come from the same sequence. Every token can therefore attend to every other token, including itself, which makes the representation of each position context-dependent. This is the mechanism that allows Transformers to build deep interactions within a single sequence, as demonstrated in BERT~\cite{devlin2019bert}.
 
-Cross-attention, by contrast, uses queries from one sequence and keys and values from another. In encoder--decoder architectures, the decoder queries the encoder states to retrieve source information relevant to the current generation step. This separation is especially useful in translation, summarization, and multimodal fusion, where one sequence conditions another.
+Cross-attention, by contrassfdsdfsafdsft, uses queries from one sequence and keys and values from another. In encoder--decoder architectures, the decoder queries the encoder states to retrieve source information relevant to the current generation step. This separation is especially useful in translation, summarization, and multimodal fusion, where one sequence conditions another.
 \section{Sparse and Efficient Variants}\label{sec:sparse}
 \subsection{Sparse Attention}
 
@@ -86,7 +86,7 @@ In practice, the best choice depends on the task. Language modeling often benefi
 A useful way to think about attention is as a learned routing mechanism. Rather than forcing every token to contribute equally, the model assigns different weights depending on the current context. This makes the representation adaptive: the same word, patch, or frame can play different roles depending on what surrounds it. That flexibility is one reason attention has been so successful across tasks.
 
 At the same time, attention is not a complete solution to sequence modeling. Its quadratic cost can become prohibitive, and its behavior can be difficult to interpret at scale because attention weights do not always correspond to human-readable explanations. For this reason, recent work has explored hybrids that combine attention with recurrence, convolution, state-space models, or retrieval mechanisms. These alternatives aim to preserve the strengths of attention while reducing its computational burden or improving inductive bias.
-
+sdfsfsdfsdfsfssdfdfdfsd
 Another important point is that attention is highly modular. The same basic operator can be used in encoders, decoders, multimodal fusion blocks, and even non-sequential settings such as graphs or sets. This modularity helps explain why the Transformer template has spread so widely: once the attention primitive is available, it can be inserted into many architectures with relatively small changes.
 
 Overall, the story of attention is one of balance. Dense attention is elegant and powerful, sparse attention is efficient and scalable, and approximate attention is practical for long contexts. The ongoing challenge is to combine these advantages without losing the modeling capacity that made Transformers successful in the first place.
@@ -101,5 +101,5 @@ This survey has reviewed the main attention mechanisms used in Transformer archi
 
 \bibliographystyle{plain}
 \bibliography{references}
-
+sdfsfdsfd
 \end{document}

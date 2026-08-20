@@ -47,6 +47,7 @@ export const initMonacoSetup = (context, deps) => {
     }
     monacoWindow.require.config({ paths: { vs: requireBase } });
     monacoWindow.require(["vs/editor/editor.main"], () => {
+        var _a, _b, _c, _d;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
             deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
             return;
@@ -79,6 +80,17 @@ export const initMonacoSetup = (context, deps) => {
                 applyMonacoTheme(monacoWindow.monaco, theme);
             }
         });
+        // Click-to-column accuracy: Monaco measures glyph advance widths when
+        // an editor is created, but the default editor face (Latin Modern
+        // Mono, 0.525em advance) is a webfont — if it lands after that
+        // measurement, mouse positions map through the FALLBACK font's widths
+        // (Menlo/SF Mono, ~0.60em) and a click at column 60 places the cursor
+        // ~8 columns off. Remeasure once the document's fonts settle, and
+        // again whenever any later font load finishes (a font-family change
+        // in settings, a lazily-loaded face).
+        const remeasureFonts = () => { var _a, _b, _c; return (_c = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.remeasureFonts) === null || _c === void 0 ? void 0 : _c.call(_b); };
+        (_b = (_a = document.fonts) === null || _a === void 0 ? void 0 : _a.ready) === null || _b === void 0 ? void 0 : _b.then(() => remeasureFonts()).catch(() => { });
+        (_d = (_c = document.fonts) === null || _c === void 0 ? void 0 : _c.addEventListener) === null || _d === void 0 ? void 0 : _d.call(_c, "loadingdone", () => remeasureFonts());
         const editorOptions = {
             value: "",
             language: "latex",
