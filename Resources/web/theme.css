@@ -2439,6 +2439,15 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .panel[data-panel="settings"] .settings-group-title::before {
   display: none;
 }
+/* A framed block as the group's first child put its own top border 0px under
+   the title's rule — two lines touching. The group card is already the frame;
+   inside settings this content is frameless, like every other group's. */
+.panel[data-panel="settings"] .env-registry {
+  padding: 16px 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
 /* Rows: label on the left, control on the right */
 .panel[data-panel="settings"] .settings-item {
   display: flex;
