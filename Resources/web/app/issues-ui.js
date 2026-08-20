@@ -14,8 +14,7 @@ const SEVERITY_ICON = {
 };
 /** The log line as the build reported it, location included. */
 const rawLogText = (issue, detail) => {
-    var _a;
-    var _b;
+    var _a, _b;
     const where = [detail.path, detail.line, detail.column].filter(Boolean).join(":");
     const message = (_b = (_a = issue.message) === null || _a === void 0 ? void 0 : _a.trim()) !== null && _b !== void 0 ? _b : "";
     return where && !message.startsWith(where) ? `${where}\n${message}` : message;

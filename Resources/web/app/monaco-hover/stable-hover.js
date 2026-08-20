@@ -48,7 +48,6 @@ export const shouldKeepStableHover = (payload) => {
     return Boolean(getStableHoverAnchor(payload));
 };
 export const getStableHoverTokenKey = (payload) => {
-    var _a;
-    var _b;
+    var _a, _b;
     return (_b = (_a = getStableHoverAnchor(payload)) === null || _a === void 0 ? void 0 : _a.tokenKey) !== null && _b !== void 0 ? _b : null;
 };

@@ -321,6 +321,174 @@ body.has-launcher .app {
   visibility: hidden;
 }
 
+/* =============================================================================
+   Onboarding gate — the only screen a machine without TeX ever sees first
+   ============================================================================= */
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  /* Above the launcher: TeX has to be answered before a project is picked. */
+  z-index: 30;
+}
+
+.onboarding.is-visible {
+  display: flex;
+}
+
+/* Hide both the app and the launcher underneath, so nothing shows through. */
+body.has-onboarding {
+  overflow: hidden;
+}
+body.has-onboarding .app,
+body.has-onboarding .launcher {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.onboarding-card {
+  width: min(620px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.onboarding-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+}
+
+.onboarding-brand-name {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-soft);
+}
+
+.onboarding-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.onboarding-step.is-hidden {
+  display: none;
+}
+
+.onboarding-headline {
+  font-size: 22px;
+  font-weight: 680;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.onboarding-sub {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+.onboarding-choices {
+  margin-top: 6px;
+}
+
+.onboarding-note {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 211, 138, 0.32);
+  background: rgba(255, 211, 138, 0.08);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.onboarding-note.is-hidden {
+  display: none;
+}
+
+.onboarding-skip {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-soft);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.onboarding-skip:hover {
+  color: var(--text);
+}
+
+.onboarding-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.onboarding-gauge-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-border);
+  overflow: hidden;
+}
+
+/* Width is driven from JS, not a CSS animation, so the bar keeps advancing
+   under prefers-reduced-motion. */
+.onboarding-gauge-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.onboarding-gauge-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-gauge-percent {
+  font-size: 26px;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.onboarding-gauge-eta {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.onboarding-gauge-phase {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-gauge-fill {
+    transition: none;
+  }
+}
+
 /* Two column container */
 .launcher-container {
   display: flex;
@@ -3156,6 +3324,340 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 @keyframes envBadgeSpin {
   to { transform: rotate(360deg); }
+}
+
+/* =============================================================================
+   Packages screen — one list, installed vs not readable at a glance
+   ============================================================================= */
+
+.panel[data-panel="settings"] .settings-group.pkg-group {
+  padding: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pkg-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pkg-scope {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+/* A tree that will ask for a password is worth flagging before the click, not
+   after the dialog appears. */
+.pkg-scope.needs-admin {
+  color: var(--warning-text, var(--text-soft));
+}
+
+.panel[data-panel="settings"] .pkg-update-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pkg-search {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.pkg-search:focus {
+  outline: none;
+  border-color: var(--accent-soft-strong);
+}
+
+.pkg-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.pkg-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pkg-filter:hover {
+  color: var(--text);
+  border-color: var(--panel-border-strong);
+}
+.pkg-filter[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent-soft-strong);
+  background: var(--accent-soft);
+}
+
+.pkg-filter-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.pkg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.pkg-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.pkg-row:hover {
+  border-color: var(--panel-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* The whole point of one merged list: state is carried by the dot, the name's
+   weight and the action's shape, so it reads without looking at the label. */
+.pkg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--panel-border-strong);
+  background: transparent;
+}
+.pkg-row.is-installed .pkg-dot {
+  border-color: var(--success-text, #7dd3a8);
+  background: var(--success-text, #7dd3a8);
+}
+
+.pkg-main {
+  min-width: 0;
+}
+
+.pkg-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pkg-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pkg-row.is-installed .pkg-name {
+  color: var(--text);
+}
+
+.pkg-state {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-soft);
+  opacity: 0.7;
+}
+.pkg-row.is-installed .pkg-state {
+  color: var(--success-text, #7dd3a8);
+  opacity: 1;
+}
+
+.pkg-kind {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.pkg-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pkg-files,
+.pkg-file-hit {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  /* A path is one long word: wrapping it snaps names in half
+     (LatinModernMathCompanion-Regula / r.otf). One line each, scroll sideways. */
+  white-space: pre;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.pkg-size {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.pkg-action {
+  flex: 0 0 auto;
+  height: 24px;
+  min-width: 62px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pkg-action.is-install {
+  color: #fff;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+}
+.pkg-action.is-install:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.pkg-action.is-remove {
+  color: var(--text-soft);
+  border: 1px solid var(--panel-border);
+  background: transparent;
+}
+.pkg-action.is-remove:hover {
+  color: var(--danger-text, #f2a2a2);
+  border-color: var(--danger-text, #f2a2a2);
+}
+.pkg-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pkg-section {
+  margin: 10px 0 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.pkg-empty,
+.pkg-truncated {
+  padding: 10px 2px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.pkg-truncated.is-hidden {
+  display: none;
+}
+
+.pkg-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 30vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.pkg-extra.is-hidden {
+  display: none;
+}
+.pkg-extra .pkg-section:first-child {
+  margin-top: 0;
+}
+
+/* Framed like the search field, this read as a second text input sitting above
+   the real one. It is a message, so it looks like one. */
+.pkg-note {
+  padding: 2px 2px 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  white-space: pre-line;
+}
+.pkg-note.is-error {
+  color: var(--warning-text, var(--text-soft));
+}
+.pkg-note.is-hidden {
+  display: none;
+}
+
+.pkg-op {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pkg-op.is-hidden {
+  display: none;
+}
+.pkg-op-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-border);
+  overflow: hidden;
+}
+.pkg-op-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+.pkg-op-label {
+  font-size: 11px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.pkg-more {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-top: 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pkg-op-fill {
+    transition: none;
+  }
 }
 
 /* =============================================================================

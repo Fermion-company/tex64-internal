@@ -5707,10 +5707,9 @@ const translateCore = (source) => {
     return source;
 };
 const translateKeepingWhitespace = (value) => {
-    var _a, _b;
-    var _c, _d;
-    const leading = (_c = (_a = value.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) !== null && _c !== void 0 ? _c : "";
-    const trailing = (_d = (_b = value.match(/\s*$/)) === null || _b === void 0 ? void 0 : _b[0]) !== null && _d !== void 0 ? _d : "";
+    var _a, _b, _c, _d;
+    const leading = (_b = (_a = value.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : "";
+    const trailing = (_d = (_c = value.match(/\s*$/)) === null || _c === void 0 ? void 0 : _c[0]) !== null && _d !== void 0 ? _d : "";
     const core = value.trim();
     if (!core)
         return value;

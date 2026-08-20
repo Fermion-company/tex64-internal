@@ -127,8 +127,7 @@ export const initProStashUi = (deps) => {
             else
                 preview.textContent = item.content.split("\n").slice(0, 3).join("\n");
             row.addEventListener("click", (event) => {
-                var _a;
-                var _b;
+                var _a, _b;
                 if (event.target.closest("button"))
                     return;
                 // A click that ends a text selection is someone copying, not someone
@@ -140,8 +139,7 @@ export const initProStashUi = (deps) => {
                     preview.textContent = row.classList.contains("is-expanded") ? item.content : item.content.split("\n").slice(0, 3).join("\n");
             });
             row.addEventListener("keydown", (event) => {
-                var _a;
-                var _b;
+                var _a, _b;
                 if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "c")
                     return;
                 if (((_b = (_a = window.getSelection()) === null || _a === void 0 ? void 0 : _a.toString()) !== null && _b !== void 0 ? _b : "").length > 0)
@@ -223,8 +221,7 @@ export const initProStashUi = (deps) => {
     // Cmd+V anywhere in the tray stashes the clipboard; the instruction box keeps
     // its own native paste.
     body.addEventListener("paste", (event) => {
-        var _a, _b;
-        var _c;
+        var _a, _b, _c;
         if ((_a = event.target) === null || _a === void 0 ? void 0 : _a.closest("textarea, input"))
             return;
         const images = dataTransferImages(event.clipboardData);
@@ -279,8 +276,7 @@ export const initProStashUi = (deps) => {
     });
     dropzone.addEventListener("dragleave", () => dropzone.classList.remove("is-drag-over"));
     dropzone.addEventListener("drop", (event) => {
-        var _a;
-        var _b;
+        var _a, _b;
         const images = dataTransferImages(event.dataTransfer);
         const text = ((_b = (_a = event.dataTransfer) === null || _a === void 0 ? void 0 : _a.getData("text/plain")) !== null && _b !== void 0 ? _b : "").trim();
         dropzone.classList.remove("is-drag-over");

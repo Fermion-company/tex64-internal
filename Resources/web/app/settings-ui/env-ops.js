@@ -274,17 +274,26 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         runtime.deps.postToNative({ type: "env:detect" }, true);
     };
     const handleEnvDetectResult = (payload) => {
+        var _a, _b;
         detection = payload && payload.report ? payload.report : null;
         updateRuntimeSetupUi();
+        (_b = (_a = runtime.deps).onRuntimeDetection) === null || _b === void 0 ? void 0 : _b.call(_a, detection, runtime.state.runtimeStatusSummary);
     };
     const startInstall = (variant) => {
         showInstalling(variant);
         runtime.deps.postToNative({ type: "env:install", target: "basictex", variant });
     };
+    // The gate needs the variant on every packet (the estimate depends on it) but
+    // the main process only names it on start, so it is remembered here.
+    let installingVariant = "light";
     const handleEnvInstallStart = (payload) => {
-        showInstalling((payload === null || payload === void 0 ? void 0 : payload.variant) === "full" ? "full" : "light");
+        var _a, _b;
+        installingVariant = (payload === null || payload === void 0 ? void 0 : payload.variant) === "full" ? "full" : "light";
+        showInstalling(installingVariant);
+        (_b = (_a = runtime.deps).onRuntimeInstallEvent) === null || _b === void 0 ? void 0 : _b.call(_a, { kind: "start", variant: installingVariant });
     };
     const handleEnvInstallResult = (payload) => {
+        var _a, _b;
         installing = false;
         showProgress(false);
         const success = (payload === null || payload === void 0 ? void 0 : payload.success) === true;
@@ -297,10 +306,17 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         else {
             setInstallNote(rawMessage || "Setup did not finish. Please try again, or open the guide.", "error");
         }
+        (_b = (_a = runtime.deps).onRuntimeInstallEvent) === null || _b === void 0 ? void 0 : _b.call(_a, {
+            kind: "result",
+            variant: installingVariant,
+            success,
+            message: rawMessage,
+        });
         // Re-detect so the hero + component badges reflect the new reality.
         checkEnvironmentStatus();
     };
     const handleEnvInstallProgress = (payload) => {
+        var _a, _b;
         installing = true;
         setHeroState("installing");
         showProgress(true);
@@ -313,6 +329,14 @@ export const createSettingsEnvOps = (runtime, attentionOps) => {
         }
         const percent = typeof (payload === null || payload === void 0 ? void 0 : payload.percent) === "number" ? payload.percent : null;
         setProgress(percent, label);
+        (_b = (_a = runtime.deps).onRuntimeInstallEvent) === null || _b === void 0 ? void 0 : _b.call(_a, {
+            kind: "progress",
+            variant: installingVariant,
+            percent,
+            phase,
+            current,
+            total,
+        });
     };
     if (setupBtn instanceof HTMLButtonElement) {
         setupBtn.addEventListener("click", () => {

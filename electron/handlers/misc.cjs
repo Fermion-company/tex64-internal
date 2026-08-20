@@ -2,9 +2,11 @@ const path = require("path");
 const os = require("os");
 const { createUpdateHandlers } = require("./misc-update-handlers.cjs");
 const { createPlatformHandlers } = require("./misc-platform-handlers.cjs");
+const { createPackageHandlers } = require("./misc-package-handlers.cjs");
 const createMiscHandlers = (deps) => {
   const {
     envService,
+    packageService,
     ensureUserSettings,
     workspace,
     shell,
@@ -64,6 +66,8 @@ const createMiscHandlers = (deps) => {
     updateDownloadDir,
     storeManagedUpdates,
   });
+
+  const packageHandlers = createPackageHandlers({ packageService, sendToRenderer });
 
   const handleEnvCheck = async (command) => {
     const result = await envService.checkCommand(command);
@@ -188,6 +192,7 @@ const createMiscHandlers = (deps) => {
     handleEnvCheck,
     handleEnvDetect,
     handleEnvInstall,
+    ...packageHandlers,
     handleBlocksSave,
     handleApiUsageGet,
     handleApiUsageReset,

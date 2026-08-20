@@ -14,6 +14,8 @@ import { initFileTreeUi } from "./app/file-tree-ui.js";
 import { initMathCaptureUi } from "./app/math-capture-ui.js";
 import { initMathCapture } from "./app/math-capture.js";
 import { initLauncherUi } from "./app/launcher-ui.js";
+import { initOnboardingUi } from "./app/onboarding-ui.js";
+import { initSettingsPackagesUi } from "./app/settings-packages-ui.js";
 import { initMonacoSetup } from "./app/monaco-setup.js";
 import { createFilePreviewBroker } from "./app/file-preview.js";
 import { createFileExcerptBroker } from "./app/file-excerpt.js";
@@ -193,6 +195,12 @@ export const initMain = () => {
                 blockEditSession === null || blockEditSession === void 0 ? void 0 : blockEditSession.refreshDetectedBlock(allowTabSwitch);
             },
         });
+        // Package management talks to tlmgr through the main process; the UI is created
+        // up front so the settings page can hand it the "you are looking at me now"
+        // signal that triggers the first catalogue read.
+        const packagesUi = initSettingsPackagesUi({
+            postToNative: (payload, silent) => postToNative(payload, silent),
+        });
         const settingsUi = initSettingsUi(appContext, {
             envRegistry,
             getWorkspaceRootKey: appActions.getWorkspaceRootKey,
@@ -206,9 +214,55 @@ export const initMain = () => {
             onUpdateAttentionChange: (hasAttention) => {
                 setSettingsTabAlert(hasAttention);
             },
+            onPackagesPageActive: () => packagesUi.onPageActive(),
             onRuntimeSetupNeeded: () => {
+                // Only relevant once the user is past the gate (they skipped, or TeX broke
+                // later); otherwise the gate itself is what they are looking at.
+                if (onboardingUi.isVisible()) {
+                    return;
+                }
                 setActiveTab("settings");
                 settingsUi.openSettingsPage("env");
+            },
+            onRuntimeDetection: (report, summary) => {
+                // Trust the per-command sweep when it has finished, and the detection
+                // report on its own before that — right after an install the sweep is
+                // momentarily empty, and the gate must not flash back to the choice.
+                const ready = (summary === null || summary === void 0 ? void 0 : summary.hasAnyResult) ? summary.runtimeReady : Boolean(report === null || report === void 0 ? void 0 : report.ready);
+                if (ready) {
+                    if (onboardingUi.isVisible()) {
+                        onboardingUi.finish();
+                    }
+                    return;
+                }
+                if (onboardingUi.isVisible() || hasSkippedTexSetup()) {
+                    return;
+                }
+                onboardingUi.showChoice();
+            },
+            onRuntimeInstallEvent: (event) => {
+                var _a, _b, _c, _d, _e;
+                const variant = event.variant === "full" ? "full" : "light";
+                if (!onboardingUi.isVisible()) {
+                    return;
+                }
+                if (event.kind === "result") {
+                    if (event.success) {
+                        // The whole point of the gate: the editor appears the moment TeX works.
+                        onboardingUi.finish();
+                    }
+                    else {
+                        onboardingUi.showFailure((_a = event.message) !== null && _a !== void 0 ? _a : "");
+                    }
+                    return;
+                }
+                onboardingUi.showProgress({
+                    variant,
+                    percent: event.kind === "start" ? 0 : (_b = event.percent) !== null && _b !== void 0 ? _b : null,
+                    phase: (_c = event.phase) !== null && _c !== void 0 ? _c : "",
+                    current: (_d = event.current) !== null && _d !== void 0 ? _d : null,
+                    total: (_e = event.total) !== null && _e !== void 0 ? _e : null,
+                });
             },
             onRequestFirstBuild: () => {
                 setActiveTab("files");
@@ -241,6 +295,40 @@ export const initMain = () => {
             onRemoveRecent: (path) => {
                 postToNative({ type: "removeRecentProject", path });
             },
+        });
+        // First-run gate for TeX. It is created before anything asks about the
+        // environment so the very first detection result can raise it, and it sits
+        // above the launcher: a machine without TeX answers this before picking a
+        // project.
+        const onboardingSkippedKey = "tex64.onboarding.texSetupSkipped.v1";
+        const hasSkippedTexSetup = () => {
+            try {
+                return localStorage.getItem(onboardingSkippedKey) === "1";
+            }
+            catch {
+                return false;
+            }
+        };
+        const revealAppBehindOnboarding = () => {
+            if (!getWorkspaceRootKey()) {
+                launcherUi.setVisible(true);
+                launcherUi.setStatus({ isBusy: false, message: null });
+            }
+        };
+        const onboardingUi = initOnboardingUi({
+            startInstall: (variant) => {
+                postToNative({ type: "env:install", target: "basictex", variant });
+            },
+            onSkip: () => {
+                try {
+                    localStorage.setItem(onboardingSkippedKey, "1");
+                }
+                catch {
+                    // A browser that refuses storage just gets asked again next launch.
+                }
+                revealAppBehindOnboarding();
+            },
+            onFinished: revealAppBehindOnboarding,
         });
         // Request recent projects on startup
         postToNative({ type: "getRecentProjects" });
@@ -951,9 +1039,14 @@ export const initMain = () => {
                     updateIssuesProxy(1, errorMessage, "error", [issue]);
                 },
             },
+            packages: packagesUi,
             settings: {
                 updateEnvStatus: (command, available) => settingsUi.updateEnvStatus(command, available),
+                handleEnvDetectResult: (payload) => settingsUi.handleEnvDetectResult(payload),
                 handleEnvInstallStart: (payload) => settingsUi.handleEnvInstallStart(payload),
+                // Without this the install progress bar never moves: the events arrive on
+                // the bridge and land on an undefined handler.
+                handleEnvInstallProgress: (payload) => settingsUi.handleEnvInstallProgress(payload),
                 handleEnvInstallResult: (payload) => settingsUi.handleEnvInstallResult(payload),
                 getSettingsSnapshot: () => settingsUi.getSettingsSnapshot(),
                 applySettingsPatch: (patch) => settingsUi.applySettingsPatch(patch),

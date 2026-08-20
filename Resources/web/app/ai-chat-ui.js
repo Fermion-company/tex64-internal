@@ -117,10 +117,16 @@ export const initAiChatUi = (context, deps) => {
         set(".ai-model-upsell-sub", "upsell_sub");
         set(".ai-model-upsell-btn", "see_pro_plans");
     };
-    const isProPlan = () => { var _a; return typeof ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) === "string" &&
-        platformState.platformAiAccess.plan.toLowerCase() === "pro"; };
-    const hasResolvedPlan = () => { var _a; return typeof ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) === "string" &&
-        platformState.platformAiAccess.plan.trim().length > 0; };
+    const isProPlan = () => {
+        var _a;
+        return typeof ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) === "string" &&
+            platformState.platformAiAccess.plan.toLowerCase() === "pro";
+    };
+    const hasResolvedPlan = () => {
+        var _a;
+        return typeof ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) === "string" &&
+            platformState.platformAiAccess.plan.trim().length > 0;
+    };
     const escapeHtml = (value) => value.replace(/[&<>"]/g, (ch) => ch === "&" ? "&amp;" : ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&quot;");
     // The selected model, falling back to the standard model when a stored Pro
     // model is no longer permitted by the current plan.
@@ -813,7 +819,7 @@ export const initAiChatUi = (context, deps) => {
         handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
         handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
         refreshContextBar: updateContextBar,
-        getCurrentPlan: () => { var _a; var _b; return (_b = (_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) !== null && _b !== void 0 ? _b : "free"; },
+        getCurrentPlan: () => { var _a, _b; return (_b = (_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) !== null && _b !== void 0 ? _b : "free"; },
         getUsageSnapshot: () => platformState.platformUsage,
         refreshPlan: (force = true) => requestAiAccessCheck(force),
         refreshUsage: (force = true) => requestPlatformUsage(force),

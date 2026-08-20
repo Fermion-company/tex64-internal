@@ -146,8 +146,7 @@ export const initBuildOpsUi = (context, deps) => {
         }, 0);
     };
     const requestSynctexForward = (overridePath, options = {}) => {
-        var _a;
-        var _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f;
         const activeGroup = deps.getActiveGroup();
         const targetPath = overridePath !== null && overridePath !== void 0 ? overridePath : activeGroup.currentFilePath;
         if (!targetPath || !targetPath.endsWith(".tex")) {
@@ -268,8 +267,7 @@ export const initBuildOpsUi = (context, deps) => {
         }
     };
     const startBuild = () => {
-        var _a;
-        var _b;
+        var _a, _b;
         if (currentBuildState === "building") {
             const ok = deps.postToNative({ type: "build:cancel" });
             if (ok) {
@@ -309,7 +307,7 @@ export const initBuildOpsUi = (context, deps) => {
             return;
         }
         deps.cacheCurrentBuffer(deps.getActiveGroup());
-        const mainFile = (_b = deps.getRootFilePath()) !== null && _b !== void 0 ? _b : (deps.getActiveFilePath() && ((_a = deps.getActiveFilePath()) === null || _a === void 0 ? void 0 : _a.endsWith(".tex"))
+        const mainFile = (_a = deps.getRootFilePath()) !== null && _a !== void 0 ? _a : (deps.getActiveFilePath() && ((_b = deps.getActiveFilePath()) === null || _b === void 0 ? void 0 : _b.endsWith(".tex"))
             ? deps.getActiveFilePath()
             : undefined);
         deps.setLastBuildMainFile(mainFile !== null && mainFile !== void 0 ? mainFile : null);
@@ -375,15 +373,14 @@ export const initBuildOpsUi = (context, deps) => {
         }
     };
     const handleFormatResult = (payload) => {
-        var _a, _b;
-        var _c, _d;
+        var _a, _b, _c, _d;
         const inFlightSnapshot = formatInFlightSnapshot;
         formatInFlight = false;
         formatInFlightSnapshot = null;
         if (!payload.ok) {
             if (!formatWarningShown) {
                 formatWarningShown = true;
-                const message = (_c = payload.error) !== null && _c !== void 0 ? _c : uiText("Formatting failed.", "整形に失敗しました。");
+                const message = (_a = payload.error) !== null && _a !== void 0 ? _a : uiText("Formatting failed.", "整形に失敗しました。");
                 deps.updateIssues(1, message, "info", [
                     { severity: "warning", message },
                 ]);
@@ -394,7 +391,7 @@ export const initBuildOpsUi = (context, deps) => {
                 .getEditorGroups()
                 .filter((group) => group.currentFilePath === payload.path);
             const currentValue = groupsWithFile.length > 0
-                ? (_b = (_a = groupsWithFile[0].editor) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)
+                ? (_c = (_b = groupsWithFile[0].editor) === null || _b === void 0 ? void 0 : _b.getValue) === null || _c === void 0 ? void 0 : _c.call(_b)
                 : null;
             const isStale = (inFlightSnapshot === null || inFlightSnapshot === void 0 ? void 0 : inFlightSnapshot.path) === payload.path &&
                 typeof currentValue === "string" &&
@@ -436,7 +433,8 @@ export const initBuildOpsUi = (context, deps) => {
             synctexForwardInFlight = null;
         }
         const payloadMeta = payloadRequestId
-            ? (_a = synctexForwardOrderByRequestId.get(payloadRequestId)) !== null && _a !== void 0 ? _a : null : null;
+            ? (_a = synctexForwardOrderByRequestId.get(payloadRequestId)) !== null && _a !== void 0 ? _a : null
+            : null;
         const payloadOrder = (_b = payloadMeta === null || payloadMeta === void 0 ? void 0 : payloadMeta.order) !== null && _b !== void 0 ? _b : null;
         if (payload.cancelled === true) {
             if (matchedInFlight) {

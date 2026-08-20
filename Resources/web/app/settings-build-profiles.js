@@ -41,7 +41,8 @@ export const initBuildProfilesUi = (context, deps) => {
             ? settingsBuildProfileSelect.value
             : "";
         const selected = selectedId && selectedId !== ""
-            ? (_a = buildProfiles.find((profile) => profile.id === selectedId)) !== null && _a !== void 0 ? _a : null : null;
+            ? (_a = buildProfiles.find((profile) => profile.id === selectedId)) !== null && _a !== void 0 ? _a : null
+            : null;
         const isCustom = Boolean(selected);
         settingsBuildProfileHint.textContent = enabled
             ? isCustom
@@ -89,7 +90,8 @@ export const initBuildProfilesUi = (context, deps) => {
         const enabled = isWorkspaceReady();
         const selectedId = getSelectedBuildProfileId();
         const selected = selectedId && selectedId !== ""
-            ? (_a = buildProfiles.find((profile) => profile.id === selectedId)) !== null && _a !== void 0 ? _a : null : null;
+            ? (_a = buildProfiles.find((profile) => profile.id === selectedId)) !== null && _a !== void 0 ? _a : null
+            : null;
         const isCustom = Boolean(selected);
         const selectionChanged = selectedId !== lastRenderedSelectedId;
         lastRenderedSelectedId = selectedId;
@@ -243,7 +245,8 @@ export const initBuildProfilesUi = (context, deps) => {
         commitBuildProfilesUpdate(true);
         const activeId = getSelectedBuildProfileId();
         const activeProfile = activeId && activeId !== ""
-            ? (_a = buildProfiles.find((profile) => profile.id === activeId)) !== null && _a !== void 0 ? _a : null : null;
+            ? (_a = buildProfiles.find((profile) => profile.id === activeId)) !== null && _a !== void 0 ? _a : null
+            : null;
         deps.postToNative({
             type: "build:clean",
             deep: deep === true,

@@ -5,15 +5,14 @@ export const createEditorSessionCoreOps = (runtime) => {
     const getActiveEditorGroupKey = () => runtime.state.activeEditorGroup;
     const getActiveFilePath = () => getActiveGroup().currentFilePath;
     const getActiveFileSnapshot = () => {
-        var _a, _b, _c;
-        var _d, _e;
+        var _a, _b, _c, _d, _e;
         const group = getActiveGroup();
         if (!group.currentFilePath || !isEditableTextFilePath(group.currentFilePath)) {
             return null;
         }
         const entry = runtime.monacoModels.get(group.currentFilePath);
         const editor = group.editor;
-        const content = (_e = (_d = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _d !== void 0 ? _d : (_c = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _e !== void 0 ? _e : null;
+        const content = (_e = (_c = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : (_d = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _d === void 0 ? void 0 : _d.call(editor)) !== null && _e !== void 0 ? _e : null;
         if (content === null) {
             return null;
         }
@@ -135,8 +134,7 @@ export const createEditorSessionCoreOps = (runtime) => {
         const files = new Map();
         const snapshots = [];
         const pushSnapshot = (path, isDirty) => {
-            var _a, _b, _c;
-            var _d, _e;
+            var _a, _b, _c, _d, _e;
             if (snapshots.length >= maxFiles || !isEditableTextFilePath(path)) {
                 return;
             }
@@ -144,7 +142,7 @@ export const createEditorSessionCoreOps = (runtime) => {
             const editorGroupKey = findGroupKeyByPath(path);
             const group = editorGroupKey ? getEditorGroup(editorGroupKey) : null;
             const editor = group === null || group === void 0 ? void 0 : group.editor;
-            const rawContent = (_e = (_d = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _d !== void 0 ? _d : (_c = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _c === void 0 ? void 0 : _c.call(editor)) !== null && _e !== void 0 ? _e : null;
+            const rawContent = (_e = (_c = (_b = (_a = entry === null || entry === void 0 ? void 0 : entry.model) === null || _a === void 0 ? void 0 : _a.getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : (_d = editor === null || editor === void 0 ? void 0 : editor.getValue) === null || _d === void 0 ? void 0 : _d.call(editor)) !== null && _e !== void 0 ? _e : null;
             if (rawContent === null) {
                 return;
             }

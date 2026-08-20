@@ -76,8 +76,7 @@ export const createMathWysiwygMruOps = (state) => {
         saveMru(state, keyToSave);
     };
     const ensureMruStorageKey = () => {
-        var _a;
-        var _b;
+        var _a, _b;
         const nextKey = (_b = (_a = state.resolveMruStorageKey) === null || _a === void 0 ? void 0 : _a.call(state)) !== null && _b !== void 0 ? _b : DEFAULT_MRU_STORAGE_KEY;
         if (!nextKey || nextKey === state.mruStorageKey) {
             return;
@@ -88,14 +87,13 @@ export const createMathWysiwygMruOps = (state) => {
         loadMru(state.mruStorageKey);
     };
     const recordMru = (candidate) => {
-        var _a;
-        var _b;
+        var _a, _b;
         const candidateId = candidate.id;
         if (!candidateId) {
             return;
         }
         ensureMruStorageKey();
-        const entry = (_b = state.mru.get(candidateId)) !== null && _b !== void 0 ? _b : { count: 0, lastUsedAt: 0 };
+        const entry = (_a = state.mru.get(candidateId)) !== null && _a !== void 0 ? _a : { count: 0, lastUsedAt: 0 };
         entry.count += 1;
         entry.lastUsedAt = Date.now();
         if (!candidate.apply) {
@@ -116,7 +114,7 @@ export const createMathWysiwygMruOps = (state) => {
             });
             const trimCount = state.mru.size - MAX_MRU_ENTRIES;
             for (let i = 0; i < trimCount; i += 1) {
-                const key = (_a = sorted[i]) === null || _a === void 0 ? void 0 : _a[0];
+                const key = (_b = sorted[i]) === null || _b === void 0 ? void 0 : _b[0];
                 if (key) {
                     state.mru.delete(key);
                 }

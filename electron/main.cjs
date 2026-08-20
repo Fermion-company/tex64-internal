@@ -54,6 +54,7 @@ const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
+const { TexPackageService } = require("./services/tex-package-manager.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
 const { createApplicationMenuTemplate } = require("./app-menu.cjs");
 
@@ -246,6 +247,7 @@ const pdfWindowManager = new PDFWindowManager();
 const synctexService = new SynctexService();
 const blocksStore = new BlocksStore();
 const envService = new EnvService();
+const packageService = new TexPackageService(envService);
 // Lets a failed build repair itself by installing the packages its log named.
 // Only ever touches the app-managed TeX Live; a user's own install is read-only
 // to us, and installMissingPackages() bails out when it is not ours.
@@ -598,6 +600,7 @@ const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
 
 const miscHandlers = createMiscHandlers({
   envService,
+  packageService,
   ensureUserSettings,
   workspace,
   shell,
@@ -1692,6 +1695,36 @@ ipcMain.on("tex64", (_event, message) => {
   }
   if (type === "env:install") {
     miscHandlers.handleEnvInstall(message.target, message.variant);
+    return;
+  }
+
+  // Package management
+  if (type === "packages:catalog") {
+    miscHandlers.handlePackagesCatalog({ force: message.force === true });
+    return;
+  }
+  if (type === "packages:searchFiles") {
+    miscHandlers.handlePackagesSearchFiles(message.term);
+    return;
+  }
+  if (type === "packages:ctanSearch") {
+    miscHandlers.handlePackagesCtanSearch(message.term);
+    return;
+  }
+  if (type === "packages:detail") {
+    miscHandlers.handlePackagesDetail(message.name);
+    return;
+  }
+  if (type === "packages:install") {
+    miscHandlers.handlePackagesInstall(message.names);
+    return;
+  }
+  if (type === "packages:remove") {
+    miscHandlers.handlePackagesRemove(message.names, { force: message.force === true });
+    return;
+  }
+  if (type === "packages:update") {
+    miscHandlers.handlePackagesUpdate();
     return;
   }
 });

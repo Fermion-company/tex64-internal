@@ -11,6 +11,7 @@ export const createSettingsPageNavOps = (
   deps: {
     checkEnvironmentStatus: () => void;
     updateRuntimeOnboardingUi: () => void;
+    onPackagesPageActive?: () => void;
     maybeRequestPlatformUpdateCheck: (force?: boolean) => boolean;
   }
 ): SettingsPageNavOps => {
@@ -60,6 +61,11 @@ export const createSettingsPageNavOps = (
     if (resolved === "env") {
       deps.updateRuntimeOnboardingUi();
       deps.checkEnvironmentStatus();
+    }
+    // The catalogue is thousands of rows and a tlmgr call, so it is read the
+    // first time the page is actually looked at, not at startup.
+    if (resolved === "packages") {
+      deps.onPackagesPageActive?.();
     }
     if (resolved === "env" || resolved === "account") {
       deps.maybeRequestPlatformUpdateCheck(false);

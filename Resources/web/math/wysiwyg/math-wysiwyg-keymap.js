@@ -89,15 +89,17 @@ const resolveShiftKey = (key) => {
             : key.templateScope,
     };
 };
-const buildSimpleVariant = (key, latex, displayLatex) => { var _a; return ({
-    label: (_a = key.label) !== null && _a !== void 0 ? _a : latex,
-    latex,
-    displayLatex,
-    fallback: key.fallback,
-}); };
-const expandScriptVariants = (key) => {
+const buildSimpleVariant = (key, latex, displayLatex) => {
     var _a;
-    var _b;
+    return ({
+        label: (_a = key.label) !== null && _a !== void 0 ? _a : latex,
+        latex,
+        displayLatex,
+        fallback: key.fallback,
+    });
+};
+const expandScriptVariants = (key) => {
+    var _a, _b;
     const baseLatex = (_a = key.latex) === null || _a === void 0 ? void 0 : _a.trim();
     if (!baseLatex) {
         return [key];

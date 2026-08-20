@@ -62,6 +62,7 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 - `electron/services/openprism/` — AI エージェントループ（`run-loop.cjs` / `tools.cjs` / `llm-config.cjs` / `arxiv-service.cjs`）。
 - `electron/services/agent-*.cjs` — エージェントのプロンプト・ツール実行・編集安全ガード（`agent-tools-file.cjs` に編集の決定的ガード）。
+- `electron/services/tex-package-manager.cjs` — tlmgr 経由のパッケージ管理（カタログ・検索・追加・削除・更新）と特権実行。
 - `electron/services/env.cjs` — managed TeX 環境のインストール（`INSTALL_VARIANTS` = full / light）と環境判定（`detectEnvironment`）。判定の純粋ロジックは `tex-detect.cjs`、パッケージ集合と欠落パッケージ解決は `tex-packages.cjs`。
 - `electron/services/texlab/` — texlab プロセスの spawn と JSON-RPC over stdio の中継。
 - `electron/services/{build,synctex,spell,math-ocr,terminal,indexer,search}.cjs` — ビルド / SyncTeX / スペル / 数式OCR / ターミナル / 索引 / 検索。
@@ -141,11 +142,40 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
   `parse_packages()` 相当）。ビルド失敗ログ → `tlmgr search --file` → install →
   再ビルドを**最大 5 ラウンド**（依存が連鎖するため 1 回では足りない）。
   配線は `BuildService.setPackageInstaller()`。これを外すなら `light` も外すこと。
+- **初回起動はゲートで完結させる**（`web-src/app/onboarding-ui.ts` / `#onboarding`）:
+  TeX があればゲートは出ずそのままエディタ、無ければ 2 択（**容量と所要時間は必ず併記**）、
+  導入中はゲージ＋残り時間、完了したらゲートが自分で閉じてエディタが出る。
+  残り時間はバー％を経過時間割合に写してから推定する（バーは時間に対して線形ではない）。
 - 思想は据え置き: **複雑さゼロで押すだけ**。2 択は「容量 vs もう二度と考えない」の
   1 行トレードオフとして見せ、それ以上の設定 UI を足さない。長い待ちは
   「実 % の進捗バー（install-tl/tlmgr の `[n/m]` を解析）」で許容される。
-- 蒸し返さないこと: **3 択以上への拡張**、パッケージの手動選択 UI、
-  ユーザー自身の TeX Live へ `tlmgr` を走らせること。
+- 蒸し返さないこと: **3 択以上への拡張**、インストール時のパッケージ手動選択 UI。
+
+### パッケージ管理（Packages 画面）
+
+設定の **Packages** ページ（`web-src/app/settings-packages-ui.ts` /
+`electron/services/tex-package-manager.cjs`）。すべて tlmgr 経由。
+
+- **1 つのリストに導入済みと未導入を混ぜる**。分けない。状態はドット・名前の濃さ・
+  ボタンの形で**ラベルを読まなくても分かる**ようにし、フィルタチップ（すべて/導入済み/未導入）
+  と件数を添える。
+- **検索は即時**。`tlmgr info --data name,installed,size,shortdesc` で全 8,000 件超の
+  カタログをローカル DB から一括取得してクライアント側で絞る（ネット不要）。
+  名前 > 前方一致 > 部分一致 > 説明 の順でランク付け。
+  **ファイル名検索**（`tlmgr search --file`、約 1 秒）は打鍵が落ち着いてから走らせ、
+  名前・説明の即時結果の**後ろに追加**する。両者を待ち合わせない。
+- カタログに無い新しいパッケージ用に「**CTAN を直接検索**」（`tlmgr search --global`、
+  ネット、約 4 秒）を結果の下に逃げ道として置く。これが唯一ネットを使う検索。
+- **⚠️ system TeX（MacTeX 等）への書き込みを許可した**（2026-08-20 方針変更）。
+  managed ツリーは無認証、system ツリーは **macOS の管理者認証ダイアログ**
+  （`osascript ... with administrator privileges`）を出して install/remove/update を実行する。
+  **アプリがパスワードを受け取ることは絶対にしない**（ダイアログは OS のもの）。
+- **パッケージ名は必ず `isValidPackageName()` を通してから**コマンドラインに載せる。
+  特権実行の経路があるので、この検証が唯一の防壁。`buildPrivilegedScript()` は
+  shell と AppleScript の二重クォートを行い、テストで実際に osascript を通して
+  往復検証している。ここを緩めない。
+- 削除は `--dry-run` で事前確認し、tlmgr が拒否したら**理由（どのコレクションが必要としているか）
+  をそのまま出す**。`--force` は既定で使わない。
 
 ### texlab LSP
 

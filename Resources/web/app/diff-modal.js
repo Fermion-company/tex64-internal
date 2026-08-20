@@ -3,7 +3,8 @@ export const initDiffModal = (context, deps) => {
     var _a;
     const { diffModal, diffTitle, diffModalSubmit, blockDiffContainer, diffSummary, diffFileName } = context.dom;
     const defaultDiffSubmitLabel = diffModalSubmit instanceof HTMLButtonElement
-        ? (_a = diffModalSubmit.textContent) !== null && _a !== void 0 ? _a : "Confirm" : "Confirm";
+        ? (_a = diffModalSubmit.textContent) !== null && _a !== void 0 ? _a : "Confirm"
+        : "Confirm";
     let diffEditor = null;
     let diffOriginalModel = null;
     let diffModifiedModel = null;
@@ -62,8 +63,7 @@ export const initDiffModal = (context, deps) => {
         }
     };
     const detectLanguage = (fileName) => {
-        var _a;
-        var _b, _c;
+        var _a, _b, _c;
         if (!fileName)
             return "plaintext";
         const ext = (_b = (_a = fileName.split(".").pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase()) !== null && _b !== void 0 ? _b : "";
@@ -85,7 +85,7 @@ export const initDiffModal = (context, deps) => {
             return 1;
         return text.split(/\r?\n/).length;
     };
-    const countLineBreaks = (text) => { var _a; var _b; return (_b = (_a = text.match(/\r?\n/g)) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0; };
+    const countLineBreaks = (text) => { var _a, _b; return (_b = (_a = text.match(/\r?\n/g)) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0; };
     const buildDiffPreviewContext = (model, startOffset, endOffset, replacement, contextLineCount = 3) => {
         const originalText = model.getValue();
         const totalLines = typeof model.getLineCount === "function" ? model.getLineCount() : countLines(originalText);
@@ -167,8 +167,7 @@ export const initDiffModal = (context, deps) => {
         }
     };
     const showDiffModal = (original, modified, lineOffset = 0, options) => {
-        var _a, _b, _c, _d, _e, _f;
-        var _g, _h, _j;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi)
             return;
@@ -209,12 +208,12 @@ export const initDiffModal = (context, deps) => {
         }
         else {
             const diffEditorAny = diffEditor;
-            const diffNode = (_h = (_g = (_a = diffEditorAny.getDomNode) === null || _a === void 0 ? void 0 : _a.call(diffEditorAny)) !== null && _g !== void 0 ? _g : (_b = diffEditorAny.getContainerDomNode) === null || _b === void 0 ? void 0 : _b.call(diffEditorAny)) !== null && _h !== void 0 ? _h : null;
+            const diffNode = (_d = (_b = (_a = diffEditorAny.getDomNode) === null || _a === void 0 ? void 0 : _a.call(diffEditorAny)) !== null && _b !== void 0 ? _b : (_c = diffEditorAny.getContainerDomNode) === null || _c === void 0 ? void 0 : _c.call(diffEditorAny)) !== null && _d !== void 0 ? _d : null;
             if (diffNode && !container.contains(diffNode)) {
                 container.innerHTML = "";
                 container.appendChild(diffNode);
             }
-            (_c = diffEditorAny.layout) === null || _c === void 0 ? void 0 : _c.call(diffEditorAny);
+            (_e = diffEditorAny.layout) === null || _e === void 0 ? void 0 : _e.call(diffEditorAny);
         }
         renderDiffHeader();
         if (diffModalSubmit instanceof HTMLButtonElement) {
@@ -229,12 +228,12 @@ export const initDiffModal = (context, deps) => {
         }
         renderDiffSummary(original, modified);
         const diffEditorAny = diffEditor;
-        (_d = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _d === void 0 ? void 0 : _d.call(diffOriginalModel);
-        (_e = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _e === void 0 ? void 0 : _e.call(diffModifiedModel);
-        const lang = detectLanguage((_j = options === null || options === void 0 ? void 0 : options.fileName) !== null && _j !== void 0 ? _j : deps.getActiveFilePath());
+        (_f = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _f === void 0 ? void 0 : _f.call(diffOriginalModel);
+        (_g = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _g === void 0 ? void 0 : _g.call(diffModifiedModel);
+        const lang = detectLanguage((_h = options === null || options === void 0 ? void 0 : options.fileName) !== null && _h !== void 0 ? _h : deps.getActiveFilePath());
         diffOriginalModel = monacoApiAny.editor.createModel(original, lang);
         diffModifiedModel = monacoApiAny.editor.createModel(modified, lang);
-        (_f = diffEditorAny.setModel) === null || _f === void 0 ? void 0 : _f.call(diffEditorAny, {
+        (_j = diffEditorAny.setModel) === null || _j === void 0 ? void 0 : _j.call(diffEditorAny, {
             original: diffOriginalModel,
             modified: diffModifiedModel,
         });
@@ -272,8 +271,7 @@ export const initDiffModal = (context, deps) => {
         return { adds, dels, diffLines: lines };
     };
     const showMultiFileDiff = (files, options) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
-        var _k, _l;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         const monacoApi = deps.getMonacoApi();
         const container = blockDiffContainer;
         if (!monacoApi || !container)
@@ -288,13 +286,13 @@ export const initDiffModal = (context, deps) => {
         // Dispose any existing editors (single + multi) and clear the container.
         resetDiffEditor();
         if (diffTitle instanceof HTMLElement) {
-            diffTitle.textContent = (_k = options === null || options === void 0 ? void 0 : options.title) !== null && _k !== void 0 ? _k : "Confirm changes";
+            diffTitle.textContent = (_a = options === null || options === void 0 ? void 0 : options.title) !== null && _a !== void 0 ? _a : "Confirm changes";
         }
         if (diffFileName instanceof HTMLElement) {
             diffFileName.textContent = files.length === 1 ? files[0].fileName : `${files.length} files`;
         }
         if (diffModalSubmit instanceof HTMLButtonElement) {
-            diffModalSubmit.textContent = (_l = options === null || options === void 0 ? void 0 : options.submitLabel) !== null && _l !== void 0 ? _l : defaultDiffSubmitLabel;
+            diffModalSubmit.textContent = (_b = options === null || options === void 0 ? void 0 : options.submitLabel) !== null && _b !== void 0 ? _b : defaultDiffSubmitLabel;
         }
         let totalAdds = 0;
         let totalDels = 0;
@@ -378,7 +376,7 @@ export const initDiffModal = (context, deps) => {
                 lineHeight: 20,
                 fontFamily: '"SF Mono", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Menlo, Monaco, "Courier New", monospace',
             });
-            (_b = (_a = editor).setModel) === null || _b === void 0 ? void 0 : _b.call(_a, {
+            (_d = (_c = editor).setModel) === null || _d === void 0 ? void 0 : _d.call(_c, {
                 original,
                 modified,
             });
@@ -388,19 +386,18 @@ export const initDiffModal = (context, deps) => {
             // line stays reachable.
             const diffEditor = editor;
             const fitHeight = () => {
-                var _a, _b, _c, _d, _e, _f, _g;
-                var _h, _j;
-                const mh = (_h = (_c = (_b = (_a = diffEditor.getModifiedEditor) === null || _a === void 0 ? void 0 : _a.call(diffEditor)) === null || _b === void 0 ? void 0 : _b.getContentHeight) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _h !== void 0 ? _h : 0;
-                const oh = (_j = (_f = (_e = (_d = diffEditor.getOriginalEditor) === null || _d === void 0 ? void 0 : _d.call(diffEditor)) === null || _e === void 0 ? void 0 : _e.getContentHeight) === null || _f === void 0 ? void 0 : _f.call(_e)) !== null && _j !== void 0 ? _j : 0;
+                var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+                const mh = (_d = (_c = (_b = (_a = diffEditor.getModifiedEditor) === null || _a === void 0 ? void 0 : _a.call(diffEditor)) === null || _b === void 0 ? void 0 : _b.getContentHeight) === null || _c === void 0 ? void 0 : _c.call(_b)) !== null && _d !== void 0 ? _d : 0;
+                const oh = (_h = (_g = (_f = (_e = diffEditor.getOriginalEditor) === null || _e === void 0 ? void 0 : _e.call(diffEditor)) === null || _f === void 0 ? void 0 : _f.getContentHeight) === null || _g === void 0 ? void 0 : _g.call(_f)) !== null && _h !== void 0 ? _h : 0;
                 const h = Math.max(mh, oh);
                 if (h > 0) {
                     host.style.height = `${Math.min(h, MAX_FILE_HEIGHT)}px`;
-                    (_g = diffEditor.layout) === null || _g === void 0 ? void 0 : _g.call(diffEditor);
+                    (_j = diffEditor.layout) === null || _j === void 0 ? void 0 : _j.call(diffEditor);
                 }
             };
-            (_c = diffEditor.onDidUpdate) === null || _c === void 0 ? void 0 : _c.call(diffEditor, fitHeight);
-            (_f = (_e = (_d = diffEditor.getModifiedEditor) === null || _d === void 0 ? void 0 : _d.call(diffEditor)) === null || _e === void 0 ? void 0 : _e.onDidContentSizeChange) === null || _f === void 0 ? void 0 : _f.call(_e, fitHeight);
-            (_j = (_h = (_g = diffEditor.getOriginalEditor) === null || _g === void 0 ? void 0 : _g.call(diffEditor)) === null || _h === void 0 ? void 0 : _h.onDidContentSizeChange) === null || _j === void 0 ? void 0 : _j.call(_h, fitHeight);
+            (_e = diffEditor.onDidUpdate) === null || _e === void 0 ? void 0 : _e.call(diffEditor, fitHeight);
+            (_h = (_g = (_f = diffEditor.getModifiedEditor) === null || _f === void 0 ? void 0 : _f.call(diffEditor)) === null || _g === void 0 ? void 0 : _g.onDidContentSizeChange) === null || _h === void 0 ? void 0 : _h.call(_g, fitHeight);
+            (_l = (_k = (_j = diffEditor.getOriginalEditor) === null || _j === void 0 ? void 0 : _j.call(diffEditor)) === null || _k === void 0 ? void 0 : _k.onDidContentSizeChange) === null || _l === void 0 ? void 0 : _l.call(_k, fitHeight);
             fitHeight();
         }
     };

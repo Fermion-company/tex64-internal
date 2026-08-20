@@ -206,11 +206,11 @@ export const createSettingsFeedbackOps = (runtime) => {
         }
     };
     const handlePlatformFeedback = (payload) => {
-        var _a;
-        var _b;
+        var _a, _b;
         const inFlightId = runtime.state.feedbackInFlightId;
         const inFlightItem = inFlightId !== null
-            ? (_b = runtime.state.feedbackQueue.find((entry) => entry.id === inFlightId)) !== null && _b !== void 0 ? _b : null : null;
+            ? (_a = runtime.state.feedbackQueue.find((entry) => entry.id === inFlightId)) !== null && _a !== void 0 ? _a : null
+            : null;
         runtime.state.feedbackPending = false;
         runtime.state.feedbackInFlightId = null;
         updateFeedbackSendState();
@@ -228,7 +228,7 @@ export const createSettingsFeedbackOps = (runtime) => {
             scheduleFeedbackFlush(40);
             return;
         }
-        const message = ((_a = payload === null || payload === void 0 ? void 0 : payload.error) === null || _a === void 0 ? void 0 : _a.message) && payload.error.message.trim()
+        const message = ((_b = payload === null || payload === void 0 ? void 0 : payload.error) === null || _b === void 0 ? void 0 : _b.message) && payload.error.message.trim()
             ? payload.error.message.trim()
             : "Failed to send feedback.";
         if (inFlightItem) {

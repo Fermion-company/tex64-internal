@@ -365,6 +365,7 @@ export const createSettingsEnvOps = (
   }) => {
     detection = payload && payload.report ? payload.report : null;
     updateRuntimeSetupUi();
+    runtime.deps.onRuntimeDetection?.(detection, runtime.state.runtimeStatusSummary);
   };
 
   const startInstall = (variant: TexInstallVariant) => {
@@ -372,8 +373,14 @@ export const createSettingsEnvOps = (
     runtime.deps.postToNative({ type: "env:install", target: "basictex", variant });
   };
 
+  // The gate needs the variant on every packet (the estimate depends on it) but
+  // the main process only names it on start, so it is remembered here.
+  let installingVariant: TexInstallVariant = "light";
+
   const handleEnvInstallStart = (payload: { target?: string; variant?: string }) => {
-    showInstalling(payload?.variant === "full" ? "full" : "light");
+    installingVariant = payload?.variant === "full" ? "full" : "light";
+    showInstalling(installingVariant);
+    runtime.deps.onRuntimeInstallEvent?.({ kind: "start", variant: installingVariant });
   };
 
   const handleEnvInstallResult = (payload: {
@@ -396,6 +403,12 @@ export const createSettingsEnvOps = (
         "error"
       );
     }
+    runtime.deps.onRuntimeInstallEvent?.({
+      kind: "result",
+      variant: installingVariant,
+      success,
+      message: rawMessage,
+    });
     // Re-detect so the hero + component badges reflect the new reality.
     checkEnvironmentStatus();
   };
@@ -418,6 +431,14 @@ export const createSettingsEnvOps = (
     }
     const percent = typeof payload?.percent === "number" ? payload.percent : null;
     setProgress(percent, label);
+    runtime.deps.onRuntimeInstallEvent?.({
+      kind: "progress",
+      variant: installingVariant,
+      percent,
+      phase,
+      current,
+      total,
+    });
   };
 
   if (setupBtn instanceof HTMLButtonElement) {

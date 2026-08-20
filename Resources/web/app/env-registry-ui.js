@@ -419,8 +419,7 @@ export const initEnvRegistry = (context, deps) => {
         setEnvRegistryHint(uiText(`${base} removed.`, `${base} をDeleteしました。`));
     };
     const handleEnvRegistryListClick = (event) => {
-        var _a;
-        var _b;
+        var _a, _b;
         const target = (_a = event.target) === null || _a === void 0 ? void 0 : _a.closest("[data-env-action]");
         if (!target) {
             return;

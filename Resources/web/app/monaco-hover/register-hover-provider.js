@@ -33,14 +33,17 @@ export const registerHoverProvider = (monaco, deps, state) => {
         return value;
     };
     const getCachedHoverResult = (key) => hoverResultCache.has(key) ? hoverResultCache.get(key) : null;
-    const buildHoverTokenKey = (payload) => { var _a, _b; return [
-        payload.activePath,
-        String(payload.lineNumber),
-        String((_a = payload.endLineNumber) !== null && _a !== void 0 ? _a : payload.lineNumber),
-        `${payload.startIndex}:${payload.endIndex}`,
-        payload.kind,
-        (_b = payload.extra) !== null && _b !== void 0 ? _b : "",
-    ].join("|"); };
+    const buildHoverTokenKey = (payload) => {
+        var _a, _b;
+        return [
+            payload.activePath,
+            String(payload.lineNumber),
+            String((_a = payload.endLineNumber) !== null && _a !== void 0 ? _a : payload.lineNumber),
+            `${payload.startIndex}:${payload.endIndex}`,
+            payload.kind,
+            (_b = payload.extra) !== null && _b !== void 0 ? _b : "",
+        ].join("|");
+    };
     const createAnchorRange = (lineNumber, startIndex, endIndex, endLineNumber) => {
         if (!monaco.Range) {
             return undefined;
@@ -189,11 +192,10 @@ export const registerHoverProvider = (monaco, deps, state) => {
         // ── Color swatch hover (\textcolor / \color / \definecolor / …) ──
         let colorModelOption = null;
         const colorUseMatch = findCommandMatchAt(effectiveLine, cursorIndex, /\\(textcolor|color|colorbox|pagecolor|rowcolor|cellcolor|arrayrulecolor)(?:\[([^\]]*)\])?\{([^}]+)\}/g, (match, index) => {
-            var _a, _b;
-            var _c, _d, _e, _f;
-            const command = (_c = match[1]) !== null && _c !== void 0 ? _c : "";
-            const model = (_d = match[2]) !== null && _d !== void 0 ? _d : null;
-            const content = (_e = match[3]) !== null && _e !== void 0 ? _e : "";
+            var _a, _b, _c, _d, _e, _f;
+            const command = (_a = match[1]) !== null && _a !== void 0 ? _a : "";
+            const model = (_b = match[2]) !== null && _b !== void 0 ? _b : null;
+            const content = (_c = match[3]) !== null && _c !== void 0 ? _c : "";
             const braceIndex = match[0].indexOf("{");
             if (braceIndex < 0 || typeof match.index !== "number") {
                 return null;
@@ -208,7 +210,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
                 return null;
             }
             colorModelOption = model && model.trim() ? model.trim() : null;
-            const leading = (_f = (_b = (_a = content.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.length) !== null && _f !== void 0 ? _f : 0;
+            const leading = (_f = (_e = (_d = content.match(/^\s*/)) === null || _d === void 0 ? void 0 : _d[0]) === null || _e === void 0 ? void 0 : _e.length) !== null && _f !== void 0 ? _f : 0;
             return {
                 command,
                 key,
@@ -445,9 +447,8 @@ export const registerHoverProvider = (monaco, deps, state) => {
             });
         }
         const includeGraphicsHit = findCommandMatchAt(effectiveLine, cursorIndex, /\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}/g, (match, index) => {
-            var _a, _b;
-            var _c, _d;
-            const content = (_c = match[1]) !== null && _c !== void 0 ? _c : "";
+            var _a, _b, _c, _d;
+            const content = (_a = match[1]) !== null && _a !== void 0 ? _a : "";
             const braceIndex = match[0].indexOf("{");
             if (braceIndex < 0 || typeof match.index !== "number") {
                 return null;
@@ -461,7 +462,7 @@ export const registerHoverProvider = (monaco, deps, state) => {
             if (!key) {
                 return null;
             }
-            const leading = (_d = (_b = (_a = content.match(/^\s*/)) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.length) !== null && _d !== void 0 ? _d : 0;
+            const leading = (_d = (_c = (_b = content.match(/^\s*/)) === null || _b === void 0 ? void 0 : _b[0]) === null || _c === void 0 ? void 0 : _c.length) !== null && _d !== void 0 ? _d : 0;
             return {
                 command: "includegraphics",
                 key,

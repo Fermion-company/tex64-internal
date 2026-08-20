@@ -42,6 +42,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
 
   const pageNavOps = createSettingsPageNavOps(runtime, attentionOps, {
     checkEnvironmentStatus: envOps.checkEnvironmentStatus,
+    onPackagesPageActive: () => deps.onPackagesPageActive?.(),
     updateRuntimeOnboardingUi: envOps.updateRuntimeOnboardingUi,
     maybeRequestPlatformUpdateCheck: platformUpdateOps.maybeRequestPlatformUpdateCheck,
   });

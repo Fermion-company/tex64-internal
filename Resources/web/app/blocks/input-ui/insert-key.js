@@ -10,8 +10,7 @@ export const createBlockInsertKeyOps = (runtime) => {
         return source.replace(/#\\?/g, placeholder);
     };
     const insertMathKey = (key) => {
-        var _a;
-        var _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
         const mathInput = runtime.state.mathInput;
         if (!mathInput) {
             return;
@@ -22,15 +21,15 @@ export const createBlockInsertKeyOps = (runtime) => {
         const templateKind = key.templateKind;
         if (mathInput instanceof HTMLTextAreaElement) {
             const textArea = mathInput;
-            const start = (_b = textArea.selectionStart) !== null && _b !== void 0 ? _b : textArea.value.length;
-            const end = (_c = textArea.selectionEnd) !== null && _c !== void 0 ? _c : textArea.value.length;
+            const start = (_a = textArea.selectionStart) !== null && _a !== void 0 ? _a : textArea.value.length;
+            const end = (_b = textArea.selectionEnd) !== null && _b !== void 0 ? _b : textArea.value.length;
             const selection = { start, end };
             if (scriptKind) {
                 const result = applyScriptToText(textArea.value, selection, scriptKind, {
                     placeholder,
-                    base: (_d = key.scriptBase) !== null && _d !== void 0 ? _d : null,
-                    subValue: scriptKind === "sub" ? (_e = key.scriptValue) !== null && _e !== void 0 ? _e : null : (_f = key.scriptSubValue) !== null && _f !== void 0 ? _f : null,
-                    supValue: scriptKind === "sup" ? (_g = key.scriptValue) !== null && _g !== void 0 ? _g : null : (_h = key.scriptSupValue) !== null && _h !== void 0 ? _h : null,
+                    base: (_c = key.scriptBase) !== null && _c !== void 0 ? _c : null,
+                    subValue: scriptKind === "sub" ? (_d = key.scriptValue) !== null && _d !== void 0 ? _d : null : (_e = key.scriptSubValue) !== null && _e !== void 0 ? _e : null,
+                    supValue: scriptKind === "sup" ? (_f = key.scriptValue) !== null && _f !== void 0 ? _f : null : (_g = key.scriptSupValue) !== null && _g !== void 0 ? _g : null,
                 });
                 textArea.value = result.text;
                 textArea.setSelectionRange(result.selectionStart, result.selectionEnd);
@@ -64,7 +63,7 @@ export const createBlockInsertKeyOps = (runtime) => {
             return;
         }
         const mathField = mathInput;
-        (_a = mathField.focus) === null || _a === void 0 ? void 0 : _a.call(mathField);
+        (_h = mathField.focus) === null || _h === void 0 ? void 0 : _h.call(mathField);
         // Template keys with a selection: read selected LaTeX and build the
         // template before inserting, so we never have to rewrite the full value.
         if (templateKind && typeof mathField.getValue === "function") {

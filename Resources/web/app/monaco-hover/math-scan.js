@@ -236,8 +236,7 @@ const MATH_ENVIRONMENTS = new Set([
     "smallmatrix",
 ]);
 const findEnvironmentMathAt = (window, cursorOffset) => {
-    var _a, _b;
-    var _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g;
     if (!window.text) {
         return null;
     }
@@ -247,18 +246,18 @@ const findEnvironmentMathAt = (window, cursorOffset) => {
     tokenRegex.lastIndex = 0;
     let token = tokenRegex.exec(window.text);
     while (token) {
-        const action = (_c = token[1]) !== null && _c !== void 0 ? _c : "";
-        const env = (_d = token[2]) !== null && _d !== void 0 ? _d : "";
-        const startOffset = (_e = token.index) !== null && _e !== void 0 ? _e : -1;
+        const action = (_a = token[1]) !== null && _a !== void 0 ? _a : "";
+        const env = (_b = token[2]) !== null && _b !== void 0 ? _b : "";
+        const startOffset = (_c = token.index) !== null && _c !== void 0 ? _c : -1;
         if (startOffset >= 0 && MATH_ENVIRONMENTS.has(env)) {
-            const tokenEnd = startOffset + ((_f = (_a = token[0]) === null || _a === void 0 ? void 0 : _a.length) !== null && _f !== void 0 ? _f : 0);
+            const tokenEnd = startOffset + ((_e = (_d = token[0]) === null || _d === void 0 ? void 0 : _d.length) !== null && _e !== void 0 ? _e : 0);
             if (action === "begin") {
                 stack.push({ env, startOffset });
             }
             else if (action === "end") {
                 let matchIndex = -1;
                 for (let i = stack.length - 1; i >= 0; i -= 1) {
-                    if (((_b = stack[i]) === null || _b === void 0 ? void 0 : _b.env) === env) {
+                    if (((_f = stack[i]) === null || _f === void 0 ? void 0 : _f.env) === env) {
                         matchIndex = i;
                         break;
                     }

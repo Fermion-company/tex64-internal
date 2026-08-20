@@ -103,7 +103,31 @@ TinyTeX の `parse_packages()` に相当する処理:
 `installMissingPackages()` は **managed tlmgr が無ければ即座に降りる**ので、
 ユーザー自身の MacTeX / TinyTeX に書き込むことはない。
 
-## 5. UI
+## 5. 初回起動（オンボーディング）
+
+`web-src/app/onboarding-ui.ts` + `#onboarding`。**TeX が無いときだけ**出るゲートで、
+launcher より上（z-index 30）に出て `body.has-onboarding` で下を隠す。
+
+1. **TeX がある** → ゲートは出ない。そのまま launcher / エディタ。
+2. **無い** → 2 択カード（ライト＝おすすめ / フル）。**容量と所要時間は必ず併記**。
+3. **導入中** → ゲージ（％）＋残り時間＋フェーズ（`パッケージを導入中… (120/218)`）。
+4. **完了** → ゲートが自分で閉じてエディタが出る。クリック不要。
+
+失敗したら文言を出して 2 択に戻す。「あとで」は localStorage に記録して二度と聞かない
+（Environment 画面からいつでも入れる）。
+
+### 残り時間の出し方
+
+進捗バーは**時間に対して線形ではない**。light は install-tl（バー 0→80%）が約 15 秒、
+パッケージ導入（80→98%）が約 95 秒で、full は逆に scheme-full のダウンロードが大半を占める。
+そのため `経過 ÷ ％` で外挿すると「80% で残り 10 秒」と嘘をつく。
+
+`timeFractionForPercent(percent, variant)` でバー％を**経過時間の割合**に写してから
+`経過 ÷ 割合` で総所要を推定する。推定は指数平滑（下げ 0.5 / 上げ 0.15）で、
+**上がることも許す**（参照機より遅い環境では上がるのが真実。単調減少に固定すると
+「まもなく完了」で止まったまま延々待たせることになる）。
+
+## 6. UI
 
 Environment 画面は状態で 3 つに分岐する:
 
@@ -115,7 +139,54 @@ Environment 画面は状態で 3 つに分岐する:
 
 検出レポートが取れなかった場合は、従来の単一ボタンにフォールバックする。
 
-## 6. 実測（2026-08-20、macOS arm64 / 実走）
+## 6.5 パッケージ管理（Packages 画面）
+
+`electron/services/tex-package-manager.cjs` + `web-src/app/settings-packages-ui.ts`。
+
+### 何ができるか
+
+| 操作 | 実装 | 備考 |
+| --- | --- | --- |
+| 一覧・検索 | `tlmgr info --data name,installed,size,shortdesc` | **ローカル DB・ネット不要**。8,103 件を 1 回読んでクライアント側で絞る |
+| ファイル名で検索 | `tlmgr search --file` | 約 1 秒。名前・説明の即時結果の**後ろに追加** |
+| CTAN を直接検索 | `tlmgr search --global` | 約 4 秒・ネット。カタログに無い新しいものを探す逃げ道 |
+| 中身を見る | `tlmgr info --list` | 行を開くと収録ファイル一覧 |
+| 追加 | `tlmgr install` | |
+| 削除 | `tlmgr remove`（`--dry-run` 前置） | 拒否理由をそのまま提示 |
+| 一括更新 | `tlmgr update --self --all` | ボタン 1 つ |
+
+### UI の決定事項（ユーザー確認済み 2026-08-20）
+
+- **1 つのリストに統合**。導入済み/未導入は、緑のドット・名前の濃さ・ボタンの形
+  （塗り＝導入 / 枠線＝削除）で**ラベルを読まずに分かる**ようにする。
+  上部にフィルタチップ（すべて / 導入済み / 未導入）＋件数。
+- **即時検索 + 「CTAN を直接検索」の併用**。普段は待ち時間ゼロ、
+  見つからないときだけネットを叩く。
+- ランクは 完全一致 > 前方一致（短い名前優先） > 部分一致 > 説明一致。
+  表示は 120 件で打ち切り、「N 件中 M 件を表示中」と明示する。
+
+### system TeX への書き込み（方針変更）
+
+managed ツリーは無認証。**system TeX（MacTeX 等）も操作可能**にしたが、
+`osascript ... with administrator privileges` で **macOS の認証ダイアログ**を出す。
+アプリがパスワードに触れることはない。
+
+パッケージ名は `isValidPackageName()`（`^[A-Za-z0-9][A-Za-z0-9._+-]*$`）を通さないと
+コマンドラインに載らない。`buildPrivilegedScript()` は shell と AppleScript の
+二重クォートを行い、**実際に osascript を通して往復するテスト**で
+`$VAR` / バッククォート / セミコロン / 引用符がすべてリテラルとして届くことを確認している。
+
+### 実測（2026-08-20、使い捨て managed ツリー）
+
+```
+catalogue: 4,916 件（arch 別バイナリを除外後）/ installed: 197
+install tikz-cd        -> ok、ファイル検索でも引ける
+remove pgf             -> 拒否。理由「beamer が必要としている」を提示
+remove tikz-cd         -> ok、カタログに反映
+update --self --all    -> ok
+```
+
+## 7. 実測（2026-08-20、macOS arm64 / 実走）
 
 | 項目 | 結果 |
 | --- | --- |
@@ -145,7 +216,7 @@ Environment 画面は状態で 3 つに分岐する:
 `installManagedTexlive()` の戻り値 `unavailable` と警告ログに出すようにした。
 リストを変更したら、**`tlmgr install --dry-run` でも必ず名前解決を確認すること**。
 
-## 7. 既知の残件
+## 8. 既知の残件
 
 - 新規 UI 文字列は en / ja のみ（`uiText` の第 2 引数）。Environment 画面は元から
   zh / ko / fr / de / es の辞書エントリを持っておらず、部分翻訳になると画面内で
@@ -154,11 +225,26 @@ Environment 画面は状態で 3 つに分岐する:
   現状ログに `[tex64] Installed missing package(s): …` を残すだけで、ビルド中の
   UI には「パッケージ取得中」を出していない。
 
-## 8. テスト
+## 9. テスト
 
 - `tests/tex-env-detect.test.cjs` — banner 解析、kpsewhich 照合、所有者判定、
   網羅度の段階、推奨アクション。
 - `tests/tex-install-variants.test.cjs` — variant 解決、profile の scheme 行、
   パッケージリスト、marker、ログ解析、tlmgr search 解析、managed 以外への書き込み拒否。
-- `tests/build-package-repair.test.cjs` — 失敗 → インストール → 1 回だけ再ビルド、
-  および「入れるものが無ければ再ビルドしない」「installer 未配線なら従来通り」。
+- `tests/build-package-repair.test.cjs` — 失敗 → インストール → 再ビルド（依存連鎖を
+  複数ラウンド）、および「入れるものが無ければ再ビルドしない」「ループが有界」
+  「installer 未配線なら従来通り」。
+- `tests/onboarding-eta.test.mjs` — 時間曲線、遅い環境で推定が伸びること、
+  バーが巻き戻らないこと、残り時間の文言。
+- `tests/tex-package-manager.test.cjs` — カタログ CSV 解析、ファイル検索、削除拒否の
+  解析、**パッケージ名の検証**（`pgf; rm -rf /` 等を全て拒否）、
+  特権コマンドのクォート（実 osascript 往復）。
+- `tests/settings-packages-ui.test.mjs` — 検索ランク、フィルタ、件数、容量表記。
+- `tests/e2e/packages-flow.test.cjs` — 実 tlmgr カタログ（5,000 件超）に対して実走。
+  検索・フィルタ・ファイル名検索・行展開・CTAN 検索。**破壊的操作は押さない**
+  （実 TeX を変更してしまうため、ラベルと有効性の確認に留める）。
+- `tests/e2e/onboarding-flow.test.cjs` — 実 Electron でゲートを実走。
+  「TeX があれば出ない」「無ければ 2 択＋容量が必ず出る」「ゲージと残り時間」
+  「完了で勝手に閉じてエディタが出る」「失敗したら 2 択に戻る」「あとでが効く」。
+  **この e2e が配線バグを 2 件検出した**（`handleEnvInstallProgress` が bridge に
+  繋がっておらず設定画面の進捗バーが最初から死んでいた／`handleEnvDetectResult` も同様）。

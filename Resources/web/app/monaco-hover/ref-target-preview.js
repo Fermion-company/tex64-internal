@@ -59,8 +59,7 @@ const offsetInLine = (joined, lineIndex) => { var _a; return (_a = joined.lineOf
  * the target line is not inside display math within the excerpt.
  */
 export const extractMathEnvFromExcerpt = (excerpt) => {
-    var _a;
-    var _b, _c, _d;
+    var _a, _b, _c, _d;
     const { startLine, lines, targetLine } = excerpt;
     if (!Array.isArray(lines) || lines.length === 0) {
         return null;
@@ -71,22 +70,22 @@ export const extractMathEnvFromExcerpt = (excerpt) => {
     }
     const joined = joinExcerpt(lines);
     const targetOffset = offsetInLine(joined, targetIndex);
-    const targetEnd = targetOffset + (stripCommentTail((_b = lines[targetIndex]) !== null && _b !== void 0 ? _b : "")).length;
+    const targetEnd = targetOffset + (stripCommentTail((_a = lines[targetIndex]) !== null && _a !== void 0 ? _a : "")).length;
     const pairs = [];
     // Environment pairs (\begin{env} ... \end{env}) with proper nesting.
     const tokenRegex = /\\(begin|end)\{([A-Za-z*@]+)\}/g;
     const stack = [];
     let token = tokenRegex.exec(joined.text);
     while (token) {
-        const action = (_c = token[1]) !== null && _c !== void 0 ? _c : "";
-        const env = (_d = token[2]) !== null && _d !== void 0 ? _d : "";
+        const action = (_b = token[1]) !== null && _b !== void 0 ? _b : "";
+        const env = (_c = token[2]) !== null && _c !== void 0 ? _c : "";
         if (DISPLAY_MATH_ENVIRONMENTS.has(env)) {
             if (action === "begin") {
                 stack.push({ env, startOffset: token.index });
             }
             else {
                 for (let i = stack.length - 1; i >= 0; i -= 1) {
-                    if (((_a = stack[i]) === null || _a === void 0 ? void 0 : _a.env) === env) {
+                    if (((_d = stack[i]) === null || _d === void 0 ? void 0 : _d.env) === env) {
                         const begin = stack.splice(i, 1)[0];
                         pairs.push({
                             startOffset: begin.startOffset,

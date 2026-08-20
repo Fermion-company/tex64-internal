@@ -3,13 +3,12 @@ export const createSettingsAttentionOps = (runtime) => {
     const { settingsNavItems, settingsAccountAttention } = runtime.context.dom;
     const accountSettingsNavItem = (_a = settingsNavItems.find((button) => button.dataset.settingsTarget === "account")) !== null && _a !== void 0 ? _a : null;
     const hasUpdateAttention = () => {
-        var _a, _b;
-        var _c;
-        const phase = (_c = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _c !== void 0 ? _c : "idle";
+        var _a, _b, _c;
+        const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
         if (phase === "available" || phase === "downloaded" || phase === "error") {
             return true;
         }
-        if (phase === "idle" && ((_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.hasUpdate)) {
+        if (phase === "idle" && ((_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.hasUpdate)) {
             return true;
         }
         return false;

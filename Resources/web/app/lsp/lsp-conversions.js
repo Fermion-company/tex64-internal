@@ -41,8 +41,7 @@ const LSP_COMPLETION_KIND = {
     25: "TypeParameter",
 };
 export const toMonacoCompletionKind = (monaco, lspKind) => {
-    var _a;
-    var _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e;
     const kinds = (_b = (_a = monaco === null || monaco === void 0 ? void 0 : monaco.languages) === null || _a === void 0 ? void 0 : _a.CompletionItemKind) !== null && _b !== void 0 ? _b : {};
     const name = (_c = LSP_COMPLETION_KIND[lspKind !== null && lspKind !== void 0 ? lspKind : 1]) !== null && _c !== void 0 ? _c : "Text";
     return (_e = (_d = kinds[name]) !== null && _d !== void 0 ? _d : kinds.Text) !== null && _e !== void 0 ? _e : 0;
@@ -77,8 +76,7 @@ const LSP_SYMBOL_KIND = {
     26: "TypeParameter",
 };
 export const toMonacoSymbolKind = (monaco, lspKind) => {
-    var _a;
-    var _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e;
     const kinds = (_b = (_a = monaco === null || monaco === void 0 ? void 0 : monaco.languages) === null || _a === void 0 ? void 0 : _a.SymbolKind) !== null && _b !== void 0 ? _b : {};
     const name = (_c = LSP_SYMBOL_KIND[lspKind !== null && lspKind !== void 0 ? lspKind : 13]) !== null && _c !== void 0 ? _c : "Variable";
     return (_e = (_d = kinds[name]) !== null && _d !== void 0 ? _d : kinds.Variable) !== null && _e !== void 0 ? _e : 0;
@@ -132,8 +130,7 @@ export const toMarkdownString = (contents) => {
 // LSP CompletionItem -> monaco completion item. `defaultRange` is used when the
 // item carries no textEdit (monaco requires a range).
 export const toMonacoCompletionItem = (monaco, item, defaultRange) => {
-    var _a, _b;
-    var _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     const insertAsSnippet = (item === null || item === void 0 ? void 0 : item.insertTextFormat) === 2;
     const snippetRule = (_c = (_b = (_a = monaco === null || monaco === void 0 ? void 0 : monaco.languages) === null || _a === void 0 ? void 0 : _a.CompletionItemInsertTextRule) === null || _b === void 0 ? void 0 : _b.InsertAsSnippet) !== null && _c !== void 0 ? _c : 4;
     let insertText = (_e = (_d = item === null || item === void 0 ? void 0 : item.insertText) !== null && _d !== void 0 ? _d : item === null || item === void 0 ? void 0 : item.label) !== null && _e !== void 0 ? _e : "";
@@ -228,10 +225,13 @@ export const toMonacoFoldingRanges = (result) => {
     if (!Array.isArray(result)) {
         return [];
     }
-    return result.map((range) => { var _a, _b; return ({
-        start: ((_a = range.startLine) !== null && _a !== void 0 ? _a : 0) + 1,
-        end: ((_b = range.endLine) !== null && _b !== void 0 ? _b : 0) + 1,
-    }); });
+    return result.map((range) => {
+        var _a, _b;
+        return ({
+            start: ((_a = range.startLine) !== null && _a !== void 0 ? _a : 0) + 1,
+            end: ((_b = range.endLine) !== null && _b !== void 0 ? _b : 0) + 1,
+        });
+    });
 };
 // LSP DocumentHighlight[] -> monaco DocumentHighlight[]. Kinds differ by one
 // (LSP Text=1/Read=2/Write=3, monaco Text=0/Read=1/Write=2).
@@ -251,19 +251,22 @@ export const toMonacoInlayHints = (result) => {
     if (!Array.isArray(result)) {
         return [];
     }
-    return result.map((hint) => { var _a, _b; var _c, _d, _e; return ({
-        position: {
-            lineNumber: ((_c = (_a = hint.position) === null || _a === void 0 ? void 0 : _a.line) !== null && _c !== void 0 ? _c : 0) + 1,
-            column: ((_d = (_b = hint.position) === null || _b === void 0 ? void 0 : _b.character) !== null && _d !== void 0 ? _d : 0) + 1,
-        },
-        label: Array.isArray(hint.label)
-            ? hint.label.map((part) => { var _a; return (_a = part === null || part === void 0 ? void 0 : part.value) !== null && _a !== void 0 ? _a : ""; }).join("")
-            : (_e = hint.label) !== null && _e !== void 0 ? _e : "",
-        kind: hint.kind,
-        paddingLeft: hint.paddingLeft,
-        paddingRight: hint.paddingRight,
-        tooltip: typeof hint.tooltip === "string" ? hint.tooltip : undefined,
-    }); });
+    return result.map((hint) => {
+        var _a, _b, _c, _d, _e;
+        return ({
+            position: {
+                lineNumber: ((_b = (_a = hint.position) === null || _a === void 0 ? void 0 : _a.line) !== null && _b !== void 0 ? _b : 0) + 1,
+                column: ((_d = (_c = hint.position) === null || _c === void 0 ? void 0 : _c.character) !== null && _d !== void 0 ? _d : 0) + 1,
+            },
+            label: Array.isArray(hint.label)
+                ? hint.label.map((part) => { var _a; return (_a = part === null || part === void 0 ? void 0 : part.value) !== null && _a !== void 0 ? _a : ""; }).join("")
+                : (_e = hint.label) !== null && _e !== void 0 ? _e : "",
+            kind: hint.kind,
+            paddingLeft: hint.paddingLeft,
+            paddingRight: hint.paddingRight,
+            tooltip: typeof hint.tooltip === "string" ? hint.tooltip : undefined,
+        });
+    });
 };
 // LSP DocumentLink[] -> monaco ILink[]. `target` is a URI string monaco accepts.
 export const toMonacoLinks = (monaco, result) => {

@@ -3,8 +3,11 @@ import { formatBytes, openExternalUrl } from "./utils.js";
 const MICROSOFT_STORE_UPDATE_MODE = "microsoft-store";
 export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
     const { settingsUpdateCurrent, settingsUpdateLatest, settingsUpdateStatus, settingsUpdateProgress, settingsUpdateProgressFill, settingsUpdateCheck, settingsUpdateApply, settingsUpdateOpen, updateButton, } = runtime.context.dom;
-    const isMicrosoftStoreManaged = () => { var _a, _b; return ((_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.mode) === MICROSOFT_STORE_UPDATE_MODE ||
-        ((_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.channel) === MICROSOFT_STORE_UPDATE_MODE; };
+    const isMicrosoftStoreManaged = () => {
+        var _a, _b;
+        return ((_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.mode) === MICROSOFT_STORE_UPDATE_MODE ||
+            ((_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.channel) === MICROSOFT_STORE_UPDATE_MODE;
+    };
     const clearUpdateAutoCheckTimer = () => {
         if (runtime.state.updateAutoCheckTimer !== null) {
             window.clearTimeout(runtime.state.updateAutoCheckTimer);
@@ -12,11 +15,10 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         }
     };
     const resolveUpdateStatusText = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
-        var _j, _k, _l, _m, _o;
-        const phase = (_j = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _j !== void 0 ? _j : "idle";
-        const latest = (_l = (_k = (_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.latestVersion) !== null && _k !== void 0 ? _k : (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.latestVersion) !== null && _l !== void 0 ? _l : null;
-        if (((_d = runtime.state.platformUpdateStatus) === null || _d === void 0 ? void 0 : _d.message) && runtime.state.platformUpdateStatus.message.trim()) {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+        const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
+        const latest = (_f = (_d = (_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.latestVersion) !== null && _d !== void 0 ? _d : (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.latestVersion) !== null && _f !== void 0 ? _f : null;
+        if (((_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.message) && runtime.state.platformUpdateStatus.message.trim()) {
             return runtime.state.platformUpdateStatus.message.trim();
         }
         if (phase === "checking") {
@@ -29,8 +31,8 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             return latest ? `A new version of ${latest} is available.` : "A new version is available.";
         }
         if (phase === "downloading") {
-            const transferred = formatBytes((_m = (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.transferredBytes) !== null && _m !== void 0 ? _m : 0);
-            const total = formatBytes((_o = (_f = runtime.state.platformUpdateStatus) === null || _f === void 0 ? void 0 : _f.totalBytes) !== null && _o !== void 0 ? _o : 0);
+            const transferred = formatBytes((_j = (_h = runtime.state.platformUpdateStatus) === null || _h === void 0 ? void 0 : _h.transferredBytes) !== null && _j !== void 0 ? _j : 0);
+            const total = formatBytes((_l = (_k = runtime.state.platformUpdateStatus) === null || _k === void 0 ? void 0 : _k.totalBytes) !== null && _l !== void 0 ? _l : 0);
             return `Downloading updates (${transferred} / ${total}).`;
         }
         if (phase === "downloaded") {
@@ -40,16 +42,15 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
             return "I started the installer. Follow the on-screen instructions to update.";
         }
         if (phase === "error") {
-            const message = (_h = (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.error) === null || _h === void 0 ? void 0 : _h.message;
+            const message = (_o = (_m = runtime.state.platformUpdateStatus) === null || _m === void 0 ? void 0 : _m.error) === null || _o === void 0 ? void 0 : _o.message;
             return message && message.trim() ? message.trim() : "Update processing failed.";
         }
         return "Waiting for update check.";
     };
     const updatePlatformUpdateUi = () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
-        var _l, _m, _o, _p, _q, _r, _s;
-        const currentVersion = (_m = (_l = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.currentVersion) !== null && _l !== void 0 ? _l : (_b = runtime.state.platformUpdateStatus) === null || _b === void 0 ? void 0 : _b.currentVersion) !== null && _m !== void 0 ? _m : "-";
-        const latestVersion = (_p = (_o = (_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.latestVersion) !== null && _o !== void 0 ? _o : (_d = runtime.state.platformUpdateStatus) === null || _d === void 0 ? void 0 : _d.latestVersion) !== null && _p !== void 0 ? _p : "-";
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
+        const currentVersion = (_d = (_b = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.currentVersion) !== null && _b !== void 0 ? _b : (_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.currentVersion) !== null && _d !== void 0 ? _d : "-";
+        const latestVersion = (_h = (_f = (_e = runtime.state.platformUpdate) === null || _e === void 0 ? void 0 : _e.latestVersion) !== null && _f !== void 0 ? _f : (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.latestVersion) !== null && _h !== void 0 ? _h : "-";
         if (settingsUpdateCurrent instanceof HTMLElement) {
             settingsUpdateCurrent.textContent = currentVersion;
         }
@@ -59,16 +60,16 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         const statusText = resolveUpdateStatusText();
         if (settingsUpdateStatus instanceof HTMLElement) {
             settingsUpdateStatus.textContent = statusText;
-            const phase = (_q = (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.phase) !== null && _q !== void 0 ? _q : "idle";
+            const phase = (_k = (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.phase) !== null && _k !== void 0 ? _k : "idle";
             settingsUpdateStatus.classList.toggle("is-error", phase === "error");
             settingsUpdateStatus.classList.toggle("is-success", phase === "downloaded" || isMicrosoftStoreManaged());
         }
-        const progress = typeof ((_f = runtime.state.platformUpdateStatus) === null || _f === void 0 ? void 0 : _f.progressPercent) === "number" &&
+        const progress = typeof ((_l = runtime.state.platformUpdateStatus) === null || _l === void 0 ? void 0 : _l.progressPercent) === "number" &&
             Number.isFinite(runtime.state.platformUpdateStatus.progressPercent)
             ? Math.max(0, Math.min(100, runtime.state.platformUpdateStatus.progressPercent))
             : 0;
         const storeManaged = isMicrosoftStoreManaged();
-        const showProgress = !storeManaged && ((_r = (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.phase) !== null && _r !== void 0 ? _r : "") === "downloading";
+        const showProgress = !storeManaged && ((_o = (_m = runtime.state.platformUpdateStatus) === null || _m === void 0 ? void 0 : _m.phase) !== null && _o !== void 0 ? _o : "") === "downloading";
         if (settingsUpdateProgress instanceof HTMLElement) {
             settingsUpdateProgress.classList.toggle("is-hidden", !showProgress);
             settingsUpdateProgress.setAttribute("aria-hidden", showProgress ? "false" : "true");
@@ -76,9 +77,9 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         if (settingsUpdateProgressFill instanceof HTMLElement) {
             settingsUpdateProgressFill.style.width = `${progress}%`;
         }
-        const phase = (_s = (_h = runtime.state.platformUpdateStatus) === null || _h === void 0 ? void 0 : _h.phase) !== null && _s !== void 0 ? _s : "idle";
-        const hasUpdate = Boolean((_j = runtime.state.platformUpdate) === null || _j === void 0 ? void 0 : _j.hasUpdate);
-        const hasDownloadedInstaller = Boolean((_k = runtime.state.platformUpdateStatus) === null || _k === void 0 ? void 0 : _k.downloadedPath);
+        const phase = (_q = (_p = runtime.state.platformUpdateStatus) === null || _p === void 0 ? void 0 : _p.phase) !== null && _q !== void 0 ? _q : "idle";
+        const hasUpdate = Boolean((_r = runtime.state.platformUpdate) === null || _r === void 0 ? void 0 : _r.hasUpdate);
+        const hasDownloadedInstaller = Boolean((_s = runtime.state.platformUpdateStatus) === null || _s === void 0 ? void 0 : _s.downloadedPath);
         if (settingsUpdateCheck instanceof HTMLButtonElement) {
             settingsUpdateCheck.classList.toggle("is-hidden", storeManaged);
             settingsUpdateCheck.setAttribute("aria-hidden", storeManaged ? "true" : "false");
@@ -112,28 +113,27 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         attentionOps.syncUpdateAttentionUi();
     };
     const handlePlatformUpdate = (payload) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
-        var _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
-        runtime.state.platformUpdate = (_l = payload === null || payload === void 0 ? void 0 : payload.update) !== null && _l !== void 0 ? _l : null;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
+        runtime.state.platformUpdate = (_a = payload === null || payload === void 0 ? void 0 : payload.update) !== null && _a !== void 0 ? _a : null;
         if (runtime.state.platformUpdateStatus) {
             runtime.state.platformUpdateStatus = {
                 ...runtime.state.platformUpdateStatus,
-                latestVersion: (_o = (_m = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.latestVersion) !== null && _m !== void 0 ? _m : runtime.state.platformUpdateStatus.latestVersion) !== null && _o !== void 0 ? _o : null,
-                currentVersion: (_q = (_p = (_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.currentVersion) !== null && _p !== void 0 ? _p : runtime.state.platformUpdateStatus.currentVersion) !== null && _q !== void 0 ? _q : null,
+                latestVersion: (_d = (_c = (_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.latestVersion) !== null && _c !== void 0 ? _c : runtime.state.platformUpdateStatus.latestVersion) !== null && _d !== void 0 ? _d : null,
+                currentVersion: (_g = (_f = (_e = runtime.state.platformUpdate) === null || _e === void 0 ? void 0 : _e.currentVersion) !== null && _f !== void 0 ? _f : runtime.state.platformUpdateStatus.currentVersion) !== null && _g !== void 0 ? _g : null,
             };
         }
-        if ((_c = payload === null || payload === void 0 ? void 0 : payload.error) === null || _c === void 0 ? void 0 : _c.message) {
+        if ((_h = payload === null || payload === void 0 ? void 0 : payload.error) === null || _h === void 0 ? void 0 : _h.message) {
             runtime.state.platformUpdateStatus = {
                 phase: "error",
-                mode: (_r = (_d = runtime.state.platformUpdateStatus) === null || _d === void 0 ? void 0 : _d.mode) !== null && _r !== void 0 ? _r : null,
+                mode: (_k = (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.mode) !== null && _k !== void 0 ? _k : null,
                 message: payload.error.message,
                 progressPercent: null,
                 transferredBytes: null,
                 totalBytes: null,
-                downloadedPath: (_s = (_e = runtime.state.platformUpdateStatus) === null || _e === void 0 ? void 0 : _e.downloadedPath) !== null && _s !== void 0 ? _s : null,
-                currentVersion: (_u = (_t = (_f = runtime.state.platformUpdate) === null || _f === void 0 ? void 0 : _f.currentVersion) !== null && _t !== void 0 ? _t : (_g = runtime.state.platformUpdateStatus) === null || _g === void 0 ? void 0 : _g.currentVersion) !== null && _u !== void 0 ? _u : null,
-                latestVersion: (_w = (_v = (_h = runtime.state.platformUpdate) === null || _h === void 0 ? void 0 : _h.latestVersion) !== null && _v !== void 0 ? _v : (_j = runtime.state.platformUpdateStatus) === null || _j === void 0 ? void 0 : _j.latestVersion) !== null && _w !== void 0 ? _w : null,
-                checkedAt: (_x = (_k = runtime.state.platformUpdate) === null || _k === void 0 ? void 0 : _k.checkedAt) !== null && _x !== void 0 ? _x : Date.now(),
+                downloadedPath: (_m = (_l = runtime.state.platformUpdateStatus) === null || _l === void 0 ? void 0 : _l.downloadedPath) !== null && _m !== void 0 ? _m : null,
+                currentVersion: (_r = (_p = (_o = runtime.state.platformUpdate) === null || _o === void 0 ? void 0 : _o.currentVersion) !== null && _p !== void 0 ? _p : (_q = runtime.state.platformUpdateStatus) === null || _q === void 0 ? void 0 : _q.currentVersion) !== null && _r !== void 0 ? _r : null,
+                latestVersion: (_v = (_t = (_s = runtime.state.platformUpdate) === null || _s === void 0 ? void 0 : _s.latestVersion) !== null && _t !== void 0 ? _t : (_u = runtime.state.platformUpdateStatus) === null || _u === void 0 ? void 0 : _u.latestVersion) !== null && _v !== void 0 ? _v : null,
+                checkedAt: (_x = (_w = runtime.state.platformUpdate) === null || _w === void 0 ? void 0 : _w.checkedAt) !== null && _x !== void 0 ? _x : Date.now(),
                 updatedAt: Date.now(),
                 error: {
                     code: (_y = payload.error.code) !== null && _y !== void 0 ? _y : null,
@@ -254,13 +254,12 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
         });
     }
     const applyUpdate = () => {
-        var _a, _b;
-        var _c;
+        var _a, _b, _c;
         if (isMicrosoftStoreManaged()) {
             return;
         }
-        const phase = (_c = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _c !== void 0 ? _c : "idle";
-        const hasDownloadedInstaller = Boolean((_b = runtime.state.platformUpdateStatus) === null || _b === void 0 ? void 0 : _b.downloadedPath);
+        const phase = (_b = (_a = runtime.state.platformUpdateStatus) === null || _a === void 0 ? void 0 : _a.phase) !== null && _b !== void 0 ? _b : "idle";
+        const hasDownloadedInstaller = Boolean((_c = runtime.state.platformUpdateStatus) === null || _c === void 0 ? void 0 : _c.downloadedPath);
         if (phase === "downloaded" || hasDownloadedInstaller) {
             runtime.deps.postToNative({ type: "update:install", openFallbackOnError: true }, true);
             return;
@@ -284,12 +283,11 @@ export const createSettingsPlatformUpdateOps = (runtime, attentionOps) => {
     }
     if (settingsUpdateOpen instanceof HTMLButtonElement) {
         settingsUpdateOpen.addEventListener("click", () => {
-            var _a, _b;
-            var _c, _d;
+            var _a, _b, _c, _d;
             if (isMicrosoftStoreManaged()) {
                 return;
             }
-            const fallbackUrl = (_d = (_c = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.artifactUrl) !== null && _c !== void 0 ? _c : (_b = runtime.state.platformUpdate) === null || _b === void 0 ? void 0 : _b.notesUrl) !== null && _d !== void 0 ? _d : TEX64_LINKS.download;
+            const fallbackUrl = (_d = (_b = (_a = runtime.state.platformUpdate) === null || _a === void 0 ? void 0 : _a.artifactUrl) !== null && _b !== void 0 ? _b : (_c = runtime.state.platformUpdate) === null || _c === void 0 ? void 0 : _c.notesUrl) !== null && _d !== void 0 ? _d : TEX64_LINKS.download;
             openExternalUrl(runtime, fallbackUrl);
         });
     }

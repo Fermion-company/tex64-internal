@@ -9,8 +9,8 @@ const MATH_INSERT_MODES = [
     { value: "gather", label: "gather*", shortLabel: "GTH" },
     { value: "none", label: "Not enclosed", shortLabel: "RAW" },
 ];
-export const getFormatLabel = (value) => { var _a; var _b; return (_b = (_a = MATH_INSERT_MODES.find((entry) => entry.value === value)) === null || _a === void 0 ? void 0 : _a.label) !== null && _b !== void 0 ? _b : value; };
-export const getFormatShortLabel = (value) => { var _a; var _b; return (_b = (_a = MATH_INSERT_MODES.find((entry) => entry.value === value)) === null || _a === void 0 ? void 0 : _a.shortLabel) !== null && _b !== void 0 ? _b : value; };
+export const getFormatLabel = (value) => { var _a, _b; return (_b = (_a = MATH_INSERT_MODES.find((entry) => entry.value === value)) === null || _a === void 0 ? void 0 : _a.label) !== null && _b !== void 0 ? _b : value; };
+export const getFormatShortLabel = (value) => { var _a, _b; return (_b = (_a = MATH_INSERT_MODES.find((entry) => entry.value === value)) === null || _a === void 0 ? void 0 : _a.shortLabel) !== null && _b !== void 0 ? _b : value; };
 export const loadMathInsertSettings = (defaults) => {
     var _a;
     if (typeof localStorage === "undefined") {
