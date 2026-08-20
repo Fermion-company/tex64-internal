@@ -158,9 +158,19 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           pdfWindowManager.show(result.pdfPath);
         }
         sendBuildState("success", result.summary);
-        // Keep writing flow calm: clear issues and build log on each successful build.
-        sendIssues(0, result.summary, "success", []);
-        sendBuildLog(null);
+        // A build can succeed and still have plenty to say — undefined
+        // references, missing images, overfull lines. Those used to be thrown
+        // away along with the log, which left the panel empty on exactly the
+        // runs where a reader wants to look something up. Keep them; the panel
+        // renders a non-fatal run differently from a stopped one.
+        const successIssues = result.issues ?? [];
+        sendIssues(
+          successIssues.length,
+          result.summary,
+          successIssues.length > 0 ? "info" : "success",
+          successIssues
+        );
+        sendBuildLog(result.log ?? null);
         return;
       }
       sendBuildState("failed", "PDF not found.");

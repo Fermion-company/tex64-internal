@@ -1,4 +1,5 @@
 import { uiText } from "./i18n.js";
+import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
 export const initBuildOpsUi = (context, deps) => {
     const { buildButton, formatButton, synctexButton, issuesLog, issuesLogContent, } = context.dom;
     let formatInFlight = false;
@@ -61,13 +62,39 @@ export const initBuildOpsUi = (context, deps) => {
     };
     const handleBuildLog = (log) => {
         currentBuildLog = log;
+        let firstMarked = null;
+        let markedCount = 0;
         if (issuesLogContent instanceof HTMLElement) {
-            issuesLogContent.textContent = log !== null && log !== void 0 ? log : "";
+            if (log) {
+                firstMarked = renderBuildLog(issuesLogContent, log);
+                markedCount = countMarkedLines(segmentBuildLog(log));
+            }
+            else {
+                issuesLogContent.replaceChildren();
+            }
         }
         if (issuesLog instanceof HTMLElement) {
             issuesLog.classList.toggle("is-hidden", !log);
             if (!log) {
                 issuesLog.removeAttribute("open");
+            }
+            const summary = issuesLog.querySelector(".issues-log-summary");
+            if (summary instanceof HTMLElement) {
+                summary.dataset.noI18n = "";
+                summary.textContent =
+                    markedCount > 0
+                        ? uiText(`Detailed log (${markedCount} marked)`, `詳細ログ（該当 ${markedCount} 件）`)
+                        : uiText("Detailed log", "詳細ログ");
+            }
+            // Thousands of lines of package banners are useless unless you land on
+            // the part that matters, so opening the log jumps to the first mark.
+            if (firstMarked) {
+                const target = firstMarked;
+                issuesLog.addEventListener("toggle", () => {
+                    if (issuesLog.hasAttribute("open")) {
+                        target.scrollIntoView({ block: "center" });
+                    }
+                }, { once: true });
             }
         }
     };

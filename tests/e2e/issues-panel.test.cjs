@@ -81,11 +81,11 @@ const launchWithBrokenDocument = async () => {
   });
   assert.ok(opened, "the broken workspace did not open with a main.tex in the tree");
   await page.waitForTimeout(2500);
-  return { electronApp, page };
+  return { electronApp, page, workspace };
 };
 
 test("Issues panel: a build error reads without the log", { timeout: 300_000 }, async (t) => {
-  const { electronApp, page } = await launchWithBrokenDocument();
+  const { electronApp, page, workspace } = await launchWithBrokenDocument();
   t.after(() => closeElectronApp(electronApp));
 
   await t.test("building the broken document fills the Issues panel", async () => {
@@ -219,6 +219,30 @@ test("Issues panel: a build error reads without the log", { timeout: 300_000 }, 
     assert.notDeepEqual(tints.error.iconPaths, tints.warning.iconPaths, "both severities draw the same shape");
   });
 
+  await t.test("the detailed log holds the compiler transcript, with the lines that matter marked", async () => {
+    const log = await page.evaluate(() => {
+      const details = document.getElementById("issues-log");
+      const content = document.getElementById("issues-log-content");
+      return {
+        hidden: details.classList.contains("is-hidden"),
+        summary: (details.querySelector(".issues-log-summary")?.textContent || "").trim(),
+        text: content.textContent || "",
+        errorMarks: content.querySelectorAll(".build-log-line.is-error").length,
+        contextMarks: content.querySelectorAll(".build-log-line.is-context").length,
+      };
+    });
+    assert.equal(log.hidden, false, "the detailed log is hidden after a failed build");
+    assert.ok(log.text.trim().length > 0, "the detailed log is empty");
+    // The .log file is the compiler's transcript; latexmk's console output is
+    // its own narration. Only one of them opens with the engine banner and
+    // carries no "Latexmk:" lines.
+    assert.match(log.text, /This is Lua|This is pdfTeX|LaTeX2e </, "this is not a TeX transcript");
+    assert.ok(!/^Latexmk:/m.test(log.text), "the panel is still showing latexmk's console output");
+    assert.ok(log.errorMarks > 0, "nothing in the transcript is marked as the error");
+    assert.ok(log.contextMarks > 0, "TeX's l.NN context line is not marked");
+    assert.match(log.summary, /\d/, `the summary does not say how many lines are marked: ${log.summary}`);
+  });
+
   await t.test("clicking a card opens the error in the split pane", async () => {
     const target = await page.evaluate(() => {
       const card = Array.from(document.querySelectorAll("#issues-list .issue-item"))
@@ -241,5 +265,42 @@ test("Issues panel: a build error reads without the log", { timeout: 300_000 }, 
     assert.equal(state.split, "true", `clicking the issue did not turn on the split view (${JSON.stringify(state)})`);
     assert.ok(state.secondaryVisible, "the split pane did not lay out");
     assert.ok(state.highlighted > 0, "the error line was not highlighted in the editor");
+  });
+
+  await t.test("a build that succeeds with warnings still reports them", async () => {
+    fs.writeFileSync(
+      path.join(workspace, "main.tex"),
+      `\\documentclass{article}
+\\begin{document}
+Hello, see \\ref{sec:nowhere}.
+\\end{document}
+`,
+      "utf8"
+    );
+    await page.waitForTimeout(800);
+    await page.click("#build-button");
+    await page.waitForTimeout(20_000);
+    const state = await page.evaluate(() => ({
+      severities: Array.from(document.querySelectorAll("#issues-list .issue-item")).map(
+        (card) => card.dataset.severity
+      ),
+      kinds: Array.from(document.querySelectorAll("#issues-list .issue-kind")).map((n) =>
+        (n.textContent || "").trim()
+      ),
+      logHidden: document.getElementById("issues-log").classList.contains("is-hidden"),
+    }));
+    assert.ok(
+      state.severities.length > 0,
+      "a successful build threw its warnings away, so the panel is empty"
+    );
+    assert.ok(
+      state.severities.every((severity) => severity === "warning"),
+      `a build that produced a PDF reported something as an error: ${JSON.stringify(state)}`
+    );
+    assert.ok(
+      state.kinds.some((kind) => /Cross-reference|相互参照/.test(kind)),
+      `the undefined reference is missing: ${JSON.stringify(state.kinds)}`
+    );
+    assert.equal(state.logHidden, false, "the log was cleared on a successful build");
   });
 });
