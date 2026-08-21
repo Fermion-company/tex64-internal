@@ -111,6 +111,9 @@ export const initBridgeHandlers = (deps) => {
             case "synctex:reverseResult":
                 deps.build.handleSynctexReverseResult(message.payload);
                 break;
+            case "live-preview:edit":
+                deps.editorSession.applyLivePreviewEdit(message.payload);
+                break;
             case "renameResult":
                 (_o = bridgeWindow.tex64RenameResult) === null || _o === void 0 ? void 0 : _o.call(bridgeWindow, message.payload);
                 break;

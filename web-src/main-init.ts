@@ -22,7 +22,7 @@ import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
-import { createViewer } from "./app/viewer.js";
+import { createViewer, type LivePreviewEditRequest } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
 import { initBlockEditSession } from "./app/blocks/edit-session.js";
 import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
@@ -94,6 +94,8 @@ export const initMain = () => {
   } = dom;
 
   let postToNative: PostToNative = () => false;
+  let requestLiveSource = (_payload: { file: string; line: number; column: number }) => {};
+  let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
   let isReverseSynctexEnabled = () => true;
   let blockAutoDetect: ReturnType<typeof initBlockAutoDetection> | null = null;
   let blockEditSession: ReturnType<typeof initBlockEditSession> | null = null;
@@ -131,6 +133,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -152,6 +156,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -176,6 +182,9 @@ export const initMain = () => {
     bridgeWindow,
     updateIssues: updateIssuesProxy,
   });
+  requestLiveSource = (payload) => {
+    postToNative({ type: "live-preview:source", ...payload }, true);
+  };
   const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
     postToNative(payload, silent)
   );
@@ -382,6 +391,36 @@ export const initMain = () => {
         proModeApi?.tryShowViewerFile(path, kind, data, mimeType) ?? false,
     },
   });
+  requestLiveEdit = (payload) => {
+    const workspaceRoot = getWorkspaceRootKey()?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
+    const sourcePath = payload.file.replace(/\\/g, "/").replace(/^\.\//, "");
+    const absolute = sourcePath.startsWith("/") || /^[A-Za-z]:\//.test(sourcePath);
+    const candidate = absolute && workspaceRoot && sourcePath.startsWith(`${workspaceRoot}/`)
+      ? sourcePath.slice(workspaceRoot.length + 1)
+      : absolute
+        ? ""
+        : sourcePath;
+    const parts = candidate.split("/").filter((part) => part && part !== ".");
+    const path = parts.includes("..") || parts.some((part) => part.includes("\0"))
+      ? ""
+      : parts.join("/");
+    if (!path) {
+      const message = uiText(
+        "The PDF edit is outside this workspace.",
+        "PDF編集対象がワークスペース外です。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+      return;
+    }
+    const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
+    if (!ok) {
+      const message = uiText(
+        "The source changed. Click the text again to edit it.",
+        "ソースが更新されています。文字をもう一度クリックしてください。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+    }
+  };
   proModeApi = initProModeUi({
     setSplitViewEnabled: editorSession.setSplitViewEnabled,
     getSplitViewEnabled: editorSession.getSplitViewEnabled,
@@ -421,6 +460,14 @@ export const initMain = () => {
     getActiveGroup: editorSession.getActiveGroup,
     getEditorGroups: editorSession.getEditorGroups,
     getAppMode: () => appModeApi.getMode(),
+    getPdfViewerMode: settingsUi.getPdfViewerMode,
+    getWorkspaceRoot: getWorkspaceRootKey,
+    getRootFile: getRootFilePath,
+    getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
+      maxFiles: Number.POSITIVE_INFINITY,
+      maxChars: Number.POSITIVE_INFINITY,
+      onlyDirty: true,
+    }).snapshots,
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
@@ -1095,6 +1142,7 @@ export const initMain = () => {
       handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
       applyContentToOpenFile: (path, content, options) =>
         editorSession.applyContentToOpenFile(path, content, options),
+      applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
     },
   });
 

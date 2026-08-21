@@ -430,6 +430,67 @@ const sendToRenderer = (type, payload) => {
   }
 };
 
+const handleLivePreviewSource = (payload) => {
+  const rootPath = workspace.getRootPath();
+  const sourceFile = typeof payload?.file === "string" ? payload.file.replace(/\0/g, "") : "";
+  const line = Number(payload?.line);
+  const column = Number(payload?.column);
+  if (!rootPath || !sourceFile || !Number.isFinite(line) || line < 1) {
+    return;
+  }
+  const root = path.resolve(rootPath);
+  const absolute = path.isAbsolute(sourceFile)
+    ? path.resolve(sourceFile)
+    : path.resolve(root, sourceFile);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return;
+  }
+  sendToRenderer("synctex:reverseResult", {
+    ok: true,
+    path: relative.split(path.sep).join("/"),
+    line: Math.floor(line),
+    column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+    source: "live-preview",
+  });
+};
+
+const handleLivePreviewEdit = (payload) => {
+  const rootPath = workspace.getRootPath();
+  const sourceFile = typeof payload?.file === "string" ? payload.file.replace(/\0/g, "") : "";
+  if (!rootPath || !sourceFile || typeof payload?.sessionId !== "string") return;
+  const root = path.resolve(rootPath);
+  const absolute = path.isAbsolute(sourceFile)
+    ? path.resolve(sourceFile)
+    : path.resolve(root, sourceFile);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return;
+  const positionValid = (value) =>
+    value && Number.isFinite(Number(value.line)) && Number(value.line) >= 1 &&
+    Number.isFinite(Number(value.column)) && Number(value.column) >= 1;
+  if (!positionValid(payload.start) || !positionValid(payload.end)) return;
+  sendToRenderer("live-preview:edit", {
+    sessionId: payload.sessionId,
+    regionId: typeof payload.regionId === "string" ? payload.regionId : undefined,
+    kind: payload.kind === "math" ? "math" : "text",
+    path: relative.split(path.sep).join("/"),
+    start: {
+      line: Math.floor(Number(payload.start.line)),
+      column: Math.floor(Number(payload.start.column)),
+    },
+    end: {
+      line: Math.floor(Number(payload.end.line)),
+      column: Math.floor(Number(payload.end.column)),
+    },
+    baseValue: typeof payload.baseValue === "string" ? payload.baseValue : "",
+    value: typeof payload.value === "string" ? payload.value : undefined,
+    replacement: typeof payload.replacement === "string" ? payload.replacement : "",
+    cancel: payload.cancel === true,
+    finish: payload.finish === true,
+    sourceRev: Number.isFinite(Number(payload.sourceRev)) ? Number(payload.sourceRev) : undefined,
+  });
+};
+
 const installApplicationMenu = () => {
   const template = createApplicationMenuTemplate({
     appName: app.name || "TeX64",
@@ -1473,6 +1534,10 @@ ipcMain.on("tex64", (_event, message) => {
     buildHandlers.handleSynctexReverse(message);
     return;
   }
+  if (type === "live-preview:source") {
+    handleLivePreviewSource(message);
+    return;
+  }
   if (type === "build") {
     // targetFile (AI mode) builds exactly that document; mainFile (Code mode)
     // keeps deferring to the workspace's designated root.
@@ -1781,7 +1846,7 @@ ipcMain.on("tex64", (_event, message) => {
   }
 });
 
-ipcMain.on("tex64:pdf", (_event, message) => {
+ipcMain.on("tex64:pdf", (event, message) => {
   if (!message || typeof message !== "object") {
     return;
   }
@@ -1793,6 +1858,14 @@ ipcMain.on("tex64:pdf", (_event, message) => {
     pdfWindowManager.markReady();
     return;
   }
+  if (type === "live-surface-ready") {
+    pdfWindowManager.markLiveReady(message.payload ?? {}, event.sender);
+    return;
+  }
+  if (type === "live-error-surface-ready") {
+    pdfWindowManager.markLiveErrorReady(message.payload ?? {}, event.sender);
+    return;
+  }
   if (type === "reverse") {
     const payload = message.payload ?? {};
     buildHandlers.handleSynctexReverse({
@@ -1801,5 +1874,13 @@ ipcMain.on("tex64:pdf", (_event, message) => {
       y: payload.y,
       pdfPath: payload.path,
     });
+    return;
+  }
+  if (type === "live-source") {
+    handleLivePreviewSource(message.payload);
+    return;
+  }
+  if (type === "live-edit") {
+    handleLivePreviewEdit(message.payload);
   }
 });

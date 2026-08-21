@@ -14,6 +14,7 @@ import {
   calculateCaptureOutputSize,
   viewportPointToDocumentPoint,
 } from "./app/pdf-capture-math.js";
+import { normalizeLiveToolbarSnapshot } from "./pdf-live-toolbar-state.mjs";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
 // so it reads the stored UI locale itself. English is the source language and
@@ -65,6 +66,11 @@ const UI_STRINGS = {
     de: "Bereit",
     es: "Listo",
   },
+  live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
+  liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
+  liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
+  liveError: { en: "TeX error · last good preview", ja: "TeXエラー・直前の表示を保持", zh: "TeX 错误 · 保留上次预览", ko: "TeX 오류 · 이전 미리보기 유지", fr: "Erreur TeX · dernier aperçu conservé", de: "TeX-Fehler · letzte Vorschau bleibt", es: "Error de TeX · se conserva la vista anterior" },
+  liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
   loadFailed: {
     en: "Failed to load the PDF.",
     ja: "読み込みに失敗しました。",
@@ -308,6 +314,10 @@ const initPdfViewer = () => {
   // document — setDocument would then reset us to the top and lose the jump.
   // Defer it instead and let pagesinit apply it to the freshly loaded pages.
   let reloadInFlight = false;
+  let liveSurfaceOwned = false;
+  let deferredStaticOpen = null;
+  let deferredStaticFlushToken = 0;
+  let staticLoadSequence = 0;
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
@@ -1147,6 +1157,7 @@ const initPdfViewer = () => {
   };
 
   const loadDocument = async (url, path) => {
+    const loadSequence = ++staticLoadSequence;
     // Re-opening the SAME PDF (a rebuild, or the reload button) should keep the
     // current scroll position instead of jumping back to the top — the user is
     // often zoomed into one spot and rebuilding repeatedly. Zoom level is
@@ -1166,7 +1177,19 @@ const initPdfViewer = () => {
     setStatus(uiString("loading"));
     try {
       const task = pdfjs.getDocument(createPdfDocumentOptions(url));
-      state.doc = await task.promise;
+      const nextDocument = await task.promise;
+      // Live may have taken ownership while this fetch was in flight. Never
+      // let a late pdf.js setDocument erase the stable fallback underneath
+      // the iframe; retain only the newest request for after Live is off.
+      if (loadSequence !== staticLoadSequence || liveSurfaceOwned) {
+        if (loadSequence === staticLoadSequence && liveSurfaceOwned) {
+          deferredStaticOpen = { url, path };
+          reloadInFlight = false;
+        }
+        try { await nextDocument?.destroy?.(); } catch { /* superseded document */ }
+        return;
+      }
+      state.doc = nextDocument;
       state.pageCount = state.doc.numPages;
       updatePageCount();
       if (titleEl) {
@@ -1180,6 +1203,12 @@ const initPdfViewer = () => {
       }
       setStatus(uiString("ready"));
     } catch (error) {
+      if (loadSequence !== staticLoadSequence) return;
+      if (liveSurfaceOwned) {
+        deferredStaticOpen = { url, path };
+        reloadInFlight = false;
+        return;
+      }
       reloadInFlight = false;
       setStatus(uiString("loadFailed"));
       // eslint-disable-next-line no-console
@@ -1187,10 +1216,24 @@ const initPdfViewer = () => {
     }
   };
 
+  const requestStaticDocument = (url, path) => {
+    if (liveSurfaceOwned) {
+      deferredStaticOpen = { url, path };
+      return;
+    }
+    deferredStaticOpen = null;
+    void loadDocument(url, path);
+  };
+
   const runSearch = (findPrevious = false) => {
-    if (!state.doc || !searchInput) return;
+    if (!searchInput) return;
     const query = searchInput.value.trim();
     if (!query) return;
+    if (isLive()) {
+      postLive("search", { query, findPrevious });
+      return;
+    }
+    if (!state.doc) return;
     eventBus.dispatch("find", {
       query,
       caseSensitive: false,
@@ -1536,7 +1579,7 @@ const initPdfViewer = () => {
       }
       const baseUrl = state.url.split("?")[0];
       const nextUrl = `${baseUrl}?t=${Date.now()}`;
-      loadDocument(nextUrl, state.path);
+      requestStaticDocument(nextUrl, state.path);
     });
   }
 
@@ -1629,45 +1672,324 @@ const initPdfViewer = () => {
   // only the page canvas; the toolbar stays and drives the frame over
   // postMessage (the frame is cross-origin, http://127.0.0.1).
   const liveFrame = document.getElementById("pdf-live-frame");
+  let liveToolbar = normalizeLiveToolbarSnapshot();
+  let liveActivationSequence = 0;
+  let liveRevealSequence = 0;
+  let liveErrorSurfaceSequence = 0;
+  let pendingLiveErrorSurface = null;
+  let liveActivation = null;
   const isLive = () => document.body.classList.contains("is-live");
+  const isLivePending = () => document.body.classList.contains("is-live-pending");
+  const hasLiveSession = () => isLive() || isLivePending();
   const postLive = (action, extra) => {
     const target = liveFrame && liveFrame.contentWindow;
-    if (target) target.postMessage({ source: "tdom-host", action, ...(extra || {}) }, "*");
+    if (target) target.postMessage({
+      source: "tdom-host",
+      activationId: liveActivation?.id,
+      action,
+      ...(extra || {}),
+    }, "*");
+  };
+  const renderLiveToolbar = () => {
+    if (pageCountEl) pageCountEl.textContent = `/ ${liveToolbar.pageCount}`;
+    if (pageInputForLive) {
+      pageInputForLive.max = String(liveToolbar.pageCount || 1);
+      if (document.activeElement !== pageInputForLive) {
+        pageInputForLive.value = String(liveToolbar.page);
+      }
+    }
+    if (zoomLabel) zoomLabel.textContent = `${Math.round(liveToolbar.zoom * 100)}%`;
+  };
+  const renderLiveStatus = (data) => {
+    const search = data?.search;
+    if (search?.query) {
+      setStatus(`${Number(search.current) || 0} / ${Number(search.total) || 0}`);
+      if (statusEl) statusEl.title = search.query;
+      return;
+    }
+    const status = data?.status;
+    if (!status) return;
+    let label = uiString("live");
+    let detail = "";
+    if (status.up === false) label = uiString("liveUnavailable");
+    else if (status.busy || (status.mode === "opaque" && status.canonical?.inFlight)) {
+      label = uiString("liveUpdating");
+    }
+    else if (status.canonical?.error && status.canonical.errorRev >= status.srcRev) {
+      label = uiString("liveError");
+      detail = status.canonical.error;
+    } else if (status.mode === "opaque") label = uiString("liveFullCompile");
+    setStatus(label);
+    if (statusEl) statusEl.title = detail;
+  };
+  const restoreStaticToolbar = () => {
+    state.pageCount = state.doc?.numPages ?? 0;
+    updatePageCount();
+    if (pageInput) pageInput.value = String(pdfViewer.currentPageNumber || 1);
+    updateZoomLabel(state.scale || pdfViewer.currentScale || 1);
+  };
+  const cancelLiveReveal = () => {
+    liveRevealSequence += 1;
+    if (liveActivation) liveActivation.reveal = null;
+  };
+  const cancelLiveErrorSurface = () => {
+    liveErrorSurfaceSequence += 1;
+    pendingLiveErrorSurface = null;
+  };
+  const deactivateLive = () => {
+    // Advancing the sequence also invalidates a delayed ready message from a
+    // frame that is about to be navigated to about:blank.
+    liveActivationSequence += 1;
+    cancelLiveReveal();
+    liveActivation = null;
+    liveSurfaceOwned = false;
+    document.body.classList.remove("is-live", "is-live-pending");
+    hideContextMenu();
+    if (liveFrame) {
+      liveFrame.setAttribute("aria-hidden", "true");
+      delete liveFrame.dataset.livePhase;
+      liveFrame.src = "about:blank";
+    }
+    liveToolbar = normalizeLiveToolbarSnapshot();
+    restoreStaticToolbar();
+    setStatus(uiString("ready"));
+    const pendingStatic = deferredStaticOpen;
+    if (pendingStatic) {
+      deferredStaticOpen = null;
+      const flushToken = ++deferredStaticFlushToken;
+      // Give the retained static PDF one committed frame after removing the
+      // live cover. A new activation before then keeps the request deferred.
+      requestAnimationFrame(() => {
+        if (flushToken !== deferredStaticFlushToken) return;
+        if (liveSurfaceOwned) {
+          deferredStaticOpen = pendingStatic;
+          return;
+        }
+        requestStaticDocument(pendingStatic.url, pendingStatic.path);
+      });
+    }
+  };
+  const activateLive = (data) => {
+    if (!liveFrame || !liveActivation || !isLivePending()) return false;
+    if (data?.ready !== true || data.activationId !== liveActivation.id) {
+      if (liveActivation.reveal) cancelLiveReveal();
+      return false;
+    }
+    const documentEpoch = Number(data.documentEpoch);
+    if (!Number.isInteger(documentEpoch)) return false;
+    if (Number.isInteger(liveActivation.pendingDocumentEpoch) &&
+        documentEpoch !== liveActivation.pendingDocumentEpoch) return false;
+    if (Number.isInteger(liveActivation.documentEpoch) &&
+        documentEpoch < liveActivation.documentEpoch) return false;
+    if (liveActivation.reveal?.documentEpoch === documentEpoch) {
+      // The child sends periodic snapshots. Keep the newest toolbar/status
+      // payload without postponing an already scheduled paint barrier.
+      liveActivation.reveal.data = data;
+      return true;
+    }
+
+    const activation = liveActivation;
+    const revealToken = ++liveRevealSequence;
+    activation.reveal = { token: revealToken, documentEpoch, data };
+    liveFrame.dataset.livePhase = "staging";
+    // First rAF lets the ready child paint while it is still covered by the
+    // static PDF. The second rAF changes only stacking order, so the next
+    // compositor commit can never contain the iframe's blank/old backing
+    // store. A newer activation/reset invalidates the captured token.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const reveal = activation.reveal;
+        if (!reveal || reveal.token !== revealToken || liveRevealSequence !== revealToken) return;
+        if (liveActivation !== activation || !isLivePending()) return;
+        if (activation.id !== data.activationId || reveal.documentEpoch !== documentEpoch) return;
+        if (Number.isInteger(activation.pendingDocumentEpoch) &&
+            documentEpoch !== activation.pendingDocumentEpoch) return;
+        const latestData = reveal.data;
+        if (latestData?.ready !== true || Number(latestData.documentEpoch) !== documentEpoch) return;
+
+        activation.reveal = null;
+        activation.documentEpoch = documentEpoch;
+        activation.pendingDocumentEpoch = null;
+        // Both mutations happen in one task. The already-painted iframe
+        // replaces the opaque pdf.js cover on this compositor commit.
+        document.body.classList.remove("is-live-pending");
+        document.body.classList.add("is-live");
+        liveFrame.setAttribute("aria-hidden", "false");
+        liveFrame.dataset.livePhase = "active";
+        renderLiveToolbar();
+        setStatus(uiString("live"));
+        renderLiveStatus(latestData);
+        bridge?.postMessage?.({
+          type: "live-surface-ready",
+          payload: {
+            activationId: activation.id,
+            url: activation.url,
+            generation: activation.generation,
+            documentEpoch,
+          },
+        });
+      });
+    });
+    return true;
+  };
+  const holdStaticForDocumentReset = (data) => {
+    if (!liveFrame || !liveActivation) return false;
+    const documentEpoch = Number(data?.documentEpoch);
+    if (!Number.isInteger(documentEpoch)) return false;
+    const adoptedEpoch = Number(liveActivation.documentEpoch);
+    const pendingEpoch = Number(liveActivation.pendingDocumentEpoch);
+    if (Number.isInteger(adoptedEpoch) && documentEpoch <= adoptedEpoch) return false;
+    if (Number.isInteger(pendingEpoch) && documentEpoch < pendingEpoch) return false;
+
+    cancelLiveReveal();
+    liveActivation.pendingDocumentEpoch = documentEpoch;
+    liveToolbar = normalizeLiveToolbarSnapshot();
+    document.body.classList.remove("is-live");
+    document.body.classList.add("is-live-pending");
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.dataset.livePhase = "reset-pending";
+    restoreStaticToolbar();
+    setStatus(uiString("liveUpdating"));
+    // Resolve the new stacking order before allowing the child to discard
+    // its old document DOM. The iframe stays paintable below the static PDF.
+    getComputedStyle(liveFrame).zIndex;
+    postLive("reset-ack", { documentEpoch });
+    return true;
   };
   const setLiveMode = (payload) => {
-    const url = payload && typeof payload.url === "string" ? payload.url : null;
-    document.body.classList.toggle("is-live", Boolean(url));
-    if (!liveFrame) return;
-    if (url) {
-      const params = new URLSearchParams({ embed: "1", theme: "dark" });
-      const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
-      if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
-      const src = `${url}/?${params.toString()}`;
-      if (liveFrame.src !== src) liveFrame.src = src;
-      liveFrame.setAttribute("aria-hidden", "false");
-      setStatus("Live");
-    } else {
-      liveFrame.src = "about:blank";
-      liveFrame.setAttribute("aria-hidden", "true");
-      setStatus(uiString("ready"));
+    // Any Live state message supersedes an error-paint acknowledgement that
+    // has not crossed its compositor barrier yet. The following live-error
+    // message, when present, schedules a new exact acknowledgement.
+    cancelLiveErrorSurface();
+    const rawUrl = payload && typeof payload.url === "string" ? payload.url.trim() : "";
+    if (!rawUrl) {
+      deactivateLive();
+      return;
     }
+    if (!liveFrame) return;
+
+    const url = rawUrl.replace(/\/+$/, "");
+    const generation = Number(payload?.generation) || 0;
+    if (liveActivation?.url === url && liveActivation?.generation === generation && hasLiveSession()) return;
+
+    liveSurfaceOwned = true;
+    deferredStaticFlushToken += 1;
+    const id = `${Date.now().toString(36)}-${(++liveActivationSequence).toString(36)}`;
+    cancelLiveReveal();
+    liveActivation = {
+      id,
+      url,
+      generation,
+      documentEpoch: null,
+      pendingDocumentEpoch: null,
+      reveal: null,
+    };
+    liveToolbar = normalizeLiveToolbarSnapshot();
+    document.body.classList.remove("is-live");
+    document.body.classList.add("is-live-pending");
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.dataset.livePhase = "activation-pending";
+    hideContextMenu();
+    restoreStaticToolbar();
+    setStatus(uiString("liveUpdating"));
+
+    const params = new URLSearchParams({
+      embed: "1",
+      theme: "dark",
+      activationId: id,
+    });
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
+    liveFrame.src = `${url}/?${params.toString()}`;
+  };
+  const setLiveError = (payload) => {
+    cancelLiveErrorSurface();
+    const error = typeof payload?.error === "string" ? payload.error : "";
+    if (!error) {
+      if (statusEl) statusEl.title = "";
+      if (isLive()) setStatus(uiString("live"));
+      else if (isLivePending()) setStatus(uiString("liveUpdating"));
+      else setStatus(uiString("ready"));
+      return;
+    }
+
+    setStatus(error);
+    if (statusEl) statusEl.title = error;
+    const pending = {
+      token: liveErrorSurfaceSequence,
+      error,
+      url: typeof payload?.url === "string" ? payload.url : null,
+      generation: Number(payload?.generation) || 0,
+    };
+    pendingLiveErrorSurface = pending;
+    // A new detached window can otherwise become native-visible after its
+    // renderer says merely `ready`, one frame before the terminal error text
+    // is actually painted. Use the same two-paint commit boundary as Live.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (pendingLiveErrorSurface !== pending || pending.token !== liveErrorSurfaceSequence) return;
+        pendingLiveErrorSurface = null;
+        bridge?.postMessage?.({
+          type: "live-error-surface-ready",
+          payload: {
+            error: pending.error,
+            url: pending.url,
+            generation: pending.generation,
+          },
+        });
+      });
+    });
   };
   const pageInputForLive = document.getElementById("pdf-page-input");
   window.addEventListener("message", (event) => {
     if (!liveFrame || event.source !== liveFrame.contentWindow) return;
     const data = event.data;
-    if (!data || data.source !== "tdom-embed" || !isLive()) return;
-    if (Number.isFinite(data.pageCount)) {
-      const el = document.getElementById("pdf-page-count");
-      if (el) el.textContent = `/ ${data.pageCount}`;
+    if (!data || data.source !== "tdom-embed" || !hasLiveSession()) return;
+    if (!liveActivation || data.activationId !== liveActivation.id) return;
+    if (data.action === "reset-pending") {
+      holdStaticForDocumentReset(data);
+      return;
     }
-    if (Number.isFinite(data.zoom)) {
-      const el = document.getElementById("pdf-zoom-label");
-      if (el) el.textContent = `${Math.round(data.zoom * 100)}%`;
+
+    // Status snapshots may arrive while the frame is preloading.  Keep them
+    // offscreen until the same activation explicitly declares its first
+    // exact paint ready.
+    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, data);
+    if (isLivePending()) {
+      activateLive(data);
+      return;
     }
-    if (Number.isFinite(data.page) && pageInputForLive && document.activeElement !== pageInputForLive) {
-      pageInputForLive.value = String(data.page);
+    if (Number.isInteger(liveActivation.documentEpoch) &&
+        Number(data.documentEpoch) !== liveActivation.documentEpoch) return;
+    if (data.action === "source") {
+      bridge?.postMessage?.({
+        type: "live-source",
+        payload: { file: data.file, line: data.line, column: data.column },
+      });
+      return;
     }
+    if (data.action === "edit") {
+      bridge?.postMessage?.({
+        type: "live-edit",
+        payload: {
+          sessionId: data.sessionId,
+          regionId: data.regionId,
+          kind: data.kind,
+          file: data.file,
+          start: data.start,
+          end: data.end,
+          baseValue: data.baseValue,
+          value: data.value,
+          replacement: data.replacement,
+          cancel: data.cancel === true,
+          finish: data.finish === true,
+          sourceRev: data.sourceRev,
+        },
+      });
+      return;
+    }
+    renderLiveToolbar();
+    renderLiveStatus(data);
   });
   // Capture-phase routing: when live, the toolbar talks to the engine frame
   // and pdf.js never sees the event.
@@ -1690,7 +2012,11 @@ const initPdfViewer = () => {
   pageInputForLive?.addEventListener("change", (event) => {
     if (!isLive()) return;
     event.stopImmediatePropagation();
-    postLive("goto-page", { page: Number(pageInputForLive.value) });
+    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, {
+      page: Number(pageInputForLive.value),
+    });
+    renderLiveToolbar();
+    postLive("goto-page", { page: liveToolbar.page });
   }, true);
 
   if (bridge && typeof bridge.onMessage === "function") {
@@ -1699,7 +2025,7 @@ const initPdfViewer = () => {
       if (message.type === "open") {
         const payload = message.payload || {};
         if (payload.url) {
-          loadDocument(payload.url, payload.path || null);
+          requestStaticDocument(payload.url, payload.path || null);
         }
       }
       if (message.type === "sync" && message.payload) {
@@ -1707,6 +2033,9 @@ const initPdfViewer = () => {
       }
       if (message.type === "live") {
         setLiveMode(message.payload || null);
+      }
+      if (message.type === "live-error") {
+        setLiveError(message.payload || null);
       }
       if (message.type === "capture-scroll-state") {
         postCaptureScrollState();

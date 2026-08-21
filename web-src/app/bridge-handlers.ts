@@ -24,6 +24,7 @@ import type {
 import { uiText } from "./i18n.js";
 import type { FilePreviewResultPayload } from "./file-preview.js";
 import type { FileExcerptResultPayload } from "./file-excerpt.js";
+import type { LivePreviewEditPayload } from "./editor-session/types.js";
 
 type BridgeHandlersDeps = {
   bridgeWindow: BridgeWindow;
@@ -238,6 +239,7 @@ type BridgeHandlersDeps = {
       content: string,
       options?: { updateSaved?: boolean; showAiDiff?: boolean }
     ) => void;
+    applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
   };
   filePreview?: {
     handlePreviewResult: (payload: FilePreviewResultPayload) => void;
@@ -424,6 +426,9 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "synctex:reverseResult":
         deps.build.handleSynctexReverseResult(message.payload as any);
+        break;
+      case "live-preview:edit":
+        deps.editorSession.applyLivePreviewEdit(message.payload as LivePreviewEditPayload);
         break;
       case "renameResult":
         bridgeWindow.tex64RenameResult?.(message.payload as {

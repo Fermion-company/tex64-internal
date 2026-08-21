@@ -324,7 +324,12 @@ body.is-embedded .pdf-fit-control span {
   bottom: 0;
   left: 260px;
   overflow: auto;
-  background: radial-gradient(circle at top, rgba(92, 156, 255, 0.08), transparent 60%);
+  /* The solid second layer matters while this surface covers a staging live
+     iframe: a transparent gradient alone would leak uncommitted live pixels
+     through the gaps around PDF pages. */
+  background:
+    radial-gradient(circle at top, rgba(92, 156, 255, 0.08), transparent 60%),
+    var(--bg);
   padding: 16px 18px 40px;
 }
 
@@ -349,9 +354,37 @@ body.is-embedded .pdf-scroll {
   background: var(--bg);
   z-index: 5;
 }
-body.is-live .pdf-live-frame { display: block; }
+/* Keep pdf.js above the next live document while it stages. `visibility:
+   hidden` is deliberately not used: Chromium may skip rasterizing a hidden
+   cross-origin iframe and expose its blank backing store for one frame when
+   it becomes visible. The iframe paints continuously below an opaque static
+   cover; activation only changes their stacking order. */
+body.is-live-pending .pdf-live-frame {
+  display: block;
+  visibility: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+body.is-live-pending .pdf-scroll {
+  z-index: 2;
+}
+body.is-live-pending .pdf-sidebar {
+  position: relative;
+  z-index: 2;
+}
+body.is-live .pdf-live-frame {
+  display: block;
+  visibility: visible;
+  z-index: 5;
+}
 body.is-live .pdf-sidebar,
 body.is-live #pdf-sidebar-toggle { display: none; }
+body.is-live #pdf-rotate-left,
+body.is-live #pdf-rotate-right,
+body.is-live #pdf-download,
+body.is-live #pdf-print,
+body.is-live #pdf-reload { display: none; }
+body.is-inverted .pdf-live-frame { filter: invert(1) hue-rotate(180deg); }
 
 .pdf-pages {
   margin: 0 auto;

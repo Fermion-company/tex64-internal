@@ -2,6 +2,21 @@ import { IMAGE_MIME_TYPES, getFileExtension } from "./files.js";
 
 export type ViewerMode = "hidden" | "image" | "pdf" | "unsupported";
 
+export type LivePreviewEditRequest = {
+  sessionId: string;
+  regionId?: string;
+  kind: "text" | "math";
+  file: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
+  value?: string;
+  replacement: string;
+  cancel?: boolean;
+  finish?: boolean;
+  sourceRev?: number;
+};
+
 export type ViewerDeps = {
   editorViewer: HTMLElement | null;
   editorViewerImage: HTMLImageElement | null;
@@ -13,6 +28,12 @@ export type ViewerDeps = {
     y: number;
     pdfPath: string | null;
   }) => void;
+  onLiveSourceRequest?: (payload: {
+    file: string;
+    line: number;
+    column: number;
+  }) => void;
+  onLiveEditRequest?: (payload: LivePreviewEditRequest) => void;
 };
 
 export const createViewer = (deps: ViewerDeps) => {
@@ -25,7 +46,7 @@ export const createViewer = (deps: ViewerDeps) => {
   // Real-time preview: when set, the pdf viewer swaps its page canvas for the
   // live engine frame (same chrome). Re-sent on every viewer "ready" so it
   // survives the pdf iframe being torn down and recreated.
-  let livePreviewUrl: string | null = null;
+  let livePreview: { url: string; generation: number } | null = null;
   const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
 
   const postPdfMessage = (payload: { type: string; payload?: unknown }) => {
@@ -76,8 +97,8 @@ export const createViewer = (deps: ViewerDeps) => {
         postPdfMessage({ type: "sync", payload: pendingPdfSync });
         pendingPdfSync = null;
       }
-      if (livePreviewUrl) {
-        postPdfMessage({ type: "live", payload: { url: livePreviewUrl } });
+      if (livePreview) {
+        postPdfMessage({ type: "live", payload: livePreview });
       }
       return;
     }
@@ -94,6 +115,40 @@ export const createViewer = (deps: ViewerDeps) => {
       }
       const pdfPath = typeof detail?.path === "string" ? detail.path : null;
       deps.onPdfReverseRequest?.({ page, x, y, pdfPath });
+      return;
+    }
+    if (payload.type === "live-source") {
+      const detail = (payload as { payload?: unknown }).payload as
+        | { file?: unknown; line?: unknown; column?: unknown }
+        | null
+        | undefined;
+      const file = typeof detail?.file === "string" ? detail.file : "";
+      const line = Number(detail?.line);
+      const column = Number(detail?.column);
+      if (file && Number.isFinite(line) && line >= 1) {
+        deps.onLiveSourceRequest?.({
+          file,
+          line: Math.floor(line),
+          column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+        });
+      }
+      return;
+    }
+    if (payload.type === "live-edit") {
+      const detail = (payload as { payload?: unknown }).payload as Partial<LivePreviewEditRequest> | null | undefined;
+      if (
+        typeof detail?.sessionId === "string" &&
+        (detail.kind === "text" || detail.kind === "math") &&
+        typeof detail.file === "string" &&
+        typeof detail.baseValue === "string" &&
+        typeof detail.replacement === "string" &&
+        typeof detail.start?.line === "number" &&
+        typeof detail.start?.column === "number" &&
+        typeof detail.end?.line === "number" &&
+        typeof detail.end?.column === "number"
+      ) {
+        deps.onLiveEditRequest?.(detail as LivePreviewEditRequest);
+      }
     }
   });
 
@@ -231,11 +286,12 @@ export const createViewer = (deps: ViewerDeps) => {
     postPdfMessage({ type: "sync", payload });
   };
 
-  const setLivePreview = (url: string | null) => {
-    if (livePreviewUrl === url) return;
-    livePreviewUrl = url;
+  const setLivePreview = (url: string | null, generation = 0) => {
+    const next = url ? { url, generation } : null;
+    if (livePreview?.url === next?.url && livePreview?.generation === next?.generation) return;
+    livePreview = next;
     if (pdfViewerReady) {
-      postPdfMessage({ type: "live", payload: url ? { url } : null });
+      postPdfMessage({ type: "live", payload: next });
     }
   };
 

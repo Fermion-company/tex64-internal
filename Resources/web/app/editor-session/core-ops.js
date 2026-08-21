@@ -183,11 +183,13 @@ export const createEditorSessionCoreOps = (runtime) => {
                 pushSnapshot(entry.path, entry.isDirty);
             }
         });
-        entries.forEach((entry) => {
-            if (!entry.isDirty && !entry.isActive) {
-                pushSnapshot(entry.path, entry.isDirty);
-            }
-        });
+        if (!(options === null || options === void 0 ? void 0 : options.onlyDirty)) {
+            entries.forEach((entry) => {
+                if (!entry.isDirty && !entry.isActive) {
+                    pushSnapshot(entry.path, entry.isDirty);
+                }
+            });
+        }
         return { files: Array.from(files.values()), snapshots };
     };
     return {

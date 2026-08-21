@@ -13,7 +13,12 @@ const registerTdomEngineHandlers = ({ ipcMain, getTdomEngineService, getPdfWindo
   // state and the window re-applies it whenever it (re)opens.
   ipcMain.handle("tex64:tdom:window-live", (_event, payload) =>
     result(async () => {
-      getPdfWindowManager?.()?.setLive(payload?.url ?? null);
+      getPdfWindowManager?.()?.setLive(payload?.url ?? null, {
+        generation: Number(payload?.generation) || 0,
+        show: payload?.show === true,
+        hide: payload?.hide === true,
+        ...(Object.hasOwn(payload ?? {}, "error") ? { error: payload.error } : {}),
+      });
       return { ok: true };
     }));
 };

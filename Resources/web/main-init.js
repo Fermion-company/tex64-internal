@@ -67,6 +67,8 @@ export const initMain = () => {
         const dom = getDomRefs();
         const { tabs, settingsTab, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
         let postToNative = () => false;
+        let requestLiveSource = (_payload) => { };
+        let requestLiveEdit = (_payload) => { };
         let isReverseSynctexEnabled = () => true;
         let blockAutoDetect = null;
         let blockEditSession = null;
@@ -100,6 +102,8 @@ export const initMain = () => {
                     pdfPath: payload.pdfPath,
                 }, true);
             },
+            onLiveSourceRequest: (payload) => requestLiveSource(payload),
+            onLiveEditRequest: (payload) => requestLiveEdit(payload),
         });
         const secondaryViewer = createViewer({
             editorViewer: editorViewerSecondary,
@@ -118,6 +122,8 @@ export const initMain = () => {
                     pdfPath: payload.pdfPath,
                 }, true);
             },
+            onLiveSourceRequest: (payload) => requestLiveSource(payload),
+            onLiveEditRequest: (payload) => requestLiveEdit(payload),
         });
         const bridgeWindow = window;
         bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl) => recognizeMath(imageDataUrl);
@@ -137,6 +143,9 @@ export const initMain = () => {
             bridgeWindow,
             updateIssues: updateIssuesProxy,
         });
+        requestLiveSource = (payload) => {
+            postToNative({ type: "live-preview:source", ...payload }, true);
+        };
         const filePreviewBroker = createFilePreviewBroker((payload, silent) => postToNative(payload, silent));
         const fileExcerptBroker = createFileExcerptBroker((payload, silent) => postToNative(payload, silent));
         let workspaceController = null;
@@ -326,6 +335,31 @@ export const initMain = () => {
                 tryShowViewerFile: (path, kind, data, mimeType) => { var _a; return (_a = proModeApi === null || proModeApi === void 0 ? void 0 : proModeApi.tryShowViewerFile(path, kind, data, mimeType)) !== null && _a !== void 0 ? _a : false; },
             },
         });
+        requestLiveEdit = (payload) => {
+            var _a, _b;
+            const workspaceRoot = (_b = (_a = getWorkspaceRootKey()) === null || _a === void 0 ? void 0 : _a.replace(/\\/g, "/").replace(/\/$/, "")) !== null && _b !== void 0 ? _b : "";
+            const sourcePath = payload.file.replace(/\\/g, "/").replace(/^\.\//, "");
+            const absolute = sourcePath.startsWith("/") || /^[A-Za-z]:\//.test(sourcePath);
+            const candidate = absolute && workspaceRoot && sourcePath.startsWith(`${workspaceRoot}/`)
+                ? sourcePath.slice(workspaceRoot.length + 1)
+                : absolute
+                    ? ""
+                    : sourcePath;
+            const parts = candidate.split("/").filter((part) => part && part !== ".");
+            const path = parts.includes("..") || parts.some((part) => part.includes("\0"))
+                ? ""
+                : parts.join("/");
+            if (!path) {
+                const message = uiText("The PDF edit is outside this workspace.", "PDF編集対象がワークスペース外です。");
+                updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+                return;
+            }
+            const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
+            if (!ok) {
+                const message = uiText("The source changed. Click the text again to edit it.", "ソースが更新されています。文字をもう一度クリックしてください。");
+                updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+            }
+        };
         proModeApi = initProModeUi({
             setSplitViewEnabled: editorSession.setSplitViewEnabled,
             getSplitViewEnabled: editorSession.getSplitViewEnabled,
@@ -363,6 +397,14 @@ export const initMain = () => {
             getActiveGroup: editorSession.getActiveGroup,
             getEditorGroups: editorSession.getEditorGroups,
             getAppMode: () => appModeApi.getMode(),
+            getPdfViewerMode: settingsUi.getPdfViewerMode,
+            getWorkspaceRoot: getWorkspaceRootKey,
+            getRootFile: getRootFilePath,
+            getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
+                maxFiles: Number.POSITIVE_INFINITY,
+                maxChars: Number.POSITIVE_INFINITY,
+                onlyDirty: true,
+            }).snapshots,
         });
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInSecondaryEditor = (path, line) => {
@@ -1002,6 +1044,7 @@ export const initMain = () => {
                 },
                 handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
                 applyContentToOpenFile: (path, content, options) => editorSession.applyContentToOpenFile(path, content, options),
+                applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
             },
         });
         postToNative({ type: "agent:settings:get" }, true);

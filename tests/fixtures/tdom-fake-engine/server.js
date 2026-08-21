@@ -21,13 +21,26 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/open") {
     const body = JSON.parse((await readBody(req)) || "{}");
     source = typeof body.text === "string" ? body.text : "";
-    edits.push({ kind: "open", text: source });
+    edits.push({
+      kind: "open",
+      text: source,
+      ...(typeof body.filePath === "string" ? { filePath: body.filePath } : {}),
+      ...(typeof body.projectRoot === "string" ? { projectRoot: body.projectRoot } : {}),
+      ...(Array.isArray(body.overlays) ? { overlays: body.overlays } : {}),
+    });
     return res.end(JSON.stringify({ source }));
   }
   if (req.method === "POST" && req.url === "/edit") {
     const body = JSON.parse((await readBody(req)) || "{}");
     source = source.slice(0, body.start) + body.text + source.slice(body.end);
-    edits.push({ kind: "edit", start: body.start, end: body.end, text: body.text });
+    edits.push({
+      kind: "edit",
+      start: body.start,
+      end: body.end,
+      text: body.text,
+      ...(Array.isArray(body.overlays) ? { overlays: body.overlays } : {}),
+      ...(Array.isArray(body.removeOverlays) ? { removeOverlays: body.removeOverlays } : {}),
+    });
     return res.end(JSON.stringify({ source }));
   }
   res.statusCode = 404;

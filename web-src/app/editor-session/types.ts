@@ -34,8 +34,28 @@ export type MonacoModel = {
   setValue: (value: string) => void;
   getFullModelRange?: () => unknown;
   pushStackElement?: () => void;
+  pushEditOperations?: (
+    beforeCursorState: unknown[],
+    edits: Array<{ range: unknown; text: string; forceMoveMarkers?: boolean }>,
+    cursorStateComputer: () => unknown[] | null
+  ) => unknown;
 };
 export type MonacoModelEntry = { model: MonacoModel; savedContent: string };
+
+export type LivePreviewEditPayload = {
+  sessionId: string;
+  regionId?: string;
+  kind: "text" | "math";
+  path: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
+  value?: string;
+  replacement: string;
+  cancel?: boolean;
+  finish?: boolean;
+  sourceRev?: number;
+};
 
 export type EditorSessionDeps = {
   getWorkspaceFiles: () => string[];
@@ -124,6 +144,7 @@ export type EditorSessionApi = {
   getOpenFileSnapshots: (options?: {
     maxFiles?: number;
     maxChars?: number;
+    onlyDirty?: boolean;
   }) => {
     files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
     snapshots: Array<{
@@ -166,6 +187,7 @@ export type EditorSessionApi = {
     options?: { updateSaved?: boolean; showAiDiff?: boolean }
   ) => void;
   applyContentToOpenFile: (path: string, content: string, options?: { updateSaved?: boolean; showAiDiff?: boolean }) => boolean;
+  applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;

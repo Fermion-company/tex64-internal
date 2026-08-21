@@ -80,6 +80,11 @@ const uniquePaths = (items) => {
   return result;
 };
 
+const isWithin = (root, candidate) => {
+  const rel = path.relative(root, candidate);
+  return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
+};
+
 class TdomEngineService {
   constructor(options = {}) {
     const envDir = typeof process.env.TEX64_TDOM_ENGINE_DIR === "string"
@@ -89,6 +94,9 @@ class TdomEngineService {
     this.explicitEngineDir = options.engineDir;
     this.vendoredDir = options.vendoredDir
       || (options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
+    this.hostWebRoot = options.resourcesPath
+      ? path.join(options.resourcesPath, "web")
+      : null;
     this.workDir = options.workDir
       || (options.userDataPath ? path.join(options.userDataPath, "tdom-work") : null);
     this.homeDir = options.homeDir || os.homedir();
@@ -107,6 +115,10 @@ class TdomEngineService {
     this.lastError = null;
     this.stderrTail = [];
     this.lastSource = null;
+    this.lastPath = null;
+    this.lastSessionKey = null;
+    this.lastOverlays = new Map();
+    this.lastRootMtimeMs = null;
     this.pushQueue = Promise.resolve();
   }
 
@@ -221,6 +233,10 @@ class TdomEngineService {
       TDOM_MAX_CHECKPOINTS: process.env.TDOM_MAX_CHECKPOINTS || "8",
     };
     if (this.workDir) env.TDOM_WORKDIR = this.workDir;
+    // The engine frame remains an isolated localhost origin, but it may
+    // serve TeX64's already-vendored MathLive assets for the single active
+    // formula editor.  Only /mathlive below this root is exposed server-side.
+    if (this.hostWebRoot) env.TDOM_HOST_WEB_ROOT = this.hostWebRoot;
     return env;
   }
 
@@ -256,6 +272,10 @@ class TdomEngineService {
         await requestJson(`${this.url}/status`, { timeoutMs: 1_000 });
         this.state = "ready";
         this.lastSource = null;
+        this.lastPath = null;
+        this.lastSessionKey = null;
+        this.lastOverlays.clear();
+        this.lastRootMtimeMs = null;
         return { ok: true, url: this.url };
       } catch (error) { lastError = error; }
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
@@ -275,30 +295,129 @@ class TdomEngineService {
     this.port = null;
     this.state = "stopped";
     this.lastSource = null;
+    this.lastPath = null;
+    this.lastSessionKey = null;
+    this.lastOverlays.clear();
+    this.lastRootMtimeMs = null;
     this.lastError = error?.message || null;
   }
 
-  // Push the full editor buffer; the service turns it into a minimal range
-  // edit against the last pushed source. `fresh` (file switch) reopens the
-  // document, which resets the engine's checkpoint state.
-  push({ source, fresh = false } = {}) {
-    if (typeof source !== "string") return Promise.reject(new Error("tdom push requires source text"));
+  // Push the configured root plus dirty project buffers. The service turns
+  // root changes into a minimal range edit and child buffers into overlay
+  // deltas; switching tabs within one project never reopens the engine.
+  resolvePushSnapshot(payload = {}) {
+    const workspaceRoot = typeof payload.workspaceRoot === "string" && path.isAbsolute(payload.workspaceRoot)
+      ? path.resolve(payload.workspaceRoot) : null;
+    const rootFile = typeof payload.rootFile === "string" ? payload.rootFile.trim() : "";
+    if (!workspaceRoot || !rootFile) {
+      if (typeof payload.source !== "string") throw new Error("tdom push requires source text");
+      const filePath = typeof payload.path === "string" && payload.path ? path.resolve(payload.path) : null;
+      return {
+        source: payload.source,
+        filePath,
+        projectRoot: null,
+        sessionKey: filePath || "legacy",
+        overlays: new Map(),
+        fresh: Boolean(payload.fresh),
+        rootMtimeMs: null,
+      };
+    }
+
+    const rootPath = path.resolve(workspaceRoot, rootFile);
+    if (!isWithin(workspaceRoot, rootPath)) throw new Error("tdom root file escapes the workspace");
+    const buffers = new Map();
+    for (const item of Array.isArray(payload.buffers) ? payload.buffers : []) {
+      const rel = typeof item?.path === "string" ? item.path.trim() : "";
+      const text = typeof item?.text === "string" ? item.text : typeof item?.source === "string" ? item.source : null;
+      if (!rel || text === null) continue;
+      const absolute = path.resolve(workspaceRoot, rel);
+      if (!isWithin(workspaceRoot, absolute)) continue;
+      buffers.set(absolute, text);
+    }
+    let rootMtimeMs = null;
+    try { rootMtimeMs = fs.statSync(rootPath).mtimeMs; } catch {}
+    let source = buffers.get(rootPath);
+    if (source === undefined && this.lastPath === rootPath && this.lastSource !== null
+      && this.lastRootMtimeMs === rootMtimeMs) {
+      source = this.lastSource;
+    }
+    if (source === undefined) source = fs.readFileSync(rootPath, "utf8");
+    buffers.delete(rootPath);
+    return {
+      source,
+      filePath: rootPath,
+      projectRoot: workspaceRoot,
+      sessionKey: `${workspaceRoot}\0${rootPath}`,
+      overlays: buffers,
+      fresh: Boolean(payload.fresh) && this.lastSessionKey !== `${workspaceRoot}\0${rootPath}`,
+      rootMtimeMs,
+    };
+  }
+
+  push(payload = {}) {
     const run = async () => {
       await this.start();
+      const snapshot = this.resolvePushSnapshot(payload);
       const openTimeout = this.startTimeoutMs;
-      if (fresh || this.lastSource === null) {
-        await requestJson(`${this.url}/open`, { method: "POST", body: { text: source }, timeoutMs: openTimeout });
-        this.lastSource = source;
-      } else if (source !== this.lastSource) {
-        const edit = diffEdit(this.lastSource, source);
+      const normalizedPath = snapshot.filePath;
+      const pathChanged = normalizedPath !== this.lastPath;
+      const sessionChanged = snapshot.sessionKey !== this.lastSessionKey;
+      const fullOverlays = [...snapshot.overlays].map(([filePath, text]) => ({ filePath, text }));
+      if (snapshot.fresh || pathChanged || sessionChanged || this.lastSource === null) {
+        await requestJson(`${this.url}/open`, {
+          method: "POST",
+          body: {
+            text: snapshot.source,
+            ...(normalizedPath ? { filePath: normalizedPath } : {}),
+            ...(snapshot.projectRoot ? { projectRoot: snapshot.projectRoot } : {}),
+            ...(fullOverlays.length ? { overlays: fullOverlays } : {}),
+          },
+          timeoutMs: openTimeout,
+        });
+        this.lastSource = snapshot.source;
+        this.lastPath = normalizedPath;
+        this.lastSessionKey = snapshot.sessionKey;
+        this.lastOverlays = new Map(snapshot.overlays);
+        this.lastRootMtimeMs = snapshot.rootMtimeMs;
+      } else {
+        const overlays = [];
+        for (const [filePath, text] of snapshot.overlays) {
+          if (this.lastOverlays.get(filePath) !== text) overlays.push({ filePath, text });
+        }
+        const removeOverlays = [...this.lastOverlays.keys()].filter((filePath) => !snapshot.overlays.has(filePath));
+        const sourceChanged = snapshot.source !== this.lastSource;
+        if (!sourceChanged && !overlays.length && !removeOverlays.length) {
+          this.lastRootMtimeMs = snapshot.rootMtimeMs;
+          return { ok: true, url: this.url };
+        }
+        const edit = sourceChanged ? diffEdit(this.lastSource, snapshot.source) : { start: 0, end: 0, text: "" };
         try {
-          await requestJson(`${this.url}/edit`, { method: "POST", body: edit, timeoutMs: openTimeout });
-          this.lastSource = source;
+          await requestJson(`${this.url}/edit`, {
+            method: "POST",
+            body: { ...edit, ...(overlays.length ? { overlays } : {}), ...(removeOverlays.length ? { removeOverlays } : {}) },
+            timeoutMs: openTimeout,
+          });
+          this.lastSource = snapshot.source;
+          this.lastOverlays = new Map(snapshot.overlays);
+          this.lastRootMtimeMs = snapshot.rootMtimeMs;
         } catch (error) {
           // Engine and service disagree about the source (restart, external
           // change) — resync with a fresh open rather than compounding.
-          await requestJson(`${this.url}/open`, { method: "POST", body: { text: source }, timeoutMs: openTimeout });
-          this.lastSource = source;
+          await requestJson(`${this.url}/open`, {
+            method: "POST",
+            body: {
+              text: snapshot.source,
+              ...(normalizedPath ? { filePath: normalizedPath } : {}),
+              ...(snapshot.projectRoot ? { projectRoot: snapshot.projectRoot } : {}),
+              ...(fullOverlays.length ? { overlays: fullOverlays } : {}),
+            },
+            timeoutMs: openTimeout,
+          });
+          this.lastSource = snapshot.source;
+          this.lastPath = normalizedPath;
+          this.lastSessionKey = snapshot.sessionKey;
+          this.lastOverlays = new Map(snapshot.overlays);
+          this.lastRootMtimeMs = snapshot.rootMtimeMs;
         }
       }
       return { ok: true, url: this.url };
@@ -314,6 +433,10 @@ class TdomEngineService {
     this.port = null;
     this.state = "stopped";
     this.lastSource = null;
+    this.lastPath = null;
+    this.lastSessionKey = null;
+    this.lastOverlays.clear();
+    this.lastRootMtimeMs = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
     return { ok: true };
   }

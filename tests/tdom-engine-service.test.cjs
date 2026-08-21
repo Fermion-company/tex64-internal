@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { TdomEngineService, diffEdit } = require("../electron/services/tdom-engine.cjs");
@@ -110,4 +112,77 @@ test("TdomEngineService starts the engine and streams minimal edits", async (t) 
   assert.equal(doc.edits[1].kind, "edit");
   assert.equal(doc.edits[1].text, " world");
   assert.equal(doc.edits[1].end - doc.edits[1].start, 0);
+
+  // The active file path is part of document identity. Switching projects
+  // with identical text must still reopen so relative images/includes/.bib
+  // resolve against the new project instead of the previous one.
+  const projectFile = path.join(__dirname, "fixtures", "paper", "main.tex");
+  await service.push({ source: "\\documentclass{article}\nhello world", path: projectFile });
+  const afterSwitch = await new Promise((resolve, reject) => {
+    http.get(`${service.url}/doc`, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch (e) { reject(e); } });
+    }).on("error", reject);
+  });
+  assert.equal(afterSwitch.edits.at(-1).kind, "open");
+  assert.equal(afterSwitch.edits.at(-1).filePath, path.resolve(projectFile));
+});
+
+test("TdomEngineService keeps the root document open and sends only changed unsaved overlays", async (t) => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tex64-tdom-project-"));
+  fs.mkdirSync(path.join(projectRoot, "sections"));
+  fs.writeFileSync(path.join(projectRoot, "main.tex"), "ROOT\\n\\input{sections/intro}\\n", "utf8");
+  fs.writeFileSync(path.join(projectRoot, "sections", "intro.tex"), "saved child", "utf8");
+  const service = createService();
+  t.after(() => {
+    service.shutdown();
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+  });
+  try { await service.start(); }
+  catch (error) { if (skippable(t, error)) return; throw error; }
+
+  await service.push({
+    workspaceRoot: projectRoot,
+    rootFile: "main.tex",
+    buffers: [{ path: "sections/intro.tex", text: "unsaved child A" }],
+  });
+  await service.push({
+    workspaceRoot: projectRoot,
+    rootFile: "main.tex",
+    buffers: [
+      { path: "sections/intro.tex", text: "unsaved child B" },
+      { path: "refs.bib", text: "@book{draft,title={Draft}}" },
+    ],
+  });
+  await service.push({
+    workspaceRoot: projectRoot,
+    rootFile: "main.tex",
+    buffers: [{ path: "refs.bib", text: "@book{draft,title={Draft}}" }],
+  });
+
+  const http = require("node:http");
+  const doc = await new Promise((resolve, reject) => {
+    http.get(`${service.url}/doc`, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch (e) { reject(e); } });
+    }).on("error", reject);
+  });
+  assert.equal(doc.source, "ROOT\\n\\input{sections/intro}\\n", "active child edits never replace the root source");
+  const opened = doc.edits.at(-3);
+  assert.equal(opened.kind, "open");
+  assert.equal(opened.filePath, path.join(projectRoot, "main.tex"));
+  assert.equal(opened.projectRoot, projectRoot);
+  assert.deepEqual(opened.overlays, [
+    { filePath: path.join(projectRoot, "sections", "intro.tex"), text: "unsaved child A" },
+  ]);
+  const changed = doc.edits.at(-2);
+  assert.equal(changed.kind, "edit");
+  assert.deepEqual(changed.overlays, [
+    { filePath: path.join(projectRoot, "sections", "intro.tex"), text: "unsaved child B" },
+    { filePath: path.join(projectRoot, "refs.bib"), text: "@book{draft,title={Draft}}" },
+  ]);
+  assert.equal(changed.text, "", "an overlay-only change does not rewrite the root document");
+  assert.deepEqual(doc.edits.at(-1).removeOverlays, [path.join(projectRoot, "sections", "intro.tex")]);
 });
