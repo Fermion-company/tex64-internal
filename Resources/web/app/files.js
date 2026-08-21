@@ -24,7 +24,7 @@ export const TEXT_FILE_EXTENSIONS = new Set([
     "fdb_latexmk",
     "fls",
 ]);
-export const PRO_TEXT_FILE_EXTENSIONS = new Set([
+export const EXTENDED_TEXT_FILE_EXTENSIONS = new Set([
     "py", "pyw", "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts",
     "json", "jsonc", "json5", "md", "markdown", "yaml", "yml", "toml", "xml",
     "html", "htm", "xhtml", "css", "scss", "sass", "less", "c", "h", "cpp",
@@ -36,7 +36,7 @@ export const PRO_TEXT_FILE_EXTENSIONS = new Set([
     "properties", "env", "csv", "tsv", "lock", "editorconfig", "gitignore",
     "gitattributes", "dockerfile", "makefile", "mk", "nix", "zig", "diff", "patch",
 ]);
-export const PRO_TEXT_FILE_NAMES = new Set([
+export const EXTENDED_TEXT_FILE_NAMES = new Set([
     "makefile", "gnumakefile", "dockerfile", "rakefile", "gemfile", "procfile",
     "justfile", "vagrantfile", "brewfile", "license", "readme", "changelog",
     "authors", "contributing", "notice", "codeowners",
@@ -94,11 +94,11 @@ export const getFileExtension = (value) => {
     return name.slice(index + 1).toLowerCase();
 };
 export const isTextFilePath = (path) => TEXT_FILE_EXTENSIONS.has(getFileExtension(path));
-export const isProTextFilePath = (path) => {
+export const isExtendedTextFilePath = (path) => {
     var _a;
-    return PRO_TEXT_FILE_EXTENSIONS.has(getFileExtension(path)) ||
-        PRO_TEXT_FILE_NAMES.has(((_a = path.split("/").pop()) !== null && _a !== void 0 ? _a : path).toLowerCase());
+    return EXTENDED_TEXT_FILE_EXTENSIONS.has(getFileExtension(path)) ||
+        EXTENDED_TEXT_FILE_NAMES.has(((_a = path.split("/").pop()) !== null && _a !== void 0 ? _a : path).toLowerCase());
 };
-export const isEditableTextFilePath = (path) => isTextFilePath(path) || isProTextFilePath(path);
+export const isEditableTextFilePath = (path) => isTextFilePath(path) || isExtendedTextFilePath(path);
 export const isImageFilePath = (path) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(path));
 export const isPdfFilePath = (path) => getFileExtension(path) === "pdf";

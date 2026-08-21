@@ -1,5 +1,4 @@
 export const initEditorTabsUi = (context, deps) => {
-    const { editorSplitButton } = context.dom;
     const tabDragDataType = "application/x-tex64-tab";
     let tabDragPayload = null;
     const setTabDragData = (event, payload) => {
@@ -158,12 +157,6 @@ export const initEditorTabsUi = (context, deps) => {
                 });
             });
         });
-        if (editorSplitButton instanceof HTMLButtonElement) {
-            editorSplitButton.addEventListener("click", () => {
-                const nextEnabled = !deps.getSplitViewEnabled();
-                deps.setSplitViewEnabled(nextEnabled);
-            });
-        }
     };
     return { render, setupInteractions };
 };

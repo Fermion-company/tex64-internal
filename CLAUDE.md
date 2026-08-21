@@ -4,8 +4,8 @@ Electron ベースの LaTeX エディタ（macOS、開発中 / `com.wedd.tex64`�
 
 このファイルは恒久的な設計方針と作業規約。直近のタスクキューは [TODO.md](TODO.md) にある（セッション開始時に確認）。
 
-アプリはトップバー左側（サイドバートグル右隣）のスイッチャーで **Code | AI | Pro** の 3 モードを持つ（[docs/app-modes.md](docs/app-modes.md)）。
-Code = 従来エディタ、AI = `services/tex64-ai`（独立 Web アプリを webview で埋め込み、Web/ネイティブ共通コードベース）、Pro = 分割レイアウト等のプロ向け UI（[docs/pro-mode-design.md](docs/pro-mode-design.md)、KKTeX 担当）。
+アプリはトップバー左側（サイドバートグル右隣）のスイッチャーで **Code | AI** の 2 モードを持つ（[docs/app-modes.md](docs/app-modes.md)）。
+Code = ソース＋プレビュー・範囲キャプチャ・スタッシュ・作図を含む自己完結エディタ、AI = `services/tex64-ai`（独立 Web アプリを webview で埋め込み、Web/ネイティブ共通コードベース）。旧 Pro モードの機能は Code に統合済み（[docs/pro-mode-design.md](docs/pro-mode-design.md)、KKTeX 担当）。
 
 ---
 

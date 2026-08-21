@@ -921,7 +921,7 @@ body.has-onboarding .launcher {
   flex-shrink: 0;
 }
 
-/* ---- App mode switcher (Code | AI | Pro) ---- */
+/* ---- App mode switcher (Code | AI) ---- */
 
 .mode-switcher {
   display: inline-flex;
@@ -994,7 +994,6 @@ body.has-onboarding .launcher {
 }
 
 :root[data-app-mode="ai"] #toggle-bottom-panel-button,
-:root[data-app-mode="ai"] #editor-split-button,
 :root[data-app-mode="ai"] #save-button,
 :root[data-app-mode="ai"] #format-button,
 :root[data-app-mode="ai"] #synctex-button,
@@ -4204,14 +4203,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 .pro-mode-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
-:root:not([data-pro-mode="true"]) .pro-mode-controls { display: none; }
+:root:not([data-app-mode="code"]) .pro-mode-controls { display: none; }
 .pro-figure-tools { display: inline-flex; align-items: center; gap: 6px; }
-.pro-layout-control { position: relative; display: inline-flex; align-items: center; }
-.pro-mode-toggle { display: inline-flex; align-items: center; gap: 6px; }
-.pro-mode-toggle-track { width: 28px; height: 16px; padding: 2px; border-radius: 999px; background: var(--panel-border-strong); transition: background .2s ease; }
-.pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
-.pro-mode-toggle.is-active .pro-mode-toggle-track { background: var(--accent); }
-.pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
 #pro-canvas-open {
   display: inline-flex;
   align-items: center;
@@ -4239,47 +4232,21 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
 }
 #pro-canvas-open:active { transform: translateY(1px); }
-.pro-layout-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--control-bg); font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
-.pro-layout-trigger:hover, .pro-layout-trigger[aria-expanded="true"] { border-color: var(--panel-border-strong); background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%); }
-.pro-layout-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.pro-layout-chevron { margin-left: 1px; transition: transform .14s ease; }
-.pro-layout-trigger[aria-expanded="true"] .pro-layout-chevron { transform: rotate(180deg); }
-.pro-layout-control.is-open::after { content: ""; position: absolute; z-index: 79; top: 100%; right: 0; width: 218px; height: 6px; }
-.pro-layout-switcher { position: absolute; z-index: 80; top: calc(100% + 5px); right: 0; display: none; flex-direction: column; gap: 2px; min-width: 218px; padding: 4px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow); }
-.pro-layout-switcher[hidden] { display: none !important; }
-.pro-layout-control.is-open .pro-layout-switcher { display: flex; }
-.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-height: 32px; border: 0; border-radius: var(--radius-sm); padding: 5px 8px; color: var(--text-soft); background: transparent; white-space: nowrap; }
-.pro-layout-switcher button:hover, .pro-layout-switcher button:focus-visible { color: var(--text); background: var(--control-bg); outline: none; }
-.pro-layout-switcher button svg { display: block; }
-.pro-layout-button-label { font-size: 10px; font-weight: 600; letter-spacing: .01em; }
-.pro-layout-switcher button[aria-checked="true"] { color: var(--accent); background: var(--panel-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
 
-/* Pro already owns the editor arrangement through the labeled layout picker. */
-:root[data-pro-mode="true"] #editor-split-button { display: none; }
-:root[data-pro-mode="true"] #toggle-bottom-panel-button { width: auto; padding: 0 7px; gap: 5px; }
-.topbar-layout-label { display: none; color: currentColor; font-size: 10px; font-weight: 600; white-space: nowrap; }
-:root[data-pro-mode="true"] .topbar-layout-label { display: inline; }
-
-@media (max-width: 1100px) {
-  :root[data-pro-mode="true"] .topbar-layout-label { display: none; }
-  :root[data-pro-mode="true"] #toggle-bottom-panel-button { width: 30px; padding: 0; }
-}
-
-:root[data-pro-mode="true"] .editor-groups {
+/* Code owns one fixed source/preview arrangement. */
+:root[data-app-mode="code"] .editor-groups {
   --pro-handle: 8px;
   --pro-strip: 34px;
-  --pro-pane-a: .34fr;
-  --pro-pane-b: .33fr;
-  --pro-pane-c: .33fr;
-  --pro-pane-rest: .66fr;
+  --pro-preview-share: .34fr;
+  --pro-source-share: .66fr;
   transition: grid-template-columns .2s ease;
 }
-:root[data-pro-mode="true"] .editor-groups.is-pro-resizing { transition: none; user-select: none; }
-:root[data-pro-mode="true"] .editor-groups.is-pro-resizing > * { transition: none !important; }
-:root[data-pro-mode="true"] .editor-groups > .editor-splitter { display: none; }
-:root[data-pro-mode="true"] .pro-pane-collapse { display: inline-flex; }
-:root[data-pro-mode="true"] .pro-pane { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
+:root[data-app-mode="code"] .editor-groups.is-pro-resizing { transition: none; user-select: none; }
+:root[data-app-mode="code"] .editor-groups.is-pro-resizing > * { transition: none !important; }
+:root[data-app-mode="code"] .editor-groups > .editor-splitter { display: none; }
+:root[data-app-mode="code"] .pro-pane-collapse { display: inline-flex; }
+:root[data-app-mode="code"] .pro-pane { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 .pro-pane-header { height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--panel-border); color: var(--text-soft); font-size: 12px; }
 .pro-pane-header > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pro-pane-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; flex: 1 1 auto; min-width: 0; }
@@ -4288,7 +4255,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-pane-actions button { flex-shrink: 1; min-width: 0; overflow: hidden; }
 /* Quiet ghost buttons for pane chrome — match .topbar-layout-toggle rather than
    the UA default bevel. */
-.pro-pane-actions button, .pro-pane-collapse, :root[data-pro-mode="true"] .pro-structure-button {
+.pro-pane-actions button, .pro-pane-collapse, :root[data-app-mode="code"] .pro-structure-button {
   margin: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -4301,7 +4268,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   cursor: pointer;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease;
 }
-.pro-pane-actions button:hover, .pro-pane-collapse:hover, :root[data-pro-mode="true"] .pro-structure-button:hover {
+.pro-pane-actions button:hover, .pro-pane-collapse:hover, :root[data-app-mode="code"] .pro-structure-button:hover {
   background: var(--control-bg);
   color: var(--text);
 }
@@ -4327,7 +4294,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-stash-item-actions button { border: none; background: transparent; }
 .pro-pane-body { position: relative; min-height: 0; }
 .pro-pane-body .editor-viewer { display: grid; }
-/* The pane's empty state is the first thing Pro mode shows; a floating card
+/* The pane's empty state is the first thing the Code workspace shows; a floating card
    with a drop shadow reads as an error dialog there. Quiet hint instead. */
 .pro-pane-body .editor-viewer-message {
   border: none;
@@ -4358,10 +4325,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-capture-confirm { display: grid; }
 .pro-capture-confirm textarea { width: 100%; min-height: 100px; resize: vertical; box-sizing: border-box; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); padding: 6px; color: var(--text); background: var(--bg); font: 11px/1.4 var(--font-mono); user-select: text; }
 .pro-capture-confirm[data-error]::after { content: attr(data-error); font-size: 10px; }
-/* The stash lives in the sidebar as its own Pro-only tab; before Pro mode is
-   on, neither the tab nor its panel exists for the user. */
-:root:not([data-pro-mode="true"]) .tab[data-tab="stash"],
-:root:not([data-pro-mode="true"]) .panel[data-panel="stash"] { display: none !important; }
+/* The stash belongs to Code and disappears while the AI surface is active. */
+:root:not([data-app-mode="code"]) .tab[data-tab="stash"],
+:root:not([data-app-mode="code"]) .panel[data-panel="stash"] { display: none !important; }
 .panel-body.pro-stash { display: flex; flex-direction: column; gap: 7px; padding: 8px; overflow-y: auto; overscroll-behavior: contain; }
 .panel[data-panel="stash"] .panel-header-actions [data-stash-count] { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; text-align: center; font-size: 10px; }
 .pro-stash-list { display: grid; gap: 5px; }
@@ -4401,50 +4367,31 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-splitter::before { content: ""; position: absolute; z-index: 3; inset: 0 auto 0 50%; width: 18px; transform: translateX(-50%); background: linear-gradient(to right, transparent calc(50% - .5px), var(--panel-border) calc(50% - .5px), var(--panel-border) calc(50% + .5px), transparent calc(50% + .5px)); transition: filter .2s ease; }
 .pro-splitter:hover::before, .is-pro-resizing .pro-splitter::before { filter: contrast(1.8); }
 
-/* Legacy: the top-bar split (division) button is retired. Split view itself
-   still works — the Pro layouts drive it — there is just no button for it.
-   Restore by deleting this rule. */
-#editor-split-button { display: none !important; }
-/* Layout 1 puts the source on the LEFT and the preview on the RIGHT (the
+/* Code puts the source on the LEFT and the preview on the RIGHT (the
    convention every LaTeX editor shares), even though the DOM keeps the preview
    pane first — hence the explicit grid-column assignments. */
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, var(--pro-pane-rest)) var(--pro-handle) minmax(0, var(--pro-pane-a)); }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-preview-pane,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="primary"] { display: grid; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-preview-pane { grid-column: 3; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-reference-pane,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-secondary,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="secondary"] { display: none; }
-
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) var(--pro-handle) minmax(0, var(--pro-pane-b)) var(--pro-handle) minmax(0, var(--pro-pane-c)); }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] .pro-preview-pane { display: none; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] .pro-reference-pane { grid-column: 3; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] #pro-splitter-secondary { display: block; grid-column: 4; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] > [data-editor-group="secondary"] { display: grid; grid-column: 5; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, 1fr) 0 var(--pro-strip); }
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="preview-source"] { grid-template-columns: var(--pro-strip) 0 minmax(0, 1fr); }
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: var(--pro-strip) 0 minmax(0, var(--pro-pane-b)) var(--pro-handle) minmax(0, var(--pro-pane-c)); }
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) 0 var(--pro-strip) 0 minmax(0, var(--pro-pane-c)); }
-:root[data-pro-mode="true"] .editor-groups.is-code-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) var(--pro-handle) minmax(0, var(--pro-pane-b)) 0 var(--pro-strip); }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane .pro-pane-body,
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] .editor-surface,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane .pro-pane-body,
-:root[data-pro-mode="true"] .editor-groups.is-code-collapsed > [data-editor-group="secondary"] .editor-surface { visibility: hidden; }
+:root[data-app-mode="code"] .editor-groups { grid-template-columns: minmax(0, var(--pro-source-share)) var(--pro-handle) minmax(0, var(--pro-preview-share)); }
+:root[data-app-mode="code"] .editor-groups .pro-preview-pane,
+:root[data-app-mode="code"] .editor-groups > [data-editor-group="primary"] { display: grid; }
+:root[data-app-mode="code"] .editor-groups > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
+:root[data-app-mode="code"] .editor-groups #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
+:root[data-app-mode="code"] .editor-groups .pro-preview-pane { grid-column: 3; grid-row: 1; }
+:root[data-app-mode="code"] .editor-groups > [data-editor-group="secondary"] { display: none; }
+:root[data-app-mode="code"] .editor-groups.is-preview-collapsed { grid-template-columns: minmax(0, 1fr) 0 var(--pro-strip); }
+:root[data-app-mode="code"] .editor-groups.is-source-collapsed { grid-template-columns: var(--pro-strip) 0 minmax(0, 1fr); }
+:root[data-app-mode="code"] .editor-groups.is-preview-collapsed .pro-preview-pane .pro-pane-body,
+:root[data-app-mode="code"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] .editor-surface { visibility: hidden; }
 /* A collapsed pane is a 34px strip; its header contents would clip into
    garbage ("Prev…"), so the strip shows only a centered expand chevron and
    invites the click-to-reopen the pane already handles. */
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane { cursor: pointer; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header { justify-content: center; padding: 0; border-bottom: 0; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header > *,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header > * { display: none; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header::after,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header::after { content: "‹"; color: var(--text-soft); font-size: 14px; }
+:root[data-app-mode="code"] .editor-groups.is-preview-collapsed .pro-preview-pane { cursor: pointer; }
+:root[data-app-mode="code"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header { justify-content: center; padding: 0; border-bottom: 0; }
+:root[data-app-mode="code"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header > * { display: none; }
+:root[data-app-mode="code"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header::after { content: "‹"; color: var(--text-soft); font-size: 14px; }
+:root[data-app-mode="code"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] { cursor: pointer; }
+:root[data-app-mode="code"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] > .editor-tabs { justify-content: center; padding: 0; border-bottom: 0; }
+:root[data-app-mode="code"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] > .editor-tabs > * { display: none; }
+:root[data-app-mode="code"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] > .editor-tabs::after { content: "›"; color: var(--text-soft); font-size: 14px; }
 
 .editor-header {
   display: flex;
@@ -4534,10 +4481,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   transform: translateY(1px);
 }
 
-#editor-split-button.is-active {
-  color: var(--text);
-}
-
 #save-button:focus-visible,
 #format-button:focus-visible,
 #synctex-button:focus-visible,
@@ -4582,7 +4525,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-structure-button,
 .pro-structure-drawer { display: none; }
 
-:root[data-pro-mode="true"] .pro-structure-button {
+:root[data-app-mode="code"] .pro-structure-button {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -4590,7 +4533,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   font-size: 11px;
 }
 
-:root[data-pro-mode="true"] .pro-structure-drawer:not([hidden]) {
+:root[data-app-mode="code"] .pro-structure-drawer:not([hidden]) {
   display: flex;
   position: absolute;
   top: calc(100% + 4px);

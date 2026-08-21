@@ -43,7 +43,6 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     isActiveGroup: coreOps.isActiveGroup,
     resolveAutoOpenGroupKey: coreOps.resolveAutoOpenGroupKey,
     findGroupKeyByPath: coreOps.findGroupKeyByPath,
-    setSplitViewEnabled: splitViewOps.setSplitViewEnabled,
     cacheCurrentBuffer: bufferOps.cacheCurrentBuffer,
     clearJumpHighlight: issueOps.clearJumpHighlight,
     clearTemporaryTabs: tabStateOps.clearTemporaryTabs,
@@ -130,4 +129,3 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     recordCursorPosition: cursorOps.recordCursorPosition,
   };
 };
-

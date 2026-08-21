@@ -45,6 +45,7 @@ const timestampName = (now = new Date()) => {
     return `capture-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.png`;
 };
 export const initProCaptureUi = (deps) => {
+    var _a;
     const bridgeWindow = window;
     let cleanup = null;
     const insertText = (text) => {
@@ -86,8 +87,9 @@ export const initProCaptureUi = (deps) => {
         (_a = canvas.getContext("2d")) === null || _a === void 0 ? void 0 : _a.drawImage(image, pixels.x, pixels.y, pixels.width, pixels.height, 0, 0, pixels.width, pixels.height);
         return canvas.toDataURL("image/png");
     };
-    const begin = (kind) => {
+    const begin = () => {
         var _a;
+        const kind = "preview";
         cleanup === null || cleanup === void 0 ? void 0 : cleanup();
         const pane = document.getElementById(`pro-${kind}-pane`);
         const body = pane === null || pane === void 0 ? void 0 : pane.querySelector(".pro-pane-body");
@@ -331,6 +333,6 @@ export const initProCaptureUi = (deps) => {
             });
         });
     };
-    document.querySelectorAll("[data-pro-capture]").forEach((button) => button.addEventListener("click", () => begin(button.dataset.proCapture)));
+    (_a = document.querySelector('[data-pro-capture="preview"]')) === null || _a === void 0 ? void 0 : _a.addEventListener("click", begin);
     return { cancel: () => cleanup === null || cleanup === void 0 ? void 0 : cleanup() };
 };

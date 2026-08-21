@@ -89,7 +89,7 @@ export const initProStructureUi = (deps) => {
     };
     const toggle = () => {
         var _a;
-        if (document.documentElement.dataset.proMode !== "true")
+        if (document.documentElement.dataset.appMode !== "code")
             return;
         if (open)
             return close();
@@ -113,15 +113,15 @@ export const initProStructureUi = (deps) => {
             return;
         }
         if ((event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey &&
-            event.key.toLowerCase() === "o" && document.documentElement.dataset.proMode === "true") {
+            event.key.toLowerCase() === "o" && document.documentElement.dataset.appMode === "code") {
             event.preventDefault();
             event.stopPropagation();
             toggle();
         }
     }, true);
     new MutationObserver(() => {
-        if (document.documentElement.dataset.proMode !== "true")
+        if (document.documentElement.dataset.appMode !== "code")
             close();
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-pro-mode"] });
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-app-mode"] });
     return { close, render, toggle };
 };

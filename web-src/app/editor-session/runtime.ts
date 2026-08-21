@@ -13,7 +13,6 @@ export type EditorSessionRuntime = {
   deps: EditorSessionDeps;
   dom: {
     editorGroupsRootEl: HTMLElement | null;
-    editorSplitButton: HTMLElement | null;
     editorSplitter: HTMLElement | null;
   };
   editorGroups: Record<EditorGroupKey, EditorGroupState>;
@@ -46,7 +45,6 @@ export const createEditorSessionRuntime = (context: AppContext, deps: EditorSess
     editorTabsListSecondary,
     editorHost,
     editorHostSecondary,
-    editorSplitButton,
     editorSplitter,
   } = context.dom;
 
@@ -110,7 +108,6 @@ export const createEditorSessionRuntime = (context: AppContext, deps: EditorSess
     deps,
     dom: {
       editorGroupsRootEl,
-      editorSplitButton: editorSplitButton instanceof HTMLElement ? editorSplitButton : null,
       editorSplitter: editorSplitter instanceof HTMLElement ? editorSplitter : null,
     },
     editorGroups,
@@ -140,4 +137,3 @@ export const createEditorSessionRuntime = (context: AppContext, deps: EditorSess
     emptyEditorModel: null,
   };
 };
-
