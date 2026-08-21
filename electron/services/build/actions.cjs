@@ -189,6 +189,9 @@ module.exports = (BuildService) => {
     }
 
     const issues = this.parseIssues(output, rootPath);
+    // The panel shows the compiler's own transcript; latexmk's console output is
+    // only the fallback for when the .log could not be read.
+    const transcript = this.readBuildTranscript(rootPath, mainFileName, { outDir, jobName }) ?? output;
     const missingGlyphIssues = this.findMissingGlyphIssues(issues);
     if (missingGlyphIssues.length > 0) {
       const summary =
@@ -197,7 +200,7 @@ module.exports = (BuildService) => {
         kind: "failure",
         summary,
         issues: missingGlyphIssues,
-        log: output,
+        log: transcript,
       };
     }
     if (status === 0) {
@@ -213,7 +216,7 @@ module.exports = (BuildService) => {
           summary: "Build succeeded",
           issues,
           pdfPath: resolvedPdfPath,
-          log: output,
+          log: transcript,
         };
       }
       const message =
@@ -222,7 +225,7 @@ module.exports = (BuildService) => {
         kind: "failure",
         summary: message,
         issues: [{ severity: "error", message, line: null }],
-        log: output,
+        log: transcript,
       };
     }
     const summary = this.failureSummary(output, issues, mainFileName);
@@ -237,7 +240,7 @@ module.exports = (BuildService) => {
         kind: "failure",
         summary,
         issues: [fallback],
-        log: output,
+        log: transcript,
       };
     }
     const summaryText = typeof summary === "string" ? summary.trim() : "";
@@ -256,7 +259,7 @@ module.exports = (BuildService) => {
       kind: "failure",
       summary: summaryForUi,
       issues: hasError ? issues : [fallback, ...issues].slice(0, 20),
-      log: output,
+      log: transcript,
     };
   };
 

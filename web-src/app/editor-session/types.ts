@@ -200,7 +200,7 @@ export type EditorSessionApi = {
     column: number | null;
     message: string;
   };
-  focusIssue: (issue: IssueItem) => void;
+  focusIssue: (issue: IssueItem, options?: { groupKey?: "primary" | "secondary" }) => void;
   handleOpenFileResult: (payload: {
     path: string;
     content?: string;

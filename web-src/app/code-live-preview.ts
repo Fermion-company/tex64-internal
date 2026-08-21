@@ -13,7 +13,22 @@
 import type { EditorGroupState } from "./editor-session/types.js";
 import type { BridgeWindow } from "./types.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
-import { createDebouncedTask } from "./pro-live-preview.js";
+
+const createDebouncedTask = (task: () => void, delayMs: number) => {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      task();
+    }, delayMs);
+  };
+  schedule.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return schedule;
+};
 
 type LiveEditor = {
   getValue?: () => string;

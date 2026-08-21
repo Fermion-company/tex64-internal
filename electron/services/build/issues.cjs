@@ -22,6 +22,13 @@ module.exports = (BuildService) => {
     };
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index] ?? "";
+      // latexmk narrates its own run ("Summary of warnings from last run of
+      // *latex:", "Errors, so I did not complete making targets"). Those lines
+      // carry no location and no advice, and whatever they are summarising is
+      // already in the list on its own, so they only add empty cards.
+      if (this.isLatexmkMetaLine(line)) {
+        continue;
+      }
       const contextPath = this.extractContextTexPath(line, rootPath);
       if (contextPath) {
         activeTexPath = contextPath;
@@ -57,6 +64,10 @@ module.exports = (BuildService) => {
     const errors = parsed.filter((issue) => issue.severity === "error");
     const warnings = parsed.filter((issue) => issue.severity === "warning");
     return errors.concat(warnings).slice(0, maxIssues);
+  };
+
+  BuildService.prototype.isLatexmkMetaLine = function (line) {
+    return typeof line === "string" && /^\s*latexmk:/i.test(line);
   };
 
   BuildService.prototype.extractMissingGlyphIssues = function (line, activeTexPath = null) {
@@ -99,10 +110,15 @@ module.exports = (BuildService) => {
   };
 
   BuildService.prototype.extractIssueSeverity = function (line) {
-    const text = typeof line === "string" ? line.trim() : "";
-    if (!text) {
+    const raw = typeof line === "string" ? line.trim() : "";
+    if (!raw) {
       return null;
     }
+    // The build runs with -file-line-error, so a real error reaches us as
+    // "./main.tex:31: Package luatex.def Error: ...". Without dropping that
+    // prefix the anchored patterns below never fire and a fatal error is
+    // silently downgraded to nothing.
+    const text = raw.replace(/^(?:\.[\\/])?[^\s:]+:\d+(?::\d+)?:\s*/, "") || raw;
     const lower = text.toLowerCase();
     if (
       text.startsWith("!") ||
@@ -219,6 +235,14 @@ module.exports = (BuildService) => {
       normalized = path.relative(rootPath, normalized);
     }
     if (!normalized || normalized === ".") {
+      return null;
+    }
+    // A distribution file (TeX Live's keyval.tex and friends) is not something
+    // the user can open and fix, and TeX names them constantly while loading
+    // packages. Treating one as the issue's location sends the reader into
+    // /usr/local/texlive instead of their own document, so refuse it and let
+    // the caller fall back to a path inside the project.
+    if (normalized.startsWith("..") || path.isAbsolute(normalized)) {
       return null;
     }
     return normalized;

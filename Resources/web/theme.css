@@ -321,6 +321,157 @@ body.has-launcher .app {
   visibility: hidden;
 }
 
+/* =============================================================================
+   Onboarding gate — the only screen a machine without TeX ever sees first
+   ============================================================================= */
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  /* Above the launcher: TeX has to be answered before a project is picked. */
+  z-index: 30;
+}
+
+.onboarding.is-visible {
+  display: flex;
+}
+
+/* Hide both the app and the launcher underneath, so nothing shows through. */
+body.has-onboarding {
+  overflow: hidden;
+}
+body.has-onboarding .app,
+body.has-onboarding .launcher {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.onboarding-card {
+  width: min(620px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.onboarding-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+}
+
+.onboarding-brand-name {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-soft);
+}
+
+.onboarding-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.onboarding-step.is-hidden {
+  display: none;
+}
+
+.onboarding-headline {
+  font-size: 22px;
+  font-weight: 680;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.onboarding-sub {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+.onboarding-choices {
+  margin-top: 6px;
+}
+
+.onboarding-note {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 211, 138, 0.32);
+  background: rgba(255, 211, 138, 0.08);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+.onboarding-note.is-hidden {
+  display: none;
+}
+
+.onboarding-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.onboarding-gauge-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-border);
+  overflow: hidden;
+}
+
+/* Width is driven from JS, not a CSS animation, so the bar keeps advancing
+   under prefers-reduced-motion. */
+.onboarding-gauge-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.onboarding-gauge-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-gauge-percent {
+  font-size: 26px;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.onboarding-gauge-eta {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.onboarding-gauge-phase {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-gauge-fill {
+    transition: none;
+  }
+}
+
 /* Two column container */
 .launcher-container {
   display: flex;
@@ -2271,6 +2422,15 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .panel[data-panel="settings"] .settings-group-title::before {
   display: none;
 }
+/* A framed block as the group's first child put its own top border 0px under
+   the title's rule — two lines touching. The group card is already the frame;
+   inside settings this content is frameless, like every other group's. */
+.panel[data-panel="settings"] .env-registry {
+  padding: 16px 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
 /* Rows: label on the left, control on the right */
 .panel[data-panel="settings"] .settings-item {
   display: flex;
@@ -3284,6 +3444,85 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   transform: none;
 }
 
+/* Detection line: which TeX we found, and where. Kept quiet — it is reassurance,
+   not an instruction. */
+.env-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.env-choice {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.env-choice-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px;
+  text-align: left;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+}
+.env-choice-card:hover {
+  border-color: var(--accent-soft-strong);
+  background: var(--accent-soft);
+  transform: translateY(-1px);
+}
+.env-choice-card:active {
+  transform: translateY(0) scale(0.995);
+}
+.env-choice-card.is-primary {
+  border-color: var(--accent-soft-strong);
+}
+
+.env-choice-badge {
+  min-height: 16px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+.env-choice-card:not(.is-primary) .env-choice-badge {
+  opacity: 0;
+}
+
+.env-choice-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.env-choice-detail {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.env-choice-size {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-soft);
+  opacity: 0.85;
+}
+
 .env-install-note {
   margin-top: 12px;
 }
@@ -3964,14 +4203,16 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: none;
 }
 
-.pro-mode-controls { display: inline-flex; align-items: center; gap: 6px; }
+.pro-mode-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
+:root:not([data-pro-mode="true"]) .pro-mode-controls { display: none; }
+.pro-figure-tools { display: inline-flex; align-items: center; gap: 6px; }
+.pro-layout-control { position: relative; display: inline-flex; align-items: center; }
 .pro-mode-toggle { display: inline-flex; align-items: center; gap: 6px; }
 .pro-mode-toggle-track { width: 28px; height: 16px; padding: 2px; border-radius: 999px; background: var(--panel-border-strong); transition: background .2s ease; }
 .pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
 .pro-mode-toggle.is-active .pro-mode-toggle-track { background: var(--accent); }
 .pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
-#pro-canvas-open,
-#pro-canvas-gallery {
+#pro-canvas-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3991,23 +4232,39 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   cursor: pointer;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
-#pro-canvas-open[hidden],
-#pro-canvas-gallery[hidden] { display: none; }
-#pro-canvas-open:hover,
-#pro-canvas-gallery:hover {
+#pro-canvas-open[hidden] { display: none; }
+#pro-canvas-open:hover {
   color: var(--text);
   border-color: var(--panel-border-strong);
   background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
 }
-#pro-canvas-open:active,
-#pro-canvas-gallery:active { transform: translateY(1px); }
-.pro-layout-switcher { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--control-bg); }
-.pro-layout-switcher[hidden] { display: none; }
-.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 22px; margin: 0; padding: 0 4px; border: none; border-radius: calc(var(--radius-sm) - 2px); background: transparent; color: var(--muted); cursor: pointer; transition: background var(--duration-fast) ease, color var(--duration-fast) ease; }
-.pro-layout-switcher button:hover { color: var(--text-soft); }
+#pro-canvas-open:active { transform: translateY(1px); }
+.pro-layout-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--control-bg); font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.pro-layout-trigger:hover, .pro-layout-trigger[aria-expanded="true"] { border-color: var(--panel-border-strong); background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%); }
+.pro-layout-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pro-layout-chevron { margin-left: 1px; transition: transform .14s ease; }
+.pro-layout-trigger[aria-expanded="true"] .pro-layout-chevron { transform: rotate(180deg); }
+.pro-layout-control.is-open::after { content: ""; position: absolute; z-index: 79; top: 100%; right: 0; width: 218px; height: 6px; }
+.pro-layout-switcher { position: absolute; z-index: 80; top: calc(100% + 5px); right: 0; display: none; flex-direction: column; gap: 2px; min-width: 218px; padding: 4px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow); }
+.pro-layout-switcher[hidden] { display: none !important; }
+.pro-layout-control.is-open .pro-layout-switcher { display: flex; }
+.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-height: 32px; border: 0; border-radius: var(--radius-sm); padding: 5px 8px; color: var(--text-soft); background: transparent; white-space: nowrap; }
+.pro-layout-switcher button:hover, .pro-layout-switcher button:focus-visible { color: var(--text); background: var(--control-bg); outline: none; }
 .pro-layout-switcher button svg { display: block; }
-.pro-layout-switcher button[aria-pressed="true"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 1px var(--panel-border-strong); }
+.pro-layout-button-label { font-size: 10px; font-weight: 600; letter-spacing: .01em; }
+.pro-layout-switcher button[aria-checked="true"] { color: var(--accent); background: var(--panel-strong); }
 .pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
+
+/* Pro already owns the editor arrangement through the labeled layout picker. */
+:root[data-pro-mode="true"] #editor-split-button { display: none; }
+:root[data-pro-mode="true"] #toggle-bottom-panel-button { width: auto; padding: 0 7px; gap: 5px; }
+.topbar-layout-label { display: none; color: currentColor; font-size: 10px; font-weight: 600; white-space: nowrap; }
+:root[data-pro-mode="true"] .topbar-layout-label { display: inline; }
+
+@media (max-width: 1100px) {
+  :root[data-pro-mode="true"] .topbar-layout-label { display: none; }
+  :root[data-pro-mode="true"] #toggle-bottom-panel-button { width: 30px; padding: 0; }
+}
 
 :root[data-pro-mode="true"] .editor-groups {
   --pro-handle: 8px;
@@ -4025,19 +4282,12 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 :root[data-pro-mode="true"] .pro-pane { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 .pro-pane-header { height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--panel-border); color: var(--text-soft); font-size: 12px; }
 .pro-pane-header > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The live status only ever takes the header's spare width (flex-basis 0), so
-   it can never push the buttons out of the pane. */
 .pro-pane-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; flex: 1 1 auto; min-width: 0; }
-.pro-pane-actions button { flex-shrink: 0; }
-.pro-live-status { align-self: center; flex: 1 1 0; max-width: 150px; min-width: 0; overflow: hidden; color: var(--text-soft); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.pro-live-status.is-error { color: var(--danger); }
-#pro-preview-live-toggle.is-active { color: white; background: var(--accent); }
-.pro-preview-live { display: none; width: 100%; height: 100%; border: 0; background: white; }
-.pro-preview-live.is-visible { display: block; }
-.editor-viewer.is-live-hidden { display: none !important; }
+/* Safety net for the same failure: even if the header runs out of room, the
+   buttons squash instead of spilling out of the pane and going dead. */
+.pro-pane-actions button { flex-shrink: 1; min-width: 0; overflow: hidden; }
 /* Quiet ghost buttons for pane chrome — match .topbar-layout-toggle rather than
-   the UA default bevel. The Live toggle's accent .is-active state (above, by id)
-   still wins over these. */
+   the UA default bevel. */
 .pro-pane-actions button, .pro-pane-collapse, :root[data-pro-mode="true"] .pro-structure-button {
   margin: 0;
   border: 1px solid transparent;
@@ -4108,48 +4358,42 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .pro-capture-confirm { display: grid; }
 .pro-capture-confirm textarea { width: 100%; min-height: 100px; resize: vertical; box-sizing: border-box; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); padding: 6px; color: var(--text); background: var(--bg); font: 11px/1.4 var(--font-mono); user-select: text; }
 .pro-capture-confirm[data-error]::after { content: attr(data-error); font-size: 10px; }
-.pro-stash { display: none; position: fixed; right: 16px; bottom: 16px; z-index: 45; width: min(340px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: min(70vh, 620px); overflow: hidden; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-lg); background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
-html[data-pro-mode="true"] .pro-stash { display: block; }
-html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
-.pro-stash[data-side="left"] { right: auto; left: 16px; }
-.pro-stash > header { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 7px; border-bottom: 1px solid var(--panel-border); cursor: grab; touch-action: none; }
-.pro-stash.is-positioning > header { cursor: grabbing; }
-.pro-stash > header strong { flex: 1; font-size: 12px; }
-/* Header controls are ghost buttons; the chip look is for the body's actions. */
-.pro-stash > header button { border-color: transparent; background: transparent; color: var(--text-soft); }
-.pro-stash > header button:hover { border-color: transparent; background: var(--control-bg); color: var(--text); }
-.pro-stash > header [data-stash-toggle] { min-width: 22px; padding: 2px 0; font-size: 10px; }
-.pro-stash [data-stash-selection] { min-height: 26px; color: var(--text-soft); }
-.pro-stash [data-stash-selection]:hover { color: var(--text); }
-/* AI edit is the tray's one primary action. */
-.pro-stash [data-stash-ai] { padding: 2px 12px; border-color: transparent; background: var(--accent); color: white; }
-.pro-stash [data-stash-ai]:hover { border-color: transparent; background: var(--accent-strong); color: white; }
-.pro-stash [data-stash-ai]:disabled { opacity: .5; cursor: default; }
-.pro-stash > header [data-stash-count] { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; text-align: center; font-size: 10px; }
-.pro-stash.is-collapsed { width: auto !important; border-radius: 999px; }
-.pro-stash.is-collapsed > header { min-height: 28px; padding: 2px 7px; border: 0; }
-.pro-stash.is-collapsed > header strong::after { content: " " attr(data-count); }
-.pro-stash.is-collapsed [data-stash-clear], .pro-stash.is-collapsed .pro-stash-body, .pro-stash.is-collapsed .pro-stash-resizer { display: none; }
-.pro-stash-body { display: grid; gap: 7px; padding: 8px; overflow: auto; max-height: calc(min(70vh, 620px) - 35px); }
+/* The stash lives in the sidebar as its own Pro-only tab; before Pro mode is
+   on, neither the tab nor its panel exists for the user. */
+:root:not([data-pro-mode="true"]) .tab[data-tab="stash"],
+:root:not([data-pro-mode="true"]) .panel[data-panel="stash"] { display: none !important; }
+.panel-body.pro-stash { display: flex; flex-direction: column; gap: 7px; padding: 8px; overflow-y: auto; overscroll-behavior: contain; }
+.panel[data-panel="stash"] .panel-header-actions [data-stash-count] { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; text-align: center; font-size: 10px; }
 .pro-stash-list { display: grid; gap: 5px; }
 .pro-stash-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 42px; padding: 5px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--bg); cursor: pointer; }
-.pro-stash-item > b { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--accent); color: white; font-size: 10px; }
+.pro-stash-item > b { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--accent); color: white; font-size: 10px; cursor: grab; }
+.pro-stash-item.is-dragging > b { cursor: grabbing; }
 .pro-stash-item img { width: 100%; height: 68px; object-fit: contain; background: white; transition: height .18s ease; }
 .pro-stash-item.is-expanded img { height: min(42vh, 320px); }
-.pro-stash-item pre { margin: 0; max-height: 48px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.35 var(--font-mono); }
+/* Fragments are there to be copied out, so keep them selectable. */
+.pro-stash-item pre { margin: 0; max-height: 48px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.35 var(--font-mono); user-select: text; cursor: text; }
 .pro-stash-item.is-expanded pre { max-height: 220px; overflow: auto; }
-.pro-stash-item-actions { display: grid; grid-template-columns: repeat(2, 23px); gap: 2px; }
+.pro-stash-item-actions { display: grid; grid-template-columns: repeat(2, 23px); grid-auto-rows: 20px; gap: 2px; }
+.pro-stash-item-actions .is-copy { grid-area: 1 / 1; }
+.pro-stash-item-actions .is-remove { grid-area: 2 / 1; }
+.pro-stash-item-actions .is-move-up { grid-area: 1 / 2; }
+.pro-stash-item-actions .is-move-down { grid-area: 2 / 2; }
 .pro-stash-item-actions button { min-width: 23px; min-height: 20px; padding: 0; }
-.pro-stash-item-actions button:last-child { opacity: 0; color: var(--danger); transition: opacity .15s ease; }
-.pro-stash-item:hover .pro-stash-item-actions button:last-child, .pro-stash-item:focus-within .pro-stash-item-actions button:last-child { opacity: 1; }
+.pro-stash-item-actions .is-remove { opacity: 0; color: var(--danger); transition: opacity .15s ease; }
+.pro-stash-item:hover .pro-stash-item-actions .is-remove, .pro-stash-item:focus-within .pro-stash-item-actions .is-remove { opacity: 1; }
 .pro-stash-item.is-dragging { opacity: .45; }
 .pro-stash-item.is-drag-over { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pro-stash-dropzone { padding: 7px; border: 1px dashed var(--panel-border-strong); border-radius: var(--radius-sm); color: var(--text-soft); text-align: center; font-size: 10px; }
 .pro-stash-dropzone.is-drag-over { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.pro-stash-resizer { position: absolute; z-index: 2; inset: 0 auto 0 -5px; width: 11px; cursor: ew-resize; touch-action: none; }
 .pro-stash textarea { width: 100%; resize: vertical; box-sizing: border-box; padding: 6px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--bg); font-family: inherit; font-size: 11px; line-height: 1.4; }
-.pro-stash-actions, .pro-stash-output { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.pro-stash-add, .pro-stash-actions, .pro-stash-output { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .pro-stash-output[hidden] { display: none; }
+.pro-stash-add button { min-height: 26px; color: var(--text-soft); }
+.pro-stash-add button:hover { color: var(--text); }
+/* AI edit is the tray's one primary action. */
+.pro-stash [data-stash-ai] { padding: 2px 12px; border-color: transparent; background: var(--accent); color: white; }
+.pro-stash [data-stash-ai]:hover { border-color: transparent; background: var(--accent-strong); color: white; }
+.pro-stash [data-stash-ai]:disabled { opacity: .5; cursor: default; }
 .pro-stash-actions [data-stash-status] { flex: 1; color: var(--text-soft); font-size: 10px; overflow-wrap: anywhere; }
 .pro-stash.is-result .pro-stash-list { border-left: 3px solid var(--accent); padding-left: 5px; }
 @keyframes pro-capture-spin { to { transform: rotate(360deg); } }
@@ -4157,7 +4401,10 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 .pro-splitter::before { content: ""; position: absolute; z-index: 3; inset: 0 auto 0 50%; width: 18px; transform: translateX(-50%); background: linear-gradient(to right, transparent calc(50% - .5px), var(--panel-border) calc(50% - .5px), var(--panel-border) calc(50% + .5px), transparent calc(50% + .5px)); transition: filter .2s ease; }
 .pro-splitter:hover::before, .is-pro-resizing .pro-splitter::before { filter: contrast(1.8); }
 
-:root[data-pro-mode="true"] #editor-split-button { display: none; }
+/* Legacy: the top-bar split (division) button is retired. Split view itself
+   still works — the Pro layouts drive it — there is just no button for it.
+   Restore by deleting this rule. */
+#editor-split-button { display: none !important; }
 /* Layout 1 puts the source on the LEFT and the preview on the RIGHT (the
    convention every LaTeX editor shares), even though the DOM keeps the preview
    pane first — hence the explicit grid-column assignments. */
@@ -4411,8 +4658,9 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
 }
 
 #build-button {
-  width: 30px;
-  padding: 0;
+  min-width: 30px;
+  padding: 0 8px;
+  gap: 4px;
   margin-left: 2px;
   border-color: rgba(121, 126, 249, 0.45);
   background: rgba(121, 126, 249, 0.18);
@@ -4506,6 +4754,10 @@ html[data-pro-mode="true"] body.has-launcher .pro-stash { display: none; }
   border: 2px solid currentColor;
   border-top-color: transparent;
   animation: build-spin 0.8s linear infinite;
+}
+
+.build-button-label {
+  white-space: nowrap;
 }
 
 #save-file-button {
@@ -5468,19 +5720,33 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 
 .issues-panel-body {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* The log row must be allowed to shrink (minmax(0, auto), not auto), or an
+     open transcript pushes its own content out past the bottom of the panel
+     where .panel-body's overflow: hidden simply cuts it off. */
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, auto);
   gap: 8px;
   height: 100%;
   min-height: 0;
 }
 
 .issues-log {
+  display: grid;
+  grid-template-rows: auto;
+  min-height: 0;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
   background: var(--panel-strong);
   padding: 8px 10px;
   color: var(--text-soft);
   font-size: 11px;
+}
+
+/* Open: summary on top, transcript filling every pixel below it. The cap lives
+   on the box, not on the <pre>, so the text runs to the bottom of the card
+   instead of stopping short and leaving dead space under itself. */
+.issues-log[open] {
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(340px, 46vh);
 }
 
 .issues-log-summary {
@@ -5490,10 +5756,48 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   letter-spacing: 0.06em;
 }
 
+/* Marked lines inside the transcript: the few that matter among thousands of
+   package banners, so opening the log lands somewhere useful. */
+.issues-log-content .build-log-line {
+  display: inline-block;
+  width: 100%;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border-left: 2px solid transparent;
+  color: var(--text);
+  background: transparent;
+}
+
+.issues-log-content .build-log-line.is-error {
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.issues-log-content .build-log-line.is-warning {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+}
+
+.issues-log-content .build-log-line.is-context {
+  border-left-color: var(--danger-border);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  color: var(--text-soft);
+}
+
 .issues-log-content {
+  /* Positioned so a marked line's offsetTop is measured against the scroll box
+     itself — otherwise the jump-to-mark offset is computed against whatever
+     positioned ancestor happens to be outside it. */
+  position: relative;
   margin: 8px 0 0;
-  max-height: 220px;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
   font-family: "SF Mono", Menlo, monospace;
   font-size: 10px;
   line-height: 1.5;
@@ -5511,124 +5815,163 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 12px 14px;
+  /* No inset of its own: the cards line up with the Detailed log card, which
+     sits directly in the panel body and only gets the body's own padding. */
+  padding: 0;
   overflow: auto;
   height: 100%;
 }
 
+/* The card is a quiet surface on the panel, not a sticker floating over it:
+   an even faint tint carries the severity on its own — no accent bar, no
+   hover lift. */
 .issue-item {
-  text-align: left;
+  display: grid;
+  gap: 6px;
+  /* The list is a flex column, so without this the cards shrink to fit instead
+     of the list scrolling — which squashed their last line into the border. */
+  flex: 0 0 auto;
+  min-height: 76px;
+  padding: 10px 12px;
   border: 1px solid var(--panel-border);
-  border-left-width: 4px;
   border-radius: var(--radius-md);
   background: var(--bg-accent);
-  padding: 11px 12px;
-  display: grid;
-  gap: 8px;
   color: var(--text);
-  cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.issue-item:hover {
-  border-color: rgba(148, 163, 184, 0.55);
-  background: rgba(38, 46, 56, 0.72);
-  transform: translateY(-1px);
-}
-
+/* An error stopped the build; a warning did not. Keep the two tints far
+   enough apart that the difference reads at a glance — the faint tokens are
+   ~5% alpha and both land on the same washed-out warm colour. */
 .issue-item[data-severity="error"] {
-  border-left-color: var(--danger);
-  border-color: rgba(248, 81, 73, 0.35);
-  background: rgba(248, 81, 73, 0.12);
+  border-color: var(--danger-border);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 
 .issue-item[data-severity="warning"] {
-  border-left-color: var(--warning);
-  border-color: rgba(210, 153, 34, 0.28);
-  background: rgba(210, 153, 34, 0.1);
+  border-color: var(--warning-border);
+  background: color-mix(in srgb, var(--warning) 13%, transparent);
 }
 
-.issue-header {
+.issue-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Filled sign, drawn rather than worded: disc = stopped, triangle = did not. */
+.issue-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+}
+
+.issue-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: currentColor;
+}
+
+.issue-icon .issue-icon-glyph {
+  fill: none;
+  stroke: var(--bg);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.issue-icon .issue-icon-dot { fill: var(--bg); }
+
+.issue-icon-error { color: var(--danger); }
+
+.issue-icon-warning { color: var(--warning); }
+
+/* Which family of problem this is — the first thing anyone should read. */
+.issue-kind {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 12px;
-  color: var(--text-soft);
-}
-
-.issue-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.issue-badge-error {
-  background: var(--danger-soft);
-  color: var(--danger-text);
-}
-
-.issue-badge-warning {
-  background: var(--warning-soft);
-  color: var(--warning-text);
-}
-
-.issue-location {
-  color: var(--text-soft);
-  font-family: "SF Mono", Menlo, monospace;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
-.issue-message {
+/* Where it happened, stated rather than offered: the card itself is the button. */
+.issue-location {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-main {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.issue-main { cursor: pointer; }
+
+.issue-summary {
   font-size: 13px;
   line-height: 1.45;
   color: var(--text);
-  font-weight: 500;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.issue-extra {
-  border-top: 1px dashed rgba(255, 255, 255, 0.12);
-  padding-top: 6px;
-  display: grid;
-  gap: 3px;
-}
-
-.issue-resolution {
-  font-size: 11px;
-  line-height: 1.45;
+.issue-fix {
+  font-size: 11.5px;
+  line-height: 1.5;
   color: var(--text-soft);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.issue-hintline {
+.issue-jump {
+  justify-self: start;
+  margin-top: 2px;
   font-size: 11px;
-  color: var(--text-soft);
-}
-
-.issue-item[data-action="open-runtime"] .issue-hintline {
   color: var(--accent-strong);
-  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
-.issue-item:disabled {
-  cursor: default;
-  opacity: 0.7;
+button.issue-main:hover .issue-jump { text-decoration: underline; }
+
+button.issue-main:hover .issue-summary { color: var(--accent-strong); }
+
+.issue-item:has(button.issue-main:hover) .issue-location { color: var(--accent-strong); }
+
+.issue-log {
+  margin: 2px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-soft);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.issue-item:disabled:hover {
-  border-color: var(--panel-border);
-  background: var(--bg-accent);
-  transform: none;
-}
+.issue-log[hidden] { display: none; }
 
 .monaco-editor .issue-line-highlight {
   background: rgba(248, 81, 73, 0.24);
@@ -9070,6 +9413,7 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-separator { width: 1px; height: 24px; margin: 0 4px; background: var(--panel-border); }
 .pro-canvas-toolbar button,
 .pro-canvas-bottom button,
+.pro-canvas-code-popover button,
 .pro-canvas-inspector button {
   color: var(--text);
   border: 1px solid var(--panel-border);
@@ -9224,10 +9568,6 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-swatch { position: relative; }
 .pro-canvas-swatch input[type="color"] { width: 100%; height: 32px; padding: 2px; border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel); }
 .pro-canvas-swatch input[type="checkbox"] { position: absolute; top: -3px; right: -3px; width: 14px; height: 14px; }
-.pro-canvas-named { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.pro-canvas-chip { padding: 4px 9px !important; border-radius: 999px !important; font-size: 11px; }
-.pro-canvas-chip.is-active { border-color: var(--accent); color: var(--accent); }
-.pro-canvas-project-chip { opacity: .72; }
 .pro-canvas-style-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 5px 0; }
 .pro-canvas-style-row select { width: 68px; flex: 0 0 auto; min-width: 0; }
 .pro-canvas-style-row .pro-canvas-segments { flex: 0 0 auto; }
@@ -9256,11 +9596,9 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-style > details { grid-column: 1 / -1; padding-top: 3px; border-top: 1px solid var(--panel-border); }
 .pro-canvas-style > details summary { margin-bottom: 6px; cursor: pointer; color: var(--text-soft); }
 .pro-canvas-style > details label { margin-bottom: 6px; }
-.pro-canvas-project-heading { flex-basis: 100%; margin-top: 6px; font-size: 10px; font-weight: 600; color: var(--text-soft); }
-.pro-canvas-symbols { display: flex; flex-wrap: wrap; gap: 6px; }
-.pro-canvas-symbol-row { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, 24px); align-items: center; gap: 3px; }
-.pro-canvas-symbol-row button { width: 24px; height: 24px; padding: 0; }
 .pro-canvas-empty { margin: 0 0 16px; color: var(--text-soft); font-size: 12px; }
+.pro-canvas-inspector-empty { margin: 0; }
+.pro-canvas-inspector-empty[hidden] { display: none; }
 .pro-canvas-status { position: absolute; z-index: 2; left: 12px; bottom: 34px; display: none; max-width: calc(100% - 24px); padding: 5px 9px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
 .pro-canvas-status:not(:empty) { display: block; }
 .pro-canvas-status.is-error { color: var(--danger, #dc2626); border-color: var(--danger, #dc2626); }
@@ -9270,23 +9608,26 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 .pro-canvas-more-menu button { border: 0; text-align: left; background: transparent; }
 .pro-canvas-ghost { border-color: transparent !important; background: transparent !important; }
 .pro-canvas-secondary { background: transparent !important; }
-body:has(.pro-canvas-overlay) .pro-stash { display: none !important; }
-.pro-canvas-gallery-modal { z-index: 10005; }
+/* These two popovers are modal prompts, so pin them to one predictable spot --
+   centred just under the top bar -- instead of letting `left: 50%` with no
+   transform push them off to the right. `var(--panel-bg)` was never defined,
+   which is why the panel used to render see-through, and nothing styled the
+   controls, which is why the buttons came out as raw native chrome. */
 .pro-canvas-code-popover {
-  position: absolute; z-index: 2; left: 50%; top: 20%; width: min(620px, 80vw);
-  padding: 12px; border: 1px solid var(--panel-border); border-radius: 8px;
-  background: var(--panel-bg); box-shadow: 0 12px 36px rgb(0 0 0 / 28%);
+  position: absolute; z-index: 14; left: 50%; top: 64px; transform: translateX(-50%);
+  box-sizing: border-box; width: min(620px, calc(100% - 32px));
+  padding: 14px; border: 1px solid var(--panel-border); border-radius: 10px;
+  color: var(--text);
+  background: linear-gradient(var(--panel-strong), var(--panel-strong)), var(--bg);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 38%);
 }
 .pro-canvas-code-popover textarea { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; resize: vertical; }
+.pro-canvas-code-popover textarea, .pro-canvas-text-popover input {
+  padding: 6px 8px; color: var(--text); border: 1px solid var(--panel-border);
+  border-radius: 6px; background: var(--control-bg); font: inherit;
+}
+.pro-canvas-code-popover textarea:focus, .pro-canvas-text-popover input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .pro-canvas-code-popover button { margin-right: 6px; }
+.pro-canvas-code-popover button.is-primary { color: white; border-color: var(--accent); background: var(--accent); }
+.pro-canvas-text-popover label { color: var(--text-soft); font-size: 11px; }
 .pro-canvas-text-popover label, .pro-canvas-text-popover input { display: block; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
-/* 一覧の行（auto トラック）は min-content より縮まないので、明示的に
-   minmax(0, 1fr) を与えないとカードの max-height を突き抜けて「閉じる」まで
-   画面外へ流れる。中身が伸びるのは真ん中の一覧だけ。 */
-.pro-canvas-gallery-card { width: min(720px, calc(100vw - 32px)); max-height: min(80vh, 760px); grid-template-rows: auto minmax(0, 1fr) auto; }
-.pro-canvas-gallery-list { display: grid; gap: 8px; align-content: start; overflow: auto; min-height: 0; }
-.pro-canvas-gallery-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 1px solid var(--panel-border); border-radius: 6px; }
-.pro-canvas-gallery-thumbnail { display: grid; place-items: center; width: 160px; min-height: 90px; overflow: hidden; color: var(--text-soft); background: white; }
-.pro-canvas-gallery-thumbnail img { display: block; max-width: 160px; max-height: 120px; }
-.pro-canvas-gallery-label { min-width: 0; }
-.pro-canvas-gallery-detached { padding: 2px 5px; border-radius: 999px; color: var(--danger, #dc2626); background: color-mix(in srgb, var(--danger, #dc2626) 12%, transparent); font-size: 10px; }

@@ -1,3 +1,4 @@
+import type { TexEnvReport } from "./tex-env-report.js";
 import type {
   BuildState,
   BridgeWindow,
@@ -118,7 +119,8 @@ type BridgeHandlersDeps = {
   };
   settings?: {
     updateEnvStatus: (command: string, available: boolean) => void;
-    handleEnvInstallStart?: (payload: { target?: string }) => void;
+    handleEnvDetectResult?: (payload: { report?: TexEnvReport | null; error?: string }) => void;
+    handleEnvInstallStart?: (payload: { target?: string; variant?: string }) => void;
     handleEnvInstallResult?: (payload: {
       target?: string;
       success?: boolean;
@@ -443,9 +445,14 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           Boolean((message.payload as { available?: boolean }).available)
         );
         break;
+      case "env:detectResult":
+        deps.settings?.handleEnvDetectResult?.(
+          message.payload as { report?: TexEnvReport | null; error?: string }
+        );
+        break;
       case "env:installStart":
         deps.settings?.handleEnvInstallStart?.(
-          message.payload as { target?: string }
+          message.payload as { target?: string; variant?: string }
         );
         break;
       case "env:installResult":

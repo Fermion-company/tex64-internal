@@ -10,7 +10,23 @@
 // and chrome. Turning the flag off restores the static PDF everywhere and
 // stops the engine.
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
-import { createDebouncedTask } from "./pro-live-preview.js";
+const createDebouncedTask = (task, delayMs) => {
+    let timer = null;
+    const schedule = () => {
+        if (timer)
+            clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = null;
+            task();
+        }, delayMs);
+    };
+    schedule.cancel = () => {
+        if (timer)
+            clearTimeout(timer);
+        timer = null;
+    };
+    return schedule;
+};
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
 export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getPdfViewerMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, }) => {
     const bridge = window.tex64Tdom;

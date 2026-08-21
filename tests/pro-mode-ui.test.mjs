@@ -36,14 +36,19 @@ test("Pro pane ratios are normalized and clamped", () => {
 test("Pro mode state restores valid persisted values", () => {
   const state = parseProModeState(JSON.stringify({
     enabled: true,
-    layout: "source-reference-code",
+    layout: "preview-source",
     ratios: [2, 1, 1],
     collapsed: { preview: true, source: false, reference: true, code: false },
   }));
   assert.equal(state.enabled, true);
-  assert.equal(state.layout, "source-reference-code");
+  assert.equal(state.layout, "preview-source");
   assert.deepEqual(state.collapsed, { preview: true, source: false, reference: true, code: false });
   assert.deepEqual(state.ratios, [0.5, 0.25, 0.25]);
+});
+
+test("Pro mode state preserves the three-pane layout", () => {
+  const state = parseProModeState(JSON.stringify({ enabled: true, layout: "source-reference-code" }));
+  assert.equal(state.layout, "source-reference-code");
 });
 
 test("Pro mode state safely falls back for corrupt storage", () => {

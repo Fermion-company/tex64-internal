@@ -15,10 +15,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
+const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { NO_FILE_ACCESS } = require("./engine-dir.cjs");
 const { getPreferredTexliveBinDirs } = require("./texlive-paths.cjs");
-const { findAvailablePort } = require("./fermion-engine.cjs");
 
 // Off the tdom dev default (4633) so a manually run `npm start` in the
 // checkout and the embedded engine don't race for the same port.
@@ -28,6 +28,27 @@ const DEFAULT_PORT = 4646;
 const DEFAULT_START_TIMEOUT_MS = 90_000;
 const ENGINE_NAME = "tdom-core";
 const MARKER = "server.js";
+
+const isPortAvailable = (port) => new Promise((resolve) => {
+  const server = net.createServer();
+  server.unref();
+  server.once("error", () => resolve(false));
+  server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+});
+
+const findAvailablePort = async (preferred = DEFAULT_PORT) => {
+  if (await isPortAvailable(preferred)) return preferred;
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close(() => port ? resolve(port) : reject(new Error("could not allocate a TDOM port")));
+    });
+  });
+};
 
 const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
   new Promise((resolve, reject) => {

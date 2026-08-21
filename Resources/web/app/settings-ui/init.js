@@ -134,6 +134,7 @@ export const initSettingsUi = (context, deps) => {
         getSettingsSnapshot,
         applySettingsPatch,
         checkEnvironmentStatus: envOps.checkEnvironmentStatus,
+        handleEnvDetectResult: envOps.handleEnvDetectResult,
         updateEnvStatus: envOps.updateEnvStatus,
         handleEnvInstallStart: envOps.handleEnvInstallStart,
         handleEnvInstallResult: envOps.handleEnvInstallResult,

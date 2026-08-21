@@ -62,7 +62,7 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 - `electron/services/openprism/` — AI エージェントループ（`run-loop.cjs` / `tools.cjs` / `llm-config.cjs` / `arxiv-service.cjs`）。
 - `electron/services/agent-*.cjs` — エージェントのプロンプト・ツール実行・編集安全ガード（`agent-tools-file.cjs` に編集の決定的ガード）。
-- `electron/services/env.cjs` — managed TeX 環境のインストール（`buildInstallProfile` = `scheme-full`）。
+- `electron/services/env.cjs` — managed TeX 環境の `scheme-full` インストールと環境判定（`detectEnvironment`）。判定の純粋ロジックは `tex-detect.cjs`。
 - `electron/services/texlab/` — texlab プロセスの spawn と JSON-RPC over stdio の中継。
 - `electron/services/{build,synctex,spell,math-ocr,terminal,indexer,search}.cjs` — ビルド / SyncTeX / スペル / 数式OCR / ターミナル / 索引 / 検索。
 - `web-src/math/wysiwyg/` — 数式 WYSIWYG サジェスト（コア機能）。`triggers-data/manual-part-*.ts` がトリガー辞書。
@@ -129,9 +129,15 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 ### TeX 環境（managed install）
 
-- **ワンクリックで `scheme-full`（CTAN 全部）を一括導入**する方針で確定。「軽量化」「scheme-small＋オンデマンド」「段階導入」を**蒸し返さない**。
-- 思想: 複雑さゼロで押すだけ、を最優先。速さ/容量より one-click simplicity。長い待ちは「実 % の進捗バー（install-tl/tlmgr の `[n/m]` を解析）」で許容される — **進捗の見せ方を磨く**のが仕事。
-- 実体は `electron/services/env.cjs`（`/Users/Shared/TeX64/texlive/<year>` へ管理者権限なしで導入）。
+- **ワンクリックで `scheme-full`（CTAN 全部）を一括導入**する。軽量版・段階導入・
+  初回のパッケージ選択 UI は作らない。
+- `EnvService.detectEnvironment()` が既存 TeX を検出し、十分ならそのまま使う。
+  TeX64 が管理しない TeX へは書き込まない。
+- TeX が無い場合だけ初回ゲートを出し、`/Users/Shared/TeX64/texlive/<year>` へ
+  管理者権限なしで完全版を導入する。長い待ちは install-tl / tlmgr の実数値から作る
+  進捗バーと残り時間で伝える。
+- 旧開発版の `light` marker は `tlmgr install scheme-full` で一度だけ完全版へ昇格し、
+  marker を `full` に書き換える。新規の partial install は作らない。
 
 ### texlab LSP
 

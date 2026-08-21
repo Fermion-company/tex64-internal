@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
+import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
 import type {
   BuildState,
   FormatSettingsPayload,
@@ -208,15 +209,81 @@ export const initBuildOpsUi = (
     synctexButton.textContent = uiText("Jump", "ジャンプ");
   };
 
+  // The <details> outlives every build, so the toggle handler is bound once and
+  // reads whichever line the latest log marked first. Scroll the transcript box
+  // itself rather than scrollIntoView, which would drag the whole panel along.
+  let markedTarget: HTMLElement | null = null;
+  let revealPending = false;
+  const revealMarkedLine = () => {
+    if (!markedTarget || !(issuesLogContent instanceof HTMLElement)) {
+      return;
+    }
+    // A build usually finishes while the Issues tab is still hidden, and you
+    // cannot scroll a box that has no height yet — the assignment is silently
+    // dropped. Stay pending until the box is actually laid out.
+    if (issuesLogContent.clientHeight <= 0) {
+      return;
+    }
+    issuesLogContent.scrollTop = Math.max(
+      0,
+      markedTarget.offsetTop - issuesLogContent.clientHeight / 2
+    );
+    revealPending = false;
+  };
+  if (issuesLog instanceof HTMLElement) {
+    issuesLog.addEventListener("toggle", () => {
+      if (issuesLog.hasAttribute("open")) {
+        revealMarkedLine();
+      }
+    });
+  }
+  if (issuesLogContent instanceof HTMLElement && typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      if (revealPending) {
+        revealMarkedLine();
+      }
+    }).observe(issuesLogContent);
+  }
+
   const handleBuildLog = (log: string | null) => {
     currentBuildLog = log;
+    let firstMarked: HTMLElement | null = null;
+    let markedCount = 0;
     if (issuesLogContent instanceof HTMLElement) {
-      issuesLogContent.textContent = log ?? "";
+      if (log) {
+        firstMarked = renderBuildLog(issuesLogContent, log);
+        markedCount = countMarkedLines(segmentBuildLog(log));
+      } else {
+        issuesLogContent.replaceChildren();
+      }
     }
     if (issuesLog instanceof HTMLElement) {
       issuesLog.classList.toggle("is-hidden", !log);
       if (!log) {
         issuesLog.removeAttribute("open");
+      }
+      const summary = issuesLog.querySelector(".issues-log-summary");
+      if (summary instanceof HTMLElement) {
+        summary.dataset.noI18n = "";
+        summary.textContent =
+          markedCount > 0
+            ? uiText(`Detailed log (${markedCount} marked)`, `詳細ログ（該当 ${markedCount} 件）`)
+            : uiText("Detailed log", "詳細ログ");
+      }
+      // Open on arrival: if there is something to say, the transcript is worth
+      // seeing without a second click. Thousands of lines of package banners
+      // are useless unless you land on the part that matters, so scroll to the
+      // first mark — once now, and again if it is closed and reopened.
+      if (log) {
+        issuesLog.setAttribute("open", "");
+      }
+      markedTarget = firstMarked;
+      revealPending = Boolean(firstMarked);
+      if (firstMarked) {
+        // Two frames: the first lets the freshly opened <details> lay out, so
+        // clientHeight is real when the scroll offset is computed. If the panel
+        // is still hidden the ResizeObserver picks it up when it is shown.
+        requestAnimationFrame(() => requestAnimationFrame(revealMarkedLine));
       }
     }
   };
@@ -324,6 +391,8 @@ export const initBuildOpsUi = (
         isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
       );
       buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
+      const label = buildButton.querySelector<HTMLElement>(".build-button-label");
+      if (label) label.textContent = isBusy ? uiText("Cancel", "キャンセル") : uiText("Build", "ビルド");
     }
     if (state === "success") {
       try {

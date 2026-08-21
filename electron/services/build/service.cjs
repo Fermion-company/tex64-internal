@@ -12,6 +12,7 @@ require("./profiles.cjs")(BuildService);
 require("./latexmk.cjs")(BuildService);
 require("./runtime.cjs")(BuildService);
 require("./issues.cjs")(BuildService);
+require("./transcript.cjs")(BuildService);
 
 module.exports = { BuildService };
 

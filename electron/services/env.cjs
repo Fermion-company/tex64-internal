@@ -12,7 +12,22 @@ const {
   findManagedTexCommand,
   getManagedTexliveRoot,
   getManagedTexliveYear,
+  getTinytexRoot,
 } = require("./texlive-paths.cjs");
+
+const {
+  ALL_PROBES,
+  TEX_ENGINES,
+  TEX_TOOLS,
+  parseKpsewhichOutput,
+  parseDistributionBanner,
+  classifySource,
+  rootFromBinPath,
+  yearFromPath,
+  describeDistribution,
+  classifyCoverage,
+  buildRecommendation,
+} = require("./tex-detect.cjs");
 
 const shouldForceMissingTool = (toolName) => {
   const raw = process.env.TEX64_E2E_FORCE_MISSING_TOOLS;
@@ -43,26 +58,38 @@ const INSTALLER_URLS = {
   win32: "https://mirror.ctan.org/systems/texlive/tlnet/install-tl.zip",
 };
 
-const DEFAULT_EXTRA_PACKAGES = [
-  "latexmk",
-  "latexindent",
-  "collection-latexrecommended",
-  "collection-fontsrecommended",
-  "collection-luatex",
-  "collection-xetex",
-  "collection-langjapanese",
-];
-
-const parseExtraPackages = () => {
-  const raw = process.env.TEX64_MANAGED_TEXLIVE_EXTRA_PACKAGES;
-  if (typeof raw !== "string" || !raw.trim()) {
-    return DEFAULT_EXTRA_PACKAGES;
-  }
-  return raw
-    .split(/[,\s]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+// TeX64 deliberately has one managed install profile: the complete CTAN set.
+const INSTALL_VARIANTS = {
+  full: {
+    id: "full",
+    scheme: "scheme-full",
+    approxBytes: 5 * 1024 * 1024 * 1024,
+  },
 };
+
+const DEFAULT_INSTALL_VARIANT = "full";
+
+// Legacy callers may still send an old target/variant string. They all normalize
+// to the single supported profile instead of silently creating a partial tree.
+const normalizeInstallVariant = () => DEFAULT_INSTALL_VARIANT;
+
+// Written into the managed tree so later sessions can identify TeX64's profile.
+const INSTALL_MARKER_FILE = "tex64-install.json";
+
+// Every one of these means "set up the complete managed TeX Live". Old aliases
+// remain accepted for compatibility with older renderer builds.
+const TEXLIVE_INSTALL_TARGETS = new Set([
+  "basictex",
+  "synctex",
+  "texlive",
+  "full",
+  "texlive-full",
+  "scheme-full",
+  "light",
+  "tinytex",
+  "minimal",
+  "texlive-light",
+]);
 
 const normalizeProfilePath = (value) => {
   if (process.platform === "win32") {
@@ -182,6 +209,7 @@ class EnvService {
     this.platform = process.platform;
     this.arch = process.arch;
     this.onProgress = null;
+    this.detectCache = null;
   }
 
   // Map each install phase onto a single monotonic 0-100 bar so the renderer can
@@ -265,20 +293,18 @@ class EnvService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 90 * 60 * 1000;
   }
 
-  async installEnvironment(target, onProgress) {
+  async installEnvironment(target, onProgress, options = {}) {
     this.onProgress = typeof onProgress === "function" ? onProgress : null;
     try {
       if (this.platform !== "darwin" && this.platform !== "win32") {
         return { success: false, message: "Unsupported platform." };
       }
-      if (target === "basictex") {
-        return await this.installManagedTexlive();
+      const variant = normalizeInstallVariant(options.variant || target);
+      if (TEXLIVE_INSTALL_TARGETS.has(String(target || "").trim().toLowerCase())) {
+        return await this.installManagedTexlive(variant);
       }
       if (target === "latexmk" || target === "latexindent") {
         return await this.installManagedTexPackage(target, target);
-      }
-      if (target === "synctex") {
-        return await this.installManagedTexlive();
       }
       return { success: false, message: "Unknown install target." };
     } catch (error) {
@@ -298,8 +324,8 @@ class EnvService {
     if (await this.checkCommand(target)) {
       return { success: true, message: `${target} is already available.` };
     }
-    await this.ensureManagedTexliveInstalled();
-    await this.ensureDefaultPackages();
+    const variant = this.readInstallMarker().variant ?? DEFAULT_INSTALL_VARIANT;
+    await this.ensureManagedTexliveInstalled(variant);
     if (!(await this.checkCommand(target))) {
       await this.runTlmgr(["install", packageName], {
         allowFailure: false,
@@ -315,9 +341,19 @@ class EnvService {
     };
   }
 
-  async installManagedTexlive() {
-    await this.ensureManagedTexliveInstalled();
-    await this.ensureDefaultPackages();
+  async installManagedTexlive(variant = DEFAULT_INSTALL_VARIANT) {
+    const resolved = normalizeInstallVariant(variant);
+    const alreadyInstalled = Boolean(this.findManagedCommand("tlmgr"));
+    if (alreadyInstalled && this.readInstallMarker().variant === "light") {
+      // Upgrade any development build that created the retired partial profile.
+      this.emitProgress("packages");
+      await this.runTlmgr(["install", "scheme-full"], {
+        allowFailure: false,
+        timeoutMs: this.installTimeoutMs(),
+      });
+    } else {
+      await this.ensureManagedTexliveInstalled(resolved);
+    }
     this.emitProgress("finalize");
     const [lualatex, latexmk, synctex] = await Promise.all([
       this.checkCommand("lualatex"),
@@ -325,15 +361,75 @@ class EnvService {
       this.checkCommand("synctex"),
     ]);
     const success = Boolean(lualatex && latexmk && synctex);
+    if (success) {
+      this.writeInstallMarker(resolved);
+    }
+    this.detectCache = null;
     return {
       success,
+      variant: resolved,
       message: success
         ? `TeX64 managed TeX Live ${getManagedTexliveYear()} is ready.`
         : "TeX Live installation finished, but required commands were not detected.",
     };
   }
 
-  async ensureManagedTexliveInstalled() {
+  installMarkerPath() {
+    const root = this.managedRoot();
+    return root ? path.join(root, INSTALL_MARKER_FILE) : "";
+  }
+
+  // `variant: null` means there is no record. "light" is only returned for a
+  // retired development marker so callers can upgrade that tree in place.
+  readInstallMarker() {
+    const unknown = { variant: null, installedAt: null, known: false };
+    const markerPath = this.installMarkerPath();
+    if (!markerPath) {
+      return unknown;
+    }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(markerPath, "utf8"));
+      if (typeof parsed?.variant !== "string" || !parsed.variant.trim()) {
+        return unknown;
+      }
+      const storedVariant = parsed.variant.trim().toLowerCase();
+      return {
+        // Preserve the retired partial-profile marker long enough to trigger
+        // the one-time scheme-full upgrade. New markers are always "full".
+        variant: storedVariant === "light" ? "light" : "full",
+        installedAt: typeof parsed?.installedAt === "string" ? parsed.installedAt : null,
+        known: true,
+      };
+    } catch {
+      return unknown;
+    }
+  }
+
+  writeInstallMarker(variant) {
+    const markerPath = this.installMarkerPath();
+    if (!markerPath) {
+      return;
+    }
+    try {
+      fs.writeFileSync(
+        markerPath,
+        `${JSON.stringify(
+          {
+            variant: normalizeInstallVariant(variant),
+            year: getManagedTexliveYear(),
+            installedAt: new Date().toISOString(),
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+    } catch {
+      // A missing marker only costs us the upgrade hint; never fail the install.
+    }
+  }
+
+  async ensureManagedTexliveInstalled(variant = DEFAULT_INSTALL_VARIANT) {
     const root = this.managedRoot();
     if (!root) {
       throw new Error("Managed TeX Live is not supported on this platform.");
@@ -360,7 +456,7 @@ class EnvService {
       await this.extractInstallerArchive(archivePath, workDir);
       const installer = await this.resolveInstallerExecutable(workDir);
       const profilePath = path.join(workDir, "tex64-texlive.profile");
-      await fsp.writeFile(profilePath, this.buildInstallProfile(root), "utf8");
+      await fsp.writeFile(profilePath, this.buildInstallProfile(root, variant), "utf8");
       this.emitProgress("texlive");
       await this.runInstaller(installer, profilePath);
     } finally {
@@ -526,16 +622,141 @@ class EnvService {
     return result;
   }
 
-  async ensureDefaultPackages() {
-    const packages = parseExtraPackages();
-    if (packages.length === 0) {
-      return;
+  // Honors the same E2E seams as checkCommand so the "empty machine" flow can be
+  // exercised on a developer box that already has a system TeX.
+  resolveCommandPath(command) {
+    if (shouldForceMissingTool(command)) {
+      return null;
     }
-    await this.runTlmgr(["install", ...packages], {
-      allowFailure: false,
-      timeoutMs: this.installTimeoutMs(),
-    });
+    if (shouldIgnoreSystemTex()) {
+      return this.findManagedCommand(command);
+    }
+    return this.findCommand(command);
   }
+
+  // One structured answer to "is there a usable TeX on this machine, whose is
+  // it, and is its package set wide enough" — so the setup screen can decide by
+  // itself whether to show an install choice at all.
+  async detectEnvironment(options = {}) {
+    const ttlMs = 10000;
+    if (
+      options.force !== true &&
+      this.detectCache &&
+      Date.now() - this.detectCache.at < ttlMs
+    ) {
+      return this.detectCache.value;
+    }
+
+    const managedRoot = this.managedRoot();
+    const engines = {};
+    let primaryEngine = null;
+    for (const engine of TEX_ENGINES) {
+      const found = this.resolveCommandPath(engine);
+      engines[engine] = found || null;
+      if (found && !primaryEngine) {
+        primaryEngine = found;
+      }
+    }
+    const tools = {};
+    for (const tool of TEX_TOOLS) {
+      tools[tool] = this.resolveCommandPath(tool) || null;
+    }
+
+    const source = classifySource(primaryEngine, managedRoot);
+    const marker = source === "managed" ? this.readInstallMarker() : null;
+
+    let banner = { kind: "unknown", year: "", version: "", root: "" };
+    if (tools.tlmgr || primaryEngine) {
+      // tlmgr names the tree it is bound to, which beats guessing from a symlink
+      // farm like /Library/TeX/texbin; the engine banner is the fallback.
+      const probe = tools.tlmgr
+        ? await runCommand(tools.tlmgr, ["--version"], { timeoutMs: 20000 }).catch(() => null)
+        : null;
+      if (probe && probe.output) {
+        banner = parseDistributionBanner(probe.output);
+      }
+      if (banner.kind === "unknown" && primaryEngine) {
+        const engineProbe = await runCommand(primaryEngine, ["--version"], {
+          timeoutMs: 20000,
+        }).catch(() => null);
+        if (engineProbe && engineProbe.output) {
+          banner = parseDistributionBanner(engineProbe.output);
+        }
+      }
+    }
+
+    const root =
+      banner.root ||
+      (source === "managed" ? managedRoot : "") ||
+      rootFromBinPath(primaryEngine || "") ||
+      "";
+    const year = banner.year || yearFromPath(root) || "";
+    const tinytexRoot = getTinytexRoot(this.platform);
+    const isTinytex = Boolean(
+      root && (fs.existsSync(path.join(root, ".tinytex")) || (tinytexRoot && root === tinytexRoot))
+    );
+
+    let coverage = {
+      level: "unknown",
+      missingCore: [],
+      missingRecommended: [],
+      missingFull: [],
+      probed: ALL_PROBES.length,
+      found: 0,
+    };
+    if (tools.kpsewhich) {
+      const probe = await runCommand(tools.kpsewhich, ALL_PROBES, {
+        timeoutMs: 30000,
+      }).catch(() => null);
+      if (probe) {
+        coverage = classifyCoverage(parseKpsewhichOutput(probe.output), banner.kind);
+      }
+    }
+
+    const hasEngine = Boolean(primaryEngine);
+    const recommendation = buildRecommendation({
+      source,
+      hasEngine,
+      hasLatexmk: Boolean(tools.latexmk),
+      hasSynctex: Boolean(tools.synctex),
+      coverageLevel: coverage.level,
+    });
+
+    const report = {
+      hasEngine,
+      source,
+      ready: hasEngine && Boolean(tools.latexmk) && Boolean(tools.synctex) && coverage.level !== "broken",
+      distribution: {
+        kind: banner.kind,
+        name: describeDistribution({
+          kind: banner.kind,
+          year,
+          version: banner.version,
+          root,
+          source,
+          platform: this.platform,
+          isTinytex,
+        }),
+        year,
+        root,
+        isTinytex,
+      },
+      managedVariant: marker && marker.known ? marker.variant : null,
+      engines,
+      tools,
+      coverage,
+      recommendation,
+      checkedAt: new Date().toISOString(),
+    };
+    this.detectCache = { at: Date.now(), value: report };
+    return report;
+  }
+
 }
 
-module.exports = { EnvService };
+module.exports = {
+  EnvService,
+  INSTALL_VARIANTS,
+  DEFAULT_INSTALL_VARIANT,
+  normalizeInstallVariant,
+};

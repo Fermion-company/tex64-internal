@@ -1,3 +1,4 @@
+import type { TexEnvReport } from "../tex-env-report.js";
 import type { AppSettingsSnapshot, BuildProfile, EditorFormatSettings, FormatSettingsPayload, PlatformAuthSnapshot, PlatformUpdateSnapshot, PlatformUpdateStatusSnapshot } from "../types.js";
 import type { AppearanceTheme } from "../appearance.js";
 import type { EnvRegistryApi } from "../env-registry-ui.js";
@@ -12,6 +13,19 @@ export type SettingsUiDeps = {
   onEditorWordWrapChange?: (enabled: boolean) => void;
   onUpdateAttentionChange?: (hasAttention: boolean) => void;
   onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
+  // The environment ops own every piece of TeX state, so the first-run gate
+  // listens through them rather than tapping the IPC bridge a second time.
+  onRuntimeDetection?: (report: TexEnvReport | null, summary: EnvStatusSummary | null) => void;
+  onRuntimeInstallEvent?: (event: {
+    kind: "start" | "progress" | "result";
+    variant?: string;
+    percent?: number | null;
+    phase?: string;
+    current?: number | null;
+    total?: number | null;
+    success?: boolean;
+    message?: string;
+  }) => void;
   onRequestFirstBuild?: () => void;
 };
 
@@ -37,8 +51,9 @@ export type SettingsUiApi = {
   getSettingsSnapshot: () => AppSettingsSnapshot;
   applySettingsPatch: (patch: Partial<AppSettingsSnapshot>) => AppSettingsSnapshot;
   checkEnvironmentStatus: () => void;
+  handleEnvDetectResult: (payload: { report?: TexEnvReport | null; error?: string }) => void;
   updateEnvStatus: (command: string, available: boolean) => void;
-  handleEnvInstallStart: (payload: { target?: string }) => void;
+  handleEnvInstallStart: (payload: { target?: string; variant?: string }) => void;
   handleEnvInstallResult: (payload: { target?: string; success?: boolean; message?: string }) => void;
   handleEnvInstallProgress: (payload: {
     phase?: string;
