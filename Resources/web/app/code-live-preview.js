@@ -28,7 +28,7 @@ const createDebouncedTask = (task, delayMs) => {
     return schedule;
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getPdfViewerMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, }) => {
+export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getPdfViewerMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, setWorkspaceLivePreview, }) => {
     const bridge = window.tex64Tdom;
     let active = false;
     let starting = false;
@@ -51,6 +51,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // re-apply the state when they (re)open.
     const distributeLive = (url, generation = liveGeneration) => {
         var _a;
+        // Code's integrated source/PDF workspace owns a viewer outside the
+        // editor-session groups. Keep that visible surface on the same Live
+        // generation as the legacy group viewers.
+        setWorkspaceLivePreview === null || setWorkspaceLivePreview === void 0 ? void 0 : setWorkspaceLivePreview(url, generation);
         // Groups can be created while the URL stays unchanged. Each viewer is
         // idempotent, so always give every current surface the active generation.
         for (const group of getEditorGroups()) {

@@ -40,7 +40,7 @@ C1〜C3 の続き。表現力の「逃げ道」を塞ぐ最終フェーズ。
 - 下部バーに「**AI で TikZ 化**」ボタン: ファイル選択（image/*）または
   **現在のキャンバスの近似 SVG を PNG 化したもの**（確認ダイアログで選択:
   「画像ファイルを選ぶ / 今のキャンバスを下絵にする」→ 実装は `confirm` でよい）を
-  `tex64Texize.snippet({ imageBase64 })`（pro-capture-ui と同じ bridge・同じ呼び方）へ渡す。
+  `tex64Texize.snippet({ imageBase64 })` へ渡す。
 - 返ってきた TeX 断片を textarea プレビューで見せ、「コードオブジェクトとして配置」
   ボタンで code オブジェクト（identity transform、位置はアートボード中央）として追加。
   tikzpicture 環境が含まれていたら中身だけ剥がして入れる（`\begin{tikzpicture}...\end` の

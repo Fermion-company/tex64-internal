@@ -53,10 +53,7 @@ import { createIssuesProxy } from "./app/issues-proxy.js";
 import { initProModeUi } from "./app/pro-mode-ui.js";
 import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./app/app-mode.js";
 import { initAiModeUi } from "./app/ai-mode-ui.js";
-import { initProCaptureUi } from "./app/pro-capture-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
-import { initProStashUi } from "./app/pro-stash-ui.js";
-import { initProStructureUi } from "./app/pro-structure-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
 import type {
   BlockContext,
@@ -482,17 +479,6 @@ export const initMain = () => {
   codeWorkspaceApi = initProModeUi({
     setSplitViewEnabled: editorSession.setSplitViewEnabled,
   });
-  initProStashUi({
-    getActiveGroup: editorSession.getActiveGroup,
-    revealStash: () => {
-      setActiveTab("stash");
-      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
-    },
-  });
-  initProCaptureUi({
-    getActiveGroup: editorSession.getActiveGroup,
-    getWorkspaceFiles,
-  });
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
     getWorkspaceFiles,
@@ -523,6 +509,8 @@ export const initMain = () => {
       maxChars: Number.POSITIVE_INFINITY,
       onlyDirty: true,
     }).snapshots,
+    setWorkspaceLivePreview: (url, generation) =>
+      codeWorkspaceApi?.setLivePreview(url, generation),
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
@@ -864,17 +852,6 @@ export const initMain = () => {
     },
     onJumpToSection: (entry) => {
       openInCodeEditor(entry.path, entry.line);
-    },
-  });
-  initProStructureUi({
-    getActiveFileSnapshot: editorSession.getActiveFileSnapshot,
-    getIndexSections,
-    onJumpToSection: (entry) => {
-      editorSession.jumpToFileLine(
-        entry.path,
-        entry.line,
-        editorSession.getActiveEditorGroupKey()
-      );
     },
   });
   issuesUi = initIssuesUi(appContext, {

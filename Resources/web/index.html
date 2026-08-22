@@ -296,22 +296,6 @@
               class="tab"
               type="button"
               role="tab"
-              data-tab="stash"
-              aria-selected="false"
-              aria-label="Stash"
-              title="Stash"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 13h4l1.5 3h5l1.5-3h4"></path>
-                  <path d="M6.5 5h11l2.5 8v6H4v-6z"></path>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
               data-tab="ai"
               aria-selected="false"
               aria-label="Axiom"
@@ -514,10 +498,6 @@
                 </div>
               </div>
             </div>
-          </div>
-          <div class="panel" data-panel="stash">
-            <!-- Header and body are built by web-src/app/pro-stash-ui.ts so the
-                 whole tray stays in one place with its uiText() strings. -->
           </div>
           <div class="panel no-header" data-panel="ai">
             <div class="panel-header">
@@ -1329,14 +1309,6 @@
         <section class="editor">
           <div class="editor-groups" id="editor-groups" data-split="false">
             <section class="pro-pane pro-preview-pane" id="pro-preview-pane" data-pro-pane="preview" aria-hidden="true">
-              <header class="pro-pane-header">
-                <span id="pro-preview-title">Preview</span>
-                <span class="pro-pane-actions">
-                  <button type="button" data-pro-capture="preview" title="Capture a region: turn it into TeX, translate it, or insert it as an image" aria-label="Capture a region of the preview">⌖ Capture</button>
-                  <button type="button" data-pro-open="preview" title="Open PDF">Open</button>
-                  <button type="button" data-pro-collapse="preview" aria-label="Collapse preview">›</button>
-                </span>
-              </header>
               <div class="pro-pane-body">
                 <div id="pro-preview-viewer" class="editor-viewer is-visible" data-view="unsupported" aria-hidden="false">
                   <div class="editor-viewer-body">
@@ -1347,19 +1319,10 @@
                 </div>
               </div>
             </section>
-            <div class="pro-splitter" id="pro-splitter-primary" role="separator" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" title="Drag to resize or collapse; double-click to reset"></div>
+            <div class="pro-splitter" id="pro-splitter-primary" role="separator" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" title="Drag to resize; double-click to reset"></div>
             <div class="editor-group is-active" data-editor-group="primary">
               <div class="editor-tabs" id="editor-tabs">
                 <div class="editor-tabs-list" id="editor-tabs-list"></div>
-                <div class="editor-tab-actions">
-                  <button id="pro-structure-button" class="pro-structure-button" type="button" aria-expanded="false" aria-controls="pro-structure-drawer" title="Document structure (Cmd/Ctrl+Alt+O)">Structure</button>
-                  <button class="pro-pane-collapse" type="button" data-pro-collapse="source" aria-label="Collapse source">‹</button>
-                  <div id="pro-structure-drawer" class="pro-structure-drawer" role="dialog" aria-label="Document structure" hidden>
-                    <div class="pro-structure-heading">Document structure</div>
-                    <div id="pro-structure-list" class="pro-structure-list"></div>
-                    <div id="pro-structure-empty" class="pro-structure-empty">No headings found.</div>
-                  </div>
-                </div>
               </div>
               <div class="editor-surface">
                 <div id="editor" class="editor-host" aria-label="editor"></div>
@@ -1405,7 +1368,6 @@
             <div class="editor-group is-secondary" data-editor-group="secondary" aria-hidden="true">
               <div class="editor-tabs" id="editor-tabs-secondary">
                 <div class="editor-tabs-list" id="editor-tabs-list-secondary"></div>
-                <div class="editor-tab-actions"></div>
               </div>
               <div class="editor-surface">
                 <div id="editor-secondary" class="editor-host" aria-label="editor"></div>
@@ -1439,7 +1401,6 @@
                 </div>
               </div>
             </div>
-            <input id="pro-preview-file" type="file" accept="application/pdf" hidden />
           </div>
           <div
             class="bottom-panel-resizer"

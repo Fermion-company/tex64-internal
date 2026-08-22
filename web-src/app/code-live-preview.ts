@@ -46,6 +46,7 @@ export const initCodeLivePreview = ({
   getWorkspaceRoot,
   getRootFile,
   getDirtyFileSnapshots,
+  setWorkspaceLivePreview,
 }: {
   getActiveGroup: () => EditorGroupState;
   getEditorGroups: () => EditorGroupState[];
@@ -54,6 +55,7 @@ export const initCodeLivePreview = ({
   getWorkspaceRoot: () => string | null;
   getRootFile: () => string | null;
   getDirtyFileSnapshots: () => DirtySnapshot[];
+  setWorkspaceLivePreview?: (url: string | null, generation: number) => void;
 }) => {
   const bridge = (window as BridgeWindow).tex64Tdom;
   let active = false;
@@ -80,6 +82,10 @@ export const initCodeLivePreview = ({
   // window) into or out of live mode. Idempotent; the surfaces themselves
   // re-apply the state when they (re)open.
   const distributeLive = (url: string | null, generation = liveGeneration) => {
+    // Code's integrated source/PDF workspace owns a viewer outside the
+    // editor-session groups. Keep that visible surface on the same Live
+    // generation as the legacy group viewers.
+    setWorkspaceLivePreview?.(url, generation);
     // Groups can be created while the URL stays unchanged. Each viewer is
     // idempotent, so always give every current surface the active generation.
     for (const group of getEditorGroups()) {

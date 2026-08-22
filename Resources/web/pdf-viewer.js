@@ -10,10 +10,6 @@ import {
   clampZoomScale,
   wheelDeltaToZoomFactor,
 } from "./pdf-zoom-math.mjs";
-import {
-  calculateCaptureOutputSize,
-  viewportPointToDocumentPoint,
-} from "./app/pdf-capture-math.js";
 import { normalizeLiveToolbarSnapshot } from "./pdf-live-toolbar-state.mjs";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
@@ -95,7 +91,6 @@ const UI_STRINGS = {
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
   searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
   searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
-  invert: { en: "Invert", ja: "反転", zh: "反色", ko: "반전", fr: "Inverser", de: "Invertieren", es: "Invertir" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
   print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
   reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
@@ -140,7 +135,6 @@ const localizeChrome = () => {
   setTitle("pdf-rotate-right", "rotateRight");
   setTitle("pdf-search-prev", "searchPrev");
   setTitle("pdf-search-next", "searchNext");
-  setTitle("pdf-invert", "invert");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
@@ -155,7 +149,6 @@ const localizeChrome = () => {
     const el = document.getElementById(id);
     if (el) el.textContent = uiString(key);
   };
-  setText("pdf-invert", "invert");
   setText("pdf-print", "print");
   setText("pdf-reload", "reload");
   setText("pdf-status", "waiting");
@@ -246,7 +239,6 @@ const initPdfViewer = () => {
   const searchInput = document.getElementById("pdf-search-input");
   const searchPrevBtn = document.getElementById("pdf-search-prev");
   const searchNextBtn = document.getElementById("pdf-search-next");
-  const invertBtn = document.getElementById("pdf-invert");
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
@@ -260,7 +252,6 @@ const initPdfViewer = () => {
 
   const MIN_SCALE = 0.4;
   const MAX_SCALE = 3;
-  const CAPTURE_MAX_LONG_EDGE = 8000;
   const WHEEL_ZOOM_SENSITIVITY = 0.01;
   const ZOOM_DRAW_DELAY = 160;
   const CLICK_BIAS_X_PT = 0;
@@ -284,26 +275,6 @@ const initPdfViewer = () => {
     thumbObserver: null,
     thumbRendered: new Set(),
     pendingRestore: null,
-  };
-
-  const getCaptureViewport = () => {
-    if (!scrollEl) return null;
-    const rect = scrollEl.getBoundingClientRect();
-    return {
-      left: rect.left,
-      top: rect.top,
-      width: scrollEl.clientWidth,
-      height: scrollEl.clientHeight,
-      scrollLeft: scrollEl.scrollLeft,
-      scrollTop: scrollEl.scrollTop,
-    };
-  };
-
-  const postCaptureScrollState = () => {
-    const viewport = getCaptureViewport();
-    if (viewport && bridge?.postMessage) {
-      bridge.postMessage({ type: "capture-scroll-state-result", viewport });
-    }
   };
 
   // Tracks the scroll-restore re-apply frame so a SyncTeX jump can cancel it.
@@ -342,23 +313,15 @@ const initPdfViewer = () => {
     if (statusEl) statusEl.textContent = text;
   };
 
-  const invertKey = "tex64.pdf.invert";
-  const setInverted = (enabled, options = {}) => {
-    document.body.classList.toggle("is-inverted", enabled === true);
-    if (options.persist === false) {
-      return;
-    }
-    try {
-      localStorage.setItem(invertKey, enabled === true ? "true" : "false");
-    } catch {
-      // ignore
-    }
+  const appearanceKey = "tex64.appearance.theme";
+  const applyViewerTheme = (theme) => {
+    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
   };
   if (embedded) {
     const syncEmbeddedTheme = () => {
       try {
         const parentTheme = window.parent?.document?.documentElement?.dataset?.theme;
-        setInverted(parentTheme === "dark", { persist: false });
+        applyViewerTheme(parentTheme);
       } catch {
         // Parent access is best-effort; both documents are normally local files.
       }
@@ -375,13 +338,13 @@ const initPdfViewer = () => {
     }
   } else {
     try {
-      const storedInvert = localStorage.getItem(invertKey);
-      if (storedInvert === "true") {
-        document.body.classList.add("is-inverted");
-      }
+      applyViewerTheme(localStorage.getItem(appearanceKey));
     } catch {
-      // ignore
+      applyViewerTheme("dark");
     }
+    window.addEventListener("storage", (event) => {
+      if (event.key === appearanceKey) applyViewerTheme(event.newValue);
+    });
   }
 
   const updateZoomLabel = (value = state.scale) => {
@@ -1533,12 +1496,6 @@ const initPdfViewer = () => {
     });
   }
 
-  if (invertBtn) {
-    invertBtn.addEventListener("click", () => {
-      setInverted(!document.body.classList.contains("is-inverted"));
-    });
-  }
-
   if (searchInput) {
     searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -1583,94 +1540,7 @@ const initPdfViewer = () => {
     });
   }
 
-  const captureRegion = async (rawRegion, coordinateSpace) => {
-    if (!state.doc || !scrollEl) throw new Error("No PDF is open.");
-    let region = {
-      x: Number(rawRegion?.x), y: Number(rawRegion?.y),
-      width: Number(rawRegion?.width), height: Number(rawRegion?.height),
-    };
-    if (![region.x, region.y, region.width, region.height].every(Number.isFinite) || region.width <= 0 || region.height <= 0) {
-      throw new Error("Invalid capture region.");
-    }
-    if (coordinateSpace !== "document") {
-      const viewport = getCaptureViewport();
-      if (!viewport) throw new Error("The PDF viewport is unavailable.");
-      region = { ...viewportPointToDocumentPoint(region, viewport), width: region.width, height: region.height };
-    }
-
-    const pageHits = [];
-    for (let index = 0; index < state.pageCount; index += 1) {
-      const pageView = pdfViewer.getPageView(index);
-      if (!(pageView?.div instanceof HTMLElement) || !pageView.viewport) continue;
-      const pageRect = pageView.div.getBoundingClientRect();
-      const existingCanvas = pageView.canvas || pageView.div.querySelector(".canvasWrapper canvas");
-      const canvasRect = existingCanvas?.getBoundingClientRect();
-      const contentOffset = resolvePageContentOffset(pageView.div);
-      const left = canvasRect?.width
-        ? canvasRect.left - scrollEl.getBoundingClientRect().left + scrollEl.scrollLeft
-        : pageRect.left - scrollEl.getBoundingClientRect().left + scrollEl.scrollLeft + contentOffset.left;
-      const top = canvasRect?.height
-        ? canvasRect.top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
-        : pageRect.top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop + contentOffset.top;
-      const pageWidth = canvasRect?.width || pageView.viewport.width;
-      const pageHeight = canvasRect?.height || pageView.viewport.height;
-      const hitLeft = Math.max(region.x, left), hitTop = Math.max(region.y, top);
-      const hitRight = Math.min(region.x + region.width, left + pageWidth);
-      const hitBottom = Math.min(region.y + region.height, top + pageHeight);
-      if (hitRight > hitLeft && hitBottom > hitTop) {
-        pageHits.push({ index, pageView, existingCanvas, left, top, pageWidth, pageHeight, hitLeft, hitTop, hitRight, hitBottom });
-      }
-    }
-    if (!pageHits.length) throw new Error("The selected region does not overlap a PDF page.");
-
-    const renderedRatios = pageHits.flatMap(({ existingCanvas, pageWidth, pageHeight }) =>
-      existingCanvas?.width && existingCanvas?.height
-        ? [existingCanvas.width / Math.max(pageWidth, 1), existingCanvas.height / Math.max(pageHeight, 1)]
-        : []
-    );
-    const pixelRatio = Math.max(window.devicePixelRatio || 1, ...renderedRatios);
-    const outputSize = calculateCaptureOutputSize(region.width, region.height, pixelRatio, CAPTURE_MAX_LONG_EDGE);
-    if (!outputSize) throw new Error("Invalid capture output size.");
-    const output = document.createElement("canvas");
-    output.width = outputSize.width; output.height = outputSize.height;
-    const context = output.getContext("2d");
-    if (!context) throw new Error("Canvas rendering is unavailable.");
-    context.fillStyle = "white"; context.fillRect(0, 0, output.width, output.height);
-
-    for (const hit of pageHits) {
-      let source = hit.existingCanvas;
-      let sourceScaleX = source?.width / Math.max(hit.pageWidth, 1);
-      let sourceScaleY = source?.height / Math.max(hit.pageHeight, 1);
-      if (!source?.width || !source?.height) {
-        const page = await state.doc.getPage(hit.index + 1);
-        const temporaryScale = Math.min(
-          outputSize.scale,
-          CAPTURE_MAX_LONG_EDGE / Math.max(hit.pageWidth, hit.pageHeight)
-        );
-        const renderScale = Number(hit.pageView.viewport.scale) * temporaryScale;
-        const viewport = page.getViewport({ scale: renderScale, rotation: hit.pageView.viewport.rotation });
-        source = document.createElement("canvas");
-        source.width = Math.max(1, Math.round(viewport.width));
-        source.height = Math.max(1, Math.round(viewport.height));
-        const sourceContext = source.getContext("2d");
-        if (!sourceContext) throw new Error("Canvas rendering is unavailable.");
-        await page.render({ canvasContext: sourceContext, viewport }).promise;
-        sourceScaleX = source.width / Math.max(hit.pageWidth, 1);
-        sourceScaleY = source.height / Math.max(hit.pageHeight, 1);
-      }
-      context.drawImage(source,
-        (hit.hitLeft - hit.left) * sourceScaleX, (hit.hitTop - hit.top) * sourceScaleY,
-        (hit.hitRight - hit.hitLeft) * sourceScaleX, (hit.hitBottom - hit.hitTop) * sourceScaleY,
-        (hit.hitLeft - region.x) * outputSize.scale, (hit.hitTop - region.y) * outputSize.scale,
-        (hit.hitRight - hit.hitLeft) * outputSize.scale, (hit.hitBottom - hit.hitTop) * outputSize.scale);
-    }
-    return output.toDataURL("image/png");
-  };
-
-  // ---- live preview (real-time engine) --------------------------------
-  // When the host turns live mode on, the engine's embedded client replaces
-  // only the page canvas; the toolbar stays and drives the frame over
-  // postMessage (the frame is cross-origin, http://127.0.0.1).
+  // ---- live preview (tdom) -----------------------------------------------
   const liveFrame = document.getElementById("pdf-live-frame");
   let liveToolbar = normalizeLiveToolbarSnapshot();
   let liveActivationSequence = 0;
@@ -1895,7 +1765,7 @@ const initPdfViewer = () => {
 
     const params = new URLSearchParams({
       embed: "1",
-      theme: "dark",
+      theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
       activationId: id,
     });
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
@@ -2036,23 +1906,6 @@ const initPdfViewer = () => {
       }
       if (message.type === "live-error") {
         setLiveError(message.payload || null);
-      }
-      if (message.type === "capture-scroll-state") {
-        postCaptureScrollState();
-      }
-      if (message.type === "capture-scroll-by" && scrollEl) {
-        const deltaY = Number(message.deltaY);
-        if (Number.isFinite(deltaY)) scrollEl.scrollTop += deltaY;
-        postCaptureScrollState();
-      }
-      if (message.type === "capture-region") {
-        const requestId = message.requestId;
-        try {
-          const dataUrl = await captureRegion(message.payload, message.coordinateSpace);
-          bridge.postMessage({ type: "capture-region-result", requestId, ok: true, dataUrl });
-        } catch (error) {
-          bridge.postMessage({ type: "capture-region-result", requestId, ok: false, error: error?.message || String(error) });
-        }
       }
     });
     if (typeof bridge.postMessage === "function") {

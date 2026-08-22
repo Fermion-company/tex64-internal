@@ -1,23 +1,18 @@
 import { createViewer } from "./viewer.js";
 
-export type ProPane = "preview" | "source";
-
 export type ProModeState = {
   previewShare: number;
-  collapsed: Record<ProPane, boolean>;
 };
 
 export const PRO_MODE_STORAGE_KEY = "tex64.proMode.v1";
 const DEFAULT_STATE: ProModeState = {
   previewShare: 0.34,
-  collapsed: { preview: false, source: false },
 };
 
 export const PRO_PANE_MIN_PX = 220;
 
 export type ProSplitterDragResult = {
   previewShare: number;
-  collapse: ProPane | null;
 };
 
 export const clampPreviewShare = (value: number, minShare = 0.12): number => {
@@ -28,24 +23,12 @@ export const clampPreviewShare = (value: number, minShare = 0.12): number => {
 
 export const calculateProSplitterDrag = (
   pointerRatio: number,
-  currentPreviewShare: number,
   minShare: number
 ): ProSplitterDragResult => {
   const sourceShare = Math.min(Math.max(pointerRatio, 0), 1);
-  const minimum = Math.min(Math.max(minShare, 0), 0.5);
-  if (sourceShare < minimum) {
-    return { previewShare: clampPreviewShare(currentPreviewShare, 0), collapse: "source" };
-  }
-  if (1 - sourceShare < minimum) {
-    return { previewShare: clampPreviewShare(currentPreviewShare, 0), collapse: "preview" };
-  }
-  return { previewShare: 1 - sourceShare, collapse: null };
-};
-
-export const proShortcutPane = (key: string): ProPane | null => {
-  if (key === "1") return "preview";
-  if (key === "2") return "source";
-  return null;
+  return {
+    previewShare: clampPreviewShare(1 - sourceShare, minShare),
+  };
 };
 
 export const parseProModeState = (raw: string | null): ProModeState => {
@@ -54,7 +37,6 @@ export const parseProModeState = (raw: string | null): ProModeState => {
     const value = JSON.parse(raw) as {
       previewShare?: unknown;
       ratios?: unknown;
-      collapsed?: Partial<Record<"preview" | "source", unknown>>;
     };
     let previewShare = Number(value.previewShare);
     if (!Number.isFinite(previewShare) && Array.isArray(value.ratios)) {
@@ -65,13 +47,7 @@ export const parseProModeState = (raw: string | null): ProModeState => {
       );
       previewShare = total > 0 ? Math.max(ratios[0] || 0, 0) / total : DEFAULT_STATE.previewShare;
     }
-    return {
-      previewShare: clampPreviewShare(previewShare),
-      collapsed: {
-        preview: value.collapsed?.preview === true,
-        source: value.collapsed?.source === true,
-      },
-    };
+    return { previewShare: clampPreviewShare(previewShare) };
   } catch {
     return structuredClone(DEFAULT_STATE);
   }
@@ -108,13 +84,6 @@ export const initProModeUi = (deps: ProModeDeps) => {
       ?.setAttribute("aria-hidden", String(!enabled));
     root.style.setProperty("--pro-preview-share", `${state.previewShare}fr`);
     root.style.setProperty("--pro-source-share", `${1 - state.previewShare}fr`);
-    (Object.keys(state.collapsed) as ProPane[]).forEach((pane) => {
-      root.classList.toggle(`is-${pane}-collapsed`, state.collapsed[pane]);
-      root.querySelectorAll<HTMLElement>(`[data-pro-collapse="${pane}"]`).forEach((button) => {
-        button.setAttribute("aria-expanded", String(!state.collapsed[pane]));
-        button.title = state.collapsed[pane] ? `Expand ${pane}` : `Collapse ${pane}`;
-      });
-    });
     if (enabled) deps.setSplitViewEnabled(false);
     scheduleLayout();
   };
@@ -124,51 +93,6 @@ export const initProModeUi = (deps: ProModeDeps) => {
     persist();
     apply();
   };
-
-  root.querySelectorAll<HTMLButtonElement>("[data-pro-collapse]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const pane = button.dataset.proCollapse;
-      if (pane !== "preview" && pane !== "source") return;
-      update({ collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] } });
-    });
-  });
-
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (!enabled || !(event.metaKey || event.ctrlKey) || !event.altKey || event.shiftKey) {
-        return;
-      }
-      const pane = proShortcutPane(event.key);
-      if (!pane) return;
-      event.preventDefault();
-      event.stopPropagation();
-      update({ collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] } });
-    },
-    true
-  );
-
-  const previewInput = document.getElementById("pro-preview-file");
-  const previewOpen = root.querySelector<HTMLButtonElement>('[data-pro-open="preview"]');
-  if (previewInput instanceof HTMLInputElement && previewOpen) {
-    previewOpen.addEventListener("click", () => previewInput.click());
-    previewInput.addEventListener("change", () => {
-      const file = previewInput.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.addEventListener("load", () => {
-        const dataUrl = typeof reader.result === "string" ? reader.result : "";
-        const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
-        if (file.type === "application/pdf") {
-          previewViewer.showPdfViewer(file.name, data, file.type);
-        } else {
-          previewViewer.showUnsupportedViewer();
-        }
-      });
-      reader.readAsDataURL(file);
-      previewInput.value = "";
-    });
-  }
 
   const splitter = document.getElementById("pro-splitter-primary");
   if (splitter instanceof HTMLElement) {
@@ -184,16 +108,11 @@ export const initProModeUi = (deps: ProModeDeps) => {
       const rect = root.getBoundingClientRect();
       const result = calculateProSplitterDrag(
         (event.clientX - rect.left) / Math.max(rect.width, 1),
-        state.previewShare,
         PRO_PANE_MIN_PX / Math.max(rect.width, 1)
       );
       state = {
         ...state,
         previewShare: result.previewShare,
-        collapsed: {
-          preview: result.collapse === "preview",
-          source: result.collapse === "source",
-        },
       };
       apply();
     });
@@ -208,46 +127,9 @@ export const initProModeUi = (deps: ProModeDeps) => {
     splitter.addEventListener("dblclick", (event) => {
       if (!enabled) return;
       event.preventDefault();
-      update({
-        previewShare: DEFAULT_STATE.previewShare,
-        collapsed: { preview: false, source: false },
-      });
+      update({ previewShare: DEFAULT_STATE.previewShare });
     });
   }
-
-  root
-    .querySelectorAll<HTMLElement>('[data-pro-pane="preview"], [data-editor-group="primary"]')
-    .forEach((paneElement) => {
-      const pane: ProPane = paneElement.dataset.proPane === "preview" ? "preview" : "source";
-      let startX = 0;
-      paneElement.addEventListener("pointerdown", (event) => {
-        if (!enabled || !state.collapsed[pane]) return;
-        startX = event.clientX;
-        paneElement.setPointerCapture(event.pointerId);
-        root.classList.add("is-pro-resizing");
-      });
-      paneElement.addEventListener("pointermove", (event) => {
-        if (
-          !state.collapsed[pane] ||
-          !paneElement.hasPointerCapture(event.pointerId) ||
-          Math.abs(event.clientX - startX) < 8
-        ) {
-          return;
-        }
-        update({ collapsed: { ...state.collapsed, [pane]: false } });
-      });
-      paneElement.addEventListener("pointerup", (event) => {
-        if (!paneElement.hasPointerCapture(event.pointerId)) return;
-        paneElement.releasePointerCapture(event.pointerId);
-        root.classList.remove("is-pro-resizing");
-        if (Math.abs(event.clientX - startX) < 8) {
-          update({ collapsed: { ...state.collapsed, [pane]: false } });
-        }
-      });
-      paneElement.addEventListener("pointercancel", () =>
-        root.classList.remove("is-pro-resizing")
-      );
-    });
 
   apply();
 
@@ -266,11 +148,6 @@ export const initProModeUi = (deps: ProModeDeps) => {
     if (!enabled) return false;
     if (kind === "pdf") previewViewer.showPdfViewer(path, data, mimeType);
     else previewViewer.showImageViewer(path, data, mimeType);
-    const title = document.getElementById("pro-preview-title");
-    if (title) title.textContent = path.split("/").pop() || path;
-    if (state.collapsed.preview) {
-      update({ collapsed: { ...state.collapsed, preview: false } });
-    }
     return true;
   };
 
@@ -280,5 +157,6 @@ export const initProModeUi = (deps: ProModeDeps) => {
     tryShowViewerFile,
     getPdfPath: previewViewer.getPdfPath,
     syncPdf: previewViewer.syncPdf,
+    setLivePreview: previewViewer.setLivePreview,
   };
 };

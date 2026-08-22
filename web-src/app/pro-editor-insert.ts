@@ -7,7 +7,7 @@ export type ProEditorLike = {
 
 export const ensureTrailingNewline = (text: string) => text.endsWith("\n") ? text : `${text}\n`;
 
-export const insertAtEditorCursor = (editor: ProEditorLike | null, text: string, source = "pro-stash") => {
+export const insertAtEditorCursor = (editor: ProEditorLike | null, text: string, source = "pro-canvas") => {
   const position = editor?.getPosition?.();
   const Range = (window as any).monaco?.Range;
   if (!editor?.executeEdits || !position || !Range) throw new Error("No active text editor is available.");

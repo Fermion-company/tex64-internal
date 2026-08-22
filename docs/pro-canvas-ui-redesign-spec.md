@@ -1,7 +1,7 @@
 # Pro 作図キャンバス UI 全面再設計仕様（F）
 
 ハンズオン検証（2026-08-13）で判明した問題への対応。現状はテキストボタンが上下に 13 個並び、
-階層がなく、スタッシュ/エディタが透けて被る。**Illustrator 系ツールの構造**に組み直す。
+階層がなく、背面のエディタが透けて被る。**Illustrator 系ツールの構造**に組み直す。
 
 対象は `web-src/app/pro-canvas/canvas-ui.ts` の DOM 生成と `Resources/web/theme.css` のみ。
 **機能・イベント配線・`data-tool` / `data-action` 属性・既存 ID はすべて維持**（driver とテスト
@@ -78,10 +78,7 @@
 - `.pro-canvas-overlay` の背景を**確実に不透明**にする:
   `background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c;`
   （トークンが半透明でも下の #10151c で遮蔽される）。rail/inspector/topbar/footer も同様の
-  二層背景で不透明化。エディタやスタッシュが透けてはならない。
-- ~~**キャンバス表示中はスタッシュを隠す**: theme.css に
-  `body:has(.pro-canvas-overlay) .pro-stash { display: none !important; }`~~
-  → 2026-08-20 にスタッシュがサイドバータブへ移り、オーバーレイが普通に覆うので不要になった（削除済み）。
+  二層背景で不透明化。エディタが透けてはならない。
 ## 6. 機能バグ修正（ハンズオンで発見）
 
 1. **スタイル適用がツール既定色に打ち消される**: ツールで作るオブジェクトが

@@ -446,29 +446,10 @@ export const initMonacoSetup = (
         }
 
         (editor as any).addAction?.({
-          id: "tex64.pro-stash-add-selection",
-          label: uiText("Add selection to stash", "選択範囲をスタッシュへ追加"),
-          contextMenuGroupId: "9_ai",
-          contextMenuOrder: 2,
-          precondition: "editorHasSelection",
-          run: () => {
-            const selection = editor.getSelection?.();
-            const model = (editor as any).getModel?.();
-            const content = selection && model ? model.getValueInRange?.(selection) : "";
-            if (!content) {
-              return;
-            }
-            window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", {
-              detail: { kind: "text", content },
-            }));
-          },
-        });
-
-        (editor as any).addAction?.({
           id: "tex64.pro-canvas-edit",
           label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
           contextMenuGroupId: "9_ai",
-          contextMenuOrder: 3,
+          contextMenuOrder: 2,
           run: () => {
             const model = (editor as any).getModel?.();
             const position = editor.getPosition?.();
