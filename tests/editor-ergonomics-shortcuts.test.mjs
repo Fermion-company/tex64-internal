@@ -1,7 +1,95 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { attachEditorErgonomics } from "../Resources/web/app/editor-ergonomics.js";
+import {
+  attachEditorErgonomics,
+  planEnvironmentCompletion,
+  planTexDelimiterCompletion,
+} from "../Resources/web/app/editor-ergonomics.js";
+
+const TestRange = class Range {
+  constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
+    this.startLineNumber = startLineNumber;
+    this.startColumn = startColumn;
+    this.endLineNumber = endLineNumber;
+    this.endColumn = endColumn;
+  }
+};
+
+test("TeX delimiters replace Monaco's plain closer", () => {
+  assert.deepEqual(planTexDelimiterCompletion("[", "\\[", "]"), {
+    text: "\\]",
+    replaceLength: 1,
+  });
+  assert.deepEqual(planTexDelimiterCompletion("(", "text \\(", ")"), {
+    text: "\\)",
+    replaceLength: 1,
+  });
+  assert.equal(planTexDelimiterCompletion("[", "[", "]"), null);
+  assert.equal(planTexDelimiterCompletion("[", "\\\\[", "]"), null);
+  assert.equal(planTexDelimiterCompletion("[", "\\[", "\\]"), null);
+});
+
+test("environment completion creates one indented blank body line", () => {
+  assert.deepEqual(planEnvironmentCompletion("  \\begin{align*}", ""), {
+    text: "\n    \n  \\end{align*}",
+    cursorColumn: 5,
+  });
+  assert.equal(planEnvironmentCompletion("prefix \\begin{align}", ""), null);
+  assert.equal(planEnvironmentCompletion("\\begin{align}", " trailing"), null);
+});
+
+test("typing a TeX display opener leaves the caret between \\[ and \\]", () => {
+  let onDidType = null;
+  const edits = [];
+  const positions = [];
+  const editor = {
+    onDidType: (listener) => { onDidType = listener; },
+    onKeyDown: () => {},
+    getModel: () => ({ getLineContent: () => "\\[]" }),
+    getPosition: () => ({ lineNumber: 1, column: 3 }),
+    executeEdits: (source, nextEdits) => edits.push({ source, ...nextEdits[0] }),
+    setPosition: (position) => positions.push(position),
+  };
+  attachEditorErgonomics(
+    { KeyCode: { Enter: 3 }, Range: TestRange },
+    editor,
+    {}
+  );
+
+  onDidType("[");
+
+  assert.equal(edits[0].source, "ergo-tex-delimiter");
+  assert.equal(edits[0].text, "\\]");
+  assert.deepEqual(edits[0].range, new TestRange(1, 3, 1, 4));
+  assert.deepEqual(positions[0], { lineNumber: 1, column: 3 });
+});
+
+test("typing the final environment brace inserts body and places the caret in it", () => {
+  let onDidType = null;
+  const edits = [];
+  const positions = [];
+  const line = "  \\begin{equation}";
+  const editor = {
+    onDidType: (listener) => { onDidType = listener; },
+    onKeyDown: () => {},
+    getModel: () => ({ getLineContent: () => line }),
+    getPosition: () => ({ lineNumber: 4, column: line.length + 1 }),
+    executeEdits: (source, nextEdits) => edits.push({ source, ...nextEdits[0] }),
+    setPosition: (position) => positions.push(position),
+  };
+  attachEditorErgonomics(
+    { KeyCode: { Enter: 3 }, Range: TestRange },
+    editor,
+    {}
+  );
+
+  onDidType("}");
+
+  assert.equal(edits[0].source, "ergo-env");
+  assert.equal(edits[0].text, "\n    \n  \\end{equation}");
+  assert.deepEqual(positions[0], { lineNumber: 5, column: 5 });
+});
 
 test("Cmd+B is reserved for LaTeX bold wrapping, not build", () => {
   const actions = [];
@@ -19,14 +107,7 @@ test("Cmd+B is reserved for LaTeX bold wrapping, not build", () => {
   const monaco = {
     KeyMod,
     KeyCode,
-    Range: class Range {
-      constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
-        this.startLineNumber = startLineNumber;
-        this.startColumn = startColumn;
-        this.endLineNumber = endLineNumber;
-        this.endColumn = endColumn;
-      }
-    },
+    Range: TestRange,
   };
   const editor = {
     onKeyDown: () => {},

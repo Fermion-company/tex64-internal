@@ -1,12 +1,56 @@
 // LaTeX authoring ergonomics layered on a Monaco editor instance:
 //   - Enter after a non-empty "\item" starts a new "\item " (an empty "\item"
 //     is left untouched — Enter just inserts a normal newline)
-//   - Enter right after "\begin{env}" inserts a matching "\end{env}" body
+//   - Typing "\begin{env}" inserts a matching "\end{env}" body
+//   - TeX math delimiters "\[" / "\(" receive their TeX-aware closers
 //   - Wrap-selection actions (\textbf, \textit, \emph, \texttt)
 // Each behavior reads its flag from the editor settings store at call time, so
 // toggling a feature on/off takes effect live without re-attaching.
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 const leadingWhitespace = (line) => (line.match(/^[ \t]*/) || [""])[0];
+export const planTexDelimiterCompletion = (typed, before, after) => {
+    let slashCount = 0;
+    for (let index = before.length - 2; index >= 0 && before[index] === "\\"; index -= 1) {
+        slashCount += 1;
+    }
+    // "\\[" is a math opener, whereas "\\\\[" is a line break followed by
+    // an ordinary bracket. Only an unescaped TeX command slash starts a pair.
+    if (slashCount % 2 === 0) {
+        return null;
+    }
+    const pair = typed === "[" && before.endsWith("\\[")
+        ? { plainClose: "]", text: "\\]" }
+        : typed === "(" && before.endsWith("\\(")
+            ? { plainClose: ")", text: "\\)" }
+            : null;
+    if (!pair) {
+        return null;
+    }
+    if (after.startsWith(pair.text)) {
+        return null;
+    }
+    // Monaco has already inserted its ordinary bracket closer in the common
+    // path ("\\[]" / "\\()"). Replace it instead of adding a second closer.
+    return {
+        text: pair.text,
+        replaceLength: after.startsWith(pair.plainClose) ? 1 : 0,
+    };
+};
+export const planEnvironmentCompletion = (before, after) => {
+    if (after.trim() !== "") {
+        return null;
+    }
+    const beginMatch = before.match(/^([ \t]*)\\begin\{([^{}\r\n]+)\}$/);
+    if (!beginMatch) {
+        return null;
+    }
+    const indent = beginMatch[1];
+    const env = beginMatch[2];
+    return {
+        text: `\n${indent}  \n${indent}\\end{${env}}`,
+        cursorColumn: indent.length + 3,
+    };
+};
 const suggestWidgetOpen = () => {
     try {
         return typeof document !== "undefined" && !!document.querySelector(".suggest-widget.visible");
@@ -16,13 +60,59 @@ const suggestWidgetOpen = () => {
     }
 };
 export const attachEditorErgonomics = (monaco, editor, group) => {
-    var _a, _b;
+    var _a, _b, _c;
     const KeyCode = monaco === null || monaco === void 0 ? void 0 : monaco.KeyCode;
     const KeyMod = monaco === null || monaco === void 0 ? void 0 : monaco.KeyMod;
     if (!editor || !KeyCode) {
         return;
     }
-    (_a = editor.onKeyDown) === null || _a === void 0 ? void 0 : _a.call(editor, (event) => {
+    (_a = editor.onDidType) === null || _a === void 0 ? void 0 : _a.call(editor, (typed) => {
+        var _a, _b;
+        if (group === null || group === void 0 ? void 0 : group.isComposing) {
+            return;
+        }
+        const model = (_a = editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
+        const pos = (_b = editor.getPosition) === null || _b === void 0 ? void 0 : _b.call(editor);
+        if (!model || !pos) {
+            return;
+        }
+        const line = model.getLineContent(pos.lineNumber);
+        const before = line.slice(0, pos.column - 1);
+        const after = line.slice(pos.column - 1);
+        const delimiter = planTexDelimiterCompletion(typed, before, after);
+        if (delimiter) {
+            editor.executeEdits("ergo-tex-delimiter", [
+                {
+                    range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column + delimiter.replaceLength),
+                    text: delimiter.text,
+                },
+            ]);
+            // Keep the caret between the opener and closer. executeEdits normally
+            // moves it after the inserted text.
+            editor.setPosition(pos);
+            return;
+        }
+        if (typed !== "}" || !editorSettings.isEnabled("ergo.autoCloseEnvironment")) {
+            return;
+        }
+        const environment = planEnvironmentCompletion(before, after);
+        if (!environment) {
+            return;
+        }
+        editor.executeEdits("ergo-env", [
+            {
+                // Consume trailing whitespace on the begin line so it does not wind up
+                // after the generated end line.
+                range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, line.length + 1),
+                text: environment.text,
+            },
+        ]);
+        editor.setPosition({
+            lineNumber: pos.lineNumber + 1,
+            column: environment.cursorColumn,
+        });
+    });
+    (_b = editor.onKeyDown) === null || _b === void 0 ? void 0 : _b.call(editor, (event) => {
         var _a, _b;
         if (event.keyCode !== KeyCode.Enter) {
             return;
@@ -66,21 +156,25 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         }
         // "\begin{env}" -> insert body + matching "\end{env}".
         if (editorSettings.isEnabled("ergo.autoCloseEnvironment")) {
-            const beginMatch = before.match(/\\begin\{([^}]+)\}$/);
-            if (beginMatch) {
+            const environment = planEnvironmentCompletion(before, after);
+            if (environment) {
                 event.preventDefault();
                 event.stopPropagation();
-                const env = beginMatch[1];
-                const insert = `\n${indent}  \n${indent}\\end{${env}}`;
                 editor.executeEdits("ergo-env", [
-                    { range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column), text: insert },
+                    {
+                        range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, line.length + 1),
+                        text: environment.text,
+                    },
                 ]);
-                editor.setPosition({ lineNumber: pos.lineNumber + 1, column: indent.length + 3 });
+                editor.setPosition({
+                    lineNumber: pos.lineNumber + 1,
+                    column: environment.cursorColumn,
+                });
                 return;
             }
         }
     });
-    (_b = editor.onDidChangeCursorPosition) === null || _b === void 0 ? void 0 : _b.call(editor, (event) => {
+    (_c = editor.onDidChangeCursorPosition) === null || _c === void 0 ? void 0 : _c.call(editor, (event) => {
         var _a, _b, _c, _d, _e;
         if (!editorSettings.isEnabled("ergo.typewriterScroll")) {
             return;

@@ -4284,6 +4284,16 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 :root[data-app-mode="code"] .editor-groups .pro-preview-pane { grid-column: 3; grid-row: 1; }
 :root[data-app-mode="code"] .editor-groups > [data-editor-group="secondary"] { display: none; }
 
+/* A detached PDF window is already the preview destination. Collapse the
+   redundant Code preview column and return the full workspace to the source. */
+:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] #pro-splitter-primary,
+:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] .pro-preview-pane {
+  display: none;
+}
+
 .editor-header {
   display: flex;
   align-items: center;

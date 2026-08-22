@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   calculateProSplitterDrag,
   clampPreviewShare,
+  isCodePreviewVisible,
   parseProModeState,
 } from "../Resources/web/app/pro-mode-ui.js";
 
@@ -16,6 +17,12 @@ test("splitter drag keeps both the editor and preview usable", () => {
 test("Code preview share is clamped", () => {
   assert.equal(clampPreviewShare(.98, .12), .88);
   assert.equal(clampPreviewShare(.01, .12), .12);
+});
+
+test("Code preview is hidden when PDF output uses a detached window", () => {
+  assert.equal(isCodePreviewVisible(true, false), false);
+  assert.equal(isCodePreviewVisible(true, true), true);
+  assert.equal(isCodePreviewVisible(false, true), false);
 });
 
 test("Code workspace state restores valid persisted values", () => {

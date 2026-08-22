@@ -11,6 +11,7 @@ export type SettingsUiDeps = {
   getBuildProfileId: () => string | null;
   postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   onEditorWordWrapChange?: (enabled: boolean) => void;
+  onPdfViewerModeChange?: (mode: "window" | "tab") => void;
   onUpdateAttentionChange?: (hasAttention: boolean) => void;
   onRuntimeSetupNeeded?: (summary: EnvStatusSummary) => void;
   // The environment ops own every piece of TeX state, so the first-run gate

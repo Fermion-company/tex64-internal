@@ -74,6 +74,7 @@ export const initMain = () => {
         let editorSession;
         let editorTabsUi;
         let buildOps;
+        let codeWorkspaceApi = null;
         let outlineUi;
         let issuesUi;
         let rootSelectorUi;
@@ -208,6 +209,11 @@ export const initMain = () => {
             onEditorWordWrapChange: (enabled) => {
                 pendingEditorWordWrapEnabled = enabled;
                 updateEditorWordWrap(enabled);
+            },
+            onPdfViewerModeChange: (mode) => {
+                // A detached PDF already owns the preview surface. Give the editor the
+                // full width instead of keeping a redundant integrated preview column.
+                codeWorkspaceApi === null || codeWorkspaceApi === void 0 ? void 0 : codeWorkspaceApi.setPreviewEnabled(mode === "tab");
             },
             onUpdateAttentionChange: (hasAttention) => {
                 setSettingsTabAlert(hasAttention);
@@ -345,9 +351,6 @@ export const initMain = () => {
         let detectedBlockSnapshot = null;
         let pendingBlockApply = null;
         let updateFallback = (message) => { };
-        // Assigned after the Code workspace UI below; the editor session only consults it
-        // lazily when a viewer file opens, so the late binding is safe.
-        let codeWorkspaceApi = null;
         editorSession = initEditorSession(appContext, {
             getWorkspaceFiles,
             getRootFilePath,
@@ -418,6 +421,7 @@ export const initMain = () => {
         codeWorkspaceApi = initProModeUi({
             setSplitViewEnabled: editorSession.setSplitViewEnabled,
         });
+        codeWorkspaceApi === null || codeWorkspaceApi === void 0 ? void 0 : codeWorkspaceApi.setPreviewEnabled(settingsUi.getPdfViewerMode() === "tab");
         initProCanvasUi({
             getActiveGroup: editorSession.getActiveGroup,
             getWorkspaceFiles,

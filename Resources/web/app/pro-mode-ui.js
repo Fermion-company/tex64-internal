@@ -15,6 +15,7 @@ export const calculateProSplitterDrag = (pointerRatio, minShare) => {
         previewShare: clampPreviewShare(1 - sourceShare, minShare),
     };
 };
+export const isCodePreviewVisible = (workspaceEnabled, previewEnabled) => workspaceEnabled && previewEnabled;
 export const parseProModeState = (raw) => {
     if (!raw)
         return structuredClone(DEFAULT_STATE);
@@ -38,6 +39,7 @@ export const initProModeUi = (deps) => {
         return null;
     let state = parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY));
     let enabled = false;
+    let previewEnabled = true;
     const previewViewer = createViewer({
         editorViewer: document.getElementById("pro-preview-viewer"),
         editorViewerImage: document.getElementById("pro-preview-image"),
@@ -48,12 +50,14 @@ export const initProModeUi = (deps) => {
     const scheduleLayout = () => requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     const apply = () => {
         var _a;
+        const previewVisible = isCodePreviewVisible(enabled, previewEnabled);
         window.dispatchEvent(new CustomEvent("tex64:code-workspace", { detail: { enabled } }));
         const canvasButton = document.getElementById("pro-canvas-open");
         if (canvasButton instanceof HTMLButtonElement)
             canvasButton.hidden = !enabled;
         (_a = document
-            .getElementById("pro-preview-pane")) === null || _a === void 0 ? void 0 : _a.setAttribute("aria-hidden", String(!enabled));
+            .getElementById("pro-preview-pane")) === null || _a === void 0 ? void 0 : _a.setAttribute("aria-hidden", String(!previewVisible));
+        root.dataset.codePreview = previewVisible ? "true" : "false";
         root.style.setProperty("--pro-preview-share", `${state.previewShare}fr`);
         root.style.setProperty("--pro-source-share", `${1 - state.previewShare}fr`);
         if (enabled)
@@ -109,8 +113,14 @@ export const initProModeUi = (deps) => {
         enabled = nextEnabled;
         apply();
     };
+    const setPreviewEnabled = (nextEnabled) => {
+        if (previewEnabled === nextEnabled)
+            return;
+        previewEnabled = nextEnabled;
+        apply();
+    };
     const tryShowViewerFile = (path, kind, data, mimeType) => {
-        if (!enabled)
+        if (!enabled || !previewEnabled)
             return false;
         if (kind === "pdf")
             previewViewer.showPdfViewer(path, data, mimeType);
@@ -121,6 +131,7 @@ export const initProModeUi = (deps) => {
     return {
         getState: () => state,
         setEnabled,
+        setPreviewEnabled,
         tryShowViewerFile,
         getPdfPath: previewViewer.getPdfPath,
         syncPdf: previewViewer.syncPdf,
