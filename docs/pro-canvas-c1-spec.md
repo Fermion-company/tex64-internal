@@ -233,10 +233,9 @@ full-window オーバーレイ（`position:fixed; inset:0; z-index` は既存モ
 
 ### 配線
 
-- `Resources/web/index.html`: `.pro-mode-controls` 内（Pro トグルの隣）に
+- `Resources/web/index.html`: `.pro-mode-controls` 内に
   `<button id="pro-canvas-open" type="button" title="Draw figure" hidden>✎ Draw</button>`。
-  Pro モードが有効な間だけ表示（`pro-mode-ui.ts` が Pro 切替時に toggle している既存の仕組みに
-  合わせて hidden を切り替え。適切なフックが無ければ `pro-mode-ui.ts` に 1 行足して良い）。
+  Code が有効な間だけ表示（`pro-mode-ui.ts` が Code/AI 切替時に hidden を切り替える）。
   クリックで新規シーンの `tex64:pro-canvas-open` を dispatch。
 - `web-src/main-init.ts`: `initProCaptureUi` の隣で `initProCanvasUi` を呼ぶ。
 - `Resources/web/theme.css`: `pro-canvas-` プレフィックスのクラスでスタイル追加。既存の

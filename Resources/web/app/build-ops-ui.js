@@ -462,21 +462,10 @@ export const initBuildOpsUi = (context, deps) => {
         if (payload.ok) {
             if (deps.settings.getPdfViewerMode() === "tab" && typeof payload.page === "number") {
                 const pdfPath = (_c = payload.pdfPath) !== null && _c !== void 0 ? _c : null;
-                const openedGroup = (_e = (_d = resolvePdfSyncGroup(pdfPath)) !== null && _d !== void 0 ? _d : deps.getEditorGroups().find((group) => group.key === "secondary")) !== null && _e !== void 0 ? _e : deps.getActiveGroup();
-                const shouldSplit = openedGroup.key === "secondary";
-                if (shouldSplit && !deps.getSplitViewEnabled()) {
-                    deps.setSplitViewEnabled(true);
-                }
-                if (pdfPath) {
-                    const hasPdfTab = openedGroup.openTabs.includes(pdfPath);
-                    if (!hasPdfTab || openedGroup.currentFilePath !== pdfPath) {
-                        deps.requestOpenFile(pdfPath, openedGroup.key, true);
-                    }
-                }
                 const syncPayload = {
                     page: payload.page,
-                    x: (_f = payload.x) !== null && _f !== void 0 ? _f : 0,
-                    y: (_g = payload.y) !== null && _g !== void 0 ? _g : 0,
+                    x: (_d = payload.x) !== null && _d !== void 0 ? _d : 0,
+                    y: (_e = payload.y) !== null && _e !== void 0 ? _e : 0,
                 };
                 if (typeof payload.blockWidth === "number" && payload.blockWidth > 0) {
                     syncPayload.blockWidth = payload.blockWidth;
@@ -490,7 +479,26 @@ export const initBuildOpsUi = (context, deps) => {
                 if (typeof payload.blockY === "number") {
                     syncPayload.blockY = payload.blockY;
                 }
-                openedGroup.viewer.syncPdf(syncPayload);
+                if (deps.workspaceViewer) {
+                    if (pdfPath && deps.workspaceViewer.getPdfPath() !== pdfPath) {
+                        deps.requestOpenFile(pdfPath, "primary", true);
+                    }
+                    deps.workspaceViewer.syncPdf(syncPayload);
+                }
+                else {
+                    const openedGroup = (_g = (_f = resolvePdfSyncGroup(pdfPath)) !== null && _f !== void 0 ? _f : deps.getEditorGroups().find((group) => group.key === "secondary")) !== null && _g !== void 0 ? _g : deps.getActiveGroup();
+                    const shouldSplit = openedGroup.key === "secondary";
+                    if (shouldSplit && !deps.getSplitViewEnabled()) {
+                        deps.setSplitViewEnabled(true);
+                    }
+                    if (pdfPath) {
+                        const hasPdfTab = openedGroup.openTabs.includes(pdfPath);
+                        if (!hasPdfTab || openedGroup.currentFilePath !== pdfPath) {
+                            deps.requestOpenFile(pdfPath, openedGroup.key, true);
+                        }
+                    }
+                    openedGroup.viewer.syncPdf(syncPayload);
+                }
             }
             if (matchedInFlight) {
                 flushQueuedSynctexForward();

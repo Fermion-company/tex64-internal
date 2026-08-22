@@ -356,8 +356,8 @@ export const initSidebarVisibility = (context, deps) => {
         });
     }
     setupPrimaryTabDnD();
-    // Entering or leaving Pro mode adds/removes the stash tab, and leaving it
-    // while the stash is open falls back to the first visible tab.
-    window.addEventListener("tex64:pro-mode", () => applyVisibility());
+    // The stash belongs to Code; entering AI hides it and falls back to the
+    // first visible tab when necessary.
+    window.addEventListener("tex64:code-workspace", () => applyVisibility());
     return { loadVisibility, applyVisibility };
 };

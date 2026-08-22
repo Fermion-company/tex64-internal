@@ -25,7 +25,7 @@ export const TEXT_FILE_EXTENSIONS = new Set([
   "fls",
 ]);
 
-export const PRO_TEXT_FILE_EXTENSIONS = new Set([
+export const EXTENDED_TEXT_FILE_EXTENSIONS = new Set([
   "py", "pyw", "js", "mjs", "cjs", "jsx", "ts", "tsx", "mts", "cts",
   "json", "jsonc", "json5", "md", "markdown", "yaml", "yml", "toml", "xml",
   "html", "htm", "xhtml", "css", "scss", "sass", "less", "c", "h", "cpp",
@@ -38,7 +38,7 @@ export const PRO_TEXT_FILE_EXTENSIONS = new Set([
   "gitattributes", "dockerfile", "makefile", "mk", "nix", "zig", "diff", "patch",
 ]);
 
-export const PRO_TEXT_FILE_NAMES = new Set([
+export const EXTENDED_TEXT_FILE_NAMES = new Set([
   "makefile", "gnumakefile", "dockerfile", "rakefile", "gemfile", "procfile",
   "justfile", "vagrantfile", "brewfile", "license", "readme", "changelog",
   "authors", "contributing", "notice", "codeowners",
@@ -102,11 +102,11 @@ export const getFileExtension = (value: string) => {
 
 export const isTextFilePath = (path: string) =>
   TEXT_FILE_EXTENSIONS.has(getFileExtension(path));
-export const isProTextFilePath = (path: string) =>
-  PRO_TEXT_FILE_EXTENSIONS.has(getFileExtension(path)) ||
-  PRO_TEXT_FILE_NAMES.has((path.split("/").pop() ?? path).toLowerCase());
+export const isExtendedTextFilePath = (path: string) =>
+  EXTENDED_TEXT_FILE_EXTENSIONS.has(getFileExtension(path)) ||
+  EXTENDED_TEXT_FILE_NAMES.has((path.split("/").pop() ?? path).toLowerCase());
 export const isEditableTextFilePath = (path: string) =>
-  isTextFilePath(path) || isProTextFilePath(path);
+  isTextFilePath(path) || isExtendedTextFilePath(path);
 export const isImageFilePath = (path: string) =>
   IMAGE_FILE_EXTENSIONS.has(getFileExtension(path));
 export const isPdfFilePath = (path: string) => getFileExtension(path) === "pdf";

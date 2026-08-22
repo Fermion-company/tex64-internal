@@ -106,7 +106,8 @@ export const initProCaptureUi = (deps: CaptureDeps) => {
     return canvas.toDataURL("image/png");
   };
 
-  const begin = (kind: "preview" | "reference") => {
+  const begin = () => {
+    const kind = "preview";
     cleanup?.();
     const pane = document.getElementById(`pro-${kind}-pane`);
     const body = pane?.querySelector<HTMLElement>(".pro-pane-body");
@@ -291,6 +292,6 @@ export const initProCaptureUi = (deps: CaptureDeps) => {
     });
   };
 
-  document.querySelectorAll<HTMLButtonElement>("[data-pro-capture]").forEach((button) => button.addEventListener("click", () => begin(button.dataset.proCapture as "preview" | "reference")));
+  document.querySelector<HTMLButtonElement>('[data-pro-capture="preview"]')?.addEventListener("click", begin);
   return { cancel: () => cleanup?.() };
 };

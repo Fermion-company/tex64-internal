@@ -1,10 +1,9 @@
-import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isProTextFilePath, isTextFilePath, } from "./files.js";
+import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isExtendedTextFilePath, isTextFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
-const isProModeActive = () => document.documentElement.dataset.appMode === "pro";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
-    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
+    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const reportSaveError = (message) => {
         lastSaveErrorMessage = message;
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
@@ -36,11 +35,11 @@ export const createEditorSessionFileOps = (ctx) => {
     };
     const applyViewerFile = (group, path, kind, data, mimeType) => {
         var _a;
-        // In Pro mode, viewer files picked from the tree go to the visible
+        // Viewer files picked from the tree go to the visible Code workspace
         // viewer pane instead of replacing the source editor. Files already open
         // as a tab keep the normal tab flow (e.g. clicking their tab).
         if (!group.openTabs.includes(path) &&
-            ((_a = deps.proViewer) === null || _a === void 0 ? void 0 : _a.tryShowViewerFile(path, kind, data, mimeType))) {
+            ((_a = deps.workspaceViewer) === null || _a === void 0 ? void 0 : _a.tryShowViewerFile(path, kind, data, mimeType))) {
             if (isActiveGroup(group)) {
                 deps.fileTree.setSelection(path, "file");
             }
@@ -103,10 +102,7 @@ export const createEditorSessionFileOps = (ctx) => {
             state.pendingReveal.group === group.key) {
             state.pendingReveal = null;
         }
-        const hint = isProTextFilePath(path) && !isProModeActive()
-            ? uiText("Switch to Pro mode to open this file in the editor.", "Pro モードに切り替えるとエディタで開けます。")
-            : undefined;
-        group.viewer.showUnsupportedViewer(hint);
+        group.viewer.showUnsupportedViewer();
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
             deps.fileTree.setTreeFocus(false);
@@ -587,24 +583,15 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const path = payload.path;
-        let kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+        const kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
             ? "pdf"
             : isImageFilePath(path)
                 ? "image"
-                : isTextFilePath(path) || isProTextFilePath(path)
+                : isTextFilePath(path) || isExtendedTextFilePath(path)
                     ? "text"
                     : "unsupported");
-        if (kind === "text" &&
-            !isTextFilePath(path) &&
-            (!isProTextFilePath(path) || !isProModeActive())) {
-            kind = "unsupported";
-        }
         if (pendingIndex < 0) {
-            if (kind === "pdf") {
-                setSplitViewEnabled(true);
-                targetGroupKey = "secondary";
-            }
-            else {
+            if (kind !== "pdf") {
                 const existingGroupKey = findGroupKeyByPath(path);
                 if (existingGroupKey) {
                     targetGroupKey = existingGroupKey;

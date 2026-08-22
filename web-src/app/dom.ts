@@ -32,7 +32,6 @@ export const getDomRefs = () => ({
   editorTabsList: document.getElementById("editor-tabs-list"),
   editorTabsSecondary: document.getElementById("editor-tabs-secondary"),
   editorTabsListSecondary: document.getElementById("editor-tabs-list-secondary"),
-  editorSplitButton: document.getElementById("editor-split-button"),
   toggleSidebarButton: document.getElementById("toggle-sidebar-button"),
   toggleBottomPanelButton: document.getElementById("toggle-bottom-panel-button"),
   launcher: document.getElementById("launcher"),

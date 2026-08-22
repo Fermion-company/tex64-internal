@@ -94,10 +94,6 @@ export const createEditorSessionSplitViewOps = (runtime, coreOps) => {
         if (runtime.dom.editorGroupsRootEl) {
             runtime.dom.editorGroupsRootEl.dataset.split = enabled ? "true" : "false";
         }
-        if (runtime.dom.editorSplitButton instanceof HTMLElement) {
-            runtime.dom.editorSplitButton.classList.toggle("is-active", enabled);
-            runtime.dom.editorSplitButton.setAttribute("aria-pressed", enabled ? "true" : "false");
-        }
         const secondaryRoot = runtime.editorGroups.secondary.root;
         if (secondaryRoot instanceof HTMLElement) {
             secondaryRoot.setAttribute("aria-hidden", enabled ? "false" : "true");

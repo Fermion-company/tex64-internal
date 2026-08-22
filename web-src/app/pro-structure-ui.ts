@@ -100,7 +100,7 @@ export const initProStructureUi = (deps: ProStructureDeps) => {
   };
 
   const toggle = () => {
-    if (document.documentElement.dataset.proMode !== "true") return;
+    if (document.documentElement.dataset.appMode !== "code") return;
     if (open) return close();
     render();
     open = true;
@@ -124,7 +124,7 @@ export const initProStructureUi = (deps: ProStructureDeps) => {
     }
     if (
       (event.metaKey || event.ctrlKey) && event.altKey && !event.shiftKey &&
-      event.key.toLowerCase() === "o" && document.documentElement.dataset.proMode === "true"
+      event.key.toLowerCase() === "o" && document.documentElement.dataset.appMode === "code"
     ) {
       event.preventDefault();
       event.stopPropagation();
@@ -132,8 +132,8 @@ export const initProStructureUi = (deps: ProStructureDeps) => {
     }
   }, true);
   new MutationObserver(() => {
-    if (document.documentElement.dataset.proMode !== "true") close();
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-pro-mode"] });
+    if (document.documentElement.dataset.appMode !== "code") close();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-app-mode"] });
 
   return { close, render, toggle };
 };

@@ -47,7 +47,7 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
-import { initProModeUi, parseProModeState, PRO_MODE_STORAGE_KEY } from "./app/pro-mode-ui.js";
+import { initProModeUi } from "./app/pro-mode-ui.js";
 import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./app/app-mode.js";
 import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCaptureUi } from "./app/pro-capture-ui.js";
@@ -348,9 +348,9 @@ export const initMain = () => {
         let detectedBlockSnapshot = null;
         let pendingBlockApply = null;
         let updateFallback = (message) => { };
-        // Assigned after initProModeUi below; the editor session only consults it
+        // Assigned after the Code workspace UI below; the editor session only consults it
         // lazily when a viewer file opens, so the late binding is safe.
-        let proModeApi = null;
+        let codeWorkspaceApi = null;
         editorSession = initEditorSession(appContext, {
             getWorkspaceFiles,
             getRootFilePath,
@@ -389,8 +389,8 @@ export const initMain = () => {
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             getMonacoApi: appActions.getMonacoApi,
-            proViewer: {
-                tryShowViewerFile: (path, kind, data, mimeType) => { var _a; return (_a = proModeApi === null || proModeApi === void 0 ? void 0 : proModeApi.tryShowViewerFile(path, kind, data, mimeType)) !== null && _a !== void 0 ? _a : false; },
+            workspaceViewer: {
+                tryShowViewerFile: (path, kind, data, mimeType) => { var _a; return (_a = codeWorkspaceApi === null || codeWorkspaceApi === void 0 ? void 0 : codeWorkspaceApi.tryShowViewerFile(path, kind, data, mimeType)) !== null && _a !== void 0 ? _a : false; },
             },
         });
         requestLiveEdit = (payload) => {
@@ -418,9 +418,8 @@ export const initMain = () => {
                 updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
             }
         };
-        proModeApi = initProModeUi({
+        codeWorkspaceApi = initProModeUi({
             setSplitViewEnabled: editorSession.setSplitViewEnabled,
-            getSplitViewEnabled: editorSession.getSplitViewEnabled,
         });
         initProStashUi({
             getActiveGroup: editorSession.getActiveGroup,
@@ -446,9 +445,9 @@ export const initMain = () => {
         // dispatcher untouched.
         (_b = (_a = bridgeWindow.tex64Bridge) === null || _a === void 0 ? void 0 : _a.onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, (message) => aiModeApi.deliver(message));
         const appModeApi = initAppModeUi({
-            initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY), parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled),
+            initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)),
             onModeChange: (mode) => {
-                proModeApi === null || proModeApi === void 0 ? void 0 : proModeApi.setEnabled(mode === "pro");
+                codeWorkspaceApi === null || codeWorkspaceApi === void 0 ? void 0 : codeWorkspaceApi.setEnabled(mode === "code");
                 if (mode === "ai")
                     aiModeApi.activate();
             },
@@ -467,18 +466,15 @@ export const initMain = () => {
             }).snapshots,
         });
         onFilesTabActive = () => editorSession.updateMiniOutline();
-        const openInSecondaryEditor = (path, line) => {
-            if (!editorSession.getSplitViewEnabled()) {
-                editorSession.setSplitViewEnabled(true);
-            }
+        const openInCodeEditor = (path, line) => {
             if (typeof line === "number") {
-                editorSession.jumpToFileLine(path, line, "secondary", {
+                editorSession.jumpToFileLine(path, line, "primary", {
                     force: true,
                     focus: false,
                 });
                 return;
             }
-            editorSession.requestOpenFile(path, "secondary", true);
+            editorSession.requestOpenFile(path, "primary", true);
         };
         const mathCaptureHandler = createMathCaptureHandler({
             recognizeMath,
@@ -640,7 +636,7 @@ export const initMain = () => {
                 return context;
             },
             openSearchResult: (result) => {
-                openInSecondaryEditor(result.path, result.line);
+                openInCodeEditor(result.path, result.line);
             },
         });
         resetBlockSession = (options) => {
@@ -739,6 +735,10 @@ export const initMain = () => {
             requestOpenFile: editorSession.requestOpenFile,
             getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
             setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
+            workspaceViewer: {
+                getPdfPath: () => { var _a; return (_a = codeWorkspaceApi === null || codeWorkspaceApi === void 0 ? void 0 : codeWorkspaceApi.getPdfPath()) !== null && _a !== void 0 ? _a : null; },
+                syncPdf: (payload) => codeWorkspaceApi === null || codeWorkspaceApi === void 0 ? void 0 : codeWorkspaceApi.syncPdf(payload),
+            },
             settings: {
                 getPdfViewerMode: settingsUi.getPdfViewerMode,
                 getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,
@@ -782,10 +782,10 @@ export const initMain = () => {
                 if (!entry.path || !entry.line) {
                     return;
                 }
-                openInSecondaryEditor(entry.path, entry.line);
+                openInCodeEditor(entry.path, entry.line);
             },
             onJumpToSection: (entry) => {
-                openInSecondaryEditor(entry.path, entry.line);
+                openInCodeEditor(entry.path, entry.line);
             },
         });
         initProStructureUi({
@@ -798,20 +798,7 @@ export const initMain = () => {
         issuesUi = initIssuesUi(appContext, {
             parseIssueDetail: editorSession.parseIssueDetail,
             onFocusIssue: (issue) => {
-                // An error opens *beside* what you are writing, not on top of it: the
-                // offending file goes into the other pane. Pro mode runs its own pane
-                // layout and hides the secondary group, so there we jump in place.
-                const detail = editorSession.parseIssueDetail(issue);
-                const proMode = document.documentElement.dataset.proMode === "true";
-                if (proMode || !detail.path) {
-                    editorSession.focusIssue(issue);
-                    return;
-                }
-                const groupKey = editorSession.getActiveEditorGroupKey() === "secondary" ? "primary" : "secondary";
-                if (groupKey === "secondary" && !editorSession.getSplitViewEnabled()) {
-                    editorSession.setSplitViewEnabled(true);
-                }
-                editorSession.focusIssue(issue, { groupKey });
+                editorSession.focusIssue(issue, { groupKey: "primary" });
             },
             onOpenRuntimeSettings: () => {
                 setActiveTab("settings");
