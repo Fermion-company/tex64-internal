@@ -43,3 +43,28 @@ test("the integrated terminal uses theme colors instead of a dark frame", () => 
   assert.match(css, /\.terminal-host\s*\{[^}]*background:\s*var\(--terminal-bg\)/s);
   assert.match(css, /:root\[data-theme="light"\][\s\S]*--terminal-bg:\s*#f8fafc/i);
 });
+
+test("every topbar control uses an SVG and consistent accessible states", () => {
+  const html = read("../Resources/web/index.html");
+  const css = read("../Resources/web/theme.css");
+  const buildOps = read("../web-src/app/build-ops-ui.ts");
+  const topbar = html.match(/<header class="topbar">([\s\S]*?)<\/header>/)?.[1] ?? "";
+  const buttons = [...topbar.matchAll(/<button\b[\s\S]*?<\/button>/g)].map((match) => match[0]);
+
+  assert.ok(buttons.length >= 10, "expected the complete Code/AI topbar button set");
+  for (const button of buttons) {
+    assert.match(button, /<svg\b/, `topbar button is missing an SVG: ${button.slice(0, 120)}`);
+  }
+
+  const byId = (id) => buttons.find((button) => button.includes(`id="${id}"`)) ?? "";
+  assert.doesNotMatch(byId("pro-canvas-open"), /[✎⊞]/);
+  assert.match(byId("format-button"), /<svg\b[\s\S]*<span>Format<\/span>/);
+  assert.match(byId("synctex-button"), /<svg\b[\s\S]*class="synctex-button-label"/);
+  for (const id of ["toggle-sidebar-button", "toggle-bottom-panel-button", "build-button"]) {
+    assert.match(byId(id), /aria-label="[^"]+"/);
+    assert.match(byId(id), /title="[^"]+"/);
+  }
+  assert.match(css, /\.build-button-label\s*\{\s*display:\s*none;/);
+  assert.match(css, /\.topbar-layout-toggle:focus-visible[\s\S]*outline:\s*2px solid var\(--focus-ring\)/);
+  assert.doesNotMatch(buildOps, /synctexButton\.textContent\s*=/);
+});

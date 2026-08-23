@@ -914,7 +914,9 @@ body.has-onboarding .launcher {
 }
 
 .topbar-layout-toggle.is-active {
+  background: var(--control-bg);
   color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--panel-border);
 }
 
 .topbar-layout-toggle.is-active .topbar-layout-fill {
@@ -923,6 +925,12 @@ body.has-onboarding .launcher {
 
 .topbar-layout-toggle svg {
   flex-shrink: 0;
+}
+
+.topbar-layout-toggle:focus-visible,
+.mode-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* ---- App mode switcher (Code | AI) ---- */
@@ -4236,6 +4244,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
 }
 #pro-canvas-open:active { transform: translateY(1px); }
+#pro-canvas-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .pro-pane, .pro-splitter { display: none; }
 
 /* Code owns one fixed source/preview arrangement. */
@@ -4352,7 +4364,19 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 #save-button,
 #format-button,
 #synctex-button {
+  gap: 5px;
   color: var(--text);
+}
+
+#pro-canvas-open svg,
+#save-button svg,
+#format-button svg,
+#synctex-button svg,
+#update-button svg,
+#build-button svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 #save-button {
@@ -4550,7 +4574,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 .build-button-label {
-  white-space: nowrap;
+  display: none;
 }
 
 #save-file-button {

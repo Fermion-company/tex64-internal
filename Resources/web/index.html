@@ -124,11 +124,11 @@
             id="toggle-sidebar-button"
             type="button"
             class="topbar-layout-toggle is-active"
-            aria-label="sidebar"
-            title="sidebar"
+            aria-label="Show or hide sidebar"
+            title="Show or hide sidebar"
             aria-pressed="true"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="5" width="18" height="14" rx="2"></rect>
               <path d="M9 5v14"></path>
               <rect class="topbar-layout-fill" x="3" y="5" width="6" height="14" rx="2" fill="currentColor" opacity="0.35"></rect>
@@ -154,7 +154,13 @@
         <div class="top-actions">
           <div class="pro-mode-controls" role="toolbar" aria-label="Writing tools">
             <div class="pro-figure-tools" role="group" aria-label="Figure tools">
-              <button id="pro-canvas-open" type="button" title="Draw a figure and insert it as TikZ" hidden>✎ Draw</button>
+              <button id="pro-canvas-open" type="button" aria-label="Draw a figure" title="Draw a figure and insert it as TikZ" hidden>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                </svg>
+                <span>Draw</span>
+              </button>
             </div>
           </div>
           <button
@@ -183,22 +189,28 @@
             title="Show or hide Blocks and Terminal"
             aria-pressed="false"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="3" y="5" width="18" height="14" rx="2"></rect>
               <path d="M3 15h18"></path>
               <rect class="topbar-layout-fill" x="3" y="15" width="18" height="4" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
           <button id="save-button" type="button" aria-label="Save" title="Save (Cmd+S)">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
               <polyline points="17 21 17 13 7 13 7 21"/>
               <polyline points="7 3 7 8 15 8"/>
             </svg>
-            Save
+            <span>Save</span>
           </button>
           <button id="format-button" type="button" aria-label="Format" title="Format">
-            Format
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 6h16"></path>
+              <path d="M8 10h12"></path>
+              <path d="M4 14h16"></path>
+              <path d="M8 18h12"></path>
+            </svg>
+            <span>Format</span>
           </button>
           <button
             id="synctex-button"
@@ -206,7 +218,14 @@
             aria-label="SyncTeX"
             title="SyncTeX (Forward)"
           >
-            SyncTeX
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="7"></circle>
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M2 12h4"></path>
+              <path d="M18 12h4"></path>
+            </svg>
+            <span class="synctex-button-label">SyncTeX</span>
           </button>
           <button
             id="build-button"
