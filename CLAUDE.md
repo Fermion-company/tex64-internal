@@ -4,8 +4,11 @@ Electron ベースの LaTeX エディタ（macOS、開発中 / `com.wedd.tex64`�
 
 このファイルは恒久的な設計方針と作業規約。直近のタスクキューは [TODO.md](TODO.md) にある（セッション開始時に確認）。
 
-アプリはトップバー左側（サイドバートグル右隣）のスイッチャーで **Code | AI** の 2 モードを持つ（[docs/app-modes.md](docs/app-modes.md)）。
-Code = ソース＋通常 PDF / Live プレビューを持つ自己完結エディタ、AI = `services/tex64-ai`（独立 Web アプリを webview で埋め込み、Web/ネイティブ共通コードベース）。旧 Pro モードは廃止し、旧機能では TikZ 作図だけを Code に残す（[docs/pro-mode-design.md](docs/pro-mode-design.md)）。
+デスクトップ版は現在 **Code のみ**を提供し、トップバーのモードスイッチャーと AI モードは無効化している（[docs/app-modes.md](docs/app-modes.md)）。`services/tex64-ai` の実装は将来の再検証用に保持するが、製品UIから起動・接続しない。Code 内の Axiom チャットと課金導線は引き続き提供する。旧 Pro モードは廃止し、旧機能では TikZ 作図だけを Code に残す（[docs/pro-mode-design.md](docs/pro-mode-design.md)）。
+
+Code は Pro 統合前の `editor-session` と通常ビューアを使う。固定プレビューペインや汎用コード編集を
+再導入しない。TikZ キャンバスは基本図形の作図・挿入・再編集に限定し、PNG / SVG / AI / `.sty`
+など既存機能と重複する導線を足さない。
 
 ---
 
@@ -53,7 +56,7 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 ```
 
 - テストは `node:test`。`tests/` 直下の単体に加え `tests/e2e/`・`tests/nightly/` がある。
-- ロジック変更は `node:test` で担保できる。UI の見た目は別（後述「検証」）。
+- ロジック変更は `node:test` で担保する。UI/CSS/HTML の変更は型チェックに加え、必要な画面と操作を実際に確認する。
 - ローカル配備（`scripts/install-local-app.cjs`）: dmg と同じバンドル（`electron-builder --dir`）を作り、Developer ID が無いのでプロダクションと同じ entitlements で ad-hoc 署名してから `/Applications` へ差し替える。フックは detached 実行なので commit は待たされない。ログは `~/Library/Logs/tex64-local-deploy.log`、1回だけ止めるなら `TEX64_SKIP_LOCAL_DEPLOY=1 git commit …`。docs/tests など**パッケージに入らないパスだけの commit ではビルドしない**。
 
 ---
@@ -163,8 +166,7 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 ### 検証
 
-- **UI の見た目は検証しない**。Launch プレビューや computer-use でスクショ/クリックして「見た目」を確認しない。UI/CSS/HTML を変えたら `tsc` で通し、必要なら headless で no-crash 確認し、「何を変えたか（renderer のみ → Cmd+R）」だけ伝えてユーザーに見た目を委ねる。
-  - 例外: ユーザーが**インタラクティブな挙動**のハンズオン検証を明示的に頼んだときは行う。「見た目を眺める」ためのプレビューだけが禁止。
+- UI/CSS/HTML を変更したら `tsc` だけで完了とせず、対象画面の表示と主要操作を実際に確認する。確認には適切なプレビュー、スクリーンショット、または自動操作を使い、表示崩れ・操作不能・意図しない導線がないことを確かめる。
 - **「動く」と断言する前にバックエンドの実行経路を辿る**。フロント配線や `tsc` 成功だけで保証しない。install/build/runtime 系は renderer だけでなく `electron/`（`.cjs`）側を読み、必要なら**実走**で機能的に確認する（過去に「ワンクリック TeX インストール完成」と報告したが env.cjs の不具合で失敗していた）。
 - **ランキング/サジェスト/ヒューリスティクスの改修は、まずシミュレーション**。実 LaTeX ユーザーの打鍵・選択をコーパス化して headless（node）で実走させ、top-1 率・MRR・退行有無で定量評価してから最適解を実装する。設計判断もシミュレーション結果で決める。一時ハーネスは検証後に削除可（恒久回帰テスト化は提案する）。
 

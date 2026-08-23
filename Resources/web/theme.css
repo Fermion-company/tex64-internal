@@ -1010,7 +1010,7 @@ body.has-onboarding .launcher {
 :root[data-app-mode="ai"] #format-button,
 :root[data-app-mode="ai"] #synctex-button,
 :root[data-app-mode="ai"] #build-button,
-:root[data-app-mode="ai"] .pro-mode-controls {
+:root[data-app-mode="ai"] .canvas-controls {
   display: none !important;
 }
 
@@ -4214,9 +4214,9 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: none;
 }
 
-.pro-mode-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
-:root:not([data-app-mode="code"]) .pro-mode-controls { display: none; }
-.pro-figure-tools { display: inline-flex; align-items: center; gap: 6px; }
+.canvas-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
+:root:not([data-app-mode="code"]) .canvas-controls { display: none; }
+.canvas-tools { display: inline-flex; align-items: center; gap: 6px; }
 #pro-canvas-open {
   display: inline-flex;
   align-items: center;
@@ -4247,63 +4247,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 #pro-canvas-open:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-}
-.pro-pane, .pro-splitter { display: none; }
-
-/* Code owns one fixed source/preview arrangement. */
-:root[data-app-mode="code"] .editor-groups {
-  --pro-handle: 8px;
-  --pro-preview-share: .34fr;
-  --pro-source-share: .66fr;
-  transition: grid-template-columns .2s ease;
-}
-:root[data-app-mode="code"] .editor-groups.is-pro-resizing { transition: none; user-select: none; }
-:root[data-app-mode="code"] .editor-groups.is-pro-resizing > * { transition: none !important; }
-:root[data-app-mode="code"] .editor-groups > .editor-splitter { display: none; }
-:root[data-app-mode="code"] .pro-pane { display: grid; grid-template-rows: 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
-.pro-pane-body { position: relative; min-height: 0; }
-.pro-pane-body .editor-viewer { display: grid; }
-/* The pane's empty state is the first thing the Code workspace shows; a floating card
-   with a drop shadow reads as an error dialog there. Quiet hint instead. */
-.pro-pane-body .editor-viewer-message {
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  padding: 20px 28px;
-}
-.pro-pane-body .editor-viewer-message h2 {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-soft);
-  margin: 0 0 6px;
-}
-.pro-pane-body .editor-viewer-message p {
-  font-size: 12px;
-  color: var(--muted);
-}
-.pro-splitter { position: relative; cursor: col-resize; min-width: var(--pro-handle); }
-.pro-splitter::before { content: ""; position: absolute; z-index: 3; inset: 0 auto 0 50%; width: 18px; transform: translateX(-50%); background: linear-gradient(to right, transparent calc(50% - .5px), var(--panel-border) calc(50% - .5px), var(--panel-border) calc(50% + .5px), transparent calc(50% + .5px)); transition: filter .2s ease; }
-.pro-splitter:hover::before, .is-pro-resizing .pro-splitter::before { filter: contrast(1.8); }
-
-/* Code puts the source on the LEFT and the preview on the RIGHT (the
-   convention every LaTeX editor shares), even though the DOM keeps the preview
-   pane first — hence the explicit grid-column assignments. */
-:root[data-app-mode="code"] .editor-groups { grid-template-columns: minmax(0, var(--pro-source-share)) var(--pro-handle) minmax(0, var(--pro-preview-share)); }
-:root[data-app-mode="code"] .editor-groups .pro-preview-pane,
-:root[data-app-mode="code"] .editor-groups > [data-editor-group="primary"] { display: grid; }
-:root[data-app-mode="code"] .editor-groups > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
-:root[data-app-mode="code"] .editor-groups #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
-:root[data-app-mode="code"] .editor-groups .pro-preview-pane { grid-column: 3; grid-row: 1; }
-:root[data-app-mode="code"] .editor-groups > [data-editor-group="secondary"] { display: none; }
-
-/* A detached PDF window is already the preview destination. Collapse the
-   redundant Code preview column and return the full workspace to the source. */
-:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] #pro-splitter-primary,
-:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] .pro-preview-pane {
-  display: none;
 }
 
 .editor-header {
@@ -9174,10 +9117,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   box-shadow: var(--shadow);
 }
 
-:root[data-theme="light"] .pro-pane-body .editor-viewer-message {
-  box-shadow: none;
-}
-
 :root[data-theme="light"] .ai-chat-delete-modal {
   background: rgba(15, 23, 42, 0.22);
 }
@@ -9251,18 +9190,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
 .pro-canvas-hintbar { position: absolute; z-index: 2; left: 50%; bottom: 8px; transform: translateX(-50%); max-width: calc(100% - 24px); overflow: hidden; padding: 4px 12px; pointer-events: none; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
 .pro-canvas-hintbar:empty { display: none; }
-.pro-canvas-emptystate { position: absolute; z-index: 2; top: 50%; left: 50%; width: min(560px, calc(100% - 32px)); transform: translate(-50%, -50%); pointer-events: none; text-align: center; }
-.pro-canvas-emptystate[hidden] { display: none; }
-.pro-canvas-empty-actions { display: flex; justify-content: center; gap: 8px; }
-.pro-canvas-empty-actions button { display: grid; grid-template-columns: 36px auto; align-items: center; gap: 6px; padding: 8px 11px; pointer-events: auto; color: var(--text); border: 1px solid var(--panel-border); border-radius: 8px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); box-shadow: var(--shadow-sm); }
-.pro-canvas-emptystate.is-passive .pro-canvas-empty-actions button { pointer-events: none; }
-.pro-canvas-empty-actions svg { width: 36px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.pro-canvas-empty-actions text { fill: currentColor; stroke: none; font: 15px Georgia, 'Times New Roman', serif; text-anchor: middle; }
-.pro-canvas-emptystate p { display: inline-block; margin: 9px 0 0; padding: 3px 10px; border: 1px solid var(--panel-border); border-radius: 999px; color: var(--text-soft); background: color-mix(in srgb, var(--panel-strong) 92%, transparent); font-size: 10px; }
-.pro-canvas-coach { position: absolute; z-index: 3; padding: 5px 8px; transform: translate(-50%, -100%); pointer-events: none; color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; background: var(--panel-strong); box-shadow: var(--shadow-sm); font-size: 10px; white-space: nowrap; transition: opacity .5s ease; }
-.pro-canvas-coach[hidden] { display: none; }
-.pro-canvas-coach.is-fading { opacity: 0; }
-@media (max-width: 900px) { .pro-canvas-empty-actions { flex-direction: column; align-items: center; } .pro-canvas-empty-actions button { width: 150px; } }
 
 /* 挿入した図がどこへ入ったかを数秒だけ光らせて示す（pro-canvas の showInserted）。 */
 .monaco-editor .pro-canvas-inserted-line { background: color-mix(in srgb, var(--accent) 16%, transparent); border-left: 3px solid var(--accent); }
@@ -9419,10 +9346,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-status { position: absolute; z-index: 2; left: 12px; bottom: 34px; display: none; max-width: calc(100% - 24px); padding: 5px 9px; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
 .pro-canvas-status:not(:empty) { display: block; }
 .pro-canvas-status.is-error { color: var(--danger, #dc2626); border-color: var(--danger, #dc2626); }
-.pro-canvas-more { position: relative; }
-.pro-canvas-more-menu { position: absolute; z-index: 4; left: 0; bottom: calc(100% + 7px); display: grid; min-width: 190px; padding: 5px; border: 1px solid var(--panel-border); border-radius: 8px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: var(--shadow); }
-.pro-canvas-more-menu[hidden] { display: none; }
-.pro-canvas-more-menu button { border: 0; text-align: left; background: transparent; }
 .pro-canvas-ghost { border-color: transparent !important; background: transparent !important; }
 .pro-canvas-secondary { background: transparent !important; }
 /* These two popovers are modal prompts, so pin them to one predictable spot --

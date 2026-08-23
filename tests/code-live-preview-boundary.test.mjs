@@ -58,7 +58,6 @@ test("Code Live never republishes an obsolete project and tracks the detached de
       viewerMode: "window",
     };
     window.__viewerMessages = [];
-    window.__workspaceViewerMessages = [];
     window.__windowMessages = [];
     window.__pushes = [];
     window.__changeListener = null;
@@ -116,9 +115,6 @@ test("Code Live never republishes an obsolete project and tracks the detached de
         isDirty: true,
         truncated: false,
       }],
-      setWorkspaceLivePreview: (url, generation) => {
-        window.__workspaceViewerMessages.push({ url, generation, at: performance.now() });
-      },
     });
   });
 
@@ -128,13 +124,7 @@ test("Code Live never republishes an obsolete project and tracks the detached de
     url: "http://127.0.0.1:4633",
   }));
   await page.waitForFunction(() => window.__viewerMessages.some((item) => item.url));
-  await page.waitForFunction(() => window.__workspaceViewerMessages.some((item) => item.url));
   const firstLive = await page.evaluate(() => window.__viewerMessages.filter((item) => item.url).at(-1));
-  assert.deepEqual(
-    await page.evaluate(() => window.__workspaceViewerMessages.filter((item) => item.url).at(-1).url),
-    firstLive.url,
-    "the visible integrated Code viewer receives the Live engine URL"
-  );
 
   // Keep a project-A edit in flight, then switch the editor's real project.
   // The poll must retire A immediately, before the project-B debounce and

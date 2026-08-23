@@ -50,9 +50,6 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
-import { initProModeUi } from "./app/pro-mode-ui.js";
-import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./app/app-mode.js";
-import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
 import type {
@@ -102,7 +99,6 @@ export const initMain = () => {
   let editorSession: ReturnType<typeof initEditorSession>;
   let editorTabsUi: ReturnType<typeof initEditorTabsUi>;
   let buildOps: ReturnType<typeof initBuildOpsUi>;
-  let codeWorkspaceApi: ReturnType<typeof initProModeUi> = null;
 
   let outlineUi: ReturnType<typeof initOutlineUi>;
   let issuesUi: ReturnType<typeof initIssuesUi>;
@@ -259,9 +255,7 @@ export const initMain = () => {
       updateEditorWordWrap(enabled);
     },
     onPdfViewerModeChange: (mode) => {
-      // A detached PDF already owns the preview surface. Give the editor the
-      // full width instead of keeping a redundant integrated preview column.
-      codeWorkspaceApi?.setPreviewEnabled(mode === "tab");
+      void mode;
     },
     onUpdateAttentionChange: (hasAttention) => {
       setSettingsTabAlert(hasAttention);
@@ -443,10 +437,6 @@ export const initMain = () => {
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     getMonacoApi: appActions.getMonacoApi,
-    workspaceViewer: {
-      tryShowViewerFile: (path, kind, data, mimeType) =>
-        codeWorkspaceApi?.tryShowViewerFile(path, kind, data, mimeType) ?? false,
-    },
   });
   requestLiveEdit = (payload) => {
     const workspaceRoot = getWorkspaceRootKey()?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
@@ -478,32 +468,13 @@ export const initMain = () => {
       updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
     }
   };
-  codeWorkspaceApi = initProModeUi({
-    setSplitViewEnabled: editorSession.setSplitViewEnabled,
-  });
-  codeWorkspaceApi?.setPreviewEnabled(settingsUi.getPdfViewerMode() === "tab");
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
-    getWorkspaceFiles,
-  });
-  const aiModeApi = initAiModeUi({
-    postToNative: (payload, silent) => postToNative(payload, silent),
-  });
-  // The AI mode webview sees the same host messages Code mode does, filtered
-  // by its own allowlist. Registering a second listener keeps the existing
-  // dispatcher untouched.
-  bridgeWindow.tex64Bridge?.onMessage?.((message) => aiModeApi.deliver(message));
-  const appModeApi = initAppModeUi({
-    initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)),
-    onModeChange: (mode) => {
-      codeWorkspaceApi?.setEnabled(mode === "code");
-      if (mode === "ai") aiModeApi.activate();
-    },
   });
   initCodeLivePreview({
     getActiveGroup: editorSession.getActiveGroup,
     getEditorGroups: editorSession.getEditorGroups,
-    getAppMode: () => appModeApi.getMode(),
+    getAppMode: () => "code",
     getPdfViewerMode: settingsUi.getPdfViewerMode,
     getWorkspaceRoot: getWorkspaceRootKey,
     getRootFile: getRootFilePath,
@@ -512,8 +483,6 @@ export const initMain = () => {
       maxChars: Number.POSITIVE_INFINITY,
       onlyDirty: true,
     }).snapshots,
-    setWorkspaceLivePreview: (url, generation) =>
-      codeWorkspaceApi?.setLivePreview(url, generation),
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
@@ -805,10 +774,6 @@ export const initMain = () => {
     requestOpenFile: editorSession.requestOpenFile,
     getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
     setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
-    workspaceViewer: {
-      getPdfPath: () => codeWorkspaceApi?.getPdfPath() ?? null,
-      syncPdf: (payload) => codeWorkspaceApi?.syncPdf(payload),
-    },
     settings: {
       getPdfViewerMode: settingsUi.getPdfViewerMode,
       getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,

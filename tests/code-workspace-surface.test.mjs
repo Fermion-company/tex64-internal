@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("Code uses the ordinary viewer without redundant pane controls", () => {
+test("Code uses the ordinary editor-session viewer without a fixed preview pane", () => {
   const html = read("../Resources/web/index.html");
   for (const obsolete of [
     "data-pro-capture",
@@ -18,7 +18,8 @@ test("Code uses the ordinary viewer without redundant pane controls", () => {
   ]) {
     assert.doesNotMatch(html, new RegExp(obsolete));
   }
-  assert.match(html, /id="pro-preview-pdf"/);
+  assert.doesNotMatch(html, /id="pro-preview-pdf"|id="pro-preview-pane"/);
+  assert.match(html, /id="editor-viewer-pdf"/);
 });
 
 test("the retired Pro stash is not initialized", () => {
@@ -51,7 +52,7 @@ test("every topbar control uses an SVG and consistent accessible states", () => 
   const topbar = html.match(/<header class="topbar">([\s\S]*?)<\/header>/)?.[1] ?? "";
   const buttons = [...topbar.matchAll(/<button\b[\s\S]*?<\/button>/g)].map((match) => match[0]);
 
-  assert.ok(buttons.length >= 10, "expected the complete Code/AI topbar button set");
+  assert.ok(buttons.length >= 8, "expected the complete Code topbar button set");
   for (const button of buttons) {
     assert.match(button, /<svg\b/, `topbar button is missing an SVG: ${button.slice(0, 120)}`);
   }

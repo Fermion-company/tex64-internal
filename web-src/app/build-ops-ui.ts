@@ -71,18 +71,6 @@ type BuildOpsDeps = {
   ) => boolean;
   getSplitViewEnabled: () => boolean;
   setSplitViewEnabled: (enabled: boolean) => void;
-  workspaceViewer?: {
-    getPdfPath: () => string | null;
-    syncPdf: (payload: {
-      page: number;
-      x: number;
-      y: number;
-      blockX?: number;
-      blockY?: number;
-      blockWidth?: number;
-      blockHeight?: number;
-    }) => void;
-  };
   settings: {
     getPdfViewerMode: () => "window" | "tab";
     getAutoSynctexOnBuildEnabled: () => boolean;
@@ -689,6 +677,20 @@ export const initBuildOpsUi = (
     if (payload.ok) {
       if (deps.settings.getPdfViewerMode() === "tab" && typeof payload.page === "number") {
         const pdfPath = payload.pdfPath ?? null;
+        const openedGroup =
+          resolvePdfSyncGroup(pdfPath) ??
+          deps.getEditorGroups().find((group) => group.key === "secondary") ??
+          deps.getActiveGroup();
+        const shouldSplit = openedGroup.key === "secondary";
+        if (shouldSplit && !deps.getSplitViewEnabled()) {
+          deps.setSplitViewEnabled(true);
+        }
+        if (pdfPath) {
+          const hasPdfTab = openedGroup.openTabs.includes(pdfPath);
+          if (!hasPdfTab || openedGroup.currentFilePath !== pdfPath) {
+            deps.requestOpenFile(pdfPath, openedGroup.key, true);
+          }
+        }
         const syncPayload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number } = {
           page: payload.page,
           x: payload.x ?? 0,
@@ -706,28 +708,7 @@ export const initBuildOpsUi = (
         if (typeof payload.blockY === "number") {
           syncPayload.blockY = payload.blockY;
         }
-        if (deps.workspaceViewer) {
-          if (pdfPath && deps.workspaceViewer.getPdfPath() !== pdfPath) {
-            deps.requestOpenFile(pdfPath, "primary", true);
-          }
-          deps.workspaceViewer.syncPdf(syncPayload);
-        } else {
-          const openedGroup =
-            resolvePdfSyncGroup(pdfPath) ??
-            deps.getEditorGroups().find((group) => group.key === "secondary") ??
-            deps.getActiveGroup();
-          const shouldSplit = openedGroup.key === "secondary";
-          if (shouldSplit && !deps.getSplitViewEnabled()) {
-            deps.setSplitViewEnabled(true);
-          }
-          if (pdfPath) {
-            const hasPdfTab = openedGroup.openTabs.includes(pdfPath);
-            if (!hasPdfTab || openedGroup.currentFilePath !== pdfPath) {
-              deps.requestOpenFile(pdfPath, openedGroup.key, true);
-            }
-          }
-          openedGroup.viewer.syncPdf(syncPayload);
-        }
+        openedGroup.viewer.syncPdf(syncPayload);
       }
       if (matchedInFlight) {
         flushQueuedSynctexForward();

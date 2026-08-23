@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-app-mode="code">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -134,27 +134,12 @@
               <rect class="topbar-layout-fill" x="3" y="5" width="6" height="14" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
-          <nav class="mode-switcher" id="mode-switcher" role="tablist" aria-label="App mode">
-            <button id="mode-tab-code" class="mode-tab" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" title="Code — LaTeX editor">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m8 8-4 4 4 4"></path>
-                <path d="m16 8 4 4-4 4"></path>
-              </svg>
-              <span>Code</span>
-            </button>
-            <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" title="AI — Document agent">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"></path>
-              </svg>
-              <span>AI</span>
-            </button>
-          </nav>
         </div>
         <div class="topbar-drag"></div>
         <div class="top-actions">
-          <div class="pro-mode-controls" role="toolbar" aria-label="Writing tools">
-            <div class="pro-figure-tools" role="group" aria-label="Figure tools">
-              <button id="pro-canvas-open" type="button" aria-label="Draw a figure" title="Draw a figure and insert it as TikZ" hidden>
+          <div class="canvas-controls" role="toolbar" aria-label="Figure tools">
+            <div class="canvas-tools" role="group">
+              <button id="pro-canvas-open" type="button" aria-label="Draw a figure" title="Draw a figure and insert it as TikZ">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M12 20h9"></path>
                   <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
@@ -1327,18 +1312,6 @@
         <div id="resizer" class="resizer"></div>
         <section class="editor">
           <div class="editor-groups" id="editor-groups" data-split="false">
-            <section class="pro-pane pro-preview-pane" id="pro-preview-pane" data-pro-pane="preview" aria-hidden="true">
-              <div class="pro-pane-body">
-                <div id="pro-preview-viewer" class="editor-viewer is-visible" data-view="unsupported" aria-hidden="false">
-                  <div class="editor-viewer-body">
-                    <img id="pro-preview-image" class="editor-viewer-media editor-viewer-image" alt="preview" />
-                    <iframe id="pro-preview-pdf" class="editor-viewer-media editor-viewer-pdf" title="PDF preview"></iframe>
-                    <div class="editor-viewer-message"><h2>Preview</h2></div>
-                  </div>
-                </div>
-              </div>
-            </section>
-            <div class="pro-splitter" id="pro-splitter-primary" role="separator" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" title="Drag to resize; double-click to reset"></div>
             <div class="editor-group is-active" data-editor-group="primary">
               <div class="editor-tabs" id="editor-tabs">
                 <div class="editor-tabs-list" id="editor-tabs-list"></div>
@@ -1457,27 +1430,6 @@
           </div>
         </section>
       </div>
-
-      <section class="ai-mode-view" id="ai-mode-view" aria-label="AI workspace">
-        <div class="ai-mode-webview-host" id="ai-mode-webview-host"></div>
-        <div class="ai-mode-fallback is-hidden" id="ai-mode-fallback">
-          <div class="ai-mode-fallback-card">
-            <h2>TeX64 AI</h2>
-            <p id="ai-mode-fallback-status">Connecting to the AI workspace…</p>
-            <div class="ai-mode-fallback-actions">
-              <button id="ai-mode-retry" type="button">Reconnect</button>
-              <button id="ai-mode-open-browser" type="button">Open in browser</button>
-              <button id="ai-mode-open-axiom" type="button">Use Axiom in Code mode</button>
-            </div>
-            <p class="ai-mode-dev-hint" id="ai-mode-dev-hint" hidden>
-              AI mode runs a separate app. <code>npm run dev</code> does not start it:
-              <code>cd services/tex64-ai &amp;&amp; npm run dev</code>
-              (<code>http://localhost:3100</code>).
-              The Codex (ChatGPT) chat is elsewhere — Code mode, Axiom panel.
-            </p>
-          </div>
-        </div>
-      </section>
 
       <div class="modal" id="create-modal" aria-hidden="true">
         <div

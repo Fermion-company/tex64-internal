@@ -175,10 +175,13 @@ const clearOverlays = (page) =>
     document.querySelectorAll(".modal.is-open, #announcement-modal").forEach((m) => {
       m.classList.remove("is-open", "is-visible");
       m.setAttribute("aria-hidden", "true");
-      m.style.display = "none";
+      // Class/aria state owns modal visibility. Leaving an inline display:none
+      // behind can race with startup opening the Plans modal on slower Windows
+      // runners, making the later checkout assertion test a hidden modal.
+      m.style.removeProperty("display");
     });
     document.getElementById("settings-close")?.click();
-    for (const id of ["launcher", "ai-login-overlay"]) {
+    for (const id of ["launcher", "ai-login-overlay", "onboarding"]) {
       const el = document.getElementById(id);
       if (el) {
         el.classList.remove("is-visible", "is-open");
@@ -186,7 +189,7 @@ const clearOverlays = (page) =>
         el.style.display = "none";
       }
     }
-    document.body.classList.remove("has-launcher");
+    document.body.classList.remove("has-launcher", "has-onboarding");
   });
 
 const planButton = (page, planName) =>
@@ -275,6 +278,18 @@ test("in-app billing flow (hosted Checkout only)", async (t) => {
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   await page.waitForSelector("body.is-ready", { timeout: 15000 });
+  const desktopModeState = await page.evaluate(() => ({
+    mode: document.documentElement.dataset.appMode || "",
+    switcherPresent: Boolean(document.getElementById("mode-switcher")),
+    aiWorkspacePresent: Boolean(document.getElementById("ai-mode-view")),
+    axiomTabPresent: Boolean(document.querySelector('.tab[data-tab="ai"]')),
+  }));
+  assert.deepEqual(desktopModeState, {
+    mode: "code",
+    switcherPresent: false,
+    aiWorkspacePresent: false,
+    axiomTabPresent: true,
+  }, "desktop ships Code only while keeping the Code-side Axiom panel");
   const remoteStripeState = await page.evaluate(() => {
     const csp = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
     return {

@@ -289,19 +289,25 @@ const waitFor = async (check, description, timeoutMs = 20_000, intervalMs = 100)
 
 const dismissAnnouncements = async (page) => {
   // Close through the product UI so queued notices are dismissed in the
-  // isolated profile exactly as they would be by a user. A queue may reveal
-  // the next notice immediately, hence the bounded loop.
-  for (let index = 0; index < 8; index += 1) {
+  // isolated profile exactly as they would be by a user. Notices arrive from
+  // the main process asynchronously, so require a quiet interval instead of
+  // returning on the first empty poll.
+  const deadline = Date.now() + 15_000;
+  let quietSince = null;
+  while (Date.now() < deadline) {
     const modal = page.locator("#announcement-modal.is-open");
-    if ((await modal.count()) === 0) {
-      return;
+    if ((await modal.count()) !== 0) {
+      quietSince = null;
+      await page.locator("#announcement-modal-close").click({ force: true });
+    } else {
+      quietSince ??= Date.now();
+      if (Date.now() - quietSince >= 1_500) {
+        return;
+      }
     }
-    await page.locator("#announcement-modal-close").click({ force: true });
     await page.waitForTimeout(100);
   }
-  if ((await page.locator("#announcement-modal.is-open").count()) !== 0) {
-    throw new Error("Announcement queue did not close after eight notices");
-  }
+  throw new Error("Announcement queue did not become quiet before capture");
 };
 
 const setCaptureWindowSize = async (electronApp) => {
@@ -408,9 +414,38 @@ const prepareAppState = async (page, locale, workspaceName) => {
   const workspaceIsOpen = async () =>
     (await page.locator("#workspace-label").textContent().catch(() => ""))?.trim() === workspaceName;
   if (!(await workspaceIsOpen())) {
-    await page.locator("#launcher-open").click({ timeout: 15_000 });
+    // The Windows CI fixture deliberately reports no TeX installation so the
+    // packaged app's first-run gate is exercised. Dismiss that gate only in
+    // this isolated capture process, then use the real launcher action to open
+    // the workspace supplied by TEX64_E2E_OPEN_WORKSPACE_PATH.
+    await page.evaluate(() => {
+      const onboarding = document.getElementById("onboarding");
+      onboarding?.classList.remove("is-visible");
+      onboarding?.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("has-onboarding");
+
+      const launcher = document.getElementById("launcher");
+      launcher?.classList.add("is-visible");
+      launcher?.setAttribute("aria-hidden", "false");
+      document.body.classList.add("has-launcher");
+    });
+    // An announcement can arrive asynchronously between the initial dismissal
+    // and this click. Force only this E2E launcher action; announcements are
+    // dismissed again before any Store image is captured.
+    await page.locator("#launcher-open").click({ force: true, timeout: 15_000 });
   }
   await waitFor(workspaceIsOpen, `workspace ${workspaceName}`, 20_000);
+  // Locale reloads retain the open workspace in the Electron process, while a
+  // missing-TeX result can race the fresh renderer and briefly reveal its
+  // first-run surfaces again. The capture target is the already-open editor.
+  await page.evaluate(() => {
+    for (const id of ["onboarding", "launcher"]) {
+      const element = document.getElementById(id);
+      element?.classList.remove("is-visible");
+      element?.setAttribute("aria-hidden", "true");
+    }
+    document.body.classList.remove("has-onboarding", "has-launcher");
+  });
   await dismissAnnouncements(page);
   await page.waitForSelector(
     '.editor-tab[data-group="primary"][data-path="main.tex"].is-active',
@@ -427,15 +462,13 @@ const prepareAppState = async (page, locale, workspaceName) => {
   // a multi-gigabyte TeX distribution on the runner.
   await ensureFilesTab();
 
-  const splitEnabled = await page
-    .locator("#editor-groups")
-    .getAttribute("data-split")
-    .catch(() => "false");
-  if (splitEnabled !== "true") {
-    await page.locator("#editor-split-button").click();
-  }
+  // Opening a PDF from the native bridge without a pending editor request is
+  // the same path used after a build: the renderer automatically places it in
+  // the secondary group and enables the normal split preview.
+  await page.evaluate(() => {
+    window.tex64Bridge?.postMessage({ type: "openFile", path: "main.pdf" });
+  });
   await page.waitForSelector('#editor-groups[data-split="true"]', { timeout: 10_000 });
-  await page.locator('.file-item[data-path="main.pdf"]').click({ timeout: 15_000 });
   await page.waitForSelector(
     '.editor-tab[data-group="secondary"][data-path="main.pdf"].is-active',
     { timeout: 20_000 }

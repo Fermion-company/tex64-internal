@@ -1,19 +1,14 @@
-// Top-bar app mode switcher: Code | AI.
-//
-// - "code": the complete hands-on TeX workspace (default).
-// - "ai":   the embedded tex64-ai document agent (services/tex64-ai), the same
-//           codebase that ships as the standalone web app.
-//
-// The active mode is mirrored to <html data-app-mode> so theme.css can swap
-// the visible surface, and persisted per machine.
+// Desktop currently ships the Code workspace only. Keep this compatibility
+// module so older callers and stored mode values deterministically fall back
+// to Code while the separate AI workspace remains disabled.
 export const APP_MODE_STORAGE_KEY = "tex64.appMode.v1";
 export const parseAppMode = (raw) => {
-    if (raw === "code" || raw === "ai")
+    if (raw === "code")
         return raw;
     return null;
 };
-// Old "pro" selections migrate to Code because those tools now live there.
-export const resolveInitialAppMode = (storedMode) => { var _a; return storedMode === "pro" ? "code" : (_a = parseAppMode(storedMode)) !== null && _a !== void 0 ? _a : "code"; };
+// Old AI and Pro selections both migrate to the only shipped workspace.
+export const resolveInitialAppMode = (_storedMode) => "code";
 export const initAppModeUi = (deps) => {
     const switcher = document.getElementById("mode-switcher");
     let mode = null;

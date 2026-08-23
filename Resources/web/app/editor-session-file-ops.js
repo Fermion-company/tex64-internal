@@ -1,9 +1,9 @@
-import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isExtendedTextFilePath, isTextFilePath, } from "./files.js";
+import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isTextFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
-    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
+    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const reportSaveError = (message) => {
         lastSaveErrorMessage = message;
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
@@ -34,17 +34,6 @@ export const createEditorSessionFileOps = (ctx) => {
         }
     };
     const applyViewerFile = (group, path, kind, data, mimeType) => {
-        var _a;
-        // Viewer files picked from the tree go to the visible Code workspace
-        // viewer pane instead of replacing the source editor. Files already open
-        // as a tab keep the normal tab flow (e.g. clicking their tab).
-        if (!group.openTabs.includes(path) &&
-            ((_a = deps.workspaceViewer) === null || _a === void 0 ? void 0 : _a.tryShowViewerFile(path, kind, data, mimeType))) {
-            if (isActiveGroup(group)) {
-                deps.fileTree.setSelection(path, "file");
-            }
-            return;
-        }
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
         group.currentFileSavedContent = null;
@@ -583,15 +572,21 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const path = payload.path;
-        const kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
-            ? "pdf"
-            : isImageFilePath(path)
-                ? "image"
-                : isTextFilePath(path) || isExtendedTextFilePath(path)
-                    ? "text"
-                    : "unsupported");
+        const kind = payload.kind === "text" && !isTextFilePath(path)
+            ? "unsupported"
+            : (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+                ? "pdf"
+                : isImageFilePath(path)
+                    ? "image"
+                    : isTextFilePath(path)
+                        ? "text"
+                        : "unsupported");
         if (pendingIndex < 0) {
-            if (kind !== "pdf") {
+            if (kind === "pdf") {
+                setSplitViewEnabled(true);
+                targetGroupKey = "secondary";
+            }
+            else {
                 const existingGroupKey = findGroupKeyByPath(path);
                 if (existingGroupKey) {
                     targetGroupKey = existingGroupKey;

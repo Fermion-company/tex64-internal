@@ -3,12 +3,12 @@
 pro-mode-design.md の「機能 6」C1 フェーズの実装仕様。実装は 2 ランに分割する。
 
 - **Run 1（純ロジック）**: シーンモデル + TikZ 生成器 + round-trip codec + node:test
-- **Run 2（UI + 配線）**: キャンバスエディタ UI、挿入/再編集/PNG エクスポート、index.html/theme.css/main-init/monaco 配線
+- **Run 2（UI + 配線）**: キャンバスエディタ UI、挿入/再編集、index.html/theme.css/main-init/monaco 配線
 
 共通規約: renderer は `web-src/`（plain tsc、ES modules、バンドラなし）。`Resources/web/**/*.js`
 は生成物で手編集禁止。`Resources/web/index.html` と `Resources/web/theme.css` は手編集対象。
 テストは `node --test tests/` で、コンパイル済み `../Resources/web/app/pro-canvas/*.js` を import
-する（既存 `tests/image-insert-utils.test.mjs` と同じ方式）。型チェックは
+する。型チェックは
 `tsc -p web-src/tsconfig.json`。
 
 ---
@@ -210,7 +210,7 @@ full-window オーバーレイ（`position:fixed; inset:0; z-index` は既存モ
   Shift+Cmd/Ctrl+Z。オーバーレイ表示中はキーイベントを stopPropagation してエディタに
   漏らさない。
 
-挿入・再編集・エクスポート:
+挿入・再編集:
 
 - **TikZ 挿入**: `encodeFigureBlock(scene)` を `insertAtEditorCursor`
   （`./pro-editor-insert.js`）でカーソル位置へ。
@@ -225,17 +225,11 @@ full-window オーバーレイ（`position:fixed; inset:0; z-index` は既存モ
   新規シーンで `tex64:pro-canvas-open` を dispatch。`detached: true` のときは confirm ダイアログ
   「この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？」
   を出してから開く。
-- **PNG エクスポート**: SVG を `XMLSerializer` → `Image` → `<canvas>`（scene 1unit を
-  mm→3.78px / cm→37.8px / pt→1.333px として **2 倍**スケールで描画）→ dataURL。保存は
-  `tex64Files.writeBase64` + `chooseImageDirectory` + `buildIncludeGraphicsSnippet`
-  （共通の `image-insert-utils.js` から import して再利用）。
-  ファイル名 `figure-<timestamp>.png`。
-
 ### 配線
 
-- `Resources/web/index.html`: `.pro-mode-controls` 内に
-  `<button id="pro-canvas-open" type="button" title="Draw figure" hidden>✎ Draw</button>`。
-  Code が有効な間だけ表示（`pro-mode-ui.ts` が Code/AI 切替時に hidden を切り替える）。
+- `Resources/web/index.html`: `.canvas-controls` 内に
+  `<button id="pro-canvas-open" type="button" title="Draw figure">✎ Draw</button>`。
+  Code が有効な間だけ CSS で表示する。
   クリックで新規シーンの `tex64:pro-canvas-open` を dispatch。
 - `web-src/main-init.ts`: Code ワークスペース初期化時に `initProCanvasUi` を呼ぶ。
 - `Resources/web/theme.css`: `pro-canvas-` プレフィックスのクラスでスタイル追加。既存の

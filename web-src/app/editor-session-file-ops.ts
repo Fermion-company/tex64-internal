@@ -9,7 +9,6 @@ import {
   isEditableTextFilePath,
   isImageFilePath,
   isPdfFilePath,
-  isExtendedTextFilePath,
   isTextFilePath,
 } from "./files.js";
 import { buildLineDiff } from "./diff.js";
@@ -51,6 +50,7 @@ type FileOpsDeps = {
   isActiveGroup: (group: EditorGroupState) => boolean;
   resolveAutoOpenGroupKey: (preferredKey: EditorGroupKey) => EditorGroupKey;
   findGroupKeyByPath: (path: string) => EditorGroupKey | null;
+  setSplitViewEnabled: (enabled: boolean) => void;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
   clearJumpHighlight: (group: EditorGroupState) => void;
   clearTemporaryTabs: (group: EditorGroupState, keepPath?: string) => void;
@@ -84,6 +84,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     isActiveGroup,
     resolveAutoOpenGroupKey,
     findGroupKeyByPath,
+    setSplitViewEnabled,
     cacheCurrentBuffer,
     clearJumpHighlight,
     clearTemporaryTabs,
@@ -142,18 +143,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     data?: string,
     mimeType?: string
   ) => {
-    // Viewer files picked from the tree go to the visible Code workspace
-    // viewer pane instead of replacing the source editor. Files already open
-    // as a tab keep the normal tab flow (e.g. clicking their tab).
-    if (
-      !group.openTabs.includes(path) &&
-      deps.workspaceViewer?.tryShowViewerFile(path, kind, data, mimeType)
-    ) {
-      if (isActiveGroup(group)) {
-        deps.fileTree.setSelection(path, "file");
-      }
-      return;
-    }
     clearTemporaryTabs(group, path);
     group.currentFilePath = path;
     group.currentFileSavedContent = null;
@@ -778,16 +767,21 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
     const path = payload.path;
     const kind =
-      payload.kind ??
+      payload.kind === "text" && !isTextFilePath(path)
+        ? "unsupported"
+        : payload.kind ??
       (isPdfFilePath(path)
         ? "pdf"
         : isImageFilePath(path)
         ? "image"
-        : isTextFilePath(path) || isExtendedTextFilePath(path)
+        : isTextFilePath(path)
         ? "text"
         : "unsupported");
     if (pendingIndex < 0) {
-      if (kind !== "pdf") {
+      if (kind === "pdf") {
+        setSplitViewEnabled(true);
+        targetGroupKey = "secondary";
+      } else {
         const existingGroupKey = findGroupKeyByPath(path);
         if (existingGroupKey) {
           targetGroupKey = existingGroupKey;

@@ -19,20 +19,19 @@
     .pro-canvas-stage          ← 既存 SVG。左下に .pro-canvas-status-chip
     .pro-canvas-inspector      ← セクション化（§3）
   .pro-canvas-footer
-    (左) 「⋯ その他」ドロップダウン（SVG 取り込み / AI で TikZ 化 / .sty へ書き出し）
-    (右) [キャンセル(ghost)] [画像として挿入(secondary)] [TikZ を挿入 / 更新(primary)]
+    (右) [キャンセル(ghost)] [TikZ を挿入 / 更新(primary)]
 ```
 
 ## 2. ツールレール（左 44px）
 
-- 7 ツールを **32×32 のアイコンボタン**で縦に並べる（`data-tool` は現行のまま）。
+- 6 ツールを **32×32 のアイコンボタン**で縦に並べる（`data-tool` は現行のまま）。
 - アイコンは**インライン SVG のプリミティブ**（複雑なパス禁止。line/rect/circle/polyline で
   幾何的に描く。stroke=currentColor, stroke-width 1.5, viewBox 0 0 16 16）:
   - 選択: 矢印カーソル（polyline）/ ペン: 斜めのペン先（line+小三角）/ 直線: 斜め line
-  - 矩形: rect / 楕円: ellipse / ノード: 「T」（line 2 本）/ コード: `</>`（polyline 2 個）
+  - 矩形: rect / 楕円: ellipse / ノード: 「T」（line 2 本）
 - hover でツールチップ（`title` 属性: 「選択 (V)」等）。
 - **キーボードショートカット**: overlay 表示中、入力要素にフォーカスが無いとき
-  V/P/L/R/E/T/C で切替（既存 onKey に追加。preventDefault は該当キーのみ）。
+  V/P/L/R/E/T で切替（既存 onKey に追加。preventDefault は該当キーのみ）。
 - アクティブは accent 背景 + 白アイコン。非アクティブは text-soft、hover で panel。
 
 ## 3. インスペクタ（右 280px、セクション化）
@@ -63,11 +62,8 @@
   自動でプリアンブルなしへフォールバック）。再導入しない。
 - Undo/Redo はアイコンボタン（↺ ↻ の SVG、無効時 opacity .35）。
 - ズームは [−][100%][+] を 1 グループの小ボタン（現行 data-action 維持）。
-- フッター右: 「TikZ を挿入」（または更新）だけ accent の primary。「画像として挿入 (PNG)」は
-  枠線のみの secondary。「キャンセル」は ghost（枠なし）。
-- フッター左の **「⋯ その他」メニュー**: クリックでポップアップ（上方向）を開き、
-  SVG 取り込み / AI で TikZ 化 / .sty へ書き出し の 3 項目（既存 data-action ボタンを
-  メニュー項目として中に置く。外側クリック/Esc で閉じる。texize 不在時は AI 項目 disabled）。
+- フッター右: 「TikZ を挿入」（または更新）だけ accent の primary。「キャンセル」は ghost（枠なし）。
+- PNG / SVG / AI / `.sty` の重複導線は置かない。
 - **ステータス**はフッターから **stage 左下のフローティングチップ**へ移動
   （`.pro-canvas-status-chip`、内容が空なら非表示。エラー時は danger 色の枠）。
   既存の `.pro-canvas-status` 要素をチップとして stage 内に置くだけで良い

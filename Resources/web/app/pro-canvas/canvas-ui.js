@@ -1,15 +1,11 @@
 import { uiText } from "../i18n.js";
-import { ensureTrailingNewline, insertAtEditorCursor } from "../pro-editor-insert.js";
-import { buildIncludeGraphicsSnippet, chooseImageDirectory } from "../image-insert-utils.js";
+import { insertAtEditorCursor } from "../pro-editor-insert.js";
 import { encodeFigureBlock } from "./figure-codec.js";
-import { planBodyInsert, planFigureInsert } from "./insert-plan.js";
+import { planFigureInsert } from "./insert-plan.js";
 import { generateTikz } from "./tikz-generate.js";
-import { base64EncodeUtf8 } from "./figure-codec.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
 import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, nearestOnPath, pathTightPoints, PEN_RESUME_PX, penClickAction, removeAnchor, reversePath, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
-import { buildStyFile } from "./sty-export.js";
 import { stripTikzWrapper } from "./code-import.js";
-import { importSvg } from "./svg-import.js";
 import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
@@ -21,7 +17,6 @@ const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 // 残り半分は素通しにする。全点が格子に乗ると、格子に沿わない線が引けなくなるため。
 const GRID_PULL = 0.25;
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-const HINT_STORAGE_KEY = "tex64.proCanvas.hints.v1";
 const pathOutlineD = (item) => { let d = `M ${item.start.x} ${item.start.y}`; item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; }); return item.closed ? d + " Z" : d; };
 const isStraightLine = (item) => item.type === "path" && !item.closed && item.segments.length === 1 && item.segments[0].type === "line";
 const plotKind = (series) => series.kind || "fn";
@@ -217,10 +212,6 @@ const svgEl = (name, attrs = {}) => {
     Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, String(value)));
     return element;
 };
-const timestampName = (now = new Date()) => {
-    const pad = (n) => String(n).padStart(2, "0");
-    return `figure-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.png`;
-};
 export const initProCanvasUi = (deps) => {
     let closeCurrent = null;
     const openButton = document.getElementById("pro-canvas-open");
@@ -245,43 +236,18 @@ export const initProCanvasUi = (deps) => {
       <strong class="pro-canvas-title">${uiText("Figure canvas", "図キャンバス")}</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="${uiText("Zoom out", "縮小")}">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="${uiText("Zoom in", "拡大")}">+</button></span><span class="pro-canvas-topbar-spacer"></span>
       <span class="pro-canvas-segments"><button data-action="snap"></button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="${uiText("Undo", "元に戻す")}">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="${uiText("Redo", "やり直す")}">↻</button></div>
-      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="${uiText("Drawing tools", "描画ツール")}"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><div class="pro-canvas-emptystate"><div class="pro-canvas-empty-actions"><button type="button" data-start="line"><svg viewBox="0 0 36 24" aria-hidden="true"><line x1="4" y1="20" x2="32" y2="4"/></svg><span>${uiText("Draw a line", "線を描く")}</span></button><button type="button" data-start="node"><svg viewBox="0 0 36 24" aria-hidden="true"><text x="18" y="17">x²</text></svg><span>${uiText("Place a formula", "数式を置く")}</span></button><button type="button" data-start="plot"><svg viewBox="0 0 36 24" aria-hidden="true"><path d="M4 3v17h29"/><path d="M7 18c6-1 6-13 11-13s5 12 12 13"/></svg><span>${uiText("Plot a function", "関数を描く")}</span></button></div><p>${uiText("Insert what you draw as editable TikZ code, or as a PNG", "作成した図は編集可能な TikZ コード、または PNG として挿入できます")}</p></div><div class="pro-canvas-coach" hidden></div><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>${uiText("Placement", "配置")}</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>${uiText("Style", "スタイル")}</h3><div class="pro-canvas-style"></div></section><p class="pro-canvas-empty pro-canvas-inspector-empty" hidden></p></aside></div><div class="pro-canvas-size-chip" hidden></div>
-      <div class="pro-canvas-bottom pro-canvas-footer"><div class="pro-canvas-more"><button data-action="more" aria-expanded="false">⋯ ${uiText("More", "その他")}</button><div class="pro-canvas-more-menu" hidden><button data-action="svg-import">${uiText("Import SVG", "SVG 取り込み")}</button><button data-action="ai-import">${uiText("Convert to TikZ with AI", "AI で TikZ 化")}</button><button data-action="sty">${uiText("Export to .sty", ".sty へ書き出し")}</button></div></div><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">${uiText("Cancel", "キャンセル")}</button>${detail.replaceRange ? "" : `<button class="pro-canvas-secondary" data-action="png">${uiText("Insert as PNG image", "PNG 画像として挿入")}</button>`}<button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? uiText("Update TikZ code", "TikZ コードを更新") : uiText("Insert TikZ code", "TikZ コードを挿入")}</button></div>`;
+      <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="${uiText("Drawing tools", "描画ツール")}"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>${uiText("Placement", "配置")}</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>${uiText("Style", "スタイル")}</h3><div class="pro-canvas-style"></div></section><p class="pro-canvas-empty pro-canvas-inspector-empty" hidden></p></aside></div><div class="pro-canvas-size-chip" hidden></div>
+      <div class="pro-canvas-bottom pro-canvas-footer"><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">${uiText("Cancel", "キャンセル")}</button><button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? uiText("Update TikZ code", "TikZ コードを更新") : uiText("Insert TikZ code", "TikZ コードを挿入")}</button></div>`;
         document.body.appendChild(overlay);
         overlay.focus();
         const svg = overlay.querySelector("svg");
         const stage = overlay.querySelector(".pro-canvas-stage");
         const status = overlay.querySelector(".pro-canvas-status");
         const hintbar = overlay.querySelector(".pro-canvas-hintbar");
-        const emptystate = overlay.querySelector(".pro-canvas-emptystate");
-        const coach = overlay.querySelector(".pro-canvas-coach");
         const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
-        const moreMenu = overlay.querySelector(".pro-canvas-more-menu"), moreButton = overlay.querySelector("[data-action=more]");
-        const closeMore = () => { moreMenu.hidden = true; moreButton.setAttribute("aria-expanded", "false"); };
-        const requestText = (label, initial = "") => new Promise(resolve => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover pro-canvas-text-popover"; const title = document.createElement("label"); title.textContent = label; const input = document.createElement("input"); input.value = initial; const accept = document.createElement("button"); accept.className = "is-primary"; accept.textContent = "OK"; const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); let done = false; const finish = (value) => { if (done)
-            return; done = true; pop.remove(); resolve(value); }; accept.onclick = () => finish(input.value); cancel.onclick = () => finish(null); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
-            return; e.preventDefault(); e.stopPropagation(); finish(e.key === "Enter" ? input.value : null); }); pop.append(title, input, accept, cancel); overlay.append(pop); input.focus(); input.select(); });
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T'], ['code', 'TikZ', uiText("Write TikZ code directly", "TikZ コードを直接書く"), 'C'], ['plot', uiText("Graph", "グラフ"), uiText("Graph", "グラフ"), 'G']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
-        let coachKind = null, coachTimer = null;
-        let coachPersistTimer = null, coachSuppressUntil = 0;
-        let shownHints = {};
-        try {
-            const stored = JSON.parse(localStorage.getItem(HINT_STORAGE_KEY) || "{}");
-            if (stored && typeof stored === "object")
-                shownHints = stored;
-        }
-        catch { }
-        const saveHints = () => { try {
-            localStorage.setItem(HINT_STORAGE_KEY, JSON.stringify(shownHints));
-        }
-        catch { } };
-        const hideCoach = () => { if (coachTimer)
-            clearTimeout(coachTimer); coachTimer = null; if (coachPersistTimer) {
-            clearTimeout(coachPersistTimer);
-            coachPersistTimer = null;
-        } coachKind = null; coach.hidden = true; coach.classList.remove("is-fading"); };
+        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         // The canvas is self-contained: its SVG approximation is the preview.
         // Keep this hook while the editing code is compact so callers do not need
         // engine-specific branches.
@@ -298,9 +264,6 @@ export const initProCanvasUi = (deps) => {
         const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
-        const showCoach = (kind) => { const key = kind === "plot" ? "plotEdit" : "nodeEdit"; if (shownHints[key] || coachKind || performance.now() < coachSuppressUntil)
-            return; coachPersistTimer = setTimeout(() => { coachPersistTimer = null; shownHints[key] = true; saveHints(); }, 1500); coachKind = kind; coach.textContent = kind === "plot" ? uiText("Double-click to edit the expression", "ダブルクリックして式を編集") : uiText("Double-click to edit the formula", "ダブルクリックで数式を編集"); coach.hidden = false; coach.classList.remove("is-fading"); coachTimer = setTimeout(() => coach.classList.add("is-fading"), 5500); setTimeout(() => { if (coachKind === kind)
-            hideCoach(); }, 6000); };
         const replaceSelection = (id) => { selection.ids = new Set([id]); selection.primaryId = id; };
         const toggleSelection = (id) => { var _a; if (selection.ids.has(id)) {
             selection.ids.delete(id);
@@ -352,7 +315,7 @@ export const initProCanvasUi = (deps) => {
             return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
             return; positionNodeEditor(); input.focus(); input.select(); }); };
         const stopPlotEdit = () => { if (!plotEdit)
-            return; coachSuppressUntil = performance.now() + 1200; flushWheelUndo(); const object = plotObject(), emptyUndoDepth = plotEdit.emptyUndoDepth; if (object && emptyUndoDepth !== undefined && plotIsEmpty(object)) {
+            return; flushWheelUndo(); const object = plotObject(), emptyUndoDepth = plotEdit.emptyUndoDepth; if (object && emptyUndoDepth !== undefined && plotIsEmpty(object)) {
             removeById(currentObjects(), object.id);
             clearSelection();
             undo.splice(emptyUndoDepth);
@@ -889,7 +852,7 @@ export const initProCanvasUi = (deps) => {
             selectedAnchorIndex = Math.max(0, Math.min(selectedAnchorIndex, one.closed ? one.segments.length - 1 : one.segments.length));
         };
         const render = () => {
-            var _a, _b, _c, _d;
+            var _a, _b, _c;
             syncAnchorEdit();
             if (tool !== "select")
                 svg.style.cursor = "crosshair";
@@ -1264,7 +1227,6 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=zoom-reset]").title = uiText("Click: 100% · Shift+click: fit selection", "クリック: 100% / Shift+クリック: 選択にフィット");
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
-            overlay.querySelector("[data-action=ai-import]").disabled = !((_c = window.tex64Texize) === null || _c === void 0 ? void 0 : _c.snippet);
             renderInspector();
             positionNodeEditor();
             const edited = plotObject();
@@ -1287,20 +1249,8 @@ export const initProCanvasUi = (deps) => {
                 plotCard = null;
                 plotCardSignature = "";
             }
-            emptystate.hidden = currentObjects().length !== 0 || Boolean(pen);
-            emptystate.hidden = emptystate.hidden || tool !== "select"; // 描画ツール選択中は中央のボタンを貫通させる（中央をクリックして描き始める動作を奪わない）
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_d = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a graph", "クリックまたはドラッグでグラフを配置"), code: uiText("Click to write TikZ code at that spot", "クリックした位置に TikZ コードを直接書けます") }[tool]) !== null && _d !== void 0 ? _d : "" : selection.ids.size > 1 ? uiText("Cmd+G to group · Arrow keys to nudge · Delete to remove", "Cmd+G でグループ化　矢印キーで微調整　Delete で削除") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Double-click to edit the graph · Scroll to zoom the axes · Drag to pan them", "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Double-click to edit the formula", "ダブルクリックで数式を編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag the end □ to resize · Double-click to add or remove a point", "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除") : uiText("Drag ○ to reshape the curve · Corners resize · Double-click to add or remove a point", "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除")) : uiText("Drag to marquee-select · Space+drag to pan · Double-click a shape to edit", "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集");
-            if (one && (one.type === "plot" || one.type === "node") && !edited && !editingNodeId && !drag && tool === "select") {
-                showCoach(one.type);
-                if (coachKind === one.type) {
-                    const b = objectBounds(one, scene), point = sceneToScreen({ x: (b.minX + b.maxX) / 2, y: b.maxY }, view()), rect = stage.getBoundingClientRect(), lift = one.type === "node" ? 22 : 8;
-                    coach.style.left = `${Math.max(8, Math.min(rect.width - 8, point.x - rect.left))}px`;
-                    coach.style.top = `${Math.max(8, point.y - rect.top - lift)}px`;
-                }
-            }
-            else if (coachKind)
-                hideCoach();
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a graph", "クリックまたはドラッグでグラフを配置"), code: uiText("Click to write TikZ code at that spot", "クリックした位置に TikZ コードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Cmd+G to group · Arrow keys to nudge · Delete to remove", "Cmd+G でグループ化　矢印キーで微調整　Delete で削除") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Double-click to edit the graph · Scroll to zoom the axes · Drag to pan them", "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Double-click to edit the formula", "ダブルクリックで数式を編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag the end □ to resize · Double-click to add or remove a point", "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除") : uiText("Drag ○ to reshape the curve · Corners resize · Double-click to add or remove a point", "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除")) : uiText("Drag to marquee-select · Space+drag to pan · Double-click a shape to edit", "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集");
         };
         let drag = null;
         let lastClick = null;
@@ -1841,7 +1791,7 @@ export const initProCanvasUi = (deps) => {
             return; hoveredId = null; svg.style.cursor = "default"; clearPointerMarkers(); render(); });
         const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); if (wheelUndoTimer)
-            clearTimeout(wheelUndoTimer); hideCoach(); overlay.remove(); if (closeCurrent === close)
+            clearTimeout(wheelUndoTimer); overlay.remove(); if (closeCurrent === close)
             closeCurrent = null; };
         closeCurrent = close;
         const finishPen = () => { if (!pen)
@@ -2002,7 +1952,7 @@ export const initProCanvasUi = (deps) => {
             }
         };
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
-            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node", c: "code", g: "plot" }[e.key.toLowerCase()]; if (next) {
+            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node" }[e.key.toLowerCase()]; if (next) {
             if (next !== "pen")
                 abortPen();
             tool = next;
@@ -2106,67 +2056,8 @@ export const initProCanvasUi = (deps) => {
             showInserted(editor, detail.replaceRange.startLine, blockLines);
             close();
         };
-        const exportSty = async () => { var _a; let name = (await requestText(uiText("File name", "ファイル名"), "figures.sty") || "").trim(); if (!name)
-            return; if (!name.toLowerCase().endsWith(".sty"))
-            name += ".sty"; name = name.replace(/^.*[\\/]/, ""); const packageName = name.slice(0, -4); if (!/^[A-Za-z][A-Za-z0-9._-]*$/.test(packageName))
-            throw new Error(uiText("Enter a valid file name", "有効なファイル名を指定してください")); const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64; if (!api)
-            throw new Error("File writing is not available."); const result = await api({ path: name, data: base64EncodeUtf8(buildStyFile(scene, packageName)) }); if (!result.ok)
-            throw new Error(result.error || "The style file could not be saved."); setStatus(uiText(`Use it with \\usepackage{${packageName}}`, `\\usepackage{${packageName}} で使えます`)); };
-        const exportPng = async () => {
-            var _a, _b, _c, _d, _e, _f, _g, _h;
-            const clone = svg.cloneNode(true);
-            clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-hover,.pro-canvas-marquee").forEach(n => n.remove());
-            clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`);
-            const unit = scene.unit === "mm" ? 3.78 : scene.unit === "cm" ? 37.8 : 1.333;
-            const width = Math.max(1, Math.round(scene.width * unit * 2)), height = Math.max(1, Math.round(scene.height * unit * 2));
-            clone.setAttribute("width", String(width));
-            clone.setAttribute("height", String(height));
-            const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
-            const url = URL.createObjectURL(blob);
-            try {
-                const image = new Image();
-                await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG export failed.")); image.src = url; });
-                const canvas = document.createElement("canvas");
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext("2d");
-                if (!ctx)
-                    throw new Error("Canvas is unavailable.");
-                ctx.drawImage(image, 0, 0, width, height);
-                const data = canvas.toDataURL("image/png").split(",")[1];
-                const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64;
-                if (!api)
-                    throw new Error("File writing is not available.");
-                const dir = chooseImageDirectory(deps.getWorkspaceFiles()), path = `${dir}/${timestampName()}`;
-                const result = await api({ path, data });
-                if (!result.ok)
-                    throw new Error(result.error || "The image could not be saved.");
-                // PNG も TikZ と同じ着地点ルール（プリアンブルや環境の中には落とさない）に従わせる。
-                const snippet = ensureTrailingNewline(buildIncludeGraphicsSnippet(path, false)), source = (_d = (_c = (_b = anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.getModel) === null || _b === void 0 ? void 0 : _b.call(anchorEditor)) === null || _c === void 0 ? void 0 : _c.getValue) === null || _d === void 0 ? void 0 : _d.call(_c), cursor = anchorPosition !== null && anchorPosition !== void 0 ? anchorPosition : { lineNumber: 1, column: 1 };
-                const plan = typeof source === "string" ? planBodyInsert(source, cursor) : { point: cursor, moved: null }, point = plan.point, Range = (_e = window.monaco) === null || _e === void 0 ? void 0 : _e.Range;
-                if (Range && (anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.executeEdits)) {
-                    (_f = anchorEditor.pushUndoStop) === null || _f === void 0 ? void 0 : _f.call(anchorEditor);
-                    anchorEditor.executeEdits("pro-canvas-png", [{ range: new Range(point.lineNumber, point.column, point.lineNumber, point.column), text: point.column > 1 ? `\n${snippet}` : snippet, forceMoveMarkers: true }]);
-                    (_g = anchorEditor.pushUndoStop) === null || _g === void 0 ? void 0 : _g.call(anchorEditor);
-                    (_h = anchorEditor.focus) === null || _h === void 0 ? void 0 : _h.call(anchorEditor);
-                    showInserted(anchorEditor, point.lineNumber + (point.column > 1 ? 1 : 0), snippet.split("\n").length - 1, plan.moved !== null);
-                }
-                else
-                    insertAtEditorCursor(anchorEditor, snippet, "pro-canvas-png");
-                close();
-            }
-            finally {
-                URL.revokeObjectURL(url);
-            }
-        };
-        overlay.addEventListener("click", async (e) => { const button = e.target.closest("button"); if (!e.target.closest(".pro-canvas-more"))
-            closeMore(); if (!button)
-            return; if (button.dataset.start) {
-            tool = button.dataset.start;
-            clearPointerMarkers();
-            render();
-            return;
-        } if (button.dataset.tool) {
+        overlay.addEventListener("click", e => { const button = e.target.closest("button"); if (!button)
+            return; if (button.dataset.tool) {
             if (button.dataset.tool !== "pen")
                 abortPen();
             tool = button.dataset.tool;
@@ -2175,10 +2066,6 @@ export const initProCanvasUi = (deps) => {
             return;
         } try {
             switch (button.dataset.action) {
-                case "more":
-                    moreMenu.hidden = !moreMenu.hidden;
-                    moreButton.setAttribute("aria-expanded", String(!moreMenu.hidden));
-                    break;
                 case "cancel":
                     close();
                     break;
@@ -2206,67 +2093,20 @@ export const initProCanvasUi = (deps) => {
                 case "redo":
                     redoOnce();
                     break;
-                case "sty":
-                    await exportSty();
-                    closeMore();
-                    break;
                 case "tikz":
                     replaceOrInsert();
-                    break;
-                case "png":
-                    setStatus(uiText("Exporting…", "書き出し中…"));
-                    await exportPng();
                     break;
             }
         }
         catch (error) {
             setStatus(error instanceof Error ? error.message : String(error), true);
         } });
-        const pickFile = (accept) => new Promise(resolve => { const input = document.createElement("input"); input.type = "file"; input.accept = accept; input.onchange = () => { var _a; return resolve(((_a = input.files) === null || _a === void 0 ? void 0 : _a[0]) || null); }; input.click(); });
-        const readDataUrl = (file) => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error || new Error("File reading failed.")); reader.readAsDataURL(file); });
-        const approximatePng = async () => { var _a; const clone = svg.cloneNode(true); clone.querySelectorAll(".pro-canvas-guides,.pro-canvas-selection,.pro-canvas-hover,.pro-canvas-marquee,.pro-canvas-live-image").forEach(n => n.remove()); clone.setAttribute("viewBox", `0 ${-scene.height} ${scene.width} ${scene.height}`); clone.setAttribute("width", "1200"); clone.setAttribute("height", String(Math.max(1, 1200 * scene.height / scene.width))); const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" }), url = URL.createObjectURL(blob); try {
-            const image = new Image();
-            await new Promise((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("SVG rasterization failed.")); image.src = url; });
-            const canvas = document.createElement("canvas");
-            canvas.width = 1200;
-            canvas.height = Math.max(1, Math.round(1200 * scene.height / scene.width));
-            (_a = canvas.getContext("2d")) === null || _a === void 0 ? void 0 : _a.drawImage(image, 0, 0, canvas.width, canvas.height);
-            return canvas.toDataURL("image/png").split(",")[1];
-        }
-        finally {
-            URL.revokeObjectURL(url);
-        } };
-        const showAiPreview = (tikz) => { const pop = document.createElement("div"); pop.className = "pro-canvas-code-popover"; const area = document.createElement("textarea"); area.rows = 10; area.value = stripTikzWrapper(tikz); const place = document.createElement("button"); place.textContent = uiText("Place as a code object", "コードオブジェクトとして配置"); place.onclick = () => { snapshot(); const object = { id: newObjectId(), type: "code", tikz: stripTikzWrapper(area.value), transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(object); replaceSelection(object.id); pop.remove(); render(); scheduleCompile(); }; pop.append(area, place); overlay.append(pop); area.focus(); };
-        const importSvgFile = async () => { const file = await pickFile(".svg,image/svg+xml"); if (!file)
-            return; const result = importSvg(await file.text(), scene.width * .8); if (!result)
-            throw new Error(uiText("That SVG could not be read", "SVG を読み込めませんでした")); snapshot(); const group = { id: newObjectId(), type: "group", children: result.objects, transform: { tx: scene.width / 2, ty: scene.height / 2, rotate: 0, sx: 1, sy: 1 } }; scene.objects.push(group); replaceSelection(group.id); setStatus(result.warnings.length ? uiText(`${result.warnings.length} warning(s): ${result.warnings[0]}`, `${result.warnings.length} 件の警告: ${result.warnings[0]}`) : ""); render(); scheduleCompile(); };
-        const importAi = async () => { var _a; const snippet = (_a = window.tex64Texize) === null || _a === void 0 ? void 0 : _a.snippet; if (!snippet)
-            return; let imageBase64; if (confirm(uiText("OK: pick an image file · Cancel: trace the current canvas", "OK: 画像ファイルを選ぶ / キャンセル: 今のキャンバスを下絵にする"))) {
-            const file = await pickFile("image/*");
-            if (!file)
-                return;
-            imageBase64 = (await readDataUrl(file)).split(",")[1];
-        }
-        else
-            imageBase64 = await approximatePng(); setStatus(uiText("Converting to TikZ…", "TikZ 化中…")); const result = await snippet({ imageBase64 }); if (!(result === null || result === void 0 ? void 0 : result.ok))
-            throw new Error((result === null || result === void 0 ? void 0 : result.error) || "texize failed."); setStatus(""); showAiPreview(result.tex || ""); };
-        overlay.addEventListener("click", async (e) => { var _a; const action = (_a = e.target.closest("button")) === null || _a === void 0 ? void 0 : _a.dataset.action; try {
-            if (action === "svg-import")
-                await importSvgFile();
-            else if (action === "ai-import")
-                await importAi();
-        }
-        catch (error) {
-            setStatus(error instanceof Error ? error.message : String(error), true);
-        } });
         const activateForEdit = (object) => { if (!object)
             return; if (object.type === "node") {
-            hideCoach();
             if (editingNodeId !== object.id)
                 beginNodeEdit(object);
             return;
         } if (object.type === "plot") {
-            hideCoach();
             anchorEdit = null;
             plotEdit = { id: object.id };
             replaceSelection(object.id);
