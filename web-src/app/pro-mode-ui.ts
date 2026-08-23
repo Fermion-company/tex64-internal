@@ -1,105 +1,58 @@
 import { createViewer } from "./viewer.js";
 
-export type ProLayout = "preview-source" | "source-reference-code";
-export type ProPane = "preview" | "source" | "reference" | "code";
-
 export type ProModeState = {
-  enabled: boolean;
-  layout: ProLayout;
-  ratios: [number, number, number];
-  collapsed: Record<ProPane, boolean>;
+  previewShare: number;
 };
 
 export const PRO_MODE_STORAGE_KEY = "tex64.proMode.v1";
 const DEFAULT_STATE: ProModeState = {
-  enabled: false,
-  layout: "preview-source",
-  ratios: [0.34, 0.33, 0.33],
-  collapsed: { preview: false, source: false, reference: false, code: true },
+  previewShare: 0.34,
 };
-// A pane narrower than its own header pushes the header's buttons out of the
-// pane, where overflow: hidden clips them and they stop taking clicks. So the
-// minimum is "the header still fits"; drag past it and the pane collapses to
-// its strip instead of becoming a sliver of dead controls.
+
 export const PRO_PANE_MIN_PX = 220;
 
-export type ProSplitterDragResult = { ratios: [number, number, number]; collapse: ProPane | null };
+export type ProSplitterDragResult = {
+  previewShare: number;
+};
+
+export const clampPreviewShare = (value: number, minShare = 0.12): number => {
+  const minimum = Math.min(Math.max(minShare, 0), 0.5);
+  const safe = Number.isFinite(value) ? value : DEFAULT_STATE.previewShare;
+  return Math.min(Math.max(safe, minimum), 1 - minimum);
+};
 
 export const calculateProSplitterDrag = (
-  layout: ProLayout, boundary: 0 | 1, pointerRatio: number,
-  ratios: readonly number[], minRatio: number
+  pointerRatio: number,
+  minShare: number
 ): ProSplitterDragResult => {
-  const ratio = Math.min(Math.max(pointerRatio, 0), 1);
-  const minimum = Math.min(Math.max(minRatio, 0), 1 / 3);
-  const current = clampProRatios(ratios, 0);
-  if (layout === "preview-source") {
-    // The source pane sits left of the preview, so the pointer ratio at the
-    // splitter is the source's share; ratios[0] stays the preview's share.
-    if (ratio < minimum) return { ratios: current, collapse: "source" };
-    if (1 - ratio < minimum) return { ratios: current, collapse: "preview" };
-    const tail = Math.max(current[1] + current[2], 0.001);
-    return { ratios: [1 - ratio, ratio * current[1] / tail, ratio * current[2] / tail], collapse: null };
-  }
-  if (boundary === 0) {
-    if (ratio < minimum) return { ratios: current, collapse: "source" };
-    if (1 - current[2] - ratio < minimum) return { ratios: current, collapse: "reference" };
-    return { ratios: clampProRatios([ratio, Math.max(1 - ratio - current[2], 0), current[2]], 0), collapse: null };
-  }
-  if (1 - ratio < minimum) return { ratios: current, collapse: "code" };
-  if (ratio - current[0] < minimum) return { ratios: current, collapse: "reference" };
-  return { ratios: clampProRatios([current[0], ratio - current[0], 1 - ratio], 0), collapse: null };
+  const sourceShare = Math.min(Math.max(pointerRatio, 0), 1);
+  return {
+    previewShare: clampPreviewShare(1 - sourceShare, minShare),
+  };
 };
 
-export const proShortcutPane = (key: string, layout: ProLayout): ProPane | null => {
-  if (key === "1") return layout === "preview-source" ? "preview" : "reference";
-  if (key === "2") return "source";
-  if (key === "3") return "code";
-  return null;
-};
-
-export const clampProRatios = (
-  ratios: readonly number[],
-  minRatio = 0.12
-): [number, number, number] => {
-  const safe = [0, 1, 2].map((index) => {
-    const value = Number(ratios[index]);
-    return Number.isFinite(value) && value > 0 ? value : DEFAULT_STATE.ratios[index];
-  });
-  const total = safe.reduce((sum, value) => sum + value, 0) || 1;
-  const normalized = safe.map((value) => value / total);
-  const boundedMin = Math.min(Math.max(minRatio, 0), 1 / 3);
-  const result = normalized.map((value) => Math.max(value, boundedMin));
-  const excess = result.reduce((sum, value) => sum + value, 0) - 1;
-  if (excess > 0) {
-    const adjustable = result.map((value) => Math.max(value - boundedMin, 0));
-    const adjustableTotal = adjustable.reduce((sum, value) => sum + value, 0);
-    if (adjustableTotal > 0) {
-      result.forEach((value, index) => {
-        result[index] = value - excess * (adjustable[index] / adjustableTotal);
-      });
-    }
-  }
-  const finalTotal = result.reduce((sum, value) => sum + value, 0) || 1;
-  return result.map((value) => value / finalTotal) as [number, number, number];
-};
+export const isCodePreviewVisible = (
+  workspaceEnabled: boolean,
+  previewEnabled: boolean
+): boolean => workspaceEnabled && previewEnabled;
 
 export const parseProModeState = (raw: string | null): ProModeState => {
   if (!raw) return structuredClone(DEFAULT_STATE);
   try {
-    const value = JSON.parse(raw) as Partial<ProModeState>;
-    const collapsed = value.collapsed ?? {} as Record<ProPane, boolean>;
-    return {
-      enabled: value.enabled === true,
-      layout:
-        value.layout === "source-reference-code" ? value.layout : "preview-source",
-      ratios: clampProRatios(Array.isArray(value.ratios) ? value.ratios : DEFAULT_STATE.ratios),
-      collapsed: {
-        preview: collapsed.preview === true,
-        source: collapsed.source === true,
-        reference: collapsed.reference === true,
-        code: collapsed.code !== false,
-      },
+    const value = JSON.parse(raw) as {
+      previewShare?: unknown;
+      ratios?: unknown;
     };
+    let previewShare = Number(value.previewShare);
+    if (!Number.isFinite(previewShare) && Array.isArray(value.ratios)) {
+      const ratios = value.ratios.map(Number);
+      const total = ratios.reduce(
+        (sum, ratio) => sum + (Number.isFinite(ratio) && ratio > 0 ? ratio : 0),
+        0
+      );
+      previewShare = total > 0 ? Math.max(ratios[0] || 0, 0) / total : DEFAULT_STATE.previewShare;
+    }
+    return { previewShare: clampPreviewShare(previewShare) };
   } catch {
     return structuredClone(DEFAULT_STATE);
   }
@@ -107,93 +60,39 @@ export const parseProModeState = (raw: string | null): ProModeState => {
 
 type ProModeDeps = {
   setSplitViewEnabled: (enabled: boolean) => void;
-  getSplitViewEnabled: () => boolean;
-};
-
-export const createProSplitViewCoordinator = (deps: ProModeDeps) => {
-  let proModeActive = false;
-  let lightSplitViewEnabled = false;
-
-  return (enabled: boolean, layout: ProLayout) => {
-    if (enabled) {
-      if (!proModeActive) {
-        lightSplitViewEnabled = deps.getSplitViewEnabled();
-      }
-      deps.setSplitViewEnabled(layout === "source-reference-code");
-    } else if (proModeActive) {
-      deps.setSplitViewEnabled(lightSplitViewEnabled);
-    }
-    proModeActive = enabled;
-  };
 };
 
 export const initProModeUi = (deps: ProModeDeps) => {
   const root = document.getElementById("editor-groups");
-  const switcher = document.getElementById("pro-layout-switcher");
-  const layoutControl = document.getElementById("pro-layout-control");
-  const layoutTrigger = document.getElementById("pro-layout-trigger");
   if (!(root instanceof HTMLElement)) return null;
 
   let state = parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY));
-  let suppressLayoutFocusOpen = false;
-  const setLayoutMenuOpen = (open: boolean) => {
-    const next = open && state.enabled;
-    layoutControl?.classList.toggle("is-open", next);
-    layoutTrigger?.setAttribute("aria-expanded", String(next));
-  };
+  let enabled = false;
+  let previewEnabled = true;
   const previewViewer = createViewer({
     editorViewer: document.getElementById("pro-preview-viewer"),
     editorViewerImage: document.getElementById("pro-preview-image") as HTMLImageElement | null,
     editorViewerPdf: document.getElementById("pro-preview-pdf") as HTMLIFrameElement | null,
     editorHost: null,
   });
-  const referenceViewer = createViewer({
-    editorViewer: document.getElementById("pro-reference-viewer"),
-    editorViewerImage: document.getElementById("pro-reference-image") as HTMLImageElement | null,
-    editorViewerPdf: document.getElementById("pro-reference-pdf") as HTMLIFrameElement | null,
-    editorHost: null,
-  });
-  const syncSplitView = createProSplitViewCoordinator(deps);
-
   const persist = () => localStorage.setItem(PRO_MODE_STORAGE_KEY, JSON.stringify(state));
-  const scheduleLayout = () => requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  const scheduleLayout = () =>
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+
   const apply = () => {
-    document.documentElement.dataset.proMode = state.enabled ? "true" : "false";
-    // Pro-only sidebar surfaces (the stash) follow the mode, and the sidebar
-    // owns its own tab visibility, so tell it instead of reaching into it.
+    const previewVisible = isCodePreviewVisible(enabled, previewEnabled);
     window.dispatchEvent(
-      new CustomEvent("tex64:pro-mode", { detail: { enabled: state.enabled } })
+      new CustomEvent("tex64:code-workspace", { detail: { enabled } })
     );
-    root.dataset.proLayout = state.layout;
-    if (switcher instanceof HTMLElement) switcher.hidden = !state.enabled;
-    if (!state.enabled) setLayoutMenuOpen(false);
     const canvasButton = document.getElementById("pro-canvas-open");
-    if (canvasButton instanceof HTMLButtonElement) canvasButton.hidden = !state.enabled;
-    const previewPane = document.getElementById("pro-preview-pane");
-    const referencePane = document.getElementById("pro-reference-pane");
-    previewPane?.setAttribute(
-      "aria-hidden",
-      String(!state.enabled || state.layout !== "preview-source")
-    );
-    referencePane?.setAttribute(
-      "aria-hidden",
-      String(!state.enabled || state.layout !== "source-reference-code")
-    );
-    root.style.setProperty("--pro-pane-a", `${state.ratios[0]}fr`);
-    root.style.setProperty("--pro-pane-b", `${state.ratios[1]}fr`);
-    root.style.setProperty("--pro-pane-c", `${state.ratios[2]}fr`);
-    root.style.setProperty("--pro-pane-rest", `${state.ratios[1] + state.ratios[2]}fr`);
-    (Object.keys(state.collapsed) as ProPane[]).forEach((pane) => {
-      root.classList.toggle(`is-${pane}-collapsed`, state.collapsed[pane]);
-      root.querySelectorAll<HTMLElement>(`[data-pro-collapse="${pane}"]`).forEach((button) => {
-        button.setAttribute("aria-expanded", String(!state.collapsed[pane]));
-        button.title = state.collapsed[pane] ? `Expand ${pane}` : `Collapse ${pane}`;
-      });
-    });
-    root.querySelectorAll<HTMLButtonElement>("[data-pro-layout]").forEach((button) => {
-      button.setAttribute("aria-checked", String(button.dataset.proLayout === state.layout));
-    });
-    syncSplitView(state.enabled, state.layout);
+    if (canvasButton instanceof HTMLButtonElement) canvasButton.hidden = !enabled;
+    document
+      .getElementById("pro-preview-pane")
+      ?.setAttribute("aria-hidden", String(!previewVisible));
+    root.dataset.codePreview = previewVisible ? "true" : "false";
+    root.style.setProperty("--pro-preview-share", `${state.previewShare}fr`);
+    root.style.setProperty("--pro-source-share", `${1 - state.previewShare}fr`);
+    if (enabled) deps.setSplitViewEnabled(false);
     scheduleLayout();
   };
 
@@ -203,92 +102,11 @@ export const initProModeUi = (deps: ProModeDeps) => {
     apply();
   };
 
-  const layoutButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-pro-layout]"));
-  layoutButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const layout = button.dataset.proLayout as ProLayout;
-      if (layout === "preview-source" || layout === "source-reference-code") update({ layout });
-      setLayoutMenuOpen(false);
-      suppressLayoutFocusOpen = true;
-      if (layoutTrigger instanceof HTMLButtonElement) layoutTrigger.focus({ preventScroll: true });
-      queueMicrotask(() => { suppressLayoutFocusOpen = false; });
-    });
-  });
-  layoutControl?.addEventListener("pointerenter", () => setLayoutMenuOpen(true));
-  layoutControl?.addEventListener("pointerleave", () => setLayoutMenuOpen(false));
-  layoutTrigger?.addEventListener("focus", () => {
-    if (!suppressLayoutFocusOpen) setLayoutMenuOpen(true);
-  });
-  layoutTrigger?.addEventListener("click", () => {
-    setLayoutMenuOpen(true);
-  });
-  layoutTrigger?.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowDown") return;
-    event.preventDefault();
-    setLayoutMenuOpen(true);
-    layoutButtons[0]?.focus();
-  });
-  switcher?.addEventListener("keydown", (event) => {
-    const current = layoutButtons.indexOf(document.activeElement as HTMLButtonElement);
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setLayoutMenuOpen(false);
-      suppressLayoutFocusOpen = true;
-      if (layoutTrigger instanceof HTMLButtonElement) layoutTrigger.focus({ preventScroll: true });
-      queueMicrotask(() => { suppressLayoutFocusOpen = false; });
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    const offset = event.key === "ArrowDown" ? 1 : -1;
-    layoutButtons[(current + offset + layoutButtons.length) % layoutButtons.length]?.focus();
-  });
-  document.addEventListener("pointerdown", (event) => {
-    if (layoutControl && !layoutControl.contains(event.target as Node)) setLayoutMenuOpen(false);
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-pro-collapse]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const pane = button.dataset.proCollapse as ProPane;
-      update({ collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] } });
-    });
-  });
-  document.addEventListener("keydown", (event) => {
-    if (!state.enabled || !(event.metaKey || event.ctrlKey) || !event.altKey || event.shiftKey) return;
-    const pane = proShortcutPane(event.key, state.layout);
-    if (!pane || (pane === "code" && state.layout !== "source-reference-code")) return;
-    event.preventDefault(); event.stopPropagation();
-    update({ collapsed: { ...state.collapsed, [pane]: !state.collapsed[pane] } });
-  }, true);
-
-  const bindFileInput = (kind: "preview" | "reference", viewer: ReturnType<typeof createViewer>) => {
-    const input = document.getElementById(`pro-${kind}-file`);
-    const open = root.querySelector<HTMLButtonElement>(`[data-pro-open="${kind}"]`);
-    if (!(input instanceof HTMLInputElement) || !open) return;
-    open.addEventListener("click", () => input.click());
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.addEventListener("load", () => {
-        const dataUrl = typeof reader.result === "string" ? reader.result : "";
-        const data = dataUrl.slice(dataUrl.indexOf(",") + 1);
-        if (file.type === "application/pdf") viewer.showPdfViewer(file.name, data, file.type);
-        else if (file.type.startsWith("image/")) viewer.showImageViewer(file.name, data, file.type);
-        else viewer.showUnsupportedViewer();
-      });
-      reader.readAsDataURL(file);
-      input.value = "";
-    });
-  };
-  bindFileInput("preview", previewViewer);
-  bindFileInput("reference", referenceViewer);
-
-  const setupSplitter = (id: string, boundary: 0 | 1) => {
-    const splitter = document.getElementById(id);
-    if (!(splitter instanceof HTMLElement)) return;
+  const splitter = document.getElementById("pro-splitter-primary");
+  if (splitter instanceof HTMLElement) {
     let dragging = false;
     splitter.addEventListener("pointerdown", (event) => {
-      if (!state.enabled) return;
+      if (!enabled) return;
       dragging = true;
       splitter.setPointerCapture(event.pointerId);
       root.classList.add("is-pro-resizing");
@@ -296,12 +114,14 @@ export const initProModeUi = (deps: ProModeDeps) => {
     splitter.addEventListener("pointermove", (event) => {
       if (!dragging) return;
       const rect = root.getBoundingClientRect();
-      const ratio = (event.clientX - rect.left) / Math.max(rect.width, 1);
-      const result = calculateProSplitterDrag(state.layout, boundary, ratio, state.ratios, PRO_PANE_MIN_PX / Math.max(rect.width, 1));
-      const visible = state.layout === "preview-source" ? (["preview", "source"] as ProPane[]) : (["source", "reference", "code"] as ProPane[]);
-      const collapsed = { ...state.collapsed };
-      visible.forEach((pane) => { collapsed[pane] = pane === result.collapse; });
-      state = { ...state, ratios: result.ratios, collapsed };
+      const result = calculateProSplitterDrag(
+        (event.clientX - rect.left) / Math.max(rect.width, 1),
+        PRO_PANE_MIN_PX / Math.max(rect.width, 1)
+      );
+      state = {
+        ...state,
+        previewShare: result.previewShare,
+      };
       apply();
     });
     const stop = () => {
@@ -313,62 +133,45 @@ export const initProModeUi = (deps: ProModeDeps) => {
     splitter.addEventListener("pointerup", stop);
     splitter.addEventListener("pointercancel", stop);
     splitter.addEventListener("dblclick", (event) => {
-      if (!state.enabled) return;
+      if (!enabled) return;
       event.preventDefault();
-      update({ ratios: [...DEFAULT_STATE.ratios], collapsed: { ...state.collapsed, preview: false, source: false, reference: false, code: state.layout === "source-reference-code" ? false : state.collapsed.code } });
+      update({ previewShare: DEFAULT_STATE.previewShare });
     });
-  };
-  setupSplitter("pro-splitter-primary", 0);
-  setupSplitter("pro-splitter-secondary", 1);
-  root.querySelectorAll<HTMLElement>("[data-pro-pane], [data-editor-group]").forEach((paneElement) => {
-    const pane = paneElement.dataset.proPane || (paneElement.dataset.editorGroup === "primary" ? "source" : paneElement.dataset.editorGroup === "secondary" ? "code" : "");
-    if (!pane) return;
-    let startX = 0;
-    paneElement.addEventListener("pointerdown", (event) => {
-      if (!state.enabled || !state.collapsed[pane as ProPane]) return;
-      startX = event.clientX; paneElement.setPointerCapture(event.pointerId); root.classList.add("is-pro-resizing");
-    });
-    paneElement.addEventListener("pointermove", (event) => {
-      if (!state.collapsed[pane as ProPane] || !paneElement.hasPointerCapture(event.pointerId) || Math.abs(event.clientX - startX) < 8) return;
-      update({ collapsed: { ...state.collapsed, [pane]: false } });
-    });
-    paneElement.addEventListener("pointerup", (event) => {
-      if (!paneElement.hasPointerCapture(event.pointerId)) return;
-      paneElement.releasePointerCapture(event.pointerId); root.classList.remove("is-pro-resizing");
-      if (Math.abs(event.clientX - startX) < 8) update({ collapsed: { ...state.collapsed, [pane]: false } });
-    });
-    paneElement.addEventListener("pointercancel", () => root.classList.remove("is-pro-resizing"));
-  });
+  }
+
   apply();
 
-  // Pro mode is owned by the top-bar mode switcher (app-mode.ts); this is the
-  // hook it drives. Enabling keeps whatever layout the user last used.
-  const setEnabled = (enabled: boolean) => {
-    if (state.enabled !== enabled) update({ enabled });
+  const setEnabled = (nextEnabled: boolean) => {
+    if (enabled === nextEnabled) return;
+    enabled = nextEnabled;
+    apply();
   };
 
-  // Workspace-tree image/PDF clicks land in the visible viewer pane while Pro
-  // mode is on (preview in layout 1, reference in layout 2) instead of
-  // replacing the source editor. Returns false when Pro is off so the caller
-  // falls back to the normal editor-viewer flow.
+  const setPreviewEnabled = (nextEnabled: boolean) => {
+    if (previewEnabled === nextEnabled) return;
+    previewEnabled = nextEnabled;
+    apply();
+  };
+
   const tryShowViewerFile = (
     path: string,
     kind: "image" | "pdf",
     data?: string,
     mimeType?: string
   ) => {
-    if (!state.enabled) return false;
-    const pane: ProPane = state.layout === "preview-source" ? "preview" : "reference";
-    const viewer = pane === "preview" ? previewViewer : referenceViewer;
-    if (kind === "pdf") viewer.showPdfViewer(path, data, mimeType);
-    else viewer.showImageViewer(path, data, mimeType);
-    const title = document.getElementById(`pro-${pane}-title`);
-    if (title) title.textContent = path.split("/").pop() || path;
-    if (state.collapsed[pane]) {
-      update({ collapsed: { ...state.collapsed, [pane]: false } });
-    }
+    if (!enabled || !previewEnabled) return false;
+    if (kind === "pdf") previewViewer.showPdfViewer(path, data, mimeType);
+    else previewViewer.showImageViewer(path, data, mimeType);
     return true;
   };
 
-  return { getState: () => state, setEnabled, tryShowViewerFile };
+  return {
+    getState: () => state,
+    setEnabled,
+    setPreviewEnabled,
+    tryShowViewerFile,
+    getPdfPath: previewViewer.getPdfPath,
+    syncPdf: previewViewer.syncPdf,
+    setLivePreview: previewViewer.setLivePreview,
+  };
 };

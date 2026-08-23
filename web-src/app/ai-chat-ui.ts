@@ -590,6 +590,25 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       },
       { passive: true }
     );
+    // File chips and web links inside assistant messages. Both are rendered as
+    // inert elements by the markdown renderer and only act through here, so a
+    // link in model output can never navigate the renderer itself.
+    aiChatLog.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      const fileEl = target?.closest?.("[data-open-file]") as HTMLElement | null;
+      if (fileEl) {
+        event.preventDefault();
+        const filePath = fileEl.dataset.openFile ?? "";
+        if (filePath) deps.postToNative({ type: "openFile", path: filePath });
+        return;
+      }
+      const urlEl = target?.closest?.("[data-open-url]") as HTMLElement | null;
+      if (urlEl) {
+        event.preventDefault();
+        const url = urlEl.dataset.openUrl ?? "";
+        if (url) openExternalUrl(url);
+      }
+    });
   }
 
   const scrollToBottom = (force = false) => {

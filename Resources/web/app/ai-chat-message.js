@@ -145,6 +145,36 @@ const highlightLatex = (code) => {
     }
     return result;
 };
+/* ------------------------------------------------------------------ */
+/*  File / URL links                                                  */
+/* ------------------------------------------------------------------ */
+/**
+ * Links the chat may render. `tex64-file:` targets are workspace-relative
+ * paths (the Codex adapter rewrites its internal file citations into this
+ * form); http(s) links open in the system browser. Anything else — including
+ * javascript:, data: and file: — renders as plain text: the chat body is model
+ * output, so nothing may become a navigable target by default.
+ */
+export const FILE_LINK_SCHEME = "tex64-file:";
+const isWebUrl = (href) => /^https?:\/\//i.test(href);
+/**
+ * Codex's file-citation directive normally arrives already rewritten by the
+ * desktop side, which resolves it against the workspace root. A citation can
+ * still show up here mid-stream (the deltas are raw), so strip it to the bare
+ * file name rather than letting the directive — and an absolute sandbox path —
+ * flash in the transcript.
+ */
+const FILE_CITATION_PATTERN = /:codex-file-citation(?:\[[^\]]*\])?\{([^}]*)\}/g;
+const stripFileCitations = (text) => {
+    if (!text.includes(":codex-file-citation"))
+        return text;
+    return text.replace(FILE_CITATION_PATTERN, (_match, attributes) => {
+        var _a, _b, _c, _d, _e;
+        const cited = (_d = (_b = (_a = attributes.match(/path\s*=\s*"([^"]+)"/)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : (_c = attributes.match(/path\s*=\s*([^\s,}]+)/)) === null || _c === void 0 ? void 0 : _c[1]) !== null && _d !== void 0 ? _d : "";
+        const name = (_e = cited.split(/[\\/]/).pop()) !== null && _e !== void 0 ? _e : "";
+        return name;
+    });
+};
 const configureMarked = () => {
     const renderer = {
         code(token) {
@@ -161,6 +191,36 @@ const configureMarked = () => {
         },
         codespan(token) {
             return `<code class="ai-inline-code">${escapeHtml(token.text)}</code>`;
+        },
+        // marked passes raw HTML through untouched by default. The chat body is
+        // model output (and quotes file contents), so render it as visible text
+        // instead of letting it become live DOM.
+        html(token) {
+            return escapeHtml(token.text);
+        },
+        link(token) {
+            var _a, _b;
+            const label = token.tokens && typeof ((_a = this.parser) === null || _a === void 0 ? void 0 : _a.parseInline) === "function"
+                ? this.parser.parseInline(token.tokens)
+                : escapeHtml(token.text);
+            const href = (_b = token.href) !== null && _b !== void 0 ? _b : "";
+            if (href.startsWith(FILE_LINK_SCHEME)) {
+                const encoded = href.slice(FILE_LINK_SCHEME.length);
+                let filePath = encoded;
+                try {
+                    filePath = decodeURI(encoded);
+                }
+                catch {
+                    /* malformed escape: fall back to the raw target */
+                }
+                return (`<button type="button" class="ai-file-link" data-open-file="${escapeHtml(filePath)}"` +
+                    ` title="${escapeHtml(filePath)}">${label}</button>`);
+            }
+            if (isWebUrl(href)) {
+                // Opened through the shell, never by navigating the renderer.
+                return `<a class="ai-external-link" href="#" data-open-url="${escapeHtml(href)}">${label}</a>`;
+            }
+            return label;
         },
         heading(token) {
             const level = Math.min(3, token.depth);
@@ -201,7 +261,7 @@ let markedConfigured = false;
 /* ------------------------------------------------------------------ */
 /*  Render markdown → HTML                                            */
 /* ------------------------------------------------------------------ */
-const renderMarkdownHtml = (text) => {
+export const renderMarkdownHtml = (text) => {
     if (!markedConfigured) {
         configureMarked();
         markedConfigured = true;
@@ -210,7 +270,7 @@ const renderMarkdownHtml = (text) => {
     // LaTeX answers routinely contain \[ \] or $ inside ```tex fences, and
     // those must stay verbatim code, not become KaTeX.
     const codeSpans = [];
-    let protected_ = text;
+    let protected_ = stripFileCitations(text);
     protected_ = protected_.replace(/```[\s\S]*?(?:```|$)/g, (match) => {
         codeSpans.push(match);
         return `\x01CODE${codeSpans.length - 1}\x01`;
@@ -276,6 +336,8 @@ const attachCopyHandlers = (container) => {
 /* ------------------------------------------------------------------ */
 /*  DOM helpers                                                       */
 /* ------------------------------------------------------------------ */
+/** Chars beyond which a user message is collapsed behind a "Show more". */
+const LONG_USER_MESSAGE_CHARS = 600;
 export const createMessageElement = (message) => {
     const wrapper = document.createElement("div");
     wrapper.className = "ai-message";
@@ -285,6 +347,25 @@ export const createMessageElement = (message) => {
         content.className = "ai-message-content";
         content.textContent = message.text;
         wrapper.appendChild(content);
+        // A long writing brief otherwise pushes the whole run (progress, answer,
+        // produced files) out of view in a narrow panel.
+        if (message.text.length > LONG_USER_MESSAGE_CHARS) {
+            wrapper.classList.add("is-clamped", "has-expand");
+            const toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "ai-message-expand";
+            const syncLabel = () => {
+                toggle.textContent = wrapper.classList.contains("is-clamped")
+                    ? uiText("Show more", "もっと見る")
+                    : uiText("Show less", "折りたたむ");
+            };
+            toggle.addEventListener("click", () => {
+                wrapper.classList.toggle("is-clamped");
+                syncLabel();
+            });
+            syncLabel();
+            wrapper.appendChild(toggle);
+        }
     }
     else if (message.role === "assistant") {
         wrapper.classList.add("is-assistant");

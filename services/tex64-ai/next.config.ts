@@ -1,6 +1,5 @@
 import type { NextConfig } from "next";
 import { fileURLToPath } from "node:url";
-import { withWorkflow } from "workflow/next";
 
 const isProduction = process.env.NODE_ENV === "production";
 const contentSecurityPolicy = [
@@ -9,7 +8,10 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  // blob: is how the page hands the desktop build's PDF to the viewer:
+  // the bytes arrive over the host bridge, not the network, and pdf.js
+  // reads them back through a blob URL of our own making.
+  "connect-src 'self' blob:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -20,18 +22,12 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: [
-    "pg",
-    // Bundling the AI SDK duplicates its module instances across bundle
-    // worlds (route/flow/step); Node resolution keeps them shared where the
-    // workflow plugin permits. (The plugin re-bundles the packages that
-    // carry workflow serialization classes and warns about them here.)
-    "ai",
-    "@ai-sdk/openai",
-    "@ai-sdk/gateway",
-    "@ai-sdk/provider",
-    "@ai-sdk/provider-utils",
-  ],
+  // The dev overlay renders a floating "N" badge over the app. Inside the
+  // TeX64 desktop AI mode it reads as a product control that leads nowhere,
+  // so it is off by default; set TEX64_NEXT_DEV_INDICATORS=1 when a developer
+  // wants the Next.js dev tools in a normal browser.
+  devIndicators: process.env.TEX64_NEXT_DEV_INDICATORS === "1" ? undefined : false,
+  serverExternalPackages: ["pg"],
   // The desktop AI mode (and local tooling) reaches the dev server via
   // 127.0.0.1 while `next dev` binds localhost; allow that origin for dev
   // assets. Production is unaffected.
@@ -72,4 +68,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withWorkflow(nextConfig);
+export default nextConfig;

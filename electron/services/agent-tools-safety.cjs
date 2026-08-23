@@ -196,6 +196,83 @@ const LATEX_STRUCTURAL_INVARIANTS = [
 ];
 
 /**
+ * Preamble commands a document carries exactly once. Editing one of these by
+ * writing the new version next to the old — rather than over it — leaves two,
+ * and LaTeX then silently uses the last, so the change looks applied while the
+ * stale line stays behind.
+ */
+const LATEX_SINGLETON_COMMANDS = [
+  "documentclass",
+  "title",
+  "author",
+  "date",
+  "maketitle",
+  "begin{document}",
+  "end{document}",
+];
+
+const countLatexCommand = (content, command) => {
+  const escaped = command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Commented-out lines are not the document's own copies.
+  const pattern = new RegExp(`^[^%\n]*\\\\${escaped}`, "gm");
+  return (content.match(pattern) ?? []).length;
+};
+
+/**
+ * Names the preamble commands an edit would leave duplicated. Only commands
+ * the edit itself multiplied are reported: a file that already had two is the
+ * author's business, not this edit's mistake.
+ */
+const findIntroducedLatexDuplicates = (path, oldContent, newContent) => {
+  if (typeof path !== "string" || !path.toLowerCase().endsWith(".tex")) {
+    return [];
+  }
+  const introduced = [];
+  for (const command of LATEX_SINGLETON_COMMANDS) {
+    const after = countLatexCommand(newContent, command);
+    if (after < 2) continue;
+    if (after > countLatexCommand(oldContent, command)) {
+      introduced.push(`\\${command}`);
+    }
+  }
+  return introduced;
+};
+
+/**
+ * Shortest line worth reporting as an accidental duplicate. Below this,
+ * repeated lines are ordinary LaTeX (`}`, `\\`, `\hline`).
+ * Preamble commands are shorter than this and are covered by
+ * findIntroducedLatexDuplicates instead.
+ */
+const ADJACENT_DUP_MIN_LEN = 24;
+
+const adjacentPairs = (content) => {
+  const pairs = new Set();
+  const lines = String(content).split(/\r?\n/);
+  for (let index = 1; index < lines.length; index += 1) {
+    if (lines[index] === lines[index - 1]) pairs.add(lines[index]);
+  }
+  return pairs;
+};
+
+/**
+ * Reports a line the edit left identical to the line next to it.
+ *
+ * Compares the two whole documents rather than an edit range, so it covers
+ * every path that writes a file — replace, insert, patch, whole-file write.
+ * A pair the file already had is left alone; only pairs this edit created are
+ * reported.
+ */
+const findIntroducedDuplicateLine = (oldContent, newContent) => {
+  const existing = adjacentPairs(oldContent);
+  for (const line of adjacentPairs(newContent)) {
+    if (line.trim().length < ADJACENT_DUP_MIN_LEN) continue;
+    if (!existing.has(line)) return line;
+  }
+  return null;
+};
+
+/**
  * Check which LaTeX structural invariants would be broken by a proposed edit.
  *
  * Returns an array of names of elements that were present in `oldContent`
@@ -247,5 +324,7 @@ module.exports = {
   verifyExpectedSha,
   verifyPostWrite,
   checkLatexInvariants,
+  findIntroducedLatexDuplicates,
+  findIntroducedDuplicateLine,
   formatChangeSummary,
 };

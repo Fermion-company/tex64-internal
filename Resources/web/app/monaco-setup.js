@@ -47,6 +47,7 @@ export const initMonacoSetup = (context, deps) => {
     }
     monacoWindow.require.config({ paths: { vs: requireBase } });
     monacoWindow.require(["vs/editor/editor.main"], () => {
+        var _a, _b, _c, _d;
         if (!monacoWindow.monaco || !monacoWindow.monaco.editor) {
             deps.updateFallback(uiText("Monaco initialization failed.", "Monacoの初期化に失敗しました。"));
             return;
@@ -79,6 +80,17 @@ export const initMonacoSetup = (context, deps) => {
                 applyMonacoTheme(monacoWindow.monaco, theme);
             }
         });
+        // Click-to-column accuracy: Monaco measures glyph advance widths when
+        // an editor is created, but the default editor face (Latin Modern
+        // Mono, 0.525em advance) is a webfont — if it lands after that
+        // measurement, mouse positions map through the FALLBACK font's widths
+        // (Menlo/SF Mono, ~0.60em) and a click at column 60 places the cursor
+        // ~8 columns off. Remeasure once the document's fonts settle, and
+        // again whenever any later font load finishes (a font-family change
+        // in settings, a lazily-loaded face).
+        const remeasureFonts = () => { var _a, _b, _c; return (_c = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.remeasureFonts) === null || _c === void 0 ? void 0 : _c.call(_b); };
+        (_b = (_a = document.fonts) === null || _a === void 0 ? void 0 : _a.ready) === null || _b === void 0 ? void 0 : _b.then(() => remeasureFonts()).catch(() => { });
+        (_d = (_c = document.fonts) === null || _c === void 0 ? void 0 : _c.addEventListener) === null || _d === void 0 ? void 0 : _d.call(_c, "loadingdone", () => remeasureFonts());
         const editorOptions = {
             value: "",
             language: "latex",
@@ -113,7 +125,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -257,29 +269,10 @@ export const initMonacoSetup = (context, deps) => {
                 }
             }
             (_p = (_o = editor).addAction) === null || _p === void 0 ? void 0 : _p.call(_o, {
-                id: "tex64.pro-stash-add-selection",
-                label: uiText("Add selection to stash", "選択範囲をスタッシュへ追加"),
-                contextMenuGroupId: "9_ai",
-                contextMenuOrder: 2,
-                precondition: "editorHasSelection",
-                run: () => {
-                    var _a, _b, _c, _d;
-                    const selection = (_a = editor.getSelection) === null || _a === void 0 ? void 0 : _a.call(editor);
-                    const model = (_c = (_b = editor).getModel) === null || _c === void 0 ? void 0 : _c.call(_b);
-                    const content = selection && model ? (_d = model.getValueInRange) === null || _d === void 0 ? void 0 : _d.call(model, selection) : "";
-                    if (!content) {
-                        return;
-                    }
-                    window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", {
-                        detail: { kind: "text", content },
-                    }));
-                },
-            });
-            (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
                 id: "tex64.pro-canvas-edit",
                 label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
                 contextMenuGroupId: "9_ai",
-                contextMenuOrder: 3,
+                contextMenuOrder: 2,
                 run: () => {
                     var _a, _b, _c, _d;
                     const model = (_b = (_a = editor).getModel) === null || _b === void 0 ? void 0 : _b.call(_a);
@@ -302,7 +295,7 @@ export const initMonacoSetup = (context, deps) => {
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_t = (_s = editor).addAction) === null || _t === void 0 ? void 0 : _t.call(_s, {
+                (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

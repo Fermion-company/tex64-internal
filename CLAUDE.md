@@ -4,8 +4,8 @@ Electron ベースの LaTeX エディタ（macOS、開発中 / `com.wedd.tex64`�
 
 このファイルは恒久的な設計方針と作業規約。直近のタスクキューは [TODO.md](TODO.md) にある（セッション開始時に確認）。
 
-アプリはトップバー左側（サイドバートグル右隣）のスイッチャーで **Code | AI | Pro** の 3 モードを持つ（[docs/app-modes.md](docs/app-modes.md)）。
-Code = 従来エディタ、AI = `services/tex64-ai`（独立 Web アプリを webview で埋め込み、Web/ネイティブ共通コードベース）、Pro = 分割レイアウト等のプロ向け UI（[docs/pro-mode-design.md](docs/pro-mode-design.md)、KKTeX 担当）。
+アプリはトップバー左側（サイドバートグル右隣）のスイッチャーで **Code | AI** の 2 モードを持つ（[docs/app-modes.md](docs/app-modes.md)）。
+Code = ソース＋通常 PDF / Live プレビューを持つ自己完結エディタ、AI = `services/tex64-ai`（独立 Web アプリを webview で埋め込み、Web/ネイティブ共通コードベース）。旧 Pro モードは廃止し、旧機能では TikZ 作図だけを Code に残す（[docs/pro-mode-design.md](docs/pro-mode-design.md)）。
 
 ---
 
@@ -106,6 +106,20 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
   - コンポーザに先回りのクイックアクション・チップ/ボタンを足さない（「邪魔」として全面削除済み）。
 - 編集の品質ガード: ビルドエラー修正で「該当行を消さず隣で置換→重複」する癖は `agent-tools-file.cjs` の決定的ガード（`findIntroducedAdjacentDuplicate`）で対処済み。プロンプト調整だけで潰そうとしない。
 - AI が複数箇所/複数ファイルを編集したときの差分表示は、**単一編集と同じ Monaco 差分エディタをファイルごとに生成して縦に並べる**（`showMultiFileDiff`）。自前 HTML の side-by-side レンダラは全廃済み。再導入しない。
+
+### AI モード（services/tex64-ai）
+
+- 実行モデルは **Codex / Claude Code と同じ**: 会話 1 ターン = エージェントループ 1 回
+  （`src/server/agent/turn.ts`）。書くか・直すか・ただ答えるかは**モデルが決める**。
+- **意図の事前分類を作らない**。日本語の正規表現で依頼を仕分ける実装（旧 `session-policy`）は
+  撤去済み。要件票（brief）・執筆計画（plan）・独立レビューの固定パイプラインも撤去済みで、
+  **再導入しない**。
+- **スレッド全体が毎ターンモデルへ渡る**（`tex64_conversation_messages`）。文書を変えずに
+  文章だけ返すのは正常な結果。質問は専用ツールではなく普通の返答で行う（`request_input` は廃止）。
+- 組版は**エージェントのツール**（`compile_document`）。呼び忘れたターンだけサーバーが最後に
+  1 回だけ組版する（モデルは呼ばない）。強制コンパイル・PDF 視覚レビュー・ページ数ゲートは撤去済み。
+- 返答は NDJSON でストリーミング（`POST /documents/:id/messages`）。実行中も入力でき、
+  停止ボタンで中断できる。固定 5 段階の進捗表示はツール名ベースの表示に置き換え済み。
 
 ### 課金（重要・厳守）
 

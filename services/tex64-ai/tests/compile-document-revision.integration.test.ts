@@ -107,9 +107,7 @@ describe.skipIf(!existsSync(LUALATEX)).sequential(
           userId: USER_ID,
           documentId: document.id,
           revision: 1,
-          targetLength: null,
-          visualReviewRuntime: null,
-        });
+                });
 
         expect(result.ok).toBe(true);
         if (!result.ok) return;

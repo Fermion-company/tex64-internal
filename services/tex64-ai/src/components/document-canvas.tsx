@@ -2,7 +2,8 @@
 
 import katex from "katex";
 import { ListPlus, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import type { ComponentProps } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DocumentBlock, ListBlock } from "@/lib/client/types";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
@@ -15,6 +16,22 @@ export interface BlockEditorProps {
   fresh?: boolean;
   onChange: (block: DocumentBlock) => void;
   readOnly: boolean;
+}
+
+/**
+ * A textarea that grows with its content. A fixed-height field inside the
+ * selection card silently hid the rest of a paragraph, and the wheel then
+ * scrolled the page behind it because the field had nothing to scroll.
+ */
+function AutoTextarea(props: ComponentProps<"textarea">) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const field = ref.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  }, [props.value]);
+  return <textarea ref={ref} {...props} />;
 }
 
 export function BlockEditor({
@@ -37,7 +54,7 @@ export function BlockEditor({
             {headingNumber ? `${headingNumber}.` : ""}
           </span>
           <span className="sr-only">見出し</span>
-          <textarea
+          <AutoTextarea
             rows={1}
             value={block.text}
             readOnly={readOnly}
@@ -49,7 +66,7 @@ export function BlockEditor({
       {block.type === "paragraph" ? (
         <label>
           <span className="sr-only">本文</span>
-          <textarea
+          <AutoTextarea
             className="block-paragraph-field"
             rows={2}
             value={block.text}
@@ -63,7 +80,7 @@ export function BlockEditor({
         <div className="block-quote-fields">
           <label>
             <span className="sr-only">引用</span>
-            <textarea
+            <AutoTextarea
               rows={2}
               value={block.text}
               readOnly={readOnly}
@@ -195,7 +212,7 @@ function ListEditor({
           <span aria-hidden="true" />
           <label>
             <span className="sr-only">箇条書き {index + 1}</span>
-            <textarea
+            <AutoTextarea
               rows={1}
               value={item}
               readOnly={readOnly}

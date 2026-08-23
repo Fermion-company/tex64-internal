@@ -1,6 +1,6 @@
 import { uiText } from "../i18n.js";
 import { ensureTrailingNewline, insertAtEditorCursor } from "../pro-editor-insert.js";
-import { buildIncludeGraphicsSnippet, chooseCaptureDirectory } from "../pro-capture-ui.js";
+import { buildIncludeGraphicsSnippet, chooseImageDirectory } from "../image-insert-utils.js";
 import { encodeFigureBlock } from "./figure-codec.js";
 import { planBodyInsert, planFigureInsert } from "./insert-plan.js";
 import { generateTikz } from "./tikz-generate.js";
@@ -2137,7 +2137,7 @@ export const initProCanvasUi = (deps) => {
                 const api = (_a = window.tex64Files) === null || _a === void 0 ? void 0 : _a.writeBase64;
                 if (!api)
                     throw new Error("File writing is not available.");
-                const dir = chooseCaptureDirectory(deps.getWorkspaceFiles()), path = `${dir}/${timestampName()}`;
+                const dir = chooseImageDirectory(deps.getWorkspaceFiles()), path = `${dir}/${timestampName()}`;
                 const result = await api({ path, data });
                 if (!result.ok)
                     throw new Error(result.error || "The image could not be saved.");

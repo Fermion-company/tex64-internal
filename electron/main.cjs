@@ -29,6 +29,7 @@ const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
 const { MathOcrService } = require("./services/math-ocr.cjs");
 const { TexizeService } = require("./services/texize.cjs");
+const { TdomEngineService } = require("./services/tdom-engine.cjs");
 const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
@@ -48,6 +49,7 @@ const {
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
 const { registerTexizeHandlers } = require("./handlers/texize.cjs");
+const { registerTdomEngineHandlers } = require("./handlers/tdom-engine.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
 
@@ -246,6 +248,7 @@ const blocksStore = new BlocksStore();
 const envService = new EnvService();
 let mathOcrService = null;
 let texizeService = null;
+let tdomEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
@@ -279,6 +282,16 @@ const getAiWebService = () => {
     aiWebService = new AiWebService({ app, ensureUserSettings });
   }
   return aiWebService;
+};
+const getTdomEngineService = () => {
+  if (!tdomEngineService) {
+    tdomEngineService = new TdomEngineService({
+      fileAccess: macFileAccess,
+      resourcesPath: app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), "Resources"),
+      userDataPath: app.getPath("userData"),
+    });
+  }
+  return tdomEngineService;
 };
 const getTexlabService = () => {
   if (!texlabService) {
@@ -404,6 +417,67 @@ const sendToRenderer = (type, payload) => {
   }
 };
 
+const handleLivePreviewSource = (payload) => {
+  const rootPath = workspace.getRootPath();
+  const sourceFile = typeof payload?.file === "string" ? payload.file.replace(/\0/g, "") : "";
+  const line = Number(payload?.line);
+  const column = Number(payload?.column);
+  if (!rootPath || !sourceFile || !Number.isFinite(line) || line < 1) {
+    return;
+  }
+  const root = path.resolve(rootPath);
+  const absolute = path.isAbsolute(sourceFile)
+    ? path.resolve(sourceFile)
+    : path.resolve(root, sourceFile);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return;
+  }
+  sendToRenderer("synctex:reverseResult", {
+    ok: true,
+    path: relative.split(path.sep).join("/"),
+    line: Math.floor(line),
+    column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+    source: "live-preview",
+  });
+};
+
+const handleLivePreviewEdit = (payload) => {
+  const rootPath = workspace.getRootPath();
+  const sourceFile = typeof payload?.file === "string" ? payload.file.replace(/\0/g, "") : "";
+  if (!rootPath || !sourceFile || typeof payload?.sessionId !== "string") return;
+  const root = path.resolve(rootPath);
+  const absolute = path.isAbsolute(sourceFile)
+    ? path.resolve(sourceFile)
+    : path.resolve(root, sourceFile);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return;
+  const positionValid = (value) =>
+    value && Number.isFinite(Number(value.line)) && Number(value.line) >= 1 &&
+    Number.isFinite(Number(value.column)) && Number(value.column) >= 1;
+  if (!positionValid(payload.start) || !positionValid(payload.end)) return;
+  sendToRenderer("live-preview:edit", {
+    sessionId: payload.sessionId,
+    regionId: typeof payload.regionId === "string" ? payload.regionId : undefined,
+    kind: payload.kind === "math" ? "math" : "text",
+    path: relative.split(path.sep).join("/"),
+    start: {
+      line: Math.floor(Number(payload.start.line)),
+      column: Math.floor(Number(payload.start.column)),
+    },
+    end: {
+      line: Math.floor(Number(payload.end.line)),
+      column: Math.floor(Number(payload.end.column)),
+    },
+    baseValue: typeof payload.baseValue === "string" ? payload.baseValue : "",
+    value: typeof payload.value === "string" ? payload.value : undefined,
+    replacement: typeof payload.replacement === "string" ? payload.replacement : "",
+    cancel: payload.cancel === true,
+    finish: payload.finish === true,
+    sourceRev: Number.isFinite(Number(payload.sourceRev)) ? Number(payload.sourceRev) : undefined,
+  });
+};
+
 const installApplicationMenu = () => {
   const template = createApplicationMenuTemplate({
     appName: app.name || "TeX64",
@@ -443,10 +517,15 @@ const sendLspToRenderer = (channel, data) => {
   }
 };
 
-const sendBuildState = (buildState, message) => {
+const sendBuildState = (buildState, message, extra) => {
   const payload = { state: buildState };
   if (message) {
     payload.message = message;
+  }
+  // AI mode reads the page from the build output, so a successful build says
+  // which file it wrote (workspace-relative). Code mode ignores the field.
+  if (extra && typeof extra === "object") {
+    Object.assign(payload, extra);
   }
   sendToRenderer("setBuildState", payload);
 };
@@ -839,6 +918,9 @@ app.on("window-all-closed", () => {
   if (texizeService) {
     texizeService.shutdown();
   }
+  if (tdomEngineService) {
+    tdomEngineService.shutdown();
+  }
   clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
@@ -851,6 +933,9 @@ app.on("before-quit", () => {
   }
   if (texizeService) {
     texizeService.shutdown();
+  }
+  if (tdomEngineService) {
+    tdomEngineService.shutdown();
   }
 });
 
@@ -1015,6 +1100,7 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
+registerTdomEngineHandlers({ ipcMain, getTdomEngineService, getPdfWindowManager: () => pdfWindowManager });
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 
 // AI-mode webview guests: window.open / target=_blank goes to the system
@@ -1365,6 +1451,23 @@ ipcMain.on("tex64", (_event, message) => {
     }
     return;
   }
+  // Answers "what is open?" without touching it. openWorkspace/requestWorkspace
+  // both raise a folder picker, so a surface that only wants to know — the AI
+  // mode, created long after the project was opened — needs its own question.
+  if (type === "workspace:state:get") {
+    const currentRoot = workspace.getRootPath();
+    if (currentRoot) {
+      workspaceHandlers.updateWorkspaceIfNeeded(currentRoot, true);
+    } else {
+      sendToRenderer("updateWorkspace", {
+        rootName: null,
+        rootPath: null,
+        files: [],
+        folders: [],
+      });
+    }
+    return;
+  }
   if (type === "openWorkspace" || type === "requestWorkspace") {
     workspaceHandlers.handleOpenWorkspace(message);
     return;
@@ -1405,12 +1508,21 @@ ipcMain.on("tex64", (_event, message) => {
     buildHandlers.handleSynctexReverse(message);
     return;
   }
+  if (type === "live-preview:source") {
+    handleLivePreviewSource(message);
+    return;
+  }
   if (type === "build") {
-    buildHandlers.handleBuild(message.mainFile, {
+    // targetFile (AI mode) builds exactly that document; mainFile (Code mode)
+    // keeps deferring to the workspace's designated root.
+    const exactTarget =
+      typeof message.targetFile === "string" && message.targetFile.trim() !== "";
+    buildHandlers.handleBuild(exactTarget ? message.targetFile : message.mainFile, {
       format: message.format,
       formatSettings: message.formatSettings,
       engine: message.engine,
       pdfViewerMode: message.pdfViewerMode,
+      exactTarget,
     });
     return;
   }
@@ -1441,12 +1553,58 @@ ipcMain.on("tex64", (_event, message) => {
     });
     return;
   }
+  if (type === "file:bytes") {
+    workspaceHandlers.handleFileBytes(message.requestId, message.path);
+    return;
+  }
   if (type === "saveFile") {
     workspaceHandlers.handleSaveFile(message.path, message.content, {
       format: message.format,
       formatSource: message.formatSource,
       formatSettings: message.formatSettings,
     });
+    return;
+  }
+  if (type === "file:replaceLines") {
+    void workspaceHandlers
+      .handleReplaceLines(message.requestId, message.path, {
+        startLine: message.startLine,
+        endLine: message.endLine,
+        expectedText: message.expectedText,
+        replacementText: message.replacementText,
+      })
+      .then((outcome) => {
+        // The page must follow the paragraph that just changed. Rebuilding
+        // here, off the write itself, cannot be lost the way a second
+        // build request from the guest can.
+        if (outcome && outcome.ok === true) {
+          // The edited file's own document builds — its folder's main.tex
+          // when it has one, the workspace root otherwise.
+          const editedPath = typeof message.path === "string" ? message.path : "";
+          const folder = editedPath.includes("/")
+            ? editedPath.slice(0, editedPath.lastIndexOf("/"))
+            : "";
+          const candidate = folder ? `${folder}/main.tex` : null;
+          const rootPath = workspaceHandlers.ensureWorkspace();
+          const documentMain =
+            candidate && rootPath && fs.existsSync(path.join(rootPath, candidate))
+              ? candidate
+              : null;
+          return buildHandlers.handleBuild(documentMain ?? undefined, {
+            pdfViewerMode: "none",
+            exactTarget: documentMain !== null,
+          });
+        }
+        return undefined;
+      });
+    return;
+  }
+  if (type === "document:create") {
+    workspaceHandlers.handleDocumentCreate(message.requestId, message.title);
+    return;
+  }
+  if (type === "document:list") {
+    workspaceHandlers.handleDocumentList(message.requestId);
     return;
   }
   if (type === "formatFile") {
@@ -1667,7 +1825,7 @@ ipcMain.on("tex64", (_event, message) => {
 
 });
 
-ipcMain.on("tex64:pdf", (_event, message) => {
+ipcMain.on("tex64:pdf", (event, message) => {
   if (!message || typeof message !== "object") {
     return;
   }
@@ -1679,6 +1837,14 @@ ipcMain.on("tex64:pdf", (_event, message) => {
     pdfWindowManager.markReady();
     return;
   }
+  if (type === "live-surface-ready") {
+    pdfWindowManager.markLiveReady(message.payload ?? {}, event.sender);
+    return;
+  }
+  if (type === "live-error-surface-ready") {
+    pdfWindowManager.markLiveErrorReady(message.payload ?? {}, event.sender);
+    return;
+  }
   if (type === "reverse") {
     const payload = message.payload ?? {};
     buildHandlers.handleSynctexReverse({
@@ -1687,5 +1853,13 @@ ipcMain.on("tex64:pdf", (_event, message) => {
       y: payload.y,
       pdfPath: payload.path,
     });
+    return;
+  }
+  if (type === "live-source") {
+    handleLivePreviewSource(message.payload);
+    return;
+  }
+  if (type === "live-edit") {
+    handleLivePreviewEdit(message.payload);
   }
 });

@@ -63,7 +63,7 @@ export async function POST(
     });
     if (
       recentRuns.some(
-        (run) => run.status === "queued" || run.status === "running",
+        (run) => run.status === "running",
       )
     ) {
       return jsonError(

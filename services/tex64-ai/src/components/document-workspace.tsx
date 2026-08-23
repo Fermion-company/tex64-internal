@@ -17,41 +17,48 @@ import {
   createDocument,
   getDocument,
   listDocuments,
-  listRunEvents,
   patchDocument,
   restoreDocument,
-  startRun,
+  sendMessage,
 } from "@/lib/client/api";
 import {
   diffDocumentPatch,
   mergePendingPatch,
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
-import {
-  createRunReplyInput,
-  recoverableReplySource,
-  runRequestIdentity,
-  selectConversationRun,
-} from "@/lib/client/run-input";
 import { drainPendingSaves } from "@/lib/client/save-drain";
-import { startSequentialPolling } from "@/lib/client/sequential-polling";
+import { segmentParagraph } from "@/domain/source/paragraph-editing";
+import {
+  conversationIdFor,
+  requestWorkspaceBuild,
+  runNativeTurn,
+} from "@/lib/client/native-agent";
+import { useAiDocuments } from "@/lib/client/use-ai-documents";
+import { useParagraphEditor } from "@/lib/client/use-paragraph-editor";
+import { useSourceLocator } from "@/lib/client/use-source-locator";
+import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
+import { NativeNewDocumentPanel } from "@/components/native-new-document-panel";
+import { ParagraphEditCard } from "@/components/paragraph-edit-card";
 import type {
-  AgentRun,
+  ChatMessage,
   CreateDocumentInput,
   DocumentBlock,
   DocumentChanges,
   DocumentDetail,
   DocumentPatch,
   DocumentSummary,
-  RunProgressEvent,
-  StartRunInput,
+  TurnFrame,
 } from "@/lib/client/types";
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 type MobileView = "conversation" | "document";
 
+/** How long editing must be quiet before the page catches up on its own. */
+const IDLE_COMPILE_DELAY_MS = 8_000;
+
 const KIND_LABELS: Record<string, string> = {
-  proposal: "提案書",
+  // `proposal` is the stored/API value; 企画書 is what the user reads.
+  proposal: "企画書",
   report: "報告書",
   paper: "論文",
   memo: "メモ",
@@ -64,25 +71,15 @@ type PendingSave = {
   version: number;
 };
 
-type PendingRunRequest = {
-  logicalKey: string;
-  documentId: string;
-  prompt: string;
-  input: StartRunInput;
-  idempotencyKey: string;
-};
-
 type PendingCreateRequest = CreateDocumentInput & { idempotencyKey: string };
 
 export function DocumentWorkspace() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [documentCache, setDocumentCache] = useState<Record<string, DocumentDetail>>({});
   const [activeDocument, setActiveDocument] = useState<DocumentDetail | null>(null);
-  const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [mobileView, setMobileView] = useState<MobileView>("conversation");
   const [documentLoading, setDocumentLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [connectionError, setConnectionError] = useState(false);
   const [documentMenuOpen, setDocumentMenuOpen] = useState(false);
@@ -93,15 +90,22 @@ export function DocumentWorkspace() {
   } | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [compileFailed, setCompileFailed] = useState(false);
-  const [progressEvents, setProgressEvents] = useState<RunProgressEvent[]>([]);
+  const [streamingText, setStreamingText] = useState("");
+  const [activityTool, setActivityTool] = useState<string | null>(null);
+  const [turnDocumentId, setTurnDocumentId] = useState<string | null>(null);
+  const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
+  const [turnError, setTurnError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const compileInFlightRef = useRef(false);
   const lastFailedCompileRef = useRef<string | null>(null);
   const flushOutstandingSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const completedRunRef = useRef<string | null>(null);
-  const runSubmissionRef = useRef(false);
+  const turnAbortRef = useRef<AbortController | null>(null);
+  const queuedPromptRef = useRef<string | null>(null);
+  const runTurnRef = useRef<
+    ((document: DocumentDetail, prompt: string, targetNodeId?: string) => Promise<void>) | null
+  >(null);
   const initialLoadRef = useRef(true);
   const navigationVersionRef = useRef(0);
   const selectedDocumentRef = useRef<string | null>(null);
@@ -110,15 +114,23 @@ export function DocumentWorkspace() {
   const pendingSaveRef = useRef<PendingSave | null>(null);
   const saveVersionRef = useRef(0);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
-  const pendingRunRequestsRef = useRef(new Map<string, PendingRunRequest>());
-  const failedRunRequestKeyRef = useRef<string | null>(null);
   const pendingCreateRequestRef = useRef<PendingCreateRequest | null>(null);
-  const conversationRun = useMemo(
-    () => selectConversationRun(activeDocument?.runs ?? [], activeRun),
-    [activeDocument?.runs, activeRun],
+  // Inside the desktop app the page comes from the workspace build, not from
+  // this service's own artifact, and the agent keeps its own thread. Each
+  // document is a folder in the workspace; the page follows the current one.
+  const aiDocs = useAiDocuments();
+  const workspacePdf = useWorkspacePdf(aiDocs.current);
+  const sourceLocator = useSourceLocator();
+  const paragraphEditor = useParagraphEditor();
+  const [nativeNewOpen, setNativeNewOpen] = useState(false);
+  const agentWorking = turnDocumentId !== null;
+  // The desktop agent keeps its own thread; this service's document knows
+  // nothing about it, so reloading the document must not wipe the chat.
+  const [nativeMessages, setNativeMessages] = useState<ChatMessage[]>([]);
+  const messages = useMemo<ChatMessage[]>(
+    () => (workspacePdf.native ? nativeMessages : (activeDocument?.messages ?? [])),
+    [activeDocument?.messages, nativeMessages, workspacePdf.native],
   );
-  const agentWorking =
-    conversationRun?.status === "queued" || conversationRun?.status === "running";
   const selectedElement = useMemo(
     () =>
       activeDocument?.elements.find(
@@ -241,11 +253,14 @@ export function DocumentWorkspace() {
   ) {
     setLastPreview({ documentId: activeDocument.id, url: activeDocument.previewUrl });
   }
-  const displayPdfUrl = activeDocument
+  const ownPdfUrl = activeDocument
     ? (activeDocument.previewUrl ??
       (lastPreview?.documentId === activeDocument.id ? lastPreview.url : null))
     : null;
-  const previewStale = Boolean(displayPdfUrl && !activeDocument?.previewUrl);
+  const displayPdfUrl = workspacePdf.native ? workspacePdf.url : ownPdfUrl;
+  const previewStale = workspacePdf.native
+    ? workspacePdf.building
+    : Boolean(displayPdfUrl && !activeDocument?.previewUrl);
 
   // Selections and one-off run telemetry do not survive document switches.
   const [selectionDocumentId, setSelectionDocumentId] =
@@ -256,13 +271,6 @@ export function DocumentWorkspace() {
     setHistoryOpen(false);
     setCompileFailed(false);
   }
-  const conversationRunId = conversationRun?.id ?? null;
-  const [progressRunId, setProgressRunId] = useState<string | null>(conversationRunId);
-  if (progressRunId !== conversationRunId) {
-    setProgressRunId(conversationRunId);
-    setProgressEvents([]);
-  }
-
   const runCompile = useCallback(
     async (documentId: string, revision: number) => {
       if (compileInFlightRef.current) return;
@@ -304,15 +312,17 @@ export function DocumentWorkspace() {
   useEffect(() => {
     if (!activeDocumentId || activeRevision === null) return;
     if (hasPreview || !documentHasContent) return;
-    if (saveState !== "saved" || submitting || agentWorking || compiling) return;
+    if (saveState !== "saved" || agentWorking || compiling) return;
     if (
       lastFailedCompileRef.current === `${activeDocumentId}:${activeRevision}`
     ) {
       return;
     }
+    // Typing must not drag a typesetting run behind it. The page catches up
+    // on its own once editing has clearly stopped; 確定 does it immediately.
     const timer = window.setTimeout(() => {
       void runCompile(activeDocumentId, activeRevision);
-    }, 1_200);
+    }, IDLE_COMPILE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [
     activeDocumentId,
@@ -320,7 +330,6 @@ export function DocumentWorkspace() {
     hasPreview,
     documentHasContent,
     saveState,
-    submitting,
     agentWorking,
     compiling,
     runCompile,
@@ -367,7 +376,6 @@ export function DocumentWorkspace() {
         initialLoadRef.current = false;
         selectedDocumentRef.current = null;
         setActiveDocument(null);
-        setActiveRun(null);
         return;
       }
 
@@ -385,7 +393,6 @@ export function DocumentWorkspace() {
       }
       initialLoadRef.current = false;
       updateStoredDocument(detail.data, true);
-      setActiveRun(detail.data.runs[0] ?? null);
     });
 
     return () => {
@@ -579,15 +586,11 @@ export function DocumentWorkspace() {
       if (saved === false || navigationVersionRef.current !== navigationVersion) return;
       selectedDocumentRef.current = id;
       setDocumentMenuOpen(false);
-      setActiveRun(null);
       setSaveState("saved");
       setMobileView("document");
 
       const cached = documentCache[id];
-      if (cached) {
-        setActiveDocument(cached);
-        setActiveRun(cached.runs[0] ?? null);
-      }
+      if (cached) setActiveDocument(cached);
       setDocumentLoading(!cached);
 
       const requestEpoch = localMutationEpochRef.current[id] ?? 0;
@@ -603,101 +606,243 @@ export function DocumentWorkspace() {
       if (canApply) {
         updateStoredDocument(result.data, selectedDocumentRef.current === id);
       }
-      if (selectedDocumentRef.current === id) {
-        if (canApply) setActiveRun(result.data.runs[0] ?? null);
-        setDocumentLoading(false);
-      }
+      if (selectedDocumentRef.current === id) setDocumentLoading(false);
     },
     [canApplyRemoteDocument, documentCache, flushOutstandingSave, updateStoredDocument],
   );
 
-  const beginRun = useCallback(
-    async (
-      document: DocumentDetail,
-      prompt: string,
-      input: StartRunInput = { prompt },
-      retryPendingRequest = false,
-    ) => {
-      if (runSubmissionRef.current) return;
-      runSubmissionRef.current = true;
-      setSubmitting(true);
-      completedRunRef.current = null;
-      let request: PendingRunRequest | null = null;
-      const showSubmissionFailure = () => {
-        if (selectedDocumentRef.current !== document.id) return;
-        const latestDocument = latestDocumentsRef.current[document.id] ?? document;
-        setMobileView("conversation");
-        setActiveRun(
-          recoverableReplySource(latestDocument.runs, input) ??
-            failedRequest(document.id, prompt),
-        );
-      };
-      try {
-        const saved = await flushOutstandingSave();
-        if (saved === false || selectedDocumentRef.current !== document.id) {
-          if (saved === false && selectedDocumentRef.current === document.id) {
-            showSubmissionFailure();
-          }
-          return;
-        }
-        const logicalKey = runRequestIdentity(document.id, prompt, input);
-        const retryKey = retryPendingRequest ? failedRunRequestKeyRef.current : null;
-        const retryRequest = retryKey
-          ? pendingRunRequestsRef.current.get(retryKey)
-          : undefined;
-        request =
-          retryRequest?.documentId === document.id && retryRequest.prompt === prompt
-            ? retryRequest
-            : (pendingRunRequestsRef.current.get(logicalKey) ?? {
-                logicalKey,
-                documentId: document.id,
-                prompt,
-                input,
-                idempotencyKey: window.crypto.randomUUID(),
-              });
-        rememberPendingRunRequest(pendingRunRequestsRef.current, request);
-        const result = await startRun(
-          document.id,
-          request.input,
-          request.idempotencyKey,
-        );
-
-        if (!result.ok) {
-          failedRunRequestKeyRef.current = request.logicalKey;
-          showSubmissionFailure();
-          return;
-        }
-
-        pendingRunRequestsRef.current.delete(request.logicalKey);
-        const failedRequestKey = failedRunRequestKeyRef.current;
-        if (failedRequestKey) {
-          pendingRunRequestsRef.current.delete(failedRequestKey);
-          failedRunRequestKeyRef.current = null;
-        }
-        if (selectedDocumentRef.current !== document.id) return;
-        setMobileView("conversation");
-
-        setActiveRun(result.data);
-
-        const latestDocument = latestDocumentsRef.current[document.id] ?? document;
-        updateStoredDocument({
-          ...latestDocument,
-          status: "working",
-          runs: [result.data, ...latestDocument.runs.filter((run) => run.id !== result.data.id)],
-        });
-      } catch {
-        if (request) failedRunRequestKeyRef.current = request.logicalKey;
-        showSubmissionFailure();
-      } finally {
-        runSubmissionRef.current = false;
-        setSubmitting(false);
+  const refreshAfterTurn = useCallback(
+    async (documentId: string) => {
+      const requestEpoch = localMutationEpochRef.current[documentId] ?? 0;
+      const result = await getDocument(documentId);
+      if (!result.ok) return;
+      if (canApplyRemoteDocument(documentId, requestEpoch, result.data.revision)) {
+        updateStoredDocument(result.data);
       }
     },
-    [flushOutstandingSave, updateStoredDocument],
+    [canApplyRemoteDocument, updateStoredDocument],
   );
 
+  /**
+   * Runs one conversation turn and renders it as it happens. The reply, the
+   * tool the agent is running, and every new revision arrive on the same
+   * stream; aborting the controller interrupts the turn on the server too.
+   */
+  const runTurn = useCallback(
+    async (document: DocumentDetail, prompt: string, targetNodeId?: string) => {
+      const saved = await flushOutstandingSave();
+      if (saved === false || selectedDocumentRef.current !== document.id) return;
+
+      const controller = new AbortController();
+      turnAbortRef.current = controller;
+      setTurnDocumentId(document.id);
+      setStreamingText("");
+      setActivityTool(null);
+      setTurnError(null);
+      setMobileView("conversation");
+      // The user's own message is shown immediately; the server persists it
+      // as part of the turn.
+      updateStoredDocument({
+        ...(latestDocumentsRef.current[document.id] ?? document),
+        status: "working",
+        messages: [
+          ...(latestDocumentsRef.current[document.id] ?? document).messages,
+          {
+            id: `local:${Date.now()}`,
+            role: "user",
+            text: prompt,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      });
+
+      let revisionChanged = false;
+      const onFrame = (frame: TurnFrame) => {
+          switch (frame.type) {
+            case "text":
+              setStreamingText((current) => current + frame.delta);
+              setActivityTool(null);
+              break;
+            case "tool":
+              if (frame.state === "start") setActivityTool(frame.name);
+              break;
+            case "revision":
+            case "compiled":
+              revisionChanged = true;
+              break;
+            case "error":
+              setTurnError(frame.message);
+              break;
+            default:
+              break;
+          }
+      };
+
+      const result = await sendMessage(
+        document.id,
+        targetNodeId ? { prompt, targetNodeId } : { prompt },
+        onFrame,
+        controller.signal,
+      );
+
+      turnAbortRef.current = null;
+      setTurnDocumentId(null);
+      setActivityTool(null);
+      setStreamingText("");
+      if (!result.ok) {
+        setTurnError("送信できませんでした。もう一度お試しください。");
+        return;
+      }
+      // The stored thread now holds the assistant's reply; reloading also
+      // picks up the new revision and its page.
+      await refreshAfterTurn(document.id);
+      if (revisionChanged) setCompileFailed(false);
+
+      // A message typed while this turn was running goes next, in order.
+      const queued = queuedPromptRef.current;
+      if (queued) {
+        queuedPromptRef.current = null;
+        setQueuedPrompt(null);
+        const latest = latestDocumentsRef.current[document.id] ?? document;
+        void runTurnRef.current?.(latest, queued);
+      }
+    },
+    [flushOutstandingSave, refreshAfterTurn, updateStoredDocument],
+  );
+
+  useEffect(() => {
+    runTurnRef.current = runTurn;
+  }, [runTurn]);
+
+  /**
+   * One turn on the desktop agent, scoped to the current document: its own
+   * thread (the folder names it), its own main.tex as the active file, and a
+   * typeset of that document once the turn is done.
+   */
+  const runNativeDocTurnRef = useRef<((prompt: string) => Promise<void>) | null>(null);
+  const nativeDocument = aiDocs.current;
+  const runNativeDocTurn = useCallback(
+    async (prompt: string) => {
+      const document = nativeDocument;
+      if (!document) return;
+      const controller = new AbortController();
+      turnAbortRef.current = controller;
+      setTurnDocumentId(`native:${document.folder || "root"}`);
+      setStreamingText("");
+      setActivityTool(null);
+      setTurnError(null);
+      setMobileView("conversation");
+      const shownAt = new Date().toISOString();
+      setNativeMessages((current) => [
+        ...current,
+        { id: `local:${shownAt}`, role: "user", text: prompt, createdAt: shownAt },
+      ]);
+
+      let replyText = "";
+      const onFrame = (frame: TurnFrame) => {
+        switch (frame.type) {
+          case "text":
+            replyText += frame.delta;
+            setStreamingText((current) => current + frame.delta);
+            setActivityTool(null);
+            break;
+          case "tool":
+            if (frame.state === "start") setActivityTool(frame.name);
+            break;
+          case "error":
+            setTurnError(frame.message);
+            break;
+          default:
+            break;
+        }
+      };
+
+      const result = await runNativeTurn({
+        prompt,
+        onFrame,
+        signal: controller.signal,
+        conversationId: conversationIdFor(document.folder),
+        activeFilePath: document.mainFile,
+      })
+        .then(() => ({ ok: true }) as const)
+        .catch(() => ({ ok: false }) as const);
+
+      turnAbortRef.current = null;
+      setTurnDocumentId(null);
+      setActivityTool(null);
+      setStreamingText("");
+      if (!result.ok) {
+        setTurnError("送信できませんでした。もう一度お試しください。");
+        return;
+      }
+      // The page must reflect what the turn wrote, whether or not the agent
+      // typeset it itself.
+      requestWorkspaceBuild(document.mainFile);
+      // Nothing on this service stores the turn, so the reply is kept here.
+      if (replyText.trim()) {
+        const repliedAt = new Date().toISOString();
+        setNativeMessages((current) => [
+          ...current,
+          {
+            id: `local:${repliedAt}`,
+            role: "assistant",
+            text: replyText,
+            createdAt: repliedAt,
+          },
+        ]);
+      }
+      // A message typed while this turn was running goes next, in order.
+      const queued = queuedPromptRef.current;
+      if (queued) {
+        queuedPromptRef.current = null;
+        setQueuedPrompt(null);
+        void runNativeDocTurnRef.current?.(queued);
+      }
+    },
+    [nativeDocument],
+  );
+
+  useEffect(() => {
+    runNativeDocTurnRef.current = runNativeDocTurn;
+  }, [runNativeDocTurn]);
+
+  // Moving to another document changes the subject entirely: the visible
+  // thread, the queue, and any error belonged to the previous one. Adjusted
+  // during render, the same way selections reset on document switches.
+  const nativeFolder = nativeDocument?.folder ?? null;
+  const [threadFolder, setThreadFolder] = useState<string | null>(nativeFolder);
+  if (threadFolder !== nativeFolder) {
+    setThreadFolder(nativeFolder);
+    setNativeMessages([]);
+    setTurnError(null);
+    setQueuedPrompt(null);
+    setNativeNewOpen(false);
+  }
+
+  /** Leaves the current document: whatever ran there stops following us. */
+  const leaveNativeThread = useCallback(() => {
+    turnAbortRef.current?.abort();
+    queuedPromptRef.current = null;
+  }, []);
+
+  const confirmSelectionEdit = useCallback(async () => {
+    const documentId = selectedDocumentRef.current;
+    setSelectedElementId(null);
+    if (!documentId) return;
+    const saved = await flushOutstandingSave();
+    if (saved === false) return;
+    const revision = latestDocumentsRef.current[documentId]?.revision;
+    if (revision !== undefined) void runCompile(documentId, revision);
+  }, [flushOutstandingSave, runCompile]);
+
+  const stopTurn = useCallback(() => {
+    queuedPromptRef.current = null;
+    setQueuedPrompt(null);
+    turnAbortRef.current?.abort();
+  }, []);
+
   const createNewDocument = useCallback(
-    async (prompt: string, kind: CreateDocumentInput["kind"]) => {
+    async (prompt: string) => {
       initialLoadRef.current = false;
       const navigationVersion = navigationVersionRef.current + 1;
       navigationVersionRef.current = navigationVersion;
@@ -705,14 +850,12 @@ export function DocumentWorkspace() {
       setCreating(true);
       const previousRequest = pendingCreateRequestRef.current;
       const request =
-        previousRequest?.prompt === prompt && previousRequest.kind === kind
+        previousRequest?.prompt === prompt
           ? previousRequest
-          : { prompt, kind, idempotencyKey: window.crypto.randomUUID() };
+          : { prompt, idempotencyKey: window.crypto.randomUUID() };
       pendingCreateRequestRef.current = request;
-      const result = await createDocument(
-        { prompt: request.prompt, kind: request.kind },
-        request.idempotencyKey,
-      );
+      // No `kind`: the server infers it from the prompt.
+      const result = await createDocument({ prompt: request.prompt }, request.idempotencyKey);
       if (navigationVersionRef.current !== navigationVersion) {
         setCreating(false);
         return;
@@ -730,113 +873,45 @@ export function DocumentWorkspace() {
       updateStoredDocument(result.data, true);
       setDocumentLoading(false);
       setCreating(false);
-      await beginRun(result.data, prompt);
+      await runTurn(result.data, prompt);
     },
-    [beginRun, cancelSave, updateStoredDocument],
+    [cancelSave, runTurn, updateStoredDocument],
   );
 
   const submitWritingRequest = useCallback(
     (prompt: string) => {
-      if (
-        !activeDocument ||
-        submitting ||
-        conversationRun?.status === "queued" ||
-        conversationRun?.status === "running"
-      ) {
+      if (workspacePdf.native) {
+        if (!nativeDocument) return;
+        // A message sent while the agent is working waits its turn instead of
+        // being refused; the composer never locks.
+        if (agentWorking) {
+          queuedPromptRef.current = prompt;
+          setQueuedPrompt(prompt);
+          return;
+        }
+        void runNativeDocTurn(prompt);
         return;
       }
-      const reply = createRunReplyInput(conversationRun, prompt);
-      // Element selection scopes fresh requests only; clarification answers
-      // keep their original scope. selectedElement is resolved against the
-      // CURRENT document, so a selection whose element was deleted in the
-      // meantime scopes nothing.
-      const input: StartRunInput =
-        !reply.replyToRunId && selectedElement
-          ? { ...reply, targetNodeId: selectedElement.id }
-          : reply;
+      if (!activeDocument) return;
+      if (agentWorking) {
+        queuedPromptRef.current = prompt;
+        setQueuedPrompt(prompt);
+        return;
+      }
+      const targetNodeId = selectedElement?.id;
       setSelectedElementId(null);
-      void beginRun(
-        activeDocument,
-        prompt,
-        input,
-        failedRunRequestKeyRef.current !== null,
-      );
+      void runTurn(activeDocument, prompt, targetNodeId);
     },
-    [activeDocument, beginRun, conversationRun, selectedElement, submitting],
+    [
+      activeDocument,
+      agentWorking,
+      nativeDocument,
+      runNativeDocTurn,
+      runTurn,
+      selectedElement,
+      workspacePdf.native,
+    ],
   );
-
-  useEffect(() => {
-    if (!activeRun) return;
-    if (
-      ["waiting_approval", "completed", "failed", "cancelled"].includes(
-        activeRun.status,
-      ) || activeRun.stage === "needs_input"
-    ) {
-      return;
-    }
-    let cancelled = false;
-    const stopPolling = startSequentialPolling(async () => {
-      const requestEpoch = localMutationEpochRef.current[activeRun.documentId] ?? 0;
-      const [result, events] = await Promise.all([
-        getDocument(activeRun.documentId),
-        listRunEvents(activeRun.documentId, activeRun.id),
-      ]);
-      if (cancelled) return;
-      if (events.ok) setProgressEvents(events.data);
-      if (!result.ok) return;
-
-      if (
-        canApplyRemoteDocument(
-          activeRun.documentId,
-          requestEpoch,
-          result.data.revision,
-        )
-      ) {
-        updateStoredDocument(result.data);
-      }
-      const updatedRun = result.data.runs.find((run) => run.id === activeRun.id);
-      if (updatedRun) {
-        setActiveRun((current) =>
-          current?.id === activeRun.id &&
-          current.documentId === activeRun.documentId
-            ? updatedRun
-            : current,
-        );
-      }
-    }, 2_000);
-    return () => {
-      cancelled = true;
-      stopPolling();
-    };
-  }, [activeRun, canApplyRemoteDocument, updateStoredDocument]);
-
-  useEffect(() => {
-    if (!activeRun || activeRun.status !== "completed") return;
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      if (cancelled || completedRunRef.current === activeRun.id) return;
-      completedRunRef.current = activeRun.id;
-      const requestEpoch = localMutationEpochRef.current[activeRun.documentId] ?? 0;
-
-      void getDocument(activeRun.documentId).then((result) => {
-        if (
-          !cancelled &&
-          result.ok &&
-          canApplyRemoteDocument(
-            activeRun.documentId,
-            requestEpoch,
-            result.data.revision,
-          )
-        ) {
-          updateStoredDocument(result.data);
-        }
-      });
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [activeRun, canApplyRemoteDocument, updateStoredDocument]);
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -871,7 +946,6 @@ export function DocumentWorkspace() {
     selectedDocumentRef.current = null;
     setDocumentMenuOpen(false);
     setActiveDocument(null);
-    setActiveRun(null);
     setDocumentLoading(false);
     setMobileView("conversation");
     setSaveState("saved");
@@ -898,16 +972,44 @@ export function DocumentWorkspace() {
               onClick={() => setDocumentMenuOpen((open) => !open)}
             >
               <span className="document-switcher-titles">
-                <strong>{activeDocument?.title ?? "新しい文書"}</strong>
+                <strong>
+                  {workspacePdf.native
+                    ? (nativeDocument?.name ?? "文書がありません")
+                    : (activeDocument?.title ?? "新しい文書")}
+                </strong>
                 <small>
-                  {activeDocument
-                    ? (KIND_LABELS[activeDocument.kind] ?? "文書")
-                    : "TeX64"}
+                  {workspacePdf.native
+                    ? "文書"
+                    : activeDocument
+                      ? (KIND_LABELS[activeDocument.kind] ?? "文書")
+                      : "TeX64"}
                 </small>
               </span>
-              {documents.length ? <ChevronDown aria-hidden="true" size={14} /> : null}
+              {(workspacePdf.native ? aiDocs.documents.length : documents.length) ? (
+                <ChevronDown aria-hidden="true" size={14} />
+              ) : null}
             </button>
-            {documentMenuOpen && documents.length ? (
+            {documentMenuOpen && workspacePdf.native && aiDocs.documents.length ? (
+              <div className="document-menu" aria-label="文書を選ぶ">
+                {aiDocs.documents.map((item) => (
+                  <button
+                    key={item.folder || "(root)"}
+                    type="button"
+                    aria-current={
+                      nativeDocument?.folder === item.folder ? "page" : undefined
+                    }
+                    onClick={() => {
+                      setDocumentMenuOpen(false);
+                      leaveNativeThread();
+                      aiDocs.select(item);
+                    }}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {documentMenuOpen && !workspacePdf.native && documents.length ? (
               <div className="document-menu" aria-label="文書を選ぶ">
                 {documents.map((item) => (
                   <button
@@ -925,7 +1027,7 @@ export function DocumentWorkspace() {
         </div>
 
         <div className="topbar-actions">
-          {activeDocument && activeDocument.versions.length > 0 ? (
+          {!workspacePdf.native && activeDocument && activeDocument.versions.length > 0 ? (
             <div className="history-anchor">
               <button
                 type="button"
@@ -973,7 +1075,15 @@ export function DocumentWorkspace() {
             type="button"
             className="topbar-new-button"
             aria-label="新規"
-            onClick={() => void showNewDocument()}
+            onClick={() => {
+              if (workspacePdf.native) {
+                setDocumentMenuOpen(false);
+                setNativeNewOpen(true);
+                setMobileView("conversation");
+                return;
+              }
+              void showNewDocument();
+            }}
           >
             <Plus aria-hidden="true" size={16} />
             <span>新規</span>
@@ -1003,15 +1113,50 @@ export function DocumentWorkspace() {
           className="workspace-pane pane-conversation"
           data-mobile-hidden={mobileView !== "conversation"}
         >
-          {activeDocument ? (
+          {workspacePdf.native ? (
+            nativeNewOpen || (!nativeDocument && !aiDocs.loading) ? (
+              <NativeNewDocumentPanel
+                creating={aiDocs.creating}
+                error={aiDocs.error}
+                canCancel={Boolean(nativeDocument)}
+                onCancel={() => setNativeNewOpen(false)}
+                onSubmit={(title) => {
+                  leaveNativeThread();
+                  void aiDocs.create(title).then((created) => {
+                    if (created) setNativeNewOpen(false);
+                  });
+                }}
+              />
+            ) : (
+              <AgentPanel
+                document={null}
+                ready={Boolean(nativeDocument)}
+                messages={messages}
+                streamingText={streamingText}
+                activityTool={activityTool}
+                isWorking={agentWorking}
+                queuedPrompt={queuedPrompt}
+                error={turnError}
+                selectedElement={null}
+                composerRef={composerRef}
+                onSubmit={submitWritingRequest}
+                onStop={stopTurn}
+                onClearSelection={() => setSelectedElementId(null)}
+              />
+            )
+          ) : activeDocument ? (
             <AgentPanel
               document={activeDocument}
-              activeRun={conversationRun}
-              progressEvents={progressEvents}
+              messages={messages}
+              streamingText={streamingText}
+              activityTool={activityTool}
+              isWorking={agentWorking}
+              queuedPrompt={queuedPrompt}
+              error={turnError}
               selectedElement={selectedElement}
               composerRef={composerRef}
-              submitting={submitting}
               onSubmit={submitWritingRequest}
+              onStop={stopTurn}
               onClearSelection={() => setSelectedElementId(null)}
             />
           ) : (
@@ -1027,13 +1172,13 @@ export function DocumentWorkspace() {
           className="workspace-pane pane-document"
           data-mobile-hidden={mobileView !== "document"}
         >
-          {documentLoading ? (
+          {documentLoading && !workspacePdf.native ? (
             <DocumentSkeleton />
-          ) : activeDocument ? (
+          ) : workspacePdf.native || activeDocument ? (
             <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
-                  regions={pdfRegions}
+                  regions={workspacePdf.native ? null : pdfRegions}
                   selectedId={selectedElementId}
                   refreshing={
                     compiling ||
@@ -1042,24 +1187,173 @@ export function DocumentWorkspace() {
                   }
                   interactive
                   onSelect={(id) => setSelectedElementId(id)}
+                  onPointSelect={
+                    workspacePdf.native
+                      ? (point) => {
+                          // A new click is a new spot; drop any edit in progress.
+                          paragraphEditor.close();
+                          sourceLocator.locate({
+                            ...point,
+                            pdfPath: workspacePdf.path,
+                          });
+                        }
+                      : undefined
+                  }
                   emptyHint={
-                    agentWorking
-                      ? "紙面を準備しています…"
-                      : documentHasContent
-                        ? "紙面を組み立てています…"
-                        : "まだ紙面がありません。左の欄から執筆を依頼してください。"
+                    workspacePdf.native
+                      ? !workspacePdf.hasWorkspace
+                        ? "プロジェクトが開かれていません。Code モードで開いてください。"
+                        : !nativeDocument && !aiDocs.loading
+                          ? "右上の「新規」から文書を作りましょう。"
+                          : workspacePdf.building
+                            ? "紙面を組み立てています…"
+                            : (workspacePdf.failure ??
+                              "紙面を組み立てています…")
+                      : agentWorking
+                        ? "紙面を準備しています…"
+                        : documentHasContent
+                          ? "紙面を組み立てています…"
+                          : "まだ紙面がありません。左の欄から執筆を依頼してください。"
+                  }
+                  toolbarAction={
+                    workspacePdf.native ? (
+                      <button
+                        type="button"
+                        className="paper-build-button"
+                        disabled={
+                          !workspacePdf.hasWorkspace ||
+                          !nativeDocument ||
+                          workspacePdf.building
+                        }
+                        onClick={() => requestWorkspaceBuild(nativeDocument?.mainFile)}
+                      >
+                        {workspacePdf.building ? "組版中…" : "組版"}
+                      </button>
+                    ) : activeDocument ? (
+                      <button
+                        type="button"
+                        className="paper-build-button"
+                        disabled={compiling}
+                        onClick={() =>
+                          void runCompile(activeDocument.id, activeDocument.revision)
+                        }
+                      >
+                        {compiling ? "組版中…" : "組版"}
+                      </button>
+                    ) : null
                   }
                   selectionCard={
-                    selectedElement ? (
+                    workspacePdf.native ? (
+                      paragraphEditor.paragraph ? (
+                        <ParagraphEditCard
+                          segments={paragraphEditor.paragraph.segments}
+                          saving={paragraphEditor.saving}
+                          onCancel={paragraphEditor.close}
+                          onSave={(replacementText) => {
+                            void paragraphEditor
+                              .save(replacementText)
+                              .then((saved) => {
+                                if (saved) sourceLocator.clear();
+                              });
+                          }}
+                        />
+                      ) : sourceLocator.location ||
+                        sourceLocator.error ||
+                        sourceLocator.locating ||
+                        paragraphEditor.loading ||
+                        paragraphEditor.error ? (
+                        <div className="element-card" aria-label="選択中の箇所">
+                          <div className="element-card-head">
+                            <button
+                              type="button"
+                              className="element-card-close"
+                              onClick={() => {
+                                paragraphEditor.close();
+                                sourceLocator.clear();
+                              }}
+                            >
+                              閉じる
+                            </button>
+                            <strong>
+                              {sourceLocator.locating
+                                ? "探しています…"
+                                : sourceLocator.location
+                                  ? sourceLocator.location.confident
+                                    ? "この箇所"
+                                    : "この付近"
+                                  : "見つかりません"}
+                            </strong>
+                            <div className="element-card-head-actions">
+                              {sourceLocator.location ? (
+                                <button
+                                  type="button"
+                                  className="element-card-confirm"
+                                  disabled={paragraphEditor.loading}
+                                  onClick={() => {
+                                    const location = sourceLocator.location;
+                                    if (location) {
+                                      paragraphEditor.open({
+                                        path: location.path,
+                                        line: location.line,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {paragraphEditor.loading
+                                    ? "読み出しています…"
+                                    : "文章を直す"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="element-card-editor">
+                            {sourceLocator.locating ? (
+                              <p>本文のどこかを確かめています。</p>
+                            ) : paragraphEditor.error ? (
+                              <p>{paragraphEditor.error}</p>
+                            ) : sourceLocator.location ? (
+                              <p className="source-line-preview">
+                                {sourceLocator.location.text
+                                  ? // 原則どおり既定の視界は文章。命令はチップで示す。
+                                    segmentParagraph(sourceLocator.location.text).map(
+                                      (segment, segmentIndex) =>
+                                        segment.kind === "chip" ? (
+                                          <span
+                                            key={segmentIndex}
+                                            className="paragraph-chip"
+                                          >
+                                            {segment.label}
+                                          </span>
+                                        ) : (
+                                          <span key={segmentIndex}>{segment.latex}</span>
+                                        ),
+                                    )
+                                  : `${sourceLocator.location.path} の ${sourceLocator.location.line} 行目`}
+                              </p>
+                            ) : (
+                              <p>{sourceLocator.error}</p>
+                            )}
+                          </div>
+                        </div>
+                      ) : null
+                    ) : selectedElement ? (
                       <div className="element-card" aria-label="選択中の要素">
                         <div className="element-card-head">
+                          {/* 閉じる＝編集はそのまま残る。確定＝いま組版まで進める。 */}
+                          <button
+                            type="button"
+                            className="element-card-close"
+                            onClick={() => setSelectedElementId(null)}
+                          >
+                            閉じる
+                          </button>
                           <strong>{selectedElement.label}</strong>
                           <div className="element-card-head-actions">
                             {selectedBlock ? (
                               <button
                                 type="button"
                                 className="element-card-delete"
-                                disabled={agentWorking || submitting || restoring}
+                                disabled={agentWorking || restoring}
                                 onClick={() => {
                                   if (window.confirm("この部分を削除しますか？")) {
                                     removeBlockById(selectedBlock.id);
@@ -1071,10 +1365,13 @@ export function DocumentWorkspace() {
                             ) : null}
                             <button
                               type="button"
-                              aria-label="選択を解除"
-                              onClick={() => setSelectedElementId(null)}
+                              className="element-card-confirm"
+                              disabled={agentWorking || restoring}
+                              onClick={() => {
+                                void confirmSelectionEdit();
+                              }}
                             >
-                              閉じる
+                              確定
                             </button>
                           </div>
                         </div>
@@ -1085,7 +1382,7 @@ export function DocumentWorkspace() {
                               headingNumber={selectedHeadingNumber}
                               equationNumber={selectedEquationNumber}
                               onChange={(next) => updateBlockById(selectedBlock.id, next)}
-                              readOnly={agentWorking || submitting || restoring}
+                              readOnly={agentWorking || restoring}
                             />
                           </div>
                         ) : (
@@ -1097,7 +1394,7 @@ export function DocumentWorkspace() {
                     ) : null
                   }
                 />
-                {compileFailed ? (
+                {compileFailed && activeDocument ? (
                   <div className="compile-banner" role="alert">
                     <span>紙面を更新できませんでした。</span>
                     <button
@@ -1142,30 +1439,6 @@ function toSummary(document: DocumentDetail): DocumentSummary {
     updatedAt: document.updatedAt,
     preview: document.preview,
   };
-}
-
-function failedRequest(documentId: string, prompt: string): AgentRun {
-  const now = new Date().toISOString();
-  return {
-    id: `request-failed-${window.crypto.randomUUID()}`,
-    documentId,
-    prompt,
-    stage: "failed",
-    status: "failed",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function rememberPendingRunRequest(
-  requests: Map<string, PendingRunRequest>,
-  request: PendingRunRequest,
-): void {
-  if (!requests.has(request.logicalKey) && requests.size >= 100) {
-    const oldestKey = requests.keys().next().value;
-    if (oldestKey !== undefined) requests.delete(oldestKey);
-  }
-  requests.set(request.logicalKey, request);
 }
 
 function preserveLocalEdits(

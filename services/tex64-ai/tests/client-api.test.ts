@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDocument, listDocuments, patchDocument, startRun } from "@/lib/client/api";
+import { createDocument, listDocuments, patchDocument, sendMessage } from "@/lib/client/api";
 
 beforeEach(() => {
   vi.stubGlobal("window", {
@@ -42,65 +42,56 @@ describe("real client API boundary", () => {
     });
   });
 
-  it("sends one stable idempotency key in the run header and body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({
-        run: {
-          id: "60fb684e-3000-49c9-9de5-80f89c6bfa9d",
-          documentId: "1c7ae46f-7266-46c4-bd07-c2722d3cbacf",
-          prompt: "注意機構について書いて",
-          stage: "understanding",
-          status: "running",
-          createdAt: "2026-08-07T00:00:00.000Z",
-          updatedAt: "2026-08-07T00:00:00.000Z",
-        },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await startRun("1c7ae46f-7266-46c4-bd07-c2722d3cbacf", {
-      prompt: "注意機構について書いて",
-    });
-
-    expect(result.ok).toBe(true);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const headerKey = new Headers(init.headers).get("Idempotency-Key");
-    const body = JSON.parse(String(init.body)) as { idempotencyKey: string };
-    expect(headerKey).toMatch(/^[0-9a-f-]{36}$/u);
-    expect(body.idempotencyKey).toBe(headerKey);
-  });
-
-  it("retries a lost run response with the same logical request key", async () => {
-    const response = Response.json({
-      run: {
-        id: "60fb684e-3000-49c9-9de5-80f89c6bfa9d",
-        documentId: "1c7ae46f-7266-46c4-bd07-c2722d3cbacf",
-        prompt: "続けて",
-        stage: "understanding",
-        status: "running",
-        createdAt: "2026-08-07T00:00:00.000Z",
-        updatedAt: "2026-08-07T00:00:00.000Z",
+  it("streams turn frames to the caller", async () => {
+    const frames = [
+      '{"type":"tool","name":"read_document","state":"start"}',
+      '{"type":"text","delta":"書きました"}',
+      '{"type":"done","status":"completed"}',
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        for (const frame of frames) controller.enqueue(encoder.encode(`${frame}\n`));
+        controller.close();
       },
     });
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("response lost"))
-      .mockResolvedValueOnce(response);
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(body, { status: 200 })),
+    );
 
-    const requestKey = "9cda9ec8-d091-4d89-b777-a8a56e293d88";
-    const result = await startRun(
+    const seen: unknown[] = [];
+    const result = await sendMessage(
       "1c7ae46f-7266-46c4-bd07-c2722d3cbacf",
-      { prompt: "続けて" },
-      requestKey,
+      { prompt: "注意機構について書いて" },
+      (frame) => seen.push(frame),
+      new AbortController().signal,
     );
 
     expect(result.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    for (const [, init] of fetchMock.mock.calls as [string, RequestInit][]) {
-      expect(new Headers(init.headers).get("Idempotency-Key")).toBe(requestKey);
-      expect(JSON.parse(String(init.body))).toMatchObject({ idempotencyKey: requestKey });
-    }
+    expect(seen).toEqual([
+      { type: "tool", name: "read_document", state: "start" },
+      { type: "text", delta: "書きました" },
+      { type: "done", status: "completed" },
+    ]);
+  });
+
+  it("reports an aborted turn as a normal outcome", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError")),
+    );
+
+    await expect(
+      sendMessage(
+        "1c7ae46f-7266-46c4-bd07-c2722d3cbacf",
+        { prompt: "止めて" },
+        () => {},
+        controller.signal,
+      ),
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it("uses the document creation key again when the first response is lost", async () => {
@@ -115,7 +106,7 @@ describe("real client API boundary", () => {
       blocks: [],
       elements: [],
       versions: [],
-      runs: [],
+      messages: [],
     };
     const fetchMock = vi
       .fn()

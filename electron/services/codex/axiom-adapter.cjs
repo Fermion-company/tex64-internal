@@ -121,6 +121,38 @@ const ensureCodexAuth = async (service, codex, conversationId, signal) => {
   return codex.getStatus();
 };
 
+// Codex marks the files a turn touched with an internal directive:
+//   :codex-file-citation{path="/private/tmp/…/main.pdf" purpose="output"}
+// It is not markdown, so it renders verbatim — absolute sandbox path included.
+// Rewrite it into a workspace-relative link the chat can open; a path outside
+// the workspace degrades to its bare file name so no absolute path is shown.
+const FILE_CITATION_PATTERN = /:codex-file-citation(?:\[[^\]]*\])?\{([^}]*)\}/g;
+
+const readCitationPath = (attributes) => {
+  const quoted = attributes.match(/path\s*=\s*"([^"]+)"/);
+  if (quoted) return quoted[1];
+  const bare = attributes.match(/path\s*=\s*([^\s,}]+)/);
+  return bare ? bare[1] : null;
+};
+
+const rewriteFileCitations = (text, rootPath) => {
+  if (typeof text !== 'string' || !text.includes(':codex-file-citation')) return text;
+  return text.replace(FILE_CITATION_PATTERN, (_match, attributes) => {
+    const cited = readCitationPath(attributes || '');
+    if (!cited) return '';
+    const absPath = path.isAbsolute(cited) ? cited : path.join(rootPath, cited);
+    const relPath = path.relative(rootPath, absPath);
+    if (!relPath || relPath.startsWith('..') || path.isAbsolute(relPath)) {
+      return path.basename(absPath);
+    }
+    // Brackets would end the markdown label early; parentheses would end the
+    // target early. Both are legal in file names, so neutralise them.
+    const label = relPath.replace(/[[\]]/g, '\\$&');
+    const target = encodeURI(relPath).replace(/\(/g, '%28').replace(/\)/g, '%29');
+    return `[${label}](tex64-file:${target})`;
+  });
+};
+
 const toolEvent = (service, conversationId, name, detail, summary) => {
   service.sendToRenderer('agent:tool', {
     name,
@@ -302,7 +334,7 @@ const runCodexConversation = async (
     }
 
     // ---- 最終メッセージ ----
-    const finalText = finalTexts.join('\n\n').trim();
+    const finalText = rewriteFileCitations(finalTexts.join('\n\n').trim(), rootPath);
     if (finalText) {
       conversation.push({ role: 'assistant', content: finalText });
       service.sendToRenderer('agent:message', {
@@ -367,6 +399,15 @@ const handleFileChangeCompleted = (service, conversationId, rootPath, item, chan
     relPaths.join(', '),
     item.status === 'failed' ? 'error' : 'ok'
   );
+  // Codex creates, moves and deletes files on disk directly. Buffers of files
+  // that are already open were refreshed above, but the file tree only learns
+  // about the change when the workspace snapshot is resent — without this a
+  // freshly created main.tex stays invisible until the folder is reopened.
+  if (relPaths.length > 0) {
+    Promise.resolve(service.updateWorkspaceIfNeeded(rootPath, true)).catch(() => {
+      /* tree refresh is best-effort; the edits themselves already landed */
+    });
+  }
 };
 
-module.exports = { runCodexConversation };
+module.exports = { runCodexConversation, rewriteFileCitations };

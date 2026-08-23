@@ -27,6 +27,7 @@
     "dmg:background": "node scripts/generate-dmg-background.cjs",
     "math:check": "node scripts/check-math-stack.cjs",
     "texlab:fetch": "node scripts/fetch-texlab.cjs",
+    "tdom:sync": "node scripts/sync-tdom-engine.cjs",
     "mathlive:clean": "node scripts/clean-mathlive-fork.cjs",
     "mathlive:build": "node scripts/build-mathlive-fork.cjs",
     "mathlive:rebuild": "npm run -s mathlive:clean && npm run -s mathlive:build",
@@ -63,6 +64,7 @@
       "**/*.so.*",
       "Resources/math-ocr/**",
       "Resources/texlab/**",
+      "Resources/tdom-engine/**",
       "node_modules/dictionary-de/**",
       "node_modules/dictionary-en/**"
     ],

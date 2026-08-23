@@ -11,7 +11,6 @@ import {
   getArtifactStore,
   storedPdfMatchesMetadata,
 } from "@/server/artifacts";
-import { usesDirectOpenAiTransport } from "@/server/agent/language-model";
 import {
   DocumentNotFoundError,
   getDocumentRepository,
@@ -19,19 +18,12 @@ import {
 } from "@/server/persistence";
 
 // Via the barrel so test doubles that mock "@/server/compiler" apply here too.
-import {
-  CompileFailure,
-  blockingPdfVisualFindings,
-  evaluateRenderedPageTarget,
-  getDocumentCompiler,
-  reviewPdfVisualQuality,
-} from "./index";
+import { CompileFailure, getDocumentCompiler } from "./index";
 import { buildRegionMap } from "./synctex-regions";
 
 /**
- * Structurally identical to the workflow's CompileAndStoreResult so the
- * durable step can return it unchanged; kept here so non-workflow callers
- * (the on-demand compile route) do not depend on workflow modules.
+ * Result of one typesetting attempt. Failures carry the diagnostics the agent
+ * repairs from; nothing here judges the document's content.
  */
 export type CompileDocumentRevisionResult =
   | {
@@ -46,47 +38,22 @@ export type CompileDocumentRevisionResult =
   | {
       ok: false;
       revision: number;
-      code:
-        | "document_validation_failed"
-        | "typesetting_failed"
-        | "visual_quality_failed"
-        | "page_target_mismatch"
-        | "page_target_unsupported";
+      code: "document_validation_failed" | "typesetting_failed";
       issueCount: number;
       /** Path-sanitized typesetting diagnostics, bounded for prompt reuse. */
       diagnostics?: Array<{ code: string; message: string; line?: number }>;
-      visualFindings?: Array<{
-        category:
-          | "clipping"
-          | "overlap"
-          | "spacing_and_margins"
-          | "typography"
-          | "figures_and_tables"
-          | "equations";
-        page: number;
-        detail: string;
-      }>;
-      pageTarget?: {
-        observed: number;
-        minimum: number;
-        maximum?: number;
-      };
     };
 
 export interface CompileDocumentRevisionInput {
   userId: string;
   documentId: string;
   revision: number;
-  /** Confirmed brief page target, when one applies to this compile. */
-  targetLength: string | null;
-  /** Model runtime for the PDF visual pass; null skips visual review. */
-  visualReviewRuntime: { provider: "ai_gateway"; model: string } | null;
 }
 
 /**
- * Validate → render → compile → (visual review) → store, shared between the
- * durable workflow step and the on-demand compile route. Callers own scoping
- * (run ownership, rate limits); this function owns artifact correctness.
+ * Validate → render → compile → store, shared by the agent's compile tool and
+ * the on-demand compile route. Callers own scoping (session, rate limits);
+ * this function owns artifact correctness.
  */
 export async function compileDocumentRevision(
   input: CompileDocumentRevisionInput,
@@ -116,12 +83,6 @@ export async function compileDocumentRevision(
       existingArtifact.qualityVersion === CURRENT_ARTIFACT_QUALITY_VERSION &&
       (await storedPdfMatchesMetadata(artifactStore, existingArtifact))
     ) {
-      const pageFailure = renderedPageTargetFailure({
-        targetLength: input.targetLength,
-        pageCount: existingArtifact.pageCount,
-        revision: revisionNumber,
-      });
-      if (pageFailure) return pageFailure;
       return {
         ok: true,
         revision: revisionNumber,
@@ -143,44 +104,6 @@ export async function compileDocumentRevision(
       revision: revisionNumber,
       latex,
     });
-    const pageFailure = renderedPageTargetFailure({
-      targetLength: input.targetLength,
-      pageCount: compiled.pageCount,
-      revision: revisionNumber,
-    });
-    if (pageFailure) return pageFailure;
-    if (input.visualReviewRuntime) {
-      let blockingFindings: ReturnType<typeof blockingPdfVisualFindings>;
-      try {
-        const visualReview = await reviewPdfVisualQuality({
-          pdf: compiled.pdf,
-          pageCount: compiled.pageCount,
-          runtime: input.visualReviewRuntime,
-        });
-        // Also throws when the model answers unable_to_assess.
-        blockingFindings = blockingPdfVisualFindings(visualReview);
-      } catch (error) {
-        // The direct-OpenAI dev transport may not accept PDF attachments (or
-        // may honestly report unable_to_assess) for every model; a quality
-        // pass that cannot run must not fail the compile there. The gateway
-        // path keeps its strict gate.
-        if (!usesDirectOpenAiTransport()) throw error;
-        blockingFindings = [];
-      }
-      if (blockingFindings.length > 0) {
-        return {
-          ok: false,
-          revision: revisionNumber,
-          code: "visual_quality_failed",
-          issueCount: blockingFindings.length,
-          visualFindings: blockingFindings.map((finding) => ({
-            category: finding.category,
-            page: finding.page,
-            detail: finding.detail,
-          })),
-        };
-      }
-    }
     const saved = await artifactStore.savePdf({
       userId: input.userId,
       documentId: input.documentId,
@@ -273,39 +196,4 @@ export async function compileDocumentRevision(
     }
     throw error;
   }
-}
-
-function renderedPageTargetFailure(input: {
-  targetLength: string | null;
-  pageCount: number;
-  revision: number;
-}): Extract<CompileDocumentRevisionResult, { ok: false }> | null {
-  const evaluation = evaluateRenderedPageTarget(
-    input.targetLength,
-    input.pageCount,
-  );
-  if (evaluation.status === "not_applicable" || evaluation.status === "passed") {
-    return null;
-  }
-  if (evaluation.status === "unsupported") {
-    return {
-      ok: false,
-      revision: input.revision,
-      code: "page_target_unsupported",
-      issueCount: 1,
-    };
-  }
-  return {
-    ok: false,
-    revision: input.revision,
-    code: "page_target_mismatch",
-    issueCount: 1,
-    pageTarget: {
-      observed: evaluation.observed,
-      minimum: evaluation.target.minimum,
-      ...(evaluation.target.maximum === undefined
-        ? {}
-        : { maximum: evaluation.target.maximum }),
-    },
-  };
 }

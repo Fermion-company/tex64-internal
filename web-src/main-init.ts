@@ -24,7 +24,7 @@ import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
-import { createViewer } from "./app/viewer.js";
+import { createViewer, type LivePreviewEditRequest } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
 import { initBlockEditSession } from "./app/blocks/edit-session.js";
 import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
@@ -50,13 +50,11 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
-import { initProModeUi, parseProModeState, PRO_MODE_STORAGE_KEY } from "./app/pro-mode-ui.js";
+import { initProModeUi } from "./app/pro-mode-ui.js";
 import { APP_MODE_STORAGE_KEY, initAppModeUi, resolveInitialAppMode } from "./app/app-mode.js";
 import { initAiModeUi } from "./app/ai-mode-ui.js";
-import { initProCaptureUi } from "./app/pro-capture-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
-import { initProStashUi } from "./app/pro-stash-ui.js";
-import { initProStructureUi } from "./app/pro-structure-ui.js";
+import { initCodeLivePreview } from "./app/code-live-preview.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -93,6 +91,8 @@ export const initMain = () => {
   } = dom;
 
   let postToNative: PostToNative = () => false;
+  let requestLiveSource = (_payload: { file: string; line: number; column: number }) => {};
+  let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
   let isReverseSynctexEnabled = () => true;
   let blockAutoDetect: ReturnType<typeof initBlockAutoDetection> | null = null;
   let blockEditSession: ReturnType<typeof initBlockEditSession> | null = null;
@@ -102,6 +102,7 @@ export const initMain = () => {
   let editorSession: ReturnType<typeof initEditorSession>;
   let editorTabsUi: ReturnType<typeof initEditorTabsUi>;
   let buildOps: ReturnType<typeof initBuildOpsUi>;
+  let codeWorkspaceApi: ReturnType<typeof initProModeUi> = null;
 
   let outlineUi: ReturnType<typeof initOutlineUi>;
   let issuesUi: ReturnType<typeof initIssuesUi>;
@@ -130,6 +131,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -151,6 +154,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -175,6 +180,9 @@ export const initMain = () => {
     bridgeWindow,
     updateIssues: updateIssuesProxy,
   });
+  requestLiveSource = (payload) => {
+    postToNative({ type: "live-preview:source", ...payload }, true);
+  };
   const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
     postToNative(payload, silent)
   );
@@ -249,6 +257,11 @@ export const initMain = () => {
     onEditorWordWrapChange: (enabled) => {
       pendingEditorWordWrapEnabled = enabled;
       updateEditorWordWrap(enabled);
+    },
+    onPdfViewerModeChange: (mode) => {
+      // A detached PDF already owns the preview surface. Give the editor the
+      // full width instead of keeping a redundant integrated preview column.
+      codeWorkspaceApi?.setPreviewEnabled(mode === "tab");
     },
     onUpdateAttentionChange: (hasAttention) => {
       setSettingsTabAlert(hasAttention);
@@ -392,10 +405,6 @@ export const initMain = () => {
   let pendingBlockApply: PendingBlockApply | null = null;
   let updateFallback = (message: string) => {};
 
-  // Assigned after initProModeUi below; the editor session only consults it
-  // lazily when a viewer file opens, so the late binding is safe.
-  let proModeApi: ReturnType<typeof initProModeUi> = null;
-
   editorSession = initEditorSession(appContext, {
     getWorkspaceFiles,
     getRootFilePath,
@@ -434,55 +443,89 @@ export const initMain = () => {
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     getMonacoApi: appActions.getMonacoApi,
-    proViewer: {
+    workspaceViewer: {
       tryShowViewerFile: (path, kind, data, mimeType) =>
-        proModeApi?.tryShowViewerFile(path, kind, data, mimeType) ?? false,
+        codeWorkspaceApi?.tryShowViewerFile(path, kind, data, mimeType) ?? false,
     },
   });
-  proModeApi = initProModeUi({
+  requestLiveEdit = (payload) => {
+    const workspaceRoot = getWorkspaceRootKey()?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
+    const sourcePath = payload.file.replace(/\\/g, "/").replace(/^\.\//, "");
+    const absolute = sourcePath.startsWith("/") || /^[A-Za-z]:\//.test(sourcePath);
+    const candidate = absolute && workspaceRoot && sourcePath.startsWith(`${workspaceRoot}/`)
+      ? sourcePath.slice(workspaceRoot.length + 1)
+      : absolute
+        ? ""
+        : sourcePath;
+    const parts = candidate.split("/").filter((part) => part && part !== ".");
+    const path = parts.includes("..") || parts.some((part) => part.includes("\0"))
+      ? ""
+      : parts.join("/");
+    if (!path) {
+      const message = uiText(
+        "The PDF edit is outside this workspace.",
+        "PDF編集対象がワークスペース外です。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+      return;
+    }
+    const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
+    if (!ok) {
+      const message = uiText(
+        "The source changed. Click the text again to edit it.",
+        "ソースが更新されています。文字をもう一度クリックしてください。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+    }
+  };
+  codeWorkspaceApi = initProModeUi({
     setSplitViewEnabled: editorSession.setSplitViewEnabled,
-    getSplitViewEnabled: editorSession.getSplitViewEnabled,
   });
-  initProStashUi({
-    getActiveGroup: editorSession.getActiveGroup,
-    revealStash: () => {
-      setActiveTab("stash");
-      if (!bottomPanelUi.isSidebarVisible()) bottomPanelUi.toggleSidebar();
-    },
-  });
-  initProCaptureUi({
-    getActiveGroup: editorSession.getActiveGroup,
-    getWorkspaceFiles,
-  });
+  codeWorkspaceApi?.setPreviewEnabled(settingsUi.getPdfViewerMode() === "tab");
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
     getWorkspaceFiles,
   });
-  const aiModeApi = initAiModeUi();
-  initAppModeUi({
-    initialMode: resolveInitialAppMode(
-      localStorage.getItem(APP_MODE_STORAGE_KEY),
-      parseProModeState(localStorage.getItem(PRO_MODE_STORAGE_KEY)).enabled
-    ),
+  const aiModeApi = initAiModeUi({
+    postToNative: (payload, silent) => postToNative(payload, silent),
+  });
+  // The AI mode webview sees the same host messages Code mode does, filtered
+  // by its own allowlist. Registering a second listener keeps the existing
+  // dispatcher untouched.
+  bridgeWindow.tex64Bridge?.onMessage?.((message) => aiModeApi.deliver(message));
+  const appModeApi = initAppModeUi({
+    initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)),
     onModeChange: (mode) => {
-      proModeApi?.setEnabled(mode === "pro");
+      codeWorkspaceApi?.setEnabled(mode === "code");
       if (mode === "ai") aiModeApi.activate();
     },
   });
+  initCodeLivePreview({
+    getActiveGroup: editorSession.getActiveGroup,
+    getEditorGroups: editorSession.getEditorGroups,
+    getAppMode: () => appModeApi.getMode(),
+    getPdfViewerMode: settingsUi.getPdfViewerMode,
+    getWorkspaceRoot: getWorkspaceRootKey,
+    getRootFile: getRootFilePath,
+    getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
+      maxFiles: Number.POSITIVE_INFINITY,
+      maxChars: Number.POSITIVE_INFINITY,
+      onlyDirty: true,
+    }).snapshots,
+    setWorkspaceLivePreview: (url, generation) =>
+      codeWorkspaceApi?.setLivePreview(url, generation),
+  });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
-  const openInSecondaryEditor = (path: string, line?: number) => {
-    if (!editorSession.getSplitViewEnabled()) {
-      editorSession.setSplitViewEnabled(true);
-    }
+  const openInCodeEditor = (path: string, line?: number) => {
     if (typeof line === "number") {
-      editorSession.jumpToFileLine(path, line, "secondary", {
+      editorSession.jumpToFileLine(path, line, "primary", {
         force: true,
         focus: false,
       });
       return;
     }
-    editorSession.requestOpenFile(path, "secondary", true);
+    editorSession.requestOpenFile(path, "primary", true);
   };
 
   const mathCaptureHandler = createMathCaptureHandler({
@@ -664,7 +707,7 @@ export const initMain = () => {
       return context;
     },
     openSearchResult: (result) => {
-      openInSecondaryEditor(result.path, result.line);
+      openInCodeEditor(result.path, result.line);
     },
   });
 
@@ -762,6 +805,10 @@ export const initMain = () => {
     requestOpenFile: editorSession.requestOpenFile,
     getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
     setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
+    workspaceViewer: {
+      getPdfPath: () => codeWorkspaceApi?.getPdfPath() ?? null,
+      syncPdf: (payload) => codeWorkspaceApi?.syncPdf(payload),
+    },
     settings: {
       getPdfViewerMode: settingsUi.getPdfViewerMode,
       getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,
@@ -804,41 +851,16 @@ export const initMain = () => {
       if (!entry.path || !entry.line) {
         return;
       }
-      openInSecondaryEditor(entry.path, entry.line);
+      openInCodeEditor(entry.path, entry.line);
     },
     onJumpToSection: (entry) => {
-      openInSecondaryEditor(entry.path, entry.line);
-    },
-  });
-  initProStructureUi({
-    getActiveFileSnapshot: editorSession.getActiveFileSnapshot,
-    getIndexSections,
-    onJumpToSection: (entry) => {
-      editorSession.jumpToFileLine(
-        entry.path,
-        entry.line,
-        editorSession.getActiveEditorGroupKey()
-      );
+      openInCodeEditor(entry.path, entry.line);
     },
   });
   issuesUi = initIssuesUi(appContext, {
     parseIssueDetail: editorSession.parseIssueDetail,
     onFocusIssue: (issue) => {
-      // An error opens *beside* what you are writing, not on top of it: the
-      // offending file goes into the other pane. Pro mode runs its own pane
-      // layout and hides the secondary group, so there we jump in place.
-      const detail = editorSession.parseIssueDetail(issue);
-      const proMode = document.documentElement.dataset.proMode === "true";
-      if (proMode || !detail.path) {
-        editorSession.focusIssue(issue);
-        return;
-      }
-      const groupKey =
-        editorSession.getActiveEditorGroupKey() === "secondary" ? "primary" : "secondary";
-      if (groupKey === "secondary" && !editorSession.getSplitViewEnabled()) {
-        editorSession.setSplitViewEnabled(true);
-      }
-      editorSession.focusIssue(issue, { groupKey });
+      editorSession.focusIssue(issue, { groupKey: "primary" });
     },
     onOpenRuntimeSettings: () => {
       setActiveTab("settings");
@@ -1160,6 +1182,7 @@ export const initMain = () => {
       handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
       applyContentToOpenFile: (path, content, options) =>
         editorSession.applyContentToOpenFile(path, content, options),
+      applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
     },
   });
 

@@ -172,7 +172,9 @@ textarea {
   display: grid;
   height: 64px;
   flex: 0 0 64px;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 440px) minmax(180px, 1fr);
+  /* Two children: the document it is on, and what you can do with it. A third
+     column left the actions stranded mid-bar. */
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid var(--line);
   background: var(--header);
@@ -358,7 +360,16 @@ textarea {
   background: var(--panel);
 }
 
+/* A flex column with a bounded height: without it `.paper-surface` (flex: 1)
+   has no flex container, falls back to its content height, and every
+   `height: 100%` below it — viewer, scroller — resolves to auto. The page
+   stack then grows past the viewport and `body { overflow: hidden }` clips
+   the bottom instead of the scroller scrolling. */
 .pane-document {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   background: var(--workspace);
 }
 
@@ -631,31 +642,6 @@ textarea {
   overflow-y: auto;
   background: var(--panel);
   padding: 28px 20px 16px;
-}
-
-.document-kind-picker {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  margin-bottom: 9px;
-}
-
-.document-kind-picker button {
-  display: inline-flex;
-  min-width: 0;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border-radius: 7px;
-  color: var(--ink-faint);
-  font-size: 10.5px;
-}
-
-.document-kind-picker button:hover,
-.document-kind-picker button.active {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
 }
 
 .large-composer textarea {
@@ -1003,7 +989,7 @@ textarea {
   .app-topbar {
     height: 54px;
     flex-basis: 54px;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 0 10px;
   }
   .brand-mark {
@@ -1205,7 +1191,7 @@ textarea {
 .element-card {
   /* 位置は PdfPreview の selectionCard ラッパー（選択要素の直下）が決める。 */
   display: flex;
-  max-height: 320px;
+  max-height: min(48vh, 420px);
   flex-direction: column;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
@@ -1218,6 +1204,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 左＝閉じる（編集は残る）／右＝確定（いま組版）。 */
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
@@ -1243,7 +1230,12 @@ textarea {
 
 .element-card-editor {
   padding: 12px 14px 14px;
+  /* flex item の既定 min-height:auto だと内容の高さのまま伸びてカードから
+     はみ出し、overflow-y:auto が効かない（＝切れて、ホイールは紙面へ流れる）。 */
+  min-height: 0;
   overflow-y: auto;
+  /* 端まで来ても紙面側へスクロールを渡さない。 */
+  overscroll-behavior: contain;
 }
 
 .element-card-editor textarea,
@@ -1263,6 +1255,31 @@ textarea {
   gap: 2px;
 }
 
+.element-card-close {
+  padding: 3px 9px;
+  border-radius: 8px;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+}
+
+.element-card-close:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.element-card-confirm {
+  border-radius: 8px;
+  background: var(--accent-soft);
+  padding: 3px 11px;
+  color: var(--accent-strong);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.element-card-confirm:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .element-card-delete {
   padding: 3px 9px;
   border-radius: 8px;
@@ -1273,6 +1290,159 @@ textarea {
 .element-card-delete:hover {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
+}
+
+/* 直接編集: 文章は打ち直せる面、チップは保たれる不透明な部分。 */
+.paragraph-edit-area {
+  min-height: 72px;
+  max-height: 32vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.paragraph-edit-area:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.paragraph-chip {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  background: var(--accent-faint);
+  color: var(--accent-strong);
+  font-size: 11.5px;
+  line-height: 1.6;
+  vertical-align: baseline;
+  user-select: all;
+  cursor: default;
+}
+
+.paragraph-edit-note {
+  margin: 8px 0 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ネイティブの新規文書: 題名ひとつでフォルダも main.tex も用意される。 */
+.native-new-document {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+  margin: auto;
+  padding: 24px;
+}
+
+.native-new-document h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.native-new-document p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+
+.native-new-document input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel-muted);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+
+.native-new-document input:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.native-new-document-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.native-new-document-actions button {
+  padding: 7px 14px;
+  border-radius: 9px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.native-new-document-actions button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.native-new-document-actions .native-new-document-create {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.native-new-document-actions .native-new-document-create:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.native-new-document-actions button:disabled {
+  opacity: 0.55;
+}
+
+.native-new-document-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* 紙面ツールバー右端の組版ボタン。手動でいつでも組み直せる唯一の入口。 */
+.paper-build-button {
+  margin-left: 8px;
+  height: 24px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.paper-build-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.paper-build-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* クリック先の抜粋。1 ソース行が丸ごと 1 段落のことがあるため、詰めて見せる。 */
+.source-line-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.9;
 }
 
 .element-card-hint {

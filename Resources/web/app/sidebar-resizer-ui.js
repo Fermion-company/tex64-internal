@@ -1,3 +1,39 @@
+/**
+ * The panel width is a per-machine preference (a wide Axiom panel while
+ * writing a paper, a narrow one while editing), so it survives restarts
+ * instead of snapping back to the 25%-of-window default every launch.
+ */
+const PANEL_WIDTH_STORAGE_KEY = "tex64.sidebar.panelWidth.v1";
+const MIN_PANEL_WIDTH = 240;
+const MIN_EDITOR_WIDTH = 320;
+const SIDEBAR_RAIL_WIDTH = 52;
+const clampPanelWidth = (width) => {
+    const maxPanelWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth - SIDEBAR_RAIL_WIDTH - MIN_EDITOR_WIDTH);
+    return Math.max(MIN_PANEL_WIDTH, Math.min(maxPanelWidth, width));
+};
+const applyPanelWidth = (width) => {
+    document.documentElement.style.setProperty("--sidebar-panel-width", `${width}px`);
+};
+const readStoredPanelWidth = () => {
+    try {
+        const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
+        if (!raw)
+            return null;
+        const parsed = Number.parseFloat(raw);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    catch {
+        return null;
+    }
+};
+const storePanelWidth = (width) => {
+    try {
+        window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(Math.round(width)));
+    }
+    catch {
+        /* private mode / quota: the width simply does not persist */
+    }
+};
 export const initSidebarResizer = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const setup = () => {
@@ -5,9 +41,15 @@ export const initSidebarResizer = (context, deps) => {
         if (!resizer) {
             return;
         }
+        const storedWidth = readStoredPanelWidth();
+        if (storedWidth !== null) {
+            applyPanelWidth(clampPanelWidth(storedWidth));
+            deps.layoutEditors();
+        }
         let isResizing = false;
         let pendingClientX = 0;
         let rafId = null;
+        let lastAppliedWidth = null;
         const startResize = () => {
             var _a;
             if (isResizing) {
@@ -32,12 +74,8 @@ export const initSidebarResizer = (context, deps) => {
             if (!isResizing) {
                 return;
             }
-            const sidebarWidth = 52;
-            const minPanelWidth = 240;
-            const minEditorWidth = 320;
-            const maxPanelWidth = Math.max(minPanelWidth, window.innerWidth - sidebarWidth - minEditorWidth);
-            const newWidth = Math.max(minPanelWidth, Math.min(maxPanelWidth, pendingClientX - sidebarWidth));
-            document.documentElement.style.setProperty("--sidebar-panel-width", `${newWidth}px`);
+            lastAppliedWidth = clampPanelWidth(pendingClientX - SIDEBAR_RAIL_WIDTH);
+            applyPanelWidth(lastAppliedWidth);
             deps.layoutEditors();
         };
         const doResize = (event) => {
@@ -72,6 +110,8 @@ export const initSidebarResizer = (context, deps) => {
             }
             (_a = deps.setEditorsAutomaticLayout) === null || _a === void 0 ? void 0 : _a.call(deps, true);
             deps.layoutEditors();
+            if (lastAppliedWidth !== null)
+                storePanelWidth(lastAppliedWidth);
         };
         resizer.addEventListener("mousedown", startResize);
         resizer.addEventListener("mouseup", stopResize);

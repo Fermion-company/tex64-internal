@@ -55,7 +55,7 @@ export async function POST(
     });
     if (
       recentRuns.some(
-        (run) => run.status === "queued" || run.status === "running",
+        (run) => run.status === "running",
       )
     ) {
       return jsonError(
@@ -69,8 +69,6 @@ export async function POST(
       userId,
       documentId,
       revision: document.currentRevision,
-      targetLength: null,
-      visualReviewRuntime: null,
     });
     if (!compiled.ok) {
       return jsonError(

@@ -122,6 +122,10 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
       if (magicRoot) {
         targetFile = magicRoot;
+      } else if (options.exactTarget === true) {
+        // The AI mode builds one document folder inside the workspace; the
+        // workspace's designated root must not override it.
+        targetFile = requestedFile;
       } else if (!rootInfo?.path) {
         targetFile = requestedFile;
       }
@@ -143,10 +147,21 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       return;
     }
     sendBuildLog(result.log ?? null);
+    // A build writes new files into the workspace (PDF, .log, .aux, …). Nothing
+    // watches the filesystem, so the file tree only learns about them when we
+    // force a refresh here.
+    await updateWorkspaceIfNeeded(rootPath, true);
     if (result.kind === "success") {
       if (fs.existsSync(result.pdfPath)) {
         state.lastBuildPdfPath = result.pdfPath;
-        const viewerMode = options.pdfViewerMode === "tab" ? "tab" : "window";
+        // "none" leaves every viewer untouched: the AI mode shows the page
+        // itself and must not have the Code-mode PDF window pop over it.
+        const viewerMode =
+          options.pdfViewerMode === "tab"
+            ? "tab"
+            : options.pdfViewerMode === "none"
+              ? "none"
+              : "window";
         if (viewerMode === "tab") {
           const relativePdfPath = resolveWorkspaceRelativePath(rootPath, result.pdfPath);
           if (relativePdfPath) {
@@ -154,10 +169,12 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           } else {
             pdfWindowManager.show(result.pdfPath);
           }
-        } else {
+        } else if (viewerMode === "window") {
           pdfWindowManager.show(result.pdfPath);
         }
-        sendBuildState("success", result.summary);
+        sendBuildState("success", result.summary, {
+          pdfPath: resolveWorkspaceRelativePath(rootPath, result.pdfPath),
+        });
         // A build can succeed and still have plenty to say — undefined
         // references, missing images, overfull lines. Those used to be thrown
         // away along with the log, which left the panel empty on exactly the
@@ -231,6 +248,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     const buildProfile = normalizeBuildProfile(options?.buildProfile) ?? (await resolveBuildProfile().catch(() => null));
     const deep = options.deep === true;
     const result = await buildService.clean(rootPath, targetFile, { deep }, buildProfile);
+    // Clean removes files from the workspace; refresh the tree for the same
+    // reason a build does.
+    await updateWorkspaceIfNeeded(rootPath, true);
     if (result.kind === "busy") {
       sendIssues(0, "Already processing.", "info", []);
       return;
@@ -272,4 +292,3 @@ const createBuildCoreHandlers = (deps, resolvers) => {
 };
 
 module.exports = { createBuildCoreHandlers };
-

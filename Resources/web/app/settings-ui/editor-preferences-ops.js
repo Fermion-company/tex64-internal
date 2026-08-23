@@ -93,6 +93,7 @@ export const createSettingsEditorPreferenceOps = (runtime) => {
         updateEditorReverseSynctexUI();
     };
     const loadEditorPdfViewerModeState = () => {
+        var _a, _b;
         const stored = localStorage.getItem(runtime.keys.editorPdfViewerModeKey);
         if (stored === "tab" || stored === "window") {
             runtime.state.pdfViewerMode = stored;
@@ -101,6 +102,7 @@ export const createSettingsEditorPreferenceOps = (runtime) => {
             runtime.state.pdfViewerMode = "window";
         }
         updateEditorPdfViewerModeUI();
+        (_b = (_a = runtime.deps).onPdfViewerModeChange) === null || _b === void 0 ? void 0 : _b.call(_a, runtime.state.pdfViewerMode);
     };
     const setEditorAlignEnvEnabled = (enabled) => {
         runtime.state.editorAlignEnvEnabled = Boolean(enabled);
@@ -147,9 +149,11 @@ export const createSettingsEditorPreferenceOps = (runtime) => {
         updateEditorReverseSynctexUI();
     };
     const setPdfViewerMode = (mode) => {
+        var _a, _b;
         runtime.state.pdfViewerMode = mode;
         saveEditorPdfViewerModeState();
         updateEditorPdfViewerModeUI();
+        (_b = (_a = runtime.deps).onPdfViewerModeChange) === null || _b === void 0 ? void 0 : _b.call(_a, runtime.state.pdfViewerMode);
     };
     if (editorAlignEnvToggle instanceof HTMLInputElement) {
         editorAlignEnvToggle.addEventListener("change", () => {

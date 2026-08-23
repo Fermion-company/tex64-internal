@@ -8,7 +8,7 @@ pro-mode-design.md の「機能 6」C1 フェーズの実装仕様。実装は 2
 共通規約: renderer は `web-src/`（plain tsc、ES modules、バンドラなし）。`Resources/web/**/*.js`
 は生成物で手編集禁止。`Resources/web/index.html` と `Resources/web/theme.css` は手編集対象。
 テストは `node --test tests/` で、コンパイル済み `../Resources/web/app/pro-canvas/*.js` を import
-する（既存 `tests/pro-capture-ui.test.mjs` と同じ方式）。型チェックは
+する（既存 `tests/image-insert-utils.test.mjs` と同じ方式）。型チェックは
 `tsc -p web-src/tsconfig.json`。
 
 ---
@@ -218,8 +218,8 @@ full-window オーバーレイ（`position:fixed; inset:0; z-index` は既存モ
   detail = `{ scene?: Scene; replaceRange?: {startLine; endLine} }`。replaceRange 付きで開いた
   場合、「更新」はその範囲（1-indexed の monaco Range に変換）を `executeEdits` で
   新ブロックに置換する。
-- **monaco アクション**: `web-src/app/monaco-setup.ts` の既存
-  `tex64.pro-stash-add-selection` と同じ場所に `tex64.pro-canvas-edit`（label:
+- **monaco アクション**: `web-src/app/monaco-setup.ts` のエディタコンテキストメニューに
+  `tex64.pro-canvas-edit`（label:
   "Edit figure in canvas / 図をキャンバスで編集"）を追加。カーソル位置で
   `decodeFigureBlockAt` を試し、ヒットすれば scene + replaceRange 付きで、なければ
   新規シーンで `tex64:pro-canvas-open` を dispatch。`detached: true` のときは confirm ダイアログ
@@ -227,18 +227,17 @@ full-window オーバーレイ（`position:fixed; inset:0; z-index` は既存モ
   を出してから開く。
 - **PNG エクスポート**: SVG を `XMLSerializer` → `Image` → `<canvas>`（scene 1unit を
   mm→3.78px / cm→37.8px / pt→1.333px として **2 倍**スケールで描画）→ dataURL。保存は
-  `pro-capture-ui.ts` と同じ: `tex64Files.writeBase64` + `chooseCaptureDirectory` +
-  `buildIncludeGraphicsSnippet`（これらは `pro-capture-ui.js` から import して再利用）。
+  `tex64Files.writeBase64` + `chooseImageDirectory` + `buildIncludeGraphicsSnippet`
+  （共通の `image-insert-utils.js` から import して再利用）。
   ファイル名 `figure-<timestamp>.png`。
 
 ### 配線
 
-- `Resources/web/index.html`: `.pro-mode-controls` 内（Pro トグルの隣）に
+- `Resources/web/index.html`: `.pro-mode-controls` 内に
   `<button id="pro-canvas-open" type="button" title="Draw figure" hidden>✎ Draw</button>`。
-  Pro モードが有効な間だけ表示（`pro-mode-ui.ts` が Pro 切替時に toggle している既存の仕組みに
-  合わせて hidden を切り替え。適切なフックが無ければ `pro-mode-ui.ts` に 1 行足して良い）。
+  Code が有効な間だけ表示（`pro-mode-ui.ts` が Code/AI 切替時に hidden を切り替える）。
   クリックで新規シーンの `tex64:pro-canvas-open` を dispatch。
-- `web-src/main-init.ts`: `initProCaptureUi` の隣で `initProCanvasUi` を呼ぶ。
+- `web-src/main-init.ts`: Code ワークスペース初期化時に `initProCanvasUi` を呼ぶ。
 - `Resources/web/theme.css`: `pro-canvas-` プレフィックスのクラスでスタイル追加。既存の
   `--panel-*` / `--accent` / `--text-*` CSS 変数を使い、ライト/ダーク両テーマで破綻しないこと。
 
@@ -254,4 +253,4 @@ UI 本体の見た目テストは不要（プロジェクト方針）。ただ�
 - バンドラ前提の npm ライブラリを持ち込まない（依存追加なし。素の DOM + SVG で書く）。
 - `Resources/web/**/*.js` を手編集しない。
 - ビルド用キーボードショートカットを追加しない。Cmd+B / Cmd+I / Cmd+R の既存割当を変えない。
-- 既存機能（capture / stash / live preview）の挙動を変えない。
+- 既存のエディタ / live preview の挙動を変えない。

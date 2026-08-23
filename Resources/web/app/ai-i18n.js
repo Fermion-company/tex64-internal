@@ -33,6 +33,11 @@ const STRINGS = {
     login_processing: { en: "Signing in with Google…", ja: "Googleでログイン中…", zh: "正在使用 Google 登录…", ko: "Google로 로그인 중…", fr: "Connexion avec Google…", de: "Anmeldung mit Google…", es: "Iniciando sesión con Google…" },
     // ── Login / overlay ──
     login: { en: "Login", ja: "ログイン", zh: "登录", ko: "로그인", fr: "Connexion", de: "Anmelden", es: "Entrar" },
+    // Named after the account it signs into: the Codex model runs on the user's
+    // own ChatGPT subscription, and an unqualified "Login" next to the model
+    // picker reads as "ChatGPT is not connected".
+    login_tex64: { en: "TeX64 Login", ja: "TeX64 にログイン", zh: "登录 TeX64", ko: "TeX64 로그인", fr: "Connexion TeX64", de: "TeX64 anmelden", es: "Entrar en TeX64" },
+    login_tex64_hint: { en: "Signs in to your TeX64 account — unrelated to ChatGPT.", ja: "TeX64 アカウントへのログインです（ChatGPT のログインとは別）。", zh: "登录 TeX64 账户（与 ChatGPT 登录无关）。", ko: "TeX64 계정 로그인입니다(ChatGPT 로그인과 무관).", fr: "Connexion à votre compte TeX64 — sans rapport avec ChatGPT.", de: "Meldet Sie bei Ihrem TeX64-Konto an – unabhängig von ChatGPT.", es: "Inicia sesión en tu cuenta de TeX64: no tiene relación con ChatGPT." },
     login_with_google: { en: "Log in with Google", ja: "Googleでログイン", zh: "使用 Google 登录", ko: "Google로 로그인", fr: "Se connecter avec Google", de: "Mit Google anmelden", es: "Iniciar sesión con Google" },
     login_failed: { en: "Login failed.", ja: "ログインに失敗しました。", zh: "登录失败。", ko: "로그인에 실패했습니다.", fr: "Échec de la connexion.", de: "Anmeldung fehlgeschlagen.", es: "Error al iniciar sesión." },
     overlay_title: { en: "Accelerate TeX writing with Axiom", ja: "Axiom で TeX 執筆を加速", zh: "用 Axiom 加速 TeX 写作", ko: "Axiom으로 TeX 작성 가속화", fr: "Accélérez l'écriture TeX avec Axiom", de: "TeX-Schreiben mit Axiom beschleunigen", es: "Acelera la escritura TeX con Axiom" },

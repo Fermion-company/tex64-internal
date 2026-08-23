@@ -19,7 +19,7 @@ function boundedPromptPart(value: string, maximum: number): string {
 }
 
 function isGenericCreationPrompt(prompt: string): boolean {
-  return /^(?:(?:論文|文書|レポート|報告書|提案書|メモ)(?:を)?)?(?:書いて|作って|作成して|まとめて)(?:ください)?[。.!！]?$/.test(
+  return /^(?:(?:論文|文書|レポート|報告書|企画書|提案書|メモ)(?:を)?)?(?:書いて|作って|作成して|まとめて)(?:ください)?[。.!！]?$/.test(
     prompt,
   );
 }
@@ -42,18 +42,18 @@ export function buildClarifiedDocumentPrompt(
       ? "論文"
       : /レポート|報告書/u.test(originalPrompt)
         ? "レポート"
-        : /提案書/u.test(originalPrompt)
-          ? "提案書"
+        : /企画書|提案書/u.test(originalPrompt)
+          ? "企画書"
           : /メモ/u.test(originalPrompt)
             ? "メモ"
             : "文書";
     const isCompleteWritingRequest =
       /(?:書いて|作って|作成して|まとめて)(?:ください)?/u.test(answer) &&
-      /(?:について|に関する|論文|文書|レポート|報告書|提案書|メモ)/u.test(
+      /(?:について|に関する|論文|文書|レポート|報告書|企画書|提案書|メモ)/u.test(
         answer,
       );
     if (isCompleteWritingRequest) {
-      return /(?:論文|文書|レポート|報告書|提案書|メモ)/u.test(answer)
+      return /(?:論文|文書|レポート|報告書|企画書|提案書|メモ)/u.test(answer)
         ? answer
         : `${answer}。${documentKind}として作成して`;
     }

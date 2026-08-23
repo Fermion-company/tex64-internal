@@ -149,6 +149,56 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
   };
 
+  /**
+   * Hands a workspace file to a caller that cannot read the disk itself — the
+   * AI mode webview, which shows the built PDF. Bounded, and only for formats
+   * a viewer displays; source files go through the text paths.
+   */
+  const MAX_FILE_BYTES_RESULT = 48 * 1024 * 1024;
+  const VIEWABLE_BYTE_FORMATS = new Set(["pdf", "png", "jpg", "jpeg"]);
+
+  const handleFileBytes = async (requestId, relativePath) => {
+    if (!requestId || typeof requestId !== "string") return;
+    const fail = (error) => {
+      sendToRenderer("file:bytesResult", {
+        requestId,
+        ok: false,
+        path: relativePath,
+        error,
+      });
+    };
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      fail("No workspace is selected.");
+      return;
+    }
+    if (typeof relativePath !== "string" || !relativePath.trim()) {
+      fail("No file was requested.");
+      return;
+    }
+    if (!VIEWABLE_BYTE_FORMATS.has(getFileExtension(relativePath))) {
+      fail("Cannot read this format.");
+      return;
+    }
+    try {
+      // resolvePath keeps the read inside the workspace root.
+      const bytes = await workspace.readBinaryFile(relativePath);
+      if (bytes.byteLength > MAX_FILE_BYTES_RESULT) {
+        fail("File is too large to display.");
+        return;
+      }
+      sendToRenderer("file:bytesResult", {
+        requestId,
+        ok: true,
+        path: relativePath,
+        byteSize: bytes.byteLength,
+        base64: bytes.toString("base64"),
+      });
+    } catch (error) {
+      fail(error instanceof Error ? error.message : "Could not read the file.");
+    }
+  };
+
   const handleFileExcerpt = async (requestId, relativePath, options = {}) => {
     const rootPath = ensureWorkspace();
     if (!requestId || typeof requestId !== "string") {
@@ -298,6 +348,76 @@ const createWorkspaceFileHandlers = (ctx) => {
       }
     } catch (error) {
       sendToRenderer("saveResult", { path: relativePath, ok: false, error: error.message });
+    }
+  };
+
+  // AI mode's direct paragraph edit: replace exactly the lines the guest
+  // read, and only while they are still what it read. The whole file never
+  // crosses the bridge (large messages are dropped there), and a stale card
+  // cannot overwrite an edit that happened in between.
+  const handleReplaceLines = async (requestId, relativePath, options = {}) => {
+    if (!requestId || typeof requestId !== "string") {
+      return { ok: false };
+    }
+    // Returns the outcome as well as replying, so the caller can chain what
+    // must follow a successful write (the rebuild) without a second message
+    // from the guest.
+    const reply = (payload) => {
+      sendToRenderer("file:replaceLinesResult", {
+        requestId,
+        path: relativePath,
+        ...payload,
+      });
+      return payload;
+    };
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      return reply({ ok: false, error: "No workspace is selected." });
+    }
+    await updateWorkspaceIfNeeded(rootPath);
+    if (!isTextFilePath(relativePath) && !isExtendedTextFilePath(relativePath)) {
+      return reply({ ok: false, error: "Cannot edit this format." });
+    }
+    const startLine = Number.parseInt(options.startLine, 10);
+    const endLine = Number.parseInt(options.endLine, 10);
+    const expectedText =
+      typeof options.expectedText === "string" ? options.expectedText : null;
+    const replacementText =
+      typeof options.replacementText === "string" ? options.replacementText : null;
+    if (
+      !Number.isFinite(startLine) ||
+      !Number.isFinite(endLine) ||
+      startLine < 1 ||
+      endLine < startLine ||
+      expectedText === null ||
+      replacementText === null
+    ) {
+      return reply({ ok: false, error: "Invalid replacement request." });
+    }
+    try {
+      const content = await workspace.readFile(relativePath);
+      const newline = content.includes("\r\n") ? "\r\n" : "\n";
+      const allLines = content.split(/\r?\n/);
+      if (endLine > allLines.length) {
+        return reply({ ok: false, stale: true, error: "The file changed since it was read." });
+      }
+      const current = allLines.slice(startLine - 1, endLine).join("\n");
+      if (current !== expectedText) {
+        return reply({ ok: false, stale: true, error: "The file changed since it was read." });
+      }
+      const replaced = [
+        ...allLines.slice(0, startLine - 1),
+        ...replacementText.split(/\r?\n/),
+        ...allLines.slice(endLine),
+      ].join(newline);
+      await workspace.writeFile(relativePath, replaced);
+      const outcome = reply({ ok: true });
+      if (workspace.isIndexTarget(relativePath)) {
+        requestIndex(rootPath);
+      }
+      return outcome;
+    } catch (error) {
+      return reply({ ok: false, error: error.message });
     }
   };
 
@@ -602,7 +722,9 @@ const createWorkspaceFileHandlers = (ctx) => {
     handleOpenFile,
     handleFilePreview,
     handleFileExcerpt,
+    handleFileBytes,
     handleSaveFile,
+    handleReplaceLines,
     handleFormatFile,
     handleCreateFile,
     handleCreateFolder,

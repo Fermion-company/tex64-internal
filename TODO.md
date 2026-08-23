@@ -5,6 +5,10 @@ Claude にやってほしいタスクをここに書く。上から順に着手�
 
 ## やること
 
+- AI モードの受け入れ確認: [docs/ai-mode-paper-e2e.md](docs/ai-mode-paper-e2e.md) の通り学部量子力学の教科書を S1 から実際に書き、チェックリストを埋める。
+
+- tdom-core: galley ジョブ無応答の再発監視（2026-08-20 に対処済み、tdom-core 082439a）。fork 失敗の即時 FORKFAIL 通知・インフラ障害の全面再構築エスカレート・lineage 退役・forensics 記録を実装し、fault 注入テストで 3 経路とも治癒を確認。残る未確定点は「あの日のハングの一次原因が fork 失敗（EAGAIN/ENOMEM）か fork 済み子の deadlock か」だけで、再発時は update レポートの stats.diagnostics（`fork-failed` / `no child ever announced` / `killed child N`）で判別できる。
+
 
 ## 完了
 

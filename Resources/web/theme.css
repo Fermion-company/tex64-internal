@@ -71,6 +71,8 @@
   --danger-text: #FF7B72;
   
   --status: #27C948;
+  --terminal-bg: #0e1116;
+  --terminal-fg: #cdd3de;
   
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0,0,0,0.3);
 
@@ -151,6 +153,8 @@
   --danger-text: #B91C1C;
 
   --status: #16A34A;
+  --terminal-bg: #f8fafc;
+  --terminal-fg: #263244;
 
   --shadow: 0 18px 44px rgba(15, 23, 42, 0.14), 0 4px 14px rgba(15, 23, 42, 0.08);
 
@@ -921,7 +925,7 @@ body.has-onboarding .launcher {
   flex-shrink: 0;
 }
 
-/* ---- App mode switcher (Code | AI | Pro) ---- */
+/* ---- App mode switcher (Code | AI) ---- */
 
 .mode-switcher {
   display: inline-flex;
@@ -994,7 +998,6 @@ body.has-onboarding .launcher {
 }
 
 :root[data-app-mode="ai"] #toggle-bottom-panel-button,
-:root[data-app-mode="ai"] #editor-split-button,
 :root[data-app-mode="ai"] #save-button,
 :root[data-app-mode="ai"] #format-button,
 :root[data-app-mode="ai"] #synctex-button,
@@ -4204,14 +4207,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 .pro-mode-controls { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--panel-border); }
-:root:not([data-pro-mode="true"]) .pro-mode-controls { display: none; }
+:root:not([data-app-mode="code"]) .pro-mode-controls { display: none; }
 .pro-figure-tools { display: inline-flex; align-items: center; gap: 6px; }
-.pro-layout-control { position: relative; display: inline-flex; align-items: center; }
-.pro-mode-toggle { display: inline-flex; align-items: center; gap: 6px; }
-.pro-mode-toggle-track { width: 28px; height: 16px; padding: 2px; border-radius: 999px; background: var(--panel-border-strong); transition: background .2s ease; }
-.pro-mode-toggle-thumb { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--text-soft); transition: transform .2s ease, background .2s ease; }
-.pro-mode-toggle.is-active .pro-mode-toggle-track { background: var(--accent); }
-.pro-mode-toggle.is-active .pro-mode-toggle-thumb { transform: translateX(12px); background: white; }
 #pro-canvas-open {
   display: inline-flex;
   align-items: center;
@@ -4239,95 +4236,22 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
 }
 #pro-canvas-open:active { transform: translateY(1px); }
-.pro-layout-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 8px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--control-bg); font-size: 10px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
-.pro-layout-trigger:hover, .pro-layout-trigger[aria-expanded="true"] { border-color: var(--panel-border-strong); background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%); }
-.pro-layout-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.pro-layout-chevron { margin-left: 1px; transition: transform .14s ease; }
-.pro-layout-trigger[aria-expanded="true"] .pro-layout-chevron { transform: rotate(180deg); }
-.pro-layout-control.is-open::after { content: ""; position: absolute; z-index: 79; top: 100%; right: 0; width: 218px; height: 6px; }
-.pro-layout-switcher { position: absolute; z-index: 80; top: calc(100% + 5px); right: 0; display: none; flex-direction: column; gap: 2px; min-width: 218px; padding: 4px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-md); background: var(--panel); box-shadow: var(--shadow); }
-.pro-layout-switcher[hidden] { display: none !important; }
-.pro-layout-control.is-open .pro-layout-switcher { display: flex; }
-.pro-layout-switcher button { display: inline-flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-height: 32px; border: 0; border-radius: var(--radius-sm); padding: 5px 8px; color: var(--text-soft); background: transparent; white-space: nowrap; }
-.pro-layout-switcher button:hover, .pro-layout-switcher button:focus-visible { color: var(--text); background: var(--control-bg); outline: none; }
-.pro-layout-switcher button svg { display: block; }
-.pro-layout-button-label { font-size: 10px; font-weight: 600; letter-spacing: .01em; }
-.pro-layout-switcher button[aria-checked="true"] { color: var(--accent); background: var(--panel-strong); }
-.pro-pane, .pro-splitter, .pro-pane-collapse { display: none; }
+.pro-pane, .pro-splitter { display: none; }
 
-/* Pro already owns the editor arrangement through the labeled layout picker. */
-:root[data-pro-mode="true"] #editor-split-button { display: none; }
-:root[data-pro-mode="true"] #toggle-bottom-panel-button { width: auto; padding: 0 7px; gap: 5px; }
-.topbar-layout-label { display: none; color: currentColor; font-size: 10px; font-weight: 600; white-space: nowrap; }
-:root[data-pro-mode="true"] .topbar-layout-label { display: inline; }
-
-@media (max-width: 1100px) {
-  :root[data-pro-mode="true"] .topbar-layout-label { display: none; }
-  :root[data-pro-mode="true"] #toggle-bottom-panel-button { width: 30px; padding: 0; }
-}
-
-:root[data-pro-mode="true"] .editor-groups {
+/* Code owns one fixed source/preview arrangement. */
+:root[data-app-mode="code"] .editor-groups {
   --pro-handle: 8px;
-  --pro-strip: 34px;
-  --pro-pane-a: .34fr;
-  --pro-pane-b: .33fr;
-  --pro-pane-c: .33fr;
-  --pro-pane-rest: .66fr;
+  --pro-preview-share: .34fr;
+  --pro-source-share: .66fr;
   transition: grid-template-columns .2s ease;
 }
-:root[data-pro-mode="true"] .editor-groups.is-pro-resizing { transition: none; user-select: none; }
-:root[data-pro-mode="true"] .editor-groups.is-pro-resizing > * { transition: none !important; }
-:root[data-pro-mode="true"] .editor-groups > .editor-splitter { display: none; }
-:root[data-pro-mode="true"] .pro-pane-collapse { display: inline-flex; }
-:root[data-pro-mode="true"] .pro-pane { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
-.pro-pane-header { height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--panel-border); color: var(--text-soft); font-size: 12px; }
-.pro-pane-header > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pro-pane-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; flex: 1 1 auto; min-width: 0; }
-/* Safety net for the same failure: even if the header runs out of room, the
-   buttons squash instead of spilling out of the pane and going dead. */
-.pro-pane-actions button { flex-shrink: 1; min-width: 0; overflow: hidden; }
-/* Quiet ghost buttons for pane chrome — match .topbar-layout-toggle rather than
-   the UA default bevel. */
-.pro-pane-actions button, .pro-pane-collapse, :root[data-pro-mode="true"] .pro-structure-button {
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-soft);
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease;
-}
-.pro-pane-actions button:hover, .pro-pane-collapse:hover, :root[data-pro-mode="true"] .pro-structure-button:hover {
-  background: var(--control-bg);
-  color: var(--text);
-}
-.pro-pane-actions button, .pro-pane-collapse { padding: 2px 7px; min-height: 24px; }
-/* Chip-style buttons for the pro popovers and the stash tray, which sit on
-   panel surfaces where a fully transparent button would not read as clickable. */
-.pro-capture-menu button, .pro-capture-confirm button, .pro-stash button {
-  margin: 0;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-sm);
-  background: var(--control-bg);
-  color: var(--text);
-  font-family: inherit;
-  line-height: 1;
-  cursor: pointer;
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease;
-}
-.pro-capture-menu button:hover, .pro-capture-confirm button:hover, .pro-stash button:hover {
-  border-color: var(--panel-border-strong);
-  background: color-mix(in srgb, var(--control-bg) 70%, var(--text) 8%);
-}
-.pro-stash button { font-size: 11px; min-height: 24px; padding: 2px 7px; }
-.pro-stash-item-actions button { border: none; background: transparent; }
+:root[data-app-mode="code"] .editor-groups.is-pro-resizing { transition: none; user-select: none; }
+:root[data-app-mode="code"] .editor-groups.is-pro-resizing > * { transition: none !important; }
+:root[data-app-mode="code"] .editor-groups > .editor-splitter { display: none; }
+:root[data-app-mode="code"] .pro-pane { display: grid; grid-template-rows: 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 .pro-pane-body { position: relative; min-height: 0; }
 .pro-pane-body .editor-viewer { display: grid; }
-/* The pane's empty state is the first thing Pro mode shows; a floating card
+/* The pane's empty state is the first thing the Code workspace shows; a floating card
    with a drop shadow reads as an error dialog there. Quiet hint instead. */
 .pro-pane-body .editor-viewer-message {
   border: none;
@@ -4345,106 +4269,30 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   font-size: 12px;
   color: var(--muted);
 }
-.pro-capture-overlay { position: absolute; inset: 0; z-index: 30; cursor: crosshair; background: rgb(10 20 35 / 8%); overflow: hidden; user-select: none; }
-.pro-capture-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); padding: 5px 9px; border-radius: 999px; background: rgb(20 24 32 / 82%); color: white; font-size: 11px; pointer-events: none; }
-.pro-capture-selection { position: absolute; border: 1px solid #fff; outline: 1px solid var(--accent); background: rgb(50 140 255 / 12%); box-shadow: 0 0 0 9999px rgb(0 0 0 / 24%); pointer-events: none; }
-.pro-capture-menu, .pro-capture-confirm { position: absolute; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; width: min(292px, calc(100% - 8px)); padding: 7px; border: 1px solid var(--panel-border-strong); border-radius: var(--radius-md); background: var(--panel); color: var(--text); box-shadow: var(--shadow); cursor: default; }
-.pro-capture-menu button, .pro-capture-confirm button { min-height: 25px; padding: 3px 7px; font-size: 11px; }
-.pro-capture-menu select, .pro-capture-menu input { max-width: 92px; min-height: 25px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--bg); font-size: 11px; }
-.pro-capture-menu label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; }
-.pro-capture-status { flex: 1 0 100%; min-height: 14px; font-size: 10px; color: var(--text-soft); overflow-wrap: anywhere; }
-.pro-capture-status.is-loading::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border: 1px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: pro-capture-spin .7s linear infinite; }
-.pro-capture-status.is-error, .pro-capture-confirm[data-error]::after { color: var(--danger); }
-.pro-capture-confirm { display: grid; }
-.pro-capture-confirm textarea { width: 100%; min-height: 100px; resize: vertical; box-sizing: border-box; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); padding: 6px; color: var(--text); background: var(--bg); font: 11px/1.4 var(--font-mono); user-select: text; }
-.pro-capture-confirm[data-error]::after { content: attr(data-error); font-size: 10px; }
-/* The stash lives in the sidebar as its own Pro-only tab; before Pro mode is
-   on, neither the tab nor its panel exists for the user. */
-:root:not([data-pro-mode="true"]) .tab[data-tab="stash"],
-:root:not([data-pro-mode="true"]) .panel[data-panel="stash"] { display: none !important; }
-.panel-body.pro-stash { display: flex; flex-direction: column; gap: 7px; padding: 8px; overflow-y: auto; overscroll-behavior: contain; }
-.panel[data-panel="stash"] .panel-header-actions [data-stash-count] { min-width: 20px; padding: 1px 5px; border-radius: 999px; background: var(--accent); color: white; text-align: center; font-size: 10px; }
-.pro-stash-list { display: grid; gap: 5px; }
-.pro-stash-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 42px; padding: 5px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); background: var(--bg); cursor: pointer; }
-.pro-stash-item > b { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--accent); color: white; font-size: 10px; cursor: grab; }
-.pro-stash-item.is-dragging > b { cursor: grabbing; }
-.pro-stash-item img { width: 100%; height: 68px; object-fit: contain; background: white; transition: height .18s ease; }
-.pro-stash-item.is-expanded img { height: min(42vh, 320px); }
-/* Fragments are there to be copied out, so keep them selectable. */
-.pro-stash-item pre { margin: 0; max-height: 48px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.35 var(--font-mono); user-select: text; cursor: text; }
-.pro-stash-item.is-expanded pre { max-height: 220px; overflow: auto; }
-.pro-stash-item-actions { display: grid; grid-template-columns: repeat(2, 23px); grid-auto-rows: 20px; gap: 2px; }
-.pro-stash-item-actions .is-copy { grid-area: 1 / 1; }
-.pro-stash-item-actions .is-remove { grid-area: 2 / 1; }
-.pro-stash-item-actions .is-move-up { grid-area: 1 / 2; }
-.pro-stash-item-actions .is-move-down { grid-area: 2 / 2; }
-.pro-stash-item-actions button { min-width: 23px; min-height: 20px; padding: 0; }
-.pro-stash-item-actions .is-remove { opacity: 0; color: var(--danger); transition: opacity .15s ease; }
-.pro-stash-item:hover .pro-stash-item-actions .is-remove, .pro-stash-item:focus-within .pro-stash-item-actions .is-remove { opacity: 1; }
-.pro-stash-item.is-dragging { opacity: .45; }
-.pro-stash-item.is-drag-over { outline: 2px solid var(--accent); outline-offset: 1px; }
-.pro-stash-dropzone { padding: 7px; border: 1px dashed var(--panel-border-strong); border-radius: var(--radius-sm); color: var(--text-soft); text-align: center; font-size: 10px; }
-.pro-stash-dropzone.is-drag-over { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.pro-stash textarea { width: 100%; resize: vertical; box-sizing: border-box; padding: 6px; border: 1px solid var(--panel-border); border-radius: var(--radius-sm); color: var(--text); background: var(--bg); font-family: inherit; font-size: 11px; line-height: 1.4; }
-.pro-stash-add, .pro-stash-actions, .pro-stash-output { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.pro-stash-output[hidden] { display: none; }
-.pro-stash-add button { min-height: 26px; color: var(--text-soft); }
-.pro-stash-add button:hover { color: var(--text); }
-/* AI edit is the tray's one primary action. */
-.pro-stash [data-stash-ai] { padding: 2px 12px; border-color: transparent; background: var(--accent); color: white; }
-.pro-stash [data-stash-ai]:hover { border-color: transparent; background: var(--accent-strong); color: white; }
-.pro-stash [data-stash-ai]:disabled { opacity: .5; cursor: default; }
-.pro-stash-actions [data-stash-status] { flex: 1; color: var(--text-soft); font-size: 10px; overflow-wrap: anywhere; }
-.pro-stash.is-result .pro-stash-list { border-left: 3px solid var(--accent); padding-left: 5px; }
-@keyframes pro-capture-spin { to { transform: rotate(360deg); } }
 .pro-splitter { position: relative; cursor: col-resize; min-width: var(--pro-handle); }
 .pro-splitter::before { content: ""; position: absolute; z-index: 3; inset: 0 auto 0 50%; width: 18px; transform: translateX(-50%); background: linear-gradient(to right, transparent calc(50% - .5px), var(--panel-border) calc(50% - .5px), var(--panel-border) calc(50% + .5px), transparent calc(50% + .5px)); transition: filter .2s ease; }
 .pro-splitter:hover::before, .is-pro-resizing .pro-splitter::before { filter: contrast(1.8); }
 
-/* Legacy: the top-bar split (division) button is retired. Split view itself
-   still works — the Pro layouts drive it — there is just no button for it.
-   Restore by deleting this rule. */
-#editor-split-button { display: none !important; }
-/* Layout 1 puts the source on the LEFT and the preview on the RIGHT (the
+/* Code puts the source on the LEFT and the preview on the RIGHT (the
    convention every LaTeX editor shares), even though the DOM keeps the preview
    pane first — hence the explicit grid-column assignments. */
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, var(--pro-pane-rest)) var(--pro-handle) minmax(0, var(--pro-pane-a)); }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-preview-pane,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="primary"] { display: grid; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-preview-pane { grid-column: 3; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] .pro-reference-pane,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] #pro-splitter-secondary,
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="preview-source"] > [data-editor-group="secondary"] { display: none; }
+:root[data-app-mode="code"] .editor-groups { grid-template-columns: minmax(0, var(--pro-source-share)) var(--pro-handle) minmax(0, var(--pro-preview-share)); }
+:root[data-app-mode="code"] .editor-groups .pro-preview-pane,
+:root[data-app-mode="code"] .editor-groups > [data-editor-group="primary"] { display: grid; }
+:root[data-app-mode="code"] .editor-groups > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
+:root[data-app-mode="code"] .editor-groups #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
+:root[data-app-mode="code"] .editor-groups .pro-preview-pane { grid-column: 3; grid-row: 1; }
+:root[data-app-mode="code"] .editor-groups > [data-editor-group="secondary"] { display: none; }
 
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) var(--pro-handle) minmax(0, var(--pro-pane-b)) var(--pro-handle) minmax(0, var(--pro-pane-c)); }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] .pro-preview-pane { display: none; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] > [data-editor-group="primary"] { grid-column: 1; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] #pro-splitter-primary { display: block; grid-column: 2; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] .pro-reference-pane { grid-column: 3; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] #pro-splitter-secondary { display: block; grid-column: 4; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups[data-pro-layout="source-reference-code"] > [data-editor-group="secondary"] { display: grid; grid-column: 5; grid-row: 1; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed[data-pro-layout="preview-source"] { grid-template-columns: minmax(0, 1fr) 0 var(--pro-strip); }
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="preview-source"] { grid-template-columns: var(--pro-strip) 0 minmax(0, 1fr); }
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: var(--pro-strip) 0 minmax(0, var(--pro-pane-b)) var(--pro-handle) minmax(0, var(--pro-pane-c)); }
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) 0 var(--pro-strip) 0 minmax(0, var(--pro-pane-c)); }
-:root[data-pro-mode="true"] .editor-groups.is-code-collapsed[data-pro-layout="source-reference-code"] { grid-template-columns: minmax(0, var(--pro-pane-a)) var(--pro-handle) minmax(0, var(--pro-pane-b)) 0 var(--pro-strip); }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane .pro-pane-body,
-:root[data-pro-mode="true"] .editor-groups.is-source-collapsed > [data-editor-group="primary"] .editor-surface,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane .pro-pane-body,
-:root[data-pro-mode="true"] .editor-groups.is-code-collapsed > [data-editor-group="secondary"] .editor-surface { visibility: hidden; }
-/* A collapsed pane is a 34px strip; its header contents would clip into
-   garbage ("Prev…"), so the strip shows only a centered expand chevron and
-   invites the click-to-reopen the pane already handles. */
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane { cursor: pointer; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header { justify-content: center; padding: 0; border-bottom: 0; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header > *,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header > * { display: none; }
-:root[data-pro-mode="true"] .editor-groups.is-preview-collapsed .pro-preview-pane > .pro-pane-header::after,
-:root[data-pro-mode="true"] .editor-groups.is-reference-collapsed .pro-reference-pane > .pro-pane-header::after { content: "‹"; color: var(--text-soft); font-size: 14px; }
+/* A detached PDF window is already the preview destination. Collapse the
+   redundant Code preview column and return the full workspace to the source. */
+:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] #pro-splitter-primary,
+:root[data-app-mode="code"] .editor-groups[data-code-preview="false"] .pro-preview-pane {
+  display: none;
+}
 
 .editor-header {
   display: flex;
@@ -4534,10 +4382,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   transform: translateY(1px);
 }
 
-#editor-split-button.is-active {
-  color: var(--text);
-}
-
 #save-button:focus-visible,
 #format-button:focus-visible,
 #synctex-button:focus-visible,
@@ -4566,57 +4410,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .editor-tabs-list::-webkit-scrollbar {
   display: none;
 }
-
-.editor-tab-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  padding: 0 6px;
-  position: relative;
-  z-index: 3;
-  background: var(--panel);
-  flex-shrink: 0;
-}
-
-.pro-structure-button,
-.pro-structure-drawer { display: none; }
-
-:root[data-pro-mode="true"] .pro-structure-button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 2px 8px;
-  font-size: 11px;
-}
-
-:root[data-pro-mode="true"] .pro-structure-drawer:not([hidden]) {
-  display: flex;
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 6px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(480px, calc(100vh - 110px));
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  /* Opaque: the drawer floats over the editor, and a translucent panel over
-     dark code turns to mud in the light theme. */
-  background: var(--panel-strong);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .24);
-  z-index: 30;
-}
-
-.pro-structure-heading { padding: 10px 12px 8px; color: var(--text-soft); font-size: 11px; font-weight: 600; border-bottom: 1px solid var(--panel-border); }
-.pro-structure-list { display: flex; flex-direction: column; overflow: auto; padding: 4px; }
-.pro-structure-item { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 6px; align-items: center; width: 100%; min-height: 28px; padding: 4px 8px 4px calc(8px + var(--structure-depth) * 12px); border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
-.pro-structure-item:hover, .pro-structure-item:focus-visible { background: var(--panel-strong); }
-.pro-structure-level { color: var(--text-soft); font-size: 9px; font-weight: 700; text-transform: uppercase; }
-.pro-structure-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.pro-structure-empty { padding: 18px 12px; color: var(--text-soft); font-size: 12px; text-align: center; }
-.pro-structure-empty.is-hidden { display: none; }
 
 .editor-tab {
   display: inline-flex;
@@ -6703,6 +6496,32 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   font-size: 14px;
 }
 
+/* A long brief is collapsed so the run's progress and result stay in view;
+   the mask fades the cut instead of chopping a line in half. */
+.ai-message.is-user.is-clamped .ai-message-content {
+  max-height: 8.5em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+}
+.ai-message.is-user.has-expand {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.ai-message-expand {
+  align-self: flex-end;
+  margin-top: 2px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--text-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+.ai-message-expand:hover {
+  color: var(--accent);
+}
+
 /* Assistant */
 .ai-message.is-assistant {
   align-items: flex-start;
@@ -6942,6 +6761,38 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   padding: 1px 5px;
   border-radius: var(--radius-sm);
   color: var(--text);
+}
+
+/* ── Markdown — Links ──────────────────────────────────── */
+/* Both are inert in the DOM: the chat panel opens them itself, so nothing in
+   model output can navigate the renderer. */
+.ai-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 0.86em;
+  line-height: 1.5;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.ai-file-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ai-external-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
 /* ── Markdown — Lists ──────────────────────────────────── */
@@ -8655,7 +8506,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   justify-content: space-between;
   padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--panel-border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--panel-header);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -8716,7 +8567,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 .bottom-panel-close:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--control-bg);
   color: var(--text);
 }
 
@@ -8746,7 +8597,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   min-height: 0;
   width: 100%;
   padding: 6px 4px 6px 10px;
-  background: #0e1116;
+  background: var(--terminal-bg);
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
@@ -8764,8 +8615,8 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
    its opaque background covers the static block cursor, and the underline mimics
    the OS IME. The committed text is echoed by the shell on confirm as usual. */
 .terminal-host .xterm .composition-view {
-  background: #0e1116;
-  color: #cdd3de;
+  background: var(--terminal-bg);
+  color: var(--terminal-fg);
   text-decoration: underline;
   text-underline-offset: 2px;
   z-index: 5;

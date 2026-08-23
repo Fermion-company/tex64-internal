@@ -1,6 +1,6 @@
 export const createEditorSessionRuntime = (context, deps) => {
     var _a, _b;
-    const { editorGroups: editorGroupsRoot, editorTabs, editorTabsList, editorTabsSecondary, editorTabsListSecondary, editorHost, editorHostSecondary, editorSplitButton, editorSplitter, } = context.dom;
+    const { editorGroups: editorGroupsRoot, editorTabs, editorTabsList, editorTabsSecondary, editorTabsListSecondary, editorHost, editorHostSecondary, editorSplitter, } = context.dom;
     const editorGroupsRootEl = editorGroupsRoot instanceof HTMLElement ? editorGroupsRoot : null;
     const editorGroupPrimary = (_a = editorGroupsRootEl === null || editorGroupsRootEl === void 0 ? void 0 : editorGroupsRootEl.querySelector('[data-editor-group="primary"]')) !== null && _a !== void 0 ? _a : null;
     const editorGroupSecondary = (_b = editorGroupsRootEl === null || editorGroupsRootEl === void 0 ? void 0 : editorGroupsRootEl.querySelector('[data-editor-group="secondary"]')) !== null && _b !== void 0 ? _b : null;
@@ -56,7 +56,6 @@ export const createEditorSessionRuntime = (context, deps) => {
         deps,
         dom: {
             editorGroupsRootEl,
-            editorSplitButton: editorSplitButton instanceof HTMLElement ? editorSplitButton : null,
             editorSplitter: editorSplitter instanceof HTMLElement ? editorSplitter : null,
         },
         editorGroups,

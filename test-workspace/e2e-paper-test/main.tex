@@ -3,6 +3,7 @@
 \documentclass[a4paper,11pt]{article}
 
 \usepackage[utf8]{inputenc}
+\usepackage{luatexja}
 \usepackage{cite}
 \usepackage{geometry}
 \usepackage{graphicx}
@@ -15,8 +16,8 @@
 \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
 
 \title{Attention Mechanisms in Transformer Architectures: A Brief Survey}
-\author{Anonymous}
-\date{\today}
+\author{幸川卓実}
+
 
 \begin{document}
 \maketitle
@@ -26,12 +27,12 @@
 
   The survey covers the main attention formulations used in Transformer architectures, including scaled dot-product attention, multi-head attention, self-attention, and cross-attention. It also discusses sparse and other efficient variants designed to reduce the quadratic cost of full attention while preserving expressive power. Across these families, we compare their computational trade-offs, representational strengths, and typical use cases in language, vision, and multimodal settings.
 
-  Our main takeaway is that attention is both the defining strength and the primary bottleneck of Transformers: it provides flexible global context modeling, but its cost motivates continual innovation in approximation, sparsity, and architectural design. Understanding these mechanisms is essential for interpreting current Transformer models and for developing more scalable future systems.
+  Our takeaway is that attention is both the defining strength and the primary bottleneck of Transformers: it provides flexible global context modeling, but its cost motivates continual innovation in approximation, sparsity, and architectural design. Understanding these mechanisms is essential for interpreting current Transformer models and for developing more scalable future systems.
 \end{abstract}
 
 \section{Introduction}
 
-Transformers have become the dominant architecture for sequence modeling because they replace recurrence with attention~\cite{vaswani2017attention}, a mechanism that directly compares all elements in a sequence and learns how much each element should influence every other element. This design makes it possible to model long-range dependencies more effectively than many earlier neural approaches, while also enabling highly parallel computation during training.
+Transformers  have become the dominant architecture for sequence modeling because they replace recurrence with attention~\cite{vaswani2017attention}, a mechanism that directly compares all elements in a sequence and learns how much each element should influence every other element. This design makes it possible to model long-range dependencies more effectively than many earlier neural approaches, while also enabling highly parallel computation during training.
 
 The purpose of this paper is to provide a compact survey of the attention mechanisms that make Transformer models work. Rather than focusing on a single application, we emphasize the common mathematical structure shared by attention variants and explain how different design choices affect expressiveness, efficiency, and scalability. In particular, we highlight the trade-off between global context modeling and computational cost, which has driven much of the recent research in this area.
 

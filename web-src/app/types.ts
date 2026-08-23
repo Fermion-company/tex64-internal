@@ -345,6 +345,20 @@ export type TexizeBridge = {
   snippet?: (payload: { imageBase64: string; translate?: string; assetsDir?: string }) => Promise<{ ok: boolean; tex?: string; assets?: string[]; error?: string }>;
   status?: () => Promise<unknown>;
 };
+export type TdomBridge = {
+  start?: () => Promise<{ ok: boolean; url?: string; error?: string }>;
+  status?: () => Promise<unknown>;
+  stop?: () => Promise<{ ok: boolean; error?: string }>;
+  push?: (payload: {
+    source?: string;
+    path?: string;
+    fresh?: boolean;
+    workspaceRoot?: string;
+    rootFile?: string;
+    buffers?: Array<{ path: string; text: string }>;
+  }) => Promise<{ ok: boolean; url?: string; error?: string }>;
+  windowLive?: (payload: { url: string | null; generation?: number; show?: boolean; hide?: boolean; error?: string | null }) => Promise<{ ok: boolean; error?: string }>;
+};
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
 };
@@ -370,6 +384,7 @@ export type BridgeWindow = Window &
     tex64Capture?: CaptureBridge;
     tex64MathOcr?: MathOcrBridge;
     tex64Texize?: TexizeBridge;
+    tex64Tdom?: TdomBridge;
     tex64Ai?: AiCompletionBridge;
     tex64Files?: FilesBridge;
     tex64AiWeb?: AiWebBridge;

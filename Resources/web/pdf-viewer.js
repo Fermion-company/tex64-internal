@@ -10,10 +10,7 @@ import {
   clampZoomScale,
   wheelDeltaToZoomFactor,
 } from "./pdf-zoom-math.mjs";
-import {
-  calculateCaptureOutputSize,
-  viewportPointToDocumentPoint,
-} from "./app/pdf-capture-math.js";
+import { normalizeLiveToolbarSnapshot } from "./pdf-live-toolbar-state.mjs";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
 // so it reads the stored UI locale itself. English is the source language and
@@ -65,6 +62,11 @@ const UI_STRINGS = {
     de: "Bereit",
     es: "Listo",
   },
+  live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
+  liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
+  liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
+  liveError: { en: "TeX error · last good preview", ja: "TeXエラー・直前の表示を保持", zh: "TeX 错误 · 保留上次预览", ko: "TeX 오류 · 이전 미리보기 유지", fr: "Erreur TeX · dernier aperçu conservé", de: "TeX-Fehler · letzte Vorschau bleibt", es: "Error de TeX · se conserva la vista anterior" },
+  liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
   loadFailed: {
     en: "Failed to load the PDF.",
     ja: "読み込みに失敗しました。",
@@ -89,7 +91,6 @@ const UI_STRINGS = {
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
   searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
   searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
-  invert: { en: "Invert", ja: "反転", zh: "反色", ko: "반전", fr: "Inverser", de: "Invertieren", es: "Invertir" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
   print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
   reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
@@ -134,7 +135,6 @@ const localizeChrome = () => {
   setTitle("pdf-rotate-right", "rotateRight");
   setTitle("pdf-search-prev", "searchPrev");
   setTitle("pdf-search-next", "searchNext");
-  setTitle("pdf-invert", "invert");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
@@ -149,7 +149,6 @@ const localizeChrome = () => {
     const el = document.getElementById(id);
     if (el) el.textContent = uiString(key);
   };
-  setText("pdf-invert", "invert");
   setText("pdf-print", "print");
   setText("pdf-reload", "reload");
   setText("pdf-status", "waiting");
@@ -240,7 +239,6 @@ const initPdfViewer = () => {
   const searchInput = document.getElementById("pdf-search-input");
   const searchPrevBtn = document.getElementById("pdf-search-prev");
   const searchNextBtn = document.getElementById("pdf-search-next");
-  const invertBtn = document.getElementById("pdf-invert");
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
@@ -254,7 +252,6 @@ const initPdfViewer = () => {
 
   const MIN_SCALE = 0.4;
   const MAX_SCALE = 3;
-  const CAPTURE_MAX_LONG_EDGE = 8000;
   const WHEEL_ZOOM_SENSITIVITY = 0.01;
   const ZOOM_DRAW_DELAY = 160;
   const CLICK_BIAS_X_PT = 0;
@@ -280,26 +277,6 @@ const initPdfViewer = () => {
     pendingRestore: null,
   };
 
-  const getCaptureViewport = () => {
-    if (!scrollEl) return null;
-    const rect = scrollEl.getBoundingClientRect();
-    return {
-      left: rect.left,
-      top: rect.top,
-      width: scrollEl.clientWidth,
-      height: scrollEl.clientHeight,
-      scrollLeft: scrollEl.scrollLeft,
-      scrollTop: scrollEl.scrollTop,
-    };
-  };
-
-  const postCaptureScrollState = () => {
-    const viewport = getCaptureViewport();
-    if (viewport && bridge?.postMessage) {
-      bridge.postMessage({ type: "capture-scroll-state-result", viewport });
-    }
-  };
-
   // Tracks the scroll-restore re-apply frame so a SyncTeX jump can cancel it.
   let restoreRafId = null;
   let resizeRafId = null;
@@ -308,6 +285,10 @@ const initPdfViewer = () => {
   // document — setDocument would then reset us to the top and lose the jump.
   // Defer it instead and let pagesinit apply it to the freshly loaded pages.
   let reloadInFlight = false;
+  let liveSurfaceOwned = false;
+  let deferredStaticOpen = null;
+  let deferredStaticFlushToken = 0;
+  let staticLoadSequence = 0;
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
@@ -332,23 +313,15 @@ const initPdfViewer = () => {
     if (statusEl) statusEl.textContent = text;
   };
 
-  const invertKey = "tex64.pdf.invert";
-  const setInverted = (enabled, options = {}) => {
-    document.body.classList.toggle("is-inverted", enabled === true);
-    if (options.persist === false) {
-      return;
-    }
-    try {
-      localStorage.setItem(invertKey, enabled === true ? "true" : "false");
-    } catch {
-      // ignore
-    }
+  const appearanceKey = "tex64.appearance.theme";
+  const applyViewerTheme = (theme) => {
+    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
   };
   if (embedded) {
     const syncEmbeddedTheme = () => {
       try {
         const parentTheme = window.parent?.document?.documentElement?.dataset?.theme;
-        setInverted(parentTheme === "dark", { persist: false });
+        applyViewerTheme(parentTheme);
       } catch {
         // Parent access is best-effort; both documents are normally local files.
       }
@@ -365,13 +338,13 @@ const initPdfViewer = () => {
     }
   } else {
     try {
-      const storedInvert = localStorage.getItem(invertKey);
-      if (storedInvert === "true") {
-        document.body.classList.add("is-inverted");
-      }
+      applyViewerTheme(localStorage.getItem(appearanceKey));
     } catch {
-      // ignore
+      applyViewerTheme("dark");
     }
+    window.addEventListener("storage", (event) => {
+      if (event.key === appearanceKey) applyViewerTheme(event.newValue);
+    });
   }
 
   const updateZoomLabel = (value = state.scale) => {
@@ -1147,6 +1120,7 @@ const initPdfViewer = () => {
   };
 
   const loadDocument = async (url, path) => {
+    const loadSequence = ++staticLoadSequence;
     // Re-opening the SAME PDF (a rebuild, or the reload button) should keep the
     // current scroll position instead of jumping back to the top — the user is
     // often zoomed into one spot and rebuilding repeatedly. Zoom level is
@@ -1166,7 +1140,19 @@ const initPdfViewer = () => {
     setStatus(uiString("loading"));
     try {
       const task = pdfjs.getDocument(createPdfDocumentOptions(url));
-      state.doc = await task.promise;
+      const nextDocument = await task.promise;
+      // Live may have taken ownership while this fetch was in flight. Never
+      // let a late pdf.js setDocument erase the stable fallback underneath
+      // the iframe; retain only the newest request for after Live is off.
+      if (loadSequence !== staticLoadSequence || liveSurfaceOwned) {
+        if (loadSequence === staticLoadSequence && liveSurfaceOwned) {
+          deferredStaticOpen = { url, path };
+          reloadInFlight = false;
+        }
+        try { await nextDocument?.destroy?.(); } catch { /* superseded document */ }
+        return;
+      }
+      state.doc = nextDocument;
       state.pageCount = state.doc.numPages;
       updatePageCount();
       if (titleEl) {
@@ -1180,6 +1166,12 @@ const initPdfViewer = () => {
       }
       setStatus(uiString("ready"));
     } catch (error) {
+      if (loadSequence !== staticLoadSequence) return;
+      if (liveSurfaceOwned) {
+        deferredStaticOpen = { url, path };
+        reloadInFlight = false;
+        return;
+      }
       reloadInFlight = false;
       setStatus(uiString("loadFailed"));
       // eslint-disable-next-line no-console
@@ -1187,10 +1179,24 @@ const initPdfViewer = () => {
     }
   };
 
+  const requestStaticDocument = (url, path) => {
+    if (liveSurfaceOwned) {
+      deferredStaticOpen = { url, path };
+      return;
+    }
+    deferredStaticOpen = null;
+    void loadDocument(url, path);
+  };
+
   const runSearch = (findPrevious = false) => {
-    if (!state.doc || !searchInput) return;
+    if (!searchInput) return;
     const query = searchInput.value.trim();
     if (!query) return;
+    if (isLive()) {
+      postLive("search", { query, findPrevious });
+      return;
+    }
+    if (!state.doc) return;
     eventBus.dispatch("find", {
       query,
       caseSensitive: false,
@@ -1490,12 +1496,6 @@ const initPdfViewer = () => {
     });
   }
 
-  if (invertBtn) {
-    invertBtn.addEventListener("click", () => {
-      setInverted(!document.body.classList.contains("is-inverted"));
-    });
-  }
-
   if (searchInput) {
     searchInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -1536,93 +1536,358 @@ const initPdfViewer = () => {
       }
       const baseUrl = state.url.split("?")[0];
       const nextUrl = `${baseUrl}?t=${Date.now()}`;
-      loadDocument(nextUrl, state.path);
+      requestStaticDocument(nextUrl, state.path);
     });
   }
 
-  const captureRegion = async (rawRegion, coordinateSpace) => {
-    if (!state.doc || !scrollEl) throw new Error("No PDF is open.");
-    let region = {
-      x: Number(rawRegion?.x), y: Number(rawRegion?.y),
-      width: Number(rawRegion?.width), height: Number(rawRegion?.height),
-    };
-    if (![region.x, region.y, region.width, region.height].every(Number.isFinite) || region.width <= 0 || region.height <= 0) {
-      throw new Error("Invalid capture region.");
-    }
-    if (coordinateSpace !== "document") {
-      const viewport = getCaptureViewport();
-      if (!viewport) throw new Error("The PDF viewport is unavailable.");
-      region = { ...viewportPointToDocumentPoint(region, viewport), width: region.width, height: region.height };
-    }
-
-    const pageHits = [];
-    for (let index = 0; index < state.pageCount; index += 1) {
-      const pageView = pdfViewer.getPageView(index);
-      if (!(pageView?.div instanceof HTMLElement) || !pageView.viewport) continue;
-      const pageRect = pageView.div.getBoundingClientRect();
-      const existingCanvas = pageView.canvas || pageView.div.querySelector(".canvasWrapper canvas");
-      const canvasRect = existingCanvas?.getBoundingClientRect();
-      const contentOffset = resolvePageContentOffset(pageView.div);
-      const left = canvasRect?.width
-        ? canvasRect.left - scrollEl.getBoundingClientRect().left + scrollEl.scrollLeft
-        : pageRect.left - scrollEl.getBoundingClientRect().left + scrollEl.scrollLeft + contentOffset.left;
-      const top = canvasRect?.height
-        ? canvasRect.top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
-        : pageRect.top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop + contentOffset.top;
-      const pageWidth = canvasRect?.width || pageView.viewport.width;
-      const pageHeight = canvasRect?.height || pageView.viewport.height;
-      const hitLeft = Math.max(region.x, left), hitTop = Math.max(region.y, top);
-      const hitRight = Math.min(region.x + region.width, left + pageWidth);
-      const hitBottom = Math.min(region.y + region.height, top + pageHeight);
-      if (hitRight > hitLeft && hitBottom > hitTop) {
-        pageHits.push({ index, pageView, existingCanvas, left, top, pageWidth, pageHeight, hitLeft, hitTop, hitRight, hitBottom });
-      }
-    }
-    if (!pageHits.length) throw new Error("The selected region does not overlap a PDF page.");
-
-    const renderedRatios = pageHits.flatMap(({ existingCanvas, pageWidth, pageHeight }) =>
-      existingCanvas?.width && existingCanvas?.height
-        ? [existingCanvas.width / Math.max(pageWidth, 1), existingCanvas.height / Math.max(pageHeight, 1)]
-        : []
-    );
-    const pixelRatio = Math.max(window.devicePixelRatio || 1, ...renderedRatios);
-    const outputSize = calculateCaptureOutputSize(region.width, region.height, pixelRatio, CAPTURE_MAX_LONG_EDGE);
-    if (!outputSize) throw new Error("Invalid capture output size.");
-    const output = document.createElement("canvas");
-    output.width = outputSize.width; output.height = outputSize.height;
-    const context = output.getContext("2d");
-    if (!context) throw new Error("Canvas rendering is unavailable.");
-    context.fillStyle = "white"; context.fillRect(0, 0, output.width, output.height);
-
-    for (const hit of pageHits) {
-      let source = hit.existingCanvas;
-      let sourceScaleX = source?.width / Math.max(hit.pageWidth, 1);
-      let sourceScaleY = source?.height / Math.max(hit.pageHeight, 1);
-      if (!source?.width || !source?.height) {
-        const page = await state.doc.getPage(hit.index + 1);
-        const temporaryScale = Math.min(
-          outputSize.scale,
-          CAPTURE_MAX_LONG_EDGE / Math.max(hit.pageWidth, hit.pageHeight)
-        );
-        const renderScale = Number(hit.pageView.viewport.scale) * temporaryScale;
-        const viewport = page.getViewport({ scale: renderScale, rotation: hit.pageView.viewport.rotation });
-        source = document.createElement("canvas");
-        source.width = Math.max(1, Math.round(viewport.width));
-        source.height = Math.max(1, Math.round(viewport.height));
-        const sourceContext = source.getContext("2d");
-        if (!sourceContext) throw new Error("Canvas rendering is unavailable.");
-        await page.render({ canvasContext: sourceContext, viewport }).promise;
-        sourceScaleX = source.width / Math.max(hit.pageWidth, 1);
-        sourceScaleY = source.height / Math.max(hit.pageHeight, 1);
-      }
-      context.drawImage(source,
-        (hit.hitLeft - hit.left) * sourceScaleX, (hit.hitTop - hit.top) * sourceScaleY,
-        (hit.hitRight - hit.hitLeft) * sourceScaleX, (hit.hitBottom - hit.hitTop) * sourceScaleY,
-        (hit.hitLeft - region.x) * outputSize.scale, (hit.hitTop - region.y) * outputSize.scale,
-        (hit.hitRight - hit.hitLeft) * outputSize.scale, (hit.hitBottom - hit.hitTop) * outputSize.scale);
-    }
-    return output.toDataURL("image/png");
+  // ---- live preview (tdom) -----------------------------------------------
+  const liveFrame = document.getElementById("pdf-live-frame");
+  let liveToolbar = normalizeLiveToolbarSnapshot();
+  let liveActivationSequence = 0;
+  let liveRevealSequence = 0;
+  let liveErrorSurfaceSequence = 0;
+  let pendingLiveErrorSurface = null;
+  let liveActivation = null;
+  const isLive = () => document.body.classList.contains("is-live");
+  const isLivePending = () => document.body.classList.contains("is-live-pending");
+  const hasLiveSession = () => isLive() || isLivePending();
+  const postLive = (action, extra) => {
+    const target = liveFrame && liveFrame.contentWindow;
+    if (target) target.postMessage({
+      source: "tdom-host",
+      activationId: liveActivation?.id,
+      action,
+      ...(extra || {}),
+    }, "*");
   };
+  const renderLiveToolbar = () => {
+    if (pageCountEl) pageCountEl.textContent = `/ ${liveToolbar.pageCount}`;
+    if (pageInputForLive) {
+      pageInputForLive.max = String(liveToolbar.pageCount || 1);
+      if (document.activeElement !== pageInputForLive) {
+        pageInputForLive.value = String(liveToolbar.page);
+      }
+    }
+    if (zoomLabel) zoomLabel.textContent = `${Math.round(liveToolbar.zoom * 100)}%`;
+  };
+  const renderLiveStatus = (data) => {
+    const search = data?.search;
+    if (search?.query) {
+      setStatus(`${Number(search.current) || 0} / ${Number(search.total) || 0}`);
+      if (statusEl) statusEl.title = search.query;
+      return;
+    }
+    const status = data?.status;
+    if (!status) return;
+    let label = uiString("live");
+    let detail = "";
+    if (status.up === false) label = uiString("liveUnavailable");
+    else if (status.busy || (status.mode === "opaque" && status.canonical?.inFlight)) {
+      label = uiString("liveUpdating");
+    }
+    else if (status.canonical?.error && status.canonical.errorRev >= status.srcRev) {
+      label = uiString("liveError");
+      detail = status.canonical.error;
+    } else if (status.mode === "opaque") label = uiString("liveFullCompile");
+    setStatus(label);
+    if (statusEl) statusEl.title = detail;
+  };
+  const restoreStaticToolbar = () => {
+    state.pageCount = state.doc?.numPages ?? 0;
+    updatePageCount();
+    if (pageInput) pageInput.value = String(pdfViewer.currentPageNumber || 1);
+    updateZoomLabel(state.scale || pdfViewer.currentScale || 1);
+  };
+  const cancelLiveReveal = () => {
+    liveRevealSequence += 1;
+    if (liveActivation) liveActivation.reveal = null;
+  };
+  const cancelLiveErrorSurface = () => {
+    liveErrorSurfaceSequence += 1;
+    pendingLiveErrorSurface = null;
+  };
+  const deactivateLive = () => {
+    // Advancing the sequence also invalidates a delayed ready message from a
+    // frame that is about to be navigated to about:blank.
+    liveActivationSequence += 1;
+    cancelLiveReveal();
+    liveActivation = null;
+    liveSurfaceOwned = false;
+    document.body.classList.remove("is-live", "is-live-pending");
+    hideContextMenu();
+    if (liveFrame) {
+      liveFrame.setAttribute("aria-hidden", "true");
+      delete liveFrame.dataset.livePhase;
+      liveFrame.src = "about:blank";
+    }
+    liveToolbar = normalizeLiveToolbarSnapshot();
+    restoreStaticToolbar();
+    setStatus(uiString("ready"));
+    const pendingStatic = deferredStaticOpen;
+    if (pendingStatic) {
+      deferredStaticOpen = null;
+      const flushToken = ++deferredStaticFlushToken;
+      // Give the retained static PDF one committed frame after removing the
+      // live cover. A new activation before then keeps the request deferred.
+      requestAnimationFrame(() => {
+        if (flushToken !== deferredStaticFlushToken) return;
+        if (liveSurfaceOwned) {
+          deferredStaticOpen = pendingStatic;
+          return;
+        }
+        requestStaticDocument(pendingStatic.url, pendingStatic.path);
+      });
+    }
+  };
+  const activateLive = (data) => {
+    if (!liveFrame || !liveActivation || !isLivePending()) return false;
+    if (data?.ready !== true || data.activationId !== liveActivation.id) {
+      if (liveActivation.reveal) cancelLiveReveal();
+      return false;
+    }
+    const documentEpoch = Number(data.documentEpoch);
+    if (!Number.isInteger(documentEpoch)) return false;
+    if (Number.isInteger(liveActivation.pendingDocumentEpoch) &&
+        documentEpoch !== liveActivation.pendingDocumentEpoch) return false;
+    if (Number.isInteger(liveActivation.documentEpoch) &&
+        documentEpoch < liveActivation.documentEpoch) return false;
+    if (liveActivation.reveal?.documentEpoch === documentEpoch) {
+      // The child sends periodic snapshots. Keep the newest toolbar/status
+      // payload without postponing an already scheduled paint barrier.
+      liveActivation.reveal.data = data;
+      return true;
+    }
+
+    const activation = liveActivation;
+    const revealToken = ++liveRevealSequence;
+    activation.reveal = { token: revealToken, documentEpoch, data };
+    liveFrame.dataset.livePhase = "staging";
+    // First rAF lets the ready child paint while it is still covered by the
+    // static PDF. The second rAF changes only stacking order, so the next
+    // compositor commit can never contain the iframe's blank/old backing
+    // store. A newer activation/reset invalidates the captured token.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const reveal = activation.reveal;
+        if (!reveal || reveal.token !== revealToken || liveRevealSequence !== revealToken) return;
+        if (liveActivation !== activation || !isLivePending()) return;
+        if (activation.id !== data.activationId || reveal.documentEpoch !== documentEpoch) return;
+        if (Number.isInteger(activation.pendingDocumentEpoch) &&
+            documentEpoch !== activation.pendingDocumentEpoch) return;
+        const latestData = reveal.data;
+        if (latestData?.ready !== true || Number(latestData.documentEpoch) !== documentEpoch) return;
+
+        activation.reveal = null;
+        activation.documentEpoch = documentEpoch;
+        activation.pendingDocumentEpoch = null;
+        // Both mutations happen in one task. The already-painted iframe
+        // replaces the opaque pdf.js cover on this compositor commit.
+        document.body.classList.remove("is-live-pending");
+        document.body.classList.add("is-live");
+        liveFrame.setAttribute("aria-hidden", "false");
+        liveFrame.dataset.livePhase = "active";
+        renderLiveToolbar();
+        setStatus(uiString("live"));
+        renderLiveStatus(latestData);
+        bridge?.postMessage?.({
+          type: "live-surface-ready",
+          payload: {
+            activationId: activation.id,
+            url: activation.url,
+            generation: activation.generation,
+            documentEpoch,
+          },
+        });
+      });
+    });
+    return true;
+  };
+  const holdStaticForDocumentReset = (data) => {
+    if (!liveFrame || !liveActivation) return false;
+    const documentEpoch = Number(data?.documentEpoch);
+    if (!Number.isInteger(documentEpoch)) return false;
+    const adoptedEpoch = Number(liveActivation.documentEpoch);
+    const pendingEpoch = Number(liveActivation.pendingDocumentEpoch);
+    if (Number.isInteger(adoptedEpoch) && documentEpoch <= adoptedEpoch) return false;
+    if (Number.isInteger(pendingEpoch) && documentEpoch < pendingEpoch) return false;
+
+    cancelLiveReveal();
+    liveActivation.pendingDocumentEpoch = documentEpoch;
+    liveToolbar = normalizeLiveToolbarSnapshot();
+    document.body.classList.remove("is-live");
+    document.body.classList.add("is-live-pending");
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.dataset.livePhase = "reset-pending";
+    restoreStaticToolbar();
+    setStatus(uiString("liveUpdating"));
+    // Resolve the new stacking order before allowing the child to discard
+    // its old document DOM. The iframe stays paintable below the static PDF.
+    getComputedStyle(liveFrame).zIndex;
+    postLive("reset-ack", { documentEpoch });
+    return true;
+  };
+  const setLiveMode = (payload) => {
+    // Any Live state message supersedes an error-paint acknowledgement that
+    // has not crossed its compositor barrier yet. The following live-error
+    // message, when present, schedules a new exact acknowledgement.
+    cancelLiveErrorSurface();
+    const rawUrl = payload && typeof payload.url === "string" ? payload.url.trim() : "";
+    if (!rawUrl) {
+      deactivateLive();
+      return;
+    }
+    if (!liveFrame) return;
+
+    const url = rawUrl.replace(/\/+$/, "");
+    const generation = Number(payload?.generation) || 0;
+    if (liveActivation?.url === url && liveActivation?.generation === generation && hasLiveSession()) return;
+
+    liveSurfaceOwned = true;
+    deferredStaticFlushToken += 1;
+    const id = `${Date.now().toString(36)}-${(++liveActivationSequence).toString(36)}`;
+    cancelLiveReveal();
+    liveActivation = {
+      id,
+      url,
+      generation,
+      documentEpoch: null,
+      pendingDocumentEpoch: null,
+      reveal: null,
+    };
+    liveToolbar = normalizeLiveToolbarSnapshot();
+    document.body.classList.remove("is-live");
+    document.body.classList.add("is-live-pending");
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.dataset.livePhase = "activation-pending";
+    hideContextMenu();
+    restoreStaticToolbar();
+    setStatus(uiString("liveUpdating"));
+
+    const params = new URLSearchParams({
+      embed: "1",
+      theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+      activationId: id,
+    });
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
+    liveFrame.src = `${url}/?${params.toString()}`;
+  };
+  const setLiveError = (payload) => {
+    cancelLiveErrorSurface();
+    const error = typeof payload?.error === "string" ? payload.error : "";
+    if (!error) {
+      if (statusEl) statusEl.title = "";
+      if (isLive()) setStatus(uiString("live"));
+      else if (isLivePending()) setStatus(uiString("liveUpdating"));
+      else setStatus(uiString("ready"));
+      return;
+    }
+
+    setStatus(error);
+    if (statusEl) statusEl.title = error;
+    const pending = {
+      token: liveErrorSurfaceSequence,
+      error,
+      url: typeof payload?.url === "string" ? payload.url : null,
+      generation: Number(payload?.generation) || 0,
+    };
+    pendingLiveErrorSurface = pending;
+    // A new detached window can otherwise become native-visible after its
+    // renderer says merely `ready`, one frame before the terminal error text
+    // is actually painted. Use the same two-paint commit boundary as Live.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (pendingLiveErrorSurface !== pending || pending.token !== liveErrorSurfaceSequence) return;
+        pendingLiveErrorSurface = null;
+        bridge?.postMessage?.({
+          type: "live-error-surface-ready",
+          payload: {
+            error: pending.error,
+            url: pending.url,
+            generation: pending.generation,
+          },
+        });
+      });
+    });
+  };
+  const pageInputForLive = document.getElementById("pdf-page-input");
+  window.addEventListener("message", (event) => {
+    if (!liveFrame || event.source !== liveFrame.contentWindow) return;
+    const data = event.data;
+    if (!data || data.source !== "tdom-embed" || !hasLiveSession()) return;
+    if (!liveActivation || data.activationId !== liveActivation.id) return;
+    if (data.action === "reset-pending") {
+      holdStaticForDocumentReset(data);
+      return;
+    }
+
+    // Status snapshots may arrive while the frame is preloading.  Keep them
+    // offscreen until the same activation explicitly declares its first
+    // exact paint ready.
+    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, data);
+    if (isLivePending()) {
+      activateLive(data);
+      return;
+    }
+    if (Number.isInteger(liveActivation.documentEpoch) &&
+        Number(data.documentEpoch) !== liveActivation.documentEpoch) return;
+    if (data.action === "source") {
+      bridge?.postMessage?.({
+        type: "live-source",
+        payload: { file: data.file, line: data.line, column: data.column },
+      });
+      return;
+    }
+    if (data.action === "edit") {
+      bridge?.postMessage?.({
+        type: "live-edit",
+        payload: {
+          sessionId: data.sessionId,
+          regionId: data.regionId,
+          kind: data.kind,
+          file: data.file,
+          start: data.start,
+          end: data.end,
+          baseValue: data.baseValue,
+          value: data.value,
+          replacement: data.replacement,
+          cancel: data.cancel === true,
+          finish: data.finish === true,
+          sourceRev: data.sourceRev,
+        },
+      });
+      return;
+    }
+    renderLiveToolbar();
+    renderLiveStatus(data);
+  });
+  // Capture-phase routing: when live, the toolbar talks to the engine frame
+  // and pdf.js never sees the event.
+  const routeLiveClick = (id, action) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", (event) => {
+      if (!isLive()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      postLive(action);
+    }, true);
+  };
+  routeLiveClick("pdf-zoom-in", "zoom-in");
+  routeLiveClick("pdf-zoom-out", "zoom-out");
+  routeLiveClick("pdf-fit-width", "zoom-fit");
+  routeLiveClick("pdf-fit-page", "zoom-fit");
+  routeLiveClick("pdf-prev", "page-prev");
+  routeLiveClick("pdf-next", "page-next");
+  pageInputForLive?.addEventListener("change", (event) => {
+    if (!isLive()) return;
+    event.stopImmediatePropagation();
+    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, {
+      page: Number(pageInputForLive.value),
+    });
+    renderLiveToolbar();
+    postLive("goto-page", { page: liveToolbar.page });
+  }, true);
 
   if (bridge && typeof bridge.onMessage === "function") {
     bridge.onMessage(async (message) => {
@@ -1630,28 +1895,17 @@ const initPdfViewer = () => {
       if (message.type === "open") {
         const payload = message.payload || {};
         if (payload.url) {
-          loadDocument(payload.url, payload.path || null);
+          requestStaticDocument(payload.url, payload.path || null);
         }
       }
       if (message.type === "sync" && message.payload) {
         applySync(message.payload);
       }
-      if (message.type === "capture-scroll-state") {
-        postCaptureScrollState();
+      if (message.type === "live") {
+        setLiveMode(message.payload || null);
       }
-      if (message.type === "capture-scroll-by" && scrollEl) {
-        const deltaY = Number(message.deltaY);
-        if (Number.isFinite(deltaY)) scrollEl.scrollTop += deltaY;
-        postCaptureScrollState();
-      }
-      if (message.type === "capture-region") {
-        const requestId = message.requestId;
-        try {
-          const dataUrl = await captureRegion(message.payload, message.coordinateSpace);
-          bridge.postMessage({ type: "capture-region-result", requestId, ok: true, dataUrl });
-        } catch (error) {
-          bridge.postMessage({ type: "capture-region-result", requestId, ok: false, error: error?.message || String(error) });
-        }
+      if (message.type === "live-error") {
+        setLiveError(message.payload || null);
       }
     });
     if (typeof bridge.postMessage === "function") {

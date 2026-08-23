@@ -1,28 +1,24 @@
-// Top-bar app mode switcher: Code | AI | Pro.
+// Top-bar app mode switcher: Code | AI.
 //
-// - "code": the classic TeX64 editor (default).
+// - "code": the complete hands-on TeX workspace (default).
 // - "ai":   the embedded tex64-ai document agent (services/tex64-ai), the same
 //           codebase that ships as the standalone web app.
-// - "pro":  the Pro split layouts for hands-on TeX editing (docs/pro-mode-design.md).
 //
 // The active mode is mirrored to <html data-app-mode> so theme.css can swap
 // the visible surface, and persisted per machine.
 
-export type AppMode = "code" | "ai" | "pro";
+export type AppMode = "code" | "ai";
 
 export const APP_MODE_STORAGE_KEY = "tex64.appMode.v1";
 
 export const parseAppMode = (raw: string | null): AppMode | null => {
-  if (raw === "code" || raw === "ai" || raw === "pro") return raw;
+  if (raw === "code" || raw === "ai") return raw;
   return null;
 };
 
-// Migration: before the switcher existed, Pro mode was a standalone toggle
-// persisted in tex64.proMode.v1. Users who had it on land in Pro mode.
-export const resolveInitialAppMode = (
-  storedMode: string | null,
-  legacyProEnabled: boolean
-): AppMode => parseAppMode(storedMode) ?? (legacyProEnabled ? "pro" : "code");
+// Old "pro" selections migrate to Code because those tools now live there.
+export const resolveInitialAppMode = (storedMode: string | null): AppMode =>
+  storedMode === "pro" ? "code" : parseAppMode(storedMode) ?? "code";
 
 type AppModeDeps = {
   onModeChange: (mode: AppMode, previous: AppMode | null) => void;

@@ -180,7 +180,8 @@ export const createAiChatStatusController = (params: CreateAiChatStatusControlle
     }
     const authenticated = Boolean(state.platformAuth?.authenticated);
     aiAuthTopbar.classList.toggle("is-hidden", authenticated);
-    aiAuthTopbar.textContent = aiText("login");
+    aiAuthTopbar.textContent = aiText("login_tex64");
+    aiAuthTopbar.title = aiText("login_tex64_hint");
     aiAuthTopbar.disabled = false;
   };
 

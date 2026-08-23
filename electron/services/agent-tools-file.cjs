@@ -29,6 +29,8 @@ const {
   verifyExpectedSha,
   verifyPostWrite,
   checkLatexInvariants,
+  findIntroducedLatexDuplicates,
+  findIntroducedDuplicateLine,
   formatChangeSummary,
 } = require("./agent-tools-safety.cjs");
 
@@ -593,6 +595,15 @@ const readCurrentTextContent = async (service, policy, conversationId, targetPat
  * Shared helper: submit an edited file content through the proposal system
  * with full safety (destructive-shrink guard, structural invariants, post-write verify).
  */
+const adjacentDuplicateError = (dup) =>
+  "DUPLICATE LINE REJECTED: this edit would make a line identical to the line immediately " +
+  dup.side +
+  " it:\n  \"" +
+  (dup.line.length > 80 ? dup.line.slice(0, 80) + "..." : dup.line) +
+  "\"\nThis is almost always an accidental duplication (for example, replacing a stray " +
+  "line with a copy of its neighbor). To DELETE a stray or undefined line, use delete_lines. " +
+  "To change content, write distinct correct text - never copy an adjacent line.";
+
 const submitEditedContent = async ({
   service,
   policy,
@@ -633,6 +644,36 @@ const submitEditedContent = async ({
         "if this is truly intended.",
       conflict: true,
     };
+  }
+  // Every write funnels through here, so the duplication guards live here too
+  // rather than on the two line-range tools that happened to have them.
+  if (!allowFullRewrite) {
+    const duplicatedCommands = findIntroducedLatexDuplicates(
+      targetPath,
+      originalContent,
+      updatedContent,
+    );
+    if (duplicatedCommands.length > 0) {
+      return {
+        error:
+          "DUPLICATE COMMAND REJECTED: this edit would leave " +
+          duplicatedCommands.join(", ") +
+          " in " +
+          targetPath +
+          " more than once. A document carries each of these exactly once, and " +
+          "LaTeX silently uses the last — so the old line would stay behind while " +
+          "the change looked applied. Edit the existing line in place, or delete " +
+          "it with delete_lines; never write the new version beside the old.",
+        conflict: true,
+      };
+    }
+    const duplicatedLine = findIntroducedDuplicateLine(
+      originalContent,
+      updatedContent,
+    );
+    if (duplicatedLine) {
+      return { error: adjacentDuplicateError({ side: "above", line: duplicatedLine }) };
+    }
   }
   if (!allowFullRewrite) {
     const brokenInvariants = checkLatexInvariants(
@@ -728,14 +769,6 @@ const findIntroducedAdjacentDuplicate = (lines, blockStartIndex, blockLength) =>
   }
   return null;
 };
-const adjacentDuplicateError = (dup) =>
-  "DUPLICATE LINE REJECTED: this edit would make a line identical to the line immediately " +
-  dup.side +
-  " it:\n  \"" +
-  (dup.line.length > 80 ? dup.line.slice(0, 80) + "..." : dup.line) +
-  "\"\nThis is almost always an accidental duplication (for example, replacing a stray " +
-  "line with a copy of its neighbor). To DELETE a stray or undefined line, use delete_lines. " +
-  "To change content, write distinct correct text - never copy an adjacent line.";
 
 const handleReplaceLines = async (service, args, policy, conversationId) => {
   const targetPath = normalizePath(args.path);

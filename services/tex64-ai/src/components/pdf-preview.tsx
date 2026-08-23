@@ -28,7 +28,26 @@ import {
   type PdfElementRegion,
   type ScrollMetrics,
 } from "./pdf-preview-geometry";
+import {
+  findTextBlockRects,
+  type TextItemLike,
+  type TextRect,
+} from "./pdf-text-blocks";
 import styles from "./pdf-preview.module.css";
+
+/** Composes two 2-D affine transforms, as pdf.js stores them. */
+function applyTransform(outer: number[], inner: number[]): number[] {
+  const [a1 = 1, b1 = 0, c1 = 0, d1 = 1, e1 = 0, f1 = 0] = outer;
+  const [a2 = 1, b2 = 0, c2 = 0, d2 = 1, e2 = 0, f2 = 0] = inner;
+  return [
+    a1 * a2 + c1 * b2,
+    b1 * a2 + d1 * b2,
+    a1 * c2 + c1 * d2,
+    b1 * c2 + d1 * d2,
+    a1 * e2 + c1 * f2 + e1,
+    b1 * e2 + d1 * f2 + f1,
+  ];
+}
 
 export type { PdfElementRegion, PdfRegionRect } from "./pdf-preview-geometry";
 
@@ -38,14 +57,28 @@ export interface PdfPreviewProps {
   /** Element regions for the overlay; null/[] = overlay disabled. */
   regions: PdfElementRegion[] | null;
   selectedId: string | null;
-  /** True while a newer PDF is being compiled: keep pages visible, dim them. */
+  /** True while a newer PDF is compiling. Shows a pill; never blocks the page. */
   refreshing: boolean;
   /** False = plain viewer without the hover/click overlay (e.g. mobile). */
   interactive: boolean;
   onSelect: (id: string | null) => void;
+  /**
+   * A click on the page itself, in PDF points from the page's top-left. Used
+   * where there is no element map — the workspace's own build — to ask SyncTeX
+   * what the reader pointed at.
+   */
+  onPointSelect?: (point: {
+    page: number;
+    x: number;
+    y: number;
+    /** Lines of the text block the click landed in, for outlining it. */
+    rects: TextRect[];
+  }) => void;
   emptyHint?: string;
   /** Card anchored just below the selected region (編集カード). */
   selectionCard?: ReactNode;
+  /** Extra control at the toolbar's right end (e.g. the build button). */
+  toolbarAction?: ReactNode;
 }
 
 /** Gap between pages inside the scroller (kept in JS so scroll math matches). */
@@ -96,8 +129,10 @@ export function PdfPreview({
   refreshing,
   interactive,
   onSelect,
+  onPointSelect,
   emptyHint = "まだ紙面がありません",
   selectionCard = null,
+  toolbarAction = null,
 }: PdfPreviewProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   /** Loading task backing the currently displayed document. */
@@ -105,10 +140,14 @@ export function PdfPreview({
   /** Scroll metrics captured just before a new document swaps in. */
   const scrollRestoreRef = useRef<ScrollMetrics | null>(null);
   const docKeyRef = useRef(0);
+  /** Page indices whose latest render failed for a non-cancellation reason. */
+  const failedPagesRef = useRef<Set<number>>(new Set());
 
   const [loaded, setLoaded] = useState<LoadedDocument | null>(null);
   const [loading, setLoading] = useState(pdfUrl !== null);
   const [loadFailed, setLoadFailed] = useState(false);
+  /** A page render failed while the canvas still shows the previous frame. */
+  const [renderFailed, setRenderFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
   const [zoom, setZoom] = useState<ZoomState>({ mode: "fit" });
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -122,6 +161,7 @@ export function PdfPreview({
   if (lastUrl !== pdfUrl) {
     setLastUrl(pdfUrl);
     setLoadFailed(false);
+    setRenderFailed(false);
     setLoading(pdfUrl !== null);
     if (!pdfUrl) {
       setLoaded(null);
@@ -133,6 +173,8 @@ export function PdfPreview({
   // asked. The new document is fully loaded and measured *before* it replaces
   // the previous one, so a recompile never blanks the viewer.
   useEffect(() => {
+    // Page-render failures belong to the document being replaced.
+    failedPagesRef.current.clear();
     if (!pdfUrl) {
       docKeyRef.current = 0;
       const stale = committedTaskRef.current;
@@ -245,6 +287,13 @@ export function PdfPreview({
     [pageHeightsPx],
   );
 
+  // Where a point-based selection landed, so its card has a page to sit under
+  // when there is no element map to anchor to.
+  const [pointAt, setPointAt] = useState<{
+    page: number;
+    y: number;
+    rects: TextRect[];
+  } | null>(null);
   const regionsByPage = useMemo(() => groupRectsByPage(regions ?? []), [regions]);
   // 編集カードは、選択要素の矩形が載っている最後のページの直下にアンカーする。
   const selectionCardPage = useMemo(() => {
@@ -259,9 +308,9 @@ export function PdfPreview({
   }, [selectedId, selectionCard, regionsByPage]);
   const overlayActive =
     interactive && regions !== null && regions.length > 0 && loaded !== null;
-  // While refreshing the overlay stays visible (selected outline included) but
-  // ignores the pointer, so any lingering hover state is simply not shown.
-  const effectiveHoveredId = overlayActive && !refreshing ? hoveredId : null;
+  // A compile in flight is background work: the page stays readable and
+  // clickable throughout, and the refresh pill is the only sign of it.
+  const effectiveHoveredId = overlayActive ? hoveredId : null;
 
   // Restore the scroll ratio right after a new document swapped in, before
   // the browser paints the new layout.
@@ -290,6 +339,24 @@ export function PdfPreview({
   const adjustZoom = (delta: number) => {
     setZoom({ mode: "manual", percent: clampZoomPercent(zoomPercent + delta) });
   };
+
+  const handleRendered = useCallback((index: number) => {
+    if (failedPagesRef.current.delete(index)) {
+      setRenderFailed(failedPagesRef.current.size > 0);
+    }
+  }, []);
+  const handleRenderFailed = useCallback((index: number) => {
+    failedPagesRef.current.add(index);
+    setRenderFailed(true);
+  }, []);
+  const retry = () => {
+    failedPagesRef.current.clear();
+    setLoadFailed(false);
+    setRenderFailed(false);
+    setLoading(true);
+    setRetryToken((token) => token + 1);
+  };
+  const failed = loadFailed || renderFailed;
 
   return (
     <section className={styles.viewer} aria-label="紙面プレビュー">
@@ -329,28 +396,25 @@ export function PdfPreview({
         <span className={styles.pageIndicator} aria-label="ページ位置">
           {loaded ? `${currentPage} / ${loaded.pages.length}` : "– / –"}
         </span>
+        {toolbarAction}
       </div>
 
       <div className={styles.stage}>
-        {loadFailed ? (
+        {failed ? (
           <div className={styles.errorBanner} role="alert">
             <CircleAlert aria-hidden="true" size={14} />
-            <span>紙面を表示できませんでした</span>
-            <button
-              type="button"
-              className={styles.retryButton}
-              onClick={() => {
-                setLoadFailed(false);
-                setLoading(true);
-                setRetryToken((token) => token + 1);
-              }}
-            >
+            <span>
+              {loadFailed
+                ? "紙面を表示できませんでした"
+                : "最新の紙面を描画できませんでした（表示は前の版のままです）"}
+            </span>
+            <button type="button" className={styles.retryButton} onClick={retry}>
               <RotateCw aria-hidden="true" size={13} />
               再試行
             </button>
           </div>
         ) : null}
-        {refreshing && loaded && !loadFailed ? (
+        {refreshing && loaded && !failed ? (
           <div className={styles.refreshPill} role="status">
             <span className={styles.refreshDot} aria-hidden="true" />
             紙面を更新中
@@ -360,7 +424,7 @@ export function PdfPreview({
         <div ref={scrollerRef} className={styles.scroller} onScroll={handleScroll}>
           {loaded ? (
             <div
-              className={clsx(styles.pages, refreshing && styles.pagesDimmed)}
+              className={styles.pages}
               style={{ padding: STAGE_PADDING_PX, gap: PAGE_GAP_PX }}
             >
               {loaded.pages.map((page, index) => {
@@ -380,12 +444,45 @@ export function PdfPreview({
                     regionRects={overlayActive ? (regionsByPage.get(index + 1) ?? null) : null}
                     hoveredId={effectiveHoveredId}
                     selectedId={selectedId}
-                    disabled={refreshing}
                     onHover={setHoveredId}
                     onSelect={onSelect}
-                    selectionCard={
-                      overlayActive && selectionCardPage === index + 1 ? selectionCard : null
+                    onPointSelect={
+                      onPointSelect
+                        ? (point) => {
+                            setPointAt({
+                              page: point.page,
+                              y: point.y,
+                              rects: point.rects,
+                            });
+                            onPointSelect(point);
+                          }
+                        : undefined
                     }
+                    selectionCard={
+                      (overlayActive && selectionCardPage === index + 1) ||
+                      (!overlayActive && pointAt?.page === index + 1)
+                        ? selectionCard
+                        : null
+                    }
+                    index={index}
+                    // A point selection has no region to sit under, so its card
+                    // sits where the reader clicked.
+                    selectionCardTop={
+                      !overlayActive && pointAt?.page === index + 1
+                        ? (pointAt.rects.at(-1)
+                            ? (pointAt.rects.at(-1)!.top +
+                                pointAt.rects.at(-1)!.height) *
+                              scale
+                            : pointAt.y * scale)
+                        : null
+                    }
+                    pointRects={
+                      !overlayActive && pointAt?.page === index + 1
+                        ? pointAt.rects
+                        : null
+                    }
+                    onRendered={handleRendered}
+                    onRenderFailed={handleRenderFailed}
                   />
                 );
               })}
@@ -411,12 +508,36 @@ interface PdfPageViewProps {
   regionRects: PageRegionRect[] | null;
   hoveredId: string | null;
   selectedId: string | null;
-  /** True while refreshing: overlay stays visible but ignores the pointer. */
-  disabled: boolean;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
+  onPointSelect?: (point: {
+    page: number;
+    x: number;
+    y: number;
+    rects: TextRect[];
+  }) => void;
+  /** Outline drawn around what a point selection picked. */
+  pointRects?: TextRect[] | null;
   /** Card to render just below the selected region on this page. */
   selectionCard: ReactNode;
+  /** Pixels from the page top for a card with no region to follow. */
+  selectionCardTop?: number | null;
+  /** Position of this page in the stack; identifies it to the parent. */
+  index: number;
+  /** A fresh frame reached the canvas. */
+  onRendered: (index: number) => void;
+  /** The render failed for a reason other than being cancelled/superseded. */
+  onRenderFailed: (index: number) => void;
+}
+
+/** pdfjs reports cancellations by exception name, not by a dedicated type. */
+function isRenderingCancelled(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "RenderingCancelledException"
+  );
 }
 
 function PdfPageView({
@@ -428,12 +549,21 @@ function PdfPageView({
   regionRects,
   hoveredId,
   selectedId,
-  disabled,
   onHover,
   onSelect,
+  onPointSelect,
+  pointRects = null,
   selectionCard,
+  selectionCardTop = null,
+  index,
+  onRendered,
+  onRenderFailed,
 }: PdfPageViewProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The card scrolls itself into view once, when it appears. An inline ref
+  // callback runs again on every render, and re-scrolling each time pins the
+  // viewport to the card — the reader could not scroll away while it was open.
+  const scrolledCardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -448,15 +578,26 @@ function PdfPageView({
       canvas.width = width;
       canvas.height = height;
     }
+    let superseded = false;
     const renderTask = page.render({ canvas, viewport });
-    renderTask.promise.catch(() => {
-      // Cancelled or superseded renders keep the previous frame; document
-      // level failures surface through the error banner instead.
-    });
+    renderTask.promise.then(
+      () => {
+        if (!superseded) onRendered(index);
+      },
+      (error: unknown) => {
+        // A cancelled render is routine (zoom change, document swap) and keeps
+        // the previous frame. A genuine failure must NOT: the canvas still
+        // shows the stale frame, so silently swallowing it would report the
+        // previous revision as if it were the new one.
+        if (superseded || isRenderingCancelled(error)) return;
+        onRenderFailed(index);
+      },
+    );
     return () => {
+      superseded = true;
       renderTask.cancel();
     };
-  }, [page, scale, dpr]);
+  }, [page, scale, dpr, index, onRendered, onRenderFailed]);
 
   return (
     <div className={styles.page} style={{ width: cssWidth, height: cssHeight }}>
@@ -466,11 +607,91 @@ function PdfPageView({
         style={{ width: cssWidth, height: cssHeight }}
         aria-hidden="true"
       />
+      {pointRects && pointRects.length > 0 ? (
+        <div className={styles.overlay} aria-hidden="true">
+          {pointRects.map((rect, rectIndex) => (
+            <div
+              key={`${rect.top}-${rectIndex}`}
+              className={clsx(styles.region, styles.regionSelected)}
+              style={{
+                left: rect.left * scale,
+                top: rect.top * scale,
+                width: rect.width * scale,
+                height: rect.height * scale,
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+      {!regionRects && onPointSelect ? (
+        <div
+          className={styles.overlay}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            // The overlay covers the rendered page exactly, so undoing the
+            // render scale gives PDF points from its top-left corner.
+            const point = {
+              x: (event.clientX - bounds.left) / scale,
+              y: (event.clientY - bounds.top) / scale,
+            };
+            const answer = (rects: TextRect[]) =>
+              onPointSelect({ page: index + 1, ...point, rects });
+            // Text items come in page space (origin bottom-left); the
+            // viewport transform puts them in the frame the overlay uses.
+            const base = page.getViewport({ scale: 1 });
+            void page
+              .getTextContent()
+              .then((content) =>
+                answer(
+                  findTextBlockRects(
+                    (content.items as unknown as TextItemLike[]).map((item) =>
+                      item.transform
+                        ? {
+                            ...item,
+                            transform: applyTransform(
+                              base.transform,
+                              item.transform,
+                            ),
+                          }
+                        : item,
+                    ),
+                    point,
+                  ),
+                ),
+              )
+              // Without the page's text the click still selects; it just has
+              // nothing to outline.
+              .catch(() => answer([]));
+          }}
+        />
+      ) : null}
+      {!regionRects && selectionCard && selectionCardTop !== null ? (
+        <div
+          ref={(node) => {
+            // An inline ref detaches (null) and reattaches on EVERY render,
+            // so the null call must not clear the guard — resetting there
+            // re-scrolls each render and pins the viewport to the card. The
+            // stored node only differs when the card genuinely remounts.
+            if (!node || scrolledCardRef.current === node) return;
+            scrolledCardRef.current = node;
+            node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }}
+          className={styles.selectionCard}
+          style={{
+            top: Math.min(selectionCardTop + 12, Math.max(8, cssHeight - 260)),
+            left: Math.max(8, (cssWidth - Math.min(430, cssWidth - 16)) / 2),
+            width: Math.min(430, cssWidth - 16),
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {selectionCard}
+        </div>
+      ) : null}
       {regionRects ? (
         <div
-          className={clsx(styles.overlay, disabled && styles.overlayDisabled)}
+          className={styles.overlay}
           onClick={() => {
-            if (!disabled) onSelect(null);
+            onSelect(null);
           }}
         >
           {regionRects.map((entry) => {

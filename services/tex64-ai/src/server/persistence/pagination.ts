@@ -27,6 +27,23 @@ export function normalizePageRequest(
   return { limit, offset };
 }
 
+/**
+ * How much of the thread a turn replays, and how much of it the store keeps.
+ * One cap in both places keeps "what the model remembers" identical to "what
+ * is persisted" instead of letting the two silently diverge.
+ */
+export const DEFAULT_CONVERSATION_MESSAGE_LIMIT = 200;
+export const MAX_STORED_CONVERSATION_MESSAGES = 400;
+
+export function normalizeConversationLimit(
+  limit = DEFAULT_CONVERSATION_MESSAGE_LIMIT,
+): number {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    return DEFAULT_CONVERSATION_MESSAGE_LIMIT;
+  }
+  return Math.min(limit, MAX_STORED_CONVERSATION_MESSAGES);
+}
+
 export function normalizeEventLimit(limit = DEFAULT_EVENT_PAGE_SIZE): number {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_EVENT_PAGE_SIZE) {
     throw new Error("Event page size is outside the supported range.");

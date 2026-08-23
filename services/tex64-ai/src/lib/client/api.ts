@@ -1,6 +1,5 @@
-import { RUN_STAGES } from "./types";
 import type {
-  AgentRun,
+  ChatMessage,
   ClientError,
   ClientResult,
   CreateDocumentInput,
@@ -8,19 +7,10 @@ import type {
   DocumentElement,
   DocumentPatch,
   DocumentSummary,
-  RunProgressEvent,
-  StartRunInput,
+  TurnFrame,
 } from "./types";
 
 const REQUEST_TIMEOUT_MS = 5_000;
-const RUN_STATUSES: AgentRun["status"][] = [
-  "queued",
-  "running",
-  "waiting_approval",
-  "completed",
-  "failed",
-  "cancelled",
-];
 const DOCUMENT_KINDS: DocumentDetail["kind"][] = ["proposal", "report", "paper", "memo"];
 const DOCUMENT_STATUSES: DocumentDetail["status"][] = ["draft", "working", "ready"];
 
@@ -191,8 +181,8 @@ function isDetail(value: unknown): value is DocumentDetail {
     value["elements"].every(isElement) &&
     Array.isArray(value["versions"]) &&
     value["versions"].every(isVersion) &&
-    Array.isArray(value["runs"]) &&
-    value["runs"].every(isRun) &&
+    Array.isArray(value["messages"]) &&
+    value["messages"].every(isChatMessage) &&
     (value["eyebrow"] === undefined || typeof value["eyebrow"] === "string") &&
     (value["author"] === undefined || typeof value["author"] === "string") &&
     (value["artifactUrl"] === undefined || typeof value["artifactUrl"] === "string") &&
@@ -201,22 +191,13 @@ function isDetail(value: unknown): value is DocumentDetail {
   );
 }
 
-function isRun(value: unknown): value is AgentRun {
+function isChatMessage(value: unknown): value is ChatMessage {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    typeof value.documentId === "string" &&
-    typeof value.prompt === "string" &&
-    typeof value.stage === "string" &&
-    RUN_STAGES.includes(value.stage as AgentRun["stage"]) &&
-    typeof value.status === "string" &&
-    RUN_STATUSES.includes(value.status as AgentRun["status"]) &&
-    typeof value.createdAt === "string" &&
-    typeof value.updatedAt === "string" &&
-    (value.resultNote === undefined || typeof value.resultNote === "string") &&
-    (value.inputKind === undefined ||
-      value.inputKind === null ||
-      value.inputKind === "clarification")
+    (value.role === "user" || value.role === "assistant") &&
+    typeof value.text === "string" &&
+    typeof value.createdAt === "string"
   );
 }
 
@@ -285,59 +266,79 @@ export async function patchDocument(
   }
 }
 
-export async function startRun(
-  documentId: string,
-  input: StartRunInput,
-  idempotencyKey = window.crypto.randomUUID(),
-): Promise<ClientResult<AgentRun>> {
-  try {
-    const payload = getEnvelopeValue(
-      await requestJsonWithRetry(`/api/documents/${encodeURIComponent(documentId)}/runs`, {
-        method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ ...input, idempotencyKey }),
-      }),
-      "run",
-    );
-    if (!isRun(payload)) throw new InvalidResponseError();
-    return { data: payload, source: "remote", ok: true };
-  } catch (error) {
-    return requestFailure(error);
+function isTurnFrame(value: unknown): value is TurnFrame {
+  if (!isRecord(value)) return false;
+  switch (value.type) {
+    case "text":
+      return typeof value.delta === "string";
+    case "tool":
+      return (
+        typeof value.name === "string" &&
+        (value.state === "start" || value.state === "ok" || value.state === "error")
+      );
+    case "revision":
+      return Number.isSafeInteger(value.revision);
+    case "compiled":
+      return (
+        Number.isSafeInteger(value.revision) && Number.isSafeInteger(value.pageCount)
+      );
+    case "error":
+      return typeof value.message === "string";
+    case "done":
+      return (
+        value.status === "completed" ||
+        value.status === "aborted" ||
+        value.status === "failed"
+      );
+    default:
+      return false;
   }
 }
 
-const RUN_STAGE_SET: readonly AgentRun["stage"][] = RUN_STAGES;
-
-function isProgressEvent(value: unknown): value is RunProgressEvent {
-  return (
-    isRecord(value) &&
-    typeof value.stage === "string" &&
-    RUN_STAGE_SET.includes(value.stage as AgentRun["stage"]) &&
-    typeof value.label === "string" &&
-    Number.isSafeInteger(value.sequence) &&
-    typeof value.occurredAt === "string" &&
-    (value.attempt === undefined || Number.isSafeInteger(value.attempt))
-  );
-}
-
-export async function listRunEvents(
+/**
+ * Sends one message and reports the agent's reply as it arrives. Aborting the
+ * signal interrupts the turn server-side; whatever was already written stays
+ * in the conversation.
+ */
+export async function sendMessage(
   documentId: string,
-  runId: string,
-  after?: number,
-): Promise<ClientResult<RunProgressEvent[]>> {
+  input: { prompt: string; targetNodeId?: string },
+  onFrame: (frame: TurnFrame) => void,
+  signal: AbortSignal,
+): Promise<ClientResult<null>> {
   try {
-    const query = after === undefined ? "" : `?after=${after}`;
-    const payload = getEnvelopeValue(
-      await requestJson(
-        `/api/documents/${encodeURIComponent(documentId)}/runs/${encodeURIComponent(runId)}/events${query}`,
-      ),
-      "events",
+    const response = await fetch(
+      `/api/documents/${encodeURIComponent(documentId)}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal,
+      },
     );
-    if (!Array.isArray(payload) || !payload.every(isProgressEvent)) {
-      throw new InvalidResponseError();
+    if (!response.ok || !response.body) throw new HttpError(response.status);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newline = buffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line) {
+          const parsed: unknown = JSON.parse(line);
+          if (isTurnFrame(parsed)) onFrame(parsed);
+        }
+        newline = buffer.indexOf("\n");
+      }
     }
-    return { data: payload, source: "remote", ok: true };
+    return { data: null, source: "remote", ok: true };
   } catch (error) {
+    if (signal.aborted) return { data: null, source: "remote", ok: true };
     return requestFailure(error);
   }
 }

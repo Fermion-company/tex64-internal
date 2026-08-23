@@ -30,17 +30,10 @@ export const initSidebarVisibility = (
     "search",
     "outline",
     "blocks",
-    "stash",
     "ai",
     "issues",
     "project",
   ];
-  // The stash is a Pro-mode surface: theme.css hides its tab and panel while
-  // Pro is off, so the sidebar menu must not offer it there either.
-  const proOnlyTabs: TabKey[] = ["stash"];
-  const isTabAvailableInMode = (tabKey: TabKey) =>
-    !proOnlyTabs.includes(tabKey) ||
-    document.documentElement.dataset.proMode === "true";
   let sidebarVisibleTabs = new Set<TabKey>(primarySidebarTabs);
   let primaryTabOrder = primarySidebarTabs.slice();
   const sidebarVisibilityKey = "tex64.sidebar.primaryTabs";
@@ -141,16 +134,6 @@ export const initSidebarVisibility = (
           withoutSearch.splice(filesIndex >= 0 ? filesIndex + 1 : 0, 0, "search");
           normalizedOrder = withoutSearch;
         }
-        // The stash moved out of its floating tray into the sidebar; profiles
-        // stored before that have no entry for it, so seat it after Blocks and
-        // leave it visible instead of silently hiding a Pro feature.
-        if (!nextOrder.includes("stash")) {
-          const withoutStash: TabKey[] = normalizedOrder.filter((key) => key !== "stash");
-          const blocksIndex = withoutStash.indexOf("blocks");
-          withoutStash.splice(blocksIndex >= 0 ? blocksIndex + 1 : withoutStash.length, 0, "stash");
-          normalizedOrder = withoutStash;
-          nextVisible.add("stash");
-        }
         if (normalizedOrder.length > 0) {
           primaryTabOrder = normalizedOrder;
         }
@@ -167,9 +150,6 @@ export const initSidebarVisibility = (
   };
 
   const isSidebarTabVisible = (tabKey: TabKey) => {
-    if (!isTabAvailableInMode(tabKey)) {
-      return false;
-    }
     if (!primarySidebarTabs.includes(tabKey)) {
       return true;
     }
@@ -215,7 +195,7 @@ export const initSidebarVisibility = (
   };
 
   const buildSidebarContextMenuItems = (): ContextMenuItem[] =>
-    primaryTabOrder.filter(isTabAvailableInMode).map((key) => {
+    primaryTabOrder.map((key) => {
       const tabConfig = getTabConfig();
       const visible = sidebarVisibleTabs.has(key);
       const canHide = sidebarVisibleTabs.size > 1;
@@ -402,9 +382,5 @@ export const initSidebarVisibility = (
   }
 
   setupPrimaryTabDnD();
-  // Entering or leaving Pro mode adds/removes the stash tab, and leaving it
-  // while the stash is open falls back to the first visible tab.
-  window.addEventListener("tex64:pro-mode", () => applyVisibility());
-
   return { loadVisibility, applyVisibility };
 };

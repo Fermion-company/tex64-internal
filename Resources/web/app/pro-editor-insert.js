@@ -1,5 +1,5 @@
 export const ensureTrailingNewline = (text) => text.endsWith("\n") ? text : `${text}\n`;
-export const insertAtEditorCursor = (editor, text, source = "pro-stash") => {
+export const insertAtEditorCursor = (editor, text, source = "pro-canvas") => {
     var _a, _b, _c, _d, _e;
     const position = (_a = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor);
     const Range = (_b = window.monaco) === null || _b === void 0 ? void 0 : _b.Range;

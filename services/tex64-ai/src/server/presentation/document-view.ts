@@ -14,27 +14,24 @@ import {
   type MathExpression,
 } from "@/domain/document";
 import type {
-  AgentRun,
+  ChatMessage,
   DocumentBlock,
   DocumentDetail,
   DocumentElement,
   DocumentKind,
   DocumentSummary,
   DocumentVersion,
-  RunProgressEvent,
 } from "@/lib/client/types";
 import {
   containsUnsafeUserFacingCopy,
-  normalizeUserFacingQuestion,
 } from "@/lib/user-facing-copy";
 import type {
-  DocumentRepository,
   StoredAgentRun,
+  StoredConversationMessage,
   StoredArtifact,
   StoredDocument,
   StoredDocumentListItem,
   StoredRevisionListItem,
-  StoredRunEvent,
 } from "@/server/persistence";
 import { runReleasesArtifact } from "@/server/artifacts/release";
 
@@ -90,20 +87,22 @@ type ApiDocumentDetail = DocumentDetail & {
 export function createEmptyDocument(input: {
   id: string;
   prompt: string;
-  kind: DocumentKind;
+  /** Omitted by the UI: the request text alone decides the kind. */
+  kind?: DocumentKind;
   now?: string;
 }): DocumentModel {
   const now = input.now ?? new Date().toISOString();
   const normalizedPrompt = input.prompt.normalize("NFKC").replace(/\s+/g, " ").trim();
-  const title = deriveTitle(normalizedPrompt, input.kind);
+  const kind = input.kind ?? inferDocumentKind(normalizedPrompt);
+  const title = deriveTitle(normalizedPrompt, kind);
   return DocumentSchema.parse({
     schemaVersion: 1,
     id: input.id,
     metadata: {
       title,
-      subtitle: kindLabel(input.kind),
+      subtitle: kindLabel(kind),
       language: "ja",
-      documentType: kindToDocumentType(input.kind),
+      documentType: kindToDocumentType(kind),
       authors: [],
       keywords: [],
       createdAt: now,
@@ -139,12 +138,11 @@ export function toDocumentSummary(
 export function toDocumentDetail(input: {
   stored: StoredDocument;
   revisions: StoredRevisionListItem[];
-  runs: StoredAgentRun[];
-  presentedRuns?: AgentRun[];
+  messages: ChatMessage[];
   artifact: StoredArtifact | null;
   completedRun?: StoredAgentRun | null;
 }): ApiDocumentDetail {
-  const { stored, revisions, runs, presentedRuns, artifact, completedRun = null } = input;
+  const { stored, revisions, messages, artifact, completedRun = null } = input;
   const releasedArtifact = runReleasesArtifact(completedRun, artifact)
     ? artifact
     : null;
@@ -166,7 +164,7 @@ export function toDocumentDetail(input: {
     blocks: documentToBlocks(stored.document),
     elements: documentToElements(stored.document),
     versions: revisions.map(toVersion),
-    runs: presentedRuns ?? runs.map(toAgentRun),
+    messages,
     ...(releasedArtifact?.revision === stored.currentRevision
       ? {
           artifactUrl: `/api/documents/${encodeURIComponent(stored.id)}/artifacts/${releasedArtifact.revision}/${releasedArtifact.sha256}`,
@@ -869,96 +867,44 @@ function toVersion(revision: StoredRevisionListItem): DocumentVersion {
   };
 }
 
-function userFacingNeedsInputNote(run: StoredAgentRun): string {
-  return normalizeUserFacingQuestion(
-    run.errorMessage,
-    "clarification_required",
-  );
-}
-
 /**
- * Failed runs may carry a user-facing explanation (for example the
- * missing-model configuration message). Anything that trips the internal-copy
- * filter falls back to the client's fixed failure copy instead.
+ * Projects the stored thread onto the chat the user sees: their own messages
+ * and the agent's replies. Tool calls and tool results stay server-side — the
+ * live turn already streams what the agent is doing.
  */
-function userFacingFailureNote(run: StoredAgentRun): string | undefined {
-  const message = run.errorMessage?.trim();
-  if (
-    !message ||
-    message.length > 500 ||
-    containsUnsafeUserFacingCopy(message)
-  ) {
-    return undefined;
+export function presentConversation(
+  messages: readonly StoredConversationMessage[],
+): ChatMessage[] {
+  const presented: ChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "tool") continue;
+    const text = conversationMessageText(message.content);
+    if (!text) continue;
+    presented.push({
+      id: String(message.sequence),
+      role: message.role,
+      text,
+      createdAt: message.createdAt,
+    });
   }
-  return message;
+  return presented;
 }
 
-export function toAgentRun(run: StoredAgentRun): AgentRun {
-  // Historical runs persisted by the removed approval flow also stored
-  // status "waiting_approval"; both render as an awaiting-answer question.
-  const needsInput = run.status === "waiting_approval" || run.stage === "needs_input";
-  return {
-    id: run.id,
-    documentId: run.documentId,
-    prompt: run.prompt,
-    stage: run.stage,
-    status: run.status,
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt,
-    resultNote:
-      run.status === "completed"
-        ? (run.resultNote ??
-          (run.resultRevision === run.baseRevision
-            ? "文書を確認しました"
-            : "文書を更新しました"))
-        : needsInput
-          ? userFacingNeedsInputNote(run)
-        : run.status === "failed"
-          ? userFacingFailureNote(run)
-          : undefined,
-  };
-}
-
-export function presentAgentRun(run: StoredAgentRun): AgentRun {
-  const presented = toAgentRun(run);
-  return {
-    ...presented,
-    inputKind:
-      run.status === "waiting_approval" && run.stage === "needs_input"
-        ? "clarification"
-        : null,
-  };
-}
-
-/**
- * Project stored run events onto the client contract. Only the semantic
- * stage, its fixed label, ordering, and the repair-attempt counter survive;
- * internal detail (event keys, failure codes, issue counts) stays server-side.
- */
-export function presentRunEvents(
-  events: readonly StoredRunEvent[],
-): RunProgressEvent[] {
-  return events.map((event) => {
-    const attempt =
-      typeof event.detail?.attempt === "number" &&
-      Number.isInteger(event.detail.attempt) &&
-      event.detail.attempt > 0
-        ? event.detail.attempt
-        : undefined;
-    return {
-      stage: event.stage,
-      label: event.message,
-      sequence: event.sequence,
-      occurredAt: event.createdAt,
-      ...(attempt === undefined ? {} : { attempt }),
-    };
-  });
-}
-
-export function presentAgentRuns(
-  runs: readonly StoredAgentRun[],
-): AgentRun[] {
-  return runs.map(presentAgentRun);
+/** Reads the text of a ModelMessage content payload, ignoring tool parts. */
+function conversationMessageText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) =>
+      part &&
+      typeof part === "object" &&
+      (part as { type?: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
+        ? (part as { text: string }).text
+        : "",
+    )
+    .join("")
+    .trim();
 }
 
 function stableRevisionId(documentId: string, revision: number): string {
@@ -974,7 +920,7 @@ function deriveTitle(prompt: string, kind: DocumentKind): string {
   if (quoted) return quoted;
   const stripped = prompt
     .replace(
-      /(?:について|に関する|の)?(?:提案書|報告書|論文|メモ|文書)(?:を|に)?(?:まとめて|作って|書いて|作成して|執筆して|生成して).*$/u,
+      /(?:について|に関する|の)?(?:企画書|提案書|報告書|論文|メモ|文書)(?:を|に)?(?:まとめて|作って|書いて|作成して|執筆して|生成して).*$/u,
       "",
     )
     .trim();
@@ -982,7 +928,53 @@ function deriveTitle(prompt: string, kind: DocumentKind): string {
 }
 
 function kindLabel(kind: DocumentKind): string {
-  return { proposal: "提案書", report: "報告書", paper: "論文", memo: "メモ" }[kind];
+  // `proposal` stays the wire/enum value; 企画書 is the Japanese label users see.
+  return { proposal: "企画書", report: "報告書", paper: "論文", memo: "メモ" }[kind];
+}
+
+/**
+ * Picks the document kind from the request text so the user never has to pick
+ * one up front. Explicit document nouns ("企画書", "論文") outrank topical
+ * hints ("研究", "提案"); nothing matching falls back to the previous default.
+ */
+const KIND_SIGNALS: ReadonlyArray<{
+  kind: DocumentKind;
+  strong: RegExp;
+  weak: RegExp;
+}> = [
+  {
+    kind: "proposal",
+    strong: /企画書|提案書|proposal/iu,
+    weak: /企画|提案|ピッチ|pitch|plan\b/iu,
+  },
+  {
+    kind: "report",
+    strong: /報告書|レポート|report/iu,
+    weak: /報告|調査|analysis|分析結果|実験結果/iu,
+  },
+  {
+    kind: "paper",
+    strong: /論文|paper|thesis|dissertation/iu,
+    weak: /研究|学会|査読|arxiv|preprint/iu,
+  },
+  {
+    kind: "memo",
+    strong: /メモ|議事録|覚書|memo\b|notes?\b/iu,
+    weak: /要点|箇条書き|下書き|走り書き/iu,
+  },
+];
+
+const DEFAULT_DOCUMENT_KIND: DocumentKind = "paper";
+
+export function inferDocumentKind(prompt: string): DocumentKind {
+  const text = prompt.normalize("NFKC");
+  for (const signal of KIND_SIGNALS) {
+    if (signal.strong.test(text)) return signal.kind;
+  }
+  for (const signal of KIND_SIGNALS) {
+    if (signal.weak.test(text)) return signal.kind;
+  }
+  return DEFAULT_DOCUMENT_KIND;
 }
 
 function kindToDocumentType(kind: DocumentKind): DocumentModel["metadata"]["documentType"] {

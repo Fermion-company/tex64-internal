@@ -1,5 +1,5 @@
 import { gateway } from "@ai-sdk/gateway";
-import { jsonSchema, tool, type ModelMessage } from "ai";
+import { jsonSchema, tool } from "ai";
 import { z } from "zod";
 
 import { DOCUMENT_PATCH_REFERENCE } from "./document-patch-reference";
@@ -11,10 +11,18 @@ import {
   DocumentPageSizeSchema,
   DocumentPatchSchema,
   DocumentSchema,
-  type DocumentModel,
-  type DocumentPatch,
 } from "./document-contract";
 import { serializableToolSchema } from "./language-model";
+import {
+  ToolError,
+  applyDocumentPatchTool,
+  checkDocument,
+  compileDocument,
+  formatDocument,
+  readDocument,
+  resolveSourceTool,
+  type ToolScope,
+} from "./tool-handlers";
 
 const gatewayTools = gateway.tools;
 
@@ -41,32 +49,9 @@ function createSearchSourcesTool() {
   };
 }
 
-export const DocumentToolContextSchema = z
-  .object({
-    documentId: z.string().uuid(),
-    runId: z.string().min(1).max(200),
-    actorId: z.string().min(1).max(200),
-  })
-  .strict();
-
-export type DocumentToolContext = z.infer<typeof DocumentToolContextSchema>;
-
-/**
- * Stable execution metadata supplied by AI SDK for one model response. The
- * message list is identical for tool calls emitted in the same response and
- * grows between agent turns, allowing durable steps to serialize mutations by
- * response without trusting model-provided fields.
- */
-export type DocumentToolExecution = {
-  toolCallId: string;
-  messages: ModelMessage[];
-};
-
-export const ReadDocumentInputSchema = z
-  .object({
-    revision: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+// No revision parameter: the agent works on the current document, and an
+// invented revision number was just a way for a turn to fail.
+export const ReadDocumentInputSchema = z.object({}).strict();
 
 export const ApplyDocumentPatchInputSchema = z
   .object({
@@ -149,16 +134,7 @@ const ApplyDocumentPatchModelInputSchema = jsonSchema<
   },
 );
 
-export const CheckDocumentInputSchema = z
-  .object({
-    revision: z.number().int().nonnegative().optional(),
-    checks: z
-      .array(z.enum(["structure", "references"]))
-      .min(1)
-      .max(2)
-      .default(["structure", "references"]),
-  })
-  .strict();
+export const CheckDocumentInputSchema = z.object({}).strict();
 
 export const FormatDocumentInputSchema = z
   .object({
@@ -167,12 +143,6 @@ export const FormatDocumentInputSchema = z
     pageSize: DocumentPageSizeSchema.optional(),
     columns: DocumentColumnCountSchema.optional(),
     citationStyle: DocumentCitationStyleNameSchema.optional(),
-  })
-  .strict();
-
-export const RequestInputInputSchema = z
-  .object({
-    question: z.string().trim().min(1).max(500),
   })
   .strict();
 
@@ -309,63 +279,60 @@ export const DocumentCheckResultSchema = z
 
 export type DocumentCheckResult = z.infer<typeof DocumentCheckResultSchema>;
 
-type MaybePromise<T> = T | PromiseLike<T>;
+export const CompileDocumentResultSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      revision: z.number().int().positive(),
+      pageCount: z.number().int().positive(),
+      warningCount: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      revision: z.number().int().positive(),
+      code: z.string().min(1).max(100),
+      issueCount: z.number().int().nonnegative(),
+      diagnostics: z
+        .array(
+          z
+            .object({
+              code: z.string().min(1).max(100),
+              message: z.string().min(1).max(2_000),
+              line: z.number().int().nonnegative().optional(),
+            })
+            .strict(),
+        )
+        .max(50)
+        .optional(),
+    })
+    .strict(),
+]);
 
-export interface DocumentToolHandlers {
-  /**
-   * Workflow callers should implement mutating handlers as module-level
-   * functions containing `use step` so executions are durable and retryable.
-   */
-  readDocument(
-    input: z.infer<typeof ReadDocumentInputSchema>,
-    context: DocumentToolContext,
-  ): MaybePromise<DocumentModel>;
-  applyDocumentPatch(
-    input: z.infer<typeof ApplyDocumentPatchInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<DocumentMutationResult>;
-  checkDocument(
-    input: z.infer<typeof CheckDocumentInputSchema>,
-    context: DocumentToolContext,
-  ): MaybePromise<DocumentCheckResult>;
-  formatDocument(
-    input: z.infer<typeof FormatDocumentInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<DocumentMutationResult>;
-  requestInput(
-    input: z.infer<typeof RequestInputInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<{ ok: true }>;
-  resolveSource(
-    input: z.infer<typeof ResolveSourceInputSchema>,
-    context: DocumentToolContext,
-    execution?: DocumentToolExecution,
-  ): MaybePromise<ResolveSourceResult>;
-}
+export type CompileDocumentResult = z.infer<typeof CompileDocumentResultSchema>;
 
-function assertDocumentScope(
-  patch: DocumentPatch,
-  context: DocumentToolContext,
-): void {
-  if (patch.documentId !== context.documentId) {
-    throw new Error("Document patch is outside the active document scope");
-  }
-}
+export type ReadDocumentInput = z.infer<typeof ReadDocumentInputSchema>;
+export type CheckDocumentInput = z.infer<typeof CheckDocumentInputSchema>;
+export type FormatDocumentInput = z.infer<typeof FormatDocumentInputSchema>;
+export type ResolveSourceInput = z.infer<typeof ResolveSourceInputSchema>;
+export type ApplyDocumentPatchInput = z.infer<
+  typeof ApplyDocumentPatchInputSchema
+>;
 
-/** Shared AI SDK tool set. Every edit executes autonomously; undo is the
- * document revision history. */
-export function createDocumentTools(handlers: DocumentToolHandlers) {
+/**
+ * The agent's tool set, bound to one turn. Every tool acts on the live
+ * document, and every failure comes back as a message the model can read and
+ * repair — there is no approval step and no out-of-band question channel.
+ */
+export function createDocumentTools(scope: ToolScope) {
   return {
     read_document: tool({
       description:
         "現在の構造化文書を読み取る。生成ソースや内部ファイルは返さない。",
       inputSchema: serializableToolSchema(ReadDocumentInputSchema),
       outputSchema: DocumentSchema,
-      contextSchema: DocumentToolContextSchema,
-      execute: (input, { context }) => handlers.readDocument(input, context),
+      execute: () => readDocument(scope),
     }),
 
     search_sources: createSearchSourcesTool(),
@@ -375,9 +342,8 @@ export function createDocumentTools(handlers: DocumentToolHandlers) {
         "検索候補またはユーザーが示したHTTPS URL・DOIを安全に取得し、引用可能性と正規化済み書誌情報を返す。検索snippetだけでは引用できないため、引用前に必ず実行する。",
       inputSchema: serializableToolSchema(ResolveSourceInputSchema),
       outputSchema: ResolveSourceResultSchema,
-      contextSchema: DocumentToolContextSchema,
-      execute: (input, { context, toolCallId, messages }) =>
-        handlers.resolveSource(input, context, { toolCallId, messages }),
+      execute: (input, { messages }) =>
+        resolveSourceTool(input, scope, messages),
     }),
 
     apply_document_patch: tool({
@@ -386,13 +352,11 @@ export function createDocumentTools(handlers: DocumentToolHandlers) {
         DOCUMENT_PATCH_REFERENCE,
       inputSchema: ApplyDocumentPatchModelInputSchema,
       outputSchema: DocumentMutationResultSchema,
-      contextSchema: DocumentToolContextSchema,
-      execute: (input, { context, toolCallId, messages }) => {
-        assertDocumentScope(input.patch, context);
-        return handlers.applyDocumentPatch(input, context, {
-          toolCallId,
-          messages,
-        });
+      execute: (input) => {
+        if (input.patch.documentId !== scope.documentId) {
+          throw new ToolError("この文書には変更を適用できません。");
+        }
+        return applyDocumentPatchTool(input, scope);
       },
     }),
 
@@ -401,8 +365,7 @@ export function createDocumentTools(handlers: DocumentToolHandlers) {
         "文書モデルの構造、参照先の存在、引用と参考文献のID対応を検証する。文章の品質、主張の事実性、出典内容、紙面の見た目は検証しない。",
       inputSchema: serializableToolSchema(CheckDocumentInputSchema),
       outputSchema: DocumentCheckResultSchema,
-      contextSchema: DocumentToolContextSchema,
-      execute: (input, { context }) => handlers.checkDocument(input, context),
+      execute: () => checkDocument(scope),
     }),
 
     format_document: tool({
@@ -410,36 +373,17 @@ export function createDocumentTools(handlers: DocumentToolHandlers) {
         "文書全体の体裁を、標準・学術・ビジネス・コンパクトの安全なプリセット、用紙、段組、引用形式へ整える。内容や生成ソースは変更しない。",
       inputSchema: serializableToolSchema(FormatDocumentInputSchema),
       outputSchema: DocumentMutationResultSchema,
-      contextSchema: DocumentToolContextSchema,
-      execute: (input, { context, toolCallId, messages }) =>
-        handlers.formatDocument(input, context, { toolCallId, messages }),
+      execute: (input) => formatDocument(input, scope),
     }),
 
-    request_input: tool({
+    compile_document: tool({
       description:
-        "回答によって文書の内容が大きく変わる場合に限り、作業を止めて最重要の質問を一つだけ尋ねる。",
-      inputSchema: serializableToolSchema(RequestInputInputSchema),
-      outputSchema: z.object({ ok: z.literal(true) }).strict(),
-      contextSchema: DocumentToolContextSchema,
-      execute: (input, { context, toolCallId, messages }) =>
-        handlers.requestInput(input, context, { toolCallId, messages }),
+        "現在の文書を組版してPDFを更新し、ページ数と警告数、失敗時は組版の指摘を返す。書き終えたときと、体裁や分量を自分で確かめたいときに実行する。",
+      inputSchema: serializableToolSchema(z.object({}).strict()),
+      outputSchema: CompileDocumentResultSchema,
+      execute: () => compileDocument(scope),
     }),
   } as const;
 }
 
 export type DocumentTools = ReturnType<typeof createDocumentTools>;
-
-export function createDocumentToolsContext(context: DocumentToolContext) {
-  const parsed = DocumentToolContextSchema.parse(context);
-  return {
-    read_document: parsed,
-    resolve_source: parsed,
-    apply_document_patch: parsed,
-    check_document: parsed,
-    format_document: parsed,
-    request_input: parsed,
-  } satisfies Record<
-    Exclude<keyof DocumentTools, "search_sources">,
-    DocumentToolContext
-  >;
-}

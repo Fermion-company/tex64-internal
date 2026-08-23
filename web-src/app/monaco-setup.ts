@@ -106,6 +106,7 @@ export const initMonacoSetup = (
           create: (el: HTMLElement, options: Record<string, unknown>) => unknown;
           defineTheme?: (name: string, theme: MonacoTheme) => void;
           setTheme?: (name: string) => void;
+          remeasureFonts?: () => void;
         };
         languages?: {
           register?: (config: { id: string }) => void;
@@ -184,6 +185,17 @@ export const initMonacoSetup = (
           applyMonacoTheme(monacoWindow.monaco, theme);
         }
       });
+      // Click-to-column accuracy: Monaco measures glyph advance widths when
+      // an editor is created, but the default editor face (Latin Modern
+      // Mono, 0.525em advance) is a webfont — if it lands after that
+      // measurement, mouse positions map through the FALLBACK font's widths
+      // (Menlo/SF Mono, ~0.60em) and a click at column 60 places the cursor
+      // ~8 columns off. Remeasure once the document's fonts settle, and
+      // again whenever any later font load finishes (a font-family change
+      // in settings, a lazily-loaded face).
+      const remeasureFonts = () => monacoWindow.monaco?.editor?.remeasureFonts?.();
+      document.fonts?.ready?.then(() => remeasureFonts()).catch(() => {});
+      document.fonts?.addEventListener?.("loadingdone", () => remeasureFonts());
       const editorOptions = {
         value: "",
         language: "latex",
@@ -434,29 +446,10 @@ export const initMonacoSetup = (
         }
 
         (editor as any).addAction?.({
-          id: "tex64.pro-stash-add-selection",
-          label: uiText("Add selection to stash", "選択範囲をスタッシュへ追加"),
-          contextMenuGroupId: "9_ai",
-          contextMenuOrder: 2,
-          precondition: "editorHasSelection",
-          run: () => {
-            const selection = editor.getSelection?.();
-            const model = (editor as any).getModel?.();
-            const content = selection && model ? model.getValueInRange?.(selection) : "";
-            if (!content) {
-              return;
-            }
-            window.dispatchEvent(new CustomEvent("tex64:pro-stash-add", {
-              detail: { kind: "text", content },
-            }));
-          },
-        });
-
-        (editor as any).addAction?.({
           id: "tex64.pro-canvas-edit",
           label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
           contextMenuGroupId: "9_ai",
-          contextMenuOrder: 3,
+          contextMenuOrder: 2,
           run: () => {
             const model = (editor as any).getModel?.();
             const position = editor.getPosition?.();

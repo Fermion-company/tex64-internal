@@ -10,21 +10,21 @@ import { resolveAiEmbedUrl } from "../Resources/web/app/ai-mode-ui.js";
 test("app mode parses only known modes", () => {
   assert.equal(parseAppMode("code"), "code");
   assert.equal(parseAppMode("ai"), "ai");
-  assert.equal(parseAppMode("pro"), "pro");
+  assert.equal(parseAppMode("pro"), null);
   assert.equal(parseAppMode("PRO"), null);
   assert.equal(parseAppMode(""), null);
   assert.equal(parseAppMode(null), null);
 });
 
 test("initial mode prefers the stored switcher state", () => {
-  assert.equal(resolveInitialAppMode("ai", true), "ai");
-  assert.equal(resolveInitialAppMode("code", true), "code");
+  assert.equal(resolveInitialAppMode("ai"), "ai");
+  assert.equal(resolveInitialAppMode("code"), "code");
 });
 
-test("initial mode migrates the legacy Pro toggle", () => {
-  assert.equal(resolveInitialAppMode(null, true), "pro");
-  assert.equal(resolveInitialAppMode(null, false), "code");
-  assert.equal(resolveInitialAppMode("garbage", true), "pro");
+test("initial mode migrates the removed Pro mode to Code", () => {
+  assert.equal(resolveInitialAppMode("pro"), "code");
+  assert.equal(resolveInitialAppMode(null), "code");
+  assert.equal(resolveInitialAppMode("garbage"), "code");
 });
 
 test("storage key is stable", () => {

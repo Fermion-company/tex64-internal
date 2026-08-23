@@ -470,13 +470,17 @@ module.exports = (SynctexService) => {
         })
       : candidates;
     const pooledCandidates = selectionPool.length > 0 ? selectionPool : candidates;
-    const exactCandidates = pooledCandidates.filter((candidate) => candidate?.exactHit === true);
-    const activeCandidates = exactCandidates.length > 0 ? exactCandidates : pooledCandidates;
+    // The exact hit is evidence, not a verdict: synctex attributes the glue
+    // between paragraphs to the blank line's number, so the answer at the
+    // very point clicked can be a line with no prose on it. Keep every
+    // candidate in the running and let the exact hit weigh in as a bonus.
+    const activeCandidates = pooledCandidates;
     const distanceEpsilon = 1e-3;
     const medianLine = this.getMedianLine(candidates);
     const medianWeight = 0;
     const countWeight = 4;
     const offsetWeight = 12;
+    const exactHitBonus = 24;
     const scoredCandidates = [];
     for (const candidate of activeCandidates) {
       const distance = await this.measureForwardDistance({
@@ -505,7 +509,8 @@ module.exports = (SynctexService) => {
         linePenalty +
         medianDiff * medianWeight +
         offsetPenalty -
-        candidate.count * countWeight;
+        candidate.count * countWeight -
+        (candidate.exactHit === true ? exactHitBonus : 0);
       scoredCandidates.push({ candidate, distance, score });
     }
     if (!scoredCandidates.length) {

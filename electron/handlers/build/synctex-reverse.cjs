@@ -71,7 +71,16 @@ const createSynctexReverseHandler = (deps, resolvers) => {
     }
 
     if (!result?.ok) {
-      sendToRenderer("synctex:reverseResult", withRequestId(result));
+      // A reply that carries neither ok nor a reason leaves the caller waiting
+      // on a promise that already settled against it.
+      sendToRenderer(
+        "synctex:reverseResult",
+        withRequestId(
+          result && typeof result === "object"
+            ? { ...result, ok: false, error: result.error ?? "SyncTeX could not resolve that spot." }
+            : { ok: false, error: "SyncTeX could not resolve that spot." },
+        ),
+      );
       return;
     }
 

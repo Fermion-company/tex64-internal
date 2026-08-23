@@ -1,10 +1,9 @@
-import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isProTextFilePath, isTextFilePath, } from "./files.js";
+import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isExtendedTextFilePath, isTextFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
-const isProModeActive = () => document.documentElement.dataset.appMode === "pro";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
-    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
+    const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const reportSaveError = (message) => {
         lastSaveErrorMessage = message;
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
@@ -36,11 +35,11 @@ export const createEditorSessionFileOps = (ctx) => {
     };
     const applyViewerFile = (group, path, kind, data, mimeType) => {
         var _a;
-        // In Pro mode, viewer files picked from the tree go to the visible
+        // Viewer files picked from the tree go to the visible Code workspace
         // viewer pane instead of replacing the source editor. Files already open
         // as a tab keep the normal tab flow (e.g. clicking their tab).
         if (!group.openTabs.includes(path) &&
-            ((_a = deps.proViewer) === null || _a === void 0 ? void 0 : _a.tryShowViewerFile(path, kind, data, mimeType))) {
+            ((_a = deps.workspaceViewer) === null || _a === void 0 ? void 0 : _a.tryShowViewerFile(path, kind, data, mimeType))) {
             if (isActiveGroup(group)) {
                 deps.fileTree.setSelection(path, "file");
             }
@@ -103,10 +102,7 @@ export const createEditorSessionFileOps = (ctx) => {
             state.pendingReveal.group === group.key) {
             state.pendingReveal = null;
         }
-        const hint = isProTextFilePath(path) && !isProModeActive()
-            ? uiText("Switch to Pro mode to open this file in the editor.", "Pro モードに切り替えるとエディタで開けます。")
-            : undefined;
-        group.viewer.showUnsupportedViewer(hint);
+        group.viewer.showUnsupportedViewer();
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
             deps.fileTree.setTreeFocus(false);
@@ -268,7 +264,12 @@ export const createEditorSessionFileOps = (ctx) => {
                 }));
                 const ids = editor.deltaDecorations([], decorations);
                 aiDiffDecorations.set(group.key, ids);
-                // Show Undo/Confirm bar
+                // Review bar for an edit that has ALREADY been written to disk (both
+                // the Axiom and Codex paths apply directly, and a build may have run
+                // on it). So this is an after-the-fact review, not an approval gate:
+                // "Done" just dismisses the diff, and "Undo" has to put the reverted
+                // text back on disk too — otherwise the buffer and the file silently
+                // disagree until the next save.
                 const editorDom = (_f = editor.getDomNode) === null || _f === void 0 ? void 0 : _f.call(editor);
                 const editorContainer = editorDom === null || editorDom === void 0 ? void 0 : editorDom.parentElement;
                 if (editorContainer) {
@@ -280,17 +281,24 @@ export const createEditorSessionFileOps = (ctx) => {
                     bar.className = "ai-undo-keep-bar";
                     const undoBtn = document.createElement("button");
                     undoBtn.className = "ai-undo-keep-btn is-undo";
-                    undoBtn.textContent = "Undo";
+                    undoBtn.textContent = uiText("Undo", "元に戻す");
+                    undoBtn.title = uiText("Revert the change and save the file.", "変更を取り消してファイルを保存します。");
                     undoBtn.addEventListener("click", () => {
                         var _a;
                         // Use Monaco's undo — the AI edit is on the undo stack
                         const editorTrigger = group.editor;
                         (_a = editorTrigger === null || editorTrigger === void 0 ? void 0 : editorTrigger.trigger) === null || _a === void 0 ? void 0 : _a.call(editorTrigger, "ai-undo-bar", "undo", null);
                         clearAiDiffDecorations(group);
+                        if (isActiveGroup(group) && group.currentFilePath === path) {
+                            void saveCurrentFile().catch(() => {
+                                /* the save error is surfaced by the save path itself */
+                            });
+                        }
                     });
                     const keepBtn = document.createElement("button");
                     keepBtn.className = "ai-undo-keep-btn is-keep";
-                    keepBtn.textContent = "Confirm";
+                    keepBtn.textContent = uiText("Done", "完了");
+                    keepBtn.title = uiText("Close the diff. The change is already saved.", "差分表示を閉じます。変更はすでに保存済みです。");
                     keepBtn.addEventListener("click", () => {
                         clearAiDiffDecorations(group);
                     });
@@ -575,24 +583,15 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const path = payload.path;
-        let kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+        const kind = (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
             ? "pdf"
             : isImageFilePath(path)
                 ? "image"
-                : isTextFilePath(path) || isProTextFilePath(path)
+                : isTextFilePath(path) || isExtendedTextFilePath(path)
                     ? "text"
                     : "unsupported");
-        if (kind === "text" &&
-            !isTextFilePath(path) &&
-            (!isProTextFilePath(path) || !isProModeActive())) {
-            kind = "unsupported";
-        }
         if (pendingIndex < 0) {
-            if (kind === "pdf") {
-                setSplitViewEnabled(true);
-                targetGroupKey = "secondary";
-            }
-            else {
+            if (kind !== "pdf") {
                 const existingGroupKey = findGroupKeyByPath(path);
                 if (existingGroupKey) {
                     targetGroupKey = existingGroupKey;

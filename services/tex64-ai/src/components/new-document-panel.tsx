@@ -1,57 +1,32 @@
 "use client";
 
-import { ArrowUp, FileCheck2, FilePenLine, Lightbulb, NotebookPen } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { useRef, useState } from "react";
-import type { DocumentKind } from "@/lib/client/types";
 
 interface NewDocumentPanelProps {
   creating: boolean;
   connectionError: boolean;
-  onSubmit: (prompt: string, kind: DocumentKind) => void;
+  onSubmit: (prompt: string) => void;
 }
 
-const DOCUMENT_KINDS: Array<{
-  value: DocumentKind;
-  label: string;
-  icon: typeof FilePenLine;
-}> = [
-  { value: "proposal", label: "提案書", icon: Lightbulb },
-  { value: "report", label: "報告書", icon: FileCheck2 },
-  { value: "paper", label: "論文", icon: NotebookPen },
-  { value: "memo", label: "メモ", icon: FilePenLine },
-];
-
+/**
+ * One input, nothing to classify first. The document kind (企画書 / 報告書 /
+ * 論文 / メモ) is inferred server-side from the request text — the request
+ * already carries the purpose ("会議用に短く", "ゲームの企画をまとめて"), so
+ * asking for it up front only added a choice the user could get wrong.
+ */
 export function NewDocumentPanel({ creating, connectionError, onSubmit }: NewDocumentPanelProps) {
   const [prompt, setPrompt] = useState("");
-  const [kind, setKind] = useState<DocumentKind>("paper");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = () => {
     const trimmed = prompt.trim();
     if (!trimmed || creating) return;
-    onSubmit(trimmed, kind);
+    onSubmit(trimmed);
   };
 
   return (
     <section className="new-document-panel" aria-busy={creating} aria-label="新しい文書">
-      <div className="document-kind-picker" role="group" aria-label="文書の種類">
-        {DOCUMENT_KINDS.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.value}
-              type="button"
-              aria-pressed={kind === item.value}
-              className={kind === item.value ? "active" : undefined}
-              onClick={() => setKind(item.value)}
-            >
-              <Icon aria-hidden="true" size={14} />
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
-
       <div className="large-composer">
         <textarea
           ref={textareaRef}

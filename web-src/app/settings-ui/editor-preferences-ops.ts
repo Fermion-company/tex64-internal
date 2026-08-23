@@ -146,6 +146,7 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
       runtime.state.pdfViewerMode = "window";
     }
     updateEditorPdfViewerModeUI();
+    runtime.deps.onPdfViewerModeChange?.(runtime.state.pdfViewerMode);
   };
 
   const setEditorAlignEnvEnabled = (enabled: boolean) => {
@@ -202,6 +203,7 @@ export const createSettingsEditorPreferenceOps = (runtime: SettingsUiRuntime): S
     runtime.state.pdfViewerMode = mode;
     saveEditorPdfViewerModeState();
     updateEditorPdfViewerModeUI();
+    runtime.deps.onPdfViewerModeChange?.(runtime.state.pdfViewerMode);
   };
 
   if (editorAlignEnvToggle instanceof HTMLInputElement) {

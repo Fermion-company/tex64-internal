@@ -102,13 +102,30 @@ class UserSettingsService {
   }
 
   async load() {
-    if (this.state) {
-      return clone(this.state);
-    }
+    // Always re-read from disk: a long-lived in-memory copy plus the
+    // whole-state save() below used to clobber the file with stale data
+    // whenever two app instances overlapped, and a single failed read
+    // cached "defaults" (empty recents) for the rest of the session —
+    // the next save then wiped the user's real history (observed live).
     const stored = await fsp
       .readFile(this.filePath, "utf8")
       .then((content) => JSON.parse(content))
-      .catch(() => null);
+      .catch(async (error) => {
+        if (error && error.code === "ENOENT") {
+          return null; // fresh install — defaults are correct
+        }
+        // A corrupt/unreadable settings file must never silently become
+        // defaults that later get persisted over the user's data; keep
+        // the evidence, then fall back.
+        await fsp
+          .copyFile(this.filePath, `${this.filePath}.corrupt-${Date.now()}`)
+          .catch(() => {});
+        console.warn(
+          "[user-settings] settings file unreadable, backed up:",
+          error?.message ?? error
+        );
+        return null;
+      });
     const storedObject = stored && typeof stored === "object" ? stored : {};
     const storedAgent =
       storedObject.agent && typeof storedObject.agent === "object"
@@ -167,8 +184,12 @@ class UserSettingsService {
     if (!this.state) {
       return;
     }
+    // Atomic replace: a torn write must never produce a half-written file
+    // that the next load treats as corrupt.
     const payload = JSON.stringify(this.state, null, 2);
-    await fsp.writeFile(this.filePath, payload, "utf8");
+    const tmpPath = `${this.filePath}.tmp-${process.pid}`;
+    await fsp.writeFile(tmpPath, payload, "utf8");
+    await fsp.rename(tmpPath, this.filePath);
   }
 
   async getRecentProjects() {

@@ -20,7 +20,7 @@ export type EditorSessionCoreOps = {
     endLine: number;
     endColumn: number;
   } | null;
-  getOpenFileSnapshots: (options?: { maxFiles?: number; maxChars?: number }) => {
+  getOpenFileSnapshots: (options?: { maxFiles?: number; maxChars?: number; onlyDirty?: boolean }) => {
     files: Array<{ path: string; isDirty: boolean; isActive: boolean }>;
     snapshots: Array<{
       path: string;
@@ -198,7 +198,7 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
     });
   };
 
-  const getOpenFileSnapshots = (options?: { maxFiles?: number; maxChars?: number }) => {
+  const getOpenFileSnapshots = (options?: { maxFiles?: number; maxChars?: number; onlyDirty?: boolean }) => {
     const rawMaxFiles = options?.maxFiles ?? 8;
     const maxFiles = rawMaxFiles > 0 ? rawMaxFiles : Number.POSITIVE_INFINITY;
     const rawMaxChars = options?.maxChars ?? 20000;
@@ -259,11 +259,13 @@ export const createEditorSessionCoreOps = (runtime: EditorSessionRuntime): Edito
         pushSnapshot(entry.path, entry.isDirty);
       }
     });
-    entries.forEach((entry) => {
-      if (!entry.isDirty && !entry.isActive) {
-        pushSnapshot(entry.path, entry.isDirty);
-      }
-    });
+    if (!options?.onlyDirty) {
+      entries.forEach((entry) => {
+        if (!entry.isDirty && !entry.isActive) {
+          pushSnapshot(entry.path, entry.isDirty);
+        }
+      });
+    }
     return { files: Array.from(files.values()), snapshots };
   };
 
