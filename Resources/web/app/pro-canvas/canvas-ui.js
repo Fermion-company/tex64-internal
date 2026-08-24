@@ -6,10 +6,11 @@ import { generateTikz } from "./tikz-generate.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
 import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, nearestOnPath, pathTightPoints, PEN_RESUME_PX, penClickAction, removeAnchor, reversePath, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
 import { stripTikzWrapper } from "./code-import.js";
-import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
+import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, normalizePlotDimension, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
 import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } from "./arrow-math.js";
+import { NODE_FONT_FAMILIES, NODE_FONT_SIZES, nodeEditorWidthPx, nodeFontCssFamily, nodeFontScale } from "./label-style.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
@@ -281,7 +282,7 @@ export const initProCanvasUi = (deps) => {
         const nodeById = (id) => id ? walk(currentObjects(), id) : null;
         const positionNodeEditor = () => { if (!editingNodeId || !nodeEditor)
             return; const object = nodeById(editingNodeId); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
-            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom; nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.fontSize = `${Math.max(12, 4 * scale)}px`; };
+            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom; nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.width = `${nodeEditorWidthPx(nodeEditor.value)}px`; nodeEditor.style.fontFamily = nodeFontCssFamily(object.fontFamily); nodeEditor.style.fontSize = `${Math.max(12, 4 * scale * nodeFontScale(object.fontSize))}px`; };
         const finishNodeEdit = (commit) => { if (!editingNodeId || !nodeEditor)
             return; const id = editingNodeId, input = nodeEditor, object = nodeById(id), value = input.value; editingNodeId = null; nodeEditor = null; input.remove(); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
             return; if (!commit) {
@@ -311,7 +312,7 @@ export const initProCanvasUi = (deps) => {
             render(); };
         const beginNodeEdit = (object, isNew = false, before = null) => { if (editingNodeId)
             finishNodeEdit(true); anchorEdit = null; editingNodeId = object.id; nodeEditorOriginal = object.latex; nodeEditorNew = isNew; nodeEditorBefore = before; replaceSelection(object.id); const input = document.createElement("input"); input.className = "pro-canvas-inline-editor"; input.dataset.role = "node-editor"; input.dataset.objectId = object.id; input.value = object.latex; let finished = false; const finish = (commit) => { if (finished)
-            return; finished = true; finishNodeEdit(commit); }; input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
+            return; finished = true; finishNodeEdit(commit); }; input.addEventListener("input", positionNodeEditor); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
             return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
             return; positionNodeEditor(); input.focus(); input.select(); }); };
         const stopPlotEdit = () => { if (!plotEdit)
@@ -373,6 +374,17 @@ export const initProCanvasUi = (deps) => {
             card.append(header);
             const field = (label, value, type, apply) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = type; input.value = value; input.title = label; if (type === "number")
                 input.step = "any"; liveField(input, () => apply(input.value)); row.append(input); return { row, input }; };
+            const dimensions = document.createElement("div");
+            dimensions.className = "pro-canvas-plot-dimensions";
+            const dimensionTitle = document.createElement("span");
+            dimensionTitle.className = "pro-canvas-plot-range-title";
+            dimensionTitle.textContent = uiText("Axis length", "軸の長さ");
+            const plotWidth = field(`${uiText("Width", "幅")} (${scene.unit})`, String(Number(object.width.toPrecision(4))), "number", value => object.width = normalizePlotDimension(value, object.width)), plotHeight = field(`${uiText("Height", "高さ")} (${scene.unit})`, String(Number(object.height.toPrecision(4))), "number", value => object.height = normalizePlotDimension(value, object.height));
+            plotWidth.input.min = plotHeight.input.min = "0.01";
+            plotWidth.input.dataset.noI18n = "";
+            plotHeight.input.dataset.noI18n = "";
+            dimensions.append(dimensionTitle, plotWidth.row, plotHeight.row);
+            card.append(dimensions);
             object.series.forEach((series, index) => {
                 const kind = plotKind(series), wrap = document.createElement("div");
                 wrap.className = `pro-canvas-plot-card-series${series.visible === false ? " is-muted" : ""}`;
@@ -431,7 +443,7 @@ export const initProCanvasUi = (deps) => {
                     mf.value = latex;
                     mf.addEventListener("keydown", e => { if (e.key !== "Escape")
                         return; e.preventDefault(); e.stopPropagation(); stopPlotEdit(); });
-                    liveField(mf, () => { var _a, _b; let raw = mf.value; try {
+                    liveField(mf, () => { var _a; var _b; let raw = mf.value; try {
                         raw = (_b = (_a = mf.getValue) === null || _a === void 0 ? void 0 : _a.call(mf, "latex")) !== null && _b !== void 0 ? _b : raw;
                     }
                     catch { } const next = raw.trim() ? latexToExpr(raw, varName) : "", bad = next === null; mf.classList.toggle("is-error", bad); error.hidden = !bad; if (next !== null)
@@ -510,10 +522,10 @@ export const initProCanvasUi = (deps) => {
                     series.expr2 = ""; if (series.kind === "points" && series.points === undefined)
                     series.points = ""; plotDetailsOpen.add(detailsKey); plotCardSignature = ""; debouncePlotCompile(); render(); };
                 kindLabel.append(kindSelect);
-                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field(uiText("Domain min", "定義域 最小"), series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field(uiText("Domain min", "定義域 最小"), series.domain === null ? "" : String(series.domain.min), "number", value => { var _a; var _b; const n = Number(value); if (!value.trim())
                     series.domain = null;
                 else if (Number.isFinite(n))
-                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field(uiText("Domain max", "定義域 最大"), series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
+                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field(uiText("Domain max", "定義域 最大"), series.domain === null ? "" : String(series.domain.max), "number", value => { var _a; var _b; const n = Number(value); if (!value.trim())
                     series.domain = null;
                 else if (Number.isFinite(n))
                     series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : defaults.min, max: n }; }), samples = field(uiText("Steps", "分割数"), String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field(uiText("Legend", "凡例"), series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input");
@@ -690,6 +702,28 @@ export const initProCanvasUi = (deps) => {
             emptyNote.textContent = "";
             overlay.querySelector(".pro-canvas-geometry-section").hidden = !selection.ids.size;
             overlay.querySelector(".pro-canvas-style-section").hidden = !targets.length && !object;
+            if ((object === null || object === void 0 ? void 0 : object.type) === "node") {
+                const title = document.createElement("h4");
+                title.textContent = uiText("Label font", "ラベルフォント");
+                const row = document.createElement("div");
+                row.className = "pro-canvas-node-font";
+                const familyLabel = document.createElement("label"), family = document.createElement("select");
+                familyLabel.textContent = uiText("Typeface", "書体");
+                family.dataset.role = "node-font-family";
+                NODE_FONT_FAMILIES.forEach(item => family.add(new Option(uiText(item.en, item.ja), item.value)));
+                family.value = object.fontFamily || "default";
+                family.onchange = () => { snapshot(false); object.fontFamily = family.value; render(); scheduleCompile(); };
+                familyLabel.append(family);
+                const sizeLabel = document.createElement("label"), size = document.createElement("select");
+                sizeLabel.textContent = uiText("Size", "サイズ");
+                size.dataset.role = "node-font-size";
+                NODE_FONT_SIZES.forEach(item => size.add(new Option(item.label, item.value)));
+                size.value = object.fontSize || "normal";
+                size.onchange = () => { snapshot(false); object.fontSize = size.value; render(); scheduleCompile(); };
+                sizeLabel.append(size);
+                row.append(familyLabel, sizeLabel);
+                host.append(title, row);
+            }
             if (object) {
                 const b = objectBounds(object, scene), values = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
                 ["X", "Y", "W", "H"].forEach((label, index) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = "number"; input.step = "0.1"; input.value = String(Number(values[index].toFixed(3))); input.onchange = () => { const value = Number(input.value); if (!Number.isFinite(value) || (index >= 2 && value < .01)) {
@@ -918,7 +952,8 @@ export const initProCanvasUi = (deps) => {
             const objects = svgEl("g", { class: "pro-canvas-objects", "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
-                var _a, _b, _c, _d, _e, _f;
+                var _a;
+                var _b, _c, _d, _e, _f;
                 if (object.type === "group" || object.type === "instance") {
                     const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
                     if (interactive)
@@ -1058,7 +1093,7 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
+                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node", "font-family": nodeFontCssFamily(object.fontFamily), "font-size": 4 * nodeFontScale(object.fontSize) });
                     el.textContent = object.latex;
                 }
                 const distance = style.doubleDistancePt || 0;
@@ -1348,7 +1383,8 @@ export const initProCanvasUi = (deps) => {
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
-            var _a, _b;
+            var _a;
+            var _b;
             flushWheelUndo();
             const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
@@ -1519,7 +1555,8 @@ export const initProCanvasUi = (deps) => {
             render();
         });
         svg.addEventListener("pointermove", e => {
-            var _a, _b, _c, _d;
+            var _a;
+            var _b, _c, _d;
             if (penDrag) {
                 const cursor = rawPoint(e);
                 penDrag.handle = Math.hypot(e.clientX - penDrag.startClient.x, e.clientY - penDrag.startClient.y) >= 4 ? { x: cursor.x - penDrag.anchor.x, y: cursor.y - penDrag.anchor.y } : null;
@@ -1704,7 +1741,8 @@ export const initProCanvasUi = (deps) => {
             scheduleCompile();
         } });
         svg.addEventListener("pointerup", e => {
-            var _a, _b;
+            var _a;
+            var _b;
             const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor", "bend"].includes(completed.kind));
             const drawn = (completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.id ? currentObjects().find(item => item.id === completed.id) : null, plotDrawn = (drawn === null || drawn === void 0 ? void 0 : drawn.type) === "plot" ? drawn : null;
             if (plotDrawn && !completed.moved) {
@@ -1817,7 +1855,8 @@ export const initProCanvasUi = (deps) => {
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
             item.children.forEach(renew); }; renew(copy); return copy; };
         const onKey = (e) => {
-            var _a, _b;
+            var _a;
+            var _b;
             if (editingNodeId)
                 return;
             const target = e.target;
@@ -2128,7 +2167,7 @@ export const initProCanvasUi = (deps) => {
             render();
             editCode(object);
         } };
-        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select")
+        svg.addEventListener("dblclick", e => { var _a; var _b; if (tool !== "select")
             return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null); if (object) {
             activateForEdit(object);
             e.preventDefault();

@@ -1,6 +1,7 @@
 export const PLOT_PALETTE = ["#2563eb", "#dc2626", "#059669", "#9333ea", "#ea580c", "#0891b2"];
 export const zoomRange = (min, max, focusT, factor) => { const width = Math.max(1e-6, Math.min(1e9, Math.abs(max - min) * Math.max(Number.MIN_VALUE, factor))), focus = Math.max(0, Math.min(1, focusT)), value = min + (max - min) * focus; return { min: value - width * focus, max: value + width * (1 - focus) }; };
 export const panRange = (min, max, deltaT) => { const delta = (max - min) * deltaT; return { min: min + delta, max: max + delta }; };
+export const normalizePlotDimension = (value, current) => { const next = Number(value); return Number.isFinite(next) && next > 0 ? next : current; };
 const functions = {
     sin: { n: 1, fn: x => Math.sin(x * Math.PI / 180) }, cos: { n: 1, fn: x => Math.cos(x * Math.PI / 180) }, tan: { n: 1, fn: x => Math.tan(x * Math.PI / 180) },
     asin: { n: 1, fn: x => Math.asin(x) * 180 / Math.PI }, acos: { n: 1, fn: x => Math.acos(x) * 180 / Math.PI }, atan: { n: 1, fn: x => Math.atan(x) * 180 / Math.PI },

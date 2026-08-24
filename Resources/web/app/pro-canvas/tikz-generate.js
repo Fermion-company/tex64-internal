@@ -2,6 +2,7 @@ import { resolveStyle, sceneHasPlot } from "./scene.js";
 import { findSymbol } from "./scene.js";
 import { samplePathPoints } from "./canvas-math.js";
 import { astToPgf, parseExpr, parsePoints } from "./plot-math.js";
+import { nodeFontOption } from "./label-style.js";
 const basicColors = {
     "000000": "black", "ffffff": "white", "ff0000": "red", "00ff00": "green",
     "0000ff": "blue", "00ffff": "cyan", "ff00ff": "magenta", "ffff00": "yellow",
@@ -198,6 +199,9 @@ export const generateTikz = (scene) => {
         if (object.type === "node") {
             if (object.anchor !== "center")
                 options.unshift(`anchor=${object.anchor}`);
+            const font = nodeFontOption(object.fontFamily, object.fontSize);
+            if (font)
+                options.push(font);
             return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${object.latex}};`];
         }
         if (object.type === "path" && !object.segments.length)

@@ -2,6 +2,7 @@ import { ObjStyle, Scene, SceneObject, StyleProps, Vec, resolveStyle, sceneHasPl
 import { findSymbol } from "./scene.js";
 import { samplePathPoints } from "./canvas-math.js";
 import { astToPgf, parseExpr, parsePoints } from "./plot-math.js";
+import { nodeFontOption } from "./label-style.js";
 
 const basicColors: Record<string, string> = {
   "000000": "black", "ffffff": "white", "ff0000": "red", "00ff00": "green",
@@ -118,6 +119,8 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
     const options = objectOptions(object.style);
     if (object.type === "node") {
       if (object.anchor !== "center") options.unshift(`anchor=${object.anchor}`);
+      const font = nodeFontOption(object.fontFamily, object.fontSize);
+      if (font) options.push(font);
       return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${object.latex}};`];
     }
     if (object.type === "path" && !object.segments.length) return []; // ペン1クリック中断の残骸（0セグメント）は無意味な \draw を出さない

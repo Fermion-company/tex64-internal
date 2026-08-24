@@ -9190,7 +9190,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
 .pro-canvas-hintbar { position: absolute; z-index: 2; left: 50%; bottom: 8px; transform: translateX(-50%); max-width: calc(100% - 24px); overflow: hidden; padding: 4px 12px; pointer-events: none; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
 .pro-canvas-hintbar:empty { display: none; }
-
 /* 挿入した図がどこへ入ったかを数秒だけ光らせて示す（pro-canvas の showInserted）。 */
 .monaco-editor .pro-canvas-inserted-line { background: color-mix(in srgb, var(--accent) 16%, transparent); border-left: 3px solid var(--accent); }
 /* 図データの 1 行は隠し、代わりに短いチップを 1 個だけ出す（figure-meta-chip.ts）。
@@ -9253,9 +9252,9 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-rotate { cursor: grab; }
 .pro-canvas-rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-marquee { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
-.pro-canvas-node { font: 4px Georgia, 'Times New Roman', serif; fill: #111827; }
+.pro-canvas-node { font: 4px KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif; fill: #111827; }
 .pro-canvas-code-preview { font: 2.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--text-soft); }
-.pro-canvas-inline-editor { position: fixed; z-index: 5; min-width: 80px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: Georgia, 'Times New Roman', serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
+.pro-canvas-inline-editor { position: fixed; z-index: 5; box-sizing: border-box; min-width: 44px; max-width: 220px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
 .pro-canvas-plot-card { position: fixed; z-index: 5; box-sizing: border-box; width: 320px; max-height: calc(100vh - 16px); overflow: auto; padding: 10px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; word-break: keep-all; }
 .pro-canvas-plot-card-header { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 6px; cursor: grab; }
 .pro-canvas-plot-card-header strong { font-size: 11px; letter-spacing: .04em; color: var(--text-soft); }
@@ -9285,11 +9284,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-eye svg { width: 14px; height: 14px; fill: none; stroke: currentColor; }
 .pro-canvas-plot-details { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 7px 0 2px 22px; }
 .pro-canvas-plot-details[hidden] { display: none; }
-.pro-canvas-plot-details label, .pro-canvas-plot-range label, .pro-canvas-plot-card details label { display: grid; gap: 2px; color: var(--text-soft); }
-.pro-canvas-plot-details input, .pro-canvas-plot-range input, .pro-canvas-plot-card details input { width: 100%; padding: 4px; }
+.pro-canvas-plot-details label, .pro-canvas-plot-range label, .pro-canvas-plot-dimensions label, .pro-canvas-plot-card details label { display: grid; gap: 2px; color: var(--text-soft); }
+.pro-canvas-plot-details input, .pro-canvas-plot-range input, .pro-canvas-plot-dimensions input, .pro-canvas-plot-card details input { width: 100%; padding: 4px; }
 .pro-canvas-plot-details select { width: 100%; padding: 4px; }
 .pro-canvas-plot-add { width: 100%; margin: 7px 0; padding: 6px; }
-.pro-canvas-plot-range { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.pro-canvas-plot-range, .pro-canvas-plot-dimensions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.pro-canvas-plot-dimensions { margin-bottom: 8px; }
 .pro-canvas-plot-range-title { grid-column: 1 / -1; color: var(--text-soft); font-weight: 600; }
 .pro-canvas-plot-range label:last-child { display: flex; grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 5px; white-space: nowrap; }
 .pro-canvas-plot-card p { margin: 7px 0; color: var(--text-soft); }
@@ -9307,6 +9307,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-geometry input, .pro-canvas-style input[type="number"], .pro-canvas-style input[type="text"], .pro-canvas-style input[type="color"], .pro-canvas-style select { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 5px; }
 .pro-canvas-style h4, .pro-canvas-plot-series { grid-column: 1 / -1; }
 .pro-canvas-style h4 { margin: 4px 0 0; color: var(--text-soft); font-size: 11px; }
+.pro-canvas-node-font { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; grid-column: 1 / -1; }
 .pro-canvas-plot-series { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, .7fr)); gap: 4px; padding-top: 7px; border-top: 1px solid var(--panel-border); }
 .pro-canvas-plot-series input, .pro-canvas-plot-series button { min-width: 0; }
 .pro-canvas-swatch { position: relative; }

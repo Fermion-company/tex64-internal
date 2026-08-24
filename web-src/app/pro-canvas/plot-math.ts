@@ -3,6 +3,7 @@ import type { Vec } from "./scene.js";
 export const PLOT_PALETTE=["#2563eb","#dc2626","#059669","#9333ea","#ea580c","#0891b2"] as const;
 export const zoomRange=(min:number,max:number,focusT:number,factor:number):{min:number;max:number}=>{const width=Math.max(1e-6,Math.min(1e9,Math.abs(max-min)*Math.max(Number.MIN_VALUE,factor))),focus=Math.max(0,Math.min(1,focusT)),value=min+(max-min)*focus;return{min:value-width*focus,max:value+width*(1-focus)};};
 export const panRange=(min:number,max:number,deltaT:number):{min:number;max:number}=>{const delta=(max-min)*deltaT;return{min:min+delta,max:max+delta};};
+export const normalizePlotDimension=(value:string,current:number):number=>{const next=Number(value);return Number.isFinite(next)&&next>0?next:current;};
 
 type Fn=(...args:number[])=>number;
 const functions:Record<string,{n:number;fn:Fn}>={

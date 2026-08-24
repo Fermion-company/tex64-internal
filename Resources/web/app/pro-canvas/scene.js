@@ -101,7 +101,9 @@ const isSceneObject = (value) => {
     if (value.type === "ellipse")
         return isVec(value.center) && isNumber(value.rx) && value.rx >= 0 && isNumber(value.ry) && value.ry >= 0;
     if (value.type === "node")
-        return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors);
+        return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors)
+            && (value.fontFamily === undefined || oneOf(value.fontFamily, ["default", "serif", "sans", "mono"]))
+            && (value.fontSize === undefined || oneOf(value.fontSize, ["tiny", "scriptsize", "footnotesize", "small", "normal", "large", "Large", "huge"]));
     if (value.type === "path")
         return isVec(value.start) && typeof value.closed === "boolean" && isPathSegments(value.segments);
     return false;
