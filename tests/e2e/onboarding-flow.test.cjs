@@ -73,6 +73,7 @@ const gateState = (page) =>
       const part = (cls) => el.querySelector(cls)?.textContent?.trim() ?? "";
       return {
         title: part(".env-choice-title"),
+        detail: part(".env-choice-detail"),
         size: part(".env-choice-size"),
         badge: part(".env-choice-badge"),
       };
@@ -84,7 +85,7 @@ const gateState = (page) =>
       progressShown: !document
         .getElementById("onboarding-progress")
         ?.classList.contains("is-hidden"),
-      full: card("onboarding-choice-full"),
+      light: card("onboarding-choice-light"),
       percent: text("onboarding-percent"),
       eta: text("onboarding-eta"),
       phase: text("onboarding-phase"),
@@ -118,7 +119,7 @@ test("a machine with TeX never sees the gate", async () => {
   }
 });
 
-test("a machine without TeX gets one complete-install action", async () => {
+test("a machine without TeX gets one quick lightweight-install action", async () => {
   const { electronApp, page, tmpDir } = await launch({ missingTools: true });
   try {
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
@@ -127,13 +128,15 @@ test("a machine without TeX gets one complete-install action", async () => {
     assert.equal(state.progressShown, false);
     assert.equal(state.bodyGated, true, "the launcher must not show through the gate");
 
-    assert.match(state.full.size, /\d/, `full card has no size: ${JSON.stringify(state.full)}`);
-    assert.match(state.full.size, /GB/);
-    assert.equal(state.full.badge.replace(/ /g, "").trim(), "");
+    assert.match(state.light.size, /\d/, `light card has no size: ${JSON.stringify(state.light)}`);
+    assert.match(state.light.size, /MB/);
+    assert.match(state.light.size, /300/);
+    assert.match(state.light.detail, /TinyTeX-1/);
+    assert.match(state.light.badge, /Recommended|おすすめ/);
     assert.equal(
       await page.locator("#onboarding-choice .env-choice-card").count(),
       1,
-      "there must not be a partial-install choice"
+      "first run should have one clear setup action"
     );
   } finally {
     await closeElectronApp(electronApp);
@@ -191,7 +194,7 @@ test("the gauge shows progress and a remaining time, then hands over to the app"
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
 
     // Same events a real install emits, without the download.
-    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "full" });
+    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "light" });
     await page.waitForTimeout(400);
     let state = await gateState(page);
     assert.equal(state.progressShown, true, "starting an install should show the gauge");
@@ -214,7 +217,7 @@ test("the gauge shows progress and a remaining time, then hands over to the app"
     // re-detection keeps it closed.
     await sendFromMain(electronApp, "env:installResult", {
       target: "basictex",
-      variant: "full",
+      variant: "light",
       success: true,
       message: "ready",
     });
@@ -235,11 +238,11 @@ test("an install that leaves no usable TeX puts the user back in front of the ch
   const { electronApp, page, tmpDir } = await launch({ missingTools: true });
   try {
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
-    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "full" });
+    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "light" });
     await page.waitForTimeout(300);
     await sendFromMain(electronApp, "env:installResult", {
       target: "basictex",
-      variant: "full",
+      variant: "light",
       success: true,
       message: "ready",
     });
@@ -257,7 +260,7 @@ test("a failed install says so and offers the choice again", async () => {
   const { electronApp, page, tmpDir } = await launch({ missingTools: true });
   try {
     await page.waitForSelector("#onboarding.is-visible", { timeout: 20_000 });
-    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "full" });
+    await sendFromMain(electronApp, "env:installStart", { target: "basictex", variant: "light" });
     await page.waitForTimeout(400);
     await sendFromMain(electronApp, "env:installResult", {
       target: "basictex",

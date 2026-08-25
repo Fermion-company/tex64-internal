@@ -58,8 +58,24 @@ const INSTALLER_URLS = {
   win32: "https://mirror.ctan.org/systems/texlive/tlnet/install-tl.zip",
 };
 
-// TeX64 deliberately has one managed install profile: the complete CTAN set.
+// Official TinyTeX-1 daily assets keep stable URLs while tracking the current
+// TeX Live repository. TeX64 extracts them into its own managed root and never
+// runs `tlmgr path add`, so an existing system TeX remains untouched.
+const LIGHTWEIGHT_BUNDLE_URLS = {
+  darwin:
+    "https://github.com/rstudio/tinytex-releases/releases/download/daily/TinyTeX-1-darwin.tar.xz",
+  win32:
+    "https://github.com/rstudio/tinytex-releases/releases/download/daily/TinyTeX-1-windows.exe",
+};
+
 const INSTALL_VARIANTS = {
+  light: {
+    id: "light",
+    scheme: "scheme-small",
+    bundle: "TinyTeX-1",
+    approxBytes: 300 * 1024 * 1024,
+    approxDownloadBytes: 75 * 1024 * 1024,
+  },
   full: {
     id: "full",
     scheme: "scheme-full",
@@ -67,17 +83,23 @@ const INSTALL_VARIANTS = {
   },
 };
 
-const DEFAULT_INSTALL_VARIANT = "full";
+const DEFAULT_INSTALL_VARIANT = "light";
 
-// Legacy callers may still send an old target/variant string. They all normalize
-// to the single supported profile instead of silently creating a partial tree.
-const normalizeInstallVariant = () => DEFAULT_INSTALL_VARIANT;
+const FULL_INSTALL_ALIASES = new Set(["full", "texlive-full", "scheme-full"]);
+
+// Old launcher builds used names such as basictex/tinytex/minimal. They now map
+// to the supported lightweight profile; only an explicit full variant requests
+// the multi-gigabyte package set.
+const normalizeInstallVariant = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return FULL_INSTALL_ALIASES.has(normalized) ? "full" : "light";
+};
 
 // Written into the managed tree so later sessions can identify TeX64's profile.
 const INSTALL_MARKER_FILE = "tex64-install.json";
 
-// Every one of these means "set up the complete managed TeX Live". Old aliases
-// remain accepted for compatibility with older renderer builds.
+// Historical target names stay accepted so an old renderer can still ask a new
+// main process to create a usable managed environment.
 const TEXLIVE_INSTALL_TARGETS = new Set([
   "basictex",
   "synctex",
@@ -176,13 +198,23 @@ const ensureOk = async (command, args, options = {}) => {
   return result;
 };
 
-const downloadFile = async (url, outPath) => {
+const downloadFile = async (url, outPath, options = {}) => {
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok || !response.body) {
     throw new Error(`Download failed: ${url} (${response.status})`);
   }
   await fsp.mkdir(path.dirname(outPath), { recursive: true });
-  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outPath));
+  const totalHeader = Number.parseInt(response.headers.get("content-length") || "", 10);
+  const total = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : null;
+  let current = 0;
+  const readable = Readable.fromWeb(response.body);
+  if (typeof options.onProgress === "function") {
+    readable.on("data", (chunk) => {
+      current += chunk.length;
+      options.onProgress(current, total);
+    });
+  }
+  await pipeline(readable, fs.createWriteStream(outPath));
 };
 
 const walkForFile = async (rootDir, fileNames) => {
@@ -193,7 +225,7 @@ const walkForFile = async (rootDir, fileNames) => {
     const entries = await fsp.readdir(current, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
-      if (entry.isFile() && wanted.has(entry.name.toLowerCase())) {
+      if ((entry.isFile() || entry.isSymbolicLink()) && wanted.has(entry.name.toLowerCase())) {
         return fullPath;
       }
       if (entry.isDirectory()) {
@@ -204,11 +236,121 @@ const walkForFile = async (rootDir, fileNames) => {
   return null;
 };
 
+// TinyTeX's macOS archive contains absolute links into the directory where the
+// archive was unpacked. TeX64 relocates that tree into its managed root, so
+// rewrite only links that still point inside the extracted tree. External links
+// (if a future bundle contains any) are deliberately left untouched.
+const rewriteRelocatedSymlinks = async (rootDir, extractedRoot) => {
+  if (process.platform === "win32") {
+    return 0;
+  }
+  const normalizedSource = path.resolve(extractedRoot);
+  const normalizedDestination = path.resolve(rootDir);
+  const stack = [normalizedDestination];
+  let rewritten = 0;
+  while (stack.length > 0) {
+    const current = stack.pop();
+    const entries = await fsp.readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+        continue;
+      }
+      if (!entry.isSymbolicLink()) {
+        continue;
+      }
+      const target = await fsp.readlink(entryPath);
+      if (
+        !path.isAbsolute(target) ||
+        (target !== normalizedSource && !target.startsWith(`${normalizedSource}${path.sep}`))
+      ) {
+        continue;
+      }
+      const relocatedTarget = path.join(
+        normalizedDestination,
+        path.relative(normalizedSource, target)
+      );
+      await fsp.unlink(entryPath);
+      await fsp.symlink(relocatedTarget, entryPath);
+      rewritten += 1;
+    }
+  }
+  return rewritten;
+};
+
+const SAFE_TEX_FILE = /^[A-Za-z0-9][A-Za-z0-9+_.-]*\.(?:sty|cls|clo|cfg|def|fd|tex|lua|bst|bbx|cbx|lbx|tfm|map|enc|otf|ttf|ttc|pfb)$/i;
+const SAFE_TEX_PACKAGE = /^[A-Za-z0-9][A-Za-z0-9+_.-]*$/;
+
+const extractMissingTexFiles = (output) => {
+  if (typeof output !== "string" || !output.trim()) {
+    return [];
+  }
+  const files = [];
+  const seen = new Set();
+  const patterns = [
+    /(?:(?:LaTeX|Package\s+\S+)\s+Error:\s+File|I can't find file)\s+[`']([^`'\r\n]+)[`'](?:\s+not found)?/gi,
+    // luaotfload reports a missing font separately from LaTeX's usual
+    // "File ... not found" error, but tlmgr can resolve the font filename in
+    // exactly the same safe way as a .sty or .cls file.
+    /\bFile not found:\s*["']([^"'\r\n]+)["']/gi,
+    /\bfile:([A-Za-z0-9][A-Za-z0-9+_.-]*\.(?:otf|ttf|ttc|pfb))(?=[:;\s])[^\r\n]*\bnot loadable\b/gi,
+  ];
+  for (const pattern of patterns) {
+    let match = null;
+    while ((match = pattern.exec(output)) !== null) {
+      const fileName = path.basename(String(match[1] || "").trim());
+      const key = fileName.toLowerCase();
+      if (!SAFE_TEX_FILE.test(fileName) || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      files.push(fileName);
+      if (files.length >= 8) {
+        return files;
+      }
+    }
+  }
+  return files;
+};
+
+const parseTlmgrSearchPackages = (output, fileName) => {
+  if (typeof output !== "string" || !output.trim() || !SAFE_TEX_FILE.test(fileName)) {
+    return [];
+  }
+  const wanted = fileName.toLowerCase();
+  const packages = [];
+  const seen = new Set();
+  let activePackage = null;
+  for (const rawLine of output.split(/\r?\n/)) {
+    const packageHeader = rawLine.match(/^([^\s:][^:]*):\s*$/);
+    if (packageHeader) {
+      const candidate = packageHeader[1].trim();
+      activePackage = SAFE_TEX_PACKAGE.test(candidate) ? candidate : null;
+      continue;
+    }
+    if (!activePackage) {
+      continue;
+    }
+    const listedPath = rawLine.trim().replace(/\\/g, "/");
+    if (path.posix.basename(listedPath).toLowerCase() !== wanted) {
+      continue;
+    }
+    const key = activePackage.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      packages.push(activePackage);
+    }
+  }
+  return packages;
+};
+
 class EnvService {
   constructor() {
     this.platform = process.platform;
     this.arch = process.arch;
     this.onProgress = null;
+    this.progressVariant = DEFAULT_INSTALL_VARIANT;
     this.detectCache = null;
   }
 
@@ -223,7 +365,19 @@ class EnvService {
     const hasCount = Number.isFinite(current) && Number.isFinite(total) && total > 0;
     const ratio = hasCount ? Math.min(1, current / total) : 0;
     let percent = null;
-    if (phase === "download") {
+    if (this.progressVariant === "light") {
+      if (phase === "download") {
+        percent = hasCount ? Math.min(80, 2 + Math.round(ratio * 78)) : 2;
+      } else if (phase === "extract") {
+        percent = 84;
+      } else if (phase === "texlive") {
+        percent = 90;
+      } else if (phase === "packages") {
+        percent = hasCount ? Math.min(98, 90 + Math.round(ratio * 8)) : 92;
+      } else if (phase === "finalize") {
+        percent = 99;
+      }
+    } else if (phase === "download") {
       percent = 2;
     } else if (phase === "extract") {
       percent = 6;
@@ -237,8 +391,10 @@ class EnvService {
     try {
       this.onProgress({
         phase,
-        current: hasCount ? current : null,
-        total: hasCount ? total : null,
+        // Byte counts make the UI noisy; they are only used to calculate the
+        // lightweight bundle's real download percentage.
+        current: hasCount && phase !== "download" ? current : null,
+        total: hasCount && phase !== "download" ? total : null,
         percent,
       });
     } catch {
@@ -300,6 +456,7 @@ class EnvService {
         return { success: false, message: "Unsupported platform." };
       }
       const variant = normalizeInstallVariant(options.variant || target);
+      this.progressVariant = variant;
       if (TEXLIVE_INSTALL_TARGETS.has(String(target || "").trim().toLowerCase())) {
         return await this.installManagedTexlive(variant);
       }
@@ -317,6 +474,7 @@ class EnvService {
       };
     } finally {
       this.onProgress = null;
+      this.progressVariant = DEFAULT_INSTALL_VARIANT;
     }
   }
 
@@ -342,10 +500,13 @@ class EnvService {
   }
 
   async installManagedTexlive(variant = DEFAULT_INSTALL_VARIANT) {
-    const resolved = normalizeInstallVariant(variant);
+    let resolved = normalizeInstallVariant(variant);
     const alreadyInstalled = Boolean(this.findManagedCommand("tlmgr"));
-    if (alreadyInstalled && this.readInstallMarker().variant === "light") {
-      // Upgrade any development build that created the retired partial profile.
+    const currentVariant = this.readInstallMarker().variant;
+    if (alreadyInstalled && currentVariant === "full") {
+      // Never replace a complete tree with a lightweight one.
+      resolved = "full";
+    } else if (alreadyInstalled && currentVariant === "light" && resolved === "full") {
       this.emitProgress("packages");
       await this.runTlmgr(["install", "scheme-full"], {
         allowFailure: false,
@@ -353,6 +514,13 @@ class EnvService {
       });
     } else {
       await this.ensureManagedTexliveInstalled(resolved);
+    }
+    if (resolved === "light" && !this.findManagedCommand("synctex")) {
+      this.emitProgress("packages");
+      await this.runTlmgr(["install", "synctex"], {
+        allowFailure: false,
+        timeoutMs: this.installTimeoutMs(),
+      });
     }
     this.emitProgress("finalize");
     const [lualatex, latexmk, synctex] = await Promise.all([
@@ -379,8 +547,8 @@ class EnvService {
     return root ? path.join(root, INSTALL_MARKER_FILE) : "";
   }
 
-  // `variant: null` means there is no record. "light" is only returned for a
-  // retired development marker so callers can upgrade that tree in place.
+  // `variant: null` means there is no record. Both current profiles are kept so
+  // the build path knows whether missing packages may be installed on demand.
   readInstallMarker() {
     const unknown = { variant: null, installedAt: null, known: false };
     const markerPath = this.installMarkerPath();
@@ -394,8 +562,6 @@ class EnvService {
       }
       const storedVariant = parsed.variant.trim().toLowerCase();
       return {
-        // Preserve the retired partial-profile marker long enough to trigger
-        // the one-time scheme-full upgrade. New markers are always "full".
         variant: storedVariant === "light" ? "light" : "full",
         installedAt: typeof parsed?.installedAt === "string" ? parsed.installedAt : null,
         known: true,
@@ -442,6 +608,15 @@ class EnvService {
     await fsp.mkdir(path.dirname(root), { recursive: true });
     const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-texlive-"));
     try {
+      const resolved = normalizeInstallVariant(variant);
+      if (resolved === "light") {
+        await this.installLightweightBundle(root, workDir);
+        const installedTlmgr = this.findManagedCommand("tlmgr");
+        if (!installedTlmgr) {
+          throw new Error("TinyTeX installation finished, but tlmgr was not found.");
+        }
+        return installedTlmgr;
+      }
       const installerUrl = INSTALLER_URLS[this.platform];
       if (!installerUrl) {
         throw new Error("No TeX Live installer is configured for this platform.");
@@ -468,6 +643,50 @@ class EnvService {
       throw new Error("TeX Live installer finished, but tlmgr was not found.");
     }
     return installedTlmgr;
+  }
+
+  async installLightweightBundle(root, workDir) {
+    const bundleUrl = LIGHTWEIGHT_BUNDLE_URLS[this.platform];
+    if (!bundleUrl) {
+      throw new Error("No lightweight TeX bundle is configured for this platform.");
+    }
+    const bundlePath = path.join(
+      workDir,
+      this.platform === "win32" ? "TinyTeX-1-windows.exe" : "TinyTeX-1-darwin.tar.xz"
+    );
+    this.emitProgress("download");
+    await downloadFile(bundleUrl, bundlePath, {
+      onProgress: (current, total) => this.emitProgress("download", current, total),
+    });
+    this.emitProgress("extract");
+    if (this.platform === "win32") {
+      await ensureOk(bundlePath, ["-y", `-o${workDir}`], {
+        timeoutMs: 10 * 60 * 1000,
+        extendPath: false,
+      });
+    } else {
+      await ensureOk("tar", ["-xJf", bundlePath, "-C", workDir], {
+        timeoutMs: 10 * 60 * 1000,
+        extendPath: false,
+      });
+    }
+    const extractedTlmgr = await walkForFile(workDir, [
+      "tlmgr",
+      "tlmgr.bat",
+      "tlmgr.exe",
+    ]);
+    if (!extractedTlmgr) {
+      throw new Error("The TinyTeX bundle did not contain tlmgr.");
+    }
+    const extractedRoot = path.resolve(path.dirname(extractedTlmgr), "..", "..");
+    await fsp.mkdir(root, { recursive: true });
+    await fsp.cp(extractedRoot, root, {
+      recursive: true,
+      force: true,
+      verbatimSymlinks: true,
+    });
+    await rewriteRelocatedSymlinks(root, extractedRoot);
+    this.emitProgress("texlive");
   }
 
   async extractInstallerArchive(archivePath, workDir) {
@@ -515,7 +734,7 @@ class EnvService {
     return installer;
   }
 
-  buildInstallProfile(root) {
+  buildInstallProfile(root, variant = "full") {
     const texdir = normalizeProfilePath(root);
     const texmfLocal = normalizeProfilePath(path.join(root, "texmf-local"));
     const texmfConfig = normalizeProfilePath(path.join(root, "texmf-config"));
@@ -524,9 +743,7 @@ class EnvService {
     const texmfUserConfig = normalizeProfilePath(path.join(root, "texmf-user-config"));
     const texmfUserVar = normalizeProfilePath(path.join(root, "texmf-user-var"));
     return [
-      // Full scheme: install every CTAN package so anything that compiles under a
-      // system MacTeX also compiles through TeX64's managed TeX Live (parity).
-      "selected_scheme scheme-full",
+      `selected_scheme ${INSTALL_VARIANTS[normalizeInstallVariant(variant)].scheme}`,
       `TEXDIR ${texdir}`,
       `TEXMFLOCAL ${texmfLocal}`,
       `TEXMFSYSCONFIG ${texmfConfig}`,
@@ -622,6 +839,69 @@ class EnvService {
     return result;
   }
 
+  isManagedLightweight() {
+    return Boolean(
+      this.findManagedCommand("tlmgr") && this.readInstallMarker().variant === "light"
+    );
+  }
+
+  async findManagedPackageForFile(fileName) {
+    if (!SAFE_TEX_FILE.test(String(fileName || ""))) {
+      return null;
+    }
+    const result = await this.runTlmgr(
+      ["search", "--global", "--file", `/${fileName}`],
+      { allowFailure: true, timeoutMs: 2 * 60 * 1000 }
+    );
+    if (!result.ok) {
+      return null;
+    }
+    return parseTlmgrSearchPackages(result.output, fileName)[0] || null;
+  }
+
+  async installMissingPackagesFromLog(output, options = {}) {
+    const files = extractMissingTexFiles(output);
+    if (!this.isManagedLightweight() || files.length === 0) {
+      return { attempted: false, success: false, files, packages: [] };
+    }
+    const packages = [];
+    const seen = new Set();
+    const excluded = new Set(
+      Array.isArray(options.excludePackages)
+        ? options.excludePackages.map((entry) => String(entry || "").toLowerCase())
+        : []
+    );
+    for (const fileName of files) {
+      const packageName = await this.findManagedPackageForFile(fileName);
+      const key = String(packageName || "").toLowerCase();
+      if (!packageName || seen.has(key) || excluded.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      packages.push(packageName);
+    }
+    if (packages.length === 0) {
+      return { attempted: true, success: false, files, packages };
+    }
+    if (typeof options.onPackagesResolved === "function") {
+      options.onPackagesResolved([...packages], [...files]);
+    }
+    const result = await this.runTlmgr(["install", ...packages], {
+      allowFailure: true,
+      timeoutMs: this.installTimeoutMs(),
+    });
+    this.detectCache = null;
+    return {
+      attempted: true,
+      success: result.ok,
+      files,
+      packages,
+      message: result.ok
+        ? `Installed ${packages.join(", ")}.`
+        : "The missing TeX packages could not be installed.",
+    };
+  }
+
   // Honors the same E2E seams as checkCommand so the "empty machine" flow can be
   // exercised on a developer box that already has a system TeX.
   resolveCommandPath(command) {
@@ -713,6 +993,10 @@ class EnvService {
       }
     }
 
+    if (source === "managed" && marker?.variant === "light" && coverage.level !== "broken") {
+      coverage = { ...coverage, level: "on-demand" };
+    }
+
     const hasEngine = Boolean(primaryEngine);
     const recommendation = buildRecommendation({
       source,
@@ -759,4 +1043,7 @@ module.exports = {
   INSTALL_VARIANTS,
   DEFAULT_INSTALL_VARIANT,
   normalizeInstallVariant,
+  extractMissingTexFiles,
+  parseTlmgrSearchPackages,
+  rewriteRelocatedSymlinks,
 };

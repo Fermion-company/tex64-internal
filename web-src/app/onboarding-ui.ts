@@ -5,9 +5,9 @@ import { INSTALL_VARIANT_LABELS, type TexInstallVariant } from "./tex-env-report
 // straight into the editor; if it is not, this is the only thing the user sees
 // until an install finishes.
 
-// Typical end-to-end duration for scheme-full on an M-series Mac. Used until
-// the current run's own pace is known.
+// Typical end-to-end durations, used until the current run's own pace is known.
 export const VARIANT_TOTAL_MS: Record<TexInstallVariant, number> = {
+  light: 2 * 60 * 1000,
   full: 45 * 60 * 1000,
 };
 
@@ -15,6 +15,13 @@ export const VARIANT_TOTAL_MS: Record<TexInstallVariant, number> = {
 // time inside install-tl (bar 0->80%). Mapping bar percent onto elapsed-time
 // fraction keeps the remaining-time estimate useful.
 const TIME_CURVE: Record<TexInstallVariant, Array<[number, number]>> = {
+  light: [
+    [0, 0],
+    [80, 0.72],
+    [90, 0.9],
+    [98, 0.98],
+    [100, 1],
+  ],
   full: [
     [0, 0],
     [8, 0.02],
@@ -29,7 +36,7 @@ export const timeFractionForPercent = (
   variant: TexInstallVariant
 ): number => {
   const p = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : 0));
-  const curve = TIME_CURVE[variant] ?? TIME_CURVE.full;
+  const curve = TIME_CURVE[variant] ?? TIME_CURVE.light;
   for (let i = 1; i < curve.length; i += 1) {
     const [prevP, prevF] = curve[i - 1];
     const [nextP, nextF] = curve[i];
@@ -71,7 +78,7 @@ export const nextEtaState = (
   );
   const elapsed = Math.max(0, input.now - startedAt);
   const fraction = timeFractionForPercent(percent, input.variant);
-  const fallbackTotal = VARIANT_TOTAL_MS[input.variant] ?? VARIANT_TOTAL_MS.full;
+  const fallbackTotal = VARIANT_TOTAL_MS[input.variant] ?? VARIANT_TOTAL_MS.light;
   // Only trust the measured pace once enough of the run has happened for the
   // ratio to mean anything.
   const measuredTotal =
@@ -155,7 +162,7 @@ export const initOnboardingUi = (deps: {
   const root = document.getElementById("onboarding");
   const choiceStep = document.getElementById("onboarding-choice");
   const progressStep = document.getElementById("onboarding-progress");
-  const fullBtn = document.getElementById("onboarding-choice-full");
+  const lightBtn = document.getElementById("onboarding-choice-light");
   const fill = document.getElementById("onboarding-gauge-fill");
   const percentEl = document.getElementById("onboarding-percent");
   const etaEl = document.getElementById("onboarding-eta");
@@ -182,7 +189,7 @@ export const initOnboardingUi = (deps: {
 
   const renderChoiceLabels = () => {
     for (const [variant, button] of [
-      ["full", fullBtn],
+      ["light", lightBtn],
     ] as Array<[TexInstallVariant, HTMLElement | null]>) {
       if (!(button instanceof HTMLElement)) {
         continue;
@@ -271,7 +278,7 @@ export const initOnboardingUi = (deps: {
     deps.onFinished();
   };
 
-  fullBtn?.addEventListener("click", () => deps.startInstall("full"));
+  lightBtn?.addEventListener("click", () => deps.startInstall("light"));
 
   return { showChoice, showProgress, showFailure, finish, isVisible: () => visible };
 };

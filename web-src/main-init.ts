@@ -284,7 +284,7 @@ export const initMain = () => {
       onboardingUi.showChoice();
     },
     onRuntimeInstallEvent: (event) => {
-      const variant: TexInstallVariant = "full";
+      const variant: TexInstallVariant = event.variant === "full" ? "full" : "light";
       if (!onboardingUi.isVisible()) {
         return;
       }

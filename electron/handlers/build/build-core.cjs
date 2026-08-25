@@ -134,7 +134,33 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     }
     // Formatting removed from build — only runs via the Format button.
     const buildProfile = await resolveBuildProfile().catch(() => null);
-    const result = await buildService.build(rootPath, targetFile, options.engine, buildProfile);
+    let result = await buildService.build(rootPath, targetFile, options.engine, buildProfile);
+    const installedPackages = new Set();
+    const recoveryNotes = [];
+    for (let attempt = 0; attempt < 4 && result.kind === "failure"; attempt += 1) {
+      if (!envService || typeof envService.installMissingPackagesFromLog !== "function") {
+        break;
+      }
+      const recovery = await envService.installMissingPackagesFromLog(result.log, {
+        excludePackages: [...installedPackages],
+        onPackagesResolved: () => {
+          const installingMessage = "Installing missing TeX packages…";
+          sendBuildState("building", installingMessage);
+          sendIssues(0, installingMessage, "info", []);
+        },
+      });
+      if (!recovery?.success || !Array.isArray(recovery.packages) || recovery.packages.length === 0) {
+        break;
+      }
+      recovery.packages.forEach((packageName) => installedPackages.add(packageName));
+      recoveryNotes.push(
+        `[tex64] ${recovery.message || `Installed ${recovery.packages.join(", ")}.`}`
+      );
+      result = await buildService.build(rootPath, targetFile, options.engine, buildProfile);
+    }
+    if (recoveryNotes.length > 0 && typeof result.log === "string") {
+      result.log = [...recoveryNotes, "", result.log].join("\n");
+    }
     if (result.kind === "busy") {
       sendBuildState("building", buildMessage);
       sendIssues(0, "Build is already running.", "info", []);

@@ -3,15 +3,22 @@ import { INSTALL_VARIANT_LABELS } from "./tex-env-report.js";
 // First-run gate. If TeX is already usable this never appears and the app opens
 // straight into the editor; if it is not, this is the only thing the user sees
 // until an install finishes.
-// Typical end-to-end duration for scheme-full on an M-series Mac. Used until
-// the current run's own pace is known.
+// Typical end-to-end durations, used until the current run's own pace is known.
 export const VARIANT_TOTAL_MS = {
+    light: 2 * 60 * 1000,
     full: 45 * 60 * 1000,
 };
 // The progress bar is not linear in time: scheme-full spends almost all of its
 // time inside install-tl (bar 0->80%). Mapping bar percent onto elapsed-time
 // fraction keeps the remaining-time estimate useful.
 const TIME_CURVE = {
+    light: [
+        [0, 0],
+        [80, 0.72],
+        [90, 0.9],
+        [98, 0.98],
+        [100, 1],
+    ],
     full: [
         [0, 0],
         [8, 0.02],
@@ -23,7 +30,7 @@ const TIME_CURVE = {
 export const timeFractionForPercent = (percent, variant) => {
     var _a;
     const p = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : 0));
-    const curve = (_a = TIME_CURVE[variant]) !== null && _a !== void 0 ? _a : TIME_CURVE.full;
+    const curve = (_a = TIME_CURVE[variant]) !== null && _a !== void 0 ? _a : TIME_CURVE.light;
     for (let i = 1; i < curve.length; i += 1) {
         const [prevP, prevF] = curve[i - 1];
         const [nextP, nextF] = curve[i];
@@ -52,7 +59,7 @@ export const nextEtaState = (previous, input) => {
     const percent = Math.max(previous.percent, Math.max(0, Math.min(100, Number.isFinite(input.percent) ? input.percent : 0)));
     const elapsed = Math.max(0, input.now - startedAt);
     const fraction = timeFractionForPercent(percent, input.variant);
-    const fallbackTotal = (_b = VARIANT_TOTAL_MS[input.variant]) !== null && _b !== void 0 ? _b : VARIANT_TOTAL_MS.full;
+    const fallbackTotal = (_b = VARIANT_TOTAL_MS[input.variant]) !== null && _b !== void 0 ? _b : VARIANT_TOTAL_MS.light;
     // Only trust the measured pace once enough of the run has happened for the
     // ratio to mean anything.
     const measuredTotal = fraction >= 0.04 && elapsed >= 2000 ? elapsed / fraction : null;
@@ -115,7 +122,7 @@ export const initOnboardingUi = (deps) => {
     const root = document.getElementById("onboarding");
     const choiceStep = document.getElementById("onboarding-choice");
     const progressStep = document.getElementById("onboarding-progress");
-    const fullBtn = document.getElementById("onboarding-choice-full");
+    const lightBtn = document.getElementById("onboarding-choice-light");
     const fill = document.getElementById("onboarding-gauge-fill");
     const percentEl = document.getElementById("onboarding-percent");
     const etaEl = document.getElementById("onboarding-eta");
@@ -138,7 +145,7 @@ export const initOnboardingUi = (deps) => {
     };
     const renderChoiceLabels = () => {
         for (const [variant, button] of [
-            ["full", fullBtn],
+            ["light", lightBtn],
         ]) {
             if (!(button instanceof HTMLElement)) {
                 continue;
@@ -209,6 +216,6 @@ export const initOnboardingUi = (deps) => {
         setVisible(false);
         deps.onFinished();
     };
-    fullBtn === null || fullBtn === void 0 ? void 0 : fullBtn.addEventListener("click", () => deps.startInstall("full"));
+    lightBtn === null || lightBtn === void 0 ? void 0 : lightBtn.addEventListener("click", () => deps.startInstall("light"));
     return { showChoice, showProgress, showFailure, finish, isVisible: () => visible };
 };
