@@ -4,13 +4,16 @@ import { encodeFigureBlock } from "./figure-codec.js";
 import { planFigureInsert } from "./insert-plan.js";
 import { generateTikz } from "./tikz-generate.js";
 import { cloneScene, createEmptyScene, findSymbol, newObjectId, resolveStyle, sceneHasPlot } from "./scene.js";
-import { alignDeltas, bendSegment, boundsAfterHandleDrag, collectSnapLines, distributeDeltas, isMirrorPair, marqueeHits, mirroredControl, nearestOnPath, pathTightPoints, PEN_RESUME_PX, penClickAction, removeAnchor, reversePath, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, toggleSegmentKind, zoomAtPoint } from "./canvas-math.js";
+import { alignDeltas, anchorControlMetrics, anchorPointMetrics, bendSegment, boundsAfterHandleDrag, collectSnapLines, distributeDeltas, drawingToolSelectsExistingObject, isMirrorPair, marqueeHits, mirroredControl, nearestOnPath, normalizeCanvasMeasurement, pathTightPoints, PEN_RESUME_PX, penClickAction, removeAnchor, reversePath, resizeHandlePoint, resizePoint, samplePathPoints, sceneToScreen, screenToScene, snapBoundsToLines, snapToGrid, splitSegmentAt, straightLineEndpoints, toggleSegmentKind, visibleGridStep, zoomAtPoint } from "./canvas-math.js";
 import { stripTikzWrapper } from "./code-import.js";
-import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
+import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, normalizePlotDimension, panRange, parseExpr, parsePoints, sampleParametric, samplePlot, snapRangeToNice, zoomRange } from "./plot-math.js";
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
 import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } from "./arrow-math.js";
+import { NODE_ANCHORS, NODE_FONT_SHAPES, NODE_FONT_SIZES, NODE_FONT_WEIGHTS, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontPreviewStyle, nodeFontScale, nodeFontShapeChoice, nodeLabelBounds, nodeLabelBoundsFromSize, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "./label-style.js";
+import { enclosedRegionAt, enclosedRegions } from "./path-regions.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
+const XHTML_NS = "http://www.w3.org/1999/xhtml";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 // グリッド吸着は磁石式。格子から ±25%（5mm グリッドなら 1.25mm）の中でだけ引き寄せ、
@@ -18,7 +21,7 @@ const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 const GRID_PULL = 0.25;
 const handles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const pathOutlineD = (item) => { let d = `M ${item.start.x} ${item.start.y}`; item.segments.forEach(segment => { d += segment.type === "line" ? ` L ${segment.to.x} ${segment.to.y}` : ` C ${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.to.x} ${segment.to.y}`; }); return item.closed ? d + " Z" : d; };
-const isStraightLine = (item) => item.type === "path" && !item.closed && item.segments.length === 1 && item.segments[0].type === "line";
+const isStraightLine = (item) => item.type === "path" && Boolean(straightLineEndpoints(item));
 const plotKind = (series) => series.kind || "fn";
 const previewSeries = (series, xmin, xmax) => { const kind = plotKind(series); if (kind === "points") {
     const src = (series.points || "").trim();
@@ -37,6 +40,28 @@ const previewSeries = (series, xmin, xmax) => { const kind = plotKind(series); i
 const plotIsEmpty = (object) => object.series.every(series => { const kind = plotKind(series); if (kind === "points")
     return !(series.points || "").trim(); if (kind === "parametric")
     return !series.expr.trim() && !(series.expr2 || "").trim(); return !series.expr.trim(); });
+const identityAffine = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+const transformAffine = (transform) => { const rad = transform.rotate * Math.PI / 180, cos = Math.cos(rad), sin = Math.sin(rad); return { a: cos * transform.sx, b: sin * transform.sx, c: -sin * transform.sy, d: cos * transform.sy, e: transform.tx, f: transform.ty }; };
+const composeAffine = (outer, inner) => ({ a: outer.a * inner.a + outer.c * inner.b, b: outer.b * inner.a + outer.d * inner.b, c: outer.a * inner.c + outer.c * inner.d, d: outer.b * inner.c + outer.d * inner.d, e: outer.a * inner.e + outer.c * inner.f + outer.e, f: outer.b * inner.e + outer.d * inner.f + outer.f });
+const affinePoint = (transform, point) => ({ x: transform.a * point.x + transform.c * point.y + transform.e, y: transform.b * point.x + transform.d * point.y + transform.f });
+const transformBoundary = (path, transform) => ({ start: affinePoint(transform, path.start), closed: path.closed, segments: path.segments.map(segment => segment.type === "line" ? { type: "line", to: affinePoint(transform, segment.to) } : { type: "cubic", c1: affinePoint(transform, segment.c1), c2: affinePoint(transform, segment.c2), to: affinePoint(transform, segment.to) }) });
+const boundaryPaths = (objects, scene, parent = identityAffine) => { var _a; const result = []; const add = (path) => result.push(transformBoundary(path, parent)); for (const object of objects) {
+    if (object.type === "group" || object.type === "instance") {
+        const children = object.type === "group" ? object.children : ((_a = findSymbol(scene, object.symbol)) === null || _a === void 0 ? void 0 : _a.objects) || [];
+        result.push(...boundaryPaths(children, scene, composeAffine(parent, transformAffine(object.transform))));
+        continue;
+    }
+    if (object.type === "path" && resolveStyle(scene, object.style).draw !== null)
+        add(object);
+    else if (object.type === "rect" && resolveStyle(scene, object.style).draw !== null) {
+        const minX = Math.min(object.from.x, object.to.x), maxX = Math.max(object.from.x, object.to.x), minY = Math.min(object.from.y, object.to.y), maxY = Math.max(object.from.y, object.to.y);
+        add({ start: { x: minX, y: minY }, segments: [{ type: "line", to: { x: maxX, y: minY } }, { type: "line", to: { x: maxX, y: maxY } }, { type: "line", to: { x: minX, y: maxY } }, { type: "line", to: { x: minX, y: minY } }], closed: true });
+    }
+    else if (object.type === "ellipse" && resolveStyle(scene, object.style).draw !== null) {
+        const { x, y } = object.center, rx = object.rx, ry = object.ry, k = .5522847498307936;
+        add({ start: { x: x + rx, y }, segments: [{ type: "cubic", c1: { x: x + rx, y: y + k * ry }, c2: { x: x + k * rx, y: y + ry }, to: { x, y: y + ry } }, { type: "cubic", c1: { x: x - k * rx, y: y + ry }, c2: { x: x - rx, y: y + k * ry }, to: { x: x - rx, y } }, { type: "cubic", c1: { x: x - rx, y: y - k * ry }, c2: { x: x - k * rx, y: y - ry }, to: { x, y: y - ry } }, { type: "cubic", c1: { x: x + k * rx, y: y - ry }, c2: { x: x + rx, y: y - k * ry }, to: { x: x + rx, y } }], closed: true });
+    }
+} return result; };
 const ensurePlotMathLive = () => { var _a; const global = window.MathLive, ctor = (_a = global === null || global === void 0 ? void 0 : global.MathfieldElement) !== null && _a !== void 0 ? _a : window.MathfieldElement, keyboard = window.mathVirtualKeyboard; try {
     if (ctor) {
         ctor.soundsDirectory = null;
@@ -92,8 +117,11 @@ const boundsPoints = (object, scene) => {
     const children = object.type === "group" ? object.children : ((_a = findSymbol(scene, object.symbol)) === null || _a === void 0 ? void 0 : _a.objects) || [], t = object.transform, rad = t.rotate * Math.PI / 180;
     return children.flatMap(child => boundsPoints(child, scene)).map(p => { const x = p.x * t.sx, y = p.y * t.sy; return { x: t.tx + x * Math.cos(rad) - y * Math.sin(rad), y: t.ty + x * Math.sin(rad) + y * Math.cos(rad) }; });
 };
+const measuredNodeBounds = new WeakMap();
 const objectBounds = (object, scene) => {
     var _a, _b;
+    if (object.type === "node")
+        return measuredNodeBounds.get(object) || nodeLabelBounds(object);
     const points = boundsPoints(object, scene);
     const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
     const x = (_a = xs[0]) !== null && _a !== void 0 ? _a : 0, y = (_b = ys[0]) !== null && _b !== void 0 ? _b : 0;
@@ -225,8 +253,8 @@ export const initProCanvasUi = (deps) => {
         const anchorPosition = ((_a = anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.getPosition) === null || _a === void 0 ? void 0 : _a.call(anchorEditor)) || null;
         let scene = cloneScene(detail.scene || createEmptyScene());
         const selection = { ids: new Set(), primaryId: null };
-        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null;
-        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
+        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", nodePlacementSnap = NODE_PLACEMENT_SNAP_DEFAULT, zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null, paintRegions = null, paintPreview = null;
+        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, nodeMenu = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
         const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set();
         const overlay = document.createElement("div");
@@ -234,7 +262,7 @@ export const initProCanvasUi = (deps) => {
         overlay.tabIndex = -1;
         overlay.innerHTML = `<div class="pro-canvas-toolbar pro-canvas-topbar" role="toolbar">
       <strong class="pro-canvas-title">${uiText("Figure canvas", "図キャンバス")}</strong><span class="pro-canvas-zoom"><button data-action="zoom-out" title="${uiText("Zoom out", "縮小")}">−</button><button data-action="zoom-reset">100%</button><button data-action="zoom-in" title="${uiText("Zoom in", "拡大")}">+</button></span><span class="pro-canvas-topbar-spacer"></span>
-      <span class="pro-canvas-segments"><button data-action="snap"></button></span><span class="pro-canvas-separator"></span>
+      <span class="pro-canvas-segments"><button data-action="canvas-settings" aria-haspopup="dialog" aria-expanded="false">${uiText("Canvas", "キャンバス")}</button><button data-action="snap"></button></span><span class="pro-canvas-separator"></span>
       <button class="pro-canvas-icon-button" data-action="undo" title="${uiText("Undo", "元に戻す")}">↺</button><button class="pro-canvas-icon-button" data-action="redo" title="${uiText("Redo", "やり直す")}">↻</button></div>
       <div class="pro-canvas-main pro-canvas-body"><nav class="pro-canvas-rail pro-canvas-tools" aria-label="${uiText("Drawing tools", "描画ツール")}"></nav><div class="pro-canvas-stage"><svg class="pro-canvas-svg" xmlns="http://www.w3.org/2000/svg"></svg><span class="pro-canvas-status pro-canvas-status-chip"></span><div class="pro-canvas-hintbar"></div></div><aside class="pro-canvas-inspector"><section class="pro-canvas-geometry-section"><h3>${uiText("Placement", "配置")}</h3><div class="pro-canvas-geometry"></div></section><section class="pro-canvas-style-section"><h3>${uiText("Style", "スタイル")}</h3><div class="pro-canvas-style"></div></section><p class="pro-canvas-empty pro-canvas-inspector-empty" hidden></p></aside></div><div class="pro-canvas-size-chip" hidden></div>
       <div class="pro-canvas-bottom pro-canvas-footer"><span class="pro-canvas-footer-spacer"></span><button class="pro-canvas-ghost" data-action="cancel">${uiText("Cancel", "キャンセル")}</button><button class="pro-canvas-primary" data-action="tikz">${detail.replaceRange ? uiText("Update TikZ code", "TikZ コードを更新") : uiText("Insert TikZ code", "TikZ コードを挿入")}</button></div>`;
@@ -246,21 +274,23 @@ export const initProCanvasUi = (deps) => {
         const hintbar = overlay.querySelector(".pro-canvas-hintbar");
         const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
-        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
+        const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', fill: '<path d="M4 3l7 7-4 4-5-5z"/><path d="M8.5 4.5l2-2"/><path d="M10 12.5c1.5-2 2.5-2 4 0-.4 1.2-1.1 1.8-2 1.8s-1.6-.6-2-1.8z"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
+        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['plot', uiText("Function", "関数"), uiText("Function curve", "関数から曲線"), 'G'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['fill', uiText("Fill", "塗り"), uiText("Fill an enclosed region", "囲まれた領域を塗る"), 'F'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         // The canvas is self-contained: its SVG approximation is the preview.
         // Keep this hook while the editing code is compact so callers do not need
         // engine-specific branches.
         const invalidateCompiled = () => { };
         const scheduleCompile = () => { };
+        const invalidatePaintRegions = () => { paintRegions = null; paintPreview = null; };
         const snapshot = (compile = true) => { undo.push(cloneScene(scene)); if (undo.length > 80)
-            undo.shift(); redo = []; if (compile)
+            undo.shift(); redo = []; invalidatePaintRegions(); if (compile)
             queueMicrotask(scheduleCompile); };
         const view = () => { const r = svg.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height, sceneWidth: scene.width, sceneHeight: scene.height, zoom, panX, panY }; };
         const rawPoint = (event) => screenToScene({ x: event.clientX, y: event.clientY }, view());
         /** シーン単位あたりの画面 px。当たり判定の「画面上 N px」をシーン単位に直すのに使う。 */
         const scaleFactor = () => Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom || 1;
-        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
+        const activeSnap = () => tool === "node" ? nodePlacementSnap : scene.grid.snap;
+        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, activeSnap() && !event.altKey, GRID_PULL);
         const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
@@ -281,22 +311,33 @@ export const initProCanvasUi = (deps) => {
         const nodeById = (id) => id ? walk(currentObjects(), id) : null;
         const positionNodeEditor = () => { if (!editingNodeId || !nodeEditor)
             return; const object = nodeById(editingNodeId); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
-            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom; nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.fontSize = `${Math.max(12, 4 * scale)}px`; };
-        const finishNodeEdit = (commit) => { if (!editingNodeId || !nodeEditor)
-            return; const id = editingNodeId, input = nodeEditor, object = nodeById(id), value = input.value; editingNodeId = null; nodeEditor = null; input.remove(); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
-            return; if (!commit) {
-            if (nodeEditorNew) {
-                scene = nodeEditorBefore || scene;
-                clearSelection();
-                render();
+            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace), fontSize = Math.max(12, 4 * scale * nodeFontScale(object.fontSize)); nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.fontFamily = font.fontFamily; nodeEditor.style.fontStyle = font.fontStyle; nodeEditor.style.fontWeight = font.fontWeight; nodeEditor.style.fontSize = `${fontSize}px`; let width = nodeEditorWidthPx(nodeEditor.value); try {
+            const context = document.createElement("canvas").getContext("2d");
+            if (context) {
+                context.font = `${font.fontStyle} ${font.fontWeight} ${fontSize}px ${font.fontFamily}`;
+                width = Math.max(width, Math.ceil(context.measureText(nodeEditor.value || "x").width + 14));
             }
-            return;
-        } if (nodeEditorNew && !value.trim()) {
+        }
+        catch { } nodeEditor.style.width = `${Math.min(220, width)}px`; };
+        const finishNodeEdit = (commit) => { if (!editingNodeId || !nodeEditor)
+            return; const id = editingNodeId, input = nodeEditor, object = nodeById(id), value = input.value, action = nodeEditCommitAction(nodeEditorNew, nodeEditorOriginal, value, commit); editingNodeId = null; nodeEditor = null; input.remove(); const dropEditedSelection = () => { var _a; if (!selection.ids.has(id))
+            return; selection.ids.delete(id); if (selection.primaryId === id) {
+            const ids = [...selection.ids];
+            selection.primaryId = (_a = ids[ids.length - 1]) !== null && _a !== void 0 ? _a : null;
+        } }; if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
+            return; if (action === "restore") {
             scene = nodeEditorBefore || scene;
-            clearSelection();
+            dropEditedSelection();
             render();
             return;
-        } if (value !== nodeEditorOriginal) {
+        } if (action === "delete") {
+            snapshot(false);
+            removeById(currentObjects(), id);
+            dropEditedSelection();
+            render();
+            scheduleCompile();
+            return;
+        } if (action === "update") {
             if (nodeEditorNew && nodeEditorBefore) {
                 undo.push(nodeEditorBefore);
                 redo = [];
@@ -306,13 +347,13 @@ export const initProCanvasUi = (deps) => {
             object.latex = value;
             render();
             scheduleCompile();
-        }
-        else
-            render(); };
+            return;
+        } render(); };
         const beginNodeEdit = (object, isNew = false, before = null) => { if (editingNodeId)
             finishNodeEdit(true); anchorEdit = null; editingNodeId = object.id; nodeEditorOriginal = object.latex; nodeEditorNew = isNew; nodeEditorBefore = before; replaceSelection(object.id); const input = document.createElement("input"); input.className = "pro-canvas-inline-editor"; input.dataset.role = "node-editor"; input.dataset.objectId = object.id; input.value = object.latex; let finished = false; const finish = (commit) => { if (finished)
-            return; finished = true; finishNodeEdit(commit); }; input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
-            return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
+            return; finished = true; finishNodeEdit(commit); }; input.addEventListener("input", positionNodeEditor); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
+            return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", e => { if (nodeMenu === null || nodeMenu === void 0 ? void 0 : nodeMenu.contains(e.relatedTarget))
+            return; finish(true); }); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
             return; positionNodeEditor(); input.focus(); input.select(); }); };
         const stopPlotEdit = () => { if (!plotEdit)
             return; flushWheelUndo(); const object = plotObject(), emptyUndoDepth = plotEdit.emptyUndoDepth; if (object && emptyUndoDepth !== undefined && plotIsEmpty(object)) {
@@ -360,7 +401,7 @@ export const initProCanvasUi = (deps) => {
             const header = document.createElement("div");
             header.className = "pro-canvas-plot-card-header";
             const headTitle = document.createElement("strong");
-            headTitle.textContent = uiText("Edit graph", "グラフを編集");
+            headTitle.textContent = object.axis.axisLines === "none" ? uiText("Edit function curve", "関数曲線を編集") : uiText("Edit graph", "グラフを編集");
             const headClose = document.createElement("button");
             headClose.type = "button";
             headClose.textContent = "✕";
@@ -373,6 +414,17 @@ export const initProCanvasUi = (deps) => {
             card.append(header);
             const field = (label, value, type, apply) => { const row = document.createElement("label"); row.textContent = label; const input = document.createElement("input"); input.type = type; input.value = value; input.title = label; if (type === "number")
                 input.step = "any"; liveField(input, () => apply(input.value)); row.append(input); return { row, input }; };
+            const dimensions = document.createElement("div");
+            dimensions.className = "pro-canvas-plot-dimensions";
+            const dimensionTitle = document.createElement("span");
+            dimensionTitle.className = "pro-canvas-plot-range-title";
+            dimensionTitle.textContent = object.axis.axisLines === "none" ? uiText("Curve size", "曲線の大きさ") : uiText("Axis length", "軸の長さ");
+            const plotWidth = field(`${uiText("Width", "幅")} (${scene.unit})`, String(Number(object.width.toPrecision(4))), "number", value => object.width = normalizePlotDimension(value, object.width)), plotHeight = field(`${uiText("Height", "高さ")} (${scene.unit})`, String(Number(object.height.toPrecision(4))), "number", value => object.height = normalizePlotDimension(value, object.height));
+            plotWidth.input.min = plotHeight.input.min = "0.01";
+            plotWidth.input.dataset.noI18n = "";
+            plotHeight.input.dataset.noI18n = "";
+            dimensions.append(dimensionTitle, plotWidth.row, plotHeight.row);
+            card.append(dimensions);
             object.series.forEach((series, index) => {
                 const kind = plotKind(series), wrap = document.createElement("div");
                 wrap.className = `pro-canvas-plot-card-series${series.visible === false ? " is-muted" : ""}`;
@@ -586,10 +638,10 @@ export const initProCanvasUi = (deps) => {
             range.append(rangeTitle, xmin.row, xmax.row, ymin.row, ymax.row, auto);
             (_a = (card.querySelector(".pro-canvas-plot-add") || card.lastElementChild)) === null || _a === void 0 ? void 0 : _a.before(range); // 系列ラッパの外に置く（中だと複数系列で「系列1専用の軸設定」に見え、is-muted も巻き添えになる）
             const hint = document.createElement("p");
-            hint.textContent = uiText("On the plot: scroll to zoom · drag to pan", "プロット上: スクロールでズーム / ドラッグで移動");
+            hint.textContent = uiText("On the curve: scroll to change the range · drag to pan · use the selection handles to scale", "曲線上: スクロールで範囲変更 / ドラッグで移動 / 選択ハンドルで拡大縮小");
             card.append(hint);
             const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); };
-            segments(uiText("Axis lines", "軸線"), object.axis.axisLines, [["box", uiText("Border", "枠")], ["middle", uiText("Center", "中央")], ["left", uiText("Bottom left", "左下")]], v => object.axis.axisLines = v);
+            segments(uiText("Axis lines", "軸線"), object.axis.axisLines, [["none", uiText("Curve only", "曲線のみ")], ["box", uiText("Border", "枠")], ["middle", uiText("Center", "中央")], ["left", uiText("Bottom left", "左下")]], v => object.axis.axisLines = v);
             segments(uiText("Grid", "グリッド"), object.axis.grid, [["none", uiText("None", "なし")], ["major", uiText("Major", "主")], ["both", uiText("Major+minor", "主+副")]], v => object.axis.grid = v);
             const eqRow = document.createElement("label");
             eqRow.className = "pro-canvas-plot-equal";
@@ -639,8 +691,9 @@ export const initProCanvasUi = (deps) => {
             render();
         } }; window.addEventListener("keydown", onPopKey, true); const cancel = document.createElement("button"); cancel.textContent = uiText("Cancel", "キャンセル"); cancel.onclick = dismiss; pop.append(area, save, cancel); overlay.append(pop); area.focus(); };
         let stageObserver = null;
-        let colorPop = null;
+        let colorPop = null, canvasPop = null;
         const closeColorPop = () => { colorPop === null || colorPop === void 0 ? void 0 : colorPop.remove(); colorPop = null; };
+        const closeCanvasPop = () => { var _a; canvasPop === null || canvasPop === void 0 ? void 0 : canvasPop.remove(); canvasPop = null; (_a = overlay.querySelector("[data-action=canvas-settings]")) === null || _a === void 0 ? void 0 : _a.setAttribute("aria-expanded", "false"); };
         const fillMemory = new Map();
         const presets = ["#000000", "#ffffff", "#6b7280", "#dc2626", "#ea580c", "#eab308", "#16a34a", "#2563eb", "#4f46e5", "#9333ea", "#ec4899", "#92400e", "#0891b2", "#65a30d", "#64748b", "#1e3a8a"], recentKey = "tex64.proCanvas.recentColors.v1", recent = () => { try {
             return JSON.parse(localStorage.getItem(recentKey) || "[]").filter((v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)).slice(0, 8);
@@ -668,13 +721,164 @@ export const initProCanvasUi = (deps) => {
         } pop.addEventListener("click", ev => { if (ev.target === pop)
             closeColorPop(); }); overlay.append(pop); colorPop = pop; const r = button.getBoundingClientRect(), pw = pop.offsetWidth || 202; let px = r.left - pw - 10; if (px < 8)
             px = Math.min(innerWidth - pw - 8, r.right + 10); pop.style.left = `${px}px`; pop.style.top = `${Math.max(8, Math.min(innerHeight - (pop.offsetHeight || 260) - 8, r.top - 6))}px`; }; wrap.append(button); return wrap; };
-        overlay.addEventListener("pointerdown", e => { if (!colorPop || colorPop.contains(e.target) || e.target.closest(".pro-canvas-color-well"))
+        overlay.addEventListener("pointerdown", e => { if (canvasPop && !canvasPop.contains(e.target) && !e.target.closest("[data-action=canvas-settings]"))
+            closeCanvasPop(); if (!colorPop || colorPop.contains(e.target) || e.target.closest(".pro-canvas-color-well"))
             return; closeColorPop(); if (e.target.closest(".pro-canvas-stage")) {
             e.preventDefault();
             e.stopPropagation();
         } }, true);
+        const openCanvasSettings = (button) => {
+            if (canvasPop) {
+                closeCanvasPop();
+                return;
+            }
+            closeColorPop();
+            const pop = document.createElement("div");
+            pop.className = "pro-canvas-canvas-popover";
+            pop.setAttribute("role", "dialog");
+            pop.setAttribute("aria-label", uiText("Canvas settings", "キャンバス設定"));
+            pop.addEventListener("pointerdown", e => e.stopPropagation());
+            pop.addEventListener("keydown", e => { if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                closeCanvasPop();
+                button.focus();
+            } });
+            const heading = document.createElement("div");
+            heading.className = "pro-canvas-canvas-popover-title";
+            heading.textContent = uiText("Canvas settings", "キャンバス設定");
+            const closeButton = document.createElement("button");
+            closeButton.type = "button";
+            closeButton.textContent = "✕";
+            closeButton.title = uiText("Close", "閉じる");
+            closeButton.onclick = () => closeCanvasPop();
+            heading.append(closeButton);
+            pop.append(heading);
+            const sizeTitle = document.createElement("strong");
+            sizeTitle.textContent = uiText("Canvas coordinates", "キャンバス座標");
+            const dimensions = document.createElement("div");
+            dimensions.className = "pro-canvas-canvas-dimensions";
+            const inputs = {};
+            let refresh = () => { };
+            const numberField = (labelText, key) => { const label = document.createElement("label"), input = document.createElement("input"), unit = document.createElement("span"); label.append(document.createTextNode(labelText)); input.type = "number"; input.min = "0.1"; input.max = "10000"; input.step = scene.unit === "pt" ? "1" : "0.1"; input.dataset.canvasDimension = key; unit.textContent = scene.unit; label.append(input, unit); inputs[key] = input; input.onchange = () => { const next = normalizeCanvasMeasurement(input.value, scene[key]); if (next === scene[key]) {
+                input.value = String(scene[key]);
+                return;
+            } snapshot(false); scene[key] = next; zoom = 1; panX = panY = 0; refresh(); render(); scheduleCompile(); }; return label; };
+            dimensions.append(numberField(uiText("Width", "幅"), "width"), numberField(uiText("Height", "高さ"), "height"));
+            const gridTitle = document.createElement("strong");
+            gridTitle.textContent = uiText("Grid spacing", "グリッド間隔");
+            const gridRow = document.createElement("div");
+            gridRow.className = "pro-canvas-canvas-grid";
+            const gridInput = document.createElement("input"), gridUnit = document.createElement("span"), gridPresets = document.createElement("div");
+            gridInput.type = "number";
+            gridInput.min = "0.1";
+            gridInput.max = "10000";
+            gridInput.step = scene.unit === "pt" ? "1" : "0.1";
+            gridInput.dataset.canvasGrid = "";
+            gridUnit.textContent = scene.unit;
+            gridPresets.className = "pro-canvas-canvas-grid-presets";
+            [1, 2, 5, 10].forEach(value => { const item = document.createElement("button"); item.type = "button"; item.textContent = String(value); item.dataset.gridPreset = String(value); item.onclick = () => { if (scene.grid.size === value)
+                return; snapshot(false); scene.grid.size = value; refresh(); render(); scheduleCompile(); }; gridPresets.append(item); });
+            gridInput.onchange = () => { const next = normalizeCanvasMeasurement(gridInput.value, scene.grid.size); if (next === scene.grid.size) {
+                gridInput.value = String(scene.grid.size);
+                return;
+            } snapshot(false); scene.grid.size = next; refresh(); render(); scheduleCompile(); };
+            gridRow.append(gridInput, gridUnit, gridPresets);
+            const outputTitle = document.createElement("strong");
+            outputTitle.textContent = uiText("Width on the page", "紙面上の幅");
+            const outputRow = document.createElement("div");
+            outputRow.className = "pro-canvas-output-width";
+            const outputMode = document.createElement("select"), outputValue = document.createElement("input");
+            outputMode.title = uiText("Width reference", "幅の基準");
+            outputMode.add(new Option(uiText("Natural size", "実寸（指定なし）"), "natural"));
+            for (const reference of ["linewidth", "textwidth", "columnwidth"])
+                outputMode.add(new Option(`\\${reference}`, reference));
+            outputValue.type = "number";
+            outputValue.min = "0.01";
+            outputValue.max = "10";
+            outputValue.step = "0.05";
+            outputValue.title = uiText("Multiplier", "倍率");
+            const setOutput = () => { snapshot(false); if (outputMode.value === "natural")
+                scene.outputWidth = { mode: "natural" };
+            else
+                scene.outputWidth = { mode: "relative", value: Math.max(.01, Math.min(10, Number(outputValue.value) || 1)), reference: outputMode.value }; refresh(); render(); scheduleCompile(); };
+            outputMode.onchange = setOutput;
+            outputValue.onchange = setOutput;
+            outputRow.append(outputValue, outputMode);
+            const note = document.createElement("p");
+            note.textContent = uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。");
+            pop.append(sizeTitle, dimensions, gridTitle, gridRow, outputTitle, outputRow, note);
+            overlay.append(pop);
+            canvasPop = pop;
+            button.setAttribute("aria-expanded", "true");
+            refresh = () => { inputs.width.value = String(Number(scene.width.toFixed(4))); inputs.height.value = String(Number(scene.height.toFixed(4))); gridInput.value = String(Number(scene.grid.size.toFixed(4))); gridPresets.querySelectorAll("[data-grid-preset]").forEach(item => item.classList.toggle("is-active", Number(item.dataset.gridPreset) === scene.grid.size)); const output = scene.outputWidth || { mode: "natural" }; outputMode.value = output.mode === "relative" ? output.reference : "natural"; outputValue.value = String(output.mode === "relative" ? output.value : 1); outputValue.disabled = output.mode !== "relative"; };
+            refresh();
+            const rect = button.getBoundingClientRect();
+            pop.style.top = `${rect.bottom + 8}px`;
+            pop.style.left = `${Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.right - pop.offsetWidth))}px`;
+        };
+        const removeNodeMenu = () => { nodeMenu === null || nodeMenu === void 0 ? void 0 : nodeMenu.remove(); nodeMenu = null; };
+        const syncNodeMenu = () => {
+            var _a, _b;
+            removeNodeMenu();
+            const object = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
+            if (!nodeMiniMenuVisible(tool, selection.ids.size, object, editingNodeId, Boolean(drag)))
+                return;
+            const menu = document.createElement("div");
+            menu.className = "pro-canvas-node-menu";
+            menu.dataset.role = "node-mini-menu";
+            menu.dataset.objectId = object.id;
+            menu.setAttribute("role", "dialog");
+            menu.setAttribute("aria-label", uiText("Math label settings", "数式ラベル設定"));
+            menu.addEventListener("pointerdown", e => e.stopPropagation());
+            menu.addEventListener("click", e => e.stopPropagation());
+            const apply = (change) => { const refocus = editingNodeId === object.id && nodeEditor; snapshot(false); change(); render(); scheduleCompile(); if (refocus)
+                requestAnimationFrame(() => nodeEditor === null || nodeEditor === void 0 ? void 0 : nodeEditor.focus()); };
+            const anchorSection = document.createElement("div");
+            anchorSection.className = "pro-canvas-node-menu-anchor";
+            const anchorGrid = document.createElement("div");
+            anchorGrid.className = "pro-canvas-node-anchor-grid";
+            anchorGrid.dataset.role = "node-anchor";
+            anchorGrid.setAttribute("role", "radiogroup");
+            anchorGrid.setAttribute("aria-label", uiText("Label anchor", "ラベルのアンカー"));
+            NODE_ANCHORS.forEach((item, index) => { const button = document.createElement("button"); button.type = "button"; button.dataset.anchor = item.value; button.dataset.anchorGroup = index < 9 ? "compass" : item.value.split(" ")[0]; button.title = `${item.value} — ${uiText(item.en, item.ja)}`; button.setAttribute("aria-label", button.title); button.setAttribute("role", "radio"); button.setAttribute("aria-checked", String(object.anchor === item.value)); button.classList.toggle("is-active", object.anchor === item.value); button.innerHTML = '<span aria-hidden="true"></span>'; button.onclick = () => { if (object.anchor !== item.value)
+                apply(() => object.anchor = item.value); }; anchorGrid.append(button); });
+            anchorSection.append(anchorGrid);
+            const fontSection = document.createElement("div");
+            fontSection.className = "pro-canvas-node-menu-font";
+            const fontTitle = document.createElement("strong");
+            fontTitle.textContent = uiText("Font", "フォント");
+            fontSection.append(fontTitle);
+            const segment = (label, role, value, items, change) => { const row = document.createElement("div"); row.className = "pro-canvas-node-font-row"; const caption = document.createElement("span"); caption.textContent = label; const buttons = document.createElement("span"); buttons.className = "pro-canvas-segments"; buttons.dataset.role = role; items.forEach(item => { const button = document.createElement("button"); button.type = "button"; button.textContent = uiText(item.en, item.ja); button.classList.toggle("is-active", item.value === value); button.onclick = () => { if (item.value !== value)
+                apply(() => change(item.value)); }; buttons.append(button); }); row.append(caption, buttons); return row; };
+            const sizeRow = document.createElement("label"), size = document.createElement("select");
+            sizeRow.className = "pro-canvas-node-font-row";
+            sizeRow.append(document.createTextNode(uiText("Size", "サイズ")));
+            size.dataset.role = "node-font-size";
+            NODE_FONT_SIZES.forEach(item => size.add(new Option(item.label, item.value)));
+            size.value = object.fontSize || "normal";
+            size.onchange = () => apply(() => object.fontSize = size.value);
+            sizeRow.append(size);
+            const effectiveMono = (_a = object.monospace) !== null && _a !== void 0 ? _a : object.fontFamily === "mono";
+            fontSection.append(sizeRow, segment(uiText("Shape", "字形"), "node-font-shape", nodeFontShapeChoice(object.fontShape), NODE_FONT_SHAPES, value => { object.fontShape = value; if (value === "italic" && effectiveMono) {
+                object.monospace = false;
+                object.fontFamily = "default";
+            } }), segment(uiText("Weight", "太さ"), "node-font-weight", object.fontWeight || "normal", NODE_FONT_WEIGHTS, value => object.fontWeight = value), segment(uiText("Spacing", "字幅"), "node-font-spacing", effectiveMono ? "mono" : "proportional", [{ value: "proportional", en: "Proportional", ja: "通常" }, { value: "mono", en: "Mono", ja: "等幅" }], value => { object.monospace = value === "mono"; object.fontFamily = "default"; if (value === "mono" && object.fontShape === "italic")
+                object.fontShape = "upright"; }));
+            menu.append(anchorSection, fontSection);
+            overlay.append(menu);
+            nodeMenu = menu;
+            const rendered = svg.querySelector(`[data-role="node-render"][data-object-id="${CSS.escape(object.id)}"]`), point = sceneToScreen(object.at, view()), target = (_b = rendered === null || rendered === void 0 ? void 0 : rendered.getBoundingClientRect()) !== null && _b !== void 0 ? _b : { left: point.x, right: point.x, top: point.y, bottom: point.y, width: 0, height: 0, x: point.x, y: point.y, toJSON: () => ({}) }, stageRect = stage.getBoundingClientRect(), gap = 10, width = menu.offsetWidth, height = menu.offsetHeight;
+            let left = (target.left + target.right - width) / 2, top = target.top - height - gap;
+            if (top < stageRect.top + 8)
+                top = target.bottom + gap;
+            left = Math.max(stageRect.left + 8, Math.min(stageRect.right - width - 8, left));
+            top = Math.max(stageRect.top + 8, Math.min(stageRect.bottom - height - 8, top));
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+        };
         const renderInspector = () => {
-            var _a;
+            var _a, _b;
             const geometry = overlay.querySelector(".pro-canvas-geometry");
             const host = overlay.querySelector(".pro-canvas-style");
             const emptyNote = overlay.querySelector(".pro-canvas-inspector-empty");
@@ -835,6 +1039,24 @@ export const initProCanvasUi = (deps) => {
                     options.forEach(v => input.add(new Option(v || uiText("None", "なし"), v))); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => apply(key, kind === "number" ? Number(input.value) : input.value); row.append(input); details.append(row); });
                 host.append(details);
             }
+            if (targets.length) {
+                const dash = resolveStyle(scene, targets[0].style);
+                if (dash.dash && dash.dash !== "solid") {
+                    const gapRow = document.createElement("label"), gap = document.createElement("input"), unit = document.createElement("span");
+                    gapRow.className = "pro-canvas-dash-gap";
+                    gapRow.append(document.createTextNode(uiText("Dash spacing", "線の間隔")));
+                    gap.type = "number";
+                    gap.min = "0.1";
+                    gap.max = "100";
+                    gap.step = "0.2";
+                    gap.value = String(dash.dashGapPt && dash.dashGapPt > 0 ? dash.dashGapPt : dash.dash === "dashed" ? 3 : 2);
+                    gap.title = uiText("Gap between dashes or dots (pt)", "破線・点線どうしの間隔 (pt)");
+                    gap.onchange = () => { const value = Math.max(.1, Math.min(100, Number(gap.value) || 1)); snapshot(false); targets.forEach(target => { var _a; return ((_a = target.style).props || (_a.props = {})).dashGapPt = value; }); render(); scheduleCompile(); };
+                    unit.textContent = "pt";
+                    gapRow.append(gap, unit);
+                    (_b = host.querySelector(".pro-canvas-style-line")) === null || _b === void 0 ? void 0 : _b.after(gapRow);
+                }
+            }
         };
         // 単一パス選択 = 頂点・ハンドルが見える状態。描画ツール中でも表示は出す（掴めるのは select のときだけ）。
         const syncAnchorEdit = () => {
@@ -869,9 +1091,10 @@ export const initProCanvasUi = (deps) => {
             const guides = svgEl("g", { class: "pro-canvas-guides" });
             root.append(guides);
             guides.append(svgEl("rect", { x: 0, y: 0, width: scene.width, height: scene.height, class: "pro-canvas-paper" }));
-            for (let x = 0; x <= scene.width; x += scene.grid.size)
+            const gridStep = visibleGridStep(scene.grid.size, scale);
+            for (let x = 0; x <= scene.width; x += gridStep)
                 guides.append(svgEl("line", { x1: x, y1: 0, x2: x, y2: scene.height }));
-            for (let y = 0; y <= scene.height; y += scene.grid.size)
+            for (let y = 0; y <= scene.height; y += gridStep)
                 guides.append(svgEl("line", { x1: 0, y1: y, x2: scene.width, y2: y }));
             guides.append(svgEl("rect", { x: 0, y: 0, width: scene.width, height: scene.height, class: "pro-canvas-boundary" }));
             const paintDefs = svgEl("defs"), paintIds = new Set();
@@ -918,7 +1141,7 @@ export const initProCanvasUi = (deps) => {
             const objects = svgEl("g", { class: "pro-canvas-objects", "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
-                var _a, _b, _c, _d, _e, _f;
+                var _a, _b, _c, _d, _e, _f, _g;
                 if (object.type === "group" || object.type === "instance") {
                     const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
                     if (interactive)
@@ -969,7 +1192,7 @@ export const initProCanvasUi = (deps) => {
                     const axisX = a.axisLines === "middle" ? mapX(Math.max(eq.xmin, Math.min(eq.xmax, 0))) : object.at.x, axisY = a.axisLines === "middle" ? mapY(Math.max(ymin, Math.min(ymax, 0))) : object.at.y;
                     if (a.axisLines === "box")
                         g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "none", stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
-                    else {
+                    else if (a.axisLines !== "none") {
                         g.append(svgEl("line", { x1: object.at.x, y1: axisY, x2: object.at.x + object.width, y2: axisY, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                         g.append(svgEl("line", { x1: axisX, y1: object.at.y, x2: axisX, y2: object.at.y + object.height, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                     }
@@ -980,12 +1203,14 @@ export const initProCanvasUi = (deps) => {
                     }
                     const text = (value, x, y, anchor = "middle") => { const el = svgEl("text", { x, y: -y, transform: "scale(1,-1)", "text-anchor": anchor, fill: neutral, "font-size": 9.5 / scale }); el.textContent = value; g.append(el); };
                     const tl = 2.5 / scale, lo = 12 / scale;
-                    xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - tl, x2: mapX(value), y2: axisY + tl, stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
-                        text(String(Number(value.toPrecision(4))), mapX(value), (a.axisLines === "middle" ? axisY : object.at.y) - lo); });
-                    yt.forEach(value => { g.append(svgEl("line", { x1: axisX - tl, y1: mapY(value), x2: axisX + tl, y2: mapY(value), stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
-                        text(String(Number(value.toPrecision(4))), (a.axisLines === "middle" ? axisX : object.at.x) - 4 / scale, mapY(value) - 3 / scale, "end"); });
-                    if (a.axisLines === "middle" && eq.xmin <= 0 && eq.xmax >= 0 && ymin <= 0 && ymax >= 0)
-                        text("0", axisX - 3 / scale, axisY - lo, "end");
+                    if (a.axisLines !== "none") {
+                        xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - tl, x2: mapX(value), y2: axisY + tl, stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
+                            text(String(Number(value.toPrecision(4))), mapX(value), (a.axisLines === "middle" ? axisY : object.at.y) - lo); });
+                        yt.forEach(value => { g.append(svgEl("line", { x1: axisX - tl, y1: mapY(value), x2: axisX + tl, y2: mapY(value), stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
+                            text(String(Number(value.toPrecision(4))), (a.axisLines === "middle" ? axisX : object.at.x) - 4 / scale, mapY(value) - 3 / scale, "end"); });
+                        if (a.axisLines === "middle" && eq.xmin <= 0 && eq.xmax >= 0 && ymin <= 0 && ymax >= 0)
+                            text("0", axisX - 3 / scale, axisY - lo, "end");
+                    }
                     const legendLayer = svgEl("g"), legendEntries = compiled.filter(entry => entry.series.legend);
                     if (legendEntries.length) {
                         const pad = 4 / scale, rowHeight = 12 / scale, boxWidth = Math.max(...legendEntries.map(entry => [...entry.series.legend].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 10.5 : 5.5), 0) / scale + 24 / scale)), boxHeight = legendEntries.length * rowHeight + 2 * pad, left = object.at.x + object.width - boxWidth - pad, bottom = object.at.y + object.height - boxHeight - pad;
@@ -1022,6 +1247,12 @@ export const initProCanvasUi = (deps) => {
                 let pathShape = null;
                 const tipOf = (value) => isArrowKind(value) ? value : null;
                 const tipMetrics = (kind) => arrowMetrics(kind, style.lineWidthPt || .4, ptu);
+                if (style.dash && style.dash !== "solid" && style.dashGapPt && style.dashGapPt > 0) {
+                    const gap = style.dashGapPt * ptu;
+                    attrs["stroke-dasharray"] = style.dash === "dashed" ? `${Math.max(lw * 4, 1.2 * ptu)} ${gap}` : `${Math.max(lw * .01, .001)} ${gap}`;
+                    if (style.dash === "dotted" && (style.cap === undefined || style.cap === "butt"))
+                        attrs["stroke-linecap"] = "round";
+                }
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
                 else if (object.type === "ellipse")
@@ -1058,8 +1289,39 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: object.at.x, y: -object.at.y, transform: `scale(1,-1)`, class: "pro-canvas-node" });
-                    el.textContent = object.latex;
+                    const fallback = measuredNodeBounds.get(object) || nodeLabelBounds(object), width = Math.max(fallback.maxX - fallback.minX, .01), height = Math.max(fallback.maxY - fallback.minY, .01);
+                    const foreign = svgEl("foreignObject", { ...(interactive ? { "data-id": object.id } : {}), "data-role": "node-render", "data-object-id": object.id, opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: fallback.minX, y: -fallback.maxY, width, height, transform: "scale(1,-1)", overflow: "visible", class: "pro-canvas-node-foreign" });
+                    const content = document.createElementNS(XHTML_NS, "div");
+                    content.className = `pro-canvas-node-render${object.fontWeight === "bold" ? " is-bold" : ""}`;
+                    content.dataset.objectId = object.id;
+                    content.style.fontSize = `${4 * nodeFontScale(object.fontSize)}px`;
+                    try {
+                        if (typeof katex !== "undefined")
+                            content.innerHTML = katex.renderToString(nodePreviewExpression(object.latex, object.fontFamily, object.fontShape, object.fontWeight, object.monospace), { throwOnError: false, strict: "ignore", trust: false });
+                        else
+                            content.textContent = object.latex;
+                    }
+                    catch {
+                        content.textContent = object.latex;
+                    }
+                    foreign.append(content);
+                    el = foreign;
+                    if (object.id === editingNodeId) {
+                        foreign.setAttribute("visibility", "hidden");
+                        foreign.setAttribute("pointer-events", "none");
+                    }
+                    else {
+                        parent.append(foreign);
+                        const measured = ((_g = content.querySelector(".katex")) === null || _g === void 0 ? void 0 : _g.getBoundingClientRect()) || content.getBoundingClientRect();
+                        if (measured.width > 0 && measured.height > 0) {
+                            const pad = 2 / scale, bounds = nodeLabelBoundsFromSize(object, measured.width / scale + pad, measured.height / scale + pad);
+                            measuredNodeBounds.set(object, bounds);
+                            foreign.setAttribute("x", String(bounds.minX));
+                            foreign.setAttribute("y", String(-bounds.maxY));
+                            foreign.setAttribute("width", String(Math.max(bounds.maxX - bounds.minX, .01)));
+                            foreign.setAttribute("height", String(Math.max(bounds.maxY - bounds.minY, .01)));
+                        }
+                    }
                 }
                 const distance = style.doubleDistancePt || 0;
                 if (distance > 0 && object.type !== "node") {
@@ -1110,6 +1372,8 @@ export const initProCanvasUi = (deps) => {
                 }
             };
             currentObjects().forEach(o => draw(o, objects));
+            if (tool === "fill" && paintPreview)
+                root.append(svgEl("path", { d: pathOutlineD(paintPreview), class: "pro-canvas-fill-preview", "pointer-events": "none" }));
             if (drag === null || drag === void 0 ? void 0 : drag.guides) {
                 const smart = svgEl("g", { class: "pro-canvas-smart-guides pro-canvas-selection" });
                 if (drag.guides.x !== undefined)
@@ -1159,35 +1423,33 @@ export const initProCanvasUi = (deps) => {
             const selected = topLevelSelectedObjects();
             if (selected.length) {
                 const select = svgEl("g", { class: "pro-canvas-selection" });
-                selected.forEach(item => { if (item.type === "path")
+                selected.forEach(item => { if (!nodeSelectionOutlineVisible(item, editingNodeId))
+                    return; if (item.type === "path")
                     select.append(svgEl("path", { d: pathOutlineD(item), class: "pro-canvas-selection-outline", fill: "none" }));
                 else {
                     const b = objectBounds(item, scene);
                     select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" }));
-                } });
-                const b = selectionBounds();
+                } if (item.type === "node")
+                    select.append(svgEl("circle", { cx: item.at.x, cy: item.at.y, r: 3.5 / scale, class: "pro-canvas-node-anchor-marker" })); });
+                const b = selectionBounds(), addRotate = () => { const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale; select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" })); const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" }); rotate.dataset.rotate = "true"; select.append(rotate); };
                 if (!(anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep)) {
                     if (selected.length > 1)
                         select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-bounds" }));
                     else if (selected[0].type === "path") {
-                        if (!isStraightLine(selected[0])) {
+                        const endpoints = straightLineEndpoints(selected[0]);
+                        if (endpoints) {
+                            endpoints.forEach((point, index) => { const size = 7 / scale, handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: "pro-canvas-handle pro-canvas-line-end" }); handle.dataset.lineEndpoint = String(index); select.append(handle); });
+                            addRotate();
+                        }
+                        else {
                             ["nw", "ne", "se", "sw"].forEach(h => { const p = resizeHandlePoint(b, h), handle = svgEl("circle", { cx: p.x, cy: p.y, r: 3 / scale, class: `pro-canvas-handle pro-canvas-handle-${h} is-path-corner` }); handle.dataset.handle = h; select.append(handle); });
-                            const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
-                            select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
-                            const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
-                            rotate.dataset.rotate = "true";
-                            select.append(rotate);
+                            addRotate();
                         }
                     }
                     else if (selected[0].type !== "node") {
-                        handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale; const handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
-                        if (selected[0].type !== "plot") {
-                            const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale;
-                            select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" }));
-                            const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" });
-                            rotate.dataset.rotate = "true";
-                            select.append(rotate);
-                        }
+                        handles.forEach(h => { const p = resizeHandlePoint(b, h), size = 7 / scale, handle = svgEl("rect", { x: p.x - size / 2, y: p.y - size / 2, width: size, height: size, class: `pro-canvas-handle pro-canvas-handle-${h}` }); handle.dataset.handle = h; select.append(handle); });
+                        if (selected[0].type !== "plot")
+                            addRotate();
                     }
                 }
                 root.append(select);
@@ -1197,9 +1459,13 @@ export const initProCanvasUi = (deps) => {
                 if ((object === null || object === void 0 ? void 0 : object.type) === "path") {
                     const layer = svgEl("g", { class: `pro-canvas-anchor-layer pro-canvas-selection${tool === "select" ? "" : " is-inert"}` }), points = [object.start, ...object.segments.map(segment => segment.to)], strong = (i, key) => (key === "c1" && i === selectedAnchorIndex) || (key === "c2" && i + 1 === selectedAnchorIndex);
                     object.segments.forEach((segment, i) => { if (segment.type !== "cubic")
-                        return; ["c1", "c2"].forEach(key => { const anchor = key === "c1" ? (i === 0 ? object.start : object.segments[i - 1].to) : segment.to, point = segment[key], emphasis = strong(i, key); if (Math.hypot(point.x - anchor.x, point.y - anchor.y) < 1e-6)
-                        return; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: `pro-canvas-anchor-tether${emphasis ? "" : " is-faint"}` })); const control = svgEl("circle", { cx: point.x, cy: point.y, r: (emphasis ? 3 : 2.5) / scale, class: `pro-canvas-anchor-control${emphasis ? "" : " is-faint"}` }); control.dataset.controlSegment = String(i); control.dataset.controlKey = key; layer.append(control); }); });
-                    points.slice(0, object.closed ? -1 : undefined).forEach((point, index) => { const size = (!object.closed && (index === 0 || index === points.length - 1) ? 7 : 5) / scale, end = !object.closed && (index === 0 || index === points.length - 1), handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}${end ? " is-end" : ""}` }); handle.dataset.anchorIndex = String(index); layer.append(handle); });
+                        return; ["c1", "c2"].forEach(key => { const anchor = key === "c1" ? (i === 0 ? object.start : object.segments[i - 1].to) : segment.to, point = segment[key], emphasis = strong(i, key), metrics = anchorControlMetrics(emphasis); if (Math.hypot(point.x - anchor.x, point.y - anchor.y) < 1e-6)
+                        return; layer.append(svgEl("line", { x1: anchor.x, y1: anchor.y, x2: point.x, y2: point.y, class: `pro-canvas-anchor-tether${emphasis ? "" : " is-faint"}` })); const hit = svgEl("circle", { cx: point.x, cy: point.y, r: metrics.hitRadiusPx / scale, class: "pro-canvas-anchor-hit" }), control = svgEl("circle", { cx: point.x, cy: point.y, r: metrics.visibleRadiusPx / scale, class: `pro-canvas-anchor-control${emphasis ? "" : " is-faint"}` }); for (const element of [hit, control]) {
+                        element.dataset.controlSegment = String(i);
+                        element.dataset.controlKey = key;
+                    } layer.append(hit, control); }); });
+                    points.slice(0, object.closed ? -1 : undefined).forEach((point, index) => { const end = !object.closed && (index === 0 || index === points.length - 1), metrics = anchorPointMetrics(end), hitSize = metrics.hitSizePx / scale, size = metrics.visibleSizePx / scale, hit = svgEl("rect", { x: point.x - hitSize / 2, y: point.y - hitSize / 2, width: hitSize, height: hitSize, class: "pro-canvas-anchor-hit" }), handle = svgEl("rect", { x: point.x - size / 2, y: point.y - size / 2, width: size, height: size, class: `pro-canvas-anchor${index === selectedAnchorIndex ? " is-selected" : ""}${end ? " is-end" : ""}` }); for (const element of [hit, handle])
+                        element.dataset.anchorIndex = String(index); layer.append(hit, handle); });
                     // 追加できる場所には ＋、消せる頂点には − を重ねる。どちらもダブルクリックの予告。
                     if (pathHint && tool === "select" && !drag) {
                         const r = (pathHint.kind === "add" ? 5.5 : 7) / scale, hint = svgEl("g", { class: `pro-canvas-anchor-hint is-${pathHint.kind}` });
@@ -1218,17 +1484,21 @@ export const initProCanvasUi = (deps) => {
                 root.append(svgEl("rect", { x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY, class: "pro-canvas-marquee" }));
             }
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
-            const snap = overlay.querySelector("[data-action=snap]");
-            snap.textContent = scene.grid.snap ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
-            snap.title = uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
+            const snap = overlay.querySelector("[data-action=snap]"), snapEnabled = activeSnap();
+            snap.textContent = snapEnabled ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
+            snap.title = tool === "node" ? uiText("Math label placement snap (off by default)", "数式ラベル配置の吸着（既定はオフ）") : uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
             snap.dataset.noI18n = "";
-            snap.classList.toggle("is-active", scene.grid.snap);
+            snap.classList.toggle("is-active", snapEnabled);
+            const canvasButton = overlay.querySelector("[data-action=canvas-settings]");
+            canvasButton.title = uiText(`Canvas ${scene.width} × ${scene.height} ${scene.unit} · grid ${scene.grid.size} ${scene.unit}`, `キャンバス ${scene.width} × ${scene.height} ${scene.unit}・グリッド ${scene.grid.size} ${scene.unit}`);
+            canvasButton.setAttribute("aria-expanded", String(Boolean(canvasPop)));
             overlay.querySelector("[data-action=zoom-reset]").textContent = `${Math.round(zoom * 100)}%`;
             overlay.querySelector("[data-action=zoom-reset]").title = uiText("Click: 100% · Shift+click: fit selection", "クリック: 100% / Shift+クリック: 選択にフィット");
             overlay.querySelector("[data-action=undo]").disabled = !undo.length;
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
             renderInspector();
             positionNodeEditor();
+            syncNodeMenu();
             const edited = plotObject();
             if (edited) {
                 const signature = `${edited.id}:${edited.series.length}:${edited.series.map(plotKind).join(",")}:${edited.axis.ymin === null || edited.axis.ymax === null}:${edited.axis.axisLines}:${edited.axis.grid}`;
@@ -1249,8 +1519,8 @@ export const initProCanvasUi = (deps) => {
                 plotCard = null;
                 plotCardSignature = "";
             }
-            const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a graph", "クリックまたはドラッグでグラフを配置"), code: uiText("Click to write TikZ code at that spot", "クリックした位置に TikZ コードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Cmd+G to group · Arrow keys to nudge · Delete to remove", "Cmd+G でグループ化　矢印キーで微調整　Delete で削除") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Double-click to edit the graph · Scroll to zoom the axes · Drag to pan them", "ダブルクリック：グラフを編集　ホイール：軸を拡大　ドラッグ：軸を移動") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Double-click to edit the formula", "ダブルクリックで数式を編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag the end □ to resize · Double-click to add or remove a point", "端の□をドラッグ：伸縮　ダブルクリック：頂点の追加・削除") : uiText("Drag ○ to reshape the curve · Corners resize · Double-click to add or remove a point", "○をドラッグ：曲線を調整　四隅：伸縮　ダブルクリック：頂点の追加・削除")) : uiText("Drag to marquee-select · Space+drag to pan · Double-click a shape to edit", "ドラッグで範囲選択　Space+ドラッグで画面移動　図形をダブルクリックで編集");
+            const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, nodeToolHasSelectedLabel = tool === "node" && (one === null || one === void 0 ? void 0 : one.type) === "node";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集");
         };
         let drag = null;
         let lastClick = null;
@@ -1348,7 +1618,7 @@ export const initProCanvasUi = (deps) => {
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
-            var _a, _b;
+            var _a, _b, _c;
             flushWheelUndo();
             const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
@@ -1358,7 +1628,13 @@ export const initProCanvasUi = (deps) => {
                 render();
                 return;
             }
-            const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+            const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, lineEndpoint = target.dataset.lineEndpoint, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
+            if (tool === "node" && editingNodeId && id !== editingNodeId) {
+                const existing = id ? walk(currentObjects(), id) : null;
+                finishNodeEdit(true);
+                if (!nodeToolEditsExisting(existing))
+                    return;
+            }
             if (plotEdit && id === plotEdit.id && !handle) {
                 drag = { kind: "plot-pan", start: raw, startClient: client, before: cloneScene(scene), id };
                 svg.setPointerCapture(e.pointerId);
@@ -1413,6 +1689,16 @@ export const initProCanvasUi = (deps) => {
                     }
                 }
                 const oneId = selectedIdOne();
+                if (lineEndpoint !== undefined && oneId) {
+                    const path = currentObjects().find(item => item.id === oneId);
+                    if ((path === null || path === void 0 ? void 0 : path.type) === "path" && straightLineEndpoints(path)) {
+                        drag = { kind: "anchor", start: raw, startClient: client, before: cloneScene(scene), id: path.id, anchorIndex: Number(lineEndpoint) };
+                        hoveredId = null;
+                        svg.setPointerCapture(e.pointerId);
+                        render();
+                        return;
+                    }
+                }
                 if (handle && oneId) {
                     const o = currentObjects().find(item => item.id === oneId);
                     drag = { kind: "resize", start: raw, startClient: client, before: cloneScene(scene), id: oneId, handle, bounds: objectBounds(o, scene) };
@@ -1422,7 +1708,10 @@ export const initProCanvasUi = (deps) => {
                     drag = { kind: "rotate", start: raw, startClient: client, before: cloneScene(scene), id: oneId, bounds: objectBounds(o, scene), wrapperId: newObjectId() };
                 }
                 else if (id) {
+                    if ((anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.pathId) !== id)
+                        anchorEdit = null;
                     if (e.shiftKey) {
+                        anchorEdit = null;
                         toggleSelection(id);
                         hoveredId = null;
                         render();
@@ -1433,6 +1722,7 @@ export const initProCanvasUi = (deps) => {
                     drag = { kind: "move", start: raw, startClient: client, before: cloneScene(scene), ids: [...selection.ids], bounds: (_b = selectionBounds()) !== null && _b !== void 0 ? _b : undefined };
                 }
                 else {
+                    anchorEdit = null;
                     clearSelection();
                     drag = { kind: "marquee", start: raw, startClient: client, before: cloneScene(scene), current: raw };
                 }
@@ -1442,8 +1732,57 @@ export const initProCanvasUi = (deps) => {
                 svg.setPointerCapture(e.pointerId);
                 return;
             }
+            if (tool === "fill") {
+                const candidates = paintRegions !== null && paintRegions !== void 0 ? paintRegions : enclosedRegions(boundaryPaths(currentObjects(), scene));
+                paintRegions = candidates;
+                const region = paintPreview !== null && paintPreview !== void 0 ? paintPreview : enclosedRegionAt(candidates, raw);
+                if (!region) {
+                    setStatus(uiText("No enclosed region here", "ここには囲まれた領域がありません"), true);
+                    return;
+                }
+                const previous = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, previousStyle = (previous === null || previous === void 0 ? void 0 : previous.type) === "path" && previous.closed && resolveStyle(scene, previous.style).draw === null ? previous.style.props : null;
+                const props = previousStyle ? JSON.parse(JSON.stringify(previousStyle)) : { draw: null, fill: "#dbeafe", lineWidthPt: .4 };
+                props.draw = null;
+                snapshot(false);
+                paintRegions = candidates;
+                invalidateCompiled();
+                const object = { id: newObjectId(), type: "path", start: { ...region.start }, segments: region.segments.map(segment => segment.type === "line" ? { type: "line", to: { ...segment.to } } : { type: "cubic", c1: { ...segment.c1 }, c2: { ...segment.c2 }, to: { ...segment.to } }), closed: true, style: { props } };
+                currentObjects().unshift(object);
+                replaceSelection(object.id);
+                paintPreview = region;
+                setStatus(uiText("Region filled — adjust color or hatch in Style", "領域を塗りました。色・網掛けはスタイルで調整できます"));
+                render();
+                scheduleCompile();
+                return;
+            }
+            const resumablePath = tool === "pen" && !pen ? openPathEndNear(raw) : null;
+            if (drawingToolSelectsExistingObject(tool, id, tool === "pen" && Boolean(pen || resumablePath))) {
+                replaceSelection(id);
+                tool = "select";
+                anchorEdit = null;
+                hoveredId = null;
+                render();
+                return;
+            }
             if (tool === "node") {
-                const before = cloneScene(scene), object = { id: newObjectId(), type: "node", at: p, latex: "", anchor: "center", style: {} };
+                const hit = id ? walk(currentObjects(), id) : null;
+                if (nodeToolEditsExisting(hit)) {
+                    if (e.shiftKey) {
+                        toggleSelection(hit.id);
+                        hoveredId = null;
+                        render();
+                        return;
+                    }
+                    if (!selection.ids.has(hit.id))
+                        replaceSelection(hit.id);
+                    drag = { kind: "move", start: raw, startClient: client, before: cloneScene(scene), ids: [...selection.ids], bounds: (_c = selectionBounds()) !== null && _c !== void 0 ? _c : undefined };
+                    cacheDragLines();
+                    hoveredId = null;
+                    render();
+                    svg.setPointerCapture(e.pointerId);
+                    return;
+                }
+                const before = cloneScene(scene), object = { id: newObjectId(), type: "node", at: p, latex: "", anchor: "center", fontShape: "italic", style: {} };
                 invalidateCompiled();
                 currentObjects().push(object);
                 beginNodeEdit(object, true, before);
@@ -1478,14 +1817,11 @@ export const initProCanvasUi = (deps) => {
                         return;
                 }
                 // 既存の開いたパスの端点を掴んだら、新しい線を始めるのではなく続きを描く。
-                if (!pen) {
-                    const resume = openPathEndNear(raw);
-                    if (resume) {
-                        snapshot();
-                        startPenFromEnd(resume.path, resume.atStart);
-                        render();
-                        return;
-                    }
+                if (!pen && resumablePath) {
+                    snapshot();
+                    startPenFromEnd(resumablePath.path, resumablePath.atStart);
+                    render();
+                    return;
                 }
                 if (!pen)
                     snapshot();
@@ -1499,7 +1835,7 @@ export const initProCanvasUi = (deps) => {
             if (tool === "plot") {
                 snapshot(false);
                 invalidateCompiled();
-                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "major", xlabel: "", ylabel: "", title: "" }, series: [{ kind: "fn", expr: "", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
+                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -1, xmax: 2, ymin: null, ymax: null, axisLines: "none", grid: "none", xlabel: "", ylabel: "", title: "" }, series: [{ kind: "fn", expr: "x^2", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
                 currentObjects().push(object);
                 replaceSelection(object.id);
                 drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
@@ -1533,6 +1869,16 @@ export const initProCanvasUi = (deps) => {
                 penRawCursor = rawCursor;
                 penResume = openPathEndNear(rawCursor);
                 render();
+                return;
+            }
+            if (tool === "fill" && !drag) {
+                const regions = paintRegions !== null && paintRegions !== void 0 ? paintRegions : enclosedRegions(boundaryPaths(currentObjects(), scene)), next = enclosedRegionAt(regions, rawPoint(e));
+                paintRegions = regions;
+                svg.style.cursor = next ? "crosshair" : "not-allowed";
+                if (next !== paintPreview) {
+                    paintPreview = next;
+                    render();
+                }
                 return;
             }
             // 1 点目を置く前もカーソル位置に印を出す。どこに落ちるか・どの端点から続けられるかを先に見せる。
@@ -1742,7 +2088,7 @@ export const initProCanvasUi = (deps) => {
             if (plotDrawn)
                 requestAnimationFrame(() => buildPlotCard(plotDrawn, 0));
             // render() が DOM を差し替えるため native dblclick は当てにならない。クリック2連打を自前検出する。
-            if (tool === "select" && completed && !completed.moved) {
+            if ((tool === "select" || tool === "node") && completed && !completed.moved) {
                 const now = performance.now();
                 if (lastClick && now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6) {
                     lastClick = null;
@@ -1787,8 +2133,8 @@ export const initProCanvasUi = (deps) => {
                 lastClick = null;
         });
         svg.addEventListener("pointerleave", () => { if (drag || penDrag)
-            return; const had = hoveredId || penResume || pathHint || (!pen && penCursor); if (!had)
-            return; hoveredId = null; svg.style.cursor = "default"; clearPointerMarkers(); render(); });
+            return; const had = hoveredId || penResume || pathHint || paintPreview || (!pen && penCursor); if (!had)
+            return; hoveredId = null; paintPreview = null; svg.style.cursor = "default"; clearPointerMarkers(); render(); });
         const close = () => { stageObserver === null || stageObserver === void 0 ? void 0 : stageObserver.disconnect(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keydown", onToolKey, true); window.removeEventListener("keyup", onKeyUp, true); if (plotCompileTimer)
             clearTimeout(plotCompileTimer); if (wheelUndoTimer)
             clearTimeout(wheelUndoTimer); overlay.remove(); if (closeCurrent === close)
@@ -1804,15 +2150,15 @@ export const initProCanvasUi = (deps) => {
             tool = "select";
             anchorEdit = { pathId: path.id, deep: true };
             selectedAnchorIndex = 0;
-        } render(); scheduleCompile(); };
+        } invalidatePaintRegions(); render(); scheduleCompile(); };
         const abortPen = () => { if (pen && !pen.path.segments.length)
             removeById(currentObjects(), pen.path.id); pen = null; penDrag = null; penCursor = null; penRawCursor = null; penResume = null; };
         const retainSelection = () => { var _a; selection.ids = new Set([...selection.ids].filter(id => walk(currentObjects(), id))); selection.primaryId = selection.primaryId && selection.ids.has(selection.primaryId) ? selection.primaryId : (_a = [...selection.ids][0]) !== null && _a !== void 0 ? _a : null; };
         const undoOnce = () => { flushWheelUndo(); pen = null; penDrag = null; penCursor = null; penRawCursor = null; const prev = undo.pop(); if (!prev)
-            return; redo.push(cloneScene(scene)); scene = prev; retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
+            return; redo.push(cloneScene(scene)); scene = prev; invalidatePaintRegions(); retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
             replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
         const redoOnce = () => { flushWheelUndo(); pen = null; penDrag = null; penCursor = null; penRawCursor = null; const next = redo.pop(); if (!next)
-            return; undo.push(cloneScene(scene)); scene = next; retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
+            return; undo.push(cloneScene(scene)); scene = next; invalidatePaintRegions(); retainSelection(); if (plotEdit && walk(currentObjects(), plotEdit.id))
             replaceSelection(plotEdit.id); plotCardSignature = ""; render(); scheduleCompile(); };
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
             item.children.forEach(renew); }; renew(copy); return copy; };
@@ -1827,6 +2173,10 @@ export const initProCanvasUi = (deps) => {
             const command = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
             if (e.key === "Escape") {
                 e.preventDefault();
+                if (canvasPop) {
+                    closeCanvasPop();
+                    return;
+                }
                 if (colorPop) {
                     closeColorPop();
                     return;
@@ -1952,10 +2302,13 @@ export const initProCanvasUi = (deps) => {
             }
         };
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
-            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", t: "node" }[e.key.toLowerCase()]; if (next) {
+            return; const next = { v: "select", p: "pen", g: "plot", l: "line", r: "rect", e: "ellipse", f: "fill", t: "node" }[e.key.toLowerCase()]; if (next) {
             if (next !== "pen")
                 abortPen();
+            if (next === "select")
+                anchorEdit = null;
             tool = next;
+            invalidatePaintRegions();
             clearPointerMarkers();
             e.preventDefault();
             render();
@@ -2030,7 +2383,7 @@ export const initProCanvasUi = (deps) => {
                 const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor), text = (_b = model === null || model === void 0 ? void 0 : model.getValue) === null || _b === void 0 ? void 0 : _b.call(model), cursor = anchorPosition !== null && anchorPosition !== void 0 ? anchorPosition : { lineNumber: 1, column: 1 }, Range = (_c = window.monaco) === null || _c === void 0 ? void 0 : _c.Range;
                 if (typeof text === "string" && Range && (editor === null || editor === void 0 ? void 0 : editor.executeEdits)) {
                     // 未クリックのエディタはカーソルが 1:1 のまま。そこへ入れると \documentclass の前に図が入って文書が壊れる。
-                    const plan = planFigureInsert(text, cursor, generateTikz(scene).requires, sceneHasPlot(scene)), edits = [{ range: new Range(plan.body.lineNumber, plan.body.column, plan.body.lineNumber, plan.body.column), text: plan.body.column > 1 ? `\n${block}` : block, forceMoveMarkers: true }];
+                    const generated = generateTikz(scene), plan = planFigureInsert(text, cursor, generated.requires, sceneHasPlot(scene), generated.needsGraphicx), edits = [{ range: new Range(plan.body.lineNumber, plan.body.column, plan.body.lineNumber, plan.body.column), text: plan.body.column > 1 ? `\n${block}` : block, forceMoveMarkers: true }];
                     if (plan.preamble)
                         edits.push({ range: new Range(plan.preamble.lineNumber, 1, plan.preamble.lineNumber, 1), text: plan.preamble.text, forceMoveMarkers: true });
                     (_d = editor.pushUndoStop) === null || _d === void 0 ? void 0 : _d.call(editor);
@@ -2060,7 +2413,10 @@ export const initProCanvasUi = (deps) => {
             return; if (button.dataset.tool) {
             if (button.dataset.tool !== "pen")
                 abortPen();
+            if (button.dataset.tool === "select")
+                anchorEdit = null;
             tool = button.dataset.tool;
+            invalidatePaintRegions();
             clearPointerMarkers();
             render();
             return;
@@ -2069,9 +2425,16 @@ export const initProCanvasUi = (deps) => {
                 case "cancel":
                     close();
                     break;
+                case "canvas-settings":
+                    openCanvasSettings(button);
+                    break;
                 case "snap":
-                    snapshot();
-                    scene.grid.snap = !scene.grid.snap;
+                    if (tool === "node")
+                        nodePlacementSnap = !nodePlacementSnap;
+                    else {
+                        snapshot();
+                        scene.grid.snap = !scene.grid.snap;
+                    }
                     render();
                     break;
                 case "zoom-out":
@@ -2128,7 +2491,7 @@ export const initProCanvasUi = (deps) => {
             render();
             editCode(object);
         } };
-        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select")
+        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select" && tool !== "node")
             return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null); if (object) {
             activateForEdit(object);
             e.preventDefault();

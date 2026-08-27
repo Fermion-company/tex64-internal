@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sceneToScreen, screenToScene, snapToGrid, resizeHandlePoint, resizePoint, boundsAfterHandleDrag } from "../Resources/web/app/pro-canvas/canvas-math.js";
+import { anchorControlMetrics, anchorPointMetrics, sceneToScreen, screenToScene, snapToGrid, resizeHandlePoint, resizePoint, boundsAfterHandleDrag, drawingToolSelectsExistingObject, normalizeCanvasMeasurement, straightLineEndpoints, visibleGridStep } from "../Resources/web/app/pro-canvas/canvas-math.js";
 
 const view = { left: 10, top: 20, width: 400, height: 400, sceneWidth: 100, sceneHeight: 100, zoom: 1 };
 
@@ -38,4 +38,35 @@ test("resize handles and affine point resize use scene coordinates", () => {
   assert.deepEqual(resizeHandlePoint(bounds, "w"), { x: 10, y: 40 });
   assert.deepEqual(resizePoint({ x: 20, y: 40 }, bounds, { minX: 0, minY: 0, maxX: 40, maxY: 80 }), { x: 20, y: 40 });
   assert.deepEqual(boundsAfterHandleDrag(bounds, "se", { x: 50, y: 5 }), { minX: 10, minY: 5, maxX: 50, maxY: 60 });
+});
+
+test("curve points have generous screen-space hit targets", () => {
+  assert.deepEqual(anchorControlMetrics(false), { visibleRadiusPx: 3.5, hitRadiusPx: 11 });
+  assert.deepEqual(anchorControlMetrics(true), { visibleRadiusPx: 4, hitRadiusPx: 11 });
+  assert.deepEqual(anchorPointMetrics(false), { visibleSizePx: 7, hitSizePx: 16 });
+  assert.deepEqual(anchorPointMetrics(true), { visibleSizePx: 9, hitSizePx: 18 });
+});
+
+test("drawing tools select an existing object instead of starting a zero-size object", () => {
+  for (const tool of ["pen", "line", "rect", "ellipse"]) assert.equal(drawingToolSelectsExistingObject(tool, "existing"), true);
+  for (const tool of ["select", "node", "plot"]) assert.equal(drawingToolSelectsExistingObject(tool, "existing"), false);
+  assert.equal(drawingToolSelectsExistingObject("pen", "existing", true), false, "an active or resumable curve keeps drawing");
+  assert.equal(drawingToolSelectsExistingObject("line", null), false);
+});
+
+test("straight line selection exposes its two endpoints as transform handles", () => {
+  const start = { x: 10, y: 20 }, to = { x: 40, y: 60 };
+  assert.deepEqual(straightLineEndpoints({ start, segments: [{ type: "line", to }], closed: false }), [start, to]);
+  assert.equal(straightLineEndpoints({ start, segments: [{ type: "line", to }], closed: true }), null);
+  assert.equal(straightLineEndpoints({ start, segments: [{ type: "cubic", c1: start, c2: to, to }], closed: false }), null);
+});
+
+test("canvas measurements reject invalid or unsafe values", () => {
+  assert.equal(normalizeCanvasMeasurement("120.5", 100), 120.5);
+  for (const value of ["", "nope", 0, -2, Infinity, 10001]) assert.equal(normalizeCanvasMeasurement(value, 100), 100);
+});
+
+test("dense grid rendering is thinned without changing the snap spacing", () => {
+  assert.equal(visibleGridStep(5, 4), 5);
+  assert.equal(visibleGridStep(0.1, 5), 0.6);
 });

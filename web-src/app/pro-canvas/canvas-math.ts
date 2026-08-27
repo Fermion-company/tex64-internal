@@ -10,6 +10,27 @@ export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 export type SnapLine = { value: number; kind: "min" | "center" | "max" };
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
+/** 描画ツール中でも既存オブジェクトをクリックしたら、描画より選択を優先する。 */
+export const drawingToolSelectsExistingObject = (tool: string, targetId: string | null | undefined, keepDrawing = false): boolean =>
+  Boolean(targetId && !keepDrawing && (tool === "pen" || tool === "line" || tool === "rect" || tool === "ellipse"));
+
+/** 選択モードで直線の両端を変形ハンドルとして扱う。 */
+export const straightLineEndpoints = (path: { start: Vec; segments: PathSeg[]; closed: boolean }): [Vec, Vec] | null => {
+  const segment = path.segments.length === 1 ? path.segments[0] : null;
+  return !path.closed && segment?.type === "line" ? [path.start, segment.to] : null;
+};
+
+export const normalizeCanvasMeasurement = (value: unknown, fallback: number): number => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 10000 ? parsed : fallback;
+};
+
+/** グリッド線が画面上で密集しすぎるときだけ表示を間引く。吸着間隔は変えない。 */
+export const visibleGridStep = (spacing: number, pixelsPerUnit: number, minimumPixels = 3): number => {
+  if (!(spacing > 0) || !(pixelsPerUnit > 0)) return spacing;
+  return Number((spacing * Math.max(1, Math.ceil(minimumPixels / (spacing * pixelsPerUnit)))).toPrecision(12));
+};
+
 const cubicPoint = (from: Vec, seg: Extract<PathSeg, { type: "cubic" }>, t: number): Vec => { const u = 1 - t; return { x: u * u * u * from.x + 3 * u * u * t * seg.c1.x + 3 * u * t * t * seg.c2.x + t * t * t * seg.to.x, y: u * u * u * from.y + 3 * u * u * t * seg.c1.y + 3 * u * t * t * seg.c2.y + t * t * t * seg.to.y }; };
 export const cubicExtremaPoints = (from: Vec, seg: { c1: Vec; c2: Vec; to: Vec }): Vec[] => {
   const roots = (p0: number, p1: number, p2: number, p3: number) => { const a = -p0 + 3 * p1 - 3 * p2 + p3, b = p0 - 2 * p1 + p2, c = p1 - p0, eps = 1e-12; if (Math.abs(a) < eps) return Math.abs(b) < eps ? [] : [-c / (2 * b)]; const d = b * b - a * c; return d < 0 ? [] : [(-b + Math.sqrt(d)) / a, (-b - Math.sqrt(d)) / a]; };
@@ -236,6 +257,16 @@ export const boundsAfterHandleDrag = (bounds: Bounds, handle: ResizeHandle, poin
   if (handle.includes("n")) maxY = Math.max(point.y, minY + minSize);
   return { minX, minY, maxX, maxY };
 };
+
+export const anchorControlMetrics = (emphasized = false) => ({
+  visibleRadiusPx: emphasized ? 4 : 3.5,
+  hitRadiusPx: 11,
+});
+
+export const anchorPointMetrics = (endpoint = false) => ({
+  visibleSizePx: endpoint ? 9 : 7,
+  hitSizePx: endpoint ? 18 : 16,
+});
 
 export const toggleSegmentKind = (
   path: { start: Vec; segments: PathSeg[] },

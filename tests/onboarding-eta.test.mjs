@@ -17,6 +17,13 @@ test("the full-install progress curve matches its work distribution", () => {
   assert.equal(timeFractionForPercent(100, "full"), 1);
 });
 
+test("the lightweight estimate reflects a short download-first setup", () => {
+  assert.equal(VARIANT_TOTAL_MS.light, 2 * 60 * 1000);
+  assert.ok(timeFractionForPercent(80, "light") > 0.65);
+  assert.ok(timeFractionForPercent(90, "light") >= 0.9);
+  assert.equal(timeFractionForPercent(100, "light"), 1);
+});
+
 test("the curve never goes backwards", () => {
   let previous = -1;
   for (let p = 0; p <= 100; p += 1) {

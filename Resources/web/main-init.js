@@ -237,7 +237,7 @@ export const initMain = () => {
             },
             onRuntimeInstallEvent: (event) => {
                 var _a, _b, _c, _d, _e;
-                const variant = "full";
+                const variant = event.variant === "full" ? "full" : "light";
                 if (!onboardingUi.isVisible()) {
                     return;
                 }

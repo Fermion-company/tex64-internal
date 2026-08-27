@@ -113,6 +113,19 @@ test("pgfplots brings its compat line, and standalone needs no tikz package", ()
   assert.deepEqual(missingPreambleLines(standalone, [], false), []);
 });
 
+test("relative figure width adds graphicx only when missing", () => {
+  assert.ok(missingPreambleLines(DOC,[],false,true).includes("\\usepackage{graphicx}"));
+  const present=DOC.replace("\\usepackage{amsmath}","\\usepackage{amsmath,graphicx}");
+  assert.doesNotMatch(missingPreambleLines(present,[],false,true).join("\n"),/graphicx/);
+});
+
+test("the closing brace of a resizebox is part of the existing figure", () => {
+  const doc=withBody("%% tex64-figure v2 h=deadbeef AAAA","\\resizebox{.8\\linewidth}{!}{%","\\begin{tikzpicture}","\\end{tikzpicture}","}","after");
+  const {point,moved}=planBodyInsert(doc,{lineNumber:3,column:1});
+  assert.equal(moved,"environment");
+  assert.deepEqual(point,{lineNumber:8,column:1});
+});
+
 test("a commented-out package still counts as missing", () => {
   const doc = DOC.replace("\\usepackage{amsmath}", "% \\usepackage{tikz}");
   assert.ok(missingPreambleLines(doc, [], false).includes("\\usepackage{tikz}"));

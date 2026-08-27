@@ -9,6 +9,8 @@ export type StyleProps = {
   fill?: string | null;
   lineWidthPt?: number;
   dash?: "solid" | "dashed" | "dotted";
+  /** 点線・破線の空白部分。0 / undefined は TikZ とプレビューの既定間隔。 */
+  dashGapPt?: number;
   opacity?: number;
   arrowStart?: "" | "Stealth" | "Latex" | "Bar";
   arrowEnd?: "" | "Stealth" | "Latex" | "Bar";
@@ -20,6 +22,10 @@ export type StyleProps = {
   shading?: { kind: "axis"; top: string; bottom: string; angle?: number } | { kind: "radial"; inner: string; outer: string } | null;
 };
 
+export type SceneOutputWidth =
+  | { mode: "natural" }
+  | { mode: "relative"; value: number; reference: "linewidth" | "textwidth" | "columnwidth" };
+
 export type ObjStyle = { ref?: string; props?: StyleProps };
 export type PlotSeries = { kind?: "fn"|"parametric"|"polar"|"points"; expr: string; expr2?: string; points?: string; domain: { min: number; max: number } | null; samples: number; color: string; thick: boolean; legend: string; visible?: boolean };
 
@@ -28,15 +34,23 @@ export type PathSeg =
   | { type: "cubic"; c1: Vec; c2: Vec; to: Vec };
 
 export type NodeAnchor = "center" | "north" | "south" | "east" | "west"
-  | "north east" | "north west" | "south east" | "south west";
+  | "north east" | "north west" | "south east" | "south west"
+  | "base" | "base east" | "base west"
+  | "mid" | "mid east" | "mid west"
+  | "text" | "text east" | "text west";
+
+export type NodeFontFamily = "default" | "serif" | "sans" | "mono";
+export type NodeFontSize = "tiny" | "scriptsize" | "footnotesize" | "small" | "normal" | "large" | "Large" | "huge";
+export type NodeFontShape = "auto" | "italic" | "upright";
+export type NodeFontWeight = "normal" | "bold";
 
 export type SceneObject =
   | { id: string; type: "path"; start: Vec; segments: PathSeg[]; closed: boolean; style: ObjStyle }
   | { id: string; type: "rect"; from: Vec; to: Vec; style: ObjStyle }
   | { id: string; type: "ellipse"; center: Vec; rx: number; ry: number; style: ObjStyle }
-  | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; style: ObjStyle }
+  | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; fontFamily?: NodeFontFamily; fontSize?: NodeFontSize; fontShape?: NodeFontShape; fontWeight?: NodeFontWeight; monospace?: boolean; style: ObjStyle }
   | { id: string; type: "plot"; at: Vec; width: number; height: number;
-      axis: { xmin: number; xmax: number; ymin: number | null; ymax: number | null; axisLines: "box" | "middle" | "left"; grid: "none" | "major" | "both"; equal?: boolean; xlabel: string; ylabel: string; title: string };
+      axis: { xmin: number; xmax: number; ymin: number | null; ymax: number | null; axisLines: "none" | "box" | "middle" | "left"; grid: "none" | "major" | "both"; equal?: boolean; xlabel: string; ylabel: string; title: string };
       series: PlotSeries[]; style: ObjStyle }
   | { id: string; type: "group"; children: SceneObject[]; transform: Transform }
   | { id: string; type: "code"; tikz: string; transform: Transform }
@@ -51,6 +65,8 @@ export type Scene = {
   width: number;
   height: number;
   grid: { size: number; snap: boolean };
+  /** 紙面上の幅。未指定の旧データは natural と同じ。キャンバス座標の width とは独立。 */
+  outputWidth?: SceneOutputWidth;
   styles: Array<{ name: string; props: StyleProps }>;
   objects: SceneObject[];
   symbols?: SymbolDef[];
@@ -58,6 +74,7 @@ export type Scene = {
 
 const DEFAULT_STYLE: Required<StyleProps> = {
   draw: "#000000", fill: null, lineWidthPt: 0.4, dash: "solid", opacity: 1,
+  dashGapPt: 0,
   arrowStart: "", arrowEnd: "", cap: "butt", join: "miter", roundedCornersPt: 0, doubleDistancePt: 0, pattern: null, shading: null,
 };
 
@@ -65,7 +82,7 @@ let idCounter = 0;
 
 export const createEmptyScene = (): Scene => ({
   v: 1, unit: "mm", width: 100, height: 100,
-  grid: { size: 5, snap: true }, styles: [], objects: [],
+  grid: { size: 5, snap: true }, outputWidth: { mode: "natural" }, styles: [], objects: [],
 });
 
 export const newObjectId = (): string =>
@@ -93,6 +110,7 @@ const isStyleProps = (value: unknown): value is StyleProps => {
   if (value.fill !== undefined && !isColor(value.fill)) return false;
   if (value.lineWidthPt !== undefined && (!isNumber(value.lineWidthPt) || value.lineWidthPt < 0)) return false;
   if (value.dash !== undefined && !oneOf(value.dash, ["solid", "dashed", "dotted"] as const)) return false;
+  if (value.dashGapPt !== undefined && (!isNumber(value.dashGapPt) || value.dashGapPt < 0)) return false;
   if (value.opacity !== undefined && (!isNumber(value.opacity) || value.opacity < 0 || value.opacity > 1)) return false;
   if (value.arrowStart !== undefined && !oneOf(value.arrowStart, ["", "Stealth", "Latex", "Bar"] as const)) return false;
   if (value.arrowEnd !== undefined && !oneOf(value.arrowEnd, ["", "Stealth", "Latex", "Bar"] as const)) return false;
@@ -113,7 +131,18 @@ const isObjStyle = (value: unknown): value is ObjStyle => isRecord(value)
   && (value.ref === undefined || typeof value.ref === "string")
   && (value.props === undefined || isStyleProps(value.props));
 
-const anchors: readonly NodeAnchor[] = ["center", "north", "south", "east", "west", "north east", "north west", "south east", "south west"];
+const isSceneOutputWidth = (value: unknown): value is SceneOutputWidth => {
+  if (!isRecord(value)) return false;
+  if (value.mode === "natural") return Object.keys(value).every((key) => key === "mode");
+  return value.mode === "relative"
+    && isNumber(value.value) && value.value > 0 && value.value <= 10
+    && oneOf(value.reference, ["linewidth", "textwidth", "columnwidth"] as const);
+};
+
+const anchors: readonly NodeAnchor[] = [
+  "center", "north", "south", "east", "west", "north east", "north west", "south east", "south west",
+  "base", "base east", "base west", "mid", "mid east", "mid west", "text", "text east", "text west",
+];
 
 const isTransform = (value: unknown): value is Transform => isRecord(value)
   && isNumber(value.tx) && isNumber(value.ty) && isNumber(value.rotate) && isNumber(value.sx) && isNumber(value.sy);
@@ -135,7 +164,7 @@ const isSceneObject = (value: unknown): value is SceneObject => {
   if (value.type === "plot") return isVec(value.at) && isNumber(value.width) && value.width > 0 && isNumber(value.height) && value.height > 0
     && isRecord(value.axis) && isNumber(value.axis.xmin) && isNumber(value.axis.xmax)
     && (value.axis.ymin === null || isNumber(value.axis.ymin)) && (value.axis.ymax === null || isNumber(value.axis.ymax))
-    && oneOf(value.axis.axisLines,["box","middle","left"] as const) && oneOf(value.axis.grid,["none","major","both"] as const) && (value.axis.equal===undefined||typeof value.axis.equal==="boolean")
+    && oneOf(value.axis.axisLines,["none","box","middle","left"] as const) && oneOf(value.axis.grid,["none","major","both"] as const) && (value.axis.equal===undefined||typeof value.axis.equal==="boolean")
     && typeof value.axis.xlabel === "string" && typeof value.axis.ylabel === "string" && typeof value.axis.title === "string"
     && Array.isArray(value.series) && value.series.every(series=>isRecord(series) && typeof series.expr === "string" && (series.kind===undefined||oneOf(series.kind,["fn","parametric","polar","points"] as const))
       && (series.kind!=="parametric"||typeof series.expr2==="string") && (series.kind!=="points"||typeof series.points==="string")
@@ -144,7 +173,12 @@ const isSceneObject = (value: unknown): value is SceneObject => {
       && typeof series.thick === "boolean" && typeof series.legend === "string" && (series.visible===undefined||typeof series.visible==="boolean"));
   if (value.type === "rect") return isVec(value.from) && isVec(value.to);
   if (value.type === "ellipse") return isVec(value.center) && isNumber(value.rx) && value.rx >= 0 && isNumber(value.ry) && value.ry >= 0;
-  if (value.type === "node") return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors);
+  if (value.type === "node") return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors)
+    && (value.fontFamily === undefined || oneOf(value.fontFamily, ["default", "serif", "sans", "mono"] as const))
+    && (value.fontSize === undefined || oneOf(value.fontSize, ["tiny", "scriptsize", "footnotesize", "small", "normal", "large", "Large", "huge"] as const))
+    && (value.fontShape === undefined || oneOf(value.fontShape, ["auto", "italic", "upright"] as const))
+    && (value.fontWeight === undefined || oneOf(value.fontWeight, ["normal", "bold"] as const))
+    && (value.monospace === undefined || typeof value.monospace === "boolean");
   if (value.type === "path") return isVec(value.start) && typeof value.closed === "boolean" && isPathSegments(value.segments);
   return false;
 };
@@ -156,6 +190,7 @@ export const validateScene = (value: unknown): Scene | null => {
   if (!isRecord(value) || value.v !== 1 || !oneOf(value.unit, ["mm", "cm", "pt"] as const)
     || !isNumber(value.width) || value.width < 0 || !isNumber(value.height) || value.height < 0
     || !isRecord(value.grid) || !isNumber(value.grid.size) || value.grid.size <= 0 || typeof value.grid.snap !== "boolean"
+    || (value.outputWidth !== undefined && !isSceneOutputWidth(value.outputWidth))
     || !Array.isArray(value.styles) || !value.styles.every((style) => isRecord(style)
       && typeof style.name === "string" && /^[A-Za-z]+$/.test(style.name) && isStyleProps(style.props))
     || !Array.isArray(value.objects) || !value.objects.every(isSceneObject)

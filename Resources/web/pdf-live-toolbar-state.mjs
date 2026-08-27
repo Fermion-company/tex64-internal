@@ -20,3 +20,8 @@ export const normalizeLiveToolbarSnapshot = (current = {}, update = {}) => {
     zoom,
   };
 };
+
+export const stepLiveToolbarPage = (current = {}, delta = 0) =>
+  normalizeLiveToolbarSnapshot(current, {
+    page: finiteNumber(current.page, 1) + finiteNumber(delta, 0),
+  });

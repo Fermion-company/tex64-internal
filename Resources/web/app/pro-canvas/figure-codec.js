@@ -121,6 +121,7 @@ export const encodeFigureBlock = (scene) => {
     return `%% tex64-figure v2 h=${fnv1a32(body)} ${encoded}\n${code}\n`;
 };
 export const decodeFigureBlockAt = (lines, cursorLine) => {
+    var _a, _b;
     if (!Number.isInteger(cursorLine) || cursorLine < 0 || cursorLine >= lines.length)
         return null;
     let startLine = cursorLine;
@@ -137,7 +138,7 @@ export const decodeFigureBlockAt = (lines, cursorLine) => {
             return null;
         endLine++;
     }
-    if (endLine >= lines.length || cursorLine > endLine)
+    if (endLine >= lines.length)
         return null;
     const v2 = /^%% tex64-figure v2 h=([0-9a-f]{8}) ([A-Za-z0-9+/=]+)$/.exec(lines[startLine]);
     const v1 = /^%% tex64-figure v1 h=([0-9a-fA-F]{8})$/.exec(lines[startLine]);
@@ -172,6 +173,10 @@ export const decodeFigureBlockAt = (lines, cursorLine) => {
         }
     }
     if (!scene)
+        return null;
+    if (((_a = scene.outputWidth) === null || _a === void 0 ? void 0 : _a.mode) === "relative" && ((_b = lines[endLine + 1]) === null || _b === void 0 ? void 0 : _b.trim()) === "}")
+        endLine += 1;
+    if (cursorLine > endLine)
         return null;
     const body = `${lines.slice(bodyStart, endLine + 1).join("\n")}\n`;
     return { scene, startLine, endLine, detached: fnv1a32(body) !== ((v2 === null || v2 === void 0 ? void 0 : v2[1]) || v1[1].toLowerCase()) };

@@ -69,11 +69,16 @@ const enclosingClosedEnvironment = (lines, cursor) => {
  * ここへ割り込むとブロックが壊れるので、図の終わりまで送る。
  */
 const figureHeaderBlockEnd = (lines, cursorLine) => {
+    var _a;
     const line = lines[cursorLine - 1];
     if (!line || !isFigureHeaderLine(line))
         return 0;
     const begin = lines.findIndex((text, index) => index >= cursorLine && environmentName(text, "begin") === "tikzpicture");
-    return begin < 0 ? 0 : closingLine(lines, "tikzpicture", begin + 1);
+    if (begin < 0)
+        return 0;
+    const close = closingLine(lines, "tikzpicture", begin + 1);
+    const wrapped = lines.slice(cursorLine, begin + 1).some((text) => /\\resizebox\s*\{/.test(stripComment(text)));
+    return wrapped && ((_a = lines[close]) === null || _a === void 0 ? void 0 : _a.trim()) === "}" ? close + 1 : close;
 };
 /**
  * A figure dropped above \begin{document} breaks the file, and that is exactly
@@ -95,7 +100,7 @@ export const planBodyInsert = (text, cursor) => {
     return { point: cursor, moved: null };
 };
 /** \usepackage / \usetikzlibrary lines the document is missing for this figure. */
-export const missingPreambleLines = (text, requires, needsPgfplots) => {
+export const missingPreambleLines = (text, requires, needsPgfplots, needsGraphicx = false) => {
     const lines = text.split("\n");
     const beginLine = findLine(lines, /\\begin\s*\{document\}/);
     const preamble = (beginLine ? lines.slice(0, beginLine - 1) : lines).map(stripComment).join("\n");
@@ -113,13 +118,15 @@ export const missingPreambleLines = (text, requires, needsPgfplots) => {
         if (!has(/\\pgfplotsset\s*\{[^}]*compat/))
             out.push("\\pgfplotsset{compat=1.18}");
     }
+    if (needsGraphicx && !has(/\\usepackage(\[[^\]]*\])?\s*\{[^}]*\bgraphicx\b[^}]*\}/))
+        out.push("\\usepackage{graphicx}");
     return out;
 };
-export const planFigureInsert = (text, cursor, requires, needsPgfplots) => {
+export const planFigureInsert = (text, cursor, requires, needsPgfplots, needsGraphicx = false) => {
     const { point, moved } = planBodyInsert(text, cursor);
     const lines = text.split("\n");
     const beginLine = findLine(lines, /\\begin\s*\{document\}/);
-    const missing = beginLine ? missingPreambleLines(text, requires, needsPgfplots) : [];
+    const missing = beginLine ? missingPreambleLines(text, requires, needsPgfplots, needsGraphicx) : [];
     return {
         body: point,
         preamble: missing.length ? { lineNumber: beginLine, text: `${missing.join("\n")}\n` } : null,

@@ -141,6 +141,9 @@ const describeDistribution = ({
   }
   const label = year ? `TeX Live ${year}` : "TeX Live";
   if (source === "managed") {
+    if (isTinytex) {
+      return `TinyTeX (${label}, TeX64 managed)`;
+    }
     return `${label} (TeX64 managed)`;
   }
   // TinyTeX drops a `.tinytex` token in its root precisely so tools can tell it
@@ -156,8 +159,8 @@ const describeDistribution = ({
   return label;
 };
 
-// Coverage tiers describe an existing installation. TeX64's own installer is
-// always scheme-full; these tiers are only diagnostic.
+// Coverage tiers describe what is physically present. A TeX64-managed light
+// tree is labelled on-demand by EnvService after this probe.
 const classifyCoverage = (found, kind = "texlive", options = {}) => {
   const has = (name) => found.has(String(name).toLowerCase());
   const missingCore = PROBE_CORE.filter((name) => !has(name));

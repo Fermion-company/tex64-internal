@@ -8,9 +8,38 @@ import type {
   IssuesStatus,
 } from "./types.js";
 import type { EnvStatusSummary } from "./settings-env.js";
+import type { PdfSyncPayload } from "./viewer.js";
 
 type EditorGroupKey = "primary" | "secondary";
 type SynctexForwardSource = "manual" | "auto-build" | "other";
+export type BuildProgressPhase = "building" | "installing" | "cancelling";
+
+export const resolveBuildProgressPhase = (
+  message?: string,
+  cancelRequested = false
+): BuildProgressPhase => {
+  if (cancelRequested || /cancel/i.test(message ?? "")) return "cancelling";
+  if (/install/i.test(message ?? "")) return "installing";
+  return "building";
+};
+
+export const resolveSynctexForwardTarget = (
+  overridePath: string | null | undefined,
+  activePath: string | null | undefined,
+  lastBuildMainFile: string | null | undefined,
+  rootPath: string | null | undefined
+) => {
+  const candidates = [overridePath, activePath, lastBuildMainFile, rootPath];
+  return candidates.find((path) => path?.toLowerCase().endsWith(".tex")) ?? null;
+};
+
+export const resolveSynctexForwardPdfPath = (
+  lastBuildMainFile: string | null | undefined,
+  rootPath: string | null | undefined
+) => {
+  const texPath = resolveSynctexForwardTarget(null, null, lastBuildMainFile, rootPath);
+  return texPath ? texPath.replace(/\.tex$/i, ".pdf") : null;
+};
 
 type EditorGroupState = {
   key: EditorGroupKey;
@@ -24,7 +53,7 @@ type EditorGroupState = {
   openTabs: string[];
   viewer: {
     getViewerMode: () => string;
-    syncPdf: (payload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number }) => void;
+    syncPdf: (payload: PdfSyncPayload) => void;
   };
   isDirty: boolean;
   viewStates: Map<string, unknown>;
@@ -133,6 +162,10 @@ export const initBuildOpsUi = (
   let formatInFlightSnapshot: { path: string; content: string } | null = null;
   let currentBuildLog: string | null = null;
   let currentBuildState: BuildState = "idle";
+  let buildProgressPhase: BuildProgressPhase = "building";
+  let buildStartedAt = 0;
+  let buildCancelRequested = false;
+  let buildProgressTimer: ReturnType<typeof window.setInterval> | null = null;
   let synctexForwardRequestOrder = 0;
   let synctexForwardLastAppliedOrder = 0;
   let synctexManualPriorityUntil = 0;
@@ -148,7 +181,7 @@ export const initBuildOpsUi = (
   } | null = null;
   const synctexForwardOrderByRequestId = new Map<
     string,
-    { order: number; source: SynctexForwardSource; createdAt: number }
+    { order: number; source: SynctexForwardSource; createdAt: number; path: string; line: number; column: number }
   >();
   const synctexForwardInFlightTimeoutMs = 12000;
   const buildSynctexForwardRequestId = (() => {
@@ -161,6 +194,38 @@ export const initBuildOpsUi = (
       "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.",
       "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。"
     );
+
+  const buildProgressText = () => {
+    if (buildProgressPhase === "cancelling") {
+      return uiText("Canceling…", "キャンセル中…");
+    }
+    const phase = buildProgressPhase === "installing"
+      ? uiText("Installing TeX packages…", "TeXパッケージ導入中…")
+      : uiText("Building…", "ビルド中…");
+    const elapsedSeconds = buildStartedAt > 0
+      ? Math.max(0, Math.floor((Date.now() - buildStartedAt) / 1000))
+      : 0;
+    return elapsedSeconds > 0 ? `${phase} ${elapsedSeconds}s` : phase;
+  };
+
+  const renderBuildButtonProgress = () => {
+    if (!(buildButton instanceof HTMLButtonElement) || currentBuildState !== "building") return;
+    const progress = buildProgressText();
+    buildButton.dataset.progressPhase = buildProgressPhase;
+    buildButton.title = `${progress} ${uiText("Click to cancel.", "クリックでキャンセルします。")}`;
+    const label = buildButton.querySelector<HTMLElement>(".build-button-label");
+    if (label) label.textContent = progress;
+  };
+
+  const stopBuildProgressTimer = () => {
+    if (buildProgressTimer !== null) window.clearInterval(buildProgressTimer);
+    buildProgressTimer = null;
+  };
+
+  const startBuildProgressTimer = () => {
+    if (buildProgressTimer !== null) return;
+    buildProgressTimer = window.setInterval(renderBuildButtonProgress, 250);
+  };
 
   const isEnvMissingMessage = (message: string) => {
     const lower = message.toLowerCase();
@@ -199,11 +264,13 @@ export const initBuildOpsUi = (
     if (!(synctexButton instanceof HTMLButtonElement)) {
       return;
     }
-    const activePath = deps.getActiveFilePath();
-    const rootPath = deps.getRootFilePath();
-    const targetPath =
-      activePath && activePath.endsWith(".tex") ? activePath : rootPath;
-    const enabled = Boolean(targetPath && targetPath.endsWith(".tex"));
+    const targetPath = resolveSynctexForwardTarget(
+      null,
+      deps.getActiveFilePath(),
+      deps.getLastBuildMainFile(),
+      deps.getRootFilePath()
+    );
+    const enabled = Boolean(targetPath);
     synctexButton.disabled = !enabled;
     synctexButton.style.display = "inline-flex";
     const label = synctexButton.querySelector<HTMLElement>(".synctex-button-label");
@@ -307,8 +374,16 @@ export const initBuildOpsUi = (
     options: { fallbackToTop?: boolean; source?: SynctexForwardSource } = {}
   ) => {
     const activeGroup = deps.getActiveGroup();
-    const targetPath = overridePath ?? activeGroup.currentFilePath;
-    if (!targetPath || !targetPath.endsWith(".tex")) {
+    const activePath = deps.getActiveFilePath();
+    const lastBuildMainFile = deps.getLastBuildMainFile();
+    const rootPath = deps.getRootFilePath();
+    const targetPath = resolveSynctexForwardTarget(
+      overridePath,
+      activePath,
+      lastBuildMainFile,
+      rootPath
+    );
+    if (!targetPath) {
       const message = uiText("SyncTeX is only available for .tex files.", "SyncTeX は .tex ファイルでのみ利用できます。");
       deps.updateIssues(1, message, "info", [
         { severity: "warning", message },
@@ -356,6 +431,9 @@ export const initBuildOpsUi = (
       order,
       source,
       createdAt: Date.now(),
+      path: targetPath,
+      line,
+      column,
     });
     synctexForwardInFlight = {
       requestId,
@@ -375,6 +453,7 @@ export const initBuildOpsUi = (
       requestId,
       source,
       path: targetPath,
+      pdfPath: resolveSynctexForwardPdfPath(lastBuildMainFile, rootPath),
       line,
       column,
       fallbackToTop: options.fallbackToTop === true,
@@ -383,19 +462,39 @@ export const initBuildOpsUi = (
   };
 
   const setBuildState = (state: BuildState, message?: string) => {
+    const wasBusy = currentBuildState === "building";
     currentBuildState = state;
     const isBusy = state === "building";
+    if (isBusy) {
+      if (!wasBusy) {
+        buildStartedAt = Date.now();
+        buildCancelRequested = false;
+      }
+      buildProgressPhase = resolveBuildProgressPhase(message, buildCancelRequested);
+      startBuildProgressTimer();
+    } else {
+      stopBuildProgressTimer();
+      buildStartedAt = 0;
+      buildCancelRequested = false;
+      buildProgressPhase = "building";
+    }
     if (buildButton instanceof HTMLButtonElement) {
       buildButton.disabled = false;
       buildButton.classList.toggle("is-busy", isBusy);
       buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
       buildButton.setAttribute(
         "aria-label",
-        isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
+        isBusy
+          ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
+          : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
       );
-      buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
       const label = buildButton.querySelector<HTMLElement>(".build-button-label");
-      if (label) label.textContent = isBusy ? uiText("Cancel", "キャンセル") : uiText("Build", "ビルド");
+      if (label && !isBusy) label.textContent = uiText("Build", "ビルド");
+      if (isBusy) renderBuildButtonProgress();
+      else {
+        delete buildButton.dataset.progressPhase;
+        buildButton.title = getBuildButtonIdleTitle();
+      }
     }
     if (state === "success") {
       try {
@@ -434,6 +533,9 @@ export const initBuildOpsUi = (
     if (currentBuildState === "building") {
       const ok = deps.postToNative({ type: "build:cancel" });
       if (ok) {
+        buildCancelRequested = true;
+        buildProgressPhase = "cancelling";
+        renderBuildButtonProgress();
         deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
       }
       return;
@@ -513,6 +615,10 @@ export const initBuildOpsUi = (
       setBuildState("building");
       handleBuildLog(null);
       deps.updateIssues(0, uiText("Starting build.", "Start the build."), "info", []);
+    } else {
+      const message = uiText("The build request could not be started.", "ビルドを開始できませんでした。");
+      setBuildState("failed", message);
+      deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
     }
   };
 
@@ -691,11 +797,16 @@ export const initBuildOpsUi = (
             deps.requestOpenFile(pdfPath, openedGroup.key, true);
           }
         }
-        const syncPayload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number } = {
+        const syncPayload: PdfSyncPayload = {
           page: payload.page,
           x: payload.x ?? 0,
           y: payload.y ?? 0,
         };
+        if (payloadMeta) {
+          syncPayload.sourceFile = payloadMeta.path;
+          syncPayload.sourceLine = payloadMeta.line;
+          syncPayload.sourceColumn = payloadMeta.column;
+        }
         if (typeof payload.blockWidth === "number" && payload.blockWidth > 0) {
           syncPayload.blockWidth = payload.blockWidth;
         }

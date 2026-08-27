@@ -3,6 +3,7 @@ import type { Vec } from "./scene.js";
 export const PLOT_PALETTE=["#2563eb","#dc2626","#059669","#9333ea","#ea580c","#0891b2"] as const;
 export const zoomRange=(min:number,max:number,focusT:number,factor:number):{min:number;max:number}=>{const width=Math.max(1e-6,Math.min(1e9,Math.abs(max-min)*Math.max(Number.MIN_VALUE,factor))),focus=Math.max(0,Math.min(1,focusT)),value=min+(max-min)*focus;return{min:value-width*focus,max:value+width*(1-focus)};};
 export const panRange=(min:number,max:number,deltaT:number):{min:number;max:number}=>{const delta=(max-min)*deltaT;return{min:min+delta,max:max+delta};};
+export const normalizePlotDimension=(value:string,current:number):number=>{const next=Number(value);return Number.isFinite(next)&&next>0?next:current;};
 
 type Fn=(...args:number[])=>number;
 const functions:Record<string,{n:number;fn:Fn}>={
@@ -14,7 +15,9 @@ const functions:Record<string,{n:number;fn:Fn}>={
 };
 
 export type ExprNode={k:"num";v:number}|{k:"var"}|{k:"const";name:"pi"|"e"}|{k:"bin";op:"+"|"-"|"*"|"/"|"^";a:ExprNode;b:ExprNode}|{k:"neg";a:ExprNode}|{k:"call";name:string;args:ExprNode[]};
-export const parseExpr=(src:string):ExprNode|null=>{let at=0;const ws=()=>{while(/\s/.test(src[at]||""))at++;},take=(s:string)=>{ws();if(src.slice(at,at+s.length)!==s)return false;at+=s.length;return true;};
+/** `x^2` だけでなく、ユーザーが自然に入力する `y=x^2` / `f(x)=x^2` も受け付ける。 */
+export const normalizePlotExpression=(source:string):string=>source.trim().replace(/^(?:[xy]|[fgr]\s*\(\s*[xt]\s*\))\s*=\s*/i,"");
+export const parseExpr=(source:string):ExprNode|null=>{const src=normalizePlotExpression(source);let at=0;const ws=()=>{while(/\s/.test(src[at]||""))at++;},take=(s:string)=>{ws();if(src.slice(at,at+s.length)!==s)return false;at+=s.length;return true;};
   const primary=():ExprNode=>{ws();if(take("(")){const value=expr();if(!take(")"))throw 0;return value;}const number=src.slice(at).match(/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/);if(number){at+=number[0].length;return{k:"num",v:Number(number[0])};}const theta=src[at]==="θ"?"θ":null,ident=theta||src.slice(at).match(/^[A-Za-z][A-Za-z0-9]*/)?.[0];if(!ident)throw 0;at+=ident.length;if(ident==="x"||ident==="t"||ident==="theta"||ident==="θ")return{k:"var"};if(ident==="pi"||ident==="e")return{k:"const",name:ident};const entry=functions[ident];if(!entry||!take("("))throw 0;const args:ExprNode[]=[expr()];while(take(","))args.push(expr());if(!take(")")||args.length!==entry.n)throw 0;return{k:"call",name:ident,args};};
   const power=():ExprNode=>{const left=primary();if(!take("^"))return left;return{k:"bin",op:"^",a:left,b:unary()};};
   const unary=():ExprNode=>take("-")?{k:"neg",a:unary()}:power();

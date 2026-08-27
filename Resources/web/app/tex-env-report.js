@@ -19,7 +19,7 @@ export const describeDetection = (report) => {
     return detail;
 };
 // What the coverage probe means in words. "on-demand" can still describe an
-// externally installed MiKTeX tree; TeX64's own tree is always scheme-full.
+// externally installed MiKTeX tree or TeX64's lightweight managed tree.
 export const describeCoverage = (report) => {
     if (!report || !report.hasEngine) {
         return "";
@@ -40,6 +40,14 @@ export const describeCoverage = (report) => {
     }
 };
 export const INSTALL_VARIANT_LABELS = {
+    get light() {
+        return {
+            badge: uiText("Recommended", "おすすめ"),
+            title: uiText("Quick setup", "すぐにセットアップ"),
+            detail: uiText("Official TinyTeX-1, managed privately by TeX64. Missing packages are added automatically.", "TeX64 専用の公式 TinyTeX-1 です。足りないパッケージは自動で追加します。"),
+            size: uiText("about 70 MB download · about 300 MB installed · usually 1–3 min", "ダウンロード約 70 MB・使用容量約 300 MB・通常 1〜3 分"),
+        };
+    },
     get full() {
         return {
             badge: "",

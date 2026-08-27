@@ -10,6 +10,7 @@ import { createCodeCommentManager } from "./code-comments.js";
 import { SpellChecker } from "./spell/spell-check.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
+import { attachSelectionDragAutoScroll } from "./editor-selection-autoscroll.js";
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const hoverState = { registered: false };
@@ -130,6 +131,7 @@ export const initMonacoSetup = (context, deps) => {
             const editorAny = editor;
             group.editor = editor;
             attachEditorErgonomics(monacoWindow.monaco, editor, group);
+            attachSelectionDragAutoScroll(monacoWindow.monaco, editor, host);
             codeCommentManager.attachToEditor(group);
             host.addEventListener("keydown", (event) => {
                 var _a;

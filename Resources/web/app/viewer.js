@@ -54,12 +54,12 @@ export const createViewer = (deps) => {
                 postPdfMessage({ type: "open", payload: pendingPdfOpen });
                 pendingPdfOpen = null;
             }
+            if (livePreview) {
+                postPdfMessage({ type: "live", payload: livePreview });
+            }
             if (pendingPdfSync) {
                 postPdfMessage({ type: "sync", payload: pendingPdfSync });
                 pendingPdfSync = null;
-            }
-            if (livePreview) {
-                postPdfMessage({ type: "live", payload: livePreview });
             }
             return;
         }
@@ -230,6 +230,12 @@ export const createViewer = (deps) => {
         if (!pdfViewerReady) {
             pendingPdfSync = payload;
             return;
+        }
+        if (livePreview) {
+            // The PDF frame may have been recreated while the tab was hidden.
+            // Establish Live ownership synchronously before SyncTeX so the jump is
+            // queued for the visible TDOM surface instead of the static fallback.
+            postPdfMessage({ type: "live", payload: livePreview });
         }
         postPdfMessage({ type: "sync", payload });
     };

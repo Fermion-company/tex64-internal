@@ -198,3 +198,55 @@ test("Code Live never republishes an obsolete project and tracks the detached de
   await page.evaluate(() => { window.__liveState.viewerMode = "tab"; });
   await page.waitForFunction(() => window.__windowMessages.at(-1)?.hide === true);
 });
+
+test("a recreated PDF frame establishes Live before forwarding its pending SyncTeX jump", {
+  timeout: 20_000,
+}, async (t) => {
+  const { server, base } = await startServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(`${base}/harness.html`);
+  await page.evaluate(async () => {
+    const frame = document.createElement("iframe");
+    frame.srcdoc = `<!doctype html><script>
+      window.received = [];
+      addEventListener("message", event => {
+        if (event.data?.source === "tex64-pdf") received.push(event.data.payload);
+      });
+      window.sendReady = () => parent.postMessage({source:"tex64-pdf",payload:{type:"ready"}},"*");
+    <\/script>`;
+    document.body.append(frame);
+    await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));
+    const { createViewer } = await import("/app/viewer.js");
+    window.__pdfFrame = frame;
+    window.__viewer = createViewer({
+      editorViewer: document.createElement("div"),
+      editorViewerImage: document.createElement("img"),
+      editorViewerPdf: frame,
+      editorHost: document.createElement("div"),
+    });
+    window.__viewer.setLivePreview("http://127.0.0.1:4646", 7);
+    window.__viewer.syncPdf({
+      page: 3,
+      x: 72,
+      y: 360,
+      sourceFile: "main.tex",
+      sourceLine: 183,
+      sourceColumn: 1,
+    });
+    frame.contentWindow.sendReady();
+  });
+  await page.waitForFunction(() => window.__pdfFrame.contentWindow.received.length >= 2);
+  const received = await page.evaluate(() => window.__pdfFrame.contentWindow.received);
+  assert.deepEqual(received.map((message) => message.type), ["live", "sync"]);
+  assert.deepEqual(received[1].payload, {
+    page: 3,
+    x: 72,
+    y: 360,
+    sourceFile: "main.tex",
+    sourceLine: 183,
+    sourceColumn: 1,
+  });
+});

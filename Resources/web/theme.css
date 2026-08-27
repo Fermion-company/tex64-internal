@@ -4518,6 +4518,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 .build-button-label {
   display: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 #save-file-button {
@@ -4577,8 +4579,14 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 #build-button.is-busy {
+  min-width: 96px;
   color: var(--accent-strong);
   cursor: default;
+  border-color: rgba(121, 126, 249, 0.7);
+  background: rgba(121, 126, 249, 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgba(121, 126, 249, 0.28),
+    0 0 12px rgba(121, 126, 249, 0.16);
 }
 
 @keyframes build-spin {
@@ -4593,6 +4601,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 #build-button.is-busy .build-button-spinner {
   display: inline-block;
+}
+
+#build-button.is-busy .build-button-label {
+  display: inline;
 }
 
 @keyframes pulse {
@@ -9186,27 +9198,44 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-icon-button { width: 30px; height: 30px; padding: 0 !important; font-size: 17px; }
 .pro-canvas-toolbar button:disabled { opacity: .35; }
 .pro-canvas-inspector button:disabled { opacity: .4; }
+.pro-canvas-canvas-popover { position: fixed; z-index: 6; display: grid; width: 286px; gap: 9px; padding: 12px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; }
+.pro-canvas-canvas-popover-title { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.pro-canvas-canvas-popover-title button { width: 22px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--text-soft); }
+.pro-canvas-canvas-popover > strong { color: var(--text-soft); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+.pro-canvas-canvas-dimensions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.pro-canvas-canvas-dimensions label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px; color: var(--text-soft); }
+.pro-canvas-canvas-dimensions input { grid-column: 1; grid-row: 2; width: 100%; box-sizing: border-box; }
+.pro-canvas-canvas-dimensions span { grid-column: 2; grid-row: 2; }
+.pro-canvas-canvas-popover input { min-width: 0; padding: 5px 6px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); }
+.pro-canvas-canvas-grid-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.pro-canvas-canvas-popover button { min-width: 0; padding: 5px 6px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); }
+.pro-canvas-canvas-popover button.is-active { color: white; border-color: var(--accent); background: var(--accent); }
+.pro-canvas-canvas-grid { display: grid; grid-template-columns: 72px auto 1fr; align-items: center; gap: 5px; }
+.pro-canvas-canvas-grid input { width: 72px; box-sizing: border-box; }
+.pro-canvas-output-width { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 6px; }
+.pro-canvas-output-width input, .pro-canvas-output-width select { width: 100%; box-sizing: border-box; }
+.pro-canvas-output-width select { min-width: 0; padding: 5px 6px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); }
+.pro-canvas-canvas-popover p { margin: 1px 0 0; color: var(--text-soft); line-height: 1.4; }
 .pro-canvas-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) 280px; min-height: 0; }
 .pro-canvas-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel-muted); }
 .pro-canvas-hintbar { position: absolute; z-index: 2; left: 50%; bottom: 8px; transform: translateX(-50%); max-width: calc(100% - 24px); overflow: hidden; padding: 4px 12px; pointer-events: none; color: var(--text-soft); border: 1px solid var(--panel-border); border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 92%, transparent); font-size: 10px; line-height: 14px; white-space: nowrap; text-align: center; text-overflow: ellipsis; }
 .pro-canvas-hintbar:empty { display: none; }
-
 /* 挿入した図がどこへ入ったかを数秒だけ光らせて示す（pro-canvas の showInserted）。 */
 .monaco-editor .pro-canvas-inserted-line { background: color-mix(in srgb, var(--accent) 16%, transparent); border-left: 3px solid var(--accent); }
-/* 図データの 1 行は隠し、代わりに短いチップを 1 個だけ出す（figure-meta-chip.ts）。
-   ラベルは CSS の content なので翻訳パスが届かない。figure-meta-chip.ts が
-   --tex64-figure-meta-chip にロケール済みの文字列を publish する。 */
-.monaco-editor .tex64-figure-meta { display: none !important; }
-.monaco-editor .tex64-figure-meta-chip::before {
-  content: var(--tex64-figure-meta-chip, "▤ figure data (edit on canvas)");
-  padding: 0 6px; border: 1px solid var(--panel-border); border-radius: 4px;
-  background: var(--panel-muted); color: var(--muted); font-size: 11px; opacity: .85;
+/* 元の長いデータ行は Monaco hidden area に入れ、この view zone だけを 1 行分表示する。 */
+.monaco-editor .view-zones:has(.tex64-figure-meta-zone) { z-index: 10; pointer-events: none; }
+.monaco-editor .tex64-figure-meta-zone { position: relative; z-index: 2; display: flex; align-items: center; height: 22px; overflow: hidden; pointer-events: auto; }
+.monaco-editor .tex64-figure-meta-zone button {
+  margin-left: 4px; padding: 1px 6px; border: 1px solid var(--panel-border); border-radius: 4px;
+  background: var(--panel-muted); color: var(--muted); cursor: pointer; font: inherit; font-size: 11px; line-height: 17px; opacity: .85; pointer-events: auto;
 }
+.monaco-editor .tex64-figure-meta-zone button:hover { color: var(--text); border-color: var(--accent); opacity: 1; }
 .pro-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; }
 .pro-canvas-guides .pro-canvas-paper { fill: #ffffff; filter: drop-shadow(0 2px 3px rgba(15, 23, 42, .16)) drop-shadow(0 8px 18px rgba(15, 23, 42, .1)); }
 .pro-canvas-guides line { stroke: rgba(100, 116, 139, 0.28); stroke-width: .15; vector-effect: non-scaling-stroke; }
 .pro-canvas-guides .pro-canvas-boundary { fill: transparent; stroke: var(--text-soft); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-hover { fill: none; stroke: color-mix(in srgb, var(--accent) 55%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.pro-canvas-fill-preview { fill: color-mix(in srgb, var(--accent) 24%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-selection-outline, .pro-canvas-selection-bounds { fill: none; stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-selection-outline { opacity: .78; }
 .pro-canvas-selection-bounds { opacity: 1; }
@@ -9222,6 +9251,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-pen-handle-dot { fill: var(--panel-strong); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .pro-canvas-anchor-layer { pointer-events: all; }
 .pro-canvas-anchor-layer.is-inert { pointer-events: none; opacity: .5; } /* 描画ツール中は掴めないので、掴めるように見せない */
+.pro-canvas-anchor-hit { fill: transparent; stroke: none; pointer-events: all; cursor: move; }
 .pro-canvas-anchor { fill: rgb(255 255 255 / 25%); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; cursor: move; } /* 端点の矢頭を隠さないよう半透明。不透明白だと矢印の先端が欠けて見える */
 .pro-canvas-anchor.is-selected { stroke-width: 2; }
 /* 開いたパスの両端は太枠。ここがペンで拾えて、伸ばす／縮めるの起点になる。 */
@@ -9253,9 +9283,13 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-rotate { cursor: grab; }
 .pro-canvas-rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-marquee { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
-.pro-canvas-node { font: 4px Georgia, 'Times New Roman', serif; fill: #111827; }
+.pro-canvas-node { fill: #111827; }
+.pro-canvas-node-foreign { overflow: visible; cursor: pointer; }
+.pro-canvas-node-render { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 100%; overflow: visible; color: #111827; line-height: 1; white-space: nowrap; cursor: pointer; }
+.pro-canvas-node-render .katex { color: inherit; font-size: 1em; line-height: 1; }
+.pro-canvas-node-anchor-marker { fill: #ffffff; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pro-canvas-code-preview { font: 2.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--text-soft); }
-.pro-canvas-inline-editor { position: fixed; z-index: 5; min-width: 80px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: Georgia, 'Times New Roman', serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
+.pro-canvas-inline-editor { position: fixed; z-index: 5; box-sizing: border-box; min-width: 26px; max-width: 220px; padding: 2px 4px; transform: translate(-50%, -50%); color: #111827; background: #ffffff; border: 1px solid var(--accent); border-radius: 3px; font-family: KaTeX_Math, serif; line-height: 1.2; box-shadow: var(--shadow-sm); }
 .pro-canvas-plot-card { position: fixed; z-index: 5; box-sizing: border-box; width: 320px; max-height: calc(100vh - 16px); overflow: auto; padding: 10px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 11px; word-break: keep-all; }
 .pro-canvas-plot-card-header { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 6px; cursor: grab; }
 .pro-canvas-plot-card-header strong { font-size: 11px; letter-spacing: .04em; color: var(--text-soft); }
@@ -9285,11 +9319,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-eye svg { width: 14px; height: 14px; fill: none; stroke: currentColor; }
 .pro-canvas-plot-details { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 7px 0 2px 22px; }
 .pro-canvas-plot-details[hidden] { display: none; }
-.pro-canvas-plot-details label, .pro-canvas-plot-range label, .pro-canvas-plot-card details label { display: grid; gap: 2px; color: var(--text-soft); }
-.pro-canvas-plot-details input, .pro-canvas-plot-range input, .pro-canvas-plot-card details input { width: 100%; padding: 4px; }
+.pro-canvas-plot-details label, .pro-canvas-plot-range label, .pro-canvas-plot-dimensions label, .pro-canvas-plot-card details label { display: grid; gap: 2px; color: var(--text-soft); }
+.pro-canvas-plot-details input, .pro-canvas-plot-range input, .pro-canvas-plot-dimensions input, .pro-canvas-plot-card details input { width: 100%; padding: 4px; }
 .pro-canvas-plot-details select { width: 100%; padding: 4px; }
 .pro-canvas-plot-add { width: 100%; margin: 7px 0; padding: 6px; }
-.pro-canvas-plot-range { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.pro-canvas-plot-range, .pro-canvas-plot-dimensions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+.pro-canvas-plot-dimensions { margin-bottom: 8px; }
 .pro-canvas-plot-range-title { grid-column: 1 / -1; color: var(--text-soft); font-weight: 600; }
 .pro-canvas-plot-range label:last-child { display: flex; grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 5px; white-space: nowrap; }
 .pro-canvas-plot-card p { margin: 7px 0; color: var(--text-soft); }
@@ -9307,6 +9342,44 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .pro-canvas-geometry input, .pro-canvas-style input[type="number"], .pro-canvas-style input[type="text"], .pro-canvas-style input[type="color"], .pro-canvas-style select { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 5px; }
 .pro-canvas-style h4, .pro-canvas-plot-series { grid-column: 1 / -1; }
 .pro-canvas-style h4 { margin: 4px 0 0; color: var(--text-soft); font-size: 11px; }
+.pro-canvas-node-anchor-row { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; color: var(--text-soft); font-size: 10px; }
+.pro-canvas-node-menu-anchor { display: grid; align-content: start; gap: 6px; }
+.pro-canvas-node-anchor-grid { display: grid; grid-template-columns: repeat(3, 22px); grid-auto-rows: 22px; gap: 3px; padding: 4px; border: 1px solid var(--panel-border); border-radius: 7px; background: var(--panel); }
+.pro-canvas-node-anchor-grid button { position: relative; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border: 0; border-radius: 4px; background: transparent; }
+.pro-canvas-node-anchor-grid button::before, .pro-canvas-node-anchor-grid button span { position: absolute; content: ""; pointer-events: none; }
+.pro-canvas-node-anchor-grid button::before { inset: 5px; border: 1px solid color-mix(in srgb, var(--text-soft) 65%, transparent); border-radius: 2px; }
+.pro-canvas-node-anchor-grid button span { width: 5px; height: 5px; border-radius: 50%; background: var(--text-soft); }
+.pro-canvas-node-anchor-grid button[data-anchor*="west"] span { left: 3px; }
+.pro-canvas-node-anchor-grid button[data-anchor*="east"] span { right: 3px; }
+.pro-canvas-node-anchor-grid button:not([data-anchor*="west"]):not([data-anchor*="east"]) span { left: 50%; transform: translateX(-50%); }
+.pro-canvas-node-anchor-grid button[data-anchor*="north"] span { top: 3px; }
+.pro-canvas-node-anchor-grid button[data-anchor*="south"] span { bottom: 3px; }
+.pro-canvas-node-anchor-grid button:not([data-anchor*="north"]):not([data-anchor*="south"]) span { top: 50%; transform: translateY(-50%); }
+.pro-canvas-node-anchor-grid button:not([data-anchor*="west"]):not([data-anchor*="east"]):not([data-anchor*="north"]):not([data-anchor*="south"]) span { transform: translate(-50%, -50%); }
+.pro-canvas-node-anchor-grid button:hover { background: var(--panel-muted); }
+.pro-canvas-node-anchor-grid button.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.pro-canvas-node-anchor-grid button.is-active span { background: var(--accent); }
+.pro-canvas-node-anchor-grid button[data-anchor-group="base"] { margin-top: 3px; }
+.pro-canvas-node-anchor-grid button[data-anchor-group="base"]::after,
+.pro-canvas-node-anchor-grid button[data-anchor-group="mid"]::after,
+.pro-canvas-node-anchor-grid button[data-anchor-group="text"]::after { position: absolute; left: 5px; right: 5px; height: 1px; content: ""; background: color-mix(in srgb, var(--text-soft) 55%, transparent); pointer-events: none; }
+.pro-canvas-node-anchor-grid button[data-anchor-group="base"]::after { top: 13px; }
+.pro-canvas-node-anchor-grid button[data-anchor-group="mid"]::after { top: 10px; }
+.pro-canvas-node-anchor-grid button[data-anchor-group="text"]::after { top: 7px; }
+.pro-canvas-node-font { display: grid; gap: 8px; grid-column: 1 / -1; }
+.pro-canvas-node-font > label, .pro-canvas-node-font-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pro-canvas-node-font-row .pro-canvas-segments { flex: 0 0 auto; }
+.pro-canvas-node-font-row .pro-canvas-segments button { min-width: 0; }
+.pro-canvas-node-menu { position: fixed; z-index: 6; display: grid; grid-template-columns: auto minmax(205px, 1fr); gap: 12px; width: 338px; box-sizing: border-box; padding: 10px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 9px; background: linear-gradient(var(--panel-strong), var(--panel-strong)), #10151c; box-shadow: 0 12px 32px rgb(0 0 0 / 28%); font-size: 10px; }
+.pro-canvas-node-menu strong { display: block; margin-bottom: 6px; color: var(--text-soft); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+.pro-canvas-node-menu-font { display: grid; align-content: start; gap: 6px; }
+.pro-canvas-node-menu .pro-canvas-node-font-row { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 25px; color: var(--text-soft); }
+.pro-canvas-node-menu button, .pro-canvas-node-menu select { box-sizing: border-box; min-width: 0; padding: 4px 6px; color: var(--text); border: 1px solid var(--panel-border); border-radius: 5px; background: var(--panel); font-size: 10px; }
+.pro-canvas-dash-gap { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) 64px auto !important; align-items: center; }
+.pro-canvas-node-menu button.is-active { color: white; border-color: var(--accent); background: var(--accent); }
+.pro-canvas-node-menu .pro-canvas-node-anchor-grid button { width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border: 0; background: transparent; }
+.pro-canvas-node-menu .pro-canvas-node-anchor-grid button.is-active { background: var(--accent-soft); }
+.pro-canvas-node-menu .pro-canvas-segments { display: inline-flex; }
 .pro-canvas-plot-series { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, .7fr)); gap: 4px; padding-top: 7px; border-top: 1px solid var(--panel-border); }
 .pro-canvas-plot-series input, .pro-canvas-plot-series button { min-width: 0; }
 .pro-canvas-swatch { position: relative; }
