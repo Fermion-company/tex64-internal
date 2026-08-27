@@ -32,12 +32,14 @@ export type NodeAnchor = "center" | "north" | "south" | "east" | "west"
 
 export type NodeFontFamily = "default" | "serif" | "sans" | "mono";
 export type NodeFontSize = "tiny" | "scriptsize" | "footnotesize" | "small" | "normal" | "large" | "Large" | "huge";
+export type NodeFontShape = "auto" | "italic" | "upright";
+export type NodeFontWeight = "normal" | "bold";
 
 export type SceneObject =
   | { id: string; type: "path"; start: Vec; segments: PathSeg[]; closed: boolean; style: ObjStyle }
   | { id: string; type: "rect"; from: Vec; to: Vec; style: ObjStyle }
   | { id: string; type: "ellipse"; center: Vec; rx: number; ry: number; style: ObjStyle }
-  | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; fontFamily?: NodeFontFamily; fontSize?: NodeFontSize; style: ObjStyle }
+  | { id: string; type: "node"; at: Vec; latex: string; anchor: NodeAnchor; fontFamily?: NodeFontFamily; fontSize?: NodeFontSize; fontShape?: NodeFontShape; fontWeight?: NodeFontWeight; monospace?: boolean; style: ObjStyle }
   | { id: string; type: "plot"; at: Vec; width: number; height: number;
       axis: { xmin: number; xmax: number; ymin: number | null; ymax: number | null; axisLines: "box" | "middle" | "left"; grid: "none" | "major" | "both"; equal?: boolean; xlabel: string; ylabel: string; title: string };
       series: PlotSeries[]; style: ObjStyle }
@@ -149,7 +151,10 @@ const isSceneObject = (value: unknown): value is SceneObject => {
   if (value.type === "ellipse") return isVec(value.center) && isNumber(value.rx) && value.rx >= 0 && isNumber(value.ry) && value.ry >= 0;
   if (value.type === "node") return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors)
     && (value.fontFamily === undefined || oneOf(value.fontFamily, ["default", "serif", "sans", "mono"] as const))
-    && (value.fontSize === undefined || oneOf(value.fontSize, ["tiny", "scriptsize", "footnotesize", "small", "normal", "large", "Large", "huge"] as const));
+    && (value.fontSize === undefined || oneOf(value.fontSize, ["tiny", "scriptsize", "footnotesize", "small", "normal", "large", "Large", "huge"] as const))
+    && (value.fontShape === undefined || oneOf(value.fontShape, ["auto", "italic", "upright"] as const))
+    && (value.fontWeight === undefined || oneOf(value.fontWeight, ["normal", "bold"] as const))
+    && (value.monospace === undefined || typeof value.monospace === "boolean");
   if (value.type === "path") return isVec(value.start) && typeof value.closed === "boolean" && isPathSegments(value.segments);
   return false;
 };

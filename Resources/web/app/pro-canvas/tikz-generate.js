@@ -2,7 +2,7 @@ import { resolveStyle, sceneHasPlot } from "./scene.js";
 import { findSymbol } from "./scene.js";
 import { samplePathPoints } from "./canvas-math.js";
 import { astToPgf, parseExpr, parsePoints } from "./plot-math.js";
-import { nodeFontOption } from "./label-style.js";
+import { nodeFontContent, nodeFontOption } from "./label-style.js";
 const basicColors = {
     "000000": "black", "ffffff": "white", "ff0000": "red", "00ff00": "green",
     "0000ff": "blue", "00ffff": "cyan", "ff00ff": "magenta", "ffff00": "yellow",
@@ -103,6 +103,7 @@ export const generateTikz = (scene) => {
         return keys;
     };
     const emitObject = (object, depth) => {
+        var _a;
         const indent = "  ".repeat(depth);
         if (object.type === "code") {
             if (/(?:-\{(?:Stealth|Latex|Bar)|\{(?:Stealth|Latex|Bar)\}-)/.test(object.tikz))
@@ -197,12 +198,12 @@ export const generateTikz = (scene) => {
         }
         const options = objectOptions(object.style);
         if (object.type === "node") {
-            if (object.anchor !== "center")
-                options.unshift(`anchor=${object.anchor}`);
-            const font = nodeFontOption(object.fontFamily, object.fontSize);
+            options.unshift(`anchor=${object.anchor}`);
+            const font = nodeFontOption(object.fontFamily, object.fontSize, object.fontShape, object.fontWeight, object.monospace);
             if (font)
                 options.push(font);
-            return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${object.latex}};`];
+            const content = nodeFontContent(object.latex, object.fontShape, (_a = object.monospace) !== null && _a !== void 0 ? _a : object.fontFamily === "mono");
+            return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${content}};`];
         }
         if (object.type === "path" && !object.segments.length)
             return []; // ペン1クリック中断の残骸（0セグメント）は無意味な \draw を出さない

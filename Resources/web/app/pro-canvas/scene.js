@@ -103,7 +103,10 @@ const isSceneObject = (value) => {
     if (value.type === "node")
         return isVec(value.at) && typeof value.latex === "string" && oneOf(value.anchor, anchors)
             && (value.fontFamily === undefined || oneOf(value.fontFamily, ["default", "serif", "sans", "mono"]))
-            && (value.fontSize === undefined || oneOf(value.fontSize, ["tiny", "scriptsize", "footnotesize", "small", "normal", "large", "Large", "huge"]));
+            && (value.fontSize === undefined || oneOf(value.fontSize, ["tiny", "scriptsize", "footnotesize", "small", "normal", "large", "Large", "huge"]))
+            && (value.fontShape === undefined || oneOf(value.fontShape, ["auto", "italic", "upright"]))
+            && (value.fontWeight === undefined || oneOf(value.fontWeight, ["normal", "bold"]))
+            && (value.monospace === undefined || typeof value.monospace === "boolean");
     if (value.type === "path")
         return isVec(value.start) && typeof value.closed === "boolean" && isPathSegments(value.segments);
     return false;

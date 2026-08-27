@@ -2,6 +2,19 @@ import { IMAGE_MIME_TYPES, getFileExtension } from "./files.js";
 
 export type ViewerMode = "hidden" | "image" | "pdf" | "unsupported";
 
+export type PdfSyncPayload = {
+  page: number;
+  x: number;
+  y: number;
+  blockX?: number;
+  blockY?: number;
+  blockWidth?: number;
+  blockHeight?: number;
+  sourceFile?: string;
+  sourceLine?: number;
+  sourceColumn?: number;
+};
+
 export type LivePreviewEditRequest = {
   sessionId: string;
   regionId?: string;
@@ -42,7 +55,7 @@ export const createViewer = (deps: ViewerDeps) => {
   let pdfViewerReady = false;
   let pdfViewerPath: string | null = null;
   let pendingPdfOpen: { url: string; path: string | null } | null = null;
-  let pendingPdfSync: { page: number; x: number; y: number } | null = null;
+  let pendingPdfSync: PdfSyncPayload | null = null;
   // Real-time preview: when set, the pdf viewer swaps its page canvas for the
   // live engine frame (same chrome). Re-sent on every viewer "ready" so it
   // survives the pdf iframe being torn down and recreated.
@@ -93,12 +106,12 @@ export const createViewer = (deps: ViewerDeps) => {
         postPdfMessage({ type: "open", payload: pendingPdfOpen });
         pendingPdfOpen = null;
       }
+      if (livePreview) {
+        postPdfMessage({ type: "live", payload: livePreview });
+      }
       if (pendingPdfSync) {
         postPdfMessage({ type: "sync", payload: pendingPdfSync });
         pendingPdfSync = null;
-      }
-      if (livePreview) {
-        postPdfMessage({ type: "live", payload: livePreview });
       }
       return;
     }
@@ -275,13 +288,19 @@ export const createViewer = (deps: ViewerDeps) => {
     }
   };
 
-  const syncPdf = (payload: { page: number; x: number; y: number; blockX?: number; blockY?: number; blockWidth?: number; blockHeight?: number }) => {
+  const syncPdf = (payload: PdfSyncPayload) => {
     if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
       return;
     }
     if (!pdfViewerReady) {
       pendingPdfSync = payload;
       return;
+    }
+    if (livePreview) {
+      // The PDF frame may have been recreated while the tab was hidden.
+      // Establish Live ownership synchronously before SyncTeX so the jump is
+      // queued for the visible TDOM surface instead of the static fallback.
+      postPdfMessage({ type: "live", payload: livePreview });
     }
     postPdfMessage({ type: "sync", payload });
   };

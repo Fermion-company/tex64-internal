@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeLiveToolbarSnapshot } from "../Resources/web/pdf-live-toolbar-state.mjs";
+import {
+  normalizeLiveToolbarSnapshot,
+  stepLiveToolbarPage,
+} from "../Resources/web/pdf-live-toolbar-state.mjs";
 
 test("live PDF toolbar clamps page navigation to the reported page count", () => {
   assert.deepEqual(
@@ -22,6 +25,25 @@ test("live PDF toolbar resets to a safe empty state", () => {
   assert.deepEqual(normalizeLiveToolbarSnapshot(), {
     pageCount: 0,
     page: 1,
+    zoom: 1,
+  });
+});
+
+test("live PDF toolbar advances immediately and clamps repeated page clicks", () => {
+  const start = { pageCount: 4, page: 2, zoom: 1 };
+  assert.deepEqual(stepLiveToolbarPage(start, 1), {
+    pageCount: 4,
+    page: 3,
+    zoom: 1,
+  });
+  assert.deepEqual(stepLiveToolbarPage(start, -9), {
+    pageCount: 4,
+    page: 1,
+    zoom: 1,
+  });
+  assert.deepEqual(stepLiveToolbarPage(start, 9), {
+    pageCount: 4,
+    page: 4,
     zoom: 1,
   });
 });

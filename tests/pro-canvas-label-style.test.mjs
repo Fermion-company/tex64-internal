@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createEmptyScene, validateScene } from "../Resources/web/app/pro-canvas/scene.js";
-import { nodeEditorWidthPx, nodeFontOption } from "../Resources/web/app/pro-canvas/label-style.js";
+import { NODE_FONT_SHAPES, nodeEditCommitAction, nodeEditorWidthPx, nodeFontContent, nodeFontPreviewStyle, nodeFontOption, nodeFontShapeChoice, nodeLabelBounds, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "../Resources/web/app/pro-canvas/label-style.js";
 import { generateTikz } from "../Resources/web/app/pro-canvas/tikz-generate.js";
 
 const label = overrides => ({ id:"n", type:"node", at:{x:2,y:3}, latex:"$x$", anchor:"center", style:{}, ...overrides });
@@ -10,29 +10,112 @@ const label = overrides => ({ id:"n", type:"node", at:{x:2,y:3}, latex:"$x$", an
 test("label font settings remain backward compatible and reject unknown values", () => {
   const oldScene=createEmptyScene();oldScene.objects.push(label({}));
   assert.ok(validateScene(oldScene));
-  const styled=createEmptyScene();styled.objects.push(label({fontFamily:"sans",fontSize:"Large"}));
+  const styled=createEmptyScene();styled.objects.push(label({fontFamily:"sans",fontSize:"Large",fontShape:"upright",fontWeight:"bold",monospace:false}));
   assert.ok(validateScene(styled));
   const invalid=createEmptyScene();invalid.objects.push(label({fontFamily:"comic"}));
   assert.equal(validateScene(invalid),null);
+  const invalidShape=createEmptyScene();invalidShape.objects.push(label({fontShape:"slanted"}));
+  assert.equal(validateScene(invalidShape),null);
+});
+
+test("label shape UI offers only italic and upright while legacy auto reads as italic", () => {
+  assert.deepEqual(NODE_FONT_SHAPES.map(item => item.value), ["italic", "upright"]);
+  assert.equal(nodeFontShapeChoice(), "italic");
+  assert.equal(nodeFontShapeChoice("auto"), "italic");
+  assert.equal(nodeFontShapeChoice("upright"), "upright");
 });
 
 test("label font settings emit only non-default TikZ font options", () => {
   assert.equal(nodeFontOption(),null);
   assert.equal(nodeFontOption("sans","Large"),"font={\\sffamily\\Large}");
+  assert.equal(nodeFontOption("default","normal","upright","bold",false),"font={\\upshape\\bfseries\\boldmath}");
+  assert.equal(nodeFontOption("default","normal","upright","bold",true),"font={\\ttfamily\\upshape\\bfseries\\boldmath}");
   const plain=createEmptyScene();plain.objects.push(label({}));
   assert.doesNotMatch(generateTikz(plain).code,/font=/);
   const styled=createEmptyScene();styled.objects.push(label({fontFamily:"mono",fontSize:"small"}));
-  assert.match(generateTikz(styled).code,/\\node\[font=\{\\ttfamily\\small\}\] at \(2,3\)/);
+  assert.match(generateTikz(styled).code,/\\node\[anchor=center, font=\{\\ttfamily\\small\}\] at \(2,3\)/);
+});
+
+test("math label shape and spacing emit math alphabet commands without changing stored LaTeX", () => {
+  assert.equal(nodeFontContent("$x+y$", "italic", false), "$\\mathit{x+y}$");
+  assert.equal(nodeFontContent("$x$ and \\(y\\)", "upright", false), "$\\mathrm{x}$ and \\(\\mathrm{y}\\)");
+  assert.equal(nodeFontContent("$x$", "italic", true), "$\\mathtt{x}$");
+  assert.equal(nodeFontContent("O", "auto", false), "$O$");
+  assert.equal(nodeFontContent("O", "upright", false), "$\\mathrm{O}$");
+  assert.equal(nodeFontContent("x_1", "italic", false), "$\\mathit{x_1}$");
+  const scene=createEmptyScene();scene.objects.push(label({fontShape:"upright",fontWeight:"bold",monospace:false}));
+  assert.match(generateTikz(scene).code,/font=\{\\upshape\\bfseries\\boldmath\}/);
+  assert.match(generateTikz(scene).code,/\{\$\\mathrm\{x\}\$\}/);
+  assert.equal(scene.objects[0].latex,"$x$");
+  const raw=createEmptyScene();raw.objects.push(label({latex:"O",fontShape:"upright"}));
+  assert.match(generateTikz(raw).code,/\{\$\\mathrm\{O\}\$\}/);
+});
+
+test("the math tool gives an existing math label priority over creating another label", () => {
+  assert.equal(nodeToolEditsExisting(label({})),true);
+  assert.equal(nodeToolEditsExisting({id:"r",type:"rect",from:{x:0,y:0},to:{x:1,y:1},style:{}}),false);
+  assert.equal(nodeToolEditsExisting(null),false);
+});
+
+test("an actively edited label hides its second selection box", () => {
+  const node = label({});
+  assert.equal(nodeSelectionOutlineVisible(node, "n"), false);
+  assert.equal(nodeSelectionOutlineVisible(node, "other"), true);
+  assert.equal(nodeSelectionOutlineVisible({ id:"r", type:"rect", from:{x:0,y:0}, to:{x:1,y:1}, style:{} }, "r"), true);
 });
 
 test("inline label editor width follows content and is clamped", () => {
-  assert.equal(nodeEditorWidthPx("x"),44);
+  assert.equal(nodeEditorWidthPx("x"),26);
   assert.ok(nodeEditorWidthPx("x_1+x_2")>nodeEditorWidthPx("x"));
   assert.equal(nodeEditorWidthPx("a".repeat(100)),220);
 });
 
+test("clearing an existing label deletes it instead of leaving an empty box", () => {
+  assert.equal(nodeEditCommitAction(false,"x","",true),"delete");
+  assert.equal(nodeEditCommitAction(true,"","",true),"restore");
+  assert.equal(nodeEditCommitAction(false,"x","x",true),"noop");
+  assert.equal(nodeEditCommitAction(false,"x","y",true),"update");
+  assert.equal(nodeEditCommitAction(false,"x","",false),"noop");
+});
+
+test("math labels expose a selectable box around the whole visible label", () => {
+  assert.deepEqual(nodeLabelBounds({at:{x:10,y:20},latex:"x",anchor:"center"}),{minX:8,minY:17.4,maxX:12,maxY:22.6});
+  const wide=nodeLabelBounds({at:{x:10,y:20},latex:"x_1+x_2",anchor:"center"});
+  assert.ok(wide.maxX-wide.minX>4);
+  assert.deepEqual(nodeLabelBounds({at:{x:10,y:20},latex:"x",anchor:"north east"}),{minX:6,minY:14.8,maxX:10,maxY:20});
+});
+
+test("math labels always export their selected TikZ anchor", () => {
+  const centered=createEmptyScene();centered.objects.push(label({anchor:"center"}));
+  assert.match(generateTikz(centered).code,/\\node\[anchor=center\]/);
+  const corner=createEmptyScene();corner.objects.push(label({anchor:"north east"}));
+  assert.match(generateTikz(corner).code,/\\node\[anchor=north east\]/);
+});
+
+test("the label inspector exposes all nine anchor choices", () => {
+  const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
+  const choices=["south west","south","south east","west","center","east","north west","north","north east"];
+  for(const anchor of choices) assert.match(source,new RegExp(`value:\"${anchor}\"`));
+  assert.match(source,/dataset\.role="node-anchor"/);
+});
+
+test("every label font control maps to the matching bundled preview face", () => {
+  assert.deepEqual(nodeFontPreviewStyle("default","auto","normal",false),{
+    fontFamily:"KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"italic",fontWeight:"400",
+  });
+  assert.deepEqual(nodeFontPreviewStyle("default","italic","bold",false),{
+    fontFamily:"KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"italic",fontWeight:"700",
+  });
+  assert.deepEqual(nodeFontPreviewStyle("default","upright","normal",false),{
+    fontFamily:"KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"normal",fontWeight:"400",
+  });
+  assert.deepEqual(nodeFontPreviewStyle("default","upright","bold",true),{
+    fontFamily:"KaTeX_Typewriter, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",fontStyle:"normal",fontWeight:"700",
+  });
+});
+
 test("canvas labels and their inline editor use the bundled math font", () => {
   const css=readFileSync(new URL("../Resources/web/theme.css",import.meta.url),"utf8");
-  assert.match(css,/\.pro-canvas-node[^}]*KaTeX_Math/);
+  assert.doesNotMatch(css,/\.pro-canvas-node\s*\{[^}]*\bfont(?:-family)?\s*:/,"canvas CSS must not override the per-label SVG font");
   assert.match(css,/\.pro-canvas-inline-editor[^}]*KaTeX_Math/);
 });

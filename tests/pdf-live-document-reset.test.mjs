@@ -62,8 +62,10 @@ test("document reset keeps static PDF visible until the matching exact epoch is 
       <script>
         const activationId = new URLSearchParams(location.search).get('activationId');
         window.resetAcks = [];
+        window.hostMessages = [];
         window.addEventListener('message', (event) => {
           const data = event.data;
+          if (data?.source === 'tdom-host' && data.activationId === activationId) hostMessages.push(data);
           if (data?.source === 'tdom-host' && data.activationId === activationId && data.action === 'reset-ack') {
             resetAcks.push(data.documentEpoch);
           }
@@ -93,7 +95,7 @@ test("document reset keeps static PDF visible until the matching exact epoch is 
   await liveFrame.evaluate(() => window.sendHost({
     ready: true,
     documentEpoch: 1,
-    pageCount: 1,
+    pageCount: 4,
     page: 1,
     zoom: 1,
     status: { up: true, mode: "structured" },
@@ -102,6 +104,23 @@ test("document reset keeps static PDF visible until the matching exact epoch is 
   const activationId = new URL(liveFrame.url()).searchParams.get("activationId");
   await page.waitForFunction(() => window.__pdfOutbound.some((item) =>
     item?.type === "live-surface-ready" && item.payload?.generation === 1
+  ));
+
+  await page.locator("#pdf-next").click();
+  await page.locator("#pdf-next").click();
+  assert.equal(await page.locator("#pdf-page-input").inputValue(), "3");
+  await liveFrame.waitForFunction(() =>
+    window.hostMessages.filter((item) => item.action === "goto-page").slice(-2)
+      .map((item) => item.page).join(",") === "2,3"
+  );
+  await page.evaluate(() => window.__pdfInbound({
+    type: "sync",
+    payload: { page: 4, x: 72, y: 360, sourceFile: "main.tex", sourceLine: 55, sourceColumn: 3 },
+  }));
+  assert.equal(await page.locator("#pdf-page-input").inputValue(), "4");
+  await liveFrame.waitForFunction(() => window.hostMessages.some((item) =>
+    item.action === "goto-sync" && item.page === 4 && item.y === 360 &&
+    item.sourceFile === "main.tex" && item.sourceLine === 55
   ));
 
   await liveFrame.evaluate(() => window.sendHost({ action: "reset-pending", documentEpoch: 2 }));

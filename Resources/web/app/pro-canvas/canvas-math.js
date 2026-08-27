@@ -1,3 +1,20 @@
+/** 描画ツール中でも既存オブジェクトをクリックしたら、描画より選択を優先する。 */
+export const drawingToolSelectsExistingObject = (tool, targetId, keepDrawing = false) => Boolean(targetId && !keepDrawing && (tool === "pen" || tool === "line" || tool === "rect" || tool === "ellipse"));
+/** 選択モードで直線の両端を変形ハンドルとして扱う。 */
+export const straightLineEndpoints = (path) => {
+    const segment = path.segments.length === 1 ? path.segments[0] : null;
+    return !path.closed && (segment === null || segment === void 0 ? void 0 : segment.type) === "line" ? [path.start, segment.to] : null;
+};
+export const normalizeCanvasMeasurement = (value, fallback) => {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 10000 ? parsed : fallback;
+};
+/** グリッド線が画面上で密集しすぎるときだけ表示を間引く。吸着間隔は変えない。 */
+export const visibleGridStep = (spacing, pixelsPerUnit, minimumPixels = 3) => {
+    if (!(spacing > 0) || !(pixelsPerUnit > 0))
+        return spacing;
+    return Number((spacing * Math.max(1, Math.ceil(minimumPixels / (spacing * pixelsPerUnit)))).toPrecision(12));
+};
 const cubicPoint = (from, seg, t) => { const u = 1 - t; return { x: u * u * u * from.x + 3 * u * u * t * seg.c1.x + 3 * u * t * t * seg.c2.x + t * t * t * seg.to.x, y: u * u * u * from.y + 3 * u * u * t * seg.c1.y + 3 * u * t * t * seg.c2.y + t * t * t * seg.to.y }; };
 export const cubicExtremaPoints = (from, seg) => {
     const roots = (p0, p1, p2, p3) => { const a = -p0 + 3 * p1 - 3 * p2 + p3, b = p0 - 2 * p1 + p2, c = p1 - p0, eps = 1e-12; if (Math.abs(a) < eps)
@@ -214,6 +231,14 @@ export const boundsAfterHandleDrag = (bounds, handle, point, minSize = 0.01) => 
         maxY = Math.max(point.y, minY + minSize);
     return { minX, minY, maxX, maxY };
 };
+export const anchorControlMetrics = (emphasized = false) => ({
+    visibleRadiusPx: emphasized ? 4 : 3.5,
+    hitRadiusPx: 11,
+});
+export const anchorPointMetrics = (endpoint = false) => ({
+    visibleSizePx: endpoint ? 9 : 7,
+    hitSizePx: endpoint ? 18 : 16,
+});
 export const toggleSegmentKind = (path, anchorIndex) => {
     if (anchorIndex <= 0 || anchorIndex > path.segments.length)
         return;

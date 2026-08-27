@@ -10,7 +10,10 @@ import {
   clampZoomScale,
   wheelDeltaToZoomFactor,
 } from "./pdf-zoom-math.mjs";
-import { normalizeLiveToolbarSnapshot } from "./pdf-live-toolbar-state.mjs";
+import {
+  normalizeLiveToolbarSnapshot,
+  stepLiveToolbarPage,
+} from "./pdf-live-toolbar-state.mjs";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
 // so it reads the stored UI locale itself. English is the source language and
@@ -1547,6 +1550,7 @@ const initPdfViewer = () => {
   let liveRevealSequence = 0;
   let liveErrorSurfaceSequence = 0;
   let pendingLiveErrorSurface = null;
+  let pendingLiveSync = null;
   let liveActivation = null;
   const isLive = () => document.body.classList.contains("is-live");
   const isLivePending = () => document.body.classList.contains("is-live-pending");
@@ -1569,6 +1573,20 @@ const initPdfViewer = () => {
       }
     }
     if (zoomLabel) zoomLabel.textContent = `${Math.round(liveToolbar.zoom * 100)}%`;
+  };
+  const applyLiveSync = (payload) => {
+    if (!payload || !hasLiveSession()) return false;
+    liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, {
+      page: Number(payload.page),
+    });
+    if (!isLive()) {
+      pendingLiveSync = payload;
+      return true;
+    }
+    pendingLiveSync = null;
+    renderLiveToolbar();
+    postLive("goto-sync", payload);
+    return true;
   };
   const renderLiveStatus = (data) => {
     const search = data?.search;
@@ -1623,6 +1641,9 @@ const initPdfViewer = () => {
     liveToolbar = normalizeLiveToolbarSnapshot();
     restoreStaticToolbar();
     setStatus(uiString("ready"));
+    const deferredSync = pendingLiveSync;
+    pendingLiveSync = null;
+    if (deferredSync) requestAnimationFrame(() => applySync(deferredSync));
     const pendingStatic = deferredStaticOpen;
     if (pendingStatic) {
       deferredStaticOpen = null;
@@ -1689,6 +1710,7 @@ const initPdfViewer = () => {
         renderLiveToolbar();
         setStatus(uiString("live"));
         renderLiveStatus(latestData);
+        if (pendingLiveSync) applyLiveSync(pendingLiveSync);
         bridge?.postMessage?.({
           type: "live-surface-ready",
           payload: {
@@ -1877,8 +1899,20 @@ const initPdfViewer = () => {
   routeLiveClick("pdf-zoom-out", "zoom-out");
   routeLiveClick("pdf-fit-width", "zoom-fit");
   routeLiveClick("pdf-fit-page", "zoom-fit");
-  routeLiveClick("pdf-prev", "page-prev");
-  routeLiveClick("pdf-next", "page-next");
+  const routeLivePageStep = (id, delta) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", (event) => {
+      if (!isLive()) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      liveToolbar = stepLiveToolbarPage(liveToolbar, delta);
+      renderLiveToolbar();
+      postLive("goto-page", { page: liveToolbar.page });
+    }, true);
+  };
+  routeLivePageStep("pdf-prev", -1);
+  routeLivePageStep("pdf-next", 1);
   pageInputForLive?.addEventListener("change", (event) => {
     if (!isLive()) return;
     event.stopImmediatePropagation();
@@ -1899,7 +1933,7 @@ const initPdfViewer = () => {
         }
       }
       if (message.type === "sync" && message.payload) {
-        applySync(message.payload);
+        if (!applyLiveSync(message.payload)) applySync(message.payload);
       }
       if (message.type === "live") {
         setLiveMode(message.payload || null);

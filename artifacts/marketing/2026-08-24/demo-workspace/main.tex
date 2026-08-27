@@ -1,0 +1,44 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{booktabs}
+
+\title{Robust Optimization}
+\author{TeX64 Demo}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This reproducible example compares a nominal model with a
+regularized alternative under small data perturbations.
+\end{abstract}
+
+\section{Model}
+For observations $A \in \mathbb{R}^{m \times n}$ and targets
+$b \in \mathbb{R}^{m}$, consider
+\begin{equation}
+  \hat{x}
+  = \arg\min_x
+    \left\lVert Ax-b \right\rVert_2^2
+    + \lambda \left\lVert x \right\rVert_2^2.
+  \label{eq:model}
+\end{equation}
+
+\section{Result}
+The regularized estimate remains stable as the noise level grows.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Method & Error & Stability \\
+    \midrule
+    Nominal    & 0.184 & 0.71 \\
+    Regularized & 0.092 & 0.94 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Evaluation on the deterministic demo data.}
+\end{table}
+
+\end{document}
