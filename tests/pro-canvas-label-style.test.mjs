@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createEmptyScene, validateScene } from "../Resources/web/app/pro-canvas/scene.js";
-import { NODE_ANCHORS, NODE_FONT_SHAPES, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontContent, nodeFontPreviewStyle, nodeFontOption, nodeFontShapeChoice, nodeLabelBounds, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "../Resources/web/app/pro-canvas/label-style.js";
+import { NODE_ANCHORS, NODE_COMPASS_ANCHORS, NODE_FONT_SHAPES, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontContent, nodeFontPreviewStyle, nodeFontOption, nodeFontShapeChoice, nodeLabelBounds, nodeLabelBoundsFromSize, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "../Resources/web/app/pro-canvas/label-style.js";
 import { generateTikz } from "../Resources/web/app/pro-canvas/tikz-generate.js";
 
 const label = overrides => ({ id:"n", type:"node", at:{x:2,y:3}, latex:"$x$", anchor:"center", style:{}, ...overrides });
@@ -16,6 +16,8 @@ test("label font settings remain backward compatible and reject unknown values",
   assert.equal(validateScene(invalid),null);
   const invalidShape=createEmptyScene();invalidShape.objects.push(label({fontShape:"slanted"}));
   assert.equal(validateScene(invalidShape),null);
+  const baseline=createEmptyScene();baseline.objects.push(label({anchor:"base east"}));
+  assert.ok(validateScene(baseline));
 });
 
 test("label shape UI offers only italic and upright while legacy auto reads as italic", () => {
@@ -43,6 +45,7 @@ test("math label shape and spacing emit math alphabet commands without changing 
   assert.equal(nodeFontContent("O", "auto", false), "$O$");
   assert.equal(nodeFontContent("O", "upright", false), "$\\mathrm{O}$");
   assert.equal(nodeFontContent("x_1", "italic", false), "$\\mathit{x_1}$");
+  assert.equal(nodeFontContent("x_1", "auto", false, "sans"), "$\\mathsf{x_1}$");
   const scene=createEmptyScene();scene.objects.push(label({fontShape:"upright",fontWeight:"bold",monospace:false}));
   assert.match(generateTikz(scene).code,/font=\{\\upshape\\bfseries\\boldmath\}/);
   assert.match(generateTikz(scene).code,/\{\$\\mathrm\{x\}\$\}/);
@@ -67,6 +70,15 @@ test("the math tool gives an existing math label priority over creating another 
   assert.equal(nodeToolEditsExisting(label({})),true);
   assert.equal(nodeToolEditsExisting({id:"r",type:"rect",from:{x:0,y:0},to:{x:1,y:1},style:{}}),false);
   assert.equal(nodeToolEditsExisting(null),false);
+});
+
+test("the math-label tool drags an existing label and reserves editing for double-click", () => {
+  const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
+  assert.match(source,/if\(nodeToolEditsExisting\(hit\)\)\{[\s\S]*?drag=\{kind:"move"/);
+  assert.doesNotMatch(source,/if\(nodeToolEditsExisting\(hit\)\)\{beginNodeEdit\(hit\)/);
+  assert.match(source,/\(tool==="select"\|\|tool==="node"\)&&completed&&!completed\.moved/);
+  assert.match(source,/if\(tool!=="select"&&tool!=="node"\)return/);
+  assert.match(source,/nodeToolHasSelectedLabel=tool==="node"&&one\?\.type==="node"/);
 });
 
 test("an actively edited label hides its second selection box", () => {
@@ -95,6 +107,14 @@ test("math labels expose a selectable box around the whole visible label", () =>
   const wide=nodeLabelBounds({at:{x:10,y:20},latex:"x_1+x_2",anchor:"center"});
   assert.ok(wide.maxX-wide.minX>4);
   assert.deepEqual(nodeLabelBounds({at:{x:10,y:20},latex:"x",anchor:"north east"}),{minX:6,minY:14.8,maxX:10,maxY:20});
+  const baseline=nodeLabelBounds({at:{x:10,y:20},latex:"x",anchor:"base east"});
+  assert.equal(baseline.maxX,10);
+  assert.ok(baseline.minY<20&&baseline.maxY>20);
+});
+
+test("measured label bounds use the actual rendered dimensions", () => {
+  assert.deepEqual(nodeLabelBoundsFromSize({at:{x:10,y:20},anchor:"center"},6,4),{minX:7,minY:18,maxX:13,maxY:22});
+  assert.deepEqual(nodeLabelBoundsFromSize({at:{x:10,y:20},anchor:"north east"},6,4),{minX:4,minY:16,maxX:10,maxY:20});
 });
 
 test("math labels always export their selected TikZ anchor", () => {
@@ -102,39 +122,50 @@ test("math labels always export their selected TikZ anchor", () => {
   assert.match(generateTikz(centered).code,/\\node\[anchor=center\]/);
   const corner=createEmptyScene();corner.objects.push(label({anchor:"north east"}));
   assert.match(generateTikz(corner).code,/\\node\[anchor=north east\]/);
+  const baseline=createEmptyScene();baseline.objects.push(label({anchor:"base east"}));
+  assert.match(generateTikz(baseline).code,/\\node\[anchor=base east\]/);
 });
 
-test("the selected-label mini menu exposes all nine anchor choices", () => {
+test("the selected-label menu exposes compass and baseline TikZ anchors", () => {
   const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
-  const choices=["south west","south","south east","west","center","east","north west","north","north east"];
-  assert.deepEqual(NODE_ANCHORS.map(item=>item.value),choices);
+  const compass=["south west","south","south east","west","center","east","north west","north","north east"];
+  assert.deepEqual(NODE_COMPASS_ANCHORS.map(item=>item.value),compass);
+  assert.deepEqual(NODE_ANCHORS.map(item=>item.value),[
+    ...compass,"base west","base","base east","mid west","mid","mid east","text west","text","text east",
+  ]);
   assert.match(source,/dataset\.role="node-anchor"/);
+  assert.doesNotMatch(source,/node-anchor-select/);
+  assert.match(source,/NODE_ANCHORS\.forEach/);
   assert.match(source,/dataset\.role="node-mini-menu"/);
   assert.match(source,/nodeMiniMenuVisible\(/);
 });
 
-test("the label mini menu appears only for one selected, non-editing node", () => {
+test("the label font menu stays available while selecting or editing a math label", () => {
   const node=label({});
   assert.equal(nodeMiniMenuVisible("select",1,node,null,false),true);
-  assert.equal(nodeMiniMenuVisible("node",1,node,null,false),false);
+  assert.equal(nodeMiniMenuVisible("node",1,node,null,false),true);
   assert.equal(nodeMiniMenuVisible("select",2,node,null,false),false);
-  assert.equal(nodeMiniMenuVisible("select",1,node,"n",false),false);
+  assert.equal(nodeMiniMenuVisible("select",1,node,"n",false),true);
+  assert.equal(nodeMiniMenuVisible("node",1,node,"n",false),true);
   assert.equal(nodeMiniMenuVisible("select",1,node,null,true),false);
   assert.equal(nodeMiniMenuVisible("select",1,{id:"r",type:"rect",from:{x:0,y:0},to:{x:1,y:1},style:{}},null,false),false);
 });
 
 test("every label font control maps to the matching bundled preview face", () => {
   assert.deepEqual(nodeFontPreviewStyle("default","auto","normal",false),{
-    fontFamily:"KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"italic",fontWeight:"400",
+    fontFamily:"KaTeX_Math, serif",fontStyle:"italic",fontWeight:"400",
   });
   assert.deepEqual(nodeFontPreviewStyle("default","italic","bold",false),{
-    fontFamily:"KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"italic",fontWeight:"700",
+    fontFamily:"KaTeX_Main, serif",fontStyle:"italic",fontWeight:"700",
   });
   assert.deepEqual(nodeFontPreviewStyle("default","upright","normal",false),{
-    fontFamily:"KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"normal",fontWeight:"400",
+    fontFamily:"KaTeX_Main, serif",fontStyle:"normal",fontWeight:"400",
   });
   assert.deepEqual(nodeFontPreviewStyle("default","upright","bold",true),{
-    fontFamily:"KaTeX_Typewriter, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",fontStyle:"normal",fontWeight:"700",
+    fontFamily:"KaTeX_Typewriter, monospace",fontStyle:"normal",fontWeight:"700",
+  });
+  assert.deepEqual(nodeFontPreviewStyle("serif","auto","normal",false),{
+    fontFamily:"KaTeX_Math, serif",fontStyle:"italic",fontWeight:"400",
   });
 });
 
@@ -143,6 +174,9 @@ test("canvas labels use KaTeX markup and their inline editor keeps the bundled m
   const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
   assert.match(source,/svgEl\("foreignObject"/);
   assert.match(source,/katex\.renderToString\(nodePreviewExpression/);
+  assert.match(source,/measuredNodeBounds\.set\(object,bounds\)/);
+  assert.match(source,/foreign\.setAttribute\("visibility","hidden"\)/);
   assert.match(css,/\.pro-canvas-node-render[^}]*display:\s*flex/);
-  assert.match(css,/\.pro-canvas-inline-editor[^}]*KaTeX_Math/);
+  assert.match(css,/\.pro-canvas-inline-editor[^}]*font-family:\s*KaTeX_Math, serif/);
+  assert.doesNotMatch(source,/content\.style\.fontFamily=font\.fontFamily/);
 });

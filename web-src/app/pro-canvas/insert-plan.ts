@@ -73,7 +73,10 @@ const figureHeaderBlockEnd = (lines: string[], cursorLine: number): number => {
   const line = lines[cursorLine - 1];
   if (!line || !isFigureHeaderLine(line)) return 0;
   const begin = lines.findIndex((text, index) => index >= cursorLine && environmentName(text, "begin") === "tikzpicture");
-  return begin < 0 ? 0 : closingLine(lines, "tikzpicture", begin + 1);
+  if (begin < 0) return 0;
+  const close = closingLine(lines, "tikzpicture", begin + 1);
+  const wrapped = lines.slice(cursorLine, begin + 1).some((text) => /\\resizebox\s*\{/.test(stripComment(text)));
+  return wrapped && lines[close]?.trim() === "}" ? close + 1 : close;
 };
 
 /**
@@ -96,7 +99,7 @@ export const planBodyInsert = (text: string, cursor: InsertPoint): { point: Inse
 };
 
 /** \usepackage / \usetikzlibrary lines the document is missing for this figure. */
-export const missingPreambleLines = (text: string, requires: string[], needsPgfplots: boolean): string[] => {
+export const missingPreambleLines = (text: string, requires: string[], needsPgfplots: boolean, needsGraphicx = false): string[] => {
   const lines = text.split("\n");
   const beginLine = findLine(lines, /\\begin\s*\{document\}/);
   const preamble = (beginLine ? lines.slice(0, beginLine - 1) : lines).map(stripComment).join("\n");
@@ -111,16 +114,17 @@ export const missingPreambleLines = (text: string, requires: string[], needsPgfp
     if (!has(/\\usepackage(\[[^\]]*\])?\s*\{[^}]*\bpgfplots\b[^}]*\}/)) out.push("\\usepackage{pgfplots}");
     if (!has(/\\pgfplotsset\s*\{[^}]*compat/)) out.push("\\pgfplotsset{compat=1.18}");
   }
+  if (needsGraphicx && !has(/\\usepackage(\[[^\]]*\])?\s*\{[^}]*\bgraphicx\b[^}]*\}/)) out.push("\\usepackage{graphicx}");
   return out;
 };
 
 export const planFigureInsert = (
-  text: string, cursor: InsertPoint, requires: string[], needsPgfplots: boolean
+  text: string, cursor: InsertPoint, requires: string[], needsPgfplots: boolean, needsGraphicx = false
 ): InsertPlan => {
   const { point, moved } = planBodyInsert(text, cursor);
   const lines = text.split("\n");
   const beginLine = findLine(lines, /\\begin\s*\{document\}/);
-  const missing = beginLine ? missingPreambleLines(text, requires, needsPgfplots) : [];
+  const missing = beginLine ? missingPreambleLines(text, requires, needsPgfplots, needsGraphicx) : [];
   return {
     body: point,
     preamble: missing.length ? { lineNumber: beginLine, text: `${missing.join("\n")}\n` } : null,

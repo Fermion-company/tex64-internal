@@ -1,5 +1,12 @@
 import { uiText } from "./i18n.js";
 import { countMarkedLines, renderBuildLog, segmentBuildLog } from "./build-log-view.js";
+export const resolveBuildProgressPhase = (message, cancelRequested = false) => {
+    if (cancelRequested || /cancel/i.test(message !== null && message !== void 0 ? message : ""))
+        return "cancelling";
+    if (/install/i.test(message !== null && message !== void 0 ? message : ""))
+        return "installing";
+    return "building";
+};
 export const resolveSynctexForwardTarget = (overridePath, activePath, lastBuildMainFile, rootPath) => {
     var _a;
     const candidates = [overridePath, activePath, lastBuildMainFile, rootPath];
@@ -17,6 +24,10 @@ export const initBuildOpsUi = (context, deps) => {
     let formatInFlightSnapshot = null;
     let currentBuildLog = null;
     let currentBuildState = "idle";
+    let buildProgressPhase = "building";
+    let buildStartedAt = 0;
+    let buildCancelRequested = false;
+    let buildProgressTimer = null;
     let synctexForwardRequestOrder = 0;
     let synctexForwardLastAppliedOrder = 0;
     let synctexManualPriorityUntil = 0;
@@ -29,6 +40,38 @@ export const initBuildOpsUi = (context, deps) => {
         return () => `synctex-forward-${Date.now().toString(36)}-${counter++}`;
     })();
     const getBuildButtonIdleTitle = () => uiText("Build (Cmd+Enter). Cmd+B inserts \\textbf{}.", "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。");
+    const buildProgressText = () => {
+        if (buildProgressPhase === "cancelling") {
+            return uiText("Canceling…", "キャンセル中…");
+        }
+        const phase = buildProgressPhase === "installing"
+            ? uiText("Installing TeX packages…", "TeXパッケージ導入中…")
+            : uiText("Building…", "ビルド中…");
+        const elapsedSeconds = buildStartedAt > 0
+            ? Math.max(0, Math.floor((Date.now() - buildStartedAt) / 1000))
+            : 0;
+        return elapsedSeconds > 0 ? `${phase} ${elapsedSeconds}s` : phase;
+    };
+    const renderBuildButtonProgress = () => {
+        if (!(buildButton instanceof HTMLButtonElement) || currentBuildState !== "building")
+            return;
+        const progress = buildProgressText();
+        buildButton.dataset.progressPhase = buildProgressPhase;
+        buildButton.title = `${progress} ${uiText("Click to cancel.", "クリックでキャンセルします。")}`;
+        const label = buildButton.querySelector(".build-button-label");
+        if (label)
+            label.textContent = progress;
+    };
+    const stopBuildProgressTimer = () => {
+        if (buildProgressTimer !== null)
+            window.clearInterval(buildProgressTimer);
+        buildProgressTimer = null;
+    };
+    const startBuildProgressTimer = () => {
+        if (buildProgressTimer !== null)
+            return;
+        buildProgressTimer = window.setInterval(renderBuildButtonProgress, 250);
+    };
     const isEnvMissingMessage = (message) => {
         const lower = message.toLowerCase();
         const hasMissing = message.includes("not found") || lower.includes("not found");
@@ -238,17 +281,39 @@ export const initBuildOpsUi = (context, deps) => {
     };
     const setBuildState = (state, message) => {
         var _a, _b;
+        const wasBusy = currentBuildState === "building";
         currentBuildState = state;
         const isBusy = state === "building";
+        if (isBusy) {
+            if (!wasBusy) {
+                buildStartedAt = Date.now();
+                buildCancelRequested = false;
+            }
+            buildProgressPhase = resolveBuildProgressPhase(message, buildCancelRequested);
+            startBuildProgressTimer();
+        }
+        else {
+            stopBuildProgressTimer();
+            buildStartedAt = 0;
+            buildCancelRequested = false;
+            buildProgressPhase = "building";
+        }
         if (buildButton instanceof HTMLButtonElement) {
             buildButton.disabled = false;
             buildButton.classList.toggle("is-busy", isBusy);
             buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-            buildButton.setAttribute("aria-label", isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）"));
-            buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
+            buildButton.setAttribute("aria-label", isBusy
+                ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
+                : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）"));
             const label = buildButton.querySelector(".build-button-label");
-            if (label)
-                label.textContent = isBusy ? uiText("Cancel", "キャンセル") : uiText("Build", "ビルド");
+            if (label && !isBusy)
+                label.textContent = uiText("Build", "ビルド");
+            if (isBusy)
+                renderBuildButtonProgress();
+            else {
+                delete buildButton.dataset.progressPhase;
+                buildButton.title = getBuildButtonIdleTitle();
+            }
         }
         if (state === "success") {
             try {
@@ -288,6 +353,9 @@ export const initBuildOpsUi = (context, deps) => {
         if (currentBuildState === "building") {
             const ok = deps.postToNative({ type: "build:cancel" });
             if (ok) {
+                buildCancelRequested = true;
+                buildProgressPhase = "cancelling";
+                renderBuildButtonProgress();
                 deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
             }
             return;
@@ -342,6 +410,11 @@ export const initBuildOpsUi = (context, deps) => {
             setBuildState("building");
             handleBuildLog(null);
             deps.updateIssues(0, uiText("Starting build.", "Start the build."), "info", []);
+        }
+        else {
+            const message = uiText("The build request could not be started.", "ビルドを開始できませんでした。");
+            setBuildState("failed", message);
+            deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
         }
     };
     const requestFormatCurrentFile = (source) => {

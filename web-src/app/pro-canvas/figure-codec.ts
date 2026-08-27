@@ -103,7 +103,7 @@ export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scen
     if (endLine > startLine && isFigureHeaderLine(lines[endLine])) return null;
     endLine++;
   }
-  if (endLine >= lines.length || cursorLine > endLine) return null;
+  if (endLine >= lines.length) return null;
   const v2 = /^%% tex64-figure v2 h=([0-9a-f]{8}) ([A-Za-z0-9+/=]+)$/.exec(lines[startLine]);
   const v1 = /^%% tex64-figure v1 h=([0-9a-fA-F]{8})$/.exec(lines[startLine]);
   if (!v1 && !v2) return null;
@@ -123,6 +123,8 @@ export const decodeFigureBlockAt = (lines: string[], cursorLine: number): { scen
     try { scene = validateScene(JSON.parse(base64DecodeUtf8(chunks.join("")))); } catch { return null; }
   }
   if (!scene) return null;
+  if (scene.outputWidth?.mode === "relative" && lines[endLine + 1]?.trim() === "}") endLine += 1;
+  if (cursorLine > endLine) return null;
   const body = `${lines.slice(bodyStart, endLine + 1).join("\n")}\n`;
   return { scene, startLine, endLine, detached: fnv1a32(body) !== (v2?.[1] || v1![1].toLowerCase()) };
 };

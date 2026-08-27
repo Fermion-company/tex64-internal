@@ -23,7 +23,7 @@ export const NODE_FONT_WEIGHTS = [
     { value: "normal", en: "Regular", ja: "標準" },
     { value: "bold", en: "Bold", ja: "太字" },
 ];
-export const NODE_ANCHORS = [
+export const NODE_COMPASS_ANCHORS = [
     { value: "south west", en: "Bottom left", ja: "左下" },
     { value: "south", en: "Bottom", ja: "下" },
     { value: "south east", en: "Bottom right", ja: "右下" },
@@ -33,6 +33,19 @@ export const NODE_ANCHORS = [
     { value: "north west", en: "Top left", ja: "左上" },
     { value: "north", en: "Top", ja: "上" },
     { value: "north east", en: "Top right", ja: "右上" },
+];
+/** TikZ が通常の node で公開している位置・ベースライン系アンカー一式。 */
+export const NODE_ANCHORS = [
+    ...NODE_COMPASS_ANCHORS,
+    { value: "base west", en: "Baseline left", ja: "ベースライン左" },
+    { value: "base", en: "Baseline center", ja: "ベースライン中央" },
+    { value: "base east", en: "Baseline right", ja: "ベースライン右" },
+    { value: "mid west", en: "Math axis left", ja: "数式軸左" },
+    { value: "mid", en: "Math axis center", ja: "数式軸中央" },
+    { value: "mid east", en: "Math axis right", ja: "数式軸右" },
+    { value: "text west", en: "Text origin left", ja: "文字原点左" },
+    { value: "text", en: "Text origin center", ja: "文字原点中央" },
+    { value: "text east", en: "Text origin right", ja: "文字原点右" },
 ];
 /** 数式ツールの新規配置だけは、図形全体の吸着設定と独立して非吸着から始める。 */
 export const NODE_PLACEMENT_SNAP_DEFAULT = false;
@@ -50,8 +63,19 @@ export const nodeFontOption = (family = "default", size = "normal", shape = "aut
     const commands = `${FAMILY_COMMAND[effectiveFamily]}${shapeCommand}${weightCommand}${SIZE_COMMAND[size]}`;
     return commands ? `font={${commands}}` : null;
 };
-export const nodeFontContent = (latex, shape = "auto", monospace = false) => {
-    const command = monospace ? "\\mathtt" : shape === "italic" ? "\\mathit" : shape === "upright" ? "\\mathrm" : "";
+export const nodeFontContent = (latex, shape = "auto", monospace = false, family = "default") => {
+    // Use the same standard LaTeX math alphabets that the canvas preview uses.
+    // Font-family declarations such as \sffamily do not, by themselves, change
+    // letters already inside math mode; the alphabet command must wrap the math.
+    const command = monospace
+        ? "\\mathtt"
+        : family === "sans"
+            ? "\\mathsf"
+            : shape === "italic"
+                ? "\\mathit"
+                : shape === "upright"
+                    ? "\\mathrm"
+                    : "";
     let delimited = false;
     const converted = latex
         .replace(/(^|[^\\])\$([^$]*)\$/g, (_match, prefix, body) => { delimited = true; return `${prefix}$${command ? `${command}{${body}}` : body}$`; })
@@ -87,19 +111,18 @@ export const nodePreviewExpression = (latex, family = "default", shape = "auto",
         expression = `\\boldsymbol{${expression}}`;
     return expression;
 };
-export const nodeMiniMenuVisible = (tool, selectionCount, object, editingNodeId, dragging) => tool === "select" && selectionCount === 1 && (object === null || object === void 0 ? void 0 : object.type) === "node" && editingNodeId === null && !dragging;
+export const nodeMiniMenuVisible = (tool, selectionCount, object, _editingNodeId, dragging) => (tool === "select" || tool === "node") && selectionCount === 1 && (object === null || object === void 0 ? void 0 : object.type) === "node" && !dragging;
 export const nodeFontPreviewStyle = (family = "default", shape = "auto", weight = "normal", monospace) => {
     const mono = monospace === true || monospace === undefined && family === "mono";
+    const mathItalic = !mono && shape === "auto" && (family === "default" || family === "serif");
     const fontFamily = mono
-        ? "KaTeX_Typewriter, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        : family === "serif"
-            ? "Georgia, 'Times New Roman', serif"
-            : family === "sans"
-                ? "KaTeX_SansSerif, Arial, Helvetica, sans-serif"
-                : shape === "auto"
-                    ? "KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif"
-                    : "KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif";
-    const fontStyle = mono ? "normal" : shape === "italic" || shape === "auto" && family === "default" ? "italic" : "normal";
+        ? "KaTeX_Typewriter, monospace"
+        : family === "sans"
+            ? "KaTeX_SansSerif, sans-serif"
+            : mathItalic
+                ? "KaTeX_Math, serif"
+                : "KaTeX_Main, serif";
+    const fontStyle = mono ? "normal" : shape === "italic" || mathItalic ? "italic" : "normal";
     return { fontFamily, fontStyle, fontWeight: weight === "bold" ? "700" : "400" };
 };
 export const nodeFontCssFamily = (family = "default", monospace, shape = "auto") => nodeFontPreviewStyle(family, shape, "normal", monospace).fontFamily;
@@ -118,15 +141,21 @@ export const nodeFontScale = (size = "normal") => ({
 })[size];
 const nodeVisualLength = (latex) => Array.from(latex).reduce((sum, char) => sum + (char.charCodeAt(0) > 255 ? 1.7 : 1), 0);
 /** SVG ラベル、選択枠、透明ヒット領域で共有する見た目上のボックス。 */
-export const nodeLabelBounds = (node) => {
-    const scale = nodeFontScale(node.fontSize), width = Math.max(4, nodeVisualLength(node.latex) * 2.5) * scale, height = 5.2 * scale;
+export const nodeLabelBoundsFromSize = (node, width, height) => {
     const east = node.anchor.includes("east"), west = node.anchor.includes("west");
     const north = node.anchor.includes("north"), south = node.anchor.includes("south");
     const minX = east ? node.at.x - width : west ? node.at.x : node.at.x - width / 2;
     const maxX = east ? node.at.x : west ? node.at.x + width : node.at.x + width / 2;
-    const minY = north ? node.at.y - height : south ? node.at.y : node.at.y - height / 2;
-    const maxY = north ? node.at.y : south ? node.at.y + height : node.at.y + height / 2;
+    const baseline = node.anchor.startsWith("base") || node.anchor.startsWith("text");
+    const midline = node.anchor.startsWith("mid");
+    const minY = north ? node.at.y - height : south ? node.at.y : baseline ? node.at.y - height * .22 : midline ? node.at.y - height * .45 : node.at.y - height / 2;
+    const maxY = north ? node.at.y : south ? node.at.y + height : baseline ? node.at.y + height * .78 : midline ? node.at.y + height * .55 : node.at.y + height / 2;
     return { minX, minY, maxX, maxY };
+};
+/** DOM 実測前の初回描画用フォールバック。接続後は KaTeX の実寸へ置き換える。 */
+export const nodeLabelBounds = (node) => {
+    const scale = nodeFontScale(node.fontSize), width = Math.max(4, nodeVisualLength(node.latex) * 2.5) * scale, height = 5.2 * scale;
+    return nodeLabelBoundsFromSize(node, width, height);
 };
 export const nodeEditorWidthPx = (latex) => {
     const visualLength = nodeVisualLength(latex);

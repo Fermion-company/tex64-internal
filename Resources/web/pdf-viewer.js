@@ -14,6 +14,7 @@ import {
   normalizeLiveToolbarSnapshot,
   stepLiveToolbarPage,
 } from "./pdf-live-toolbar-state.mjs";
+import { resolvePdfLiveStatus } from "./app/pdf-live-status.js";
 
 // This page runs in its own iframe and never goes through the app's initI18n(),
 // so it reads the stored UI locale itself. English is the source language and
@@ -67,6 +68,7 @@ const UI_STRINGS = {
   },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
+  liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
   liveError: { en: "TeX error · last good preview", ja: "TeXエラー・直前の表示を保持", zh: "TeX 错误 · 保留上次预览", ko: "TeX 오류 · 이전 미리보기 유지", fr: "Erreur TeX · dernier aperçu conservé", de: "TeX-Fehler · letzte Vorschau bleibt", es: "Error de TeX · se conserva la vista anterior" },
   liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
@@ -312,8 +314,11 @@ const initPdfViewer = () => {
     state,
   };
 
-  const setStatus = (text) => {
-    if (statusEl) statusEl.textContent = text;
+  const setStatus = (text, tone = "idle") => {
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-busy", tone === "busy");
+    statusEl.classList.toggle("is-error", tone === "error");
   };
 
   const appearanceKey = "tex64.appearance.theme";
@@ -1595,20 +1600,10 @@ const initPdfViewer = () => {
       if (statusEl) statusEl.title = search.query;
       return;
     }
-    const status = data?.status;
-    if (!status) return;
-    let label = uiString("live");
-    let detail = "";
-    if (status.up === false) label = uiString("liveUnavailable");
-    else if (status.busy || (status.mode === "opaque" && status.canonical?.inFlight)) {
-      label = uiString("liveUpdating");
-    }
-    else if (status.canonical?.error && status.canonical.errorRev >= status.srcRev) {
-      label = uiString("liveError");
-      detail = status.canonical.error;
-    } else if (status.mode === "opaque") label = uiString("liveFullCompile");
-    setStatus(label);
-    if (statusEl) statusEl.title = detail;
+    const view = resolvePdfLiveStatus(data?.status);
+    if (!view) return;
+    setStatus(uiString(view.key), view.tone);
+    if (statusEl) statusEl.title = view.detail;
   };
   const restoreStaticToolbar = () => {
     state.pageCount = state.doc?.numPages ?? 0;
@@ -1741,7 +1736,7 @@ const initPdfViewer = () => {
     liveFrame.setAttribute("aria-hidden", "true");
     liveFrame.dataset.livePhase = "reset-pending";
     restoreStaticToolbar();
-    setStatus(uiString("liveUpdating"));
+    setStatus(uiString("liveUpdating"), "busy");
     // Resolve the new stacking order before allowing the child to discard
     // its old document DOM. The iframe stays paintable below the static PDF.
     getComputedStyle(liveFrame).zIndex;
@@ -1783,7 +1778,7 @@ const initPdfViewer = () => {
     liveFrame.dataset.livePhase = "activation-pending";
     hideContextMenu();
     restoreStaticToolbar();
-    setStatus(uiString("liveUpdating"));
+    setStatus(uiString("liveUpdating"), "busy");
 
     const params = new URLSearchParams({
       embed: "1",
@@ -1800,12 +1795,12 @@ const initPdfViewer = () => {
     if (!error) {
       if (statusEl) statusEl.title = "";
       if (isLive()) setStatus(uiString("live"));
-      else if (isLivePending()) setStatus(uiString("liveUpdating"));
+      else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
       else setStatus(uiString("ready"));
       return;
     }
 
-    setStatus(error);
+    setStatus(error, "error");
     if (statusEl) statusEl.title = error;
     const pending = {
       token: liveErrorSurfaceSequence,
