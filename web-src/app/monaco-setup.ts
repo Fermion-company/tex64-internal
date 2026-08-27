@@ -17,6 +17,7 @@ import { SpellChecker } from "./spell/spell-check.js";
 import type { SpellBridge } from "./types.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
+import { attachSelectionDragAutoScroll } from "./editor-selection-autoscroll.js";
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -295,6 +296,7 @@ export const initMonacoSetup = (
         group.editor = editor;
 
         attachEditorErgonomics(monacoWindow.monaco, editor, group);
+        attachSelectionDragAutoScroll(monacoWindow.monaco, editor, host);
         codeCommentManager.attachToEditor(group);
 
         host.addEventListener(

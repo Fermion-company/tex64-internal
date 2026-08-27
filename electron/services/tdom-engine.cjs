@@ -110,14 +110,25 @@ class TdomEngineService {
   constructor(options = {}) {
     const envDir = typeof process.env.TEX64_TDOM_ENGINE_DIR === "string"
       ? process.env.TEX64_TDOM_ENGINE_DIR.trim() : "";
+    const pathExists = options.existsSync || fs.existsSync;
     this.fileAccess = options.fileAccess || NO_FILE_ACCESS;
     this.envEngineDir = envDir;
     this.explicitEngineDir = options.engineDir;
     this.vendoredDir = options.vendoredDir
       || (options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
-    this.hostWebRoot = options.resourcesPath
+    const directHostWebRoot = options.resourcesPath
       ? path.join(options.resourcesPath, "web")
       : null;
+    const unpackedHostWebRoot = options.resourcesPath
+      ? path.join(options.resourcesPath, "app.asar.unpacked", "Resources", "web")
+      : null;
+    // The engine is an external process, so it cannot serve renderer files
+    // from Electron's virtual app.asar path. Packaged builds unpack the small
+    // MathLive/WYSIWYG subset; development continues to use Resources/web.
+    this.hostWebRoot = options.hostWebRoot ||
+      (unpackedHostWebRoot && pathExists(unpackedHostWebRoot)
+        ? unpackedHostWebRoot
+        : directHostWebRoot);
     this.workDir = options.workDir
       || (options.userDataPath ? path.join(options.userDataPath, "tdom-work") : null);
     this.homeDir = options.homeDir || os.homedir();
@@ -125,7 +136,7 @@ class TdomEngineService {
     this.startTimeoutMs = options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? 150;
     this.spawnImpl = options.spawnImpl || spawn;
-    this.existsSync = options.existsSync || fs.existsSync;
+    this.existsSync = pathExists;
     const resolved = this.resolveDirectory();
     this.engineDir = resolved.dir;
     this.needsAccess = resolved.needsAccess;

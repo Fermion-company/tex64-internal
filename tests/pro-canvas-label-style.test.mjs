@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createEmptyScene, validateScene } from "../Resources/web/app/pro-canvas/scene.js";
-import { NODE_FONT_SHAPES, nodeEditCommitAction, nodeEditorWidthPx, nodeFontContent, nodeFontPreviewStyle, nodeFontOption, nodeFontShapeChoice, nodeLabelBounds, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "../Resources/web/app/pro-canvas/label-style.js";
+import { NODE_ANCHORS, NODE_FONT_SHAPES, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontContent, nodeFontPreviewStyle, nodeFontOption, nodeFontShapeChoice, nodeLabelBounds, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "../Resources/web/app/pro-canvas/label-style.js";
 import { generateTikz } from "../Resources/web/app/pro-canvas/tikz-generate.js";
 
 const label = overrides => ({ id:"n", type:"node", at:{x:2,y:3}, latex:"$x$", anchor:"center", style:{}, ...overrides });
@@ -51,6 +51,18 @@ test("math label shape and spacing emit math alphabet commands without changing 
   assert.match(generateTikz(raw).code,/\{\$\\mathrm\{O\}\$\}/);
 });
 
+test("canvas preview expressions change actual KaTeX math alphabets", () => {
+  assert.equal(nodePreviewExpression("$x_1+y$","default","italic","normal",false),"\\mathit{x_1+y}");
+  assert.equal(nodePreviewExpression("x_1+y","default","upright","bold",false),"\\boldsymbol{\\mathrm{x_1+y}}");
+  assert.equal(nodePreviewExpression("\\(x_1+y\\)","default","upright","normal",true),"\\mathtt{x_1+y}");
+  assert.equal(nodePreviewExpression("x","sans","auto","normal"),"\\mathsf{x}");
+});
+
+test("new math-label placement starts unsnapped without changing the scene-wide default", () => {
+  assert.equal(NODE_PLACEMENT_SNAP_DEFAULT,false);
+  assert.equal(createEmptyScene().grid.snap,true);
+});
+
 test("the math tool gives an existing math label priority over creating another label", () => {
   assert.equal(nodeToolEditsExisting(label({})),true);
   assert.equal(nodeToolEditsExisting({id:"r",type:"rect",from:{x:0,y:0},to:{x:1,y:1},style:{}}),false);
@@ -92,11 +104,23 @@ test("math labels always export their selected TikZ anchor", () => {
   assert.match(generateTikz(corner).code,/\\node\[anchor=north east\]/);
 });
 
-test("the label inspector exposes all nine anchor choices", () => {
+test("the selected-label mini menu exposes all nine anchor choices", () => {
   const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
   const choices=["south west","south","south east","west","center","east","north west","north","north east"];
-  for(const anchor of choices) assert.match(source,new RegExp(`value:\"${anchor}\"`));
+  assert.deepEqual(NODE_ANCHORS.map(item=>item.value),choices);
   assert.match(source,/dataset\.role="node-anchor"/);
+  assert.match(source,/dataset\.role="node-mini-menu"/);
+  assert.match(source,/nodeMiniMenuVisible\(/);
+});
+
+test("the label mini menu appears only for one selected, non-editing node", () => {
+  const node=label({});
+  assert.equal(nodeMiniMenuVisible("select",1,node,null,false),true);
+  assert.equal(nodeMiniMenuVisible("node",1,node,null,false),false);
+  assert.equal(nodeMiniMenuVisible("select",2,node,null,false),false);
+  assert.equal(nodeMiniMenuVisible("select",1,node,"n",false),false);
+  assert.equal(nodeMiniMenuVisible("select",1,node,null,true),false);
+  assert.equal(nodeMiniMenuVisible("select",1,{id:"r",type:"rect",from:{x:0,y:0},to:{x:1,y:1},style:{}},null,false),false);
 });
 
 test("every label font control maps to the matching bundled preview face", () => {
@@ -114,8 +138,11 @@ test("every label font control maps to the matching bundled preview face", () =>
   });
 });
 
-test("canvas labels and their inline editor use the bundled math font", () => {
+test("canvas labels use KaTeX markup and their inline editor keeps the bundled math font", () => {
   const css=readFileSync(new URL("../Resources/web/theme.css",import.meta.url),"utf8");
-  assert.doesNotMatch(css,/\.pro-canvas-node\s*\{[^}]*\bfont(?:-family)?\s*:/,"canvas CSS must not override the per-label SVG font");
+  const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
+  assert.match(source,/svgEl\("foreignObject"/);
+  assert.match(source,/katex\.renderToString\(nodePreviewExpression/);
+  assert.match(css,/\.pro-canvas-node-render[^}]*display:\s*flex/);
   assert.match(css,/\.pro-canvas-inline-editor[^}]*KaTeX_Math/);
 });

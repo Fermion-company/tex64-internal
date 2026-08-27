@@ -10,9 +10,10 @@ import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, normalizePlo
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
 import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } from "./arrow-math.js";
-import { NODE_FONT_SHAPES, NODE_FONT_SIZES, NODE_FONT_WEIGHTS, nodeEditCommitAction, nodeEditorWidthPx, nodeFontPreviewStyle, nodeFontScale, nodeFontShapeChoice, nodeLabelBounds, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "./label-style.js";
+import { NODE_ANCHORS, NODE_FONT_SHAPES, NODE_FONT_SIZES, NODE_FONT_WEIGHTS, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontPreviewStyle, nodeFontScale, nodeFontShapeChoice, nodeLabelBounds, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "./label-style.js";
 import { enclosedRegionAt, enclosedRegions } from "./path-regions.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
+const XHTML_NS = "http://www.w3.org/1999/xhtml";
 // TikZ の線幅は pt。SVG はシーン座標（unit）なので換算しないと近似が実描画とズレる。
 const PT_IN_UNIT = { mm: 0.35146, cm: 0.035146, pt: 1 };
 // グリッド吸着は磁石式。格子から ±25%（5mm グリッドなら 1.25mm）の中でだけ引き寄せ、
@@ -251,8 +252,8 @@ export const initProCanvasUi = (deps) => {
         const anchorPosition = ((_a = anchorEditor === null || anchorEditor === void 0 ? void 0 : anchorEditor.getPosition) === null || _a === void 0 ? void 0 : _a.call(anchorEditor)) || null;
         let scene = cloneScene(detail.scene || createEmptyScene());
         const selection = { ids: new Set(), primaryId: null };
-        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null, paintRegions = null, paintPreview = null;
-        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
+        let editingSymbolId = null, editingNodeId = null, anchorEdit = null, plotEdit = null, selectedAnchorIndex = 0, tool = "select", nodePlacementSnap = NODE_PLACEMENT_SNAP_DEFAULT, zoom = 1, panX = 0, panY = 0, space = false, hoveredId = null, paintRegions = null, paintPreview = null;
+        let nodeEditor = null, nodeEditorOriginal = "", nodeEditorNew = false, nodeEditorBefore = null, nodeMenu = null, plotCard = null, plotCardPos = null, plotCardSignature = "", plotCompileTimer = null, wheelUndoTimer = null, wheelBefore = null;
         let undo = [], redo = [];
         const plotPreviewCache = new Map(), plotTextModes = new Set(), plotDetailsOpen = new Set();
         const overlay = document.createElement("div");
@@ -287,7 +288,8 @@ export const initProCanvasUi = (deps) => {
         const rawPoint = (event) => screenToScene({ x: event.clientX, y: event.clientY }, view());
         /** シーン単位あたりの画面 px。当たり判定の「画面上 N px」をシーン単位に直すのに使う。 */
         const scaleFactor = () => Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom || 1;
-        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
+        const activeSnap = () => tool === "node" ? nodePlacementSnap : scene.grid.snap;
+        const snappedPoint = (event) => snapToGrid(rawPoint(event), scene.grid.size, activeSnap() && !event.altKey, GRID_PULL);
         const snappedDelta = (start, point, event) => snapToGrid({ x: point.x - start.x, y: point.y - start.y }, scene.grid.size, scene.grid.snap && !event.altKey, GRID_PULL);
         const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle("is-error", error); };
         const currentObjects = () => { var _a; return editingSymbolId ? ((_a = findSymbol(scene, editingSymbolId)) === null || _a === void 0 ? void 0 : _a.objects) || [] : scene.objects; };
@@ -732,8 +734,69 @@ export const initProCanvasUi = (deps) => {
             gridInput.value = String(scene.grid.size);
             return;
         } snapshot(false); scene.grid.size = next; refresh(); render(); scheduleCompile(); }; gridRow.append(gridInput, gridUnit, gridPresets); const note = document.createElement("p"); note.textContent = uiText("Changing the canvas does not scale existing objects.", "キャンバスを変更しても既存の図形は拡縮しません。"); pop.append(sizeTitle, dimensions, gridTitle, gridRow, note); overlay.append(pop); canvasPop = pop; button.setAttribute("aria-expanded", "true"); refresh = () => { inputs.width.value = String(Number(scene.width.toFixed(4))); inputs.height.value = String(Number(scene.height.toFixed(4))); gridInput.value = String(Number(scene.grid.size.toFixed(4))); gridPresets.querySelectorAll("[data-grid-preset]").forEach(item => item.classList.toggle("is-active", Number(item.dataset.gridPreset) === scene.grid.size)); }; refresh(); const rect = button.getBoundingClientRect(); pop.style.top = `${rect.bottom + 8}px`; pop.style.left = `${Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.right - pop.offsetWidth))}px`; };
-        const renderInspector = () => {
+        const removeNodeMenu = () => { nodeMenu === null || nodeMenu === void 0 ? void 0 : nodeMenu.remove(); nodeMenu = null; };
+        const syncNodeMenu = () => {
             var _a, _b;
+            removeNodeMenu();
+            const object = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
+            if (!nodeMiniMenuVisible(tool, selection.ids.size, object, editingNodeId, Boolean(drag)))
+                return;
+            const menu = document.createElement("div");
+            menu.className = "pro-canvas-node-menu";
+            menu.dataset.role = "node-mini-menu";
+            menu.dataset.objectId = object.id;
+            menu.setAttribute("role", "dialog");
+            menu.setAttribute("aria-label", uiText("Math label settings", "数式ラベル設定"));
+            menu.addEventListener("pointerdown", e => e.stopPropagation());
+            menu.addEventListener("click", e => e.stopPropagation());
+            const apply = (change) => { snapshot(false); change(); render(); scheduleCompile(); };
+            const anchorSection = document.createElement("div");
+            anchorSection.className = "pro-canvas-node-menu-anchor";
+            const anchorTitle = document.createElement("strong");
+            anchorTitle.textContent = uiText("Anchor", "基準点");
+            const anchorGrid = document.createElement("div");
+            anchorGrid.className = "pro-canvas-node-anchor-grid";
+            anchorGrid.dataset.role = "node-anchor";
+            anchorGrid.setAttribute("role", "radiogroup");
+            anchorGrid.setAttribute("aria-label", uiText("Label anchor", "ラベルのアンカー"));
+            NODE_ANCHORS.forEach(item => { const button = document.createElement("button"); button.type = "button"; button.dataset.anchor = item.value; button.title = uiText(item.en, item.ja); button.setAttribute("aria-label", button.title); button.setAttribute("role", "radio"); button.setAttribute("aria-checked", String(object.anchor === item.value)); button.classList.toggle("is-active", object.anchor === item.value); button.innerHTML = '<span aria-hidden="true"></span>'; button.onclick = () => { if (object.anchor !== item.value)
+                apply(() => object.anchor = item.value); }; anchorGrid.append(button); });
+            anchorSection.append(anchorTitle, anchorGrid);
+            const fontSection = document.createElement("div");
+            fontSection.className = "pro-canvas-node-menu-font";
+            const fontTitle = document.createElement("strong");
+            fontTitle.textContent = uiText("Font", "フォント");
+            fontSection.append(fontTitle);
+            const segment = (label, role, value, items, change) => { const row = document.createElement("div"); row.className = "pro-canvas-node-font-row"; const caption = document.createElement("span"); caption.textContent = label; const buttons = document.createElement("span"); buttons.className = "pro-canvas-segments"; buttons.dataset.role = role; items.forEach(item => { const button = document.createElement("button"); button.type = "button"; button.textContent = uiText(item.en, item.ja); button.classList.toggle("is-active", item.value === value); button.onclick = () => { if (item.value !== value)
+                apply(() => change(item.value)); }; buttons.append(button); }); row.append(caption, buttons); return row; };
+            const sizeRow = document.createElement("label"), size = document.createElement("select");
+            sizeRow.className = "pro-canvas-node-font-row";
+            sizeRow.append(document.createTextNode(uiText("Size", "サイズ")));
+            size.dataset.role = "node-font-size";
+            NODE_FONT_SIZES.forEach(item => size.add(new Option(item.label, item.value)));
+            size.value = object.fontSize || "normal";
+            size.onchange = () => apply(() => object.fontSize = size.value);
+            sizeRow.append(size);
+            const effectiveMono = (_a = object.monospace) !== null && _a !== void 0 ? _a : object.fontFamily === "mono";
+            fontSection.append(sizeRow, segment(uiText("Shape", "字形"), "node-font-shape", nodeFontShapeChoice(object.fontShape), NODE_FONT_SHAPES, value => { object.fontShape = value; if (value === "italic" && effectiveMono) {
+                object.monospace = false;
+                object.fontFamily = "default";
+            } }), segment(uiText("Weight", "太さ"), "node-font-weight", object.fontWeight || "normal", NODE_FONT_WEIGHTS, value => object.fontWeight = value), segment(uiText("Spacing", "字幅"), "node-font-spacing", effectiveMono ? "mono" : "proportional", [{ value: "proportional", en: "Proportional", ja: "通常" }, { value: "mono", en: "Mono", ja: "等幅" }], value => { object.monospace = value === "mono"; object.fontFamily = "default"; if (value === "mono" && object.fontShape === "italic")
+                object.fontShape = "upright"; }));
+            menu.append(anchorSection, fontSection);
+            overlay.append(menu);
+            nodeMenu = menu;
+            const rendered = svg.querySelector(`[data-role="node-render"][data-object-id="${CSS.escape(object.id)}"]`), point = sceneToScreen(object.at, view()), target = (_b = rendered === null || rendered === void 0 ? void 0 : rendered.getBoundingClientRect()) !== null && _b !== void 0 ? _b : { left: point.x, right: point.x, top: point.y, bottom: point.y, width: 0, height: 0, x: point.x, y: point.y, toJSON: () => ({}) }, stageRect = stage.getBoundingClientRect(), gap = 10, width = menu.offsetWidth, height = menu.offsetHeight;
+            let left = (target.left + target.right - width) / 2, top = target.top - height - gap;
+            if (top < stageRect.top + 8)
+                top = target.bottom + gap;
+            left = Math.max(stageRect.left + 8, Math.min(stageRect.right - width - 8, left));
+            top = Math.max(stageRect.top + 8, Math.min(stageRect.bottom - height - 8, top));
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+        };
+        const renderInspector = () => {
+            var _a;
             const geometry = overlay.querySelector(".pro-canvas-geometry");
             const host = overlay.querySelector(".pro-canvas-style");
             const emptyNote = overlay.querySelector(".pro-canvas-inspector-empty");
@@ -749,87 +812,6 @@ export const initProCanvasUi = (deps) => {
             emptyNote.textContent = "";
             overlay.querySelector(".pro-canvas-geometry-section").hidden = !selection.ids.size;
             overlay.querySelector(".pro-canvas-style-section").hidden = !targets.length && !object;
-            if ((object === null || object === void 0 ? void 0 : object.type) === "node") {
-                const anchorTitle = document.createElement("h4");
-                anchorTitle.textContent = uiText("Label anchor", "ラベルのアンカー");
-                const anchorRow = document.createElement("div");
-                anchorRow.className = "pro-canvas-node-anchor-row";
-                const anchorLabel = document.createElement("span");
-                anchorLabel.textContent = uiText("Position", "基準点");
-                const anchorGrid = document.createElement("div");
-                anchorGrid.className = "pro-canvas-node-anchor-grid";
-                anchorGrid.dataset.role = "node-anchor";
-                anchorGrid.setAttribute("role", "radiogroup");
-                anchorGrid.setAttribute("aria-label", uiText("Label anchor", "ラベルのアンカー"));
-                const anchorItems = [
-                    { value: "south west", en: "Bottom left", ja: "左下" },
-                    { value: "south", en: "Bottom", ja: "下" },
-                    { value: "south east", en: "Bottom right", ja: "右下" },
-                    { value: "west", en: "Left", ja: "左" },
-                    { value: "center", en: "Center", ja: "中央" },
-                    { value: "east", en: "Right", ja: "右" },
-                    { value: "north west", en: "Top left", ja: "左上" },
-                    { value: "north", en: "Top", ja: "上" },
-                    { value: "north east", en: "Top right", ja: "右上" },
-                ];
-                anchorItems.forEach(item => {
-                    const button = document.createElement("button");
-                    button.type = "button";
-                    button.dataset.anchor = item.value;
-                    button.title = uiText(item.en, item.ja);
-                    button.setAttribute("aria-label", button.title);
-                    button.setAttribute("role", "radio");
-                    button.setAttribute("aria-checked", String(object.anchor === item.value));
-                    button.classList.toggle("is-active", object.anchor === item.value);
-                    button.innerHTML = '<span aria-hidden="true"></span>';
-                    button.onclick = () => {
-                        if (object.anchor === item.value)
-                            return;
-                        snapshot(false);
-                        object.anchor = item.value;
-                        render();
-                        scheduleCompile();
-                    };
-                    anchorGrid.append(button);
-                });
-                anchorRow.append(anchorLabel, anchorGrid);
-                const title = document.createElement("h4");
-                title.textContent = uiText("Label font", "ラベルフォント");
-                const row = document.createElement("div");
-                row.className = "pro-canvas-node-font";
-                const segment = (label, role, value, items, apply) => {
-                    const line = document.createElement("div");
-                    line.className = "pro-canvas-node-font-row";
-                    line.append(document.createTextNode(label));
-                    const buttons = document.createElement("span");
-                    buttons.className = "pro-canvas-segments";
-                    buttons.dataset.role = role;
-                    items.forEach(item => {
-                        const button = document.createElement("button");
-                        button.type = "button";
-                        button.textContent = uiText(item.en, item.ja);
-                        button.classList.toggle("is-active", item.value === value);
-                        button.onclick = () => { snapshot(false); apply(item.value); render(); scheduleCompile(); };
-                        buttons.append(button);
-                    });
-                    line.append(buttons);
-                    return line;
-                };
-                const sizeLabel = document.createElement("label"), size = document.createElement("select");
-                sizeLabel.textContent = uiText("Size", "サイズ");
-                size.dataset.role = "node-font-size";
-                NODE_FONT_SIZES.forEach(item => size.add(new Option(item.label, item.value)));
-                size.value = object.fontSize || "normal";
-                size.onchange = () => { snapshot(false); object.fontSize = size.value; render(); scheduleCompile(); };
-                sizeLabel.append(size);
-                const effectiveMono = (_a = object.monospace) !== null && _a !== void 0 ? _a : object.fontFamily === "mono";
-                row.append(sizeLabel, segment(uiText("Shape", "字形"), "node-font-shape", nodeFontShapeChoice(object.fontShape), NODE_FONT_SHAPES, value => { object.fontShape = value; if (value === "italic" && effectiveMono) {
-                    object.monospace = false;
-                    object.fontFamily = "default";
-                } }), segment(uiText("Weight", "太さ"), "node-font-weight", object.fontWeight || "normal", NODE_FONT_WEIGHTS, value => object.fontWeight = value), segment(uiText("Spacing", "字幅"), "node-font-spacing", effectiveMono ? "mono" : "proportional", [{ value: "proportional", en: "Proportional", ja: "通常" }, { value: "mono", en: "Mono", ja: "等幅" }], value => { object.monospace = value === "mono"; object.fontFamily = "default"; if (value === "mono" && object.fontShape === "italic")
-                    object.fontShape = "upright"; }));
-                host.append(anchorTitle, anchorRow, title, row);
-            }
             if (object) {
                 const b = objectBounds(object, scene), values = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
                 ["X", "Y", "W", "H"].forEach((label, index) => { const row = document.createElement("label"), input = document.createElement("input"); row.textContent = label; input.type = "number"; input.step = "0.1"; input.value = String(Number(values[index].toFixed(3))); input.onchange = () => { const value = Number(input.value); if (!Number.isFinite(value) || (index >= 2 && value < .01)) {
@@ -891,7 +873,7 @@ export const initProCanvasUi = (deps) => {
                 width.type = "number";
                 width.min = "0";
                 width.step = "0.2";
-                width.value = String((_b = effective.lineWidthPt) !== null && _b !== void 0 ? _b : .4);
+                width.value = String((_a = effective.lineWidthPt) !== null && _a !== void 0 ? _a : .4);
                 width.title = uiText("Line width (pt)", "線幅 (pt)");
                 width.dataset.noI18n = "";
                 width.onchange = () => apply("lineWidthPt", Math.max(0, Number(width.value) || 0));
@@ -1199,11 +1181,26 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    const font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace), bounds = nodeLabelBounds(object), center = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
-                    if (interactive)
-                        parent.append(svgEl("rect", { "data-id": object.id, class: "pro-canvas-node-hit", x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY, fill: "rgba(0,0,0,0.001)", "pointer-events": "all" }));
-                    el = svgEl("text", { ...(interactive ? { "data-id": object.id } : {}), opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: center.x, y: -center.y, transform: `scale(1,-1)`, class: "pro-canvas-node", "text-anchor": "middle", "dominant-baseline": "central", "font-family": font.fontFamily, "font-style": font.fontStyle, "font-weight": font.fontWeight, "font-size": 4 * nodeFontScale(object.fontSize) });
-                    el.textContent = object.latex;
+                    const bounds = nodeLabelBounds(object), width = Math.max(bounds.maxX - bounds.minX, .01), height = Math.max(bounds.maxY - bounds.minY, .01);
+                    const foreign = svgEl("foreignObject", { ...(interactive ? { "data-id": object.id } : {}), "data-role": "node-render", "data-object-id": object.id, opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: bounds.minX, y: -bounds.maxY, width, height, transform: "scale(1,-1)", overflow: "visible", class: "pro-canvas-node-foreign" });
+                    const content = document.createElementNS(XHTML_NS, "div"), font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace);
+                    content.className = `pro-canvas-node-render${object.fontWeight === "bold" ? " is-bold" : ""}`;
+                    content.dataset.objectId = object.id;
+                    content.style.fontFamily = font.fontFamily;
+                    content.style.fontStyle = font.fontStyle;
+                    content.style.fontWeight = font.fontWeight;
+                    content.style.fontSize = `${4 * nodeFontScale(object.fontSize)}px`;
+                    try {
+                        if (typeof katex !== "undefined")
+                            content.innerHTML = katex.renderToString(nodePreviewExpression(object.latex, object.fontFamily, object.fontShape, object.fontWeight, object.monospace), { throwOnError: false, strict: "ignore", trust: false });
+                        else
+                            content.textContent = object.latex;
+                    }
+                    catch {
+                        content.textContent = object.latex;
+                    }
+                    foreign.append(content);
+                    el = foreign;
                 }
                 const distance = style.doubleDistancePt || 0;
                 if (distance > 0 && object.type !== "node") {
@@ -1311,7 +1308,8 @@ export const initProCanvasUi = (deps) => {
                 else {
                     const b = objectBounds(item, scene);
                     select.append(svgEl("rect", { x: b.minX, y: b.minY, width: Math.max(b.maxX - b.minX, .01), height: Math.max(b.maxY - b.minY, .01), class: "pro-canvas-selection-outline" }));
-                } });
+                } if (item.type === "node")
+                    select.append(svgEl("circle", { cx: item.at.x, cy: item.at.y, r: 3.5 / scale, class: "pro-canvas-node-anchor-marker" })); });
                 const b = selectionBounds(), addRotate = () => { const x = (b.minX + b.maxX) / 2, stemTop = b.maxY + 18 / scale; select.append(svgEl("line", { x1: x, y1: b.maxY, x2: x, y2: stemTop, class: "pro-canvas-rotate-stem" })); const rotate = svgEl("circle", { cx: x, cy: stemTop, r: 4 / scale, class: "pro-canvas-rotate" }); rotate.dataset.rotate = "true"; select.append(rotate); };
                 if (!(anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep)) {
                     if (selected.length > 1)
@@ -1365,11 +1363,11 @@ export const initProCanvasUi = (deps) => {
                 root.append(svgEl("rect", { x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY, class: "pro-canvas-marquee" }));
             }
             overlay.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("is-active", b.dataset.tool === tool));
-            const snap = overlay.querySelector("[data-action=snap]");
-            snap.textContent = scene.grid.snap ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
-            snap.title = uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
+            const snap = overlay.querySelector("[data-action=snap]"), snapEnabled = activeSnap();
+            snap.textContent = snapEnabled ? uiText("Snap on", "吸着 オン") : uiText("Snap off", "吸着 オフ");
+            snap.title = tool === "node" ? uiText("Math label placement snap (off by default)", "数式ラベル配置の吸着（既定はオフ）") : uiText("Snaps to the grid and to other shapes' edges and centers (hold Alt to suspend)", "グリッドと他の図形の端・中心に吸着します（Alt を押しながらで一時解除）");
             snap.dataset.noI18n = "";
-            snap.classList.toggle("is-active", scene.grid.snap);
+            snap.classList.toggle("is-active", snapEnabled);
             const canvasButton = overlay.querySelector("[data-action=canvas-settings]");
             canvasButton.title = uiText(`Canvas ${scene.width} × ${scene.height} ${scene.unit} · grid ${scene.grid.size} ${scene.unit}`, `キャンバス ${scene.width} × ${scene.height} ${scene.unit}・グリッド ${scene.grid.size} ${scene.unit}`);
             canvasButton.setAttribute("aria-expanded", String(Boolean(canvasPop)));
@@ -1379,6 +1377,7 @@ export const initProCanvasUi = (deps) => {
             overlay.querySelector("[data-action=redo]").disabled = !redo.length;
             renderInspector();
             positionNodeEditor();
+            syncNodeMenu();
             const edited = plotObject();
             if (edited) {
                 const signature = `${edited.id}:${edited.series.length}:${edited.series.map(plotKind).join(",")}:${edited.axis.ymin === null || edited.axis.ymax === null}:${edited.axis.axisLines}:${edited.axis.grid}`;
@@ -2298,8 +2297,12 @@ export const initProCanvasUi = (deps) => {
                     openCanvasSettings(button);
                     break;
                 case "snap":
-                    snapshot();
-                    scene.grid.snap = !scene.grid.snap;
+                    if (tool === "node")
+                        nodePlacementSnap = !nodePlacementSnap;
+                    else {
+                        snapshot();
+                        scene.grid.snap = !scene.grid.snap;
+                    }
                     render();
                     break;
                 case "zoom-out":

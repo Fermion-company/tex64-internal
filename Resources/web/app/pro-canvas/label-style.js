@@ -23,6 +23,19 @@ export const NODE_FONT_WEIGHTS = [
     { value: "normal", en: "Regular", ja: "標準" },
     { value: "bold", en: "Bold", ja: "太字" },
 ];
+export const NODE_ANCHORS = [
+    { value: "south west", en: "Bottom left", ja: "左下" },
+    { value: "south", en: "Bottom", ja: "下" },
+    { value: "south east", en: "Bottom right", ja: "右下" },
+    { value: "west", en: "Left", ja: "左" },
+    { value: "center", en: "Center", ja: "中央" },
+    { value: "east", en: "Right", ja: "右" },
+    { value: "north west", en: "Top left", ja: "左上" },
+    { value: "north", en: "Top", ja: "上" },
+    { value: "north east", en: "Top right", ja: "右上" },
+];
+/** 数式ツールの新規配置だけは、図形全体の吸着設定と独立して非吸着から始める。 */
+export const NODE_PLACEMENT_SNAP_DEFAULT = false;
 const FAMILY_COMMAND = {
     default: "", serif: "\\rmfamily", sans: "\\sffamily", mono: "\\ttfamily",
 };
@@ -47,6 +60,34 @@ export const nodeFontContent = (latex, shape = "auto", monospace = false) => {
         return converted;
     return `$${command ? `${command}{${latex}}` : latex}$`;
 };
+const unwrapMathDelimiters = (latex) => {
+    const value = latex.trim();
+    if (value.startsWith("$") && value.endsWith("$") && !value.startsWith("$$") && value.length >= 2)
+        return value.slice(1, -1);
+    if (value.startsWith("\\(") && value.endsWith("\\)") && value.length >= 4)
+        return value.slice(2, -2);
+    return value;
+};
+/**
+ * KaTeX へ渡す表示専用の式。TikZ の font/content と同じ選択を、実際の数式字形へ落とす。
+ * 保存している LaTeX 自体は変更しない。
+ */
+export const nodePreviewExpression = (latex, family = "default", shape = "auto", weight = "normal", monospace) => {
+    let expression = unwrapMathDelimiters(latex) || "\\phantom{x}";
+    const mono = monospace === true || monospace === undefined && family === "mono";
+    if (mono)
+        expression = `\\mathtt{${expression}}`;
+    else if (family === "sans")
+        expression = `\\mathsf{${expression}}`;
+    else if (shape === "upright")
+        expression = `\\mathrm{${expression}}`;
+    else if (shape === "italic")
+        expression = `\\mathit{${expression}}`;
+    if (weight === "bold")
+        expression = `\\boldsymbol{${expression}}`;
+    return expression;
+};
+export const nodeMiniMenuVisible = (tool, selectionCount, object, editingNodeId, dragging) => tool === "select" && selectionCount === 1 && (object === null || object === void 0 ? void 0 : object.type) === "node" && editingNodeId === null && !dragging;
 export const nodeFontPreviewStyle = (family = "default", shape = "auto", weight = "normal", monospace) => {
     const mono = monospace === true || monospace === undefined && family === "mono";
     const fontFamily = mono
