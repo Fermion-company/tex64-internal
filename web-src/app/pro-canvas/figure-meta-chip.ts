@@ -1,56 +1,75 @@
 // 図ブロックの先頭行（`%% tex64-figure v2 h=… <base64>`）はキャンバスで再編集する
-// ためのシーン実体で、消せない。ただし数百文字あって本文の邪魔になるので、
-// エディタ上だけ短いチップに畳んで見せる（ファイルの中身は変えない）。
-//
-// 実装は Monaco のデコレーション 2 枚:
-//   inlineClassName        … base64 本体を display:none で隠す
-//   beforeContentClassName … その手前にチップを 1 個だけ描く（CSS の content）
+// ためのシーン実体で、消せない。長い 1 行を inline decoration で display:none に
+// しても Monaco の折り返しレイアウトは行の高さを確保してしまうため、モデルはそのまま
+// hidden area に入れ、同じ場所に 1 行分だけの view zone を表示する。
 
 import { onUiLocaleChange, uiText } from "../i18n.js";
-import { isFigureHeaderLine } from "./figure-codec.js";
+import { decodeFigureBlockAt, isFigureHeaderLine } from "./figure-codec.js";
 
-type DecorationCollection = { set: (decorations: unknown[]) => void };
+type ViewZoneAccessor = {
+  addZone: (zone: { afterLineNumber: number; heightInPx: number; showInHiddenAreas?: boolean; domNode: HTMLElement }) => string;
+  removeZone: (id: string) => void;
+};
 type ChipEditor = {
   getModel?: () => { getLinesContent?: () => string[] } | null;
-  createDecorationsCollection?: (decorations: unknown[]) => DecorationCollection;
+  setHiddenAreas?: (ranges: unknown[], source?: string, forceUpdate?: boolean) => void;
+  changeViewZones?: (change: (accessor: ViewZoneAccessor) => void) => void;
+  setPosition?: (position: { lineNumber: number; column: number }) => void;
+  revealLineInCenterIfOutsideViewport?: (lineNumber: number) => void;
+  focus?: () => void;
   onDidChangeModelContent?: (listener: () => void) => unknown;
   onDidChangeModel?: (listener: () => void) => unknown;
 };
 
 const hoverText = () => uiText("This is the figure's data, needed to edit it on the canvas. Deleting it means the figure can no longer be reopened there.", "この図のデータです（キャンバスで編集するのに必要）。消すと「図をキャンバスで編集」が使えなくなります。");
-
-// The chip itself is drawn by CSS `content`, which no translation pass can
-// reach. Publish the label as a custom property instead, and refresh it when
-// the locale changes.
 const chipLabel = () => uiText("▤ figure data (edit on canvas)", "▤ 図データ（キャンバスで編集）");
-const publishChipLabel = () =>
-  document.documentElement.style.setProperty("--tex64-figure-meta-chip", JSON.stringify(chipLabel()));
-let localeHooked = false;
+
+export const figureMetaLineNumbers = (lines: string[]): number[] => lines
+  .map((line, index) => isFigureHeaderLine(line) ? index + 1 : 0)
+  .filter((lineNumber) => lineNumber > 0);
 
 export const installFigureMetaChips = (editor: ChipEditor): void => {
   const Range = (window as any).monaco?.Range;
-  if (!Range || !editor?.createDecorationsCollection) return;
-  publishChipLabel();
-  if (!localeHooked) { localeHooked = true; onUiLocaleChange(publishChipLabel); }
-  const collection = editor.createDecorationsCollection([]);
+  if (!Range || !editor?.setHiddenAreas || !editor.changeViewZones) return;
+  const source = "tex64-figure-meta";
+  let zoneIds: string[] = [];
+
   const refresh = () => {
     const lines = editor.getModel?.()?.getLinesContent?.();
-    if (!lines) { collection.set([]); return; }
-    const decorations: unknown[] = [];
-    lines.forEach((line, index) => {
-      if (!isFigureHeaderLine(line)) return;
-      decorations.push({
-        range: new Range(index + 1, 1, index + 1, line.length + 1),
-        options: {
-          inlineClassName: "tex64-figure-meta",
-          beforeContentClassName: "tex64-figure-meta-chip",
-          hoverMessage: { value: hoverText() },
-          stickiness: 1, // NeverGrowsWhenTypingAtEdges
-        },
+    const lineNumbers = lines ? figureMetaLineNumbers(lines) : [];
+    const ranges = lineNumbers.map((lineNumber) => new Range(lineNumber, 1, lineNumber, (lines?.[lineNumber - 1]?.length || 0) + 1));
+    editor.setHiddenAreas?.(ranges, source, true);
+    editor.changeViewZones?.((accessor) => {
+      zoneIds.forEach((id) => accessor.removeZone(id));
+      zoneIds = lineNumbers.map((lineNumber) => {
+        const zone = document.createElement("div");
+        zone.className = "tex64-figure-meta-zone";
+        zone.title = hoverText();
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = chipLabel();
+        button.title = hoverText();
+        button.onclick = () => {
+          const decoded = lines ? decodeFigureBlockAt(lines, lineNumber - 1) : null;
+          if (decoded?.detached && !window.confirm(uiText("This figure's code has been edited by hand. Updating it from the canvas will discard those edits. Continue?", "この図のコードは手編集されています。キャンバスで更新すると手編集分は失われます。続けますか？"))) return;
+          if (decoded) {
+            window.dispatchEvent(new CustomEvent("tex64:pro-canvas-open", { detail: {
+              scene: decoded.scene,
+              replaceRange: { startLine: decoded.startLine + 1, endLine: decoded.endLine + 1 },
+            } }));
+            return;
+          }
+          const target = Math.min(lineNumber + 1, lines?.length || lineNumber + 1);
+          editor.setPosition?.({ lineNumber: target, column: 1 });
+          editor.revealLineInCenterIfOutsideViewport?.(target);
+          editor.focus?.();
+        };
+        zone.append(button);
+        return accessor.addZone({ afterLineNumber: lineNumber, heightInPx: 22, showInHiddenAreas: true, domNode: zone });
       });
     });
-    collection.set(decorations);
   };
+
   let timer: number | null = null;
   const schedule = () => {
     if (timer !== null) window.clearTimeout(timer);
@@ -58,5 +77,6 @@ export const installFigureMetaChips = (editor: ChipEditor): void => {
   };
   editor.onDidChangeModelContent?.(schedule);
   editor.onDidChangeModel?.(refresh);
+  onUiLocaleChange(refresh);
   refresh();
 };
