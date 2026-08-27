@@ -15,7 +15,9 @@ const numberText = (value: number): string => {
 };
 const point = (value: Vec): string => `(${numberText(value.x)},${numberText(value.y)})`;
 
-export const generateTikz = (scene: Scene): { code: string; requires: string[] } => {
+export type GeneratedTikz = { code: string; requires: string[]; needsGraphicx: boolean };
+
+export const generateTikz = (scene: Scene): GeneratedTikz => {
   const customColors = new Map<string, string>();
   let arrowsUsed = false, patternsUsed = false;
   const colorName = (color: string): string => {
@@ -35,7 +37,19 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
     else if (props.shading?.kind === "radial") keys.push("shade", `inner color=${colorName(props.shading.inner)}`, `outer color=${colorName(props.shading.outer)}`);
     else if (props.pattern) { patternsUsed = true; keys.push(`pattern=${props.pattern.name}`); if (props.pattern.color) keys.push(`pattern color=${colorName(props.pattern.color)}`); }
     if (props.lineWidthPt !== undefined && props.lineWidthPt !== 0.4) keys.push(`line width=${numberText(props.lineWidthPt)}pt`);
-    if (props.dash && props.dash !== "solid") keys.push(props.dash);
+    let customDotCap = false;
+    if (props.dash && props.dash !== "solid") {
+      if (props.dashGapPt !== undefined && props.dashGapPt > 0) {
+        const gap = numberText(props.dashGapPt);
+        if (props.dash === "dashed") {
+          const on = numberText(Math.max((props.lineWidthPt ?? 0.4) * 4, 1.2));
+          keys.push(`dash pattern=on ${on}pt off ${gap}pt`);
+        } else {
+          keys.push(`dash pattern=on 0pt off ${gap}pt`);
+          customDotCap = !props.cap || props.cap === "butt";
+        }
+      } else keys.push(props.dash);
+    }
     if (props.opacity !== undefined && props.opacity < 1) keys.push(`opacity=${numberText(props.opacity)}`);
     const start = props.arrowStart || "";
     const end = props.arrowEnd || "";
@@ -43,7 +57,8 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
       arrowsUsed = true;
       keys.push(`${start ? `{${start}}` : ""}-${end ? `{${end}}` : ""}`);
     }
-    if (props.cap && props.cap !== "butt") keys.push(`line cap=${props.cap}`);
+    if (customDotCap) keys.push("line cap=round");
+    else if (props.cap && props.cap !== "butt") keys.push(`line cap=${props.cap}`);
     if (props.join && props.join !== "miter") keys.push(`line join=${props.join}`);
     if (props.roundedCornersPt !== undefined && props.roundedCornersPt > 0) keys.push(`rounded corners=${numberText(props.roundedCornersPt)}pt`);
     if (props.doubleDistancePt !== undefined && props.doubleDistancePt > 0) keys.push("double", `double distance=${numberText(props.doubleDistancePt)}pt`);
@@ -113,7 +128,7 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
     }
     if (object.type === "plot") {
       const axis=object.axis,opts=[`at={(${numberText(object.at.x)}${scene.unit},${numberText(object.at.y)}${scene.unit})}`,`anchor=south west`,`width=${numberText(object.width)}${scene.unit}`,`height=${numberText(object.height)}${scene.unit}`,"scale only axis",`xmin=${numberText(axis.xmin)}`,`xmax=${numberText(axis.xmax)}`];
-      if(axis.ymin!==null)opts.push(`ymin=${numberText(axis.ymin)}`);if(axis.ymax!==null)opts.push(`ymax=${numberText(axis.ymax)}`);if(axis.axisLines!=="box")opts.push(`axis lines=${axis.axisLines}`);if(axis.grid!=="none")opts.push(`grid=${axis.grid}`);if(axis.equal)opts.push("axis equal");const lab=(s:string)=>{const t=s.trim(),esc=s.replace(/([%#&])/g,"\\$1");return /^\$[^$]*\$$/.test(t)||!/[\^_]/.test(t)?esc:`$${esc}$`;};if(axis.xlabel)opts.push(`xlabel={${lab(axis.xlabel)}}`);if(axis.ylabel)opts.push(`ylabel={${lab(axis.ylabel)}}`);if(axis.title)opts.push(`title={${lab(axis.title)}}`);
+      if(axis.ymin!==null)opts.push(`ymin=${numberText(axis.ymin)}`);if(axis.ymax!==null)opts.push(`ymax=${numberText(axis.ymax)}`);if(axis.axisLines==="none")opts.push("hide axis");else if(axis.axisLines!=="box")opts.push(`axis lines=${axis.axisLines}`);if(axis.grid!=="none")opts.push(`grid=${axis.grid}`);if(axis.equal)opts.push("axis equal");const lab=(s:string)=>{const t=s.trim(),esc=s.replace(/([%#&])/g,"\\$1");return /^\$[^$]*\$$/.test(t)||!/[\^_]/.test(t)?esc:`$${esc}$`;};if(axis.xlabel)opts.push(`xlabel={${lab(axis.xlabel)}}`);if(axis.ylabel)opts.push(`ylabel={${lab(axis.ylabel)}}`);if(axis.title)opts.push(`title={${lab(axis.title)}}`);
       const lines=[`${indent}\\begin{axis}[${opts.join(", ")}]`];for(const series of object.series){if(series.visible===false)continue;const kind=series.kind||"fn";if(kind==="fn"&&!series.expr.trim())continue;const a=parseExpr(series.expr),b=kind==="parametric"?parseExpr(series.expr2||""):null,points=kind==="points"?parsePoints(series.points||""):[],domain=series.domain||(kind==="fn"?{min:axis.xmin,max:axis.xmax}:{min:0,max:6.28319});if((kind==="parametric"&&(!a||!b))||(kind==="polar"&&!a)||(kind==="points"&&!points.length)){lines.push(`${indent}  % skipped invalid series`);continue;}const plot=[colorName(series.color)];if(series.thick)plot.push("thick");if(kind==="points"){plot.unshift("only marks","mark=*","mark size=1.6pt");lines.push(`${indent}  \\addplot[${plot.join(", ")}] coordinates {${points.map(point).join(" ")}};`);}else{plot.unshift(`domain=${numberText(domain.min)}:${numberText(domain.max)}`,`samples=${Math.max(1,Math.floor(series.samples))}`);const body=kind==="fn"?`{${a?astToPgf(a,"x"):series.expr}}`:(()=>{const first=astToPgf(a!,"x");return kind==="parametric"?`({${first}},{${astToPgf(b!,"x")}})`:`({(${first})*cos(deg(x))},{(${first})*sin(deg(x))})`;})();lines.push(`${indent}  \\addplot[${plot.join(", ")}] ${body};`);}if(series.legend)lines.push(`${indent}  \\addlegendentry{${lab(series.legend)}}`);}lines.push(`${indent}\\end{axis}`);return lines;
     }
     const options = objectOptions(object.style);
@@ -164,5 +179,10 @@ export const generateTikz = (scene: Scene): { code: string; requires: string[] }
   const requires = [...(arrowsUsed ? ["arrows.meta"] : []), ...(patternsUsed ? ["patterns"] : [])];
   const definitions = [...customColors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
   const comment = [...(sceneHasPlot(scene)?["% requires: \\usepackage{pgfplots} \\pgfplotsset{compat=1.18}"]:[]),...(requires.length ? [`% requires \\usetikzlibrary{${requires.join(",")}}`] : [])];
-  return { code: [...definitions, ...comment, begin, ...body, "\\end{tikzpicture}"].join("\n"), requires };
+  const picture = [begin, ...body, "\\end{tikzpicture}"];
+  const relative = scene.outputWidth?.mode === "relative" ? scene.outputWidth : null;
+  const wrapped = relative
+    ? [`\\resizebox{${numberText(relative.value)}\\${relative.reference}}{!}{%`, ...picture, "}"]
+    : picture;
+  return { code: [...definitions, ...comment, ...wrapped].join("\n"), requires, needsGraphicx: Boolean(relative) };
 };

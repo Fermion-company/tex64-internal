@@ -10,7 +10,7 @@ import { PLOT_PALETTE, astToPgf, autoRange, compileExpr, niceTicks, normalizePlo
 import { exprToLatex, latexToExpr } from "./plot-latex.js";
 import { buildPenSegments, penSeedFromEnd } from "./pen-math.js";
 import { arrowMetrics, arrowShape, endTangent, isArrowKind, trimPathForArrows } from "./arrow-math.js";
-import { NODE_ANCHORS, NODE_FONT_SHAPES, NODE_FONT_SIZES, NODE_FONT_WEIGHTS, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontPreviewStyle, nodeFontScale, nodeFontShapeChoice, nodeLabelBounds, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "./label-style.js";
+import { NODE_ANCHORS, NODE_FONT_SHAPES, NODE_FONT_SIZES, NODE_FONT_WEIGHTS, NODE_PLACEMENT_SNAP_DEFAULT, nodeEditCommitAction, nodeEditorWidthPx, nodeFontPreviewStyle, nodeFontScale, nodeFontShapeChoice, nodeLabelBounds, nodeLabelBoundsFromSize, nodeMiniMenuVisible, nodePreviewExpression, nodeSelectionOutlineVisible, nodeToolEditsExisting } from "./label-style.js";
 import { enclosedRegionAt, enclosedRegions } from "./path-regions.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
@@ -117,10 +117,11 @@ const boundsPoints = (object, scene) => {
     const children = object.type === "group" ? object.children : ((_a = findSymbol(scene, object.symbol)) === null || _a === void 0 ? void 0 : _a.objects) || [], t = object.transform, rad = t.rotate * Math.PI / 180;
     return children.flatMap(child => boundsPoints(child, scene)).map(p => { const x = p.x * t.sx, y = p.y * t.sy; return { x: t.tx + x * Math.cos(rad) - y * Math.sin(rad), y: t.ty + x * Math.sin(rad) + y * Math.cos(rad) }; });
 };
+const measuredNodeBounds = new WeakMap();
 const objectBounds = (object, scene) => {
     var _a, _b;
     if (object.type === "node")
-        return nodeLabelBounds(object);
+        return measuredNodeBounds.get(object) || nodeLabelBounds(object);
     const points = boundsPoints(object, scene);
     const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
     const x = (_a = xs[0]) !== null && _a !== void 0 ? _a : 0, y = (_b = ys[0]) !== null && _b !== void 0 ? _b : 0;
@@ -274,7 +275,7 @@ export const initProCanvasUi = (deps) => {
         const sizeChip = overlay.querySelector(".pro-canvas-size-chip");
         const toolHost = overlay.querySelector(".pro-canvas-tools");
         const toolIcons = { select: '<polyline points="3,2 3,13 6.5,9.5 9,14 11,13 8.5,8.5 13,8.5 3,2"/>', pen: '<path d="M2 12C5 3.5 11 3.5 14 12"/><line x1="2" y1="12" x2="6" y2="5"/><circle cx="6" cy="5" r="1.4"/><circle cx="2" cy="12" r="1.2" style="fill:currentColor"/><circle cx="14" cy="12" r="1.2" style="fill:currentColor"/>', line: '<line x1="3" y1="13" x2="13" y2="3"/>', rect: '<rect x="3" y="3" width="10" height="10"/>', ellipse: '<ellipse cx="8" cy="8" rx="5" ry="4"/>', fill: '<path d="M4 3l7 7-4 4-5-5z"/><path d="M8.5 4.5l2-2"/><path d="M10 12.5c1.5-2 2.5-2 4 0-.4 1.2-1.1 1.8-2 1.8s-1.6-.6-2-1.8z"/>', node: '<line x1="3" y1="3" x2="13" y2="3"/><line x1="8" y1="3" x2="8" y2="13"/>', code: '<polyline points="6,4 2,8 6,12"/><polyline points="10,4 14,8 10,12"/>', plot: '<path d="M3 2v11h11"/><path d="M4 12c2.5-7 5 1 9-7"/>' };
-        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['fill', uiText("Fill", "塗り"), uiText("Fill an enclosed region", "囲まれた領域を塗る"), 'F'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
+        [['select', uiText("Select", "選択"), uiText("Select", "選択"), 'V'], ['pen', uiText("Curve", "曲線"), uiText("Curve (pen)", "曲線（ペン）"), 'P'], ['plot', uiText("Function", "関数"), uiText("Function curve", "関数から曲線"), 'G'], ['line', uiText("Line", "直線"), uiText("Line", "直線"), 'L'], ['rect', uiText("Rect", "矩形"), uiText("Rectangle", "矩形"), 'R'], ['ellipse', uiText("Oval", "楕円"), uiText("Ellipse", "楕円"), 'E'], ['fill', uiText("Fill", "塗り"), uiText("Fill an enclosed region", "囲まれた領域を塗る"), 'F'], ['node', uiText("Math", "数式"), uiText("Math label", "数式ラベル"), 'T']].forEach(([id, label, tooltip, key]) => { const b = document.createElement("button"); b.dataset.tool = id; b.dataset.noI18n = ""; b.title = `${tooltip} (${key})`; b.setAttribute("aria-label", b.title); b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${toolIcons[id]}</svg><span>${label}</span>`; toolHost.appendChild(b); });
         // The canvas is self-contained: its SVG approximation is the preview.
         // Keep this hook while the editing code is compact so callers do not need
         // engine-specific branches.
@@ -310,7 +311,14 @@ export const initProCanvasUi = (deps) => {
         const nodeById = (id) => id ? walk(currentObjects(), id) : null;
         const positionNodeEditor = () => { if (!editingNodeId || !nodeEditor)
             return; const object = nodeById(editingNodeId); if ((object === null || object === void 0 ? void 0 : object.type) !== "node")
-            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace); nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.width = `${nodeEditorWidthPx(nodeEditor.value)}px`; nodeEditor.style.fontFamily = font.fontFamily; nodeEditor.style.fontStyle = font.fontStyle; nodeEditor.style.fontWeight = font.fontWeight; nodeEditor.style.fontSize = `${Math.max(12, 4 * scale * nodeFontScale(object.fontSize))}px`; };
+            return; const point = sceneToScreen(object.at, view()), scale = Math.min(stage.clientWidth / scene.width, stage.clientHeight / scene.height) * zoom, font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace), fontSize = Math.max(12, 4 * scale * nodeFontScale(object.fontSize)); nodeEditor.style.left = `${point.x}px`; nodeEditor.style.top = `${point.y}px`; nodeEditor.style.fontFamily = font.fontFamily; nodeEditor.style.fontStyle = font.fontStyle; nodeEditor.style.fontWeight = font.fontWeight; nodeEditor.style.fontSize = `${fontSize}px`; let width = nodeEditorWidthPx(nodeEditor.value); try {
+            const context = document.createElement("canvas").getContext("2d");
+            if (context) {
+                context.font = `${font.fontStyle} ${font.fontWeight} ${fontSize}px ${font.fontFamily}`;
+                width = Math.max(width, Math.ceil(context.measureText(nodeEditor.value || "x").width + 14));
+            }
+        }
+        catch { } nodeEditor.style.width = `${Math.min(220, width)}px`; };
         const finishNodeEdit = (commit) => { if (!editingNodeId || !nodeEditor)
             return; const id = editingNodeId, input = nodeEditor, object = nodeById(id), value = input.value, action = nodeEditCommitAction(nodeEditorNew, nodeEditorOriginal, value, commit); editingNodeId = null; nodeEditor = null; input.remove(); const dropEditedSelection = () => { var _a; if (!selection.ids.has(id))
             return; selection.ids.delete(id); if (selection.primaryId === id) {
@@ -344,7 +352,8 @@ export const initProCanvasUi = (deps) => {
         const beginNodeEdit = (object, isNew = false, before = null) => { if (editingNodeId)
             finishNodeEdit(true); anchorEdit = null; editingNodeId = object.id; nodeEditorOriginal = object.latex; nodeEditorNew = isNew; nodeEditorBefore = before; replaceSelection(object.id); const input = document.createElement("input"); input.className = "pro-canvas-inline-editor"; input.dataset.role = "node-editor"; input.dataset.objectId = object.id; input.value = object.latex; let finished = false; const finish = (commit) => { if (finished)
             return; finished = true; finishNodeEdit(commit); }; input.addEventListener("input", positionNodeEditor); input.addEventListener("keydown", e => { if (e.key !== "Enter" && e.key !== "Escape")
-            return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", () => finish(true)); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
+            return; e.preventDefault(); e.stopPropagation(); finish(e.key !== "Escape"); }); input.addEventListener("blur", e => { if (nodeMenu === null || nodeMenu === void 0 ? void 0 : nodeMenu.contains(e.relatedTarget))
+            return; finish(true); }); overlay.append(input); nodeEditor = input; render(); requestAnimationFrame(() => { if (nodeEditor !== input)
             return; positionNodeEditor(); input.focus(); input.select(); }); };
         const stopPlotEdit = () => { if (!plotEdit)
             return; flushWheelUndo(); const object = plotObject(), emptyUndoDepth = plotEdit.emptyUndoDepth; if (object && emptyUndoDepth !== undefined && plotIsEmpty(object)) {
@@ -392,7 +401,7 @@ export const initProCanvasUi = (deps) => {
             const header = document.createElement("div");
             header.className = "pro-canvas-plot-card-header";
             const headTitle = document.createElement("strong");
-            headTitle.textContent = uiText("Edit graph", "グラフを編集");
+            headTitle.textContent = object.axis.axisLines === "none" ? uiText("Edit function curve", "関数曲線を編集") : uiText("Edit graph", "グラフを編集");
             const headClose = document.createElement("button");
             headClose.type = "button";
             headClose.textContent = "✕";
@@ -409,7 +418,7 @@ export const initProCanvasUi = (deps) => {
             dimensions.className = "pro-canvas-plot-dimensions";
             const dimensionTitle = document.createElement("span");
             dimensionTitle.className = "pro-canvas-plot-range-title";
-            dimensionTitle.textContent = uiText("Axis length", "軸の長さ");
+            dimensionTitle.textContent = object.axis.axisLines === "none" ? uiText("Curve size", "曲線の大きさ") : uiText("Axis length", "軸の長さ");
             const plotWidth = field(`${uiText("Width", "幅")} (${scene.unit})`, String(Number(object.width.toPrecision(4))), "number", value => object.width = normalizePlotDimension(value, object.width)), plotHeight = field(`${uiText("Height", "高さ")} (${scene.unit})`, String(Number(object.height.toPrecision(4))), "number", value => object.height = normalizePlotDimension(value, object.height));
             plotWidth.input.min = plotHeight.input.min = "0.01";
             plotWidth.input.dataset.noI18n = "";
@@ -629,10 +638,10 @@ export const initProCanvasUi = (deps) => {
             range.append(rangeTitle, xmin.row, xmax.row, ymin.row, ymax.row, auto);
             (_a = (card.querySelector(".pro-canvas-plot-add") || card.lastElementChild)) === null || _a === void 0 ? void 0 : _a.before(range); // 系列ラッパの外に置く（中だと複数系列で「系列1専用の軸設定」に見え、is-muted も巻き添えになる）
             const hint = document.createElement("p");
-            hint.textContent = uiText("On the plot: scroll to zoom · drag to pan", "プロット上: スクロールでズーム / ドラッグで移動");
+            hint.textContent = uiText("On the curve: scroll to change the range · drag to pan · use the selection handles to scale", "曲線上: スクロールで範囲変更 / ドラッグで移動 / 選択ハンドルで拡大縮小");
             card.append(hint);
             const segments = (label, value, items, set) => { const row = document.createElement("div"); row.className = "pro-canvas-plot-segment-row"; row.append(document.createTextNode(label)); const group = document.createElement("span"); group.className = "pro-canvas-segments"; items.forEach(([key, text]) => { const b = document.createElement("button"); b.type = "button"; b.textContent = text; b.title = `${label}: ${text}`; b.classList.toggle("is-active", key === value); b.onclick = () => { snapshot(false); set(key); plotCardSignature = ""; debouncePlotCompile(); render(); }; group.append(b); }); row.append(group); card.append(row); };
-            segments(uiText("Axis lines", "軸線"), object.axis.axisLines, [["box", uiText("Border", "枠")], ["middle", uiText("Center", "中央")], ["left", uiText("Bottom left", "左下")]], v => object.axis.axisLines = v);
+            segments(uiText("Axis lines", "軸線"), object.axis.axisLines, [["none", uiText("Curve only", "曲線のみ")], ["box", uiText("Border", "枠")], ["middle", uiText("Center", "中央")], ["left", uiText("Bottom left", "左下")]], v => object.axis.axisLines = v);
             segments(uiText("Grid", "グリッド"), object.axis.grid, [["none", uiText("None", "なし")], ["major", uiText("Major", "主")], ["both", uiText("Major+minor", "主+副")]], v => object.axis.grid = v);
             const eqRow = document.createElement("label");
             eqRow.className = "pro-canvas-plot-equal";
@@ -718,22 +727,96 @@ export const initProCanvasUi = (deps) => {
             e.preventDefault();
             e.stopPropagation();
         } }, true);
-        const openCanvasSettings = (button) => { if (canvasPop) {
-            closeCanvasPop();
-            return;
-        } closeColorPop(); const pop = document.createElement("div"); pop.className = "pro-canvas-canvas-popover"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", uiText("Canvas settings", "キャンバス設定")); pop.addEventListener("pointerdown", e => e.stopPropagation()); pop.addEventListener("keydown", e => { if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            closeCanvasPop();
-            button.focus();
-        } }); const heading = document.createElement("div"); heading.className = "pro-canvas-canvas-popover-title"; heading.textContent = uiText("Canvas settings", "キャンバス設定"); const closeButton = document.createElement("button"); closeButton.type = "button"; closeButton.textContent = "✕"; closeButton.title = uiText("Close", "閉じる"); closeButton.onclick = () => closeCanvasPop(); heading.append(closeButton); pop.append(heading); const sizeTitle = document.createElement("strong"); sizeTitle.textContent = uiText("Size", "サイズ"); const dimensions = document.createElement("div"); dimensions.className = "pro-canvas-canvas-dimensions"; const inputs = {}; let refresh = () => { }; const numberField = (labelText, key) => { const label = document.createElement("label"), input = document.createElement("input"), unit = document.createElement("span"); label.append(document.createTextNode(labelText)); input.type = "number"; input.min = "0.1"; input.max = "10000"; input.step = scene.unit === "pt" ? "1" : "0.1"; input.dataset.canvasDimension = key; unit.textContent = scene.unit; label.append(input, unit); inputs[key] = input; input.onchange = () => { const next = normalizeCanvasMeasurement(input.value, scene[key]); if (next === scene[key]) {
-            input.value = String(scene[key]);
-            return;
-        } snapshot(false); scene[key] = next; zoom = 1; panX = panY = 0; refresh(); render(); scheduleCompile(); }; return label; }; dimensions.append(numberField(uiText("Width", "幅"), "width"), numberField(uiText("Height", "高さ"), "height")); const gridTitle = document.createElement("strong"); gridTitle.textContent = uiText("Grid spacing", "グリッド間隔"); const gridRow = document.createElement("div"); gridRow.className = "pro-canvas-canvas-grid"; const gridInput = document.createElement("input"), gridUnit = document.createElement("span"), gridPresets = document.createElement("div"); gridInput.type = "number"; gridInput.min = "0.1"; gridInput.max = "10000"; gridInput.step = scene.unit === "pt" ? "1" : "0.1"; gridInput.dataset.canvasGrid = ""; gridUnit.textContent = scene.unit; gridPresets.className = "pro-canvas-canvas-grid-presets"; [1, 2, 5, 10].forEach(value => { const item = document.createElement("button"); item.type = "button"; item.textContent = String(value); item.dataset.gridPreset = String(value); item.onclick = () => { if (scene.grid.size === value)
-            return; snapshot(false); scene.grid.size = value; refresh(); render(); scheduleCompile(); }; gridPresets.append(item); }); gridInput.onchange = () => { const next = normalizeCanvasMeasurement(gridInput.value, scene.grid.size); if (next === scene.grid.size) {
-            gridInput.value = String(scene.grid.size);
-            return;
-        } snapshot(false); scene.grid.size = next; refresh(); render(); scheduleCompile(); }; gridRow.append(gridInput, gridUnit, gridPresets); const note = document.createElement("p"); note.textContent = uiText("Changing the canvas does not scale existing objects.", "キャンバスを変更しても既存の図形は拡縮しません。"); pop.append(sizeTitle, dimensions, gridTitle, gridRow, note); overlay.append(pop); canvasPop = pop; button.setAttribute("aria-expanded", "true"); refresh = () => { inputs.width.value = String(Number(scene.width.toFixed(4))); inputs.height.value = String(Number(scene.height.toFixed(4))); gridInput.value = String(Number(scene.grid.size.toFixed(4))); gridPresets.querySelectorAll("[data-grid-preset]").forEach(item => item.classList.toggle("is-active", Number(item.dataset.gridPreset) === scene.grid.size)); }; refresh(); const rect = button.getBoundingClientRect(); pop.style.top = `${rect.bottom + 8}px`; pop.style.left = `${Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.right - pop.offsetWidth))}px`; };
+        const openCanvasSettings = (button) => {
+            if (canvasPop) {
+                closeCanvasPop();
+                return;
+            }
+            closeColorPop();
+            const pop = document.createElement("div");
+            pop.className = "pro-canvas-canvas-popover";
+            pop.setAttribute("role", "dialog");
+            pop.setAttribute("aria-label", uiText("Canvas settings", "キャンバス設定"));
+            pop.addEventListener("pointerdown", e => e.stopPropagation());
+            pop.addEventListener("keydown", e => { if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                closeCanvasPop();
+                button.focus();
+            } });
+            const heading = document.createElement("div");
+            heading.className = "pro-canvas-canvas-popover-title";
+            heading.textContent = uiText("Canvas settings", "キャンバス設定");
+            const closeButton = document.createElement("button");
+            closeButton.type = "button";
+            closeButton.textContent = "✕";
+            closeButton.title = uiText("Close", "閉じる");
+            closeButton.onclick = () => closeCanvasPop();
+            heading.append(closeButton);
+            pop.append(heading);
+            const sizeTitle = document.createElement("strong");
+            sizeTitle.textContent = uiText("Canvas coordinates", "キャンバス座標");
+            const dimensions = document.createElement("div");
+            dimensions.className = "pro-canvas-canvas-dimensions";
+            const inputs = {};
+            let refresh = () => { };
+            const numberField = (labelText, key) => { const label = document.createElement("label"), input = document.createElement("input"), unit = document.createElement("span"); label.append(document.createTextNode(labelText)); input.type = "number"; input.min = "0.1"; input.max = "10000"; input.step = scene.unit === "pt" ? "1" : "0.1"; input.dataset.canvasDimension = key; unit.textContent = scene.unit; label.append(input, unit); inputs[key] = input; input.onchange = () => { const next = normalizeCanvasMeasurement(input.value, scene[key]); if (next === scene[key]) {
+                input.value = String(scene[key]);
+                return;
+            } snapshot(false); scene[key] = next; zoom = 1; panX = panY = 0; refresh(); render(); scheduleCompile(); }; return label; };
+            dimensions.append(numberField(uiText("Width", "幅"), "width"), numberField(uiText("Height", "高さ"), "height"));
+            const gridTitle = document.createElement("strong");
+            gridTitle.textContent = uiText("Grid spacing", "グリッド間隔");
+            const gridRow = document.createElement("div");
+            gridRow.className = "pro-canvas-canvas-grid";
+            const gridInput = document.createElement("input"), gridUnit = document.createElement("span"), gridPresets = document.createElement("div");
+            gridInput.type = "number";
+            gridInput.min = "0.1";
+            gridInput.max = "10000";
+            gridInput.step = scene.unit === "pt" ? "1" : "0.1";
+            gridInput.dataset.canvasGrid = "";
+            gridUnit.textContent = scene.unit;
+            gridPresets.className = "pro-canvas-canvas-grid-presets";
+            [1, 2, 5, 10].forEach(value => { const item = document.createElement("button"); item.type = "button"; item.textContent = String(value); item.dataset.gridPreset = String(value); item.onclick = () => { if (scene.grid.size === value)
+                return; snapshot(false); scene.grid.size = value; refresh(); render(); scheduleCompile(); }; gridPresets.append(item); });
+            gridInput.onchange = () => { const next = normalizeCanvasMeasurement(gridInput.value, scene.grid.size); if (next === scene.grid.size) {
+                gridInput.value = String(scene.grid.size);
+                return;
+            } snapshot(false); scene.grid.size = next; refresh(); render(); scheduleCompile(); };
+            gridRow.append(gridInput, gridUnit, gridPresets);
+            const outputTitle = document.createElement("strong");
+            outputTitle.textContent = uiText("Width on the page", "紙面上の幅");
+            const outputRow = document.createElement("div");
+            outputRow.className = "pro-canvas-output-width";
+            const outputMode = document.createElement("select"), outputValue = document.createElement("input");
+            outputMode.title = uiText("Width reference", "幅の基準");
+            outputMode.add(new Option(uiText("Natural size", "実寸（指定なし）"), "natural"));
+            for (const reference of ["linewidth", "textwidth", "columnwidth"])
+                outputMode.add(new Option(`\\${reference}`, reference));
+            outputValue.type = "number";
+            outputValue.min = "0.01";
+            outputValue.max = "10";
+            outputValue.step = "0.05";
+            outputValue.title = uiText("Multiplier", "倍率");
+            const setOutput = () => { snapshot(false); if (outputMode.value === "natural")
+                scene.outputWidth = { mode: "natural" };
+            else
+                scene.outputWidth = { mode: "relative", value: Math.max(.01, Math.min(10, Number(outputValue.value) || 1)), reference: outputMode.value }; refresh(); render(); scheduleCompile(); };
+            outputMode.onchange = setOutput;
+            outputValue.onchange = setOutput;
+            outputRow.append(outputValue, outputMode);
+            const note = document.createElement("p");
+            note.textContent = uiText("Canvas coordinates control drawing space. Page width can independently use 0.8\\linewidth, \\textwidth, and similar LaTeX-relative widths.", "キャンバス座標は作図空間です。紙面上の幅は 0.8\\linewidth や \\textwidth などで独立して指定できます。");
+            pop.append(sizeTitle, dimensions, gridTitle, gridRow, outputTitle, outputRow, note);
+            overlay.append(pop);
+            canvasPop = pop;
+            button.setAttribute("aria-expanded", "true");
+            refresh = () => { inputs.width.value = String(Number(scene.width.toFixed(4))); inputs.height.value = String(Number(scene.height.toFixed(4))); gridInput.value = String(Number(scene.grid.size.toFixed(4))); gridPresets.querySelectorAll("[data-grid-preset]").forEach(item => item.classList.toggle("is-active", Number(item.dataset.gridPreset) === scene.grid.size)); const output = scene.outputWidth || { mode: "natural" }; outputMode.value = output.mode === "relative" ? output.reference : "natural"; outputValue.value = String(output.mode === "relative" ? output.value : 1); outputValue.disabled = output.mode !== "relative"; };
+            refresh();
+            const rect = button.getBoundingClientRect();
+            pop.style.top = `${rect.bottom + 8}px`;
+            pop.style.left = `${Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, rect.right - pop.offsetWidth))}px`;
+        };
         const removeNodeMenu = () => { nodeMenu === null || nodeMenu === void 0 ? void 0 : nodeMenu.remove(); nodeMenu = null; };
         const syncNodeMenu = () => {
             var _a, _b;
@@ -749,19 +832,18 @@ export const initProCanvasUi = (deps) => {
             menu.setAttribute("aria-label", uiText("Math label settings", "数式ラベル設定"));
             menu.addEventListener("pointerdown", e => e.stopPropagation());
             menu.addEventListener("click", e => e.stopPropagation());
-            const apply = (change) => { snapshot(false); change(); render(); scheduleCompile(); };
+            const apply = (change) => { const refocus = editingNodeId === object.id && nodeEditor; snapshot(false); change(); render(); scheduleCompile(); if (refocus)
+                requestAnimationFrame(() => nodeEditor === null || nodeEditor === void 0 ? void 0 : nodeEditor.focus()); };
             const anchorSection = document.createElement("div");
             anchorSection.className = "pro-canvas-node-menu-anchor";
-            const anchorTitle = document.createElement("strong");
-            anchorTitle.textContent = uiText("Anchor", "基準点");
             const anchorGrid = document.createElement("div");
             anchorGrid.className = "pro-canvas-node-anchor-grid";
             anchorGrid.dataset.role = "node-anchor";
             anchorGrid.setAttribute("role", "radiogroup");
             anchorGrid.setAttribute("aria-label", uiText("Label anchor", "ラベルのアンカー"));
-            NODE_ANCHORS.forEach(item => { const button = document.createElement("button"); button.type = "button"; button.dataset.anchor = item.value; button.title = uiText(item.en, item.ja); button.setAttribute("aria-label", button.title); button.setAttribute("role", "radio"); button.setAttribute("aria-checked", String(object.anchor === item.value)); button.classList.toggle("is-active", object.anchor === item.value); button.innerHTML = '<span aria-hidden="true"></span>'; button.onclick = () => { if (object.anchor !== item.value)
+            NODE_ANCHORS.forEach((item, index) => { const button = document.createElement("button"); button.type = "button"; button.dataset.anchor = item.value; button.dataset.anchorGroup = index < 9 ? "compass" : item.value.split(" ")[0]; button.title = `${item.value} — ${uiText(item.en, item.ja)}`; button.setAttribute("aria-label", button.title); button.setAttribute("role", "radio"); button.setAttribute("aria-checked", String(object.anchor === item.value)); button.classList.toggle("is-active", object.anchor === item.value); button.innerHTML = '<span aria-hidden="true"></span>'; button.onclick = () => { if (object.anchor !== item.value)
                 apply(() => object.anchor = item.value); }; anchorGrid.append(button); });
-            anchorSection.append(anchorTitle, anchorGrid);
+            anchorSection.append(anchorGrid);
             const fontSection = document.createElement("div");
             fontSection.className = "pro-canvas-node-menu-font";
             const fontTitle = document.createElement("strong");
@@ -796,7 +878,7 @@ export const initProCanvasUi = (deps) => {
             menu.style.top = `${top}px`;
         };
         const renderInspector = () => {
-            var _a;
+            var _a, _b;
             const geometry = overlay.querySelector(".pro-canvas-geometry");
             const host = overlay.querySelector(".pro-canvas-style");
             const emptyNote = overlay.querySelector(".pro-canvas-inspector-empty");
@@ -957,6 +1039,24 @@ export const initProCanvasUi = (deps) => {
                     options.forEach(v => input.add(new Option(v || uiText("None", "なし"), v))); input.value = String((_a = effective[key]) !== null && _a !== void 0 ? _a : ""); input.onchange = () => apply(key, kind === "number" ? Number(input.value) : input.value); row.append(input); details.append(row); });
                 host.append(details);
             }
+            if (targets.length) {
+                const dash = resolveStyle(scene, targets[0].style);
+                if (dash.dash && dash.dash !== "solid") {
+                    const gapRow = document.createElement("label"), gap = document.createElement("input"), unit = document.createElement("span");
+                    gapRow.className = "pro-canvas-dash-gap";
+                    gapRow.append(document.createTextNode(uiText("Dash spacing", "線の間隔")));
+                    gap.type = "number";
+                    gap.min = "0.1";
+                    gap.max = "100";
+                    gap.step = "0.2";
+                    gap.value = String(dash.dashGapPt && dash.dashGapPt > 0 ? dash.dashGapPt : dash.dash === "dashed" ? 3 : 2);
+                    gap.title = uiText("Gap between dashes or dots (pt)", "破線・点線どうしの間隔 (pt)");
+                    gap.onchange = () => { const value = Math.max(.1, Math.min(100, Number(gap.value) || 1)); snapshot(false); targets.forEach(target => { var _a; return ((_a = target.style).props || (_a.props = {})).dashGapPt = value; }); render(); scheduleCompile(); };
+                    unit.textContent = "pt";
+                    gapRow.append(gap, unit);
+                    (_b = host.querySelector(".pro-canvas-style-line")) === null || _b === void 0 ? void 0 : _b.after(gapRow);
+                }
+            }
         };
         // 単一パス選択 = 頂点・ハンドルが見える状態。描画ツール中でも表示は出す（掴めるのは select のときだけ）。
         const syncAnchorEdit = () => {
@@ -1041,7 +1141,7 @@ export const initProCanvasUi = (deps) => {
             const objects = svgEl("g", { class: "pro-canvas-objects", "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
-                var _a, _b, _c, _d, _e, _f;
+                var _a, _b, _c, _d, _e, _f, _g;
                 if (object.type === "group" || object.type === "instance") {
                     const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
                     if (interactive)
@@ -1092,7 +1192,7 @@ export const initProCanvasUi = (deps) => {
                     const axisX = a.axisLines === "middle" ? mapX(Math.max(eq.xmin, Math.min(eq.xmax, 0))) : object.at.x, axisY = a.axisLines === "middle" ? mapY(Math.max(ymin, Math.min(ymax, 0))) : object.at.y;
                     if (a.axisLines === "box")
                         g.append(svgEl("rect", { x: object.at.x, y: object.at.y, width: object.width, height: object.height, fill: "none", stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
-                    else {
+                    else if (a.axisLines !== "none") {
                         g.append(svgEl("line", { x1: object.at.x, y1: axisY, x2: object.at.x + object.width, y2: axisY, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                         g.append(svgEl("line", { x1: axisX, y1: object.at.y, x2: axisX, y2: object.at.y + object.height, stroke: neutral, "stroke-width": .7, "vector-effect": "non-scaling-stroke" }));
                     }
@@ -1103,12 +1203,14 @@ export const initProCanvasUi = (deps) => {
                     }
                     const text = (value, x, y, anchor = "middle") => { const el = svgEl("text", { x, y: -y, transform: "scale(1,-1)", "text-anchor": anchor, fill: neutral, "font-size": 9.5 / scale }); el.textContent = value; g.append(el); };
                     const tl = 2.5 / scale, lo = 12 / scale;
-                    xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - tl, x2: mapX(value), y2: axisY + tl, stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
-                        text(String(Number(value.toPrecision(4))), mapX(value), (a.axisLines === "middle" ? axisY : object.at.y) - lo); });
-                    yt.forEach(value => { g.append(svgEl("line", { x1: axisX - tl, y1: mapY(value), x2: axisX + tl, y2: mapY(value), stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
-                        text(String(Number(value.toPrecision(4))), (a.axisLines === "middle" ? axisX : object.at.x) - 4 / scale, mapY(value) - 3 / scale, "end"); });
-                    if (a.axisLines === "middle" && eq.xmin <= 0 && eq.xmax >= 0 && ymin <= 0 && ymax >= 0)
-                        text("0", axisX - 3 / scale, axisY - lo, "end");
+                    if (a.axisLines !== "none") {
+                        xt.forEach(value => { g.append(svgEl("line", { x1: mapX(value), y1: axisY - tl, x2: mapX(value), y2: axisY + tl, stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
+                            text(String(Number(value.toPrecision(4))), mapX(value), (a.axisLines === "middle" ? axisY : object.at.y) - lo); });
+                        yt.forEach(value => { g.append(svgEl("line", { x1: axisX - tl, y1: mapY(value), x2: axisX + tl, y2: mapY(value), stroke: neutral, "stroke-width": .75, "vector-effect": "non-scaling-stroke" })); if (a.axisLines !== "middle" || value !== 0)
+                            text(String(Number(value.toPrecision(4))), (a.axisLines === "middle" ? axisX : object.at.x) - 4 / scale, mapY(value) - 3 / scale, "end"); });
+                        if (a.axisLines === "middle" && eq.xmin <= 0 && eq.xmax >= 0 && ymin <= 0 && ymax >= 0)
+                            text("0", axisX - 3 / scale, axisY - lo, "end");
+                    }
                     const legendLayer = svgEl("g"), legendEntries = compiled.filter(entry => entry.series.legend);
                     if (legendEntries.length) {
                         const pad = 4 / scale, rowHeight = 12 / scale, boxWidth = Math.max(...legendEntries.map(entry => [...entry.series.legend].reduce((n, ch) => n + (ch.charCodeAt(0) > 255 ? 10.5 : 5.5), 0) / scale + 24 / scale)), boxHeight = legendEntries.length * rowHeight + 2 * pad, left = object.at.x + object.width - boxWidth - pad, bottom = object.at.y + object.height - boxHeight - pad;
@@ -1145,6 +1247,12 @@ export const initProCanvasUi = (deps) => {
                 let pathShape = null;
                 const tipOf = (value) => isArrowKind(value) ? value : null;
                 const tipMetrics = (kind) => arrowMetrics(kind, style.lineWidthPt || .4, ptu);
+                if (style.dash && style.dash !== "solid" && style.dashGapPt && style.dashGapPt > 0) {
+                    const gap = style.dashGapPt * ptu;
+                    attrs["stroke-dasharray"] = style.dash === "dashed" ? `${Math.max(lw * 4, 1.2 * ptu)} ${gap}` : `${Math.max(lw * .01, .001)} ${gap}`;
+                    if (style.dash === "dotted" && (style.cap === undefined || style.cap === "butt"))
+                        attrs["stroke-linecap"] = "round";
+                }
                 if (object.type === "rect")
                     el = svgEl("rect", { ...attrs, x: Math.min(object.from.x, object.to.x), y: Math.min(object.from.y, object.to.y), width: Math.abs(object.to.x - object.from.x), height: Math.abs(object.to.y - object.from.y), rx: style.roundedCornersPt || 0 });
                 else if (object.type === "ellipse")
@@ -1181,8 +1289,8 @@ export const initProCanvasUi = (deps) => {
                     el = svgEl("path", { ...attrs, d });
                 }
                 else {
-                    const bounds = nodeLabelBounds(object), width = Math.max(bounds.maxX - bounds.minX, .01), height = Math.max(bounds.maxY - bounds.minY, .01);
-                    const foreign = svgEl("foreignObject", { ...(interactive ? { "data-id": object.id } : {}), "data-role": "node-render", "data-object-id": object.id, opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: bounds.minX, y: -bounds.maxY, width, height, transform: "scale(1,-1)", overflow: "visible", class: "pro-canvas-node-foreign" });
+                    const fallback = measuredNodeBounds.get(object) || nodeLabelBounds(object), width = Math.max(fallback.maxX - fallback.minX, .01), height = Math.max(fallback.maxY - fallback.minY, .01);
+                    const foreign = svgEl("foreignObject", { ...(interactive ? { "data-id": object.id } : {}), "data-role": "node-render", "data-object-id": object.id, opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: fallback.minX, y: -fallback.maxY, width, height, transform: "scale(1,-1)", overflow: "visible", class: "pro-canvas-node-foreign" });
                     const content = document.createElementNS(XHTML_NS, "div"), font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace);
                     content.className = `pro-canvas-node-render${object.fontWeight === "bold" ? " is-bold" : ""}`;
                     content.dataset.objectId = object.id;
@@ -1201,6 +1309,22 @@ export const initProCanvasUi = (deps) => {
                     }
                     foreign.append(content);
                     el = foreign;
+                    if (object.id === editingNodeId) {
+                        foreign.setAttribute("visibility", "hidden");
+                        foreign.setAttribute("pointer-events", "none");
+                    }
+                    else {
+                        parent.append(foreign);
+                        const measured = ((_g = content.querySelector(".katex")) === null || _g === void 0 ? void 0 : _g.getBoundingClientRect()) || content.getBoundingClientRect();
+                        if (measured.width > 0 && measured.height > 0) {
+                            const pad = 2 / scale, bounds = nodeLabelBoundsFromSize(object, measured.width / scale + pad, measured.height / scale + pad);
+                            measuredNodeBounds.set(object, bounds);
+                            foreign.setAttribute("x", String(bounds.minX));
+                            foreign.setAttribute("y", String(-bounds.maxY));
+                            foreign.setAttribute("width", String(Math.max(bounds.maxX - bounds.minX, .01)));
+                            foreign.setAttribute("height", String(Math.max(bounds.maxY - bounds.minY, .01)));
+                        }
+                    }
                 }
                 const distance = style.doubleDistancePt || 0;
                 if (distance > 0 && object.type !== "node") {
@@ -1399,7 +1523,7 @@ export const initProCanvasUi = (deps) => {
                 plotCardSignature = "";
             }
             const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a graph", "クリックまたはドラッグでグラフを配置"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the graph", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：グラフ編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集");
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集");
         };
         let drag = null;
         let lastClick = null;
@@ -1703,7 +1827,7 @@ export const initProCanvasUi = (deps) => {
             if (tool === "plot") {
                 snapshot(false);
                 invalidateCompiled();
-                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -5, xmax: 5, ymin: null, ymax: null, axisLines: "middle", grid: "major", xlabel: "", ylabel: "", title: "" }, series: [{ kind: "fn", expr: "", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
+                const object = { id: newObjectId(), type: "plot", at: { ...p }, width: .01, height: .01, axis: { xmin: -1, xmax: 2, ymin: null, ymax: null, axisLines: "none", grid: "none", xlabel: "", ylabel: "", title: "" }, series: [{ kind: "fn", expr: "x^2", domain: null, samples: 100, color: PLOT_PALETTE[0], thick: true, legend: "", visible: true }], style: {} };
                 currentObjects().push(object);
                 replaceSelection(object.id);
                 drag = { kind: "draw", start: raw, anchor: p, startClient: client, before: cloneScene(scene), id: object.id };
@@ -2170,7 +2294,7 @@ export const initProCanvasUi = (deps) => {
             }
         };
         const onToolKey = (e) => { const target = e.target; if ((target === null || target === void 0 ? void 0 : target.closest("input,select,textarea,math-field,[contenteditable=true]")) || e.metaKey || e.ctrlKey || e.altKey)
-            return; const next = { v: "select", p: "pen", l: "line", r: "rect", e: "ellipse", f: "fill", t: "node" }[e.key.toLowerCase()]; if (next) {
+            return; const next = { v: "select", p: "pen", g: "plot", l: "line", r: "rect", e: "ellipse", f: "fill", t: "node" }[e.key.toLowerCase()]; if (next) {
             if (next !== "pen")
                 abortPen();
             if (next === "select")
@@ -2251,7 +2375,7 @@ export const initProCanvasUi = (deps) => {
                 const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor), text = (_b = model === null || model === void 0 ? void 0 : model.getValue) === null || _b === void 0 ? void 0 : _b.call(model), cursor = anchorPosition !== null && anchorPosition !== void 0 ? anchorPosition : { lineNumber: 1, column: 1 }, Range = (_c = window.monaco) === null || _c === void 0 ? void 0 : _c.Range;
                 if (typeof text === "string" && Range && (editor === null || editor === void 0 ? void 0 : editor.executeEdits)) {
                     // 未クリックのエディタはカーソルが 1:1 のまま。そこへ入れると \documentclass の前に図が入って文書が壊れる。
-                    const plan = planFigureInsert(text, cursor, generateTikz(scene).requires, sceneHasPlot(scene)), edits = [{ range: new Range(plan.body.lineNumber, plan.body.column, plan.body.lineNumber, plan.body.column), text: plan.body.column > 1 ? `\n${block}` : block, forceMoveMarkers: true }];
+                    const generated = generateTikz(scene), plan = planFigureInsert(text, cursor, generated.requires, sceneHasPlot(scene), generated.needsGraphicx), edits = [{ range: new Range(plan.body.lineNumber, plan.body.column, plan.body.lineNumber, plan.body.column), text: plan.body.column > 1 ? `\n${block}` : block, forceMoveMarkers: true }];
                     if (plan.preamble)
                         edits.push({ range: new Range(plan.preamble.lineNumber, 1, plan.preamble.lineNumber, 1), text: plan.preamble.text, forceMoveMarkers: true });
                     (_d = editor.pushUndoStop) === null || _d === void 0 ? void 0 : _d.call(editor);

@@ -6,7 +6,18 @@ import { generateTikz } from "../Resources/web/app/pro-canvas/tikz-generate.js";
 const rect = (style = {}) => ({ id: "r", type: "rect", from: { x: 1.23456, y: 2.0 }, to: { x: 4, y: 5 }, style });
 
 test("empty mm scene emits only an optioned tikzpicture", () => {
-  assert.equal(generateTikz(createEmptyScene()).code, "\\begin{tikzpicture}[x=1mm, y=1mm]\n\\end{tikzpicture}");
+  const generated=generateTikz(createEmptyScene());
+  assert.equal(generated.code, "\\begin{tikzpicture}[x=1mm, y=1mm]\n\\end{tikzpicture}");
+  assert.equal(generated.needsGraphicx,false);
+});
+
+test("relative page width wraps the picture and requests graphicx", () => {
+  const scene=createEmptyScene();
+  scene.outputWidth={mode:"relative",value:.8,reference:"linewidth"};
+  const generated=generateTikz(scene);
+  assert.equal(generated.needsGraphicx,true);
+  assert.match(generated.code,/^\\resizebox\{0\.8\\linewidth\}\{!\}\{%/);
+  assert.match(generated.code,/\\end\{tikzpicture\}\n\}$/);
 });
 
 test("rect uses a named style and rounds coordinates", () => {

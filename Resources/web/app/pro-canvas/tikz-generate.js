@@ -13,6 +13,7 @@ const numberText = (value) => {
 };
 const point = (value) => `(${numberText(value.x)},${numberText(value.y)})`;
 export const generateTikz = (scene) => {
+    var _a;
     const customColors = new Map();
     let arrowsUsed = false, patternsUsed = false;
     const colorName = (color) => {
@@ -25,7 +26,7 @@ export const generateTikz = (scene) => {
         return name;
     };
     const styleKeys = (props, explicitDraw = false) => {
-        var _a, _b;
+        var _a, _b, _c;
         const keys = [];
         if (props.draw !== undefined && props.draw !== null && (explicitDraw || props.draw.toLowerCase() !== "#000000"))
             keys.push(`draw=${colorName(props.draw)}`);
@@ -48,8 +49,22 @@ export const generateTikz = (scene) => {
         }
         if (props.lineWidthPt !== undefined && props.lineWidthPt !== 0.4)
             keys.push(`line width=${numberText(props.lineWidthPt)}pt`);
-        if (props.dash && props.dash !== "solid")
-            keys.push(props.dash);
+        let customDotCap = false;
+        if (props.dash && props.dash !== "solid") {
+            if (props.dashGapPt !== undefined && props.dashGapPt > 0) {
+                const gap = numberText(props.dashGapPt);
+                if (props.dash === "dashed") {
+                    const on = numberText(Math.max(((_c = props.lineWidthPt) !== null && _c !== void 0 ? _c : 0.4) * 4, 1.2));
+                    keys.push(`dash pattern=on ${on}pt off ${gap}pt`);
+                }
+                else {
+                    keys.push(`dash pattern=on 0pt off ${gap}pt`);
+                    customDotCap = !props.cap || props.cap === "butt";
+                }
+            }
+            else
+                keys.push(props.dash);
+        }
         if (props.opacity !== undefined && props.opacity < 1)
             keys.push(`opacity=${numberText(props.opacity)}`);
         const start = props.arrowStart || "";
@@ -58,7 +73,9 @@ export const generateTikz = (scene) => {
             arrowsUsed = true;
             keys.push(`${start ? `{${start}}` : ""}-${end ? `{${end}}` : ""}`);
         }
-        if (props.cap && props.cap !== "butt")
+        if (customDotCap)
+            keys.push("line cap=round");
+        else if (props.cap && props.cap !== "butt")
             keys.push(`line cap=${props.cap}`);
         if (props.join && props.join !== "miter")
             keys.push(`line join=${props.join}`);
@@ -153,7 +170,9 @@ export const generateTikz = (scene) => {
                 opts.push(`ymin=${numberText(axis.ymin)}`);
             if (axis.ymax !== null)
                 opts.push(`ymax=${numberText(axis.ymax)}`);
-            if (axis.axisLines !== "box")
+            if (axis.axisLines === "none")
+                opts.push("hide axis");
+            else if (axis.axisLines !== "box")
                 opts.push(`axis lines=${axis.axisLines}`);
             if (axis.grid !== "none")
                 opts.push(`grid=${axis.grid}`);
@@ -256,5 +275,10 @@ export const generateTikz = (scene) => {
     const requires = [...(arrowsUsed ? ["arrows.meta"] : []), ...(patternsUsed ? ["patterns"] : [])];
     const definitions = [...customColors].map(([hex, name]) => `\\definecolor{${name}}{HTML}{${hex.toUpperCase()}}`);
     const comment = [...(sceneHasPlot(scene) ? ["% requires: \\usepackage{pgfplots} \\pgfplotsset{compat=1.18}"] : []), ...(requires.length ? [`% requires \\usetikzlibrary{${requires.join(",")}}`] : [])];
-    return { code: [...definitions, ...comment, begin, ...body, "\\end{tikzpicture}"].join("\n"), requires };
+    const picture = [begin, ...body, "\\end{tikzpicture}"];
+    const relative = ((_a = scene.outputWidth) === null || _a === void 0 ? void 0 : _a.mode) === "relative" ? scene.outputWidth : null;
+    const wrapped = relative
+        ? [`\\resizebox{${numberText(relative.value)}\\${relative.reference}}{!}{%`, ...picture, "}"]
+        : picture;
+    return { code: [...definitions, ...comment, ...wrapped].join("\n"), requires, needsGraphicx: Boolean(relative) };
 };

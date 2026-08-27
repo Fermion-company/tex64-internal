@@ -34,6 +34,18 @@ test("figure blocks round-trip their scene", () => {
   assert.equal(decodeFigureBlockAt(lines, 0)?.detached, false);
 });
 
+test("relative-width figure blocks include and decode their resizebox wrapper", () => {
+  const scene=createEmptyScene();
+  scene.outputWidth={mode:"relative",value:.75,reference:"textwidth"};
+  const lines=encodeFigureBlock(scene).trimEnd().split("\n");
+  assert.match(lines[1],/^\\resizebox\{0\.75\\textwidth\}/);
+  assert.equal(lines.at(-1),"}");
+  const decoded=decodeFigureBlockAt(lines,lines.length-1);
+  assert.deepEqual(decoded?.scene,scene);
+  assert.equal(decoded?.endLine,lines.length-1);
+  assert.equal(decoded?.detached,false);
+});
+
 test("figure blocks round-trip symbols and instances", () => {
   const scene = createEmptyScene();
   scene.symbols = [{ id: "s", name: "ornament", objects: [{ id: "r", type: "rect", from: { x: 0, y: 0 }, to: { x: 2, y: 3 }, style: {} }] }];
