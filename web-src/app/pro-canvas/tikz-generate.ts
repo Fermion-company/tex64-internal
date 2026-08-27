@@ -136,7 +136,12 @@ export const generateTikz = (scene: Scene): GeneratedTikz => {
       options.unshift(`anchor=${object.anchor}`);
       const font = nodeFontOption(object.fontFamily, object.fontSize, object.fontShape, object.fontWeight, object.monospace);
       if (font) options.push(font);
-      const content = nodeFontContent(object.latex, object.fontShape, object.monospace ?? object.fontFamily === "mono");
+      const content = nodeFontContent(
+        object.latex,
+        object.fontShape,
+        object.monospace ?? object.fontFamily === "mono",
+        object.fontFamily,
+      );
       return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${content}};`];
     }
     if (object.type === "path" && !object.segments.length) return []; // ペン1クリック中断の残骸（0セグメント）は無意味な \draw を出さない

@@ -12,6 +12,16 @@ import type { PdfSyncPayload } from "./viewer.js";
 
 type EditorGroupKey = "primary" | "secondary";
 type SynctexForwardSource = "manual" | "auto-build" | "other";
+export type BuildProgressPhase = "building" | "installing" | "cancelling";
+
+export const resolveBuildProgressPhase = (
+  message?: string,
+  cancelRequested = false
+): BuildProgressPhase => {
+  if (cancelRequested || /cancel/i.test(message ?? "")) return "cancelling";
+  if (/install/i.test(message ?? "")) return "installing";
+  return "building";
+};
 
 export const resolveSynctexForwardTarget = (
   overridePath: string | null | undefined,
@@ -152,6 +162,10 @@ export const initBuildOpsUi = (
   let formatInFlightSnapshot: { path: string; content: string } | null = null;
   let currentBuildLog: string | null = null;
   let currentBuildState: BuildState = "idle";
+  let buildProgressPhase: BuildProgressPhase = "building";
+  let buildStartedAt = 0;
+  let buildCancelRequested = false;
+  let buildProgressTimer: ReturnType<typeof window.setInterval> | null = null;
   let synctexForwardRequestOrder = 0;
   let synctexForwardLastAppliedOrder = 0;
   let synctexManualPriorityUntil = 0;
@@ -180,6 +194,38 @@ export const initBuildOpsUi = (
       "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.",
       "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。"
     );
+
+  const buildProgressText = () => {
+    if (buildProgressPhase === "cancelling") {
+      return uiText("Canceling…", "キャンセル中…");
+    }
+    const phase = buildProgressPhase === "installing"
+      ? uiText("Installing TeX packages…", "TeXパッケージ導入中…")
+      : uiText("Building…", "ビルド中…");
+    const elapsedSeconds = buildStartedAt > 0
+      ? Math.max(0, Math.floor((Date.now() - buildStartedAt) / 1000))
+      : 0;
+    return elapsedSeconds > 0 ? `${phase} ${elapsedSeconds}s` : phase;
+  };
+
+  const renderBuildButtonProgress = () => {
+    if (!(buildButton instanceof HTMLButtonElement) || currentBuildState !== "building") return;
+    const progress = buildProgressText();
+    buildButton.dataset.progressPhase = buildProgressPhase;
+    buildButton.title = `${progress} ${uiText("Click to cancel.", "クリックでキャンセルします。")}`;
+    const label = buildButton.querySelector<HTMLElement>(".build-button-label");
+    if (label) label.textContent = progress;
+  };
+
+  const stopBuildProgressTimer = () => {
+    if (buildProgressTimer !== null) window.clearInterval(buildProgressTimer);
+    buildProgressTimer = null;
+  };
+
+  const startBuildProgressTimer = () => {
+    if (buildProgressTimer !== null) return;
+    buildProgressTimer = window.setInterval(renderBuildButtonProgress, 250);
+  };
 
   const isEnvMissingMessage = (message: string) => {
     const lower = message.toLowerCase();
@@ -416,19 +462,39 @@ export const initBuildOpsUi = (
   };
 
   const setBuildState = (state: BuildState, message?: string) => {
+    const wasBusy = currentBuildState === "building";
     currentBuildState = state;
     const isBusy = state === "building";
+    if (isBusy) {
+      if (!wasBusy) {
+        buildStartedAt = Date.now();
+        buildCancelRequested = false;
+      }
+      buildProgressPhase = resolveBuildProgressPhase(message, buildCancelRequested);
+      startBuildProgressTimer();
+    } else {
+      stopBuildProgressTimer();
+      buildStartedAt = 0;
+      buildCancelRequested = false;
+      buildProgressPhase = "building";
+    }
     if (buildButton instanceof HTMLButtonElement) {
       buildButton.disabled = false;
       buildButton.classList.toggle("is-busy", isBusy);
       buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
       buildButton.setAttribute(
         "aria-label",
-        isBusy ? uiText("Cancel", "cancel") : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
+        isBusy
+          ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
+          : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
       );
-      buildButton.title = isBusy ? uiText("Cancel build", "ビルドをキャンセル") : getBuildButtonIdleTitle();
       const label = buildButton.querySelector<HTMLElement>(".build-button-label");
-      if (label) label.textContent = isBusy ? uiText("Cancel", "キャンセル") : uiText("Build", "ビルド");
+      if (label && !isBusy) label.textContent = uiText("Build", "ビルド");
+      if (isBusy) renderBuildButtonProgress();
+      else {
+        delete buildButton.dataset.progressPhase;
+        buildButton.title = getBuildButtonIdleTitle();
+      }
     }
     if (state === "success") {
       try {
@@ -467,6 +533,9 @@ export const initBuildOpsUi = (
     if (currentBuildState === "building") {
       const ok = deps.postToNative({ type: "build:cancel" });
       if (ok) {
+        buildCancelRequested = true;
+        buildProgressPhase = "cancelling";
+        renderBuildButtonProgress();
         deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
       }
       return;
@@ -546,6 +615,10 @@ export const initBuildOpsUi = (
       setBuildState("building");
       handleBuildLog(null);
       deps.updateIssues(0, uiText("Starting build.", "Start the build."), "info", []);
+    } else {
+      const message = uiText("The build request could not be started.", "ビルドを開始できませんでした。");
+      setBuildState("failed", message);
+      deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
     }
   };
 

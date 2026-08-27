@@ -221,7 +221,7 @@ export const generateTikz = (scene) => {
             const font = nodeFontOption(object.fontFamily, object.fontSize, object.fontShape, object.fontWeight, object.monospace);
             if (font)
                 options.push(font);
-            const content = nodeFontContent(object.latex, object.fontShape, (_a = object.monospace) !== null && _a !== void 0 ? _a : object.fontFamily === "mono");
+            const content = nodeFontContent(object.latex, object.fontShape, (_a = object.monospace) !== null && _a !== void 0 ? _a : object.fontFamily === "mono", object.fontFamily);
             return [`${indent}${withOptions("node", options)} at ${point(object.at)} {${content}};`];
         }
         if (object.type === "path" && !object.segments.length)

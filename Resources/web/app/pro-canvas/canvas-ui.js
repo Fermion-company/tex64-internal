@@ -1291,12 +1291,9 @@ export const initProCanvasUi = (deps) => {
                 else {
                     const fallback = measuredNodeBounds.get(object) || nodeLabelBounds(object), width = Math.max(fallback.maxX - fallback.minX, .01), height = Math.max(fallback.maxY - fallback.minY, .01);
                     const foreign = svgEl("foreignObject", { ...(interactive ? { "data-id": object.id } : {}), "data-role": "node-render", "data-object-id": object.id, opacity: (_f = style.opacity) !== null && _f !== void 0 ? _f : 1, x: fallback.minX, y: -fallback.maxY, width, height, transform: "scale(1,-1)", overflow: "visible", class: "pro-canvas-node-foreign" });
-                    const content = document.createElementNS(XHTML_NS, "div"), font = nodeFontPreviewStyle(object.fontFamily, object.fontShape, object.fontWeight, object.monospace);
+                    const content = document.createElementNS(XHTML_NS, "div");
                     content.className = `pro-canvas-node-render${object.fontWeight === "bold" ? " is-bold" : ""}`;
                     content.dataset.objectId = object.id;
-                    content.style.fontFamily = font.fontFamily;
-                    content.style.fontStyle = font.fontStyle;
-                    content.style.fontWeight = font.fontWeight;
                     content.style.fontSize = `${4 * nodeFontScale(object.fontSize)}px`;
                     try {
                         if (typeof katex !== "undefined")
@@ -1522,8 +1519,8 @@ export const initProCanvasUi = (deps) => {
                 plotCard = null;
                 plotCardSignature = "";
             }
-            const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null;
-            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集");
+            const one = selection.ids.size === 1 ? nodeById(selection.primaryId) : null, nodeToolHasSelectedLabel = tool === "node" && (one === null || one === void 0 ? void 0 : one.type) === "node";
+            hintbar.textContent = edited ? (plotIsEmpty(edited) ? uiText("Enter an expression to draw it", "式を入力すると描画されます") : uiText("Type / while entering a formula for a fraction · Esc to finish editing", "式の入力中に / で分数　Esc で編集を終了")) : (anchorEdit === null || anchorEdit === void 0 ? void 0 : anchorEdit.deep) ? uiText("Double-click ＋ on the line to add a point · Double-click − on a point to remove it · Drag points and handles · Drag a segment to bend it · Alt+click toggles straight ⇄ curved · Esc to finish", "線上の＋をダブルクリック：頂点追加　頂点の−をダブルクリック：削除　ドラッグ：頂点・ハンドル　セグメントをドラッグ：曲げ　Alt+クリック：直線⇄曲線　Esc で終了") : tool !== "select" && !nodeToolHasSelectedLabel ? (_c = { line: uiText("Drag to draw a line · Shift for horizontal/vertical/45° · Alt to suspend snapping", "ドラッグで直線　Shift で水平・垂直・45°　Alt で吸着オフ"), rect: uiText("Drag to draw · Shift for a square · Alt to suspend snapping", "ドラッグで作成　Shift で正方形　Alt で吸着オフ"), ellipse: uiText("Drag to draw · Shift for a circle · Alt to suspend snapping", "ドラッグで作成　Shift で正円　Alt で吸着オフ"), fill: uiText("Move over an enclosed region to preview · Click to fill · Adjust color or hatch in Style", "囲まれた領域にカーソルを置いて確認　クリックで塗り　色・網掛けはスタイルで調整"), pen: uiText("Click: smooth point · Alt+click: corner · Drag: shape the handles · Click an end □ to continue that path · Click the start point to close · Enter to finish", "クリック：なめらかな曲線　Alt+クリック：角　ドラッグ：ハンドルで調整　既存の端点□をクリック：続きを描く　始点クリックで閉じる　Enter で確定"), node: uiText("Click to place a math label", "クリックした位置に数式ラベルを置きます"), plot: uiText("Click or drag to place a function curve, then enter y=f(x) and its range", "クリックまたはドラッグで関数曲線を配置し、式 y=f(x) と範囲を指定します"), code: uiText("Click to write TikZ code at that spot", "クリックした位置にTikZコードを直接書けます") }[tool]) !== null && _c !== void 0 ? _c : "" : selection.ids.size > 1 ? uiText("Drag to move · Cmd+G to group · Arrow keys to nudge", "ドラッグ：平行移動　Cmd+G：グループ化　矢印キー：微調整") : (one === null || one === void 0 ? void 0 : one.type) === "plot" ? uiText("Drag to move · Handles resize · Double-click to edit the function and range", "ドラッグ：平行移動　周囲の□：拡大縮小　ダブルクリック：式と範囲を編集") : (one === null || one === void 0 ? void 0 : one.type) === "node" ? uiText("Drag to move · Double-click to edit the formula", "ドラッグ：平行移動　ダブルクリック：数式編集") : (one === null || one === void 0 ? void 0 : one.type) === "path" ? (isStraightLine(one) ? uiText("Drag to move · End squares resize · Top circle rotates", "線をドラッグ：平行移動　端の□：拡大縮小　上の○：回転") : uiText("Drag to move · Corners resize · Top circle rotates · Double-click edits points", "線をドラッグ：平行移動　四隅：拡大縮小　上の○：回転　ダブルクリック：頂点編集")) : uiText("Drag to move · Handles resize · Top circle rotates · Double-click to edit", "図形をドラッグ：平行移動　周囲の□：拡大縮小　上の○：回転　ダブルクリック：編集");
         };
         let drag = null;
         let lastClick = null;
@@ -1621,7 +1618,7 @@ export const initProCanvasUi = (deps) => {
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
-            var _a, _b;
+            var _a, _b, _c;
             flushWheelUndo();
             const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
@@ -1633,11 +1630,10 @@ export const initProCanvasUi = (deps) => {
             }
             const raw = rawPoint(e), p = snappedPoint(e), handle = target.dataset.handle, lineEndpoint = target.dataset.lineEndpoint, id = (_a = target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id;
             if (tool === "node" && editingNodeId && id !== editingNodeId) {
-                finishNodeEdit(true);
                 const existing = id ? walk(currentObjects(), id) : null;
-                if (nodeToolEditsExisting(existing))
-                    beginNodeEdit(existing);
-                return;
+                finishNodeEdit(true);
+                if (!nodeToolEditsExisting(existing))
+                    return;
             }
             if (plotEdit && id === plotEdit.id && !handle) {
                 drag = { kind: "plot-pan", start: raw, startClient: client, before: cloneScene(scene), id };
@@ -1771,7 +1767,19 @@ export const initProCanvasUi = (deps) => {
             if (tool === "node") {
                 const hit = id ? walk(currentObjects(), id) : null;
                 if (nodeToolEditsExisting(hit)) {
-                    beginNodeEdit(hit);
+                    if (e.shiftKey) {
+                        toggleSelection(hit.id);
+                        hoveredId = null;
+                        render();
+                        return;
+                    }
+                    if (!selection.ids.has(hit.id))
+                        replaceSelection(hit.id);
+                    drag = { kind: "move", start: raw, startClient: client, before: cloneScene(scene), ids: [...selection.ids], bounds: (_c = selectionBounds()) !== null && _c !== void 0 ? _c : undefined };
+                    cacheDragLines();
+                    hoveredId = null;
+                    render();
+                    svg.setPointerCapture(e.pointerId);
                     return;
                 }
                 const before = cloneScene(scene), object = { id: newObjectId(), type: "node", at: p, latex: "", anchor: "center", fontShape: "italic", style: {} };
@@ -2080,7 +2088,7 @@ export const initProCanvasUi = (deps) => {
             if (plotDrawn)
                 requestAnimationFrame(() => buildPlotCard(plotDrawn, 0));
             // render() が DOM を差し替えるため native dblclick は当てにならない。クリック2連打を自前検出する。
-            if (tool === "select" && completed && !completed.moved) {
+            if ((tool === "select" || tool === "node") && completed && !completed.moved) {
                 const now = performance.now();
                 if (lastClick && now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6) {
                     lastClick = null;
@@ -2483,7 +2491,7 @@ export const initProCanvasUi = (deps) => {
             render();
             editCode(object);
         } };
-        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select")
+        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select" && tool !== "node")
             return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null); if (object) {
             activateForEdit(object);
             e.preventDefault();

@@ -63,8 +63,19 @@ export const nodeFontOption = (family = "default", size = "normal", shape = "aut
     const commands = `${FAMILY_COMMAND[effectiveFamily]}${shapeCommand}${weightCommand}${SIZE_COMMAND[size]}`;
     return commands ? `font={${commands}}` : null;
 };
-export const nodeFontContent = (latex, shape = "auto", monospace = false) => {
-    const command = monospace ? "\\mathtt" : shape === "italic" ? "\\mathit" : shape === "upright" ? "\\mathrm" : "";
+export const nodeFontContent = (latex, shape = "auto", monospace = false, family = "default") => {
+    // Use the same standard LaTeX math alphabets that the canvas preview uses.
+    // Font-family declarations such as \sffamily do not, by themselves, change
+    // letters already inside math mode; the alphabet command must wrap the math.
+    const command = monospace
+        ? "\\mathtt"
+        : family === "sans"
+            ? "\\mathsf"
+            : shape === "italic"
+                ? "\\mathit"
+                : shape === "upright"
+                    ? "\\mathrm"
+                    : "";
     let delimited = false;
     const converted = latex
         .replace(/(^|[^\\])\$([^$]*)\$/g, (_match, prefix, body) => { delimited = true; return `${prefix}$${command ? `${command}{${body}}` : body}$`; })
@@ -103,16 +114,15 @@ export const nodePreviewExpression = (latex, family = "default", shape = "auto",
 export const nodeMiniMenuVisible = (tool, selectionCount, object, _editingNodeId, dragging) => (tool === "select" || tool === "node") && selectionCount === 1 && (object === null || object === void 0 ? void 0 : object.type) === "node" && !dragging;
 export const nodeFontPreviewStyle = (family = "default", shape = "auto", weight = "normal", monospace) => {
     const mono = monospace === true || monospace === undefined && family === "mono";
+    const mathItalic = !mono && shape === "auto" && (family === "default" || family === "serif");
     const fontFamily = mono
-        ? "KaTeX_Typewriter, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
-        : family === "serif"
-            ? "Georgia, 'Times New Roman', serif"
-            : family === "sans"
-                ? "KaTeX_SansSerif, Arial, Helvetica, sans-serif"
-                : shape === "auto"
-                    ? "KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif"
-                    : "KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif";
-    const fontStyle = mono ? "normal" : shape === "italic" || shape === "auto" && family === "default" ? "italic" : "normal";
+        ? "KaTeX_Typewriter, monospace"
+        : family === "sans"
+            ? "KaTeX_SansSerif, sans-serif"
+            : mathItalic
+                ? "KaTeX_Math, serif"
+                : "KaTeX_Main, serif";
+    const fontStyle = mono ? "normal" : shape === "italic" || mathItalic ? "italic" : "normal";
     return { fontFamily, fontStyle, fontWeight: weight === "bold" ? "700" : "400" };
 };
 export const nodeFontCssFamily = (family = "default", monospace, shape = "auto") => nodeFontPreviewStyle(family, shape, "normal", monospace).fontFamily;

@@ -45,6 +45,7 @@ test("math label shape and spacing emit math alphabet commands without changing 
   assert.equal(nodeFontContent("O", "auto", false), "$O$");
   assert.equal(nodeFontContent("O", "upright", false), "$\\mathrm{O}$");
   assert.equal(nodeFontContent("x_1", "italic", false), "$\\mathit{x_1}$");
+  assert.equal(nodeFontContent("x_1", "auto", false, "sans"), "$\\mathsf{x_1}$");
   const scene=createEmptyScene();scene.objects.push(label({fontShape:"upright",fontWeight:"bold",monospace:false}));
   assert.match(generateTikz(scene).code,/font=\{\\upshape\\bfseries\\boldmath\}/);
   assert.match(generateTikz(scene).code,/\{\$\\mathrm\{x\}\$\}/);
@@ -69,6 +70,15 @@ test("the math tool gives an existing math label priority over creating another 
   assert.equal(nodeToolEditsExisting(label({})),true);
   assert.equal(nodeToolEditsExisting({id:"r",type:"rect",from:{x:0,y:0},to:{x:1,y:1},style:{}}),false);
   assert.equal(nodeToolEditsExisting(null),false);
+});
+
+test("the math-label tool drags an existing label and reserves editing for double-click", () => {
+  const source=readFileSync(new URL("../web-src/app/pro-canvas/canvas-ui.ts",import.meta.url),"utf8");
+  assert.match(source,/if\(nodeToolEditsExisting\(hit\)\)\{[\s\S]*?drag=\{kind:"move"/);
+  assert.doesNotMatch(source,/if\(nodeToolEditsExisting\(hit\)\)\{beginNodeEdit\(hit\)/);
+  assert.match(source,/\(tool==="select"\|\|tool==="node"\)&&completed&&!completed\.moved/);
+  assert.match(source,/if\(tool!=="select"&&tool!=="node"\)return/);
+  assert.match(source,/nodeToolHasSelectedLabel=tool==="node"&&one\?\.type==="node"/);
 });
 
 test("an actively edited label hides its second selection box", () => {
@@ -143,16 +153,19 @@ test("the label font menu stays available while selecting or editing a math labe
 
 test("every label font control maps to the matching bundled preview face", () => {
   assert.deepEqual(nodeFontPreviewStyle("default","auto","normal",false),{
-    fontFamily:"KaTeX_Math, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"italic",fontWeight:"400",
+    fontFamily:"KaTeX_Math, serif",fontStyle:"italic",fontWeight:"400",
   });
   assert.deepEqual(nodeFontPreviewStyle("default","italic","bold",false),{
-    fontFamily:"KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"italic",fontWeight:"700",
+    fontFamily:"KaTeX_Main, serif",fontStyle:"italic",fontWeight:"700",
   });
   assert.deepEqual(nodeFontPreviewStyle("default","upright","normal",false),{
-    fontFamily:"KaTeX_Main, 'STIX Two Math', 'Cambria Math', serif",fontStyle:"normal",fontWeight:"400",
+    fontFamily:"KaTeX_Main, serif",fontStyle:"normal",fontWeight:"400",
   });
   assert.deepEqual(nodeFontPreviewStyle("default","upright","bold",true),{
-    fontFamily:"KaTeX_Typewriter, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",fontStyle:"normal",fontWeight:"700",
+    fontFamily:"KaTeX_Typewriter, monospace",fontStyle:"normal",fontWeight:"700",
+  });
+  assert.deepEqual(nodeFontPreviewStyle("serif","auto","normal",false),{
+    fontFamily:"KaTeX_Math, serif",fontStyle:"italic",fontWeight:"400",
   });
 });
 
@@ -164,5 +177,6 @@ test("canvas labels use KaTeX markup and their inline editor keeps the bundled m
   assert.match(source,/measuredNodeBounds\.set\(object,bounds\)/);
   assert.match(source,/foreign\.setAttribute\("visibility","hidden"\)/);
   assert.match(css,/\.pro-canvas-node-render[^}]*display:\s*flex/);
-  assert.match(css,/\.pro-canvas-inline-editor[^}]*KaTeX_Math/);
+  assert.match(css,/\.pro-canvas-inline-editor[^}]*font-family:\s*KaTeX_Math, serif/);
+  assert.doesNotMatch(source,/content\.style\.fontFamily=font\.fontFamily/);
 });

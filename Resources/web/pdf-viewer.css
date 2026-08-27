@@ -325,8 +325,50 @@ body.is-embedded .pdf-fit-control span {
 }
 
 .pdf-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: var(--text-soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-status.is-busy {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pdf-status.is-busy::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: pdf-status-spin .7s linear infinite;
+}
+
+.pdf-status.is-error {
+  color: #dc5c68;
+}
+
+@keyframes pdf-status-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* The embedded viewer normally hides secondary chrome, but Live progress is
+   primary feedback: retain it while the exact surface is updating. */
+body.is-embedded .pdf-toolbar-status {
+  display: none;
+}
+
+body.is-embedded:is(.is-live, .is-live-pending) .pdf-toolbar-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .pdf-scroll {

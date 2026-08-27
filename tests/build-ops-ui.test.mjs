@@ -3,7 +3,77 @@ import assert from "node:assert/strict";
 import {
   resolveSynctexForwardPdfPath,
   resolveSynctexForwardTarget,
+  resolveBuildProgressPhase,
 } from "../Resources/web/app/build-ops-ui.js";
+
+test("build progress distinguishes work, package installation, and cancellation", () => {
+  assert.equal(resolveBuildProgressPhase(), "building");
+  assert.equal(resolveBuildProgressPhase("Building..."), "building");
+  assert.equal(resolveBuildProgressPhase("Installing missing TeX packages…"), "installing");
+  assert.equal(resolveBuildProgressPhase("Cancelling..."), "cancelling");
+  assert.equal(resolveBuildProgressPhase("Building...", true), "cancelling");
+});
+
+test("the Build button stays visibly alive and advances elapsed seconds", async () => {
+  const PreviousElement = globalThis.HTMLElement;
+  const PreviousButton = globalThis.HTMLButtonElement;
+  const PreviousWindow = globalThis.window;
+  class FakeElement extends EventTarget {}
+  class FakeLabel extends FakeElement { textContent = "Build"; }
+  class FakeButton extends FakeElement {
+    disabled = false;
+    dataset = {};
+    title = "";
+    label = new FakeLabel();
+    attributes = new Map();
+    classes = new Set();
+    classList = { toggle: (name, enabled) => enabled ? this.classes.add(name) : this.classes.delete(name) };
+    setAttribute(name, value) { this.attributes.set(name, value); }
+    querySelector(selector) { return selector === ".build-button-label" ? this.label : null; }
+  }
+  globalThis.HTMLElement = FakeElement;
+  globalThis.HTMLButtonElement = FakeButton;
+  globalThis.window = { setTimeout, setInterval, clearInterval };
+
+  try {
+    const buildButton = new FakeButton();
+    const { initBuildOpsUi } = await import("../Resources/web/app/build-ops-ui.js");
+    const api = initBuildOpsUi(
+      { dom: { buildButton, formatButton: null, synctexButton: null, issuesLog: null, issuesLogContent: null } },
+      {
+        getActiveGroup: () => ({}), getActiveEditorGroupKey: () => "primary",
+        getActiveFilePath: () => null, getRootFilePath: () => null,
+        getLastBuildMainFile: () => null, setLastBuildMainFile: () => {},
+        getStoredCursorPosition: () => null, cacheCurrentBuffer: () => {},
+        saveCurrentFile: async () => true, postToNative: () => true,
+        updateIssues: () => {}, setPendingBuildIssuesFocus: () => {},
+        applyFormattedContent: () => {}, getEditorGroups: () => [],
+        renderEditorTabs: () => {}, requestOpenFile: () => true,
+        getSplitViewEnabled: () => false, setSplitViewEnabled: () => {},
+        settings: {
+          getPdfViewerMode: () => "tab", getAutoSynctexOnBuildEnabled: () => false,
+          buildFormatSettingsPayload: () => ({}), getRuntimeStatusSummary: () => null,
+          checkEnvironmentStatus: () => {},
+        },
+      }
+    );
+    api.setBuildState("building");
+    assert.equal(buildButton.classes.has("is-busy"), true);
+    assert.equal(buildButton.dataset.progressPhase, "building");
+    assert.equal(buildButton.label.textContent, "Building…");
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.match(buildButton.label.textContent, /^Building… [12]s$/);
+    api.setBuildState("building", "Installing missing TeX packages…");
+    assert.match(buildButton.label.textContent, /^Installing TeX packages…/);
+    api.setBuildState("idle");
+    assert.equal(buildButton.classes.has("is-busy"), false);
+    assert.equal(buildButton.label.textContent, "Build");
+  } finally {
+    globalThis.HTMLElement = PreviousElement;
+    globalThis.HTMLButtonElement = PreviousButton;
+    globalThis.window = PreviousWindow;
+  }
+});
 
 test("SyncTeX jump keeps the active TeX file as its first automatic target", () => {
   assert.equal(
