@@ -16,7 +16,7 @@ export type SettingsEnvOps = {
   checkEnvironmentStatus: () => void;
   handleEnvDetectResult: (payload: { report?: TexEnvReport | null; error?: string }) => void;
   updateEnvStatus: (command: string, available: boolean) => void;
-  handleEnvInstallStart: (payload: { target?: string }) => void;
+  handleEnvInstallStart: (payload: { target?: string; variant?: string }) => void;
   handleEnvInstallResult: (payload: { target?: string; success?: boolean; message?: string }) => void;
   handleEnvInstallProgress: (payload: {
     phase?: string;
@@ -32,9 +32,9 @@ export type SettingsEnvOps = {
 type HeroState = "checking" | "missing" | "installing" | "ready";
 
 // The full-screen Environment screen answers one question for the user: "can I
-// build right now, and if not, what do I press?" Under the hood every install
-// target funnels to the same managed TeX Live install, so the screen exposes a
-// single status + one setup button, with the per-tool detection tucked away.
+// build right now, and if not, what do I press?" New installs use the quick
+// lightweight profile; an already-ready lightweight tree can be expanded to the
+// complete package set from the same screen.
 export const createSettingsEnvOps = (
   runtime: SettingsUiRuntime,
   attentionOps: SettingsAttentionOps
@@ -53,7 +53,7 @@ export const createSettingsEnvOps = (
   const progressLabel = document.getElementById("env-progress-label");
   const detailEl = document.getElementById("env-detail");
   const choiceEl = document.getElementById("env-choice");
-  const fullBtn = document.getElementById("env-choice-full");
+  const lightBtn = document.getElementById("env-choice-light");
 
   let installing = false;
   // The structured detection report from the main process. Until it arrives the
@@ -161,7 +161,7 @@ export const createSettingsEnvOps = (
 
   const renderChoiceLabels = () => {
     for (const [variant, button] of [
-      ["full", fullBtn],
+      ["light", lightBtn],
     ] as Array<[TexInstallVariant, HTMLElement | null]>) {
       if (!(button instanceof HTMLElement)) {
         continue;
@@ -216,15 +216,20 @@ export const createSettingsEnvOps = (
     runtime.deps.onRuntimeSetupNeeded?.(summary);
   };
 
-  const showInstalling = (_variant: TexInstallVariant = "full") => {
+  const showInstalling = (variant: TexInstallVariant = "light") => {
     installing = true;
     setHeroState("installing");
     setHeroText(
       "Setting up your TeX environment…",
-      uiText(
-        "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.",
-        "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30〜60 分かかります。その間も作業を続けられます。"
-      )
+      variant === "full"
+        ? uiText(
+            "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.",
+            "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30〜60 分かかります。その間も作業を続けられます。"
+          )
+        : uiText(
+            "Downloading a lightweight TeX environment. This usually takes 1–3 minutes.",
+            "軽量な TeX 環境をダウンロードしています。通常 1〜3 分で完了します。"
+          )
     );
     setSetupButton({ visible: false });
     setChoiceVisible(false);
@@ -262,7 +267,12 @@ export const createSettingsEnvOps = (
       const usingExisting = detection?.source === "system";
       setHeroText(
         "Your TeX environment is ready.",
-        usingExisting
+        detection?.source === "managed" && detection?.managedVariant === "light"
+          ? uiText(
+              "You can build now. Missing packages will be installed automatically when needed.",
+              "すぐにビルドできます。足りないパッケージは必要になったとき自動で追加します。"
+            )
+          : usingExisting
           ? uiText(
               "TeX64 found the TeX already installed on this computer and will use it as it is.",
               "この環境に既にある TeX を検出しました。そのまま使います。"
@@ -274,8 +284,8 @@ export const createSettingsEnvOps = (
       setSetupButton({ visible: false });
       setInstallNote("");
       setChoiceVisible(false);
-      // Retired development builds may have left a partial managed tree. Offer
-      // the in-place scheme-full upgrade until its marker is rewritten.
+      // The lightweight profile remains usable indefinitely; users who prefer
+      // an offline-complete tree can expand it in place.
       if (
         detection?.source === "managed" &&
         detection?.managedVariant === "light" &&
@@ -310,8 +320,8 @@ export const createSettingsEnvOps = (
     setHeroText(
       "TeX environment is not set up yet.",
       uiText(
-        "TeX64 installs the complete TeX Live privately, without admin rights, and never touches any TeX you already have.",
-        "TeX64 専用の場所に完全な TeX Live を管理者権限なしで導入します。既存の TeX には触れません。"
+        "TeX64 installs a lightweight TeX environment privately, without admin rights, and adds packages automatically when needed.",
+        "TeX64 専用の場所に軽量な TeX 環境を管理者権限なしで導入し、必要なパッケージを自動で追加します。"
       )
     );
     // The choice replaces the old single button; the button stays as the fallback
@@ -369,10 +379,10 @@ export const createSettingsEnvOps = (
 
   // The gate needs the variant on every packet (the estimate depends on it) but
   // the main process only names it on start, so it is remembered here.
-  let installingVariant: TexInstallVariant = "full";
+  let installingVariant: TexInstallVariant = "light";
 
   const handleEnvInstallStart = (payload: { target?: string; variant?: string }) => {
-    installingVariant = "full";
+    installingVariant = payload?.variant === "full" ? "full" : "light";
     showInstalling(installingVariant);
     runtime.deps.onRuntimeInstallEvent?.({ kind: "start", variant: installingVariant });
   };
@@ -440,12 +450,16 @@ export const createSettingsEnvOps = (
       if (setupBtn.disabled) {
         return;
       }
-      startInstall("full");
+      startInstall(
+        detection?.source === "managed" && detection?.managedVariant === "light"
+          ? "full"
+          : "light"
+      );
     });
   }
 
-  if (fullBtn instanceof HTMLButtonElement) {
-    fullBtn.addEventListener("click", () => startInstall("full"));
+  if (lightBtn instanceof HTMLButtonElement) {
+    lightBtn.addEventListener("click", () => startInstall("light"));
   }
 
   if (settingsRuntimeOpenTexDocs instanceof HTMLButtonElement) {

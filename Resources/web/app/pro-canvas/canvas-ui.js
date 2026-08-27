@@ -443,7 +443,7 @@ export const initProCanvasUi = (deps) => {
                     mf.value = latex;
                     mf.addEventListener("keydown", e => { if (e.key !== "Escape")
                         return; e.preventDefault(); e.stopPropagation(); stopPlotEdit(); });
-                    liveField(mf, () => { var _a; var _b; let raw = mf.value; try {
+                    liveField(mf, () => { var _a, _b; let raw = mf.value; try {
                         raw = (_b = (_a = mf.getValue) === null || _a === void 0 ? void 0 : _a.call(mf, "latex")) !== null && _b !== void 0 ? _b : raw;
                     }
                     catch { } const next = raw.trim() ? latexToExpr(raw, varName) : "", bad = next === null; mf.classList.toggle("is-error", bad); error.hidden = !bad; if (next !== null)
@@ -522,10 +522,10 @@ export const initProCanvasUi = (deps) => {
                     series.expr2 = ""; if (series.kind === "points" && series.points === undefined)
                     series.points = ""; plotDetailsOpen.add(detailsKey); plotCardSignature = ""; debouncePlotCompile(); render(); };
                 kindLabel.append(kindSelect);
-                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field(uiText("Domain min", "定義域 最小"), series.domain === null ? "" : String(series.domain.min), "number", value => { var _a; var _b; const n = Number(value); if (!value.trim())
+                const defaults = kind === "fn" ? { min: object.axis.xmin, max: object.axis.xmax } : { min: 0, max: 2 * Math.PI }, dmin = field(uiText("Domain min", "定義域 最小"), series.domain === null ? "" : String(series.domain.min), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
                     series.domain = null;
                 else if (Number.isFinite(n))
-                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field(uiText("Domain max", "定義域 最大"), series.domain === null ? "" : String(series.domain.max), "number", value => { var _a; var _b; const n = Number(value); if (!value.trim())
+                    series.domain = { min: n, max: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.max) !== null && _b !== void 0 ? _b : defaults.max }; }), dmax = field(uiText("Domain max", "定義域 最大"), series.domain === null ? "" : String(series.domain.max), "number", value => { var _a, _b; const n = Number(value); if (!value.trim())
                     series.domain = null;
                 else if (Number.isFinite(n))
                     series.domain = { min: (_b = (_a = series.domain) === null || _a === void 0 ? void 0 : _a.min) !== null && _b !== void 0 ? _b : defaults.min, max: n }; }), samples = field(uiText("Steps", "分割数"), String(series.samples), "number", value => series.samples = Math.max(2, Math.floor(Number(value) || 2))), legend = field(uiText("Legend", "凡例"), series.legend, "text", value => series.legend = value), thick = document.createElement("label"), thickInput = document.createElement("input");
@@ -952,8 +952,7 @@ export const initProCanvasUi = (deps) => {
             const objects = svgEl("g", { class: "pro-canvas-objects", "pointer-events": "all" });
             root.append(objects);
             const draw = (object, parent, interactive = true) => {
-                var _a;
-                var _b, _c, _d, _e, _f;
+                var _a, _b, _c, _d, _e, _f;
                 if (object.type === "group" || object.type === "instance") {
                     const t = object.transform, g = svgEl("g", { transform: `translate(${t.tx} ${t.ty}) rotate(${t.rotate}) scale(${t.sx} ${t.sy})` });
                     if (interactive)
@@ -1383,8 +1382,7 @@ export const initProCanvasUi = (deps) => {
         const cacheDragLines = () => { if (drag && ["move", "resize", "draw"].includes(drag.kind))
             drag.lines = collectSnapLines(currentObjects().filter(o => !selection.ids.has(o.id)).map(o => objectBounds(o, scene)), scene); };
         svg.addEventListener("pointerdown", e => {
-            var _a;
-            var _b;
+            var _a, _b;
             flushWheelUndo();
             const target = e.target, client = { x: e.clientX, y: e.clientY };
             if (space) {
@@ -1555,8 +1553,7 @@ export const initProCanvasUi = (deps) => {
             render();
         });
         svg.addEventListener("pointermove", e => {
-            var _a;
-            var _b, _c, _d;
+            var _a, _b, _c, _d;
             if (penDrag) {
                 const cursor = rawPoint(e);
                 penDrag.handle = Math.hypot(e.clientX - penDrag.startClient.x, e.clientY - penDrag.startClient.y) >= 4 ? { x: cursor.x - penDrag.anchor.x, y: cursor.y - penDrag.anchor.y } : null;
@@ -1741,8 +1738,7 @@ export const initProCanvasUi = (deps) => {
             scheduleCompile();
         } });
         svg.addEventListener("pointerup", e => {
-            var _a;
-            var _b;
+            var _a, _b;
             const completed = drag, changed = Boolean((completed === null || completed === void 0 ? void 0 : completed.moved) && ["move", "resize", "rotate", "anchor", "bend"].includes(completed.kind));
             const drawn = (completed === null || completed === void 0 ? void 0 : completed.kind) === "draw" && completed.id ? currentObjects().find(item => item.id === completed.id) : null, plotDrawn = (drawn === null || drawn === void 0 ? void 0 : drawn.type) === "plot" ? drawn : null;
             if (plotDrawn && !completed.moved) {
@@ -1855,8 +1851,7 @@ export const initProCanvasUi = (deps) => {
         const cloneWithNewIds = (object) => { const copy = JSON.parse(JSON.stringify(object)); const renew = (item) => { item.id = newObjectId(); if (item.type === "group")
             item.children.forEach(renew); }; renew(copy); return copy; };
         const onKey = (e) => {
-            var _a;
-            var _b;
+            var _a, _b;
             if (editingNodeId)
                 return;
             const target = e.target;
@@ -2167,7 +2162,7 @@ export const initProCanvasUi = (deps) => {
             render();
             editCode(object);
         } };
-        svg.addEventListener("dblclick", e => { var _a; var _b; if (tool !== "select")
+        svg.addEventListener("dblclick", e => { var _a, _b; if (tool !== "select")
             return; const id = (_a = e.target.closest("[data-id]")) === null || _a === void 0 ? void 0 : _a.dataset.id, object = (_b = (id ? walk(currentObjects(), id) : null)) !== null && _b !== void 0 ? _b : (selection.ids.size === 1 ? walk(currentObjects(), selection.primaryId) : null); if (object) {
             activateForEdit(object);
             e.preventDefault();

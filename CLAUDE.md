@@ -65,7 +65,7 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 - `electron/services/openprism/` — AI エージェントループ（`run-loop.cjs` / `tools.cjs` / `llm-config.cjs` / `arxiv-service.cjs`）。
 - `electron/services/agent-*.cjs` — エージェントのプロンプト・ツール実行・編集安全ガード（`agent-tools-file.cjs` に編集の決定的ガード）。
-- `electron/services/env.cjs` — managed TeX 環境の `scheme-full` インストールと環境判定（`detectEnvironment`）。判定の純粋ロジックは `tex-detect.cjs`。
+- `electron/services/env.cjs` — managed TeX 環境の軽量導入・不足パッケージ自動補完・`scheme-full` 昇格と環境判定（`detectEnvironment`）。判定の純粋ロジックは `tex-detect.cjs`。
 - `electron/services/texlab/` — texlab プロセスの spawn と JSON-RPC over stdio の中継。
 - `electron/services/{build,synctex,spell,math-ocr,terminal,indexer,search}.cjs` — ビルド / SyncTeX / スペル / 数式OCR / ターミナル / 索引 / 検索。
 - `web-src/math/wysiwyg/` — 数式 WYSIWYG サジェスト（コア機能）。`triggers-data/manual-part-*.ts` がトリガー辞書。
@@ -132,15 +132,14 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 
 ### TeX 環境（managed install）
 
-- **ワンクリックで `scheme-full`（CTAN 全部）を一括導入**する。軽量版・段階導入・
-  初回のパッケージ選択 UI は作らない。
+- **TeX 未導入時はワンクリックで公式 TinyTeX-1 ベースの軽量環境を導入**し、すぐ最初の
+  ビルドへ進める。不足する `.sty` / `.cls` 等は managed `tlmgr` で自動補完して再ビルドする。
 - `EnvService.detectEnvironment()` が既存 TeX を検出し、十分ならそのまま使う。
   TeX64 が管理しない TeX へは書き込まない。
 - TeX が無い場合だけ初回ゲートを出し、`/Users/Shared/TeX64/texlive/<year>` へ
-  管理者権限なしで完全版を導入する。長い待ちは install-tl / tlmgr の実数値から作る
-  進捗バーと残り時間で伝える。
-- 旧開発版の `light` marker は `tlmgr install scheme-full` で一度だけ完全版へ昇格し、
-  marker を `full` に書き換える。新規の partial install は作らない。
+  管理者権限なしで軽量版を導入する。ダウンロード実数値から進捗バーと残り時間を出す。
+- managed `light` 環境は設定から `tlmgr install scheme-full` で完全版へ昇格でき、marker を
+  `full` に書き換える。完全版を軽量版へダウングレードしない。
 
 ### texlab LSP
 
