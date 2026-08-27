@@ -9,7 +9,10 @@ const functions = {
     floor: { n: 1, fn: Math.floor }, ceil: { n: 1, fn: Math.ceil }, round: { n: 1, fn: Math.round }, deg: { n: 1, fn: x => x * 180 / Math.PI }, rad: { n: 1, fn: x => x * Math.PI / 180 },
     min: { n: 2, fn: Math.min }, max: { n: 2, fn: Math.max }, mod: { n: 2, fn: (x, y) => x % y },
 };
-export const parseExpr = (src) => {
+/** `x^2` だけでなく、ユーザーが自然に入力する `y=x^2` / `f(x)=x^2` も受け付ける。 */
+export const normalizePlotExpression = (source) => source.trim().replace(/^(?:[xy]|[fgr]\s*\(\s*[xt]\s*\))\s*=\s*/i, "");
+export const parseExpr = (source) => {
+    const src = normalizePlotExpression(source);
     let at = 0;
     const ws = () => { while (/\s/.test(src[at] || ""))
         at++; }, take = (s) => { ws(); if (src.slice(at, at + s.length) !== s)

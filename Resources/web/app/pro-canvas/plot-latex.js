@@ -3,6 +3,7 @@ const bin = (op, a, b) => ({ k: "bin", op, a, b });
 export const latexToExpr = (latex, varName = "x") => {
     if (varName.length !== 1)
         return null;
+    latex = latex.trim().replace(/^(?:[xy]|[fgr]\s*(?:\\left)?\(\s*[xt]\s*(?:\\right)?\))\s*=\s*/i, "");
     let at = 0, pipeDepth = 0;
     const ws = () => { while (/\s/.test(latex[at] || ""))
         at++; }, take = (s) => { ws(); if (latex.slice(at, at + s.length) !== s)
