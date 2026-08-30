@@ -390,11 +390,13 @@ export const initBuildOpsUi = (
       ]);
       return;
     }
-    const editor = activeGroup.editor as {
+    const sourceGroup = [activeGroup, ...deps.getEditorGroups()].find(
+      (group) => group.currentFilePath === targetPath
+    );
+    const editor = sourceGroup?.editor as {
       getPosition?: () => { lineNumber: number; column: number };
-    };
-    const position =
-      activeGroup.currentFilePath === targetPath ? editor?.getPosition?.() : null;
+    } | null | undefined;
+    const position = editor?.getPosition?.() ?? null;
     const storedPosition = deps.getStoredCursorPosition(targetPath);
     const line = position?.lineNumber ?? storedPosition?.line ?? 1;
     const column = position?.column ?? storedPosition?.column ?? 1;
@@ -802,6 +804,9 @@ export const initBuildOpsUi = (
           x: payload.x ?? 0,
           y: payload.y ?? 0,
         };
+        if (pdfPath) {
+          syncPayload.pdfPath = pdfPath;
+        }
         if (payloadMeta) {
           syncPayload.sourceFile = payloadMeta.path;
           syncPayload.sourceLine = payloadMeta.line;

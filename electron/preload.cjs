@@ -103,6 +103,7 @@ const tdomApi = {
   status: async () => ipcRenderer.invoke("tex64:tdom:status"),
   stop: async () => ipcRenderer.invoke("tex64:tdom:stop"),
   push: async (payload) => ipcRenderer.invoke("tex64:tdom:push", payload),
+  focus: async (payload) => ipcRenderer.invoke("tex64:tdom:focus", payload),
   windowLive: async (payload) => ipcRenderer.invoke("tex64:tdom:window-live", payload),
 };
 const aiApi = {

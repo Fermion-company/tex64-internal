@@ -7,6 +7,18 @@ const PANEL_WIDTH_STORAGE_KEY = "tex64.sidebar.panelWidth.v1";
 const MIN_PANEL_WIDTH = 240;
 const MIN_EDITOR_WIDTH = 320;
 const SIDEBAR_RAIL_WIDTH = 52;
+const COLLAPSE_PANEL_WIDTH = 72;
+export const resolveSidebarDragLayout = (clientX, windowWidth) => {
+    const rawWidth = clientX - SIDEBAR_RAIL_WIDTH;
+    if (rawWidth <= COLLAPSE_PANEL_WIDTH) {
+        return { width: 0, collapse: true };
+    }
+    const maxPanelWidth = Math.max(MIN_PANEL_WIDTH, windowWidth - SIDEBAR_RAIL_WIDTH - MIN_EDITOR_WIDTH);
+    return {
+        width: Math.max(MIN_PANEL_WIDTH, Math.min(maxPanelWidth, rawWidth)),
+        collapse: false,
+    };
+};
 const clampPanelWidth = (width) => {
     const maxPanelWidth = Math.max(MIN_PANEL_WIDTH, window.innerWidth - SIDEBAR_RAIL_WIDTH - MIN_EDITOR_WIDTH);
     return Math.max(MIN_PANEL_WIDTH, Math.min(maxPanelWidth, width));
@@ -50,12 +62,20 @@ export const initSidebarResizer = (context, deps) => {
         let pendingClientX = 0;
         let rafId = null;
         let lastAppliedWidth = null;
+        let collapseOnRelease = false;
+        let expandedWidthBeforeDrag = null;
         const startResize = () => {
             var _a;
             if (isResizing) {
                 return;
             }
             isResizing = true;
+            lastAppliedWidth = null;
+            collapseOnRelease = false;
+            const sidebarPanel = context.dom.sidebarPanel;
+            expandedWidthBeforeDrag = sidebarPanel instanceof HTMLElement
+                ? sidebarPanel.getBoundingClientRect().width
+                : readStoredPanelWidth();
             resizer.classList.add("is-resizing");
             document.body.style.cursor = "col-resize";
             document.body.style.userSelect = "none";
@@ -74,7 +94,9 @@ export const initSidebarResizer = (context, deps) => {
             if (!isResizing) {
                 return;
             }
-            lastAppliedWidth = clampPanelWidth(pendingClientX - SIDEBAR_RAIL_WIDTH);
+            const layout = resolveSidebarDragLayout(pendingClientX, window.innerWidth);
+            lastAppliedWidth = layout.width;
+            collapseOnRelease = layout.collapse;
             applyPanelWidth(lastAppliedWidth);
             deps.layoutEditors();
         };
@@ -90,7 +112,7 @@ export const initSidebarResizer = (context, deps) => {
             }
         };
         const stopResize = () => {
-            var _a;
+            var _a, _b;
             if (!isResizing) {
                 return;
             }
@@ -98,6 +120,10 @@ export const initSidebarResizer = (context, deps) => {
             if (rafId !== null) {
                 window.cancelAnimationFrame(rafId);
                 rafId = null;
+                const layout = resolveSidebarDragLayout(pendingClientX, window.innerWidth);
+                lastAppliedWidth = layout.width;
+                collapseOnRelease = layout.collapse;
+                applyPanelWidth(lastAppliedWidth);
             }
             resizer.classList.remove("is-resizing");
             document.body.style.cursor = "";
@@ -109,9 +135,18 @@ export const initSidebarResizer = (context, deps) => {
                 editorHostSecondary.style.pointerEvents = "";
             }
             (_a = deps.setEditorsAutomaticLayout) === null || _a === void 0 ? void 0 : _a.call(deps, true);
-            deps.layoutEditors();
-            if (lastAppliedWidth !== null)
+            if (collapseOnRelease) {
+                const restoredWidth = clampPanelWidth((_b = expandedWidthBeforeDrag !== null && expandedWidthBeforeDrag !== void 0 ? expandedWidthBeforeDrag : readStoredPanelWidth()) !== null && _b !== void 0 ? _b : MIN_PANEL_WIDTH);
+                applyPanelWidth(restoredWidth);
+                storePanelWidth(restoredWidth);
+                deps.collapseSidebar();
+            }
+            else if (lastAppliedWidth !== null) {
                 storePanelWidth(lastAppliedWidth);
+            }
+            collapseOnRelease = false;
+            expandedWidthBeforeDrag = null;
+            deps.layoutEditors();
         };
         resizer.addEventListener("mousedown", startResize);
         resizer.addEventListener("mouseup", stopResize);

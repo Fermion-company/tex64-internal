@@ -6,6 +6,7 @@ export type PdfSyncPayload = {
   page: number;
   x: number;
   y: number;
+  pdfPath?: string;
   blockX?: number;
   blockY?: number;
   blockWidth?: number;
@@ -278,6 +279,15 @@ export const createViewer = (deps: ViewerDeps) => {
       const payload = { url, path };
       if (pdfViewerReady) {
         postPdfMessage({ type: "open", payload });
+        if (livePreview) {
+          postPdfMessage({ type: "live", payload: livePreview });
+        }
+        if (!pendingPdfSync?.pdfPath || pendingPdfSync.pdfPath === path) {
+          if (pendingPdfSync) {
+            postPdfMessage({ type: "sync", payload: pendingPdfSync });
+            pendingPdfSync = null;
+          }
+        }
       } else {
         pendingPdfOpen = payload;
       }
@@ -292,8 +302,12 @@ export const createViewer = (deps: ViewerDeps) => {
     if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
       return;
     }
-    if (!pdfViewerReady) {
+    if (
+      !pdfViewerReady ||
+      (payload.pdfPath !== undefined && payload.pdfPath !== pdfViewerPath)
+    ) {
       pendingPdfSync = payload;
+      ensurePdfFrame();
       return;
     }
     if (livePreview) {

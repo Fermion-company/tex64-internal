@@ -42,10 +42,35 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let boundEditor = null;
     let boundPath = null;
     let disposable = null;
+    let cursorDisposable = null;
     let queuedSessionKey = null;
     let queuedBuffers = new Map();
     let pendingPush = null;
     let pushing = false;
+    let latestInputAtEpochMs = 0;
+    const cursorOffset = (editor) => {
+        var _a, _b, _c, _d, _e, _f;
+        if (editor === void 0) { editor = (_b = (_a = currentProjectSource()) === null || _a === void 0 ? void 0 : _a.editor) !== null && _b !== void 0 ? _b : null; }
+        const position = (_c = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _c === void 0 ? void 0 : _c.call(editor);
+        const offset = position ? (_f = (_e = (_d = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _d === void 0 ? void 0 : _d.call(editor)) === null || _e === void 0 ? void 0 : _e.getOffsetAt) === null || _f === void 0 ? void 0 : _f.call(_e, position) : null;
+        return Number.isFinite(Number(offset)) ? Number(offset) : null;
+    };
+    const focusCurrent = () => {
+        if (!active || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
+            return;
+        // A character insertion moves the Monaco caret too. Let its 80ms source
+        // push finish first; otherwise a speculative warm against the old source
+        // can grab the resident chain just before the real edit arrives.
+        if (pushing || pendingPush || latestInputAtEpochMs) {
+            debouncedFocus();
+            return;
+        }
+        const offset = cursorOffset();
+        if (offset == null)
+            return;
+        void bridge.focus({ offset }).catch(() => { });
+    };
+    const debouncedFocus = createDebouncedTask(focusCurrent, 160);
     // Flip every PDF surface (both editor groups' viewers + the separate PDF
     // window) into or out of live mode. Idempotent; the surfaces themselves
     // re-apply the state when they (re)open.
@@ -146,6 +171,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                     rootFile,
                     buffers: [...buffers].map(([path, text]) => ({ path, text })),
                     fresh: sessionKey !== queuedSessionKey,
+                    clientEditAtEpochMs: latestInputAtEpochMs || undefined,
                 },
             };
         }
@@ -155,7 +181,12 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return {
             sessionKey: `legacy\0${current.path}`,
             buffers: new Map([[current.path, source]]),
-            payload: { source, path: current.path, fresh: `legacy\0${current.path}` !== queuedSessionKey },
+            payload: {
+                source,
+                path: current.path,
+                fresh: `legacy\0${current.path}` !== queuedSessionKey,
+                clientEditAtEpochMs: latestInputAtEpochMs || undefined,
+            },
         };
     };
     const retireObsoleteSession = (nextSessionKey) => {
@@ -204,6 +235,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                     liveSessionKey = snapshot.sessionKey;
                     distributeLive(engineUrl, liveGeneration);
                 }
+                if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs)
+                    latestInputAtEpochMs = 0;
                 attemptedSnapshot = null;
             }
         }
@@ -273,12 +306,22 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (nextEditor === boundEditor && nextPath === boundPath)
             return;
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
+        cursorDisposable === null || cursorDisposable === void 0 ? void 0 : cursorDisposable.dispose();
         disposable = null;
+        cursorDisposable = null;
         boundEditor = nextEditor;
         boundPath = nextPath;
-        if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeModelContent)
-            disposable = boundEditor.onDidChangeModelContent(debouncedPush);
+        if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeModelContent) {
+            disposable = boundEditor.onDidChangeModelContent(() => {
+                latestInputAtEpochMs = Date.now();
+                debouncedPush();
+            });
+        }
+        if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeCursorPosition) {
+            cursorDisposable = boundEditor.onDidChangeCursorPosition(debouncedFocus);
+        }
         debouncedPush();
+        debouncedFocus();
     };
     const start = async () => {
         if (!(bridge === null || bridge === void 0 ? void 0 : bridge.start) || starting || !currentSnapshot())
@@ -309,8 +352,11 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
+        debouncedFocus.cancel();
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
+        cursorDisposable === null || cursorDisposable === void 0 ? void 0 : cursorDisposable.dispose();
         disposable = null;
+        cursorDisposable = null;
         boundEditor = null;
         boundPath = null;
         queuedSessionKey = null;

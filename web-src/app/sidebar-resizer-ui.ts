@@ -2,6 +2,7 @@ import type { AppContext } from "./context.js";
 
 type SidebarResizerDeps = {
   layoutEditors: () => void;
+  collapseSidebar: () => void;
   // Toggle Monaco automaticLayout so it doesn't re-layout in parallel with our
   // throttled manual layout during a drag (best-effort; no-op if unsupported).
   setEditorsAutomaticLayout?: (enabled: boolean) => void;
@@ -20,6 +21,30 @@ const PANEL_WIDTH_STORAGE_KEY = "tex64.sidebar.panelWidth.v1";
 const MIN_PANEL_WIDTH = 240;
 const MIN_EDITOR_WIDTH = 320;
 const SIDEBAR_RAIL_WIDTH = 52;
+const COLLAPSE_PANEL_WIDTH = 72;
+
+export type SidebarDragLayout = {
+  width: number;
+  collapse: boolean;
+};
+
+export const resolveSidebarDragLayout = (
+  clientX: number,
+  windowWidth: number
+): SidebarDragLayout => {
+  const rawWidth = clientX - SIDEBAR_RAIL_WIDTH;
+  if (rawWidth <= COLLAPSE_PANEL_WIDTH) {
+    return { width: 0, collapse: true };
+  }
+  const maxPanelWidth = Math.max(
+    MIN_PANEL_WIDTH,
+    windowWidth - SIDEBAR_RAIL_WIDTH - MIN_EDITOR_WIDTH
+  );
+  return {
+    width: Math.max(MIN_PANEL_WIDTH, Math.min(maxPanelWidth, rawWidth)),
+    collapse: false,
+  };
+};
 
 const clampPanelWidth = (width: number): number => {
   const maxPanelWidth = Math.max(
@@ -72,12 +97,20 @@ export const initSidebarResizer = (
     let pendingClientX = 0;
     let rafId: number | null = null;
     let lastAppliedWidth: number | null = null;
+    let collapseOnRelease = false;
+    let expandedWidthBeforeDrag: number | null = null;
 
     const startResize = () => {
       if (isResizing) {
         return;
       }
       isResizing = true;
+      lastAppliedWidth = null;
+      collapseOnRelease = false;
+      const sidebarPanel = context.dom.sidebarPanel;
+      expandedWidthBeforeDrag = sidebarPanel instanceof HTMLElement
+        ? sidebarPanel.getBoundingClientRect().width
+        : readStoredPanelWidth();
       resizer.classList.add("is-resizing");
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
@@ -97,7 +130,9 @@ export const initSidebarResizer = (
       if (!isResizing) {
         return;
       }
-      lastAppliedWidth = clampPanelWidth(pendingClientX - SIDEBAR_RAIL_WIDTH);
+      const layout = resolveSidebarDragLayout(pendingClientX, window.innerWidth);
+      lastAppliedWidth = layout.width;
+      collapseOnRelease = layout.collapse;
       applyPanelWidth(lastAppliedWidth);
       deps.layoutEditors();
     };
@@ -122,6 +157,10 @@ export const initSidebarResizer = (
       if (rafId !== null) {
         window.cancelAnimationFrame(rafId);
         rafId = null;
+        const layout = resolveSidebarDragLayout(pendingClientX, window.innerWidth);
+        lastAppliedWidth = layout.width;
+        collapseOnRelease = layout.collapse;
+        applyPanelWidth(lastAppliedWidth);
       }
       resizer.classList.remove("is-resizing");
       document.body.style.cursor = "";
@@ -133,8 +172,19 @@ export const initSidebarResizer = (
         editorHostSecondary.style.pointerEvents = "";
       }
       deps.setEditorsAutomaticLayout?.(true);
+      if (collapseOnRelease) {
+        const restoredWidth = clampPanelWidth(
+          expandedWidthBeforeDrag ?? readStoredPanelWidth() ?? MIN_PANEL_WIDTH
+        );
+        applyPanelWidth(restoredWidth);
+        storePanelWidth(restoredWidth);
+        deps.collapseSidebar();
+      } else if (lastAppliedWidth !== null) {
+        storePanelWidth(lastAppliedWidth);
+      }
+      collapseOnRelease = false;
+      expandedWidthBeforeDrag = null;
       deps.layoutEditors();
-      if (lastAppliedWidth !== null) storePanelWidth(lastAppliedWidth);
     };
 
     resizer.addEventListener("mousedown", startResize);

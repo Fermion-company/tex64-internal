@@ -152,6 +152,14 @@ test("clicking Jump from a PDF tab sends the last built TeX cursor to native Syn
       composingFilePath: null,
       pendingCompositionAction: null,
     };
+    const sourceGroup = {
+      ...activeGroup,
+      key: "primary",
+      currentFilePath: "book.tex",
+      openTabs: ["book.tex"],
+      editor: { getPosition: () => ({ lineNumber: 42, column: 7 }) },
+      viewer: { getViewerMode: () => "hidden", syncPdf: () => {} },
+    };
     const { initBuildOpsUi } = await import("../Resources/web/app/build-ops-ui.js");
     const api = initBuildOpsUi(
       { dom: { buildButton: null, formatButton: null, synctexButton: jumpButton, issuesLog: null, issuesLogContent: null } },
@@ -162,14 +170,14 @@ test("clicking Jump from a PDF tab sends the last built TeX cursor to native Syn
         getRootFilePath: () => "main.tex",
         getLastBuildMainFile: () => "book.tex",
         setLastBuildMainFile: () => {},
-        getStoredCursorPosition: (path) => path === "book.tex" ? { line: 42, column: 7 } : null,
+        getStoredCursorPosition: () => null,
         cacheCurrentBuffer: () => {},
         saveCurrentFile: async () => true,
         postToNative: (payload) => { sent.push(payload); return true; },
         updateIssues: () => {},
         setPendingBuildIssuesFocus: () => {},
         applyFormattedContent: () => {},
-        getEditorGroups: () => [activeGroup],
+        getEditorGroups: () => [sourceGroup, activeGroup],
         renderEditorTabs: () => {},
         requestOpenFile: () => true,
         getSplitViewEnabled: () => true,
@@ -203,6 +211,7 @@ test("clicking Jump from a PDF tab sends the last built TeX cursor to native Syn
       page: 3,
       x: 120,
       y: 240,
+      pdfPath: "book.pdf",
       sourceFile: "book.tex",
       sourceLine: 42,
       sourceColumn: 7,

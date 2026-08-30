@@ -7,6 +7,7 @@ import http from "node:http";
 
 let source = "";
 const edits = [];
+const warms = [];
 
 const readBody = (req) => new Promise((resolve) => {
   const chunks = [];
@@ -17,7 +18,12 @@ const readBody = (req) => new Promise((resolve) => {
 const server = http.createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   if (req.method === "GET" && req.url === "/status") return res.end(JSON.stringify({ ok: true, mode: "structured" }));
-  if (req.method === "GET" && req.url === "/doc") return res.end(JSON.stringify({ source, edits }));
+  if (req.method === "GET" && req.url === "/doc") return res.end(JSON.stringify({ source, edits, warms }));
+  if (req.method === "POST" && req.url === "/warm") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    warms.push({ offset: Number(body.offset) });
+    return res.end(JSON.stringify({ scheduled: true }));
+  }
   if (req.method === "POST" && req.url === "/open") {
     const body = JSON.parse((await readBody(req)) || "{}");
     source = typeof body.text === "string" ? body.text : "";
@@ -38,6 +44,9 @@ const server = http.createServer(async (req, res) => {
       start: body.start,
       end: body.end,
       text: body.text,
+      ...(Number.isFinite(Number(body.clientEditAtEpochMs))
+        ? { clientEditAtEpochMs: Number(body.clientEditAtEpochMs) }
+        : {}),
       ...(Array.isArray(body.overlays) ? { overlays: body.overlays } : {}),
       ...(Array.isArray(body.removeOverlays) ? { removeOverlays: body.removeOverlays } : {}),
     });
