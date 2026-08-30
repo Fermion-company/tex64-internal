@@ -18,8 +18,10 @@ const TestRange = class Range {
 
 test("TeX delimiters replace Monaco's plain closer", () => {
   assert.deepEqual(planTexDelimiterCompletion("[", "\\[", "]"), {
-    text: "\\]",
+    text: "\n  \n\\]",
     replaceLength: 1,
+    cursorLineDelta: 1,
+    cursorColumn: 3,
   });
   assert.deepEqual(planTexDelimiterCompletion("(", "text \\(", ")"), {
     text: "\\)",
@@ -39,7 +41,7 @@ test("environment completion creates one indented blank body line", () => {
   assert.equal(planEnvironmentCompletion("\\begin{align}", " trailing"), null);
 });
 
-test("typing a TeX display opener leaves the caret between \\[ and \\]", () => {
+test("typing a TeX display opener creates a blank body line and moves the caret into it", () => {
   let onDidType = null;
   const edits = [];
   const positions = [];
@@ -60,9 +62,9 @@ test("typing a TeX display opener leaves the caret between \\[ and \\]", () => {
   onDidType("[");
 
   assert.equal(edits[0].source, "ergo-tex-delimiter");
-  assert.equal(edits[0].text, "\\]");
+  assert.equal(edits[0].text, "\n  \n\\]");
   assert.deepEqual(edits[0].range, new TestRange(1, 3, 1, 4));
-  assert.deepEqual(positions[0], { lineNumber: 1, column: 3 });
+  assert.deepEqual(positions[0], { lineNumber: 2, column: 3 });
 });
 
 test("typing the final environment brace inserts body and places the caret in it", () => {
