@@ -63,7 +63,6 @@ const GUEST_EVENTS = new Set([
     "platform:auth",
     "platform:aiAccess",
     "platform:usage",
-    "livePreview",
 ]);
 const GUEST_CHANNEL = "tex64-ai-host";
 const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
@@ -222,13 +221,11 @@ export const initAiModeUi = (deps) => {
         "platform:auth",
         "platform:aiAccess",
         "platform:usage",
-        "livePreview",
     ];
     const sticky = new Map();
     const WORKSPACE_BOUND_STICKY_EVENTS = new Set([
         "agent:state",
         "setBuildState",
-        "livePreview",
     ]);
     let currentWorkspaceScope = {};
     let currentUrl = "";

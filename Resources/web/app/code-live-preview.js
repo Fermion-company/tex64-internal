@@ -1,7 +1,8 @@
-// Real-time preview for Code and AI modes (settings > Build > Preview).
+// Real-time preview for Code mode (settings > Build > Preview).
 // TDOM owns incremental compilation only. Every landed PDF is handed to the
-// same PDF.js surface each mode already uses for an ordinary build; there is
-// no live-only iframe, toolbar, window, or page interaction model.
+// same PDF.js surface Code already uses for an ordinary build; there is no
+// live-only iframe, toolbar, window, or page interaction model. AI mode keeps
+// its normal build-backed paper view and never receives TDOM snapshots.
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 const createDebouncedTask = (task, delayMs) => {
     let timer = null;
@@ -21,7 +22,7 @@ const createDebouncedTask = (task, delayMs) => {
     return schedule;
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, openCodePreview, deliverAiPreview, }) => {
+export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, openCodePreview, }) => {
     const bridge = window.tex64Tdom;
     let active = false;
     let starting = false;
@@ -70,13 +71,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const groups = getEditorGroups();
         for (const group of groups)
             group.viewer.setLivePreview(snapshot);
-        const mode = getAppMode();
         if (snapshot &&
-            mode === "code" &&
             !groups.some((group) => group.openTabs.includes(snapshot.path))) {
             openCodePreview(snapshot);
         }
-        deliverAiPreview(mode === "ai" ? snapshot : null);
     };
     const showLiveError = (message) => console.warn("[live-preview]", message);
     const currentProjectSource = () => {
@@ -118,12 +116,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             const rootInsideWorkspace = projectRelative(rootFile);
             const currentRelative = projectRelative(current === null || current === void 0 ? void 0 : current.path);
             // Code must stream the open root even before its dirty marker settles.
-            // AI edits files on disk, so a clean Monaco model there must not mask
-            // the newer root mtime with the stale buffer left from Code mode.
-            // Non-root files remain dirty-only overlays in both modes.
+            // Non-root files remain dirty-only overlays.
             if (current &&
-                (current.group.isDirty ||
-                    (getAppMode() !== "ai" && currentRelative === rootInsideWorkspace))) {
+                (current.group.isDirty || currentRelative === rootInsideWorkspace)) {
                 buffers.set(current.path, (_c = (_b = (_a = current.editor).getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : "");
             }
             const sessionKey = `${workspaceRoot}\0${rootFile}`;
@@ -295,8 +290,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             debouncedPush();
             return;
         }
-        if (getAppMode() !== "ai" &&
-            snapshot.sessionKey === queuedSessionKey &&
+        if (snapshot.sessionKey === queuedSessionKey &&
             sameBuffers(snapshot.buffers, queuedBuffers))
             return;
         queuedSessionKey = snapshot.sessionKey;
@@ -400,7 +394,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     const refresh = () => {
         const mode = getAppMode();
         applyActive(editorSettings.isEnabled("preview.realtime") &&
-            (mode === "code" || mode === "ai"));
+            mode === "code");
         if (active) {
             if (!engineStarted && !starting)
                 void start();
@@ -415,8 +409,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             if (snapshot)
                 retireObsoleteSession(snapshot.sessionKey);
             if (snapshot &&
-                (mode === "ai" ||
-                    snapshot.sessionKey !== queuedSessionKey ||
+                (snapshot.sessionKey !== queuedSessionKey ||
                     !sameBuffers(snapshot.buffers, queuedBuffers)))
                 debouncedPush();
             if (livePdf)

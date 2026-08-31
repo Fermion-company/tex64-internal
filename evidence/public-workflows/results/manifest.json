@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "fixtureFamily": "tex64-public-workflows-v1",
+  "implementationCommit": "163a7ca12d0bed2f5bb7db6261057c5153fb90e8",
+  "generatedBy": "scripts/generate-public-workflow-evidence.cjs",
+  "environment": {
+    "node": "v24.8.0",
+    "platform": "darwin-arm64",
+    "sourceDateEpoch": "1788105600",
+    "latexmk": "Latexmk, John Collins, 31 Jan. 2024. Version 4.83",
+    "pdfTeX": "pdfTeX 3.141592653-2.6-1.40.26 (TeX Live 2024)",
+    "git": "git version 2.50.1 (Apple Git-155)"
+  },
+  "rights": {
+    "authoredFixtures": "Copyright Fermion Inc.; published for verification with this evidence package",
+    "arxivMetadata": "CC0 metadata only; no article PDF or source is included",
+    "thirdPartyCorpus": "not included"
+  },
+  "files": [
+    {
+      "path": "fixtures/citation/arxiv-response.meta.json",
+      "bytes": 400,
+      "sha256": "51143261ad2ad52a23bf6220875da61738ec9ff6621198f68a4fe7479d069971"
+    },
+    {
+      "path": "fixtures/citation/arxiv-response.xml",
+      "bytes": 2965,
+      "sha256": "cb4480b5fd5c773c6fefd14621535e4296b1c3e6dc1e2b5824eeed0312df6bca"
+    },
+    {
+      "path": "fixtures/citation/documents/citation/main.tex",
+      "bytes": 390,
+      "sha256": "05d8d036bbecf9dc299b923dfc17765a01f45f8baf2417b7984aba917c6bbc2e"
+    },
+    {
+      "path": "fixtures/citation/main.tex",
+      "bytes": 113,
+      "sha256": "86221e7c9ffacaedd1c7c19fe793f07f04574632cf8e624dca3223ac35f69102"
+    },
+    {
+      "path": "fixtures/repair/documents/repair/main.tex",
+      "bytes": 380,
+      "sha256": "73d1a0849282a21dc2d2e57baba6e437b563d26b7b6be1341596f8060d5850f8"
+    },
+    {
+      "path": "fixtures/repair/main.tex",
+      "bytes": 113,
+      "sha256": "86221e7c9ffacaedd1c7c19fe793f07f04574632cf8e624dca3223ac35f69102"
+    },
+    {
+      "path": "fixtures/review/documents/paper/main.tex",
+      "bytes": 401,
+      "sha256": "eb981af1706acaad17163fe05b645c486348d052c6ef453c4f8fdaf2a7358057"
+    },
+    {
+      "path": "fixtures/review/main.tex",
+      "bytes": 130,
+      "sha256": "a44ab98b915df39240a5c713d538e217c334bf066bb7a84d14f3441aee69b4fc"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1324,
+      "sha256": "f6ab07cd17061e133556e8b47c8ab2a44a51ef2b6eec9fd0009c2ec4414fca7d"
+    },
+    {
+      "path": "results/artifacts/arxiv-citation.pdf",
+      "bytes": 42700,
+      "sha256": "4d2430c6b882006f87f9af91339d1ddc1fe757129f80577d3db42f83ffadd8b7"
+    },
+    {
+      "path": "results/artifacts/axiom-repair.pdf",
+      "bytes": 24645,
+      "sha256": "f6a8f835f57d97a1f13dad9dfd5210a913b19d0e901dcd619291898461c925d2"
+    },
+    {
+      "path": "results/artifacts/axiom-review-done.pdf",
+      "bytes": 41040,
+      "sha256": "2ddbfe95bc3491d1d2b0d0f3294f1ddf4597c94b44fd0bc6a8c21d21905788b9"
+    },
+    {
+      "path": "results/artifacts/axiom-review-undo.pdf",
+      "bytes": 28642,
+      "sha256": "1b82480be847e98133c8cdfb890e980cdeedbe7bc5608ed117549b83e8f76f26"
+    },
+    {
+      "path": "results/artifacts/editor-exit-tex64.pdf",
+      "bytes": 41040,
+      "sha256": "2ddbfe95bc3491d1d2b0d0f3294f1ddf4597c94b44fd0bc6a8c21d21905788b9"
+    },
+    {
+      "path": "results/artifacts/editor-exit-texshop.pdf",
+      "bytes": 41040,
+      "sha256": "2ddbfe95bc3491d1d2b0d0f3294f1ddf4597c94b44fd0bc6a8c21d21905788b9"
+    },
+    {
+      "path": "results/arxiv-citation.applied.tex",
+      "bytes": 441,
+      "sha256": "6ba97ad64251bb9cd7adb4b60a668faf3a9fddcf1c00e8bde8a527fa82a57754"
+    },
+    {
+      "path": "results/arxiv-citation.diff",
+      "bytes": 466,
+      "sha256": "eafc7457fc9ea9a93c9cdb5483b7475182dde26bcc4714f592b12e29210589c5"
+    },
+    {
+      "path": "results/arxiv-citation.json",
+      "bytes": 5839,
+      "sha256": "ffdb0adb258ef9962cedf5670c89f7931ede07d739ef2db85afbf6fa0460b479"
+    },
+    {
+      "path": "results/arxiv-citation.refs.bib",
+      "bytes": 279,
+      "sha256": "af45aa1da4b7e462106bdd071a4b571f5b94ede2f378062643fc8851ef4e67fc"
+    },
+    {
+      "path": "results/axiom-repair.applied.tex",
+      "bytes": 385,
+      "sha256": "f4e90bc6b2ab81eb903321194e7202e1cbf8cb7d56fe4f75431242db5397c22f"
+    },
+    {
+      "path": "results/axiom-repair.diff",
+      "bytes": 432,
+      "sha256": "e0ba84aa72b68f5b678a067e0c18fefb6cbe3cd89eef75dfd78b9b115b894960"
+    },
+    {
+      "path": "results/axiom-repair.json",
+      "bytes": 4591,
+      "sha256": "36cdcf4b67d24e81a4e842baba8bf9b4bb52d477e1362c3c2771c342a5f05026"
+    },
+    {
+      "path": "results/axiom-review.applied.tex",
+      "bytes": 401,
+      "sha256": "b9b9aeb0b5643c998e4c5d5e3ad92328ccfa7abbc4605df73644315b3d002db7"
+    },
+    {
+      "path": "results/axiom-review.diff",
+      "bytes": 416,
+      "sha256": "2e4ec1e376bfce72389d030be63aa82b47fd4c9d9316da1638d4711bbd948a4b"
+    },
+    {
+      "path": "results/axiom-review.json",
+      "bytes": 2271,
+      "sha256": "5b3603c33acabee05b58c88837450909e540e7664b8a5b5e7a2fca5fd7a4f60f"
+    },
+    {
+      "path": "results/editor-exit-test.diff",
+      "bytes": 402,
+      "sha256": "8d5309ca72b5e80c4a6b3a30d0e2a6b60f2f2ddfcbeb933df22ef420921fdbbb"
+    },
+    {
+      "path": "results/editor-exit-test.json",
+      "bytes": 1969,
+      "sha256": "1f9c7cfa09ff6cc1ea8ca73b255fb84e60dd02072c373a4909626a292037b942"
+    },
+    {
+      "path": "results/math-suggest-regression.json",
+      "bytes": 1337,
+      "sha256": "62babbb2de8ae7245ce5ef901d9bef0624e7e32188f5b058e568a09f70d8ef17"
+    }
+  ]
+}

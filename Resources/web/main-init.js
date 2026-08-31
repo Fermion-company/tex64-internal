@@ -531,22 +531,6 @@ export const initMain = () => {
                     },
                 });
             },
-            deliverAiPreview: (snapshot) => {
-                aiModeApi.deliver({
-                    type: "livePreview",
-                    payload: snapshot
-                        ? {
-                            active: true,
-                            path: snapshot.path,
-                            mainFile: snapshot.mainFile,
-                            data: snapshot.data,
-                            mimeType: snapshot.mimeType,
-                            generation: snapshot.generation,
-                            documentEpoch: snapshot.documentEpoch,
-                        }
-                        : { active: false },
-                });
-            },
         });
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInCodeEditor = (path, line) => {

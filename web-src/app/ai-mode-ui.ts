@@ -76,7 +76,6 @@ const GUEST_EVENTS: ReadonlySet<string> = new Set([
   "platform:auth",
   "platform:aiAccess",
   "platform:usage",
-  "livePreview",
 ]);
 
 const GUEST_CHANNEL = "tex64-ai-host";
@@ -291,13 +290,11 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     "platform:auth",
     "platform:aiAccess",
     "platform:usage",
-    "livePreview",
   ] as const;
   const sticky = new Map<string, { type: string; payload?: unknown }>();
   const WORKSPACE_BOUND_STICKY_EVENTS = new Set([
     "agent:state",
     "setBuildState",
-    "livePreview",
   ]);
   let currentWorkspaceScope: WorkspaceRequestScope = {};
   let currentUrl = "";

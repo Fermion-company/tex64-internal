@@ -53,13 +53,6 @@ export type TargetBuildState = {
   requestId: string | null;
 };
 type LoadedPdf = { key: string; scopeKey: string; url: string };
-type LoadedLivePdf = {
-  mainFile: string;
-  path: string;
-  generation: number;
-  documentEpoch: number;
-  url: string;
-};
 type WorkspacePdfCatalog = { sessionKey: string; paths: string[] };
 
 const MAX_NATIVE_PDF_BYTES = 32 * 1024 * 1024;
@@ -261,8 +254,6 @@ export function useWorkspacePdf(
   const [pdfCatalog, setPdfCatalog] = useState<WorkspacePdfCatalog | null>(null);
   const [loadedPdf, setLoadedPdf] = useState<LoadedPdf | null>(null);
   const loadedPdfRef = useRef<LoadedPdf | null>(null);
-  const [livePdf, setLivePdf] = useState<LoadedLivePdf | null>(null);
-  const livePdfRef = useRef<LoadedLivePdf | null>(null);
   const [pdfLoadError, setPdfLoadError] = useState<{
     key: string;
     message: string;
@@ -272,13 +263,6 @@ export function useWorkspacePdf(
     () => getNativeHost() !== null,
     () => false,
   );
-  const replaceLivePdf = useCallback((next: LoadedLivePdf | null) => {
-    const previous = livePdfRef.current;
-    livePdfRef.current = next;
-    if (previous && previous.url !== next?.url) URL.revokeObjectURL(previous.url);
-    setLivePdf(next);
-  }, []);
-
   useEffect(() => {
     const host = getNativeHost();
     if (!host) return;
@@ -292,42 +276,11 @@ export function useWorkspacePdf(
           paths: pdfFilesFromWorkspace(body.files),
         });
         if (!sameWorkspaceSession(next, identityRef.current)) {
-          replaceLivePdf(null);
           identityRef.current = next;
           setIdentity(next);
           buildsRef.current = {};
           setBuilds({});
           setLastBuilt(null);
-        }
-        return;
-      }
-      if (message.type === "livePreview") {
-        if (body.active !== true) {
-          replaceLivePdf(null);
-          return;
-        }
-        const mainFile = normalizeWorkspaceMainFile(body.mainFile);
-        const pdfPath = normalizeWorkspaceRelativePath(body.path);
-        if (
-          !mainFile ||
-          !pdfPath?.toLowerCase().endsWith(".pdf") ||
-          typeof body.data !== "string" ||
-          !body.data
-        ) {
-          return;
-        }
-        try {
-          const bytes = decodeNativePdf(body.data, body.byteSize);
-          const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-          replaceLivePdf({
-            mainFile,
-            path: pdfPath,
-            generation: Number(body.generation) || 0,
-            documentEpoch: Number(body.documentEpoch) || 0,
-            url,
-          });
-        } catch {
-          // Keep the last valid page if a live transfer is incomplete.
         }
         return;
       }
@@ -405,7 +358,7 @@ export function useWorkspacePdf(
 
     host.send("workspace:state:get", {});
     return unsubscribe;
-  }, [replaceLivePdf]);
+  }, []);
 
   const currentMainFile = normalizeWorkspaceMainFile(currentDocument?.mainFile);
   const currentBuild = currentMainFile ? (builds[currentMainFile] ?? null) : null;
@@ -445,9 +398,6 @@ export function useWorkspacePdf(
       const loaded = loadedPdfRef.current;
       loadedPdfRef.current = null;
       if (loaded) URL.revokeObjectURL(loaded.url);
-      const live = livePdfRef.current;
-      livePdfRef.current = null;
-      if (live) URL.revokeObjectURL(live.url);
     };
   }, []);
 
@@ -529,15 +479,13 @@ export function useWorkspacePdf(
 
   // Keep the prior successfully loaded page while a newer build of the same
   // document is transferred. A workspace/document change never shares scope.
-  const currentLivePdf = livePdf?.mainFile === currentMainFile ? livePdf : null;
-  const url = currentLivePdf?.url ??
-    (scopeKey && loadedPdf?.scopeKey === scopeKey ? loadedPdf.url : null);
+  const url = scopeKey && loadedPdf?.scopeKey === scopeKey ? loadedPdf.url : null;
   const currentPdfLoadError =
     loadKey && pdfLoadError?.key === loadKey ? pdfLoadError.message : null;
 
   return {
     url,
-    path: currentLivePdf?.path ?? shown?.path ?? null,
+    path: shown?.path ?? null,
     building: currentBuild?.building ?? false,
     native,
     failure:

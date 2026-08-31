@@ -1,7 +1,8 @@
-// Real-time preview for Code and AI modes (settings > Build > Preview).
+// Real-time preview for Code mode (settings > Build > Preview).
 // TDOM owns incremental compilation only. Every landed PDF is handed to the
-// same PDF.js surface each mode already uses for an ordinary build; there is
-// no live-only iframe, toolbar, window, or page interaction model.
+// same PDF.js surface Code already uses for an ordinary build; there is no
+// live-only iframe, toolbar, window, or page interaction model. AI mode keeps
+// its normal build-backed paper view and never receives TDOM snapshots.
 
 import type { EditorGroupState } from "./editor-session/types.js";
 import type { BridgeWindow } from "./types.js";
@@ -45,7 +46,6 @@ export const initCodeLivePreview = ({
   getRootFile,
   getDirtyFileSnapshots,
   openCodePreview,
-  deliverAiPreview,
 }: {
   getActiveGroup: () => EditorGroupState;
   getEditorGroups: () => EditorGroupState[];
@@ -54,7 +54,6 @@ export const initCodeLivePreview = ({
   getRootFile: () => string | null;
   getDirtyFileSnapshots: () => DirtySnapshot[];
   openCodePreview: (snapshot: LivePdfSnapshot) => void;
-  deliverAiPreview: (snapshot: (LivePdfSnapshot & { mainFile: string }) | null) => void;
 }) => {
   const bridge = (window as BridgeWindow).tex64Tdom;
   let active = false;
@@ -105,15 +104,12 @@ export const initCodeLivePreview = ({
   const distributeLive = (snapshot: typeof livePdf) => {
     const groups = getEditorGroups();
     for (const group of groups) group.viewer.setLivePreview(snapshot);
-    const mode = getAppMode();
     if (
       snapshot &&
-      mode === "code" &&
       !groups.some((group) => group.openTabs.includes(snapshot.path))
     ) {
       openCodePreview(snapshot);
     }
-    deliverAiPreview(mode === "ai" ? snapshot : null);
   };
 
   const showLiveError = (message: string) => console.warn("[live-preview]", message);
@@ -154,13 +150,10 @@ export const initCodeLivePreview = ({
       const rootInsideWorkspace = projectRelative(rootFile);
       const currentRelative = projectRelative(current?.path);
       // Code must stream the open root even before its dirty marker settles.
-      // AI edits files on disk, so a clean Monaco model there must not mask
-      // the newer root mtime with the stale buffer left from Code mode.
-      // Non-root files remain dirty-only overlays in both modes.
+      // Non-root files remain dirty-only overlays.
       if (
         current &&
-        (current.group.isDirty ||
-          (getAppMode() !== "ai" && currentRelative === rootInsideWorkspace))
+        (current.group.isDirty || currentRelative === rootInsideWorkspace)
       ) {
         buffers.set(current.path, current.editor.getValue?.() ?? "");
       }
@@ -327,7 +320,6 @@ export const initCodeLivePreview = ({
       return;
     }
     if (
-      getAppMode() !== "ai" &&
       snapshot.sessionKey === queuedSessionKey &&
       sameBuffers(snapshot.buffers, queuedBuffers)
     ) return;
@@ -429,7 +421,7 @@ export const initCodeLivePreview = ({
     const mode = getAppMode();
     applyActive(
       editorSettings.isEnabled("preview.realtime") &&
-      (mode === "code" || mode === "ai"),
+      mode === "code",
     );
     if (active) {
       if (!engineStarted && !starting) void start();
@@ -444,8 +436,7 @@ export const initCodeLivePreview = ({
       if (snapshot) retireObsoleteSession(snapshot.sessionKey);
       if (
         snapshot &&
-        (mode === "ai" ||
-          snapshot.sessionKey !== queuedSessionKey ||
+        (snapshot.sessionKey !== queuedSessionKey ||
           !sameBuffers(snapshot.buffers, queuedBuffers))
       ) debouncedPush();
       if (livePdf) distributeLive(livePdf);

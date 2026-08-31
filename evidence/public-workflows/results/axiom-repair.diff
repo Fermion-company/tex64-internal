@@ -1,0 +1,11 @@
+Index: documents/repair/main.tex
+===================================================================
+--- documents/repair/main.tex	before
++++ documents/repair/main.tex	after
+@@ -6,5 +6,5 @@
+ \ifdefined\pdfvariable\pdfvariable suppressoptionalinfo 767\relax\fi
+ \begin{document}
+ \section*{Bounded repair fixture}
+-\undefinedEvidenceCommand{first compiler error}
++The bounded repair replaced one unsupported command.
+ \end{document}
