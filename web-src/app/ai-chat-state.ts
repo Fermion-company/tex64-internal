@@ -1,8 +1,6 @@
 import { uiText } from "./i18n.js";
 import type { AgentProposal } from "./types.js";
 
-export const AUTONOMOUS_LOOP_LIMIT = 100;
-
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
   text: string;
@@ -16,15 +14,11 @@ export type ChatState = {
   appliedProposalIds: Set<string>;
   statusMessage: string;
   hasUndo: boolean;
-  autonomous: boolean;
-  autoLoopBudget: number;
 };
 
 export const createChatState = (
   id: string,
-  title: string,
-  autonomous: boolean,
-  autoLoopBudget: number
+  title: string
 ): ChatState => ({
   id,
   title,
@@ -33,8 +27,6 @@ export const createChatState = (
   appliedProposalIds: new Set(),
   statusMessage: uiText("Waiting", "待機中"),
   hasUndo: false,
-  autonomous,
-  autoLoopBudget,
 });
 
 export const getChat = (
@@ -53,8 +45,6 @@ export const ensureChat = (options: {
   activeChatId: string | null;
   chats: ChatState[];
   chatIndex: Map<string, ChatState>;
-  defaultAutonomous: boolean;
-  defaultAutoLoopBudget: number;
   resolveChatTitle: (chatId: string) => string;
   onChatCreated?: () => void;
 }) => {
@@ -63,17 +53,13 @@ export const ensureChat = (options: {
     activeChatId,
     chats,
     chatIndex,
-    defaultAutonomous,
-    defaultAutoLoopBudget,
     resolveChatTitle,
     onChatCreated,
   } = options;
   if (chatId && !chatIndex.has(chatId)) {
     const chat = createChatState(
       chatId,
-      resolveChatTitle(chatId),
-      defaultAutonomous,
-      defaultAutoLoopBudget
+      resolveChatTitle(chatId)
     );
     chats.push(chat);
     chatIndex.set(chatId, chat);
@@ -87,23 +73,17 @@ export const createChat = (options: {
   chatIndex: Map<string, ChatState>;
   makeChatId: () => string;
   resolveChatTitle: (chatId: string) => string;
-  defaultAutonomous: boolean;
-  defaultAutoLoopBudget: number;
 }) => {
   const {
     chats,
     chatIndex,
     makeChatId,
     resolveChatTitle,
-    defaultAutonomous,
-    defaultAutoLoopBudget,
   } = options;
   const id = makeChatId();
   const chat = createChatState(
     id,
-    resolveChatTitle(id),
-    defaultAutonomous,
-    defaultAutoLoopBudget
+    resolveChatTitle(id)
   );
   chats.push(chat);
   chatIndex.set(id, chat);

@@ -24,8 +24,31 @@ import type {
 } from "./types.js";
 import { uiText } from "./i18n.js";
 import type { FilePreviewResultPayload } from "./file-preview.js";
+import type { WorkspaceFileCacheScope } from "./file-preview.js";
 import type { FileExcerptResultPayload } from "./file-excerpt.js";
-import type { LivePreviewEditPayload } from "./editor-session/types.js";
+
+const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
+
+const isAiModeAgentPayload = (payload: unknown): boolean => {
+  if (!payload || typeof payload !== "object") return false;
+  const body = payload as Record<string, unknown>;
+  const directId = body.conversationId;
+  if (
+    typeof directId === "string" &&
+    directId.startsWith(AI_MODE_CONVERSATION_PREFIX)
+  ) {
+    return true;
+  }
+  const proposal = body.proposal;
+  return Boolean(
+    proposal &&
+      typeof proposal === "object" &&
+      typeof (proposal as Record<string, unknown>).conversationId === "string" &&
+      ((proposal as Record<string, unknown>).conversationId as string).startsWith(
+        AI_MODE_CONVERSATION_PREFIX,
+      ),
+  );
+};
 
 type BridgeHandlersDeps = {
   bridgeWindow: BridgeWindow;
@@ -41,13 +64,15 @@ type BridgeHandlersDeps = {
   ) => void;
   handleWorkspaceUpdate: (payload: {
     rootName: string;
-    rootPath: string;
+    rootPath: string | null;
     files: string[];
     folders?: string[];
     rootFile?: string;
     rootSource?: RootSource;
     buildProfiles?: BuildProfile[];
     buildProfileId?: string;
+    workspaceId?: string | null;
+    workspaceGeneration?: number;
   }) => void;
   handleIndexUpdate: (payload: {
     labels?: IndexEntry[];
@@ -62,6 +87,12 @@ type BridgeHandlersDeps = {
   handleRecentProjects: (projects: { path: string; name: string; openedAt: number }[]) => void;
   app?: {
     handleCommand: (command: string) => void;
+  };
+  billing?: {
+    handleCheckoutClosed: (payload: {
+      plan?: string;
+      outcome?: "success" | "cancel" | "closed" | "error";
+    }) => void;
   };
   search: {
     handleSearchUpdate: (payload: {
@@ -89,6 +120,7 @@ type BridgeHandlersDeps = {
       content?: string;
       error?: string;
       source?: string;
+      stale?: boolean;
     }) => void;
     handleBuildLog: (log: string | null) => void;
     handleSynctexForwardResult: (payload: {
@@ -179,6 +211,10 @@ type BridgeHandlersDeps = {
       conversationId?: string;
     }) => void;
     handleError: (message: string, conversationId?: string) => void;
+    handleRequestRejected?: (payload: {
+      conversationId?: string;
+      message?: string;
+    }) => void;
   };
   api?: {
     handleUsage: (payload: { snapshot?: ApiUsageSnapshot }) => void;
@@ -223,6 +259,7 @@ type BridgeHandlersDeps = {
       kind?: "text" | "image" | "pdf" | "unsupported";
       data?: string;
       mimeType?: string;
+      livePreview?: { generation: number; documentEpoch: number };
     }) => void;
     handleSaveResult: (payload: {
       path: string;
@@ -239,15 +276,23 @@ type BridgeHandlersDeps = {
     applyContentToOpenFile: (
       path: string,
       content: string,
-      options?: { updateSaved?: boolean; showAiDiff?: boolean }
-    ) => void;
-    applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+      options?: {
+        updateSaved?: boolean;
+        showAiDiff?: boolean;
+        expectedContent?: string;
+        expectedFileMissing?: boolean;
+        fileDeleted?: boolean;
+        conversationId?: string;
+      }
+    ) => { handled: boolean; conflict: boolean };
   };
   filePreview?: {
     handlePreviewResult: (payload: FilePreviewResultPayload) => void;
+    setWorkspaceScope: (scope: WorkspaceFileCacheScope) => void;
   };
   fileExcerpt?: {
     handleExcerptResult: (payload: FileExcerptResultPayload) => void;
+    setWorkspaceScope: (scope: WorkspaceFileCacheScope) => void;
   };
 };
 
@@ -264,6 +309,8 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   };
 
   bridgeWindow.tex64UpdateWorkspace = (payload) => {
+    deps.filePreview?.setWorkspaceScope(payload);
+    deps.fileExcerpt?.setWorkspaceScope(payload);
     deps.handleWorkspaceUpdate(payload);
   };
 
@@ -304,22 +351,27 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   };
 
   bridgeWindow.tex64AgentStatus = (payload) => {
+    if (isAiModeAgentPayload(payload)) return;
     deps.agent?.handleStatus(payload.state, payload.message, payload.conversationId);
   };
 
   bridgeWindow.tex64AgentMessage = (payload) => {
+    if (isAiModeAgentPayload(payload)) return;
     deps.agent?.handleMessage(payload.text, payload.conversationId);
   };
 
   bridgeWindow.tex64AgentMessageDelta = (payload) => {
+    if (isAiModeAgentPayload(payload)) return;
     deps.agent?.handleMessageDelta?.(payload.text, payload.conversationId);
   };
 
   bridgeWindow.tex64AgentTool = (payload) => {
+    if (isAiModeAgentPayload(payload)) return;
     deps.agent?.handleTool(payload);
   };
 
   bridgeWindow.tex64AgentProposal = (payload) => {
+    if (isAiModeAgentPayload(payload)) return;
     deps.agent?.handleProposal(payload.proposal);
   };
 
@@ -328,6 +380,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   };
 
   bridgeWindow.tex64AgentError = (payload) => {
+    if (isAiModeAgentPayload(payload)) return;
     deps.agent?.handleError(payload.message, payload.conversationId);
   };
 
@@ -360,6 +413,8 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           rootSource?: RootSource;
           buildProfiles?: BuildProfile[];
           buildProfileId?: string;
+          workspaceId?: string | null;
+          workspaceGeneration?: number;
         });
         break;
       case "updateIndex":
@@ -406,6 +461,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         bridgeWindow.tex64SaveResult?.(message.payload as {
           path: string;
           ok: boolean;
+          busy?: boolean;
           error?: string;
           content?: string;
           formatError?: string;
@@ -418,6 +474,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           content?: string;
           error?: string;
           source?: string;
+          stale?: boolean;
         });
         break;
       case "buildLog":
@@ -428,9 +485,6 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "synctex:reverseResult":
         deps.build.handleSynctexReverseResult(message.payload as any);
-        break;
-      case "live-preview:edit":
-        deps.editorSession.applyLivePreviewEdit(message.payload as LivePreviewEditPayload);
         break;
       case "renameResult":
         bridgeWindow.tex64RenameResult?.(message.payload as {
@@ -484,7 +538,12 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         );
         break;
       case "agent:state":
-        deps.agent?.handleState?.(message.payload as AgentUiState);
+        // AI mode shares the renderer-wide host bus, but its request-correlated
+        // state belongs only to the embedded document workspace. Passing it to
+        // Code would replace Code's chat list with the AI document thread.
+        if (!isAiModeAgentPayload(message.payload)) {
+          deps.agent?.handleState?.(message.payload as AgentUiState);
+        }
         break;
       case "settings:request": {
         const payload = message.payload as {
@@ -531,6 +590,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       }
       case "agent:status":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleStatus(
           (message.payload as {
             state: AgentStatusState;
@@ -549,19 +609,28 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           }).conversationId
         );
         break;
+      case "agent:requestRejected":
+        if (isAiModeAgentPayload(message.payload)) break;
+        deps.agent?.handleRequestRejected?.(
+          message.payload as { conversationId?: string; message?: string },
+        );
+        break;
       case "agent:message":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleMessage(
           (message.payload as { text?: string; conversationId?: string }).text ?? "",
           (message.payload as { text?: string; conversationId?: string }).conversationId
         );
         break;
       case "agent:messageDelta":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleMessageDelta?.(
           (message.payload as { text?: string; conversationId?: string }).text ?? "",
           (message.payload as { text?: string; conversationId?: string }).conversationId
         );
         break;
       case "agent:tool":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleTool(
           message.payload as {
             name: string;
@@ -573,6 +642,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         );
         break;
       case "agent:proposal":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleProposal(
           (message.payload as { proposal: AgentProposal }).proposal
         );
@@ -588,6 +658,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         );
         break;
       case "agent:undoResult":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleUndoResult(
           message.payload as {
             ok: boolean;
@@ -598,6 +669,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         );
         break;
       case "agent:undoAvailability":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleUndoAvailability?.(
           message.payload as {
             conversationId?: string;
@@ -607,16 +679,19 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         );
         break;
       case "agent:scratchpad":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleScratchpad?.(
           message.payload as { content: string; conversationId?: string }
         );
         break;
       case "agent:thought":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleThought?.(
           message.payload as { text: string; conversationId?: string }
         );
         break;
       case "agent:error":
+        if (isAiModeAgentPayload(message.payload)) break;
         deps.agent?.handleError(
           (message.payload as { message?: string; conversationId?: string }).message ??
             uiText("Axiom error", "Axiom エラー"),
@@ -680,6 +755,14 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           }
         );
         break;
+      case "billing:checkoutClosed":
+        deps.billing?.handleCheckoutClosed(
+          message.payload as {
+            plan?: string;
+            outcome?: "success" | "cancel" | "closed" | "error";
+          }
+        );
+        break;
       case "app:command":
         deps.app?.handleCommand(
           (message.payload as { command?: string }).command ?? ""
@@ -692,14 +775,48 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         deps.fileExcerpt?.handleExcerptResult(message.payload as FileExcerptResultPayload);
         break;
       case "agent:applyContent":
-        deps.editorSession.applyContentToOpenFile(
-          (message.payload as { path?: string; content?: string }).path ?? "",
-          (message.payload as { path?: string; content?: string }).content ?? "",
+        {
+          const applyPayload = message.payload as {
+            path?: string;
+            content?: string;
+            expectedContent?: string;
+            expectedFileMissing?: boolean;
+            fileDeleted?: boolean;
+            updateSaved?: boolean;
+            source?: string;
+            showAiDiff?: boolean;
+            conversationId?: string;
+          };
+        const applyResult = deps.editorSession.applyContentToOpenFile(
+          applyPayload.path ?? "",
+          applyPayload.content ?? "",
           {
-            updateSaved: (message.payload as { updateSaved?: boolean }).updateSaved === true,
-            showAiDiff: true,
+            updateSaved: applyPayload.updateSaved === true,
+            ...(typeof applyPayload.expectedContent === "string"
+              ? { expectedContent: applyPayload.expectedContent }
+              : {}),
+            expectedFileMissing: applyPayload.expectedFileMissing === true,
+            fileDeleted: applyPayload.fileDeleted === true,
+            ...(typeof applyPayload.conversationId === "string"
+              ? { conversationId: applyPayload.conversationId }
+              : {}),
+            showAiDiff:
+              applyPayload.showAiDiff === true ||
+              (applyPayload.showAiDiff !== false && applyPayload.source !== "ai-direct-edit"),
           }
         );
+        if (
+          applyResult.conflict &&
+          typeof applyPayload.conversationId === "string" &&
+          applyPayload.conversationId.trim()
+        ) {
+          deps.postToNative({
+            type: "agent:contentConflict",
+            conversationId: applyPayload.conversationId,
+            path: applyPayload.path ?? "",
+          });
+        }
+        }
         break;
       default:
         break;

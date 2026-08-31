@@ -2,9 +2,9 @@
 
 // Real-time preview engine host (beta). Spawns the TDOM engine's server.js
 // (a resident, incremental LuaLaTeX runtime — sibling repo `tdom-core`) as a
-// child Node process and proxies document pushes to it over local HTTP. The
-// renderer embeds the engine's own preview client (`/?embed=1`) in an iframe;
-// this service only owns the process lifecycle and the edit stream.
+// child Node process and proxies document pushes to it over local HTTP. TDOM
+// owns compilation only; TeX64 reads canonical PDF bytes back into its normal
+// PDF viewers instead of embedding the engine's preview UI.
 //
 // Engine directory resolution mirrors fermion-engine.cjs: a developer
 // checkout wins (so editing ~/tdom-core is picked up on the next preview
@@ -73,6 +73,30 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
     req.end();
   });
 
+const requestBuffer = (url, { timeoutMs = 5_000, maxBytes = 32 * 1024 * 1024 } = {}) =>
+  new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      if ((res.statusCode || 500) >= 400) {
+        res.resume();
+        reject(new Error(`tdom request failed (${res.statusCode})`));
+        return;
+      }
+      const chunks = [];
+      let size = 0;
+      res.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > maxBytes) {
+          req.destroy(new Error("tdom PDF exceeds the preview size limit"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error("tdom request timed out")));
+    req.on("error", reject);
+  });
+
 // Minimal range edit between two sources (common prefix/suffix trim), so the
 // engine's checkpoint reuse sees a tight dirty range instead of a full-file
 // replacement on every keystroke.
@@ -116,19 +140,6 @@ class TdomEngineService {
     this.explicitEngineDir = options.engineDir;
     this.vendoredDir = options.vendoredDir
       || (options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
-    const directHostWebRoot = options.resourcesPath
-      ? path.join(options.resourcesPath, "web")
-      : null;
-    const unpackedHostWebRoot = options.resourcesPath
-      ? path.join(options.resourcesPath, "app.asar.unpacked", "Resources", "web")
-      : null;
-    // The engine is an external process, so it cannot serve renderer files
-    // from Electron's virtual app.asar path. Packaged builds unpack the small
-    // MathLive/WYSIWYG subset; development continues to use Resources/web.
-    this.hostWebRoot = options.hostWebRoot ||
-      (unpackedHostWebRoot && pathExists(unpackedHostWebRoot)
-        ? unpackedHostWebRoot
-        : directHostWebRoot);
     this.workDir = options.workDir
       || (options.userDataPath ? path.join(options.userDataPath, "tdom-work") : null);
     this.homeDir = options.homeDir || os.homedir();
@@ -148,6 +159,7 @@ class TdomEngineService {
     this.stderrTail = [];
     this.lastSource = null;
     this.lastPath = null;
+    this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays = new Map();
     this.lastRootMtimeMs = null;
@@ -284,10 +296,6 @@ class TdomEngineService {
       // canonical LuaLaTeX rendering remains fully functional.
     }
     if (this.workDir) env.TDOM_WORKDIR = this.workDir;
-    // The engine frame remains an isolated localhost origin, but it may
-    // serve TeX64's already-vendored MathLive assets for the single active
-    // formula editor.  Only /mathlive below this root is exposed server-side.
-    if (this.hostWebRoot) env.TDOM_HOST_WEB_ROOT = this.hostWebRoot;
     return env;
   }
 
@@ -324,6 +332,7 @@ class TdomEngineService {
         this.state = "ready";
         this.lastSource = null;
         this.lastPath = null;
+        this.lastProjectRoot = null;
         this.lastSessionKey = null;
         this.lastOverlays.clear();
         this.lastRootMtimeMs = null;
@@ -347,6 +356,7 @@ class TdomEngineService {
     this.state = "stopped";
     this.lastSource = null;
     this.lastPath = null;
+    this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;
@@ -427,6 +437,7 @@ class TdomEngineService {
         });
         this.lastSource = snapshot.source;
         this.lastPath = normalizedPath;
+        this.lastProjectRoot = snapshot.projectRoot;
         this.lastSessionKey = snapshot.sessionKey;
         this.lastOverlays = new Map(snapshot.overlays);
         this.lastRootMtimeMs = snapshot.rootMtimeMs;
@@ -473,6 +484,7 @@ class TdomEngineService {
           });
           this.lastSource = snapshot.source;
           this.lastPath = normalizedPath;
+          this.lastProjectRoot = snapshot.projectRoot;
           this.lastSessionKey = snapshot.sessionKey;
           this.lastOverlays = new Map(snapshot.overlays);
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
@@ -499,6 +511,52 @@ class TdomEngineService {
     return { ok: true, ...response };
   }
 
+  async snapshot(payload = {}) {
+    if (!this.isRunning() || this.state !== "ready" || !this.url) {
+      return { ok: false, error: "live preview engine is not ready" };
+    }
+    const status = await requestJson(`${this.url}/status`, { timeoutMs: 2_000 });
+    const documentEpoch = Number(status?.documentEpoch) || 0;
+    const generation = Number(status?.canonical?.id) || 0;
+    const afterGeneration = Number(payload.afterGeneration) || 0;
+    // documentEpoch advances as soon as a source edit lands, while the
+    // canonical PDF may still be the last-good generation. Only transfer
+    // bytes when the PDF generation itself advances.
+    const unchanged = generation === afterGeneration;
+    if (!generation || unchanged) {
+      return {
+        ok: true,
+        unchanged: true,
+        pending: Boolean(status?.canonical?.inFlight),
+        documentEpoch,
+        generation,
+        error: status?.canonical?.error || null,
+      };
+    }
+    const pdf = await requestBuffer(`${this.url}/canonical.pdf`, { timeoutMs: 10_000 });
+    if (!pdf.length || !pdf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+      throw new Error("tdom returned an invalid PDF snapshot");
+    }
+    let pdfPath = null;
+    if (this.lastPath && this.lastProjectRoot && isWithin(this.lastProjectRoot, this.lastPath)) {
+      pdfPath = path.relative(this.lastProjectRoot, this.lastPath)
+        .split(path.sep)
+        .join("/")
+        .replace(/\.tex$/i, ".pdf");
+    }
+    return {
+      ok: true,
+      unchanged: false,
+      documentEpoch,
+      generation,
+      path: pdfPath,
+      mainFile: pdfPath ? pdfPath.replace(/\.pdf$/i, ".tex") : null,
+      mimeType: "application/pdf",
+      byteSize: pdf.length,
+      data: pdf.toString("base64"),
+    };
+  }
+
   stop() {
     const proc = this.proc;
     this.proc = null;
@@ -506,6 +564,7 @@ class TdomEngineService {
     this.state = "stopped";
     this.lastSource = null;
     this.lastPath = null;
+    this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;

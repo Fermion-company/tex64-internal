@@ -157,8 +157,13 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
 
 const autoApplyProposal = async (service, proposal, options = {}) => {
   service.proposals.set(proposal.id, proposal);
+  const conversationId =
+    typeof proposal.conversationId === "string" && proposal.conversationId.trim()
+      ? proposal.conversationId.trim()
+      : "default";
   const applyResult = await service.applyProposal(proposal.id, {
     discardOnFailure: true,
+    _workspaceRunToken: service.runningControllers?.get?.(conversationId)?.token,
     ...options,
   });
   const result =
@@ -183,8 +188,11 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   // Safety flags passed through from the tool layer:
   //   args.mode           — "create" (new file only) | "overwrite" (existing only) | "any"
   //   args.allowFullRewrite — explicit acknowledgement for destructive shrinks
+  //   args.allowStructuralRemoval — trusted-caller acknowledgement for a future
+  //     explicit UI approval flow; model-facing tools force this to false
   const mode = typeof args.mode === "string" ? args.mode : "any";
   const allowFullRewrite = args.allowFullRewrite === true;
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   if (!targetPath) {
     return { error: "path is empty." };
   }
@@ -271,8 +279,8 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
 
   // ---- Destructive shrink guard ----
   // Skip for new files (nothing to shrink) and for binary writes.
-  if (!isNewFile && !binaryWrite && !allowFullRewrite) {
-    if (isDestructiveShrink(originalContent, content)) {
+  if (!isNewFile && !binaryWrite) {
+    if (!allowFullRewrite && isDestructiveShrink(originalContent, content)) {
       const oldLines = originalContent.split(/\r?\n/).length;
       const newLines = content.split(/\r?\n/).length;
       return {
@@ -290,15 +298,17 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
         conflict: true,
       };
     }
-    const brokenInvariants = checkLatexInvariants(targetPath, originalContent, content);
+    const brokenInvariants = allowStructuralRemoval
+      ? []
+      : checkLatexInvariants(targetPath, originalContent, content);
     if (brokenInvariants.length > 0) {
       return {
         error:
           "STRUCTURAL INVARIANT VIOLATION: this write would remove critical LaTeX " +
           "elements that were present in the original file: " +
           brokenInvariants.join(", ") +
-          ". These elements are protected. If you truly intend to restructure the " +
-          "document, pass allowFullRewrite=true. Otherwise, use targeted edit tools " +
+          ". These elements are protected even during a full-file rewrite and " +
+          "cannot be removed by Axiom editing tools. Use targeted edit tools " +
           "(replace_lines, replace_section) so the listed elements remain intact.",
         conflict: true,
         brokenInvariants,
@@ -331,6 +341,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   if (!apply.ok) {
     return {
       status: "apply_failed",
+      writeApplied: false,
       proposalId: id,
       path: targetPath,
       apply,
@@ -349,6 +360,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     if (!verify.ok) {
       return {
         status: "apply_failed",
+        writeApplied: true,
         proposalId: id,
         path: targetPath,
         error: verify.error,
@@ -357,6 +369,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     const change = describeChange(originalContent, content);
     return {
       status: "applied",
+      writeApplied: true,
       proposalId: id,
       path: targetPath,
       apply,
@@ -369,6 +382,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
 
   return {
     status: "applied",
+    writeApplied: true,
     proposalId: id,
     path: targetPath,
     apply,
@@ -377,6 +391,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
 
 const handleProposePatch = async (service, args, policy, conversationId) => {
   const summaryPrefix = typeof args.summary === "string" ? args.summary.trim() : "";
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   const editsArg = Array.isArray(args.edits) ? args.edits : null;
   const normalizedEdits = [];
 
@@ -497,6 +512,24 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     if (updatedContent.length > policy.maxFileBytes) {
       return { error: "Content is too large." };
     }
+    if (!allowStructuralRemoval) {
+      const brokenInvariants = checkLatexInvariants(
+        targetPath,
+        originalContent,
+        updatedContent,
+      );
+      if (brokenInvariants.length > 0) {
+        return {
+          error:
+            "STRUCTURAL INVARIANT VIOLATION: this edit would remove critical LaTeX " +
+            "elements that were present in the original file: " +
+            brokenInvariants.join(", ") +
+            ". These elements cannot be removed by Axiom editing tools.",
+          conflict: true,
+          brokenInvariants,
+        };
+      }
+    }
     preparedProposals.push({
       path: targetPath,
       edits,
@@ -544,6 +577,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   const hasFailure = proposals.length > successCount;
   return {
     status: hasFailure ? (successCount > 0 ? "partially_applied" : "apply_failed") : "applied",
+    writeApplied: successCount > 0,
     proposalIds: proposals.map((proposal) => proposal.proposalId),
     files: proposals,
   };
@@ -615,6 +649,7 @@ const submitEditedContent = async ({
   baseSource,
   summary,
   allowFullRewrite,
+  allowStructuralRemoval,
   proposalType = "patch",
 }) => {
   if (isBlockedPath(targetPath, policy)) {
@@ -675,7 +710,7 @@ const submitEditedContent = async ({
       return { error: adjacentDuplicateError({ side: "above", line: duplicatedLine }) };
     }
   }
-  if (!allowFullRewrite) {
+  if (!allowStructuralRemoval) {
     const brokenInvariants = checkLatexInvariants(
       targetPath,
       originalContent,
@@ -687,9 +722,8 @@ const submitEditedContent = async ({
           "STRUCTURAL INVARIANT VIOLATION: this edit would remove critical LaTeX " +
           "elements that were present in the original file: " +
           brokenInvariants.join(", ") +
-          ". These elements are protected. If you truly intend to restructure the " +
-          "document (e.g. convert to a different class or remove \\maketitle), pass " +
-          "allowFullRewrite=true. Otherwise, narrow your edit so the listed " +
+          ". These elements are protected even when allowFullRewrite=true and " +
+          "cannot be removed by Axiom editing tools. Narrow your edit so the listed " +
           "elements remain intact.",
         conflict: true,
         brokenInvariants,
@@ -720,6 +754,7 @@ const submitEditedContent = async ({
   if (!apply.ok) {
     return {
       status: "apply_failed",
+      writeApplied: false,
       proposalId: id,
       path: targetPath,
       error: apply.error,
@@ -731,6 +766,7 @@ const submitEditedContent = async ({
   if (!verify.ok) {
     return {
       status: "apply_failed",
+      writeApplied: true,
       proposalId: id,
       path: targetPath,
       error: verify.error,
@@ -739,6 +775,7 @@ const submitEditedContent = async ({
   const change = describeChange(originalContent, updatedContent);
   return {
     status: "applied",
+    writeApplied: true,
     proposalId: id,
     path: targetPath,
     change,
@@ -776,6 +813,7 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
   const startLineRaw = Number(args.startLine);
   const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
   const allowFullRewrite = args.allowFullRewrite === true;
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   if (!targetPath) {
     return { error: "path is empty." };
   }
@@ -840,6 +878,7 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
     baseSource: read.baseSource,
     summary: summary.trim() ? summary : `Replace lines ${lineRangeLabel} in ${targetPath}`,
     allowFullRewrite,
+    allowStructuralRemoval,
     proposalType: "patch",
   });
 };
@@ -928,6 +967,7 @@ const handleDeleteLines = async (service, args, policy, conversationId) => {
   const startLineRaw = Number(args.startLine);
   const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
   const allowFullRewrite = args.allowFullRewrite === true;
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   if (!targetPath) {
     return { error: "path is empty." };
   }
@@ -974,6 +1014,7 @@ const handleDeleteLines = async (service, args, policy, conversationId) => {
     baseSource: read.baseSource,
     summary: summary.trim() || `Delete lines ${lineRangeLabel} from ${targetPath}`,
     allowFullRewrite,
+    allowStructuralRemoval,
     proposalType: "patch",
   });
 };
@@ -1055,6 +1096,7 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
   return {
     status: apply.ok ? "applied" : "apply_failed",
+    writeApplied: apply.ok,
     proposalId: id,
     path: targetPath,
     apply,
@@ -1082,6 +1124,9 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   let baseContentHash = null;
   let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, oldPath);
+  if (snapshot?.isDirty) {
+    return { error: "Cannot rename a file with unsaved editor changes. Save it and try again." };
+  }
   if (snapshot && snapshot.content) {
     if (snapshot.contentLength > policy.maxFileBytes) {
       return { error: "File is too large." };
@@ -1126,6 +1171,7 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
   return {
     status: apply.ok ? "applied" : "apply_failed",
+    writeApplied: apply.ok,
     proposalId: id,
     path: newPath,
     apply,
@@ -1162,6 +1208,7 @@ const handleProposeCreateDirectory = async (service, args, policy, conversationI
   const apply = await autoApplyProposal(service, proposal);
   return {
     status: apply.ok ? "applied" : "apply_failed",
+    writeApplied: apply.ok,
     proposalId: id,
     path: targetPath,
     apply,

@@ -4,7 +4,7 @@ Electron ベースの LaTeX エディタ（macOS、開発中 / `com.wedd.tex64`�
 
 このファイルは恒久的な設計方針と作業規約。直近のタスクキューは [TODO.md](TODO.md) にある（セッション開始時に確認）。
 
-デスクトップ版は現在 **Code のみ**を提供し、トップバーのモードスイッチャーと AI モードは無効化している（[docs/app-modes.md](docs/app-modes.md)）。`services/tex64-ai` の実装は将来の再検証用に保持するが、製品UIから起動・接続しない。Code 内の Axiom チャットと課金導線は引き続き提供する。旧 Pro モードは廃止し、旧機能では TikZ 作図だけを Code に残す（[docs/pro-mode-design.md](docs/pro-mode-design.md)）。
+デスクトップ版は **Code と AI** を提供し、トップバーで切り替える（[docs/app-modes.md](docs/app-modes.md)）。AI は `services/tex64-ai` の紙面中心 UI をアプリへ同梱し、ファイル・組版・SyncTeX・Axiom は Code と同じ Electron 側実装を使う。旧 Pro モードは廃止し、旧機能では TikZ 作図だけを Code に残す（[docs/pro-mode-design.md](docs/pro-mode-design.md)）。
 
 Code は Pro 統合前の `editor-session` と通常ビューアを使う。固定プレビューペインや汎用コード編集を
 再導入しない。TikZ キャンバスは基本図形の作図・挿入・再編集に限定し、PNG / SVG / AI / `.sty`
@@ -55,7 +55,7 @@ npm run deploy:hooks     # 上記を commit ごとに自動実行する post-com
 node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 ```
 
-- テストは `node:test`。`tests/` 直下の単体に加え `tests/e2e/`・`tests/nightly/` がある。
+- テストは `node:test`。`tests/` 直下の回帰テストに加え `tests/nightly/` がある。
 - ロジック変更は `node:test` で担保する。UI/CSS/HTML の変更は型チェックに加え、必要な画面と操作を実際に確認する。
 - ローカル配備（`scripts/install-local-app.cjs`）: dmg と同じバンドル（`electron-builder --dir`）を作り、Developer ID が無いのでプロダクションと同じ entitlements で ad-hoc 署名してから `/Applications` へ差し替える。フックは detached 実行なので commit は待たされない。ログは `~/Library/Logs/tex64-local-deploy.log`、1回だけ止めるなら `TEX64_SKIP_LOCAL_DEPLOY=1 git commit …`。docs/tests など**パッケージに入らないパスだけの commit ではビルドしない**。
 

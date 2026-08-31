@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { ApiError } from "./http.js";
+import { costToDisplayedQuotaTokens } from "./ai-request-budget.js";
 import { PLAN_VALUES, STATUS_VALUES } from "./runtime-config.js";
 
 const PLAN_SET = new Set(PLAN_VALUES);
@@ -24,6 +24,26 @@ const parseInteger = (value, fallback = 0) => {
   }
   return Math.round(numeric);
 };
+
+const parseNonNegativeNumber = (value, fallback = 0) => {
+  const numeric =
+    typeof value === "number" && Number.isFinite(value)
+      ? value
+      : typeof value === "string" && value.trim()
+      ? Number.parseFloat(value)
+      : Number.NaN;
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
+};
+
+const normalizedBlendedRate = (value) => {
+  const parsed = parseNonNegativeNumber(value, 0);
+  return parsed > 0 ? parsed : 0.000005;
+};
+
+const cumulativeCostTokens = (cost, blendedCostPerTokenUsd) =>
+  costToDisplayedQuotaTokens(cost, {
+    blendedCostPerTokenUsd: normalizedBlendedRate(blendedCostPerTokenUsd),
+  });
 
 const parseDate = (value) => {
   if (value instanceof Date) {
@@ -105,7 +125,7 @@ export const computeTokenLimitForPlan = (plan, config) => {
   if (!Number.isFinite(budgetUsd) || budgetUsd <= 0) {
     return 0;
   }
-  return Math.max(0, Math.floor(budgetUsd / blendedCostPerTokenUsd));
+  return Math.max(0, Math.round(budgetUsd / blendedCostPerTokenUsd));
 };
 
 export const computeRequestLimitForPlan = (plan, config) => {
@@ -117,6 +137,37 @@ export const computeRequestLimitForPlan = (plan, config) => {
     return Math.max(0, parseInteger(config.requestLimitBasic, 0));
   }
   return Math.max(0, parseInteger(config.requestLimitFree, 0));
+};
+
+/**
+ * Keep the Stripe subscription record intact for history and event ordering,
+ * while exposing the entitlement that is effective after a paid subscription
+ * has actually been deleted. A scheduled cancellation remains `active` in the
+ * raw record and therefore keeps its paid entitlement until Stripe sends the
+ * terminal canceled state.
+ */
+export const resolveEffectiveSubscription = (subscription, config = {}) => {
+  if (!isObject(subscription)) {
+    return subscription;
+  }
+  const rawPlan = normalizePlan(subscription.plan, "free");
+  const rawStatus = normalizeStatus(subscription.status, "active");
+  const isCanceledPaidPlan =
+    (rawPlan === "basic" || rawPlan === "pro") && rawStatus === "canceled";
+  if (!isCanceledPaidPlan) {
+    return subscription;
+  }
+  return {
+    ...subscription,
+    plan: "free",
+    status: "active",
+    graceEndsAt: null,
+    quotaLimitTokens: computeTokenLimitForPlan("free", config),
+    quotaLimitRequests: computeRequestLimitForPlan("free", config),
+    metadata: isObject(subscription.metadata)
+      ? { ...subscription.metadata }
+      : {},
+  };
 };
 
 const ensurePeriod = (rawStart, rawEnd, now) => {
@@ -302,15 +353,35 @@ export const ensureSubscriptionState = (state, userId, config, nowValue = new Da
   };
 };
 
-const normalizeFeatureUsage = (entry) => {
+const normalizeFeatureUsage = (
+  entry,
+  blendedCostPerTokenUsd = 0.000005,
+  migrateLegacyFloor = false,
+) => {
   const source = isObject(entry) ? entry : {};
+  const usedCostUsd = parseNonNegativeNumber(source.usedCostUsd, 0);
+  const usedTokens = Math.max(0, parseInteger(source.usedTokens, 0));
+  const derivedLegacyFloor = Math.max(
+    0,
+    usedTokens - cumulativeCostTokens(usedCostUsd, blendedCostPerTokenUsd),
+  );
+  const legacyUsedTokens = Math.max(
+    0,
+    parseInteger(source.legacyUsedTokens, 0),
+    migrateLegacyFloor ? derivedLegacyFloor : 0,
+  );
   return {
-    usedTokens: Math.max(0, parseInteger(source.usedTokens, 0)),
+    usedTokens: Math.max(
+      usedTokens,
+      legacyUsedTokens + cumulativeCostTokens(usedCostUsd, blendedCostPerTokenUsd),
+    ),
     usedRequests: Math.max(0, parseInteger(source.usedRequests, 0)),
+    legacyUsedTokens,
+    usedCostUsd,
   };
 };
 
-export const ensureUsageRecord = (state, userId, subscription) => {
+export const ensureUsageRecord = (state, userId, subscription, config = {}) => {
   if (!isObject(state.usage)) {
     state.usage = {};
   }
@@ -329,24 +400,66 @@ export const ensureUsageRecord = (state, userId, subscription) => {
       limitRequests: Math.max(0, parseInteger(subscription.quotaLimitRequests, 0)),
       usedTokens: 0,
       usedRequests: 0,
+      costAccountingVersion: 1,
+      legacyUsedTokens: 0,
+      usedCostUsd: 0,
       byFeature: {
-        chat: { usedTokens: 0, usedRequests: 0 },
-        completion: { usedTokens: 0, usedRequests: 0 },
+        chat: {
+          usedTokens: 0,
+          usedRequests: 0,
+          legacyUsedTokens: 0,
+          usedCostUsd: 0,
+        },
+        completion: {
+          usedTokens: 0,
+          usedRequests: 0,
+          legacyUsedTokens: 0,
+          usedCostUsd: 0,
+        },
       },
       updatedAt: toIso(new Date()),
     };
     changed = true;
   } else {
+    const blendedCostPerTokenUsd = normalizedBlendedRate(
+      config.blendedCostPerTokenUsd,
+    );
+    const migrateLegacyFloor = parseInteger(usage.costAccountingVersion, 0) < 1;
+    const usedCostUsd = parseNonNegativeNumber(usage.usedCostUsd, 0);
+    const usedTokens = Math.max(0, parseInteger(usage.usedTokens, 0));
+    const derivedLegacyFloor = Math.max(
+      0,
+      usedTokens - cumulativeCostTokens(usedCostUsd, blendedCostPerTokenUsd),
+    );
+    const legacyUsedTokens = Math.max(
+      0,
+      parseInteger(usage.legacyUsedTokens, 0),
+      migrateLegacyFloor ? derivedLegacyFloor : 0,
+    );
     const normalizedByFeature = {
-      chat: normalizeFeatureUsage(usage.byFeature?.chat),
-      completion: normalizeFeatureUsage(usage.byFeature?.completion),
+      chat: normalizeFeatureUsage(
+        usage.byFeature?.chat,
+        blendedCostPerTokenUsd,
+        migrateLegacyFloor,
+      ),
+      completion: normalizeFeatureUsage(
+        usage.byFeature?.completion,
+        blendedCostPerTokenUsd,
+        migrateLegacyFloor,
+      ),
     };
     const normalized = {
       ...usage,
       limitTokens: Math.max(0, parseInteger(subscription.quotaLimitTokens, usage.limitTokens)),
       limitRequests: Math.max(0, parseInteger(subscription.quotaLimitRequests, usage.limitRequests)),
-      usedTokens: Math.max(0, parseInteger(usage.usedTokens, 0)),
+      usedTokens: Math.max(
+        usedTokens,
+        legacyUsedTokens + cumulativeCostTokens(usedCostUsd, blendedCostPerTokenUsd),
+      ),
       usedRequests: Math.max(0, parseInteger(usage.usedRequests, 0)),
+      costAccountingVersion: 1,
+      legacyUsedTokens,
+      usedCostUsd,
       byFeature: normalizedByFeature,
       updatedAt: toIso(new Date()),
     };
@@ -413,6 +526,42 @@ export const evaluateAiFeature = (subscription, usage, pricingUrl = "https://tex
   };
 };
 
+const ensureUsageAccountingForMutation = (
+  usage,
+  blendedCostPerTokenUsd = 0.000005,
+) => {
+  const rate = normalizedBlendedRate(blendedCostPerTokenUsd);
+  const migrateLegacyFloor = parseInteger(usage?.costAccountingVersion, 0) < 1;
+  const usedCostUsd = parseNonNegativeNumber(usage?.usedCostUsd, 0);
+  const usedTokens = Math.max(0, parseInteger(usage?.usedTokens, 0));
+  const legacyUsedTokens = Math.max(
+    0,
+    parseInteger(usage?.legacyUsedTokens, 0),
+    migrateLegacyFloor
+      ? usedTokens - cumulativeCostTokens(usedCostUsd, rate)
+      : 0,
+  );
+  usage.costAccountingVersion = 1;
+  usage.usedCostUsd = usedCostUsd;
+  usage.legacyUsedTokens = legacyUsedTokens;
+  usage.usedTokens = Math.max(
+    usedTokens,
+    legacyUsedTokens + cumulativeCostTokens(usedCostUsd, rate),
+  );
+  if (!isObject(usage.byFeature)) usage.byFeature = {};
+  usage.byFeature.chat = normalizeFeatureUsage(
+    usage.byFeature.chat,
+    rate,
+    migrateLegacyFloor,
+  );
+  usage.byFeature.completion = normalizeFeatureUsage(
+    usage.byFeature.completion,
+    rate,
+    migrateLegacyFloor,
+  );
+  return rate;
+};
+
 export const consumeQuota = (
   usage,
   featureName,
@@ -421,28 +570,108 @@ export const consumeQuota = (
 ) => {
   const consumedTokens = Math.max(0, parseInteger(consumedTokensInput, 0));
   const consumedRequests = Math.max(1, parseInteger(consumedRequestsInput, 1));
+  const rate = ensureUsageAccountingForMutation(usage);
   const summaryBefore = buildQuotaSummary(usage);
-  if (
-    consumedTokens > summaryBefore.remainingTokens ||
-    consumedRequests > summaryBefore.remainingRequests
-  ) {
-    const periodEnd = parseDate(summaryBefore.periodEnd);
-    const retryAfterSec = periodEnd
-      ? Math.max(1, Math.ceil((periodEnd.getTime() - Date.now()) / 1000))
-      : 60;
-    throw new ApiError("QUOTA_EXCEEDED", "AI monthly token quota exceeded.", 429, {
-      retryAfterSec,
-    });
-  }
+  // Admission is checked before the provider request. The provider's actual
+  // usage can legitimately be larger than the remaining estimate, so the
+  // completed turn must still be recorded in full. buildQuotaSummary clamps
+  // the user-visible remaining amount to zero while retaining actual usage.
   usage.usedTokens = summaryBefore.usedTokens + consumedTokens;
   usage.usedRequests = summaryBefore.usedRequests + consumedRequests;
+  usage.legacyUsedTokens += consumedTokens;
   const featureKey = featureName === "completion" ? "completion" : "chat";
   if (!isObject(usage.byFeature)) {
     usage.byFeature = {};
   }
-  const featureUsage = normalizeFeatureUsage(usage.byFeature[featureKey]);
+  const featureUsage = normalizeFeatureUsage(usage.byFeature[featureKey], rate);
   featureUsage.usedTokens += consumedTokens;
   featureUsage.usedRequests += consumedRequests;
+  featureUsage.legacyUsedTokens += consumedTokens;
+  usage.byFeature[featureKey] = featureUsage;
+  usage.updatedAt = toIso(new Date());
+  return buildQuotaSummary(usage);
+};
+
+/**
+ * Reserve the worst-case cost before a provider call. Returning null is an
+ * admission denial and must happen without mutating the usage record.
+ */
+export const tryReserveQuota = (
+  usage,
+  featureName,
+  reservedTokensInput,
+  reservedRequestsInput = 1
+) => {
+  const reservedTokens = Math.max(0, parseInteger(reservedTokensInput, 0));
+  const reservedRequests = Math.max(1, parseInteger(reservedRequestsInput, 1));
+  const rate = ensureUsageAccountingForMutation(usage);
+  const before = buildQuotaSummary(usage);
+  if (
+    reservedTokens > before.remainingTokens ||
+    reservedRequests > before.remainingRequests
+  ) {
+    return null;
+  }
+  usage.usedTokens = before.usedTokens + reservedTokens;
+  usage.usedRequests = before.usedRequests + reservedRequests;
+  const featureKey = featureName === "completion" ? "completion" : "chat";
+  const featureUsage = normalizeFeatureUsage(usage.byFeature[featureKey], rate);
+  featureUsage.usedTokens += reservedTokens;
+  featureUsage.usedRequests += reservedRequests;
+  usage.byFeature[featureKey] = featureUsage;
+  usage.updatedAt = toIso(new Date());
+  return buildQuotaSummary(usage);
+};
+
+/**
+ * Replace an earlier worst-case reservation with measured provider usage.
+ * Request count was already charged at reservation time and is not changed.
+ */
+export const reconcileQuotaReservation = (
+  usage,
+  featureName,
+  reservedTokensInput,
+  actualTokensInput,
+  accounting = {},
+) => {
+  const reservedTokens = Math.max(0, parseInteger(reservedTokensInput, 0));
+  const actualTokens = Math.max(0, parseInteger(actualTokensInput, 0));
+  const hasMeasuredCost = hasOwn(accounting, "actualCostUsd");
+  const actualCostUsd = parseNonNegativeNumber(accounting.actualCostUsd, 0);
+  const rate = ensureUsageAccountingForMutation(
+    usage,
+    accounting.blendedCostPerTokenUsd,
+  );
+  const previousCostTokens = cumulativeCostTokens(usage.usedCostUsd, rate);
+  const nextCostUsd = hasMeasuredCost
+    ? usage.usedCostUsd + actualCostUsd
+    : usage.usedCostUsd;
+  const nextCostTokens = cumulativeCostTokens(nextCostUsd, rate);
+  const committedRawTokens = hasMeasuredCost ? 0 : actualTokens;
+  usage.legacyUsedTokens += committedRawTokens;
+  usage.usedCostUsd = nextCostUsd;
+  usage.usedTokens = Math.max(
+    usage.legacyUsedTokens + nextCostTokens,
+    Math.max(0, parseInteger(usage.usedTokens, 0)) - reservedTokens +
+      committedRawTokens + (nextCostTokens - previousCostTokens),
+  );
+  const featureKey = featureName === "completion" ? "completion" : "chat";
+  const featureUsage = normalizeFeatureUsage(usage.byFeature[featureKey], rate);
+  const previousFeatureCostTokens = cumulativeCostTokens(
+    featureUsage.usedCostUsd,
+    rate,
+  );
+  const nextFeatureCostUsd = hasMeasuredCost
+    ? featureUsage.usedCostUsd + actualCostUsd
+    : featureUsage.usedCostUsd;
+  const nextFeatureCostTokens = cumulativeCostTokens(nextFeatureCostUsd, rate);
+  featureUsage.legacyUsedTokens += committedRawTokens;
+  featureUsage.usedCostUsd = nextFeatureCostUsd;
+  featureUsage.usedTokens = Math.max(
+    featureUsage.legacyUsedTokens + nextFeatureCostTokens,
+    featureUsage.usedTokens - reservedTokens + committedRawTokens +
+      (nextFeatureCostTokens - previousFeatureCostTokens),
+  );
   usage.byFeature[featureKey] = featureUsage;
   usage.updatedAt = toIso(new Date());
   return buildQuotaSummary(usage);
@@ -584,8 +813,16 @@ export const upsertSubscriptionRecord = (
 
 export const buildUsageBreakdown = (usage) => {
   const byFeature = isObject(usage?.byFeature) ? usage.byFeature : {};
+  const chat = normalizeFeatureUsage(byFeature.chat);
+  const completion = normalizeFeatureUsage(byFeature.completion);
   return {
-    chat: normalizeFeatureUsage(byFeature.chat),
-    completion: normalizeFeatureUsage(byFeature.completion),
+    chat: {
+      usedTokens: chat.usedTokens,
+      usedRequests: chat.usedRequests,
+    },
+    completion: {
+      usedTokens: completion.usedTokens,
+      usedRequests: completion.usedRequests,
+    },
   };
 };

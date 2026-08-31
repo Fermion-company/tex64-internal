@@ -197,8 +197,9 @@ export const initWorkspaceController = (context, deps) => {
         deps.buildOps.updateSynctexButtonState();
         const rootChanged = Boolean(previousRoot && previousRoot !== payload.rootPath);
         if (rootChanged) {
-            // Fire-and-forget save of dirty files before the workspace is replaced.
-            deps.editorSession.saveDirtyFiles().catch(() => { });
+            // Every workspace-changing command flushes Monaco before main changes
+            // the root. Saving here is already too late: the native write would land
+            // in the newly selected workspace and can overwrite an unrelated file.
             deps.setLastBuildMainFile(null);
         }
         deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });

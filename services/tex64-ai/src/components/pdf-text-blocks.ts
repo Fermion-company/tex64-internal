@@ -25,7 +25,18 @@ export type TextItemLike = {
   str?: string;
 };
 
-type Line = { top: number; bottom: number; left: number; right: number };
+type Line = {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  pieces: Array<{ left: number; text: string }>;
+};
+
+export type TextBlock = { rects: TextRect[]; text: string };
+
+export const hasSelectableText = (block: TextBlock): boolean =>
+  block.rects.length > 0 && block.text.trim().length > 0;
 
 /** A vertical gap this much larger than the line height starts a new block. */
 const BLOCK_GAP_RATIO = 0.6;
@@ -68,6 +79,7 @@ function toLines(items: readonly TextItemLike[]): Line[] {
       existing.bottom = Math.max(existing.bottom, rect.top + rect.height);
       existing.left = Math.min(existing.left, rect.left);
       existing.right = Math.max(existing.right, rect.left + rect.width);
+      existing.pieces.push({ left: rect.left, text: item.str ?? "" });
       continue;
     }
     lines.push({
@@ -75,6 +87,7 @@ function toLines(items: readonly TextItemLike[]): Line[] {
       bottom: rect.top + rect.height,
       left: rect.left,
       right: rect.left + rect.width,
+      pieces: [{ left: rect.left, text: item.str ?? "" }],
     });
   }
   return lines.sort((left, right) => left.top - right.top);
@@ -103,12 +116,12 @@ function marginLeft(lines: readonly Line[]): number {
   return best;
 }
 
-export function findTextBlockRects(
+export function findTextBlock(
   items: readonly TextItemLike[],
   point: { x: number; y: number },
-): TextRect[] {
+): TextBlock {
   const lines = toLines(items);
-  if (lines.length === 0) return [];
+  if (lines.length === 0) return { rects: [], text: "" };
 
   const hitIndex = lines.findIndex(
     (line) =>
@@ -117,7 +130,7 @@ export function findTextBlockRects(
       point.x >= line.left - 8 &&
       point.x <= line.right + 8,
   );
-  if (hitIndex === -1) return [];
+  if (hitIndex === -1) return { rects: [], text: "" };
 
   // The visual block first: everything the click's line runs together with,
   // separated only by vertical space.
@@ -147,10 +160,30 @@ export function findTextBlockRects(
   let last = hitIndex;
   while (last < blockLast && !startsParagraph(lines[last + 1]!)) last += 1;
 
-  return lines.slice(first, last + 1).map((line) => ({
-    left: line.left,
-    top: line.top,
-    width: line.right - line.left,
-    height: line.bottom - line.top,
-  }));
+  const selectedLines = lines.slice(first, last + 1);
+  return {
+    rects: selectedLines.map((line) => ({
+      left: line.left,
+      top: line.top,
+      width: line.right - line.left,
+      height: line.bottom - line.top,
+    })),
+    text: selectedLines
+      .map((line) =>
+        line.pieces
+          .sort((left, right) => left.left - right.left)
+          .map((piece) => piece.text)
+          .join("")
+          .trim(),
+      )
+      .filter(Boolean)
+      .join(" "),
+  };
+}
+
+export function findTextBlockRects(
+  items: readonly TextItemLike[],
+  point: { x: number; y: number },
+): TextRect[] {
+  return findTextBlock(items, point).rects;
 }

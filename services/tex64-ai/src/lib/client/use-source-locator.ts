@@ -1,121 +1,180 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getNativeHost, requestFromHost } from "./native-host";
+import {
+  normalizeWorkspaceMainFile,
+  normalizeWorkspaceRelativePath,
+  replyMatchesWorkspace,
+  workspaceRequestFields,
+  type NativeWorkspaceIdentity,
+} from "./workspace-identity";
 
 export type SourceLocation = {
-  /** Workspace-relative path of the file the click landed in. */
   path: string;
-  /** 1-based line. */
   line: number;
-  /** False when SyncTeX had to guess between candidates. */
   confident: boolean;
-  /** The line's own text, for showing what was picked. */
-  text: string;
+  selectedText: string;
+};
+
+export type SourceLocatorContext = {
+  workspaceId?: string;
+  workspaceRoot?: string | null;
+  workspaceGeneration?: number;
+  documentMainFile?: string | null;
 };
 
 export type SourceLocator = {
   location: SourceLocation | null;
   error: string | null;
   locating: boolean;
-  locate: (point: { page: number; x: number; y: number; pdfPath: string | null }) => void;
-  clear: () => void;
-};
-
-/**
- * Turns a click on the page into a place in the source.
- *
- * SyncTeX answers with a file and a line; the line's own text comes back with
- * it so the reader can be shown what was picked rather than a line number.
- */
-export function useSourceLocator(): SourceLocator {
-  const [location, setLocation] = useState<SourceLocation | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false);
-
-  const locate = useCallback((point: {
+  locate: (point: {
     page: number;
     x: number;
     y: number;
     pdfPath: string | null;
-  }) => {
-    const host = getNativeHost();
-    if (!host) return;
-    setLocating(true);
-    setError(null);
-    void (async () => {
-      try {
-        // requestFromHost resolves with the reply's body, already unwrapped.
-        const found = await requestFromHost(host, {
-          type: "synctex:reverse",
-          resultType: "synctex:reverseResult",
-          payload: {
-            page: point.page,
-            x: point.x,
-            y: point.y,
-            // Without this, the host can only answer for a build that ran in
-            // its own lifetime.
-            ...(point.pdfPath ? { pdfPath: point.pdfPath } : {}),
-            // This mode never sends forward hints, so the hint cache holds
-            // nothing for it and can only answer for somewhere else.
-            bypassHint: true,
-          },
-          // The reverse lookup sweeps a grid of nearby points, each a synctex
-          // process of its own, so it is seconds — not milliseconds — on a
-          // slow day. Give up only when the answer is clearly not coming.
-          timeoutMs: 20_000,
-        });
-        if (
-          found.ok !== true ||
-          typeof found.path !== "string" ||
-          typeof found.line !== "number"
-        ) {
-          setError(
-            typeof found.error === "string"
-              ? found.error
-              : "この場所は本文と結び付けられませんでした。",
-          );
-          setLocation(null);
-          return;
-        }
-        // The place is the answer; its text is a courtesy. A failed excerpt
-        // must not throw away a lookup that succeeded.
-        let text = "";
+    text?: string;
+  }) => void;
+  clear: () => void;
+};
+
+type SourceLocatorState = {
+  contextKey: string;
+  location: SourceLocation | null;
+  error: string | null;
+  locating: boolean;
+};
+
+const emptyLocatorState = (contextKey: string): SourceLocatorState => ({
+  contextKey,
+  location: null,
+  error: null,
+  locating: false,
+});
+
+/** Reverse SyncTeX results are accepted only for the click's workspace and PDF. */
+export function useSourceLocator(context: SourceLocatorContext = {}): SourceLocator {
+  const requestEpochRef = useRef(0);
+  const workspaceId = context.workspaceId ?? "";
+  const workspaceRoot = context.workspaceRoot ?? null;
+  const workspaceGeneration =
+    typeof context.workspaceGeneration === "number" ? context.workspaceGeneration : 0;
+  const expected = useMemo<NativeWorkspaceIdentity>(
+    () => ({ workspaceId, workspaceRoot, workspaceGeneration }),
+    [workspaceGeneration, workspaceId, workspaceRoot],
+  );
+  const documentMainFile = normalizeWorkspaceMainFile(context.documentMainFile);
+  const contextKey = `${expected.workspaceId}:${expected.workspaceGeneration}:${documentMainFile}`;
+  const [locatorState, setLocatorState] = useState<SourceLocatorState>(() =>
+    emptyLocatorState(contextKey),
+  );
+  const lastContextKeyRef = useRef(contextKey);
+  useEffect(() => {
+    if (lastContextKeyRef.current === contextKey) return;
+    lastContextKeyRef.current = contextKey;
+    requestEpochRef.current += 1;
+  }, [contextKey]);
+  const stateIsCurrent = locatorState.contextKey === contextKey;
+  const location = stateIsCurrent ? locatorState.location : null;
+  const error = stateIsCurrent ? locatorState.error : null;
+  const locating = stateIsCurrent ? locatorState.locating : false;
+
+  const updateCurrentState = useCallback(
+    (update: Partial<Omit<SourceLocatorState, "contextKey">>) => {
+      setLocatorState((current) =>
+        current.contextKey === contextKey ? { ...current, ...update } : current,
+      );
+    },
+    [contextKey],
+  );
+
+  const locate = useCallback(
+    (point: {
+      page: number;
+      x: number;
+      y: number;
+      pdfPath: string | null;
+      text?: string;
+    }) => {
+      const host = getNativeHost();
+      if (!host) return;
+      const requestEpoch = ++requestEpochRef.current;
+      const requestedPdf = normalizeWorkspaceRelativePath(point.pdfPath);
+      setLocatorState({
+        contextKey,
+        location: null,
+        error: null,
+        locating: true,
+      });
+      void (async () => {
         try {
-          const excerpt = await requestFromHost(host, {
-            type: "file:excerpt",
-            resultType: "file:excerptResult",
-            payload: { path: found.path, line: found.line, radius: 0, maxLines: 1 },
-            timeoutMs: 8_000,
+          const found = await requestFromHost(host, {
+            type: "synctex:reverse",
+            resultType: "synctex:reverseResult",
+            payload: {
+              page: point.page,
+              x: point.x,
+              y: point.y,
+              ...(requestedPdf ? { pdfPath: requestedPdf } : {}),
+              ...(documentMainFile ? { documentMainFile } : {}),
+              ...workspaceRequestFields(expected),
+              bypassHint: true,
+              refineLines: 0,
+              preferExact: true,
+            },
+            timeoutMs: 20_000,
           });
-          if (excerpt.ok === true && Array.isArray(excerpt.lines)) {
-            text = String(excerpt.lines[0] ?? "");
+          if (requestEpoch !== requestEpochRef.current) return;
+          const answeredPdf = normalizeWorkspaceRelativePath(found.pdfPath);
+          if (
+            !replyMatchesWorkspace(found, expected) ||
+            (requestedPdf && answeredPdf && requestedPdf !== answeredPdf)
+          ) {
+            return;
           }
+          if (
+            found.ok !== true ||
+            typeof found.path !== "string" ||
+            typeof found.line !== "number"
+          ) {
+            updateCurrentState({
+              error: typeof found.error === "string"
+                ? found.error
+                : "この場所は本文と結び付けられませんでした。",
+              location: null,
+            });
+            return;
+          }
+          if (requestEpoch !== requestEpochRef.current) return;
+          updateCurrentState({
+            location: {
+              path: found.path,
+              line: found.line,
+              confident: found.confidence === true,
+              selectedText: point.text?.trim() ?? "",
+            },
+          });
         } catch {
-          // Leave the text empty; the location still stands.
+          if (requestEpoch !== requestEpochRef.current) return;
+          updateCurrentState({
+            error: "本文の場所を確かめられませんでした。組版し直すと直ることがあります。",
+            location: null,
+          });
+        } finally {
+          if (requestEpoch === requestEpochRef.current) {
+            updateCurrentState({ locating: false });
+          }
         }
-        setLocation({
-          path: found.path,
-          line: found.line,
-          confident: found.confidence === true,
-          text,
-        });
-      } catch {
-        setError(
-          "本文の場所を確かめられませんでした。組版し直すと直ることがあります。",
-        );
-        setLocation(null);
-      } finally {
-        setLocating(false);
-      }
-    })();
-  }, []);
+      })();
+    },
+    [contextKey, documentMainFile, expected, updateCurrentState],
+  );
 
   const clear = useCallback(() => {
-    setLocation(null);
-    setError(null);
-  }, []);
+    requestEpochRef.current += 1;
+    setLocatorState(emptyLocatorState(contextKey));
+  }, [contextKey]);
 
   return { location, error, locating, locate, clear };
 }

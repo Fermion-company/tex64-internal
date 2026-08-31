@@ -43,11 +43,16 @@ const extractArxivId = (input) => {
  * Fetch metadata for a single arXiv paper by ID.
  * Returns an entry object or null.
  */
-const fetchArxivEntry = async (arxivId) => {
+const fetchArxivEntry = async (arxivId, options = {}) => {
   const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`;
+  const timeoutSignal = AbortSignal.timeout(30_000);
+  const signal =
+    options.signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : timeoutSignal;
   const res = await fetch(url, {
     headers: { "User-Agent": "tex64/1.0" },
-    signal: AbortSignal.timeout(30_000),
+    signal,
   });
   if (!res.ok) {
     throw new Error(`arXiv API failed: ${res.status}`);

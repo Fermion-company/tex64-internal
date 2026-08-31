@@ -43,6 +43,7 @@ const parseArgs = (argv) => {
     printFailures: 25,
     progressEvery: 50,
     probeBypassHint: true,
+    reversePreferExact: false,
   };
 
   const args = [...argv];
@@ -161,6 +162,10 @@ const parseArgs = (argv) => {
       options.probeBypassHint = false;
       continue;
     }
+    if (token === "--reverse-prefer-exact") {
+      options.reversePreferExact = true;
+      continue;
+    }
     if (token === "--help" || token === "-h") {
       printHelpAndExit(0);
     }
@@ -221,6 +226,7 @@ Options:
   --print-failures <n>        Print first n failed cases (default: 25)
   --progress-every <n>        Progress log interval by case count (default: 50)
   --probe-with-hint           Use forward hint cache in quality probes (default: off)
+  --reverse-prefer-exact      Benchmark the paper editor's single-query fast path
 `;
   process.stdout.write(help.trimStart());
   process.stdout.write("\n");
@@ -228,4 +234,3 @@ Options:
 };
 
 module.exports = { parseArgs };
-

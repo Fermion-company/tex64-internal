@@ -3,12 +3,14 @@ import {
   CURRENT_PAGE_ANCHOR_RATIO,
   MAX_ZOOM_PERCENT,
   MIN_ZOOM_PERCENT,
+  anchoredScrollOffset,
   bpRectToPx,
   clampZoomPercent,
   computePageOffsets,
   currentPageFromScroll,
   fitToWidthPercent,
   groupRectsByPage,
+  pinchZoomPercent,
   preservedScrollTop,
   type PdfElementRegion,
 } from "@/components/pdf-preview-geometry";
@@ -183,5 +185,21 @@ describe("zoom helpers", () => {
     expect(fitToWidthPercent(0, 612)).toBe(100);
     expect(fitToWidthPercent(-10, 612)).toBe(100);
     expect(fitToWidthPercent(800, 0)).toBe(100);
+  });
+
+  it("maps trackpad pinch deltas continuously and clamps the result", () => {
+    expect(pinchZoomPercent(100, -10)).toBeGreaterThan(100);
+    expect(pinchZoomPercent(100, 10)).toBeLessThan(100);
+    expect(pinchZoomPercent(100, -10)).not.toBe(Math.round(pinchZoomPercent(100, -10)));
+    expect(pinchZoomPercent(299, -100)).toBe(MAX_ZOOM_PERCENT);
+    expect(pinchZoomPercent(51, 100)).toBe(MIN_ZOOM_PERCENT);
+  });
+
+  it("keeps the point under the fingers fixed while zooming", () => {
+    // The content point under x=200 is 500px from the content origin.
+    // Doubling the content puts it at 1000px, so scrollLeft becomes 800.
+    expect(anchoredScrollOffset(300, 200, 2)).toBe(800);
+    expect(anchoredScrollOffset(300, 200, 0.5)).toBe(50);
+    expect(anchoredScrollOffset(0, 200, 0.5)).toBe(0);
   });
 });

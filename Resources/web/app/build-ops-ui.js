@@ -39,7 +39,7 @@ export const initBuildOpsUi = (context, deps) => {
         let counter = 0;
         return () => `synctex-forward-${Date.now().toString(36)}-${counter++}`;
     })();
-    const getBuildButtonIdleTitle = () => uiText("Build (Cmd+Enter). Cmd+B inserts \\textbf{}.", "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。");
+    const getBuildButtonIdleTitle = () => uiText("Build", "ビルド");
     const buildProgressText = () => {
         if (buildProgressPhase === "cancelling") {
             return uiText("Canceling…", "キャンセル中…");
@@ -305,7 +305,7 @@ export const initBuildOpsUi = (context, deps) => {
             buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
             buildButton.setAttribute("aria-label", isBusy
                 ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
-                : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）"));
+                : uiText("Build", "ビルド"));
             const label = buildButton.querySelector(".build-button-label");
             if (label && !isBusy)
                 label.textContent = uiText("Build", "ビルド");
@@ -468,6 +468,10 @@ export const initBuildOpsUi = (context, deps) => {
         const inFlightSnapshot = formatInFlightSnapshot;
         formatInFlight = false;
         formatInFlightSnapshot = null;
+        if (payload.stale === true) {
+            formatPending = false;
+            return;
+        }
         if (!payload.ok) {
             if (!formatWarningShown) {
                 formatWarningShown = true;

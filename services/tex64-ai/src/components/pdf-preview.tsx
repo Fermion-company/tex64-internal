@@ -17,19 +17,22 @@ import {
   MAX_ZOOM_PERCENT,
   MIN_ZOOM_PERCENT,
   ZOOM_STEP_PERCENT,
+  anchoredScrollOffset,
   bpRectToPx,
   clampZoomPercent,
   computePageOffsets,
   currentPageFromScroll,
   fitToWidthPercent,
   groupRectsByPage,
+  pinchZoomPercent,
   preservedScrollTop,
   type PageRegionRect,
   type PdfElementRegion,
   type ScrollMetrics,
 } from "./pdf-preview-geometry";
 import {
-  findTextBlockRects,
+  findTextBlock,
+  hasSelectableText,
   type TextItemLike,
   type TextRect,
 } from "./pdf-text-blocks";
@@ -73,7 +76,11 @@ export interface PdfPreviewProps {
     y: number;
     /** Lines of the text block the click landed in, for outlining it. */
     rects: TextRect[];
+    /** Human-visible text used to resolve generated structures such as titles. */
+    text: string;
   }) => void;
+  /** False removes a native point highlight after it proved non-editable. */
+  pointSelectionActive?: boolean;
   emptyHint?: string;
   /** Card anchored just below the selected region (編集カード). */
   selectionCard?: ReactNode;
@@ -85,6 +92,10 @@ export interface PdfPreviewProps {
 const PAGE_GAP_PX = 16;
 /** Padding around the page stack (kept in JS so scroll math matches). */
 const STAGE_PADDING_PX = 24;
+/** Keep pinch frames cheap; redraw the PDF crisply after the gesture settles. */
+const HIGH_RES_RENDER_DELAY_MS = 120;
+/** Commit the GPU preview to actual page layout once the pinch stream pauses. */
+const PINCH_COMMIT_DELAY_MS = 80;
 
 type PdfJsModule = typeof import("pdfjs-dist");
 type PdfDocumentInitParameters = NonNullable<Parameters<PdfJsModule["getDocument"]>[0]>;
@@ -120,6 +131,27 @@ interface LoadedDocument {
 
 type ZoomState = { mode: "fit" } | { mode: "manual"; percent: number };
 
+type PendingZoomAnchor = {
+  clientX: number;
+  clientY: number;
+  fromPercent: number;
+  pageIndex: number | null;
+  pageXRatio: number;
+  pageYRatio: number;
+  scrollLeft: number;
+  scrollTop: number;
+  viewportX: number;
+  viewportY: number;
+};
+
+type ActivePinch = {
+  basePercent: number;
+  targetPercent: number;
+  anchor: PendingZoomAnchor;
+  originX: number;
+  originY: number;
+};
+
 const EMPTY_SIZES: { width: number; height: number }[] = [];
 
 export function PdfPreview({
@@ -130,15 +162,20 @@ export function PdfPreview({
   interactive,
   onSelect,
   onPointSelect,
+  pointSelectionActive,
   emptyHint = "まだ紙面がありません",
   selectionCard = null,
   toolbarAction = null,
 }: PdfPreviewProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const pagesRef = useRef<HTMLDivElement | null>(null);
   /** Loading task backing the currently displayed document. */
   const committedTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
   /** Scroll metrics captured just before a new document swaps in. */
   const scrollRestoreRef = useRef<ScrollMetrics | null>(null);
+  const pendingZoomAnchorRef = useRef<PendingZoomAnchor | null>(null);
+  const zoomPercentRef = useRef(100);
+  const loadedRef = useRef<LoadedDocument | null>(null);
   const docKeyRef = useRef(0);
   /** Page indices whose latest render failed for a non-cancellation reason. */
   const failedPagesRef = useRef<Set<number>>(new Set());
@@ -150,10 +187,15 @@ export function PdfPreview({
   const [renderFailed, setRenderFailed] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
   const [zoom, setZoom] = useState<ZoomState>({ mode: "fit" });
+  const [renderZoomPercent, setRenderZoomPercent] = useState(100);
   const [viewportWidth, setViewportWidth] = useState(0);
   const [dpr, setDpr] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadedRef.current = loaded;
+  }, [loaded]);
 
   // Adjust state during render when the URL prop changes (the react.dev
   // "adjusting some state when a prop changes" pattern — no effect needed).
@@ -277,6 +319,61 @@ export function PdfPreview({
   const fitPercent = fitToWidthPercent(viewportWidth - STAGE_PADDING_PX * 2, maxPageWidthBp);
   const zoomPercent = zoom.mode === "fit" ? fitPercent : zoom.percent;
   const scale = zoomPercent / 100;
+  const renderScale = renderZoomPercent / 100;
+
+  // During a pinch the previous canvas frame is stretched by CSS. Render the
+  // expensive high-resolution PDF only after input has been quiet briefly.
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = window.setTimeout(() => {
+      setRenderZoomPercent(zoomPercent);
+    }, HIGH_RES_RENDER_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [loaded, zoomPercent]);
+
+  // Keep the exact paper point under the fingers after the layout scale moves.
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const pages = pagesRef.current;
+    const anchor = pendingZoomAnchorRef.current;
+    pendingZoomAnchorRef.current = null;
+    // React has now laid the pages out at the committed scale. Remove the
+    // temporary GPU preview before measuring so this frame swaps seamlessly
+    // from the gesture transform to the real scrollable geometry.
+    if (pages) {
+      pages.style.removeProperty("transform");
+      pages.style.removeProperty("transform-origin");
+      pages.style.removeProperty("will-change");
+    }
+    if (scroller && anchor && anchor.fromPercent !== zoomPercent) {
+      const pageNode =
+        anchor.pageIndex === null
+          ? null
+          : scroller.querySelector<HTMLElement>(
+              `[data-pdf-page-index="${anchor.pageIndex}"]`,
+            );
+      if (pageNode) {
+        const pageRect = pageNode.getBoundingClientRect();
+        scroller.scrollLeft +=
+          pageRect.left + pageRect.width * anchor.pageXRatio - anchor.clientX;
+        scroller.scrollTop +=
+          pageRect.top + pageRect.height * anchor.pageYRatio - anchor.clientY;
+      } else {
+        const factor = zoomPercent / anchor.fromPercent;
+        scroller.scrollLeft = anchoredScrollOffset(
+          anchor.scrollLeft,
+          anchor.viewportX,
+          factor,
+        );
+        scroller.scrollTop = anchoredScrollOffset(
+          anchor.scrollTop,
+          anchor.viewportY,
+          factor,
+        );
+      }
+    }
+    zoomPercentRef.current = zoomPercent;
+  }, [zoomPercent]);
 
   const pageHeightsPx = useMemo(
     () => baseSizes.map((size) => size.height * scale),
@@ -294,6 +391,7 @@ export function PdfPreview({
     y: number;
     rects: TextRect[];
   } | null>(null);
+  const activePointAt = pointSelectionActive === false ? null : pointAt;
   const regionsByPage = useMemo(() => groupRectsByPage(regions ?? []), [regions]);
   // 編集カードは、選択要素の矩形が載っている最後のページの直下にアンカーする。
   const selectionCardPage = useMemo(() => {
@@ -330,6 +428,126 @@ export function PdfPreview({
     if (!scroller) return;
     setCurrentPage(currentPageFromScroll(scroller.scrollTop, scroller.clientHeight, pageOffsets));
   }, [pageOffsets]);
+
+  // Chromium represents a trackpad pinch as a cancelable ctrl+wheel stream.
+  // Consume only that gesture: ordinary two-finger scrolling remains native.
+  // Pinch frames transform the already-painted page stack directly on the GPU;
+  // React layout and PDF rendering run only once after the fingers pause.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    const pages = pagesRef.current;
+    if (!scroller || !pages) return;
+    let frame: number | null = null;
+    let commitTimer: number | null = null;
+    let pendingDeltaPixels = 0;
+    let gesture: ActivePinch | null = null;
+
+    const applyPinch = () => {
+      frame = null;
+      if (!gesture || !loadedRef.current || pendingDeltaPixels === 0) return;
+      gesture.targetPercent = pinchZoomPercent(
+        gesture.targetPercent,
+        pendingDeltaPixels,
+      );
+      pendingDeltaPixels = 0;
+      const factor = gesture.targetPercent / gesture.basePercent;
+      pages.style.transformOrigin = `${gesture.originX}px ${gesture.originY}px`;
+      pages.style.transform = `scale(${factor})`;
+      pages.style.willChange = "transform";
+    };
+
+    const commitPinch = () => {
+      commitTimer = null;
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        frame = null;
+        applyPinch();
+      }
+      const completed = gesture;
+      gesture = null;
+      if (!completed) return;
+      if (Math.abs(completed.targetPercent - completed.basePercent) < 0.01) {
+        pages.style.removeProperty("transform");
+        pages.style.removeProperty("transform-origin");
+        pages.style.removeProperty("will-change");
+        return;
+      }
+      pendingZoomAnchorRef.current = completed.anchor;
+      setZoom({ mode: "manual", percent: completed.targetPercent });
+    };
+
+    const handlePinchWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !loadedRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? scroller.clientHeight
+            : 1;
+      if (!gesture) {
+        const pageNode =
+          event.target instanceof Element
+            ? event.target.closest<HTMLElement>("[data-pdf-page-index]")
+            : null;
+        const pageRect = pageNode?.getBoundingClientRect();
+        const pageIndex = pageNode
+          ? Number(pageNode.dataset.pdfPageIndex)
+          : null;
+        const scrollerBounds = scroller.getBoundingClientRect();
+        const pagesBounds = pages.getBoundingClientRect();
+        const viewportX = Math.min(
+          scroller.clientWidth,
+          Math.max(0, event.clientX - scrollerBounds.left),
+        );
+        const viewportY = Math.min(
+          scroller.clientHeight,
+          Math.max(0, event.clientY - scrollerBounds.top),
+        );
+        const basePercent = zoomPercentRef.current;
+        gesture = {
+          basePercent,
+          targetPercent: basePercent,
+          originX: event.clientX - pagesBounds.left,
+          originY: event.clientY - pagesBounds.top,
+          anchor: {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            fromPercent: basePercent,
+            pageIndex:
+              pageIndex !== null && Number.isSafeInteger(pageIndex)
+                ? pageIndex
+                : null,
+            pageXRatio: pageRect
+              ? Math.min(1, Math.max(0, (event.clientX - pageRect.left) / pageRect.width))
+              : 0,
+            pageYRatio: pageRect
+              ? Math.min(1, Math.max(0, (event.clientY - pageRect.top) / pageRect.height))
+              : 0,
+            scrollLeft: scroller.scrollLeft,
+            scrollTop: scroller.scrollTop,
+            viewportX,
+            viewportY,
+          },
+        };
+      }
+      pendingDeltaPixels += event.deltaY * unit;
+      if (frame === null) frame = window.requestAnimationFrame(applyPinch);
+      if (commitTimer !== null) window.clearTimeout(commitTimer);
+      commitTimer = window.setTimeout(commitPinch, PINCH_COMMIT_DELAY_MS);
+    };
+
+    scroller.addEventListener("wheel", handlePinchWheel, { passive: false });
+    return () => {
+      scroller.removeEventListener("wheel", handlePinchWheel);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      if (commitTimer !== null) window.clearTimeout(commitTimer);
+      pages.style.removeProperty("transform");
+      pages.style.removeProperty("transform-origin");
+      pages.style.removeProperty("will-change");
+    };
+  }, [loaded?.key]);
 
   // Keep the page indicator in sync when the layout (zoom, document) changes.
   useEffect(() => {
@@ -424,6 +642,7 @@ export function PdfPreview({
         <div ref={scrollerRef} className={styles.scroller} onScroll={handleScroll}>
           {loaded ? (
             <div
+              ref={pagesRef}
               className={styles.pages}
               style={{ padding: STAGE_PADDING_PX, gap: PAGE_GAP_PX }}
             >
@@ -440,6 +659,7 @@ export function PdfPreview({
                     cssWidth={size.width * scale}
                     cssHeight={size.height * scale}
                     scale={scale}
+                    renderScale={renderScale}
                     dpr={dpr}
                     regionRects={overlayActive ? (regionsByPage.get(index + 1) ?? null) : null}
                     hoveredId={effectiveHoveredId}
@@ -460,7 +680,7 @@ export function PdfPreview({
                     }
                     selectionCard={
                       (overlayActive && selectionCardPage === index + 1) ||
-                      (!overlayActive && pointAt?.page === index + 1)
+                      (!overlayActive && activePointAt?.page === index + 1)
                         ? selectionCard
                         : null
                     }
@@ -468,17 +688,17 @@ export function PdfPreview({
                     // A point selection has no region to sit under, so its card
                     // sits where the reader clicked.
                     selectionCardTop={
-                      !overlayActive && pointAt?.page === index + 1
-                        ? (pointAt.rects.at(-1)
-                            ? (pointAt.rects.at(-1)!.top +
-                                pointAt.rects.at(-1)!.height) *
+                      !overlayActive && activePointAt?.page === index + 1
+                        ? (activePointAt.rects.at(-1)
+                            ? (activePointAt.rects.at(-1)!.top +
+                                activePointAt.rects.at(-1)!.height) *
                               scale
-                            : pointAt.y * scale)
+                            : activePointAt.y * scale)
                         : null
                     }
                     pointRects={
-                      !overlayActive && pointAt?.page === index + 1
-                        ? pointAt.rects
+                      !overlayActive && activePointAt?.page === index + 1
+                        ? activePointAt.rects
                         : null
                     }
                     onRendered={handleRendered}
@@ -503,6 +723,8 @@ interface PdfPageViewProps {
   cssWidth: number;
   cssHeight: number;
   scale: number;
+  /** Debounced high-resolution render scale; CSS uses `scale` immediately. */
+  renderScale: number;
   dpr: number;
   /** Rects to overlay on this page; null = overlay disabled. */
   regionRects: PageRegionRect[] | null;
@@ -515,6 +737,7 @@ interface PdfPageViewProps {
     x: number;
     y: number;
     rects: TextRect[];
+    text: string;
   }) => void;
   /** Outline drawn around what a point selection picked. */
   pointRects?: TextRect[] | null;
@@ -545,6 +768,7 @@ function PdfPageView({
   cssWidth,
   cssHeight,
   scale,
+  renderScale,
   dpr,
   regionRects,
   hoveredId,
@@ -567,13 +791,13 @@ function PdfPageView({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || scale <= 0) return;
-    const viewport = page.getViewport({ scale: scale * dpr });
+    if (!canvas || renderScale <= 0) return;
+    const viewport = page.getViewport({ scale: renderScale * dpr });
     const width = Math.max(1, Math.floor(viewport.width));
     const height = Math.max(1, Math.floor(viewport.height));
-    // Only touch the backing store when the size actually changed: resizing
-    // clears the canvas, and keeping the previous frame until pdfjs paints the
-    // new one is what makes document swaps flash-free.
+    // Pinching does not reach this effect until the gesture settles, so the
+    // previous bitmap remains visible and CSS-scaled throughout the motion.
+    // Reuse the one canvas per page to avoid doubling memory on long PDFs.
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -597,10 +821,14 @@ function PdfPageView({
       superseded = true;
       renderTask.cancel();
     };
-  }, [page, scale, dpr, index, onRendered, onRenderFailed]);
+  }, [page, renderScale, dpr, index, onRendered, onRenderFailed]);
 
   return (
-    <div className={styles.page} style={{ width: cssWidth, height: cssHeight }}>
+    <div
+      className={styles.page}
+      data-pdf-page-index={index}
+      style={{ width: cssWidth, height: cssHeight }}
+    >
       <canvas
         ref={canvasRef}
         className={styles.pageCanvas}
@@ -634,8 +862,10 @@ function PdfPageView({
               x: (event.clientX - bounds.left) / scale,
               y: (event.clientY - bounds.top) / scale,
             };
-            const answer = (rects: TextRect[]) =>
-              onPointSelect({ page: index + 1, ...point, rects });
+            const answer = (selection: { rects: TextRect[]; text: string }) => {
+              if (!hasSelectableText(selection)) return;
+              onPointSelect({ page: index + 1, ...point, ...selection });
+            };
             // Text items come in page space (origin bottom-left); the
             // viewport transform puts them in the frame the overlay uses.
             const base = page.getViewport({ scale: 1 });
@@ -643,7 +873,7 @@ function PdfPageView({
               .getTextContent()
               .then((content) =>
                 answer(
-                  findTextBlockRects(
+                  findTextBlock(
                     (content.items as unknown as TextItemLike[]).map((item) =>
                       item.transform
                         ? {
@@ -661,7 +891,7 @@ function PdfPageView({
               )
               // Without the page's text the click still selects; it just has
               // nothing to outline.
-              .catch(() => answer([]));
+              .catch(() => answer({ rects: [], text: "" }));
           }}
         />
       ) : null}
@@ -677,6 +907,7 @@ function PdfPageView({
             node.scrollIntoView({ block: "nearest", behavior: "smooth" });
           }}
           className={styles.selectionCard}
+          data-pdf-selection-card
           style={{
             top: Math.min(selectionCardTop + 12, Math.max(8, cssHeight - 260)),
             left: Math.max(8, (cssWidth - Math.min(430, cssWidth - 16)) / 2),
@@ -746,6 +977,7 @@ function PdfPageView({
                 return (
                   <div
                     className={styles.selectionCard}
+                    data-pdf-selection-card
                     style={position}
                     onClick={(event) => event.stopPropagation()}
                   >

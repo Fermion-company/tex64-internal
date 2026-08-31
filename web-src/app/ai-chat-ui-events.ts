@@ -48,7 +48,6 @@ type InitAiChatEventBindingsParams = {
   clearThinkingMessage: (chatId?: string | null) => void;
   upsertThinkingMessage: (chatId?: string | null, text?: string) => void;
   updateSendState: () => void;
-  disableAutonomous: (chatId?: string | null) => void;
   resetToNewChatState: () => void;
 };
 
@@ -93,7 +92,6 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
     clearThinkingMessage,
     upsertThinkingMessage,
     updateSendState,
-    disableAutonomous,
     resetToNewChatState,
   } = params;
 
@@ -252,13 +250,14 @@ export const initAiChatEventBindings = (params: InitAiChatEventBindingsParams) =
       const chat = getChat(getActiveChatId());
       if (!chat) return;
       if (runningConversations.has(chat.id)) {
-        disableAutonomous(chat.id);
         postToNative({ type: "agent:abort", conversationId: chat.id }, true);
         resumableConversations.delete(chat.id);
         pendingAgentRequests.delete(chat.id);
-        chat.statusMessage = "";
-        runningConversations.delete(chat.id);
-        clearThinkingMessage(chat.id);
+        // Keep the conversation locked until main reports a terminal state.
+        // Main may still be compiling a completed partial edit; reopening send
+        // here can replace its run token and abandon that definitive build.
+        chat.statusMessage = "Finishing partial changes...";
+        upsertThinkingMessage(chat.id, chat.statusMessage);
         renderHistoryList();
         updateSendState();
         updateStatusDisplay();

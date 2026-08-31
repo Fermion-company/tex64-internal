@@ -36,7 +36,7 @@ test("texlab fetch metadata includes the pinned Windows x64 zip", () => {
   );
 });
 
-test("Axiom run_command uses COMSPEC without cmd AutoRun hooks on Windows", () => {
+test("internal shell helper uses COMSPEC without cmd AutoRun hooks on Windows", () => {
   const command = 'printf "safe argument"';
   assert.deepEqual(
     resolveShellInvocation(command, "win32", {
@@ -49,7 +49,7 @@ test("Axiom run_command uses COMSPEC without cmd AutoRun hooks on Windows", () =
   );
 });
 
-test("Axiom run_command falls back to profile-free PowerShell on Windows", () => {
+test("internal shell helper falls back to profile-free PowerShell on Windows", () => {
   const command = "Get-ChildItem -LiteralPath .";
   assert.deepEqual(resolveShellInvocation(command, "win32", {}), {
     executable: "powershell.exe",
@@ -64,7 +64,7 @@ test("Axiom run_command falls back to profile-free PowerShell on Windows", () =>
   );
 });
 
-test("Axiom run_command preserves Unix login-shell invocation", () => {
+test("internal shell helper preserves Unix login-shell invocation", () => {
   const command = "latexmk -pdf main.tex";
   assert.deepEqual(
     resolveShellInvocation(command, "darwin", { SHELL: "/bin/zsh" }),

@@ -1,27 +1,38 @@
-# TeX64 デスクトップのモード状態
+# TeX64 デスクトップのモード
 
-デスクトップ版は現在 **Code ワークスペースのみ**を提供する。トップバーにモード切替は表示せず、
-保存済みの `tex64.appMode.v1` が `ai` でも Code で起動する。
+一般配布のデスクトップ版は **Code と AI**を提供し、トップバーで切り替える。
+`tex64.appMode.v1` に最後の選択を保存し、廃止した `pro` 値だけを Code へ移行する。
 
-Code ではソース編集、通常 PDF / Live プレビュー、TikZ 作図、左サイドバーの Axiom チャットを使える。
-Basic / Pro の課金、利用量表示、Checkout、Customer Portal も Code 側の機能として維持する。
+- **Code** — LaTeXソース、通常PDF / Liveプレビュー、TikZ、Axiomチャットを扱う。
+- **AI** — 同じワークスペースを紙面中心で扱い、会話から執筆・編集・組版する。
 
-## AI モードの扱い
+Code内のAxiomチャットと課金導線も引き続き提供する。
 
-`services/tex64-ai` と埋め込み用の関連実装は、将来の再検証に備えてコードベース内に保持する。
-ただし公開デスクトップでは次を満たすこと。
+## AIモード実装の境界
 
-- `Resources/web/index.html` に Code | AI スイッチャーを置かない。
-- AI workspace の `<webview>` ホストを置かない。
-- renderer 起動時に `initAiModeUi` を呼ばず、AI サービスへ接続しない。
-- Live プレビューには常に `code` モードを渡す。
+- CodeからAIへ移る前に、開いている未保存バッファをすべて保存する。
+- どちら向きの切替でも、実行中のAxiomと組版を中断し、実際に終了したことを確認してから画面を替える。
+- プロジェクト切替でも同じ停止境界を使う。古い世代の組版、ファイル応答、SyncTeX応答は新しい
+  ワークスペースへ適用しない。
+- AIの会話・紙面・undoは `workspaceId + CodeのrootFile` 単位。AIが書いた内容はCode側の開いている
+  Monaco modelにも保存済み内容として反映し、後の保存で古い内容へ戻さない。
+- 段落の直接編集は全文上書きではなく、読取時のcontent hashを使うcompare-and-swapで行う。
 
-AI モードを再公開する場合は、認証・課金・利用枠・Checkout後の反映・実ファイル編集・組版・停止・
-エラー回復を本番相当で一通り検証したうえで、モード切替、AI surface、初期化配線、ドキュメントを
-同じ変更で戻す。
+## 認証・課金・モデル
+
+Code内のAxiomで見せるモデルは `Axiom1.0` とPro限定の `Axiom1.0-pro` の2つ。認証、AI利用可否、
+トークン利用量、プラン変更はCodeと同じElectron側の課金実装へ接続する。利用量として表示するのは
+トークンだけで、内部コストやドル予算は出さない。
+
+## アプリへの同梱
+
+`services/tex64-ai` のNext.js standalone出力をアプリへ同梱し、ElectronがローカルUIサーバーとして起動する。
+外部AI UIへフォールバックせず、ワークスペースのファイル取得はElectronの許可制bridgeだけを通す。
 
 ## 実装上の注意
 
-- renderer は `web-src/` を編集し、`Resources/web/**/*.js` は `tsc` で生成する。
+- rendererは `web-src/` を編集し、`Resources/web/**/*.js` は `tsc` の生成物とする。
 - `Resources/web/index.html` と `Resources/web/theme.css` は直接編集する。
-- 無効状態の回帰確認は `tests/app-mode.test.mjs` が担う。
+- モード切替とguest境界の回帰確認は `tests/app-mode.test.mjs`、ワークスペース世代と組版相関は
+  `tests/workspace-generation.test.cjs` と `tests/build-event-correlation.test.cjs` が担う。
+- UI変更は型検査だけで終えず、パッケージしたmacOSアプリで主要操作を確認する。

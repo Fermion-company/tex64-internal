@@ -8,8 +8,15 @@ export type EditorSessionNavigationOps = {
   applyContentToOpenFile: (
     path: string,
     content: string,
-    options?: { updateSaved?: boolean; showAiDiff?: boolean }
-  ) => boolean;
+    options?: {
+      updateSaved?: boolean;
+      showAiDiff?: boolean;
+      expectedContent?: string;
+      expectedFileMissing?: boolean;
+      fileDeleted?: boolean;
+      conversationId?: string;
+    }
+  ) => { handled: boolean; conflict: boolean };
   jumpToFileLine: (
     path: string,
     line: number,
@@ -28,23 +35,37 @@ export const createEditorSessionNavigationOps = (
       group: EditorGroupState,
       path: string,
       content: string,
-      options?: { updateSaved?: boolean; showAiDiff?: boolean }
-    ) => void;
+      options?: {
+        updateSaved?: boolean;
+        showAiDiff?: boolean;
+        expectedContent?: string;
+        expectedFileMissing?: boolean;
+        fileDeleted?: boolean;
+        conversationId?: string;
+      }
+    ) => boolean;
     requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
   }
 ): EditorSessionNavigationOps => {
   const applyContentToOpenFile = (
     path: string,
     content: string,
-    options?: { updateSaved?: boolean; showAiDiff?: boolean }
+    options?: {
+      updateSaved?: boolean;
+      showAiDiff?: boolean;
+      expectedContent?: string;
+      expectedFileMissing?: boolean;
+      fileDeleted?: boolean;
+      conversationId?: string;
+    }
   ) => {
     const targetGroupKey = coreOps.findGroupKeyByPath(path);
     if (!targetGroupKey) {
-      return false;
+      return { handled: false, conflict: false };
     }
     const targetGroup = coreOps.getEditorGroup(targetGroupKey);
-    deps.applyFormattedContent(targetGroup, path, content, options);
-    return true;
+    const conflict = deps.applyFormattedContent(targetGroup, path, content, options);
+    return { handled: true, conflict };
   };
 
   const jumpToFileLine = (
@@ -89,4 +110,3 @@ export const createEditorSessionNavigationOps = (
     jumpToLocation,
   };
 };
-

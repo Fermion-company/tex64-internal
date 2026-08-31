@@ -2,6 +2,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 
 const GLOBAL_STATE_KEY = "__TEX64_PLATFORM_V2_STATE__";
+const GLOBAL_STATE_LOCKS_KEY = "__TEX64_PLATFORM_V2_STATE_LOCKS__";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -11,6 +12,7 @@ const DEFAULT_STATE = Object.freeze({
   usersByEmail: {},
   subscriptions: {},
   usage: {},
+  anonymousAbuseWindows: {},
   authRequests: {},
   refreshTokens: {},
   processedSubscriptionEvents: {},
@@ -28,6 +30,7 @@ const normalizeState = (value) => {
     usersByEmail: toObject(source.usersByEmail),
     subscriptions: toObject(source.subscriptions),
     usage: toObject(source.usage),
+    anonymousAbuseWindows: toObject(source.anonymousAbuseWindows),
     authRequests: toObject(source.authRequests),
     refreshTokens: toObject(source.refreshTokens),
     processedSubscriptionEvents: toObject(source.processedSubscriptionEvents),
@@ -40,6 +43,37 @@ const ensureGlobalMemoryState = () => {
     globalThis[GLOBAL_STATE_KEY] = clone(DEFAULT_STATE);
   }
   return globalThis[GLOBAL_STATE_KEY];
+};
+
+const getStateLocks = () => {
+  if (!globalThis[GLOBAL_STATE_LOCKS_KEY]) {
+    globalThis[GLOBAL_STATE_LOCKS_KEY] = new Map();
+  }
+  return globalThis[GLOBAL_STATE_LOCKS_KEY];
+};
+
+const stateLockKey = (config) =>
+  typeof config?.stateFilePath === "string" && config.stateFilePath.trim()
+    ? config.stateFilePath.trim()
+    : "memory";
+
+export const withPlatformStateLock = async (config, callback) => {
+  const locks = getStateLocks();
+  const key = stateLockKey(config);
+  const previous = locks.get(key) || Promise.resolve();
+  const operation = previous.catch(() => {}).then(callback);
+  const settled = operation.then(
+    () => undefined,
+    () => undefined
+  );
+  locks.set(key, settled);
+  try {
+    return await operation;
+  } finally {
+    if (locks.get(key) === settled) {
+      locks.delete(key);
+    }
+  }
 };
 
 const readStateFile = async (filePath) => {
