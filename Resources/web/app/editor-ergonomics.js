@@ -29,6 +29,16 @@ export const planTexDelimiterCompletion = (typed, before, after) => {
     if (after.startsWith(pair.text)) {
         return null;
     }
+    const displayLine = typed === "[" ? before.match(/^([ \t]*)\\\[$/) : null;
+    if (displayLine) {
+        const indent = displayLine[1];
+        return {
+            text: `\n${indent}  \n${indent}\\]`,
+            replaceLength: after.startsWith(pair.plainClose) ? 1 : 0,
+            cursorLineDelta: 1,
+            cursorColumn: indent.length + 3,
+        };
+    }
     // Monaco has already inserted its ordinary bracket closer in the common
     // path ("\\[]" / "\\()"). Replace it instead of adding a second closer.
     return {
@@ -67,7 +77,7 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
         return;
     }
     (_a = editor.onDidType) === null || _a === void 0 ? void 0 : _a.call(editor, (typed) => {
-        var _a, _b;
+        var _a, _b, _c;
         if (group === null || group === void 0 ? void 0 : group.isComposing) {
             return;
         }
@@ -87,9 +97,14 @@ export const attachEditorErgonomics = (monaco, editor, group) => {
                     text: delimiter.text,
                 },
             ]);
-            // Keep the caret between the opener and closer. executeEdits normally
-            // moves it after the inserted text.
-            editor.setPosition(pos);
+            // Keep the caret inside the generated pair. A standalone display opener
+            // gets the same indented blank body line as an environment completion.
+            editor.setPosition(delimiter.cursorLineDelta
+                ? {
+                    lineNumber: pos.lineNumber + delimiter.cursorLineDelta,
+                    column: (_c = delimiter.cursorColumn) !== null && _c !== void 0 ? _c : pos.column,
+                }
+                : pos);
             return;
         }
         if (typed !== "}" || !editorSettings.isEnabled("ergo.autoCloseEnvironment")) {

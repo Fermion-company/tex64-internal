@@ -60,14 +60,24 @@ test("Code Live never republishes an obsolete project and tracks the detached de
     window.__viewerMessages = [];
     window.__windowMessages = [];
     window.__pushes = [];
+    window.__focuses = [];
     window.__changeListener = null;
+    window.__cursorListener = null;
 
     const editor = {
       getValue: () => window.__liveState.value,
+      getPosition: () => ({ lineNumber: 1, column: 2 }),
+      getModel: () => ({ getOffsetAt: () => 1 }),
       onDidChangeModelContent: (listener) => {
         window.__changeListener = listener;
         return { dispose: () => {
           if (window.__changeListener === listener) window.__changeListener = null;
+        } };
+      },
+      onDidChangeCursorPosition: (listener) => {
+        window.__cursorListener = listener;
+        return { dispose: () => {
+          if (window.__cursorListener === listener) window.__cursorListener = null;
         } };
       },
     };
@@ -90,6 +100,10 @@ test("Code Live never republishes an obsolete project and tracks the detached de
       push: (payload) => new Promise((resolve, reject) => {
         window.__pushes.push({ payload, resolve, reject });
       }),
+      focus: async (payload) => {
+        window.__focuses.push(payload);
+        return { ok: true, scheduled: true };
+      },
       windowLive: async (payload) => {
         window.__windowMessages.push(payload);
         return { ok: true };
@@ -124,6 +138,7 @@ test("Code Live never republishes an obsolete project and tracks the detached de
     url: "http://127.0.0.1:4633",
   }));
   await page.waitForFunction(() => window.__viewerMessages.some((item) => item.url));
+  await page.waitForFunction(() => window.__focuses.some((item) => item.offset === 1));
   const firstLive = await page.evaluate(() => window.__viewerMessages.filter((item) => item.url).at(-1));
 
   // Keep a project-A edit in flight, then switch the editor's real project.
@@ -134,6 +149,9 @@ test("Code Live never republishes an obsolete project and tracks the detached de
     window.__changeListener();
   });
   await page.waitForFunction(() => window.__pushes.length === 2);
+  const editTimestamp = await page.evaluate(() => window.__pushes[1].payload.clientEditAtEpochMs);
+  assert.ok(Number.isFinite(editTimestamp));
+  assert.ok(Math.abs(Date.now() - editTimestamp) < 5_000);
   await page.evaluate(() => {
     window.__liveState.workspace = "/project-b";
     window.__liveState.root = "/project-b/main.tex";

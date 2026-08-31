@@ -199,7 +199,7 @@ export const initBuildOpsUi = (context, deps) => {
         }, 0);
     };
     const requestSynctexForward = (overridePath, options = {}) => {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g;
         const activeGroup = deps.getActiveGroup();
         const activePath = deps.getActiveFilePath();
         const lastBuildMainFile = deps.getLastBuildMainFile();
@@ -212,12 +212,13 @@ export const initBuildOpsUi = (context, deps) => {
             ]);
             return;
         }
-        const editor = activeGroup.editor;
-        const position = activeGroup.currentFilePath === targetPath ? (_a = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor) : null;
+        const sourceGroup = [activeGroup, ...deps.getEditorGroups()].find((group) => group.currentFilePath === targetPath);
+        const editor = sourceGroup === null || sourceGroup === void 0 ? void 0 : sourceGroup.editor;
+        const position = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getPosition) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null;
         const storedPosition = deps.getStoredCursorPosition(targetPath);
-        const line = (_c = (_b = position === null || position === void 0 ? void 0 : position.lineNumber) !== null && _b !== void 0 ? _b : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.line) !== null && _c !== void 0 ? _c : 1;
-        const column = (_e = (_d = position === null || position === void 0 ? void 0 : position.column) !== null && _d !== void 0 ? _d : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.column) !== null && _e !== void 0 ? _e : 1;
-        const source = (_f = options.source) !== null && _f !== void 0 ? _f : "manual";
+        const line = (_d = (_c = position === null || position === void 0 ? void 0 : position.lineNumber) !== null && _c !== void 0 ? _c : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.line) !== null && _d !== void 0 ? _d : 1;
+        const column = (_f = (_e = position === null || position === void 0 ? void 0 : position.column) !== null && _e !== void 0 ? _e : storedPosition === null || storedPosition === void 0 ? void 0 : storedPosition.column) !== null && _f !== void 0 ? _f : 1;
+        const source = (_g = options.source) !== null && _g !== void 0 ? _g : "manual";
         if (source === "manual") {
             synctexManualPriorityUntil = Date.now() + 5000;
         }
@@ -568,6 +569,9 @@ export const initBuildOpsUi = (context, deps) => {
                     x: (_f = payload.x) !== null && _f !== void 0 ? _f : 0,
                     y: (_g = payload.y) !== null && _g !== void 0 ? _g : 0,
                 };
+                if (pdfPath) {
+                    syncPayload.pdfPath = pdfPath;
+                }
                 if (payloadMeta) {
                     syncPayload.sourceFile = payloadMeta.path;
                     syncPayload.sourceLine = payloadMeta.line;
