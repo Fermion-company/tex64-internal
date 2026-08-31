@@ -34,6 +34,8 @@ export interface PxRect {
 export const MIN_ZOOM_PERCENT = 50;
 export const MAX_ZOOM_PERCENT = 300;
 export const ZOOM_STEP_PERCENT = 10;
+/** Chromium trackpad pinch events arrive as ctrl+wheel pixel deltas. */
+export const PINCH_ZOOM_SENSITIVITY = 0.0085;
 
 /**
  * Fraction of the viewport height used as the "reading line" when deciding
@@ -55,6 +57,38 @@ export function bpRectToPx(rect: PdfRegionRect, scale: number): PxRect {
 export function clampZoomPercent(percent: number): number {
   if (!Number.isFinite(percent)) return 100;
   return Math.min(MAX_ZOOM_PERCENT, Math.max(MIN_ZOOM_PERCENT, Math.round(percent)));
+}
+
+/** Continuous exponential zoom for a trackpad pinch (negative delta = zoom in). */
+export function pinchZoomPercent(currentPercent: number, deltaPixels: number): number {
+  const current = Number.isFinite(currentPercent) ? currentPercent : 100;
+  if (!Number.isFinite(deltaPixels)) {
+    return Math.min(MAX_ZOOM_PERCENT, Math.max(MIN_ZOOM_PERCENT, current));
+  }
+  return Math.min(
+    MAX_ZOOM_PERCENT,
+    Math.max(
+      MIN_ZOOM_PERCENT,
+      current * Math.exp(-deltaPixels * PINCH_ZOOM_SENSITIVITY),
+    ),
+  );
+}
+
+/** Preserve a viewport point when content changes by `scaleFactor`. */
+export function anchoredScrollOffset(
+  scrollOffset: number,
+  viewportPoint: number,
+  scaleFactor: number,
+): number {
+  if (
+    !Number.isFinite(scrollOffset) ||
+    !Number.isFinite(viewportPoint) ||
+    !Number.isFinite(scaleFactor) ||
+    scaleFactor <= 0
+  ) {
+    return Math.max(0, Number.isFinite(scrollOffset) ? scrollOffset : 0);
+  }
+  return Math.max(0, (scrollOffset + viewportPoint) * scaleFactor - viewportPoint);
 }
 
 /**

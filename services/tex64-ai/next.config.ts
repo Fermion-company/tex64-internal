@@ -17,10 +17,14 @@ const contentSecurityPolicy = [
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  ...(isProduction ? ["upgrade-insecure-requests"] : []),
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // The desktop app ships this server beside the Electron bundle. Standalone
+  // output contains the production server and only the runtime dependencies it
+  // actually needs; the packaging preparation script adds public/static files.
+  output: "standalone",
+  outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
   poweredByHeader: false,
   // The dev overlay renders a floating "N" badge over the app. Inside the
   // TeX64 desktop AI mode it reads as a product control that leads nowhere,

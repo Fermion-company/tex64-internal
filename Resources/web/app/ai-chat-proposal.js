@@ -223,9 +223,10 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
         applyButton.addEventListener("click", (event) => {
             event.stopPropagation();
             const unapplied = proposals.filter((p) => !appliedIds.has(p.id));
-            for (const p of unapplied) {
-                deps.postToNative({ type: "agent:apply", proposalId: p.id });
-            }
+            deps.postToNative({
+                type: "agent:applyBatch",
+                proposalIds: unapplied.map((proposal) => proposal.id),
+            });
         });
         actions.appendChild(applyButton);
     }

@@ -52,6 +52,10 @@ class AgentSessionsService {
     return this.queue;
   }
 
+  flush() {
+    return this.queue;
+  }
+
   resolveSessionPath(conversationId) {
     const normalized = typeof conversationId === "string" ? conversationId.trim() : "";
     const digest = sha256Hex(normalized || "default");
@@ -178,4 +182,3 @@ module.exports = {
   AgentSessionsService,
   DEFAULT_DIR_NAME,
 };
-

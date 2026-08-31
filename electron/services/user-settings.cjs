@@ -1,6 +1,9 @@
 const path = require("path");
 const fsp = require("fs/promises");
 const { migrateLegacyAxiomModel } = require("./openprism/llm-config.cjs");
+const {
+  resolveMaxAgentIterations,
+} = require("./openprism/run-budget.cjs");
 
 const MAX_RECENT_PROJECTS = 10;
 
@@ -8,11 +11,11 @@ const DEFAULT_SETTINGS = {
   agent: {
     model: "Axiom1.0",
     endpoint: "",
-    maxIterations: 500,
+    maxIterations: 24,
     stream: true,
     autoApply: true,
     autoBuild: true,
-    allowRunCommand: true,
+    allowRunCommand: false,
     maxFileBytes: 400_000,
     maxReadFiles: 16,
     openFileMaxBytes: 0,
@@ -135,9 +138,14 @@ class UserSettingsService {
       ...clone(DEFAULT_SETTINGS.agent),
       ...storedAgent,
     };
+    const didDisableRunCommand = mergedAgent.allowRunCommand !== false;
+    mergedAgent.allowRunCommand = false;
+    const safeMaxIterations = resolveMaxAgentIterations(mergedAgent.maxIterations);
+    const didClampMaxIterations = safeMaxIterations !== mergedAgent.maxIterations;
+    mergedAgent.maxIterations = safeMaxIterations;
     const migratedModel = migrateLegacyAxiomModel(mergedAgent.model);
     const didMigrateModel = migratedModel !== mergedAgent.model;
-    if (didMigrateModel) {
+    if (didMigrateModel || didDisableRunCommand || didClampMaxIterations) {
       mergedAgent.model = migratedModel;
     }
 
@@ -154,10 +162,11 @@ class UserSettingsService {
           )
         : clone(DEFAULT_SETTINGS.dismissedAnnouncementIds),
     };
-    if (didMigrateModel) {
-      // Persist the canonical id so every renderer and future launch sees the
-      // same model. Loading still succeeds if a transient disk error prevents
-      // this best-effort migration write.
+    if (didMigrateModel || didDisableRunCommand || didClampMaxIterations) {
+      // Persist canonical, safe settings so every renderer and future launch
+      // sees the same model and a legacy toggle cannot resurrect shell access.
+      // Loading still succeeds if a transient disk error prevents this
+      // best-effort migration write.
       await this.save().catch(() => {});
     }
     return clone(this.state);
@@ -175,6 +184,10 @@ class UserSettingsService {
       ...(partial && typeof partial === "object" ? partial : {}),
     };
     state.agent.model = migrateLegacyAxiomModel(state.agent.model);
+    state.agent.allowRunCommand = false;
+    state.agent.maxIterations = resolveMaxAgentIterations(
+      state.agent.maxIterations,
+    );
     this.state = state;
     await this.save();
     return clone(state.agent);

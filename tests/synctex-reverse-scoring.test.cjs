@@ -99,3 +99,31 @@ test("an exact hit on the inter-paragraph blank line does not evict the prose", 
   });
   assert.equal(selected.line, 36);
 });
+
+test("paper editing uses one exact reverse query on the common path", async () => {
+  const service = new SynctexService();
+  let exactCalls = 0;
+  let sampled = false;
+  service.findSynctex = () => "/usr/bin/synctex";
+  service.resolveReverseLine = async () => {
+    exactCalls += 1;
+    return { path: __filename, line: 1, column: 1 };
+  };
+  service.collectReverseCandidates = async () => {
+    sampled = true;
+    return [];
+  };
+  const result = await service.reverse({
+    page: 1,
+    x: 120,
+    y: 240,
+    pdfPath: __filename,
+    preferExact: true,
+    bypassHint: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.fastPath, true);
+  assert.equal(result.line, 1);
+  assert.equal(exactCalls, 1);
+  assert.equal(sampled, false);
+});

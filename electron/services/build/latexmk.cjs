@@ -1,3 +1,14 @@
+const path = require("path");
+
+const prependKpathseaSearchPath = (env, name, directories) => {
+  const entries = directories
+    .filter(Boolean)
+    .map((directory) => `${path.resolve(directory).split(path.sep).join("/")}//`);
+  const existing = typeof env[name] === "string" ? env[name] : "";
+  // A trailing empty entry asks kpathsea to keep its built-in default paths.
+  env[name] = [...new Set(entries), existing].join(path.delimiter);
+};
+
 module.exports = (BuildService) => {
   BuildService.prototype.runLatexmk = async function (rootPath, mainFileName, engine, options = {}) {
     const latexmkPath = this.findLatexmk();
@@ -33,6 +44,12 @@ module.exports = (BuildService) => {
     );
     const env = { ...process.env };
     env.PATH = this.extendPath(env.PATH);
+    if (options?.stagedOutput === true) {
+      const sourceDir = path.dirname(path.resolve(rootPath, mainFileName));
+      prependKpathseaSearchPath(env, "TEXINPUTS", [sourceDir, rootPath]);
+      prependKpathseaSearchPath(env, "BIBINPUTS", [sourceDir, rootPath]);
+      prependKpathseaSearchPath(env, "BSTINPUTS", [sourceDir, rootPath]);
+    }
     const result = await this.runProcess(latexmkPath, args, rootPath, env);
     return result;
   };
@@ -61,4 +78,3 @@ module.exports = (BuildService) => {
     return result;
   };
 };
-

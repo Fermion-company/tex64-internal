@@ -42,21 +42,6 @@ export type MonacoModel = {
 };
 export type MonacoModelEntry = { model: MonacoModel; savedContent: string };
 
-export type LivePreviewEditPayload = {
-  sessionId: string;
-  regionId?: string;
-  kind: "text" | "math";
-  path: string;
-  start: { line: number; column: number };
-  end: { line: number; column: number };
-  baseValue: string;
-  value?: string;
-  replacement: string;
-  cancel?: boolean;
-  finish?: boolean;
-  sourceRev?: number;
-};
-
 export type EditorSessionDeps = {
   getWorkspaceFiles: () => string[];
   getRootFilePath: () => string | null;
@@ -174,10 +159,27 @@ export type EditorSessionApi = {
     group: EditorGroupState,
     path: string,
     content: string,
-    options?: { updateSaved?: boolean; showAiDiff?: boolean }
-  ) => void;
-  applyContentToOpenFile: (path: string, content: string, options?: { updateSaved?: boolean; showAiDiff?: boolean }) => boolean;
-  applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+    options?: {
+      updateSaved?: boolean;
+      showAiDiff?: boolean;
+      expectedContent?: string;
+      expectedFileMissing?: boolean;
+      fileDeleted?: boolean;
+      conversationId?: string;
+    }
+  ) => boolean;
+  applyContentToOpenFile: (
+    path: string,
+    content: string,
+    options?: {
+      updateSaved?: boolean;
+      showAiDiff?: boolean;
+      expectedContent?: string;
+      expectedFileMissing?: boolean;
+      fileDeleted?: boolean;
+      conversationId?: string;
+    }
+  ) => { handled: boolean; conflict: boolean };
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;
@@ -198,6 +200,7 @@ export type EditorSessionApi = {
     kind?: "text" | "image" | "pdf" | "unsupported";
     data?: string;
     mimeType?: string;
+    livePreview?: { generation: number; documentEpoch: number };
   }) => void;
   handleSaveResult: (payload: {
     path: string;

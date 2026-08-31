@@ -1,25 +1,24 @@
 # リアルタイムプレビュー（ベータ）
 
-Code モードの設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、TeX64 本体には同梱せずプロセスとして起動する。
+Code / AI 共通の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、TeX64 本体には同梱せずプロセスとして起動する。
 
 - 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
-- **新しいペインは作らない。** ON のあいだ、ビルド済み PDF を表示している既存のビューア — タブ内の PDF ビューア（`pdf-viewer.html`）と**別ウィンドウの PDF ビューア** — の**ページ描画部分だけ**がエンジンのライブ表示（`?embed=1` の iframe）に置き換わる。ツールバー等のクロームはそのまま。OFF で従来の静的 PDF 表示に戻り、エンジンプロセスも終了する。
+- **ライブ専用の表示面は作らない。** TDOM が確定した PDF バイトを、Code では通常の `pdf-viewer.html`、AI では通常の `PdfPreview` へ渡す。ズーム、スクロール、検索、サイドバー、SyncTeX は通常ビルド後の PDF と同じ経路を通る。Code では既存の PDF タブを更新し、まだ無ければ通常と同じセカンダリグループに PDF タブを開く。別ウィンドウは起動しない。
 
 ## 配線
 
 | 層 | ファイル | 役割 |
 | --- | --- | --- |
-| main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy |
-| main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,window-live}` |
-| main | `electron/services/pdf.cjs` | `PDFWindowManager.setLive(url)` — 別ウィンドウのライブ状態（再表示時に再適用） |
+| main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy・`/canonical.pdf` snapshot |
+| main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,focus,snapshot}` |
 | preload | `electron/preload.cjs` | `window.tex64Tdom` |
-| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（300ms debounce・IME 中は送らない）・ライブ状態の配信 |
-| renderer | `web-src/app/viewer.ts` | `setLivePreview(url)` — タブ内 pdf-viewer への live メッセージ中継（ready 時に再送） |
-| viewer | `Resources/web/pdf-viewer.{html,js,css}` | `live` メッセージでページ領域を iframe に切替。ツールバーのズーム/ページ移動は postMessage でエンジン側クライアントを操作。CSP `frame-src` に `http://127.0.0.1:*` を許可 |
+| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・確定 PDF snapshot の配信 |
+| renderer | `web-src/app/viewer.ts` | ライブ PDF を通常の `showPdfViewer` と同じ PDF.js 読み込みへ渡し、静的 PDF を last-good として保持 |
+| AI | `services/tex64-ai/src/lib/client/use-workspace-pdf.ts` | native host から受けた同じ PDF snapshot を既存の `PdfPreview` URL として採用 |
 
 エディタ全文を main に送り、main 側が前回ソースとの共通 prefix/suffix を削った**最小レンジ編集**にして `POST /edit` する。ファイル切替時は `POST /open` で開き直す。編集が食い違ったら `/open` で再同期。
 
-**レイテンシ実測**（2026-08-20、e2e-paper-test 4 ページ文書）: renderer デバウンス 80ms（tdom 自身のクライアントと同値。当初 300ms だったのを短縮）＋ POST→SSE update 到達が本文 56〜104ms・数式 62ms・\maketitle 直下 206ms（新規ブロック生成分）。打鍵から画面反映まで概ね **150〜250ms**。数式行そのものの画像（exact chunk）と canonical は入力が止まってから数秒で追いつく（「本物の LuaLaTeX 出力だけを正とする」エンジン設計）。
+表示するのは TDOM の provisional DOM ではなく、確定した LuaLaTeX PDF だけである。したがって画面更新は canonical の着地単位になるが、通常 PDF と異なる字形・改ページ・操作系が混在しない。
 
 ## エンジンの解決順序（tdom-engine.cjs）
 
@@ -40,16 +39,10 @@ Code モードの設定トグルで有効化する、書きながら組版され
 - トグル OFF・アプリ終了で SIGTERM → エンジン側の shutdown が常駐 lualatex ツリーを回収する。
 - ポートは 4646 起点で空きを探す（tdom 開発サーバーの 4633 とは衝突させない）。
 
-## tdom-core 側に入れた変更
-
-- `web/app.js` / `web/style.css`: `?embed=1` — ページのみ表示（topbar・エディタ・インスペクタ・ペインタイトル・page ラベルを隠す）。`?bg=%23rrggbb`・`?theme=light|dark` でホストの配色に合わせる。ホストのツールバー操作（zoom-in/out/fit・goto-page/page-prev/next）を postMessage で受け、`{source:'tdom-embed', pageCount, zoom, page}` を 400ms 間隔で親へ通知。
-- `server.js`: `TDOM_WORKDIR` の絶対パス受け入れ（PID lock・stale sweep も親ディレクトリ基準に対応）。
-
 ## 既知の制限（ベータ）
 
-- ライブ表示が出るのは「PDF を表示しているビューア」= 一度ビルド（または PDF を開く）してビューア/ウィンドウが存在している場所。
-- 単一 `.tex` バッファが対象（`\input` 分割プロジェクトはエンジンの docDir 連携が未配線）。
-- ライブ表示中は SyncTeX（Ctrl/Cmd+クリックでソースへ）・検索・回転・サムネイルは効かない（pdfjs は下で保持され、OFF で即復帰）。ズーム・ページ移動はツールバーから操作可能。
+- TDOM の canonical が未着地のあいだは直前の通常 PDF / last-good PDF を保持する。
+- Code の PDF タブはルート `.tex` と同階層の `.pdf` 名で開く。特殊な outDir を使う通常ビルドでは、先にその出力 PDF を開いておくと同じタブが更新される。
 - Windows 不可（エンジンが fork 依存。POSIX のみ）。
 
 ## 解決済みの問題

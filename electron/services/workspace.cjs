@@ -1957,6 +1957,41 @@ const normalizeRelativePath = (relativePath) => {
   return relativePath.split(path.sep).join("/");
 };
 
+const realpathSync = (targetPath) =>
+  typeof fs.realpathSync.native === "function"
+    ? fs.realpathSync.native(targetPath)
+    : fs.realpathSync(targetPath);
+
+const isWithinPath = (rootPath, targetPath) => {
+  const relative = path.relative(rootPath, targetPath);
+  return (
+    relative === "" ||
+    (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
+  );
+};
+
+/**
+ * Resolve the nearest existing ancestor. This covers both existing reads and
+ * not-yet-created write targets: a symlink in any parent component is resolved
+ * before the caller is allowed to touch the path.
+ */
+const nearestExistingRealPath = (targetPath) => {
+  let current = targetPath;
+  while (true) {
+    try {
+      fs.lstatSync(current);
+      return realpathSync(current);
+    } catch (error) {
+      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") {
+        throw error;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      current = parent;
+    }
+  }
+};
+
 const generateId = () => {
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -2043,6 +2078,7 @@ class WorkspaceManager {
     this.rootFileInfo = null;
     this.rootInfoRootPath = null;
     this.undoStack = [];
+    this.fileMutationTails = new Map();
   }
 
   setRootPath(rootPath) {
@@ -2056,6 +2092,34 @@ class WorkspaceManager {
     return this.rootPath;
   }
 
+  async withFileMutation(relativePath, operation) {
+    if (typeof operation !== "function") {
+      throw new Error("A file mutation callback is required.");
+    }
+    const rootPath = this.rootPath;
+    if (!rootPath) throw new Error(WorkspaceError.invalidPath);
+    const normalized = normalizeRelativePath(relativePath ?? "");
+    // Resolve before acquiring the queue so invalid/symlink-escaping paths never
+    // create arbitrary lock keys.
+    this.resolvePath(normalized);
+    const key = `${rootPath}\0${normalized}`;
+    const previous = this.fileMutationTails.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(() => {
+      if (this.rootPath !== rootPath) throw new Error(WorkspaceError.invalidPath);
+      return operation();
+    });
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.fileMutationTails.set(key, tail);
+    try {
+      return await run;
+    } finally {
+      if (this.fileMutationTails.get(key) === tail) this.fileMutationTails.delete(key);
+    }
+  }
+
   resolvePath(relativePath) {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
@@ -2064,6 +2128,15 @@ class WorkspaceManager {
     const resolved = path.resolve(this.rootPath, trimmed);
     const rootResolved = path.resolve(this.rootPath);
     if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
+      throw new Error(WorkspaceError.invalidPath);
+    }
+    try {
+      const realRoot = realpathSync(rootResolved);
+      const realBoundary = nearestExistingRealPath(resolved);
+      if (!isWithinPath(realRoot, realBoundary)) {
+        throw new Error(WorkspaceError.invalidPath);
+      }
+    } catch {
       throw new Error(WorkspaceError.invalidPath);
     }
     return resolved;
@@ -2405,13 +2478,14 @@ class WorkspaceManager {
       if (!operation.trashedPath) {
         throw new Error(WorkspaceError.invalidMove);
       }
+      const source = this.resolvePath(operation.trashedPath);
       const target = this.resolvePath(operation.fromPath);
       const exists = await fsp.stat(target).then(() => true).catch(() => false);
       if (exists) {
         throw new Error(WorkspaceError.alreadyExists);
       }
       await ensureDirectory(path.dirname(target));
-      await fsp.rename(operation.trashedPath, target);
+      await fsp.rename(source, target);
       if (operation.restoreRootPath) {
         this.rootInfoRootPath = this.rootPath;
         this.rootFileInfo = { path: operation.restoreRootPath, source: "manual" };
@@ -2463,11 +2537,19 @@ class WorkspaceManager {
     if (!this.rootPath) {
       return null;
     }
-    const mainCandidate = path.join(this.rootPath, "main.tex");
-    const mainExists = await fsp
-      .stat(mainCandidate)
-      .then((stat) => stat.isFile())
-      .catch(() => false);
+    const mainCandidate = (() => {
+      try {
+        return this.resolvePath("main.tex");
+      } catch {
+        return null;
+      }
+    })();
+    const mainExists = mainCandidate
+      ? await fsp
+          .stat(mainCandidate)
+          .then((stat) => stat.isFile())
+          .catch(() => false)
+      : false;
     if (mainExists) {
       return "main.tex";
     }
@@ -2591,9 +2673,9 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    const directory = path.join(this.rootPath, ".tex64");
+    const directory = this.resolvePath(".tex64");
     await ensureDirectory(directory);
-    const settingsPath = path.join(directory, "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
 
     const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
     let settings = {};
@@ -2629,7 +2711,7 @@ class WorkspaceManager {
     if (!this.rootPath) {
       return null;
     }
-    const settingsPath = path.join(this.rootPath, ".tex64", "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
     const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
     if (!exists) {
       return null;
@@ -2642,9 +2724,9 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    const directory = path.join(this.rootPath, ".tex64");
+    const directory = this.resolvePath(".tex64");
     await ensureDirectory(directory);
-    const settingsPath = path.join(directory, "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
     const payload = JSON.stringify(settings, null, 2);
     await writeUtf8File(settingsPath, payload);
   }
@@ -2653,7 +2735,7 @@ class WorkspaceManager {
     if (!this.rootPath) {
       return;
     }
-    const settingsPath = path.join(this.rootPath, ".tex64", "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
     await fsp.unlink(settingsPath).catch(() => null);
   }
 
@@ -2715,18 +2797,22 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    const trashDir = path.join(this.rootPath, ".tex64", ".trash");
+    const trashDir = this.resolvePath(".tex64/.trash");
     await ensureDirectory(trashDir);
     const baseName = path.basename(itemPath);
     let attempt = 0;
-    let candidate = path.join(trashDir, `${generateId()}-${baseName}`);
+    let candidate = this.resolvePath(
+      normalizeRelativePath(path.join(".tex64", ".trash", `${generateId()}-${baseName}`)),
+    );
     while (attempt < 5) {
       const exists = await fsp.stat(candidate).then(() => true).catch(() => false);
       if (!exists) {
         break;
       }
       attempt += 1;
-      candidate = path.join(trashDir, `${generateId()}-${baseName}`);
+      candidate = this.resolvePath(
+        normalizeRelativePath(path.join(".tex64", ".trash", `${generateId()}-${baseName}`)),
+      );
     }
     const finalExists = await fsp.stat(candidate).then(() => true).catch(() => false);
     if (finalExists) {

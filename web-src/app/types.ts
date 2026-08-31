@@ -74,7 +74,12 @@ export type BuildProfile = {
   extraArgs?: string | null;
 };
 
-export type AgentStatusState = "idle" | "running" | "error" | "resumable";
+export type AgentStatusState =
+  | "idle"
+  | "running"
+  | "stopping"
+  | "error"
+  | "resumable";
 export type AgentSettings = {
   apiKey?: string;
   endpoint?: string;
@@ -266,13 +271,21 @@ export type AgentUiSession = {
   workspaceRootPath?: string | null;
   createdAt?: number | null;
   updatedAt?: number | null;
-  status?: { state: AgentStatusState; message?: string; undoAvailable?: boolean; undoCount?: number };
+  status?: {
+    state: AgentStatusState;
+    message?: string;
+    undoAvailable?: boolean;
+    undoCount?: number;
+    undoUnavailableReason?: string;
+  };
   messages: Array<{ role: "user" | "assistant"; text: string }>;
   proposals: AgentProposal[];
 };
 
 export type AgentUiState = {
   sessions: AgentUiSession[];
+  requestId?: string;
+  conversationId?: string;
 };
 
 export type EditorFormatIndentStyle = "spaces-2" | "spaces-4" | "tab";
@@ -359,10 +372,23 @@ export type TdomBridge = {
     clientEditAtEpochMs?: number;
   }) => Promise<{ ok: boolean; url?: string; error?: string }>;
   focus?: (payload: { offset: number }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
-  windowLive?: (payload: { url: string | null; generation?: number; show?: boolean; hide?: boolean; error?: string | null }) => Promise<{ ok: boolean; error?: string }>;
+  snapshot?: (payload: { afterDocumentEpoch?: number; afterGeneration?: number }) => Promise<{
+    ok: boolean;
+    unchanged?: boolean;
+    pending?: boolean;
+    documentEpoch?: number;
+    generation?: number;
+    path?: string | null;
+    mainFile?: string | null;
+    mimeType?: string;
+    byteSize?: number;
+    data?: string;
+    error?: string | null;
+  }>;
 };
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
+  quiesce?: () => Promise<{ ok: boolean; error?: string }>;
 };
 export type FilesBridge = {
   readText?: (payload: { path: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
@@ -374,7 +400,6 @@ export type AiWebBridge = {
     url?: string;
     preloadFileUrl?: string;
     packaged?: boolean;
-    localAppDir?: string | null;
     error?: string;
   }>;
   openExternal?: (url: string) => Promise<{ ok: boolean; error?: string }>;
@@ -404,11 +429,13 @@ export type BridgeWindow = Window &
     }) => void;
     tex64UpdateWorkspace?: (payload: {
       rootName: string;
-      rootPath: string;
+      rootPath: string | null;
       files: string[];
       folders?: string[];
       rootFile?: string;
       rootSource?: RootSource;
+      workspaceId?: string | null;
+      workspaceGeneration?: number;
     }) => void;
     tex64UpdateIndex?: (payload: {
       labels: IndexEntry[];
@@ -429,6 +456,7 @@ export type BridgeWindow = Window &
     tex64SaveResult?: (payload: {
       path: string;
       ok: boolean;
+      busy?: boolean;
       error?: string;
       content?: string;
       formatError?: string;
@@ -439,6 +467,7 @@ export type BridgeWindow = Window &
       content?: string;
       error?: string;
       source?: string;
+      stale?: boolean;
     }) => void;
     tex64SynctexForwardResult?: (payload: {
       ok?: boolean;

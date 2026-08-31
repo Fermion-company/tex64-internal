@@ -36,12 +36,12 @@ test("persisted Axiom 0.9.1 settings migrate to Axiom 1.0 without losing other s
   const loaded = await service.load();
 
   assert.equal(loaded.agent.model, "Axiom1.0-pro");
-  assert.equal(loaded.agent.maxIterations, 37);
+  assert.equal(loaded.agent.maxIterations, 24);
   assert.equal(loaded.customPreference, "preserved");
   assert.equal(
-    JSON.parse(await fsp.readFile(settingsPath, "utf8")).agent.model,
-    "Axiom1.0-pro",
-    "the canonical model id is persisted for the next launch"
+    JSON.parse(await fsp.readFile(settingsPath, "utf8")).agent.maxIterations,
+    24,
+    "legacy runaway iteration settings are clamped and persisted"
   );
 
   const updated = await service.updateAgentSettings({ model: " Axiom0.9.1 " });

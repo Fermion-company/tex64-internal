@@ -120,6 +120,7 @@ export type BuildOpsApi = {
     content?: string;
     error?: string;
     source?: string;
+    stale?: boolean;
   }) => void;
   handleSaveFormatError: (formatError?: string) => void;
   handleBuildLog: (log: string | null) => void;
@@ -189,11 +190,7 @@ export const initBuildOpsUi = (
     return () => `synctex-forward-${Date.now().toString(36)}-${counter++}`;
   })();
 
-  const getBuildButtonIdleTitle = () =>
-    uiText(
-      "Build (Cmd+Enter). Cmd+B inserts \\textbf{}.",
-      "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。"
-    );
+  const getBuildButtonIdleTitle = () => uiText("Build", "ビルド");
 
   const buildProgressText = () => {
     if (buildProgressPhase === "cancelling") {
@@ -488,7 +485,7 @@ export const initBuildOpsUi = (
         "aria-label",
         isBusy
           ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
-          : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）")
+          : uiText("Build", "ビルド")
       );
       const label = buildButton.querySelector<HTMLElement>(".build-button-label");
       if (label && !isBusy) label.textContent = uiText("Build", "ビルド");
@@ -677,10 +674,15 @@ export const initBuildOpsUi = (
     content?: string;
     error?: string;
     source?: string;
+    stale?: boolean;
   }) => {
     const inFlightSnapshot = formatInFlightSnapshot;
     formatInFlight = false;
     formatInFlightSnapshot = null;
+    if (payload.stale === true) {
+      formatPending = false;
+      return;
+    }
     if (!payload.ok) {
       if (!formatWarningShown) {
         formatWarningShown = true;

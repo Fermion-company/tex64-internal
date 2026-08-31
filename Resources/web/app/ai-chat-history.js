@@ -8,6 +8,8 @@ export const createHistoryController = (params) => {
     const chatDeleteConfirm = document.getElementById("ai-chat-delete-confirm");
     let pendingDeleteChatId = null;
     const openChatDeleteModal = (chatId, title) => {
+        if (runningConversations.has(chatId))
+            return;
         pendingDeleteChatId = chatId;
         if (chatDeleteTarget)
             chatDeleteTarget.textContent = title;
@@ -23,6 +25,8 @@ export const createHistoryController = (params) => {
         const chatId = pendingDeleteChatId;
         closeChatDeleteModal();
         if (!chatId)
+            return;
+        if (runningConversations.has(chatId))
             return;
         const chat = chatIndex.get(chatId);
         if (!chat)
@@ -90,6 +94,8 @@ export const createHistoryController = (params) => {
             const delBtn = document.createElement("button");
             delBtn.className = "ai-history-delete";
             delBtn.type = "button";
+            delBtn.disabled = runningConversations.has(chat.id);
+            delBtn.setAttribute("aria-label", `Delete ${chat.title}`);
             delBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
             delBtn.addEventListener("click", (e) => {
                 e.stopPropagation();

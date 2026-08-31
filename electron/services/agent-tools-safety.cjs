@@ -157,8 +157,11 @@ const verifyPostWrite = async (resolvedPath, expectedContent) => {
  *
  * Each invariant is checked by calling a simple `detect(content)` function
  * that returns true if the element is present. After an edit, if an
- * invariant that was true before becomes false, the edit is rejected
- * unless `allowFullRewrite: true` is passed.
+ * invariant that was true before becomes false, the edit is rejected.
+ * `allowFullRewrite` deliberately does not weaken this check: replacing a
+ * whole file and removing the document's front/main/back matter are separate
+ * decisions. The editing layer has a distinct `allowStructuralRemoval` escape
+ * hatch for a future trusted UI approval path; it is not exposed to the model.
  */
 const LATEX_STRUCTURAL_INVARIANTS = [
   {
@@ -193,7 +196,64 @@ const LATEX_STRUCTURAL_INVARIANTS = [
     name: "\\end{abstract}",
     detect: (c) => /\\end\{abstract\}/.test(c),
   },
+  {
+    name: "\\tableofcontents",
+    detect: (c) => /\\tableofcontents\b/.test(c),
+  },
+  {
+    name: "\\frontmatter",
+    detect: (c) => /\\frontmatter\b/.test(c),
+  },
+  {
+    name: "\\mainmatter",
+    detect: (c) => /\\mainmatter\b/.test(c),
+  },
+  {
+    name: "\\backmatter",
+    detect: (c) => /\\backmatter\b/.test(c),
+  },
+  {
+    name: "\\bibliography",
+    detect: (c) => /\\bibliography(?:\s*\[[^\]]*\])?\s*\{/.test(c),
+  },
+  {
+    name: "\\addbibresource",
+    detect: (c) => /\\addbibresource(?:\s*\[[^\]]*\])?\s*\{/.test(c),
+  },
+  {
+    name: "\\printbibliography",
+    detect: (c) => /\\printbibliography\b/.test(c),
+  },
+  {
+    name: "\\begin{thebibliography}",
+    detect: (c) => /\\begin\{thebibliography\}/.test(c),
+  },
+  {
+    name: "\\end{thebibliography}",
+    detect: (c) => /\\end\{thebibliography\}/.test(c),
+  },
 ];
+
+/**
+ * Remove TeX comments while preserving escaped percent signs (`\\%`).
+ * Structural commands inside comments are not part of the live document and
+ * therefore must not create an invariant that blocks later cleanup.
+ */
+const stripLatexComments = (content) =>
+  String(content ?? "")
+    .split(/\r?\n/)
+    .map((line) => {
+      for (let index = 0; index < line.length; index += 1) {
+        if (line[index] !== "%") continue;
+        let backslashes = 0;
+        for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor -= 1) {
+          backslashes += 1;
+        }
+        if (backslashes % 2 === 0) return line.slice(0, index);
+      }
+      return line;
+    })
+    .join("\n");
 
 /**
  * Preamble commands a document carries exactly once. Editing one of these by
@@ -284,9 +344,11 @@ const checkLatexInvariants = (path, oldContent, newContent) => {
   if (!path || typeof path !== "string" || !path.toLowerCase().endsWith(".tex")) {
     return [];
   }
+  const activeOldContent = stripLatexComments(oldContent);
+  const activeNewContent = stripLatexComments(newContent);
   const broken = [];
   for (const inv of LATEX_STRUCTURAL_INVARIANTS) {
-    if (inv.detect(oldContent) && !inv.detect(newContent)) {
+    if (inv.detect(activeOldContent) && !inv.detect(activeNewContent)) {
       broken.push(inv.name);
     }
   }
@@ -323,6 +385,7 @@ module.exports = {
   isDestructiveShrink,
   verifyExpectedSha,
   verifyPostWrite,
+  stripLatexComments,
   checkLatexInvariants,
   findIntroducedLatexDuplicates,
   findIntroducedDuplicateLine,

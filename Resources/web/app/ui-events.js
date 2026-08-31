@@ -1,23 +1,3 @@
-export const isBuildShortcutEvent = (event) => {
-    if (event.defaultPrevented ||
-        event.key !== "Enter" ||
-        (!event.metaKey && !event.ctrlKey) ||
-        event.altKey ||
-        event.shiftKey) {
-        return false;
-    }
-    const target = event.target;
-    if (!target) {
-        return true;
-    }
-    const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
-    const isEditable = tagName === "input" ||
-        tagName === "textarea" ||
-        tagName === "select" ||
-        target.isContentEditable === true;
-    const isMonacoEditor = typeof target.closest === "function" && target.closest(".monaco-editor") !== null;
-    return !isEditable || isMonacoEditor;
-};
 export const initUiEvents = (context, deps) => {
     const { tabs, editorHost, editorHostSecondary, diffModalSubmit, diffModalCancel, saveButton, } = context.dom;
     const setup = () => {
@@ -68,11 +48,6 @@ export const initUiEvents = (context, deps) => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
                 event.preventDefault();
                 deps.saveCurrentFile();
-                return;
-            }
-            if (isBuildShortcutEvent(event)) {
-                event.preventDefault();
-                deps.buildOps.startBuild();
             }
         });
     };

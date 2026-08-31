@@ -5,8 +5,8 @@
  *   1. Direct fetch to OpenAI-compatible /chat/completions endpoint
  *   2. tool_choice defaults to "auto" — LLM freely decides text vs tools
  *   3. Simple loop: call API → if tool_calls, execute → loop; if text → done
- *   4. 10 tools: read_file, list_files, write_file, apply_patch, run_command,
- *      get_compile_log, arxiv_search, arxiv_bibtex, check_environment, install_environment
+ *   4. Workspace-bound tools for LaTeX editing, including compile_document
+ *      through TeX64's build service (never a raw latexmk shell invocation)
  *   5. Simple system prompt (matching OpenPrism)
  *
  * API transport: fetch → tex64.com proxy → OpenAI-compatible LLM
@@ -18,7 +18,20 @@
 "use strict";
 
 const { buildTools } = require("./tools.cjs");
-const { resolveLLMConfig, normalizeChatEndpoint } = require("./llm-config.cjs");
+const {
+  OFFICIAL_PLATFORM_CHAT_ENDPOINT,
+  isOfficialPlatformProxyUrl,
+  normalizeChatEndpoint,
+  resolveLLMConfig,
+  resolveOwnApiKey,
+} = require("./llm-config.cjs");
+const {
+  MAX_AGENT_TOKENS_PER_RUN,
+  buildReplayHistory,
+  compactRequestMessages,
+  planNextRequest,
+  resolveMaxAgentIterations,
+} = require("./run-budget.cjs");
 const { normalizeUserMessageParts } = require("../agent-message-parts.cjs");
 const { extractTextFromParts } = require("../agent-core-utils.cjs");
 const { buildSystemPrompt } = require("../agent-prompt-utils.cjs");
@@ -29,7 +42,102 @@ const requiresReasoningNoneForChatTools = (model) => {
   return /^Axiom1\.0(?:$|-)/i.test(normalized) || /^gpt-5\.6(?:$|-)/i.test(normalized);
 };
 
-const buildChatRequestBody = ({ model, messages, tools, temperature }) => ({
+const TURN_REMAINING_TOKENS_HEADER = "X-Tex64-Turn-Remaining-Tokens";
+
+const parseToolResult = (value) => {
+  if (value && typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const compileResultSucceeded = (value) => {
+  const parsed = parseToolResult(value);
+  return parsed?.status === "success" && typeof parsed?.error !== "string";
+};
+
+const writeToolResultApplied = (value) => {
+  const parsed = parseToolResult(value);
+  if (!parsed) return false;
+  if (parsed.writeApplied === true || parsed.status === "applied") return true;
+  return (
+    parsed.status === "partially_applied" &&
+    Array.isArray(parsed.files) &&
+    parsed.files.some((entry) => entry?.ok === true)
+  );
+};
+
+const COMPILE_FAILURE_SUFFIXES = Object.freeze({
+  en: " Changes made so far were saved, but a compilation error remains.",
+  ja: "ここまでの変更は保存しましたが、組版エラーが残っています。",
+  zh: " 已保存目前的更改，但仍有编译错误。",
+  ko: " 지금까지의 변경 사항은 저장했지만 컴파일 오류가 남아 있습니다.",
+  fr: " Les modifications ont été enregistrées, mais une erreur de compilation subsiste.",
+  de: " Die bisherigen Änderungen wurden gespeichert, aber ein Kompilierungsfehler bleibt bestehen.",
+  es: " Los cambios se guardaron, pero aún queda un error de compilación.",
+});
+
+const localizedCompileFailureSuffix = (locale) =>
+  COMPILE_FAILURE_SUFFIXES[locale] || COMPILE_FAILURE_SUFFIXES.en;
+
+const abortError = () => {
+  const error = new Error("The Axiom turn was aborted.");
+  error.name = "AbortError";
+  return error;
+};
+
+const awaitAbortable = (promise, signal) => {
+  if (!signal) return Promise.resolve(promise);
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback(value);
+    };
+    const onAbort = () => finish(reject, abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    );
+  });
+};
+
+const abortableDelay = (delayMs, signal) =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const error = new Error("The Axiom turn was aborted.");
+      error.name = "AbortError";
+      reject(error);
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      const error = new Error("The Axiom turn was aborted.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, Math.max(0, delayMs));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+const buildChatRequestBody = ({
+  model,
+  messages,
+  tools,
+  temperature,
+  maxCompletionTokens,
+}) => ({
   model,
   messages,
   tools,
@@ -38,20 +146,41 @@ const buildChatRequestBody = ({ model, messages, tools, temperature }) => ({
     : {}),
   stream: true,
   stream_options: { include_usage: true },
+  ...(Number.isInteger(maxCompletionTokens) && maxCompletionTokens > 0
+    ? { max_completion_tokens: maxCompletionTokens }
+    : {}),
   ...(typeof temperature === "number" ? { temperature } : {}),
 });
 
-const resolveRequestIdentity = async (service, apiUrl) => {
+const resolveRequestIdentity = async (service, apiUrl, settings = {}, signal) => {
+  if (!isOfficialPlatformProxyUrl(apiUrl)) {
+    const ownApiKey = resolveOwnApiKey(settings);
+    if (!ownApiKey) {
+      const error = new Error(
+        "A custom AI endpoint requires its own API key (agent apiKey or TEX64_LLM_API_KEY)."
+      );
+      error.code = "CUSTOM_LLM_API_KEY_REQUIRED";
+      throw error;
+    }
+    return { accessToken: ownApiKey, deviceId: null };
+  }
+
   let accessToken = null;
   let deviceId = null;
   if (service.platformAccess) {
-    try { accessToken = await service.platformAccess.refreshAccessToken(false); } catch { /* fallback below */ }
-    try { deviceId = await service.platformAccess.ensureDeviceId(); } catch { /* fallback below */ }
-  }
-  const usesPlatformProxy = /\/api\/v2\/ai\/openai\/chat\/completions$/i.test(apiUrl);
-  if (!accessToken && (!deviceId || !usesPlatformProxy)) {
-    const envKey = typeof process.env.TEX64_LLM_API_KEY === "string" ? process.env.TEX64_LLM_API_KEY.trim() : "";
-    if (envKey) accessToken = envKey;
+    try {
+      accessToken = await awaitAbortable(
+        service.platformAccess.refreshAccessToken(false),
+        signal,
+      );
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+    }
+    try {
+      deviceId = await awaitAbortable(service.platformAccess.ensureDeviceId(), signal);
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+    }
   }
   if (!accessToken && !deviceId) throw new Error("Axiom requires either login or a local app identity. Please restart TeX64 and try again.");
   return { accessToken, deviceId };
@@ -62,13 +191,16 @@ const completeSingleChat = async (service, { system, user }) => {
   const settings = await service.ensureUserSettings().getAgentSettings();
   const llmConfig = resolveLLMConfig(settings);
   const apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
-  const { accessToken, deviceId } = await resolveRequestIdentity(service, apiUrl);
+  const { accessToken, deviceId } = await resolveRequestIdentity(service, apiUrl, settings);
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
       ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
+      ...(isOfficialPlatformProxyUrl(apiUrl)
+        ? { [TURN_REMAINING_TOKENS_HEADER]: String(MAX_AGENT_TOKENS_PER_RUN) }
+        : {}),
     },
     body: JSON.stringify({
       model: llmConfig.model,
@@ -90,7 +222,14 @@ const completeSingleChat = async (service, { system, user }) => {
 
 const runAgentConversation = async (
   service,
-  { message, parts, context, conversationId = "default" },
+  {
+    message,
+    parts,
+    context,
+    conversationId = "default",
+    forcePlatformAxiom = false,
+  },
+  prestartedRun = null,
 ) => {
   const targetConversationId =
     typeof conversationId === "string" && conversationId.trim()
@@ -107,13 +246,6 @@ const runAgentConversation = async (
     service.sendStatus("error", "No workspace is selected.", targetConversationId);
     return;
   }
-
-  // ---- Resolve settings & policy ----
-  service.sendStatus("running", "Preparing...", targetConversationId);
-  const settings = await service.ensureUserSettings().getAgentSettings();
-  const policy = service.resolveAgentPolicy(settings);
-  const options = service.resolveAgentOptions(settings);
-  service.contextByConversation.set(targetConversationId, context ?? {});
 
   // ---- Parse user input ----
   const userParts = normalizeUserMessageParts(message, parts);
@@ -148,90 +280,195 @@ const runAgentConversation = async (
   }
   const llmInput = llmInputParts.filter(Boolean).join("\n\n");
 
-  // ---- Build conversation history ----
-  const conversation = service.buildConversation(targetConversationId);
-  service.workspaceRootByConversation.set(targetConversationId, rootPath);
-
-  // ---- Resolve LLM config ----
-  const llmConfig = resolveLLMConfig(settings);
-  const apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
-
-  // ---- Resolve platform identity ----
-  let accessToken;
-  let deviceId;
-  try {
-    ({ accessToken, deviceId } = await resolveRequestIdentity(service, apiUrl));
-  } catch {
-    service.sendToRenderer("agent:error", {
-      message: "Axiom requires either login or a local app identity. Please restart TeX64 and try again.",
-      conversationId: targetConversationId,
-    });
-    service.sendStatus("error", "Axiom identity unavailable", targetConversationId);
-    return;
-  }
-
-  // ---- Build tools ----
-  const tools = buildTools(service, targetConversationId, policy);
-
-  // ---- Prepare tool definitions for API (without execute) ----
-  const toolDefinitions = tools.map((t) => ({
-    type: t.type,
-    function: t.function,
-  }));
-
-  // ---- Build tool executor map ----
-  const toolExecutors = new Map();
-  for (const tool of tools) {
-    toolExecutors.set(tool.function.name, tool.execute);
-  }
-
-  // ---- Build system prompt ----
-  const system = buildSystemPrompt(context, rootPath);
-
-  // ---- Convert conversation history to OpenAI messages ----
-  const chatHistory = [];
-  for (const msg of conversation) {
-    if (!msg || typeof msg !== "object") continue;
-    if (msg.role === "user" && typeof msg.content === "string") {
-      chatHistory.push({ role: "user", content: msg.content });
-    } else if (msg.role === "assistant" && typeof msg.content === "string") {
-      chatHistory.push({ role: "assistant", content: msg.content });
-    }
-  }
-
-  // ---- Store user message in conversation (clean text only) ----
-  conversation.push({ role: "user", content: userText });
-  service.markSessionDirty(targetConversationId);
-
-  // ---- Start run ----
-  const run = service.startConversationRun(targetConversationId);
+  // Register before the first awaited preflight operation. Stop, window
+  // reattach, and workspace transitions must be able to address this turn
+  // even while settings or platform identity are still loading.
+  const run = prestartedRun ?? service.startConversationRun(targetConversationId);
   const isCurrentRun = () =>
     service.isRunCurrent(targetConversationId, run.token);
+  const throwIfRunAborted = () => {
+    if (!run.controller.signal.aborted) return;
+    const error = new Error("The Axiom turn was aborted.");
+    error.name = "AbortError";
+    throw error;
+  };
+  const assertWorkspaceCurrent = () => {
+    if (service.workspace.getRootPath() !== rootPath) {
+      const error = new Error(
+        "The workspace changed during this Axiom turn. The turn was stopped; retry in the current workspace."
+      );
+      error.code = "AGENT_WORKSPACE_CHANGED";
+      throw error;
+    }
+  };
 
-  service.sendStatus("running", "Thinking...", targetConversationId);
+  let options;
+  let conversation;
+  let llmConfig;
+  let apiUrl;
+  let accessToken;
+  let deviceId;
+  let toolDefinitions;
+  let messages;
+  const toolExecutors = new Map();
 
-  // ---- Build the user message for LLM (with context metadata) ----
-  const userContent = userImages.length > 0
-    ? [{ type: "text", text: llmInput }, ...userImages]
-    : llmInput;
+  try {
+    // ---- Resolve settings & policy ----
+    if (!prestartedRun) {
+      service.sendStatus("running", "Preparing...", targetConversationId);
+    }
+    throwIfRunAborted();
+    const persistedSettings = await awaitAbortable(
+      service.ensureUserSettings().getAgentSettings(),
+      run.controller.signal,
+    );
+    throwIfRunAborted();
+    assertWorkspaceCurrent();
+    const persistedModel =
+      persistedSettings?.model === "Axiom1.0-pro" ? "Axiom1.0-pro" : "Axiom1.0";
+    const settings = forcePlatformAxiom
+      ? {
+          ...persistedSettings,
+          model: persistedModel,
+          endpoint: OFFICIAL_PLATFORM_CHAT_ENDPOINT,
+          apiKey: "",
+        }
+      : persistedSettings;
+    const policy = service.resolveAgentPolicy(settings);
+    options = service.resolveAgentOptions(settings);
+    service.contextByConversation.set(targetConversationId, context ?? {});
 
-  // ---- Assemble messages for API ----
-  const messages = [
-    { role: "system", content: system },
-    ...chatHistory,
-    { role: "user", content: userContent },
-  ];
+    // ---- Build conversation history ----
+    conversation = service.buildConversation(targetConversationId);
+    service.workspaceRootByConversation.set(targetConversationId, rootPath);
+
+    // ---- Resolve LLM config and platform identity ----
+    llmConfig = resolveLLMConfig(settings);
+    apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
+    ({ accessToken, deviceId } = await resolveRequestIdentity(
+      service,
+      apiUrl,
+      settings,
+      run.controller.signal,
+    ));
+    throwIfRunAborted();
+    assertWorkspaceCurrent();
+
+    // ---- Build tools ----
+    const tools = buildTools(service, targetConversationId, policy, {
+      rootPath,
+      context: context ?? {},
+      signal: run.controller.signal,
+    });
+    toolDefinitions = tools.map((tool) => ({
+      type: tool.type,
+      function: tool.function,
+    }));
+    for (const tool of tools) {
+      toolExecutors.set(tool.function.name, tool.execute);
+    }
+
+    // ---- Build system prompt and bounded history ----
+    const system = `${buildSystemPrompt(context, rootPath)}
+
+COMPILATION (MANDATORY):
+- Compile LaTeX only with compile_document. General shell execution is not
+  available to the product agent.
+- compile_document without arguments builds this turn's active document,
+  including a document nested inside the workspace, and returns real compiler
+  issues and a useful log excerpt. Use those results for the autonomous
+  build-error fix cycle.`;
+    const chatHistory = buildReplayHistory(conversation);
+
+    // ---- Store user message in conversation (clean text only) ----
+    conversation.push({ role: "user", content: userText });
+    service.markSessionDirty(targetConversationId);
+
+    const userContent = userImages.length > 0
+      ? [{ type: "text", text: llmInput }, ...userImages]
+      : llmInput;
+    messages = [
+      { role: "system", content: system },
+      ...chatHistory,
+      { role: "user", content: userContent },
+    ];
+    service.sendStatus("running", "Thinking...", targetConversationId);
+  } catch (error) {
+    if (isCurrentRun()) {
+      if (error?.name === "AbortError" || run.controller.signal.aborted) {
+        service.sendStatus("idle", "Aborted.", targetConversationId);
+      } else {
+        const errorMessage =
+          typeof error?.message === "string" && error.message.trim()
+            ? error.message
+            : "Axiom could not start. Please restart TeX64 and try again.";
+        service.sendToRenderer("agent:error", {
+          message: errorMessage,
+          conversationId: targetConversationId,
+        });
+        service.sendStatus("error", errorMessage, targetConversationId);
+      }
+    }
+    service.finishConversationRun(targetConversationId, run.token);
+    service.markSessionDirty(targetConversationId);
+    return;
+  }
 
   // Token totals are read in the finally block below, so they must be
   // declared OUTSIDE the try: declaring them inside made the finally throw
   // ReferenceError and silently skip local usage recording on every run.
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  let needsCompile = false;
+  let lastCompileFailed = false;
+  const compileFailureMessage = localizedCompileFailureSuffix(
+    context?.uiLocale,
+  ).trim();
+  const sendCompileFailure = () => {
+    service.sendToRenderer("agent:error", {
+      message: compileFailureMessage,
+      conversationId: targetConversationId,
+    });
+  };
+  const compilePendingChanges = async () => {
+    if (lastCompileFailed) return "failed";
+    if (!needsCompile) return "unchanged";
+    const compile = toolExecutors.get("compile_document");
+    if (!compile) {
+      needsCompile = false;
+      lastCompileFailed = true;
+      return "failed";
+    }
+    try {
+      assertWorkspaceCurrent();
+      const result = await compile({});
+      assertWorkspaceCurrent();
+      needsCompile = false;
+      lastCompileFailed = !compileResultSucceeded(result);
+      return lastCompileFailed ? "failed" : "ok";
+    } catch (error) {
+      // A terminal handler may call this helper again after the exception.
+      // Record the failed attempt first so it cannot compile the same source
+      // twice while preserving the original error for the caller.
+      needsCompile = false;
+      lastCompileFailed = true;
+      throw error;
+    }
+  };
+  const settlePendingChangesAfterInterruption = async () => {
+    try {
+      return await compilePendingChanges();
+    } catch {
+      return "failed";
+    }
+  };
 
   try {
     // ---- Agent loop ----
-    const maxIterations = options.maxIterations || 15;
+    const maxIterations = resolveMaxAgentIterations(options.maxIterations);
     let iterations = 0;
+    let platformBudgetAtStart = null;
+    let usageWasMeasurable = true;
     const toolErrorHistory = []; // Track consecutive identical errors for loop detection
 
     // Track write tool usage across the entire run so we can verify that
@@ -248,7 +485,6 @@ const runAgentConversation = async (
       "delete_lines",
       "replace_section",
       "append_to_section",
-      "run_command",
     ]);
     const writeToolInvocations = [];
     // Regexes matching "modification claim" phrasing in the final assistant
@@ -285,28 +521,214 @@ const runAgentConversation = async (
     let halluciationRetryCount = 0;
     const MAX_HALLUCINATION_RETRIES = 2;
 
+    const readFreshPlatformBudget = async () => {
+      if (
+        !isOfficialPlatformProxyUrl(apiUrl) ||
+        typeof service.platformAccess?.checkAiAccess !== "function"
+      ) {
+        return { allowed: true, remainingTokens: null, reason: null };
+      }
+      const access = await awaitAbortable(
+        service.platformAccess.checkAiAccess({ force: true }),
+        run.controller.signal,
+      );
+      const remaining = Number(access?.quota?.remainingTokens);
+      return {
+        allowed: access?.allowed === true,
+        remainingTokens:
+          Number.isFinite(remaining) && remaining >= 0
+            ? Math.floor(remaining)
+            : null,
+        reason: typeof access?.reason === "string" ? access.reason : null,
+      };
+    };
+
+    const settleWithoutAnotherModelCall = async (kind) => {
+      const compileState = await compilePendingChanges();
+      if (!isCurrentRun()) return;
+
+      const copy = {
+        en: {
+          iterations: `Reached the processing limit (${iterations} iterations), so Axiom stopped here.`,
+          quota: "Axiom stopped before another AI call because the available token limit was reached.",
+          access: "Axiom became unavailable and stopped before another AI call.",
+          turn_budget: "Axiom stopped before another AI call at this turn's processing limit.",
+          compiled: " Changes made so far were saved and compiled.",
+        },
+        ja: {
+          iterations: `処理の上限（${iterations}回）に達したため、ここで区切りました。`,
+          quota: "利用可能なトークン上限に達したため、次のAI呼び出し前に停止しました。",
+          access: "Axiomを利用できない状態になったため、次のAI呼び出し前に停止しました。",
+          turn_budget: "このターンの処理上限に達したため、次のAI呼び出し前に停止しました。",
+          compiled: "ここまでの変更は保存し、組版結果まで反映しました。",
+        },
+        zh: {
+          iterations: `已达到处理上限（${iterations} 次），Axiom 已在此停止。`,
+          quota: "可用 token 已达到上限，Axiom 在下一次 AI 调用前停止。",
+          access: "Axiom 当前不可用，已在下一次 AI 调用前停止。",
+          turn_budget: "本轮处理已达到上限，Axiom 在下一次 AI 调用前停止。",
+          compiled: " 已保存目前的更改并完成编译。",
+        },
+        ko: {
+          iterations: `처리 한도(${iterations}회)에 도달해 여기서 중지했습니다.`,
+          quota: "사용 가능한 토큰 한도에 도달해 다음 AI 호출 전에 중지했습니다.",
+          access: "Axiom을 사용할 수 없어 다음 AI 호출 전에 중지했습니다.",
+          turn_budget: "이번 턴의 처리 한도에 도달해 다음 AI 호출 전에 중지했습니다.",
+          compiled: " 지금까지의 변경 사항을 저장하고 컴파일했습니다.",
+        },
+        fr: {
+          iterations: `Limite de traitement atteinte (${iterations} itérations) ; Axiom s’est arrêté ici.`,
+          quota: "La limite de tokens disponible est atteinte ; Axiom s’est arrêté avant un nouvel appel IA.",
+          access: "Axiom est devenu indisponible et s’est arrêté avant un nouvel appel IA.",
+          turn_budget: "La limite de ce tour est atteinte ; Axiom s’est arrêté avant un nouvel appel IA.",
+          compiled: " Les modifications effectuées ont été enregistrées et compilées.",
+        },
+        de: {
+          iterations: `Verarbeitungslimit erreicht (${iterations} Durchläufe); Axiom wurde hier beendet.`,
+          quota: "Das verfügbare Token-Limit ist erreicht; Axiom wurde vor einem weiteren KI-Aufruf beendet.",
+          access: "Axiom ist nicht mehr verfügbar und wurde vor einem weiteren KI-Aufruf beendet.",
+          turn_budget: "Das Verarbeitungslimit dieses Durchlaufs ist erreicht; Axiom wurde vor einem weiteren KI-Aufruf beendet.",
+          compiled: " Die bisherigen Änderungen wurden gespeichert und kompiliert.",
+        },
+        es: {
+          iterations: `Se alcanzó el límite de procesamiento (${iterations} iteraciones); Axiom se detuvo aquí.`,
+          quota: "Se alcanzó el límite de tokens disponible; Axiom se detuvo antes de otra llamada de IA.",
+          access: "Axiom dejó de estar disponible y se detuvo antes de otra llamada de IA.",
+          turn_budget: "Se alcanzó el límite de esta ejecución; Axiom se detuvo antes de otra llamada de IA.",
+          compiled: " Los cambios realizados se guardaron y compilaron.",
+        },
+      };
+      const localized = copy[context?.uiLocale] || copy.en;
+      const base = localized[kind] || localized.turn_budget;
+      const suffix =
+        compileState === "ok"
+          ? localized.compiled
+          : compileState === "failed"
+            ? localizedCompileFailureSuffix(context?.uiLocale)
+            : "";
+      const reply = `${base}${suffix}`;
+      conversation.push({ role: "assistant", content: reply });
+      service.markSessionDirty(targetConversationId);
+      service.sendToRenderer("agent:message", {
+        text: reply,
+        conversationId: targetConversationId,
+      });
+      if (compileState === "failed") {
+        sendCompileFailure();
+      }
+      service.sendStatus(
+        kind === "quota" || kind === "access" ? "error" : "resumable",
+        kind === "quota"
+          ? "Token limit reached"
+          : kind === "access"
+            ? "Axiom unavailable"
+            : "Paused",
+        targetConversationId,
+      );
+    };
+
     while (iterations < maxIterations) {
       if (!isCurrentRun()) return;
+      throwIfRunAborted();
+      assertWorkspaceCurrent();
+
+      const platformBudget = await readFreshPlatformBudget();
+      if (!platformBudget.allowed) {
+        await settleWithoutAnotherModelCall(
+          platformBudget.reason === "QUOTA_EXCEEDED" ? "quota" : "access",
+        );
+        return;
+      }
+      if (
+        platformBudgetAtStart === null &&
+        platformBudget.remainingTokens !== null
+      ) {
+        platformBudgetAtStart = platformBudget.remainingTokens;
+      }
+      const localRemaining = Math.max(
+        0,
+        Math.min(
+          MAX_AGENT_TOKENS_PER_RUN,
+          platformBudgetAtStart ?? MAX_AGENT_TOKENS_PER_RUN,
+        ) -
+          totalPromptTokens -
+          totalCompletionTokens,
+      );
+      // Provider token counts are not cost-equivalent across input/output or
+      // Axiom tiers. The server quota is already normalized from actual
+      // provider cost into the token units shown to users, so its per-run
+      // delta is the authoritative cost boundary for official proxy calls.
+      const normalizedQuotaSpent =
+        platformBudgetAtStart !== null &&
+        platformBudget.remainingTokens !== null
+          ? Math.max(
+              0,
+              platformBudgetAtStart - platformBudget.remainingTokens,
+            )
+          : 0;
+      const normalizedTurnRemaining = Math.max(
+        0,
+        MAX_AGENT_TOKENS_PER_RUN - normalizedQuotaSpent,
+      );
+      const effectiveRemaining = Math.min(
+        localRemaining,
+        normalizedTurnRemaining,
+        platformBudget.remainingTokens ?? Number.POSITIVE_INFINITY,
+      );
+      const requestMessages = compactRequestMessages(messages);
+      const requestPlan = usageWasMeasurable
+        ? planNextRequest({
+            remainingTokens: effectiveRemaining,
+            messages: requestMessages,
+            tools: toolDefinitions,
+          })
+        : {
+            allowed: false,
+            reason: "unmeasured_usage",
+            maxCompletionTokens: 0,
+          };
+      if (!requestPlan.allowed) {
+        const exhaustedPlatformQuota =
+          platformBudget.remainingTokens !== null &&
+          platformBudget.remainingTokens <= localRemaining;
+        await settleWithoutAnotherModelCall(
+          exhaustedPlatformQuota ? "quota" : "turn_budget",
+        );
+        return;
+      }
+
       iterations += 1;
 
       // ---- Call OpenAI-compatible API (streaming, with retry for transient errors) ----
       let response;
-      const maxRetries = 3;
+      // A failed paid POST can be ambiguous: retrying it may buy the same
+      // completion twice. Only custom endpoints retain transient retries.
+      const maxRetries = isOfficialPlatformProxyUrl(apiUrl) ? 1 : 3;
       const MAX_RETRY_AFTER_SEC = 60; // Give up if server asks to wait longer than this
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         if (!isCurrentRun()) return;
+        throwIfRunAborted();
+        assertWorkspaceCurrent();
         response = await fetch(apiUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
             ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
+            ...(isOfficialPlatformProxyUrl(apiUrl)
+              ? {
+                  [TURN_REMAINING_TOKENS_HEADER]: String(
+                    Math.max(0, Math.floor(effectiveRemaining)),
+                  ),
+                }
+              : {}),
           },
           body: JSON.stringify(buildChatRequestBody({
             model: llmConfig.model,
-            messages,
+            messages: requestMessages,
             tools: toolDefinitions,
             temperature: llmConfig.temperature,
+            maxCompletionTokens: requestPlan.maxCompletionTokens,
           })),
           signal: run.controller.signal,
         });
@@ -352,7 +774,7 @@ const runAgentConversation = async (
           const backoffMs =
             retryAfterSec !== null ? Math.max(1000, retryAfterSec * 1000) : fallbackMs;
           console.log(`[run-loop] Retrying in ${backoffMs}ms (Retry-After=${retryAfterSec ?? "none"})...`);
-          await new Promise((r) => setTimeout(r, backoffMs));
+          await abortableDelay(backoffMs, run.controller.signal);
           continue;
         }
 
@@ -362,6 +784,9 @@ const runAgentConversation = async (
       // ---- Parse response (SSE stream or JSON fallback) ----
       let assistantContent = "";
       const toolCallAccumulators = new Map();
+      let iterationPromptTokens = 0;
+      let iterationCompletionTokens = 0;
+      let iterationUsageSeen = false;
 
       const contentType = response.headers.get("content-type") || "";
       const isSSE = contentType.includes("text/event-stream");
@@ -374,6 +799,7 @@ const runAgentConversation = async (
 
         while (true) {
           if (!isCurrentRun()) return;
+          assertWorkspaceCurrent();
           const { done, value } = await reader.read();
           if (done) break;
           sseBuffer += decoder.decode(value, { stream: true });
@@ -396,8 +822,15 @@ const runAgentConversation = async (
 
             // Capture usage from final SSE chunk (stream_options: include_usage)
             if (chunk.usage) {
-              totalPromptTokens += chunk.usage.prompt_tokens || 0;
-              totalCompletionTokens += chunk.usage.completion_tokens || 0;
+              iterationUsageSeen = true;
+              iterationPromptTokens = Math.max(
+                0,
+                Number(chunk.usage.prompt_tokens) || 0,
+              );
+              iterationCompletionTokens = Math.max(
+                0,
+                Number(chunk.usage.completion_tokens) || 0,
+              );
             }
 
             const delta = chunk.choices?.[0]?.delta;
@@ -436,8 +869,15 @@ const runAgentConversation = async (
         // ---- JSON fallback (non-streaming response) ----
         const data = await response.json();
         if (data.usage) {
-          totalPromptTokens += data.usage.prompt_tokens || 0;
-          totalCompletionTokens += data.usage.completion_tokens || 0;
+          iterationUsageSeen = true;
+          iterationPromptTokens = Math.max(
+            0,
+            Number(data.usage.prompt_tokens) || 0,
+          );
+          iterationCompletionTokens = Math.max(
+            0,
+            Number(data.usage.completion_tokens) || 0,
+          );
         }
         const choice = data.choices?.[0];
         if (choice?.message) {
@@ -461,7 +901,14 @@ const runAgentConversation = async (
         }
       }
 
+      totalPromptTokens += iterationPromptTokens;
+      totalCompletionTokens += iterationCompletionTokens;
+      // Missing usage makes a second paid call unknowable. Complete any tools
+      // already returned, then stop before another model request.
+      usageWasMeasurable = iterationUsageSeen;
+
       // ---- Assemble complete assistant message ----
+      assertWorkspaceCurrent();
       const toolCalls = [];
       for (const [, acc] of [...toolCallAccumulators.entries()].sort((a, b) => a[0] - b[0])) {
         toolCalls.push({
@@ -480,7 +927,18 @@ const runAgentConversation = async (
 
       // ---- If no tool calls, we're done ----
       if (toolCalls.length === 0) {
-        const reply = assistantContent || "";
+        // A successful edit must always reach the real PDF even when the model
+        // finishes with prose and forgets to call compile_document. This is a
+        // deterministic build only: it never spends another model request.
+        // A successful model-triggered compile clears needsCompile, so this
+        // path cannot build the same final edit twice.
+        const finalCompileState = await compilePendingChanges();
+        if (!isCurrentRun()) return;
+        const finalCompileFailureMessage =
+          finalCompileState === "failed" ? compileFailureMessage : "";
+        const reply = [assistantContent, finalCompileFailureMessage]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join("\n\n");
 
         // ---- Claim verification ----
         // If the assistant's final message claims a modification but the
@@ -522,13 +980,25 @@ const runAgentConversation = async (
           text: reply || "Done.",
           conversationId: targetConversationId,
         });
-        service.sendStatus("idle", "Waiting", targetConversationId);
+        if (finalCompileFailureMessage) {
+          // The persisted assistant reply explains the incomplete result after
+          // reopen; the error event also makes the live native turn terminally
+          // failed so the UI cannot mistake it for a completed build.
+          sendCompileFailure();
+        }
+        service.sendStatus(
+          finalCompileState === "failed" ? "resumable" : "idle",
+          finalCompileState === "failed" ? "Compilation failed" : "Waiting",
+          targetConversationId,
+        );
         return;
       }
 
       // ---- Execute tool calls ----
       for (const toolCall of toolCalls) {
         if (!isCurrentRun()) return;
+        throwIfRunAborted();
+        assertWorkspaceCurrent();
 
         const fnName = toolCall.function?.name;
         const executor = toolExecutors.get(fnName);
@@ -543,7 +1013,21 @@ const runAgentConversation = async (
           } catch {
             args = {};
           }
-          toolResult = await executor(args);
+          const abortableReadTools = new Set([
+            "read_file",
+            "list_files",
+            "list_sections",
+            "read_section",
+            "find_math_region",
+            "get_compile_log",
+            "arxiv_search",
+            "arxiv_bibtex",
+            "check_environment",
+          ]);
+          toolResult = abortableReadTools.has(fnName)
+            ? await awaitAbortable(executor(args), run.controller.signal)
+            : await executor(args);
+          assertWorkspaceCurrent();
         }
 
         // Add tool result to messages
@@ -555,7 +1039,9 @@ const runAgentConversation = async (
         });
 
         // Track errors for repeated-failure detection
-        const isError = toolResultStr.includes('"error"');
+        const isError =
+          toolResultStr.includes('"error"') ||
+          (fnName === "compile_document" && !compileResultSucceeded(toolResult));
         if (isError) {
           const errorKey = `${fnName}:${toolResultStr}`;
           toolErrorHistory.push(errorKey);
@@ -563,10 +1049,32 @@ const runAgentConversation = async (
           toolErrorHistory.length = 0; // Reset on success
         }
 
-        // Track successful write-tool invocations for claim verification
-        if (!isError && WRITE_TOOL_NAMES.has(fnName)) {
+        // A multi-file edit or post-write verification can report an error
+        // after bytes were already committed. Compile those partial bytes at
+        // the terminal boundary too; the generic `"error"` detector is only
+        // about model recovery, not whether the workspace changed.
+        const writeApplied =
+          WRITE_TOOL_NAMES.has(fnName) && writeToolResultApplied(toolResult);
+        if (writeApplied) {
           writeToolInvocations.push({ name: fnName });
+          needsCompile = true;
+          lastCompileFailed = false;
         }
+        if (fnName === "compile_document") {
+          const parsedCompileResult = parseToolResult(toolResult);
+          const buildWasAttempted =
+            parsedCompileResult?.status === "success" ||
+            parsedCompileResult?.status === "failure" ||
+            parsedCompileResult?.status === "cancelled";
+          if (buildWasAttempted) {
+            needsCompile = false;
+            lastCompileFailed = !compileResultSucceeded(toolResult);
+          }
+        }
+        // Abort is cooperative while a tool is awaited. Record the completed
+        // tool first (especially a write), then stop before any sibling tool
+        // from the same model response can mutate the workspace.
+        throwIfRunAborted();
       }
 
       // Detect repeated identical tool failures (same tool, same error 3+ times)
@@ -588,34 +1096,35 @@ const runAgentConversation = async (
     }
 
     // ---- Max iterations reached ----
-    const LIMIT_MESSAGES = {
-      en: (n) => `Reached the processing limit (${n} iterations). You can send another message to continue.`,
-      ja: (n) => `処理の上限（${n} イテレーション）に達しました。続けるにはもう一度メッセージを送ってください。`,
-      zh: (n) => `已达到处理上限（${n} 次迭代）。发送新消息即可继续。`,
-      ko: (n) => `처리 한도(${n}회 반복)에 도달했습니다. 계속하려면 메시지를 다시 보내주세요.`,
-      fr: (n) => `Limite de traitement atteinte (${n} itérations). Envoyez un autre message pour continuer.`,
-      de: (n) => `Verarbeitungslimit erreicht (${n} Iterationen). Sende eine weitere Nachricht, um fortzufahren.`,
-      es: (n) => `Se alcanzó el límite de procesamiento (${n} iteraciones). Envía otro mensaje para continuar.`,
-    };
-    const limitMessage = LIMIT_MESSAGES[context?.uiLocale] || LIMIT_MESSAGES.en;
-    const reply = limitMessage(iterations);
-    conversation.push({ role: "assistant", content: reply });
-    service.markSessionDirty(targetConversationId);
-    service.sendToRenderer("agent:message", {
-      text: reply,
-      conversationId: targetConversationId,
-    });
-    service.sendStatus("resumable", "Paused", targetConversationId);
+    // No extra model call is needed to close the turn. If edits are pending,
+    // compile them deterministically so the paper still reflects real state.
+    await settleWithoutAnotherModelCall("iterations");
   } catch (error) {
     if (error?.name === "AbortError" || run.controller.signal.aborted) {
       if (isCurrentRun()) {
-        service.sendStatus("idle", "Aborted.", targetConversationId);
+        // A stop can arrive after a write, during the next provider call, or
+        // while this window is reattaching. The host remains the single owner
+        // of the definitive build attempt, so no UI path has to guess whether
+        // a partial edit exists or whether a build already ran.
+        const compileState = await settlePendingChangesAfterInterruption();
+        if (!isCurrentRun()) return;
+        if (compileState === "failed") sendCompileFailure();
+        service.sendStatus(
+          compileState === "failed" ? "resumable" : "idle",
+          compileState === "failed" ? "Compilation failed" : "Aborted.",
+          targetConversationId,
+        );
       }
       return;
     }
     const errMsg = error?.message ?? "Failed to get response.";
+    const compileState = await settlePendingChangesAfterInterruption();
+    if (!isCurrentRun()) return;
     service.sendToRenderer("agent:error", {
-      message: errMsg,
+      message:
+        compileState === "failed"
+          ? `${errMsg}\n\n${compileFailureMessage}`
+          : errMsg,
       conversationId: targetConversationId,
     });
     service.sendStatus("error", "An error has occurred", targetConversationId);
@@ -644,5 +1153,7 @@ module.exports = {
   buildChatRequestBody,
   completeSingleChat,
   requiresReasoningNoneForChatTools,
+  resolveRequestIdentity,
   runAgentConversation,
+  writeToolResultApplied,
 };

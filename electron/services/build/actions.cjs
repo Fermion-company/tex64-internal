@@ -1,9 +1,50 @@
 const fs = require("fs");
 const path = require("path");
+const { terminateWindowsProcessTree } = require("../process-tree.cjs");
 
 const { isEnvMissingMessage, pickJobNameFromLatexmkArgs } = require("./utils.cjs");
 
 module.exports = (BuildService) => {
+  BuildService.prototype.buildQueued = function (
+    rootPath,
+    mainFileName = "main.tex",
+    engine = "lualatex",
+    buildProfile = null,
+    queueOptions = null,
+  ) {
+    const previous = Promise.resolve(this.queuedBuildTail).catch(() => {});
+    const queued = previous.then(async () => {
+      // Manual Build/Clean calls use the immediate API. Wait here, then enter
+      // build() synchronously in the same tick so there is no isBuilding TOCTOU
+      // window between the lease check and acquisition.
+      let waitedForAnotherBuild = false;
+      while (this.isBuilding) {
+        waitedForAnotherBuild = true;
+        if (queueOptions?.signal?.aborted) {
+          return { kind: "cancelled", summary: "Build cancelled before it started." };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (queueOptions?.signal?.aborted && queueOptions?.allowInitiallyAborted !== true) {
+        return { kind: "cancelled", summary: "Build cancelled before it started." };
+      }
+      if (waitedForAnotherBuild && queueOptions?.signal?.aborted) {
+        return { kind: "cancelled", summary: "Build cancelled before it started." };
+      }
+      queueOptions?.onStart?.();
+      try {
+        return await this.build(rootPath, mainFileName, engine, buildProfile);
+      } finally {
+        queueOptions?.onFinish?.();
+      }
+    });
+    this.queuedBuildTail = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
+  };
+
   BuildService.prototype.build = async function (
     rootPath,
     mainFileName = "main.tex",
@@ -43,34 +84,64 @@ module.exports = (BuildService) => {
   };
 
   BuildService.prototype.cancelCurrentRun = function () {
-    if (!this.isBuilding || !this.activeProcess) {
+    if (!this.isBuilding) {
       return false;
     }
-    const proc = this.activeProcess;
+    // Latch cancellation even during profile/PDF transaction setup or between
+    // fallback subprocesses. runProcess observes this before every spawn.
     this.cancelRequested = true;
+    if (!this.activeProcess) {
+      return true;
+    }
+    const proc = this.activeProcess;
     let sent = false;
     try {
-      sent = proc.kill("SIGTERM");
+      if (process.platform === "win32" && Number.isInteger(proc.pid)) {
+        this.activeProcessTerminationPromise = terminateWindowsProcessTree(proc);
+        sent = true;
+      } else if (Number.isInteger(proc.pid)) {
+        process.kill(-proc.pid, "SIGTERM");
+        sent = true;
+      } else {
+        sent = proc.kill("SIGTERM");
+      }
     } catch {
       sent = false;
     }
     if (!sent) {
       try {
-        sent = proc.kill();
+        if (process.platform !== "win32" && Number.isInteger(proc.pid)) {
+          process.kill(-proc.pid, "SIGTERM");
+          sent = true;
+        } else {
+          sent = proc.kill();
+        }
       } catch {
         sent = false;
       }
     }
+    // The parent process/group can already be gone while a detached descendant
+    // still holds its pipes. Release the build lease even when the OS kill call
+    // reports failure.
+    this.activeProcessForceFinish?.();
     if (sent) {
+      const killEscalationMs = this.processKillEscalationMs ?? 2000;
       const timer = setTimeout(() => {
         try {
-          if (proc.exitCode === null) {
-            proc.kill("SIGKILL");
+          if (process.platform !== "win32") {
+            if (Number.isInteger(proc.pid)) {
+              // The direct child may already have exited while a same-group
+              // descendant ignores SIGTERM and keeps pipes/files open. The
+              // process group, not the parent's exitCode, is authoritative.
+              process.kill(-proc.pid, "SIGKILL");
+            } else if (proc.exitCode === null) {
+              proc.kill("SIGKILL");
+            }
           }
         } catch {
           // ignore
         }
-      }, 2000);
+      }, killEscalationMs);
       if (typeof timer?.unref === "function") {
         timer.unref();
       }
@@ -88,11 +159,21 @@ module.exports = (BuildService) => {
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
-    const { outDir, extraArgs, hasExplicitOutDirArg, outDirRequested } = this.resolveLatexmkProfile(
-      rootPath,
-      mainFileName,
-      buildProfile
-    );
+    const {
+      outDir,
+      extraArgs,
+      hasExplicitOutDirArg,
+      outDirRequested,
+      invalidDirectoryArgument,
+    } = this.resolveLatexmkProfile(rootPath, mainFileName, buildProfile);
+    if (invalidDirectoryArgument) {
+      const issue = {
+        severity: "error",
+        message: `${invalidDirectoryArgument} is invalid.`,
+        line: null,
+      };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
     if (outDirRequested && !outDir) {
       const issue = {
         severity: "error",
@@ -112,61 +193,37 @@ module.exports = (BuildService) => {
       : rootPath;
     const pdfPath = path.join(pdfDir, pdfBase);
 
-    const startedAt = Date.now();
-    let output = "";
-    let status = 1;
+    let pdfOutputTransaction = null;
     try {
-      const result = await this.runLatexmk(rootPath, mainFileName, engine, {
-        outDir,
+      pdfOutputTransaction = this.beginPdfOutputTransaction(
+        rootPath,
+        pdfPath,
         extraArgs,
-        hasExplicitOutDirArg,
-      });
-      output = result.output;
-      status = result.status;
-      if (result.cancelled === true || this.cancelRequested) {
-        return {
-          kind: "cancelled",
-          summary: "Build cancelled.",
-          issues: [],
-          log: output,
-        };
-      }
+        mainFileName
+      );
     } catch (error) {
-      const message = error?.message ?? String(error);
-      if (isEnvMissingMessage(message)) {
-        const issue = {
-          severity: "error",
-          message: "latexmk not found. Check the TeX environment.",
-          line: null,
-          action: "open-runtime",
-        };
-        return { kind: "failure", summary: issue.message, issues: [issue] };
-      }
-      const issue = {
-        severity: "error",
-        message: "Failed to start build",
-        line: null,
-      };
-      return { kind: "failure", summary: issue.message, issues: [issue] };
+      const message = error?.message ?? "Could not protect the existing PDF output.";
+      const issue = { severity: "error", message, line: null };
+      return { kind: "failure", summary: message, issues: [issue] };
     }
+    try {
+      const runOutDir = pdfOutputTransaction?.outDir ?? outDir;
+      const runExtraArgs = pdfOutputTransaction?.extraArgs ?? extraArgs;
+      const runHasExplicitOutDirArg = pdfOutputTransaction ? false : hasExplicitOutDirArg;
 
-    if (status !== 0 && engine === "lualatex" && this.isXypdfPdftexRequirementError(output)) {
+      const startedAt = Date.now();
+      let output = "";
+      let status = 1;
       try {
-        const fallback = await this.runLatexmk(rootPath, mainFileName, "pdflatex", {
-          outDir,
-          extraArgs,
-          hasExplicitOutDirArg,
+        const result = await this.runLatexmk(rootPath, mainFileName, engine, {
+          outDir: runOutDir,
+          extraArgs: runExtraArgs,
+          hasExplicitOutDirArg: runHasExplicitOutDirArg,
+          stagedOutput: Boolean(pdfOutputTransaction),
         });
-        output = [
-          output,
-          "",
-          "[tex64] Detected an xypdf issue and rebuilt with pdflatex.",
-          fallback.output,
-        ]
-          .filter(Boolean)
-          .join("\n");
-        status = fallback.status;
-        if (fallback.cancelled === true || this.cancelRequested) {
+        output = result.output;
+        status = result.status;
+        if (result.cancelled === true || this.cancelRequested) {
           return {
             kind: "cancelled",
             summary: "Build cancelled.",
@@ -185,82 +242,158 @@ module.exports = (BuildService) => {
           };
           return { kind: "failure", summary: issue.message, issues: [issue] };
         }
+        const issue = {
+          severity: "error",
+          message: "Failed to start build",
+          line: null,
+        };
+        return { kind: "failure", summary: issue.message, issues: [issue] };
       }
-    }
 
-    const issues = this.parseIssues(output, rootPath);
-    // The panel shows the compiler's own transcript; latexmk's console output is
-    // only the fallback for when the .log could not be read.
-    const transcript = this.readBuildTranscript(rootPath, mainFileName, { outDir, jobName }) ?? output;
-    const missingGlyphIssues = this.findMissingGlyphIssues(issues);
-    if (missingGlyphIssues.length > 0) {
-      const summary =
-        "The PDF contains characters it cannot display. Configure a Unicode-aware document class/package or font.";
-      return {
-        kind: "failure",
-        summary,
-        issues: missingGlyphIssues,
-        log: transcript,
-      };
-    }
-    if (status === 0) {
-      const resolvedPdfPath = this.resolvePdfPathAfterBuild(rootPath, mainFileName, {
-        outDir,
-        startedAt,
-        expectedPdfPath: pdfPath,
-        jobName,
-      });
-      if (resolvedPdfPath) {
+      if (status !== 0 && engine === "lualatex" && this.isXypdfPdftexRequirementError(output)) {
+        try {
+          const fallback = await this.runLatexmk(rootPath, mainFileName, "pdflatex", {
+            outDir: runOutDir,
+            extraArgs: runExtraArgs,
+            hasExplicitOutDirArg: runHasExplicitOutDirArg,
+            stagedOutput: Boolean(pdfOutputTransaction),
+          });
+          output = [
+            output,
+            "",
+            "[tex64] Detected an xypdf issue and rebuilt with pdflatex.",
+            fallback.output,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          status = fallback.status;
+          if (fallback.cancelled === true || this.cancelRequested) {
+            return {
+              kind: "cancelled",
+              summary: "Build cancelled.",
+              issues: [],
+              log: output,
+            };
+          }
+        } catch (error) {
+          const message = error?.message ?? String(error);
+          if (isEnvMissingMessage(message)) {
+            const issue = {
+              severity: "error",
+              message: "latexmk not found. Check the TeX environment.",
+              line: null,
+              action: "open-runtime",
+            };
+            return { kind: "failure", summary: issue.message, issues: [issue] };
+          }
+        }
+      }
+
+      const issues = this.parseIssues(output, rootPath);
+      // The panel shows the compiler's own transcript; latexmk's console output is
+      // only the fallback for when the .log could not be read.
+      const transcript =
+        this.readBuildTranscript(rootPath, mainFileName, { outDir: runOutDir, jobName }) ?? output;
+      const missingGlyphIssues = this.findMissingGlyphIssues(issues);
+      if (missingGlyphIssues.length > 0) {
+        const summary =
+          "The PDF contains characters it cannot display. Configure a Unicode-aware document class/package or font.";
         return {
-          kind: "success",
-          summary: "Build succeeded",
-          issues,
-          pdfPath: resolvedPdfPath,
+          kind: "failure",
+          summary,
+          issues: missingGlyphIssues,
           log: transcript,
         };
       }
-      const message =
-        "The build succeeded but the PDF was not found. Check -jobname / outDir / latexmkrc.";
-      return {
-        kind: "failure",
-        summary: message,
-        issues: [{ severity: "error", message, line: null }],
-        log: transcript,
-      };
-    }
-    const summary = this.failureSummary(output, issues, mainFileName);
-    if (isEnvMissingMessage(summary)) {
+      if (status === 0) {
+        const stagedExpectedPdfPath = pdfOutputTransaction
+          ? path.join(pdfOutputTransaction.stagingDir, pdfBase)
+          : pdfPath;
+        const resolvedPdfPath = pdfOutputTransaction
+          ? this.resolvePdfPathAfterBuild(
+              pdfOutputTransaction.stagingDir,
+              path.basename(mainFileName),
+              {
+                outDir: null,
+                startedAt,
+                expectedPdfPath: stagedExpectedPdfPath,
+                jobName,
+              }
+            )
+          : this.resolvePdfPathAfterBuild(rootPath, mainFileName, {
+              outDir,
+              startedAt,
+              expectedPdfPath: pdfPath,
+              jobName,
+            });
+        if (resolvedPdfPath) {
+          let finalPdfPath = resolvedPdfPath;
+          try {
+            finalPdfPath = this.promotePdfOutput(pdfOutputTransaction, resolvedPdfPath);
+          } catch (error) {
+            const message = `The build succeeded but the previous PDF was kept: ${
+              error?.message ?? "the new PDF could not be committed."
+            }`;
+            return {
+              kind: "failure",
+              summary: message,
+              issues: [{ severity: "error", message, line: null }],
+              log: transcript,
+            };
+          }
+          return {
+            kind: "success",
+            summary: "Build succeeded",
+            issues,
+            pdfPath: finalPdfPath,
+            log: transcript,
+          };
+        }
+        const message =
+          "The build succeeded but the PDF was not found. Check -jobname / outDir / latexmkrc.";
+        return {
+          kind: "failure",
+          summary: message,
+          issues: [{ severity: "error", message, line: null }],
+          log: transcript,
+        };
+      }
+      const summary = this.failureSummary(output, issues, mainFileName);
+      if (isEnvMissingMessage(summary)) {
+        const fallback = {
+          severity: "error",
+          message: summary,
+          line: null,
+          action: "open-runtime",
+        };
+        return {
+          kind: "failure",
+          summary,
+          issues: [fallback],
+          log: transcript,
+        };
+      }
+      const summaryText = typeof summary === "string" ? summary.trim() : "";
+      const summaryLooksWarning = /\bwarning\b/i.test(summaryText);
+      const fallbackMessage = summaryLooksWarning
+        ? "Build failed. Warnings alone do not pinpoint the cause; check the build log."
+        : summaryText || "Build failed. Check the build log.";
       const fallback = {
         severity: "error",
-        message: summary,
+        message: fallbackMessage,
         line: null,
-        action: "open-runtime",
       };
+      const hasError = issues.some((issue) => issue.severity === "error");
+      const summaryForUi = summaryLooksWarning ? fallbackMessage : summary;
       return {
         kind: "failure",
-        summary,
-        issues: [fallback],
+        summary: summaryForUi,
+        issues: hasError ? issues : [fallback, ...issues].slice(0, 20),
         log: transcript,
       };
+    } finally {
+      this.discardPdfOutputTransaction(pdfOutputTransaction);
     }
-    const summaryText = typeof summary === "string" ? summary.trim() : "";
-    const summaryLooksWarning = /\bwarning\b/i.test(summaryText);
-    const fallbackMessage = summaryLooksWarning
-      ? "Build failed. Warnings alone do not pinpoint the cause; check the build log."
-      : summaryText || "Build failed. Check the build log.";
-    const fallback = {
-      severity: "error",
-      message: fallbackMessage,
-      line: null,
-    };
-    const hasError = issues.some((issue) => issue.severity === "error");
-    const summaryForUi = summaryLooksWarning ? fallbackMessage : summary;
-    return {
-      kind: "failure",
-      summary: summaryForUi,
-      issues: hasError ? issues : [fallback, ...issues].slice(0, 20),
-      log: transcript,
-    };
   };
 
   BuildService.prototype.runClean = async function (rootPath, mainFileName, options, buildProfile) {
@@ -274,11 +407,21 @@ module.exports = (BuildService) => {
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
     const deep = options?.deep === true;
-    const { outDir, extraArgs, hasExplicitOutDirArg, outDirRequested } = this.resolveLatexmkProfile(
-      rootPath,
-      mainFileName,
-      buildProfile
-    );
+    const {
+      outDir,
+      extraArgs,
+      hasExplicitOutDirArg,
+      outDirRequested,
+      invalidDirectoryArgument,
+    } = this.resolveLatexmkProfile(rootPath, mainFileName, buildProfile);
+    if (invalidDirectoryArgument) {
+      const issue = {
+        severity: "error",
+        message: `${invalidDirectoryArgument} is invalid.`,
+        line: null,
+      };
+      return { kind: "failure", summary: issue.message, issues: [issue] };
+    }
     if (outDirRequested && !outDir) {
       const issue = {
         severity: "error",

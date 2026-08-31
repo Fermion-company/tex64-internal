@@ -221,20 +221,100 @@ const pickOutDirFromLatexmkArgs = (args) => {
   if (!Array.isArray(args)) {
     return null;
   }
+  let selected = null;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (typeof arg !== "string") {
       continue;
     }
-    if (arg.startsWith("-outdir=")) {
-      return arg.slice("-outdir=".length).trim() || null;
+    const normalized = arg.toLowerCase();
+    for (const prefix of ["-outdir=", "-output-directory="]) {
+      if (normalized.startsWith(prefix)) {
+        selected = arg.slice(prefix.length).trim() || null;
+        break;
+      }
     }
-    if (arg === "-outdir") {
+    if (normalized === "-outdir" || normalized === "-output-directory") {
       const next = typeof args[index + 1] === "string" ? args[index + 1].trim() : "";
-      return next || null;
+      selected = next || null;
+      index += 1;
     }
   }
-  return null;
+  return selected;
+};
+
+const pickAuxDirFromLatexmkArgs = (args) => {
+  if (!Array.isArray(args)) return null;
+  let selected = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (typeof arg !== "string") continue;
+    const normalized = arg.toLowerCase();
+    for (const prefix of ["-auxdir=", "-aux-directory="]) {
+      if (normalized.startsWith(prefix)) {
+        selected = arg.slice(prefix.length).trim();
+        break;
+      }
+    }
+    if (normalized === "-auxdir" || normalized === "-aux-directory") {
+      selected = typeof args[index + 1] === "string" ? args[index + 1].trim() : "";
+      index += 1;
+    }
+  }
+  return selected;
+};
+
+const stripOutDirFromLatexmkArgs = (args) => {
+  if (!Array.isArray(args)) {
+    return [];
+  }
+  const result = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (typeof arg !== "string") {
+      continue;
+    }
+    const normalized = arg.toLowerCase();
+    if (
+      normalized.startsWith("-outdir=") ||
+      normalized.startsWith("-output-directory=")
+    ) {
+      continue;
+    }
+    if (normalized === "-outdir" || normalized === "-output-directory") {
+      index += 1;
+      continue;
+    }
+    result.push(arg);
+  }
+  return result;
+};
+
+/**
+ * Resolve the closest existing ancestor without walking past an existing but
+ * unresolvable entry (for example a dangling symlink). This lets a new outDir
+ * be created while still proving that every existing parent resolves inside
+ * the workspace.
+ */
+const resolveNearestExistingRealPath = (targetPath) => {
+  let current = path.resolve(targetPath);
+  while (true) {
+    try {
+      return fs.realpathSync(current);
+    } catch {
+      try {
+        // If the directory entry itself exists, realpath failed because it is
+        // unusable (commonly a broken link). Do not silently trust its parent.
+        fs.lstatSync(current);
+        return null;
+      } catch (lstatError) {
+        if (lstatError?.code !== "ENOENT") return null;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) return null;
+      current = parent;
+    }
+  }
 };
 
 const normalizeOutDir = (rootPath, outDir) => {
@@ -251,6 +331,16 @@ const normalizeOutDir = (rootPath, outDir) => {
   const resolved = path.resolve(rootPath, trimmed);
   const rootResolved = path.resolve(rootPath);
   if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
+    return null;
+  }
+  let rootRealPath = null;
+  try {
+    rootRealPath = fs.realpathSync(rootResolved);
+  } catch {
+    return null;
+  }
+  const existingRealPath = resolveNearestExistingRealPath(resolved);
+  if (!existingRealPath || !isPathWithinRoot(rootRealPath, existingRealPath)) {
     return null;
   }
   const relative = path.relative(rootResolved, resolved);
@@ -271,5 +361,7 @@ module.exports = {
   parseFlsPdfOutputs,
   parseFdbPdfOutputs,
   pickOutDirFromLatexmkArgs,
+  pickAuxDirFromLatexmkArgs,
+  stripOutDirFromLatexmkArgs,
   normalizeOutDir,
 };
