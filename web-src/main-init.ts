@@ -601,22 +601,6 @@ export const initMain = () => {
       maxChars: Number.POSITIVE_INFINITY,
       onlyDirty: true,
     }).snapshots,
-    openCodePreview: (snapshot) => {
-      editorSession.setSplitViewEnabled(true);
-      if (getWorkspaceFiles().includes(snapshot.path)) {
-        editorSession.requestOpenFile(snapshot.path, "secondary", true);
-      }
-      editorSession.handleOpenFileResult({
-        path: snapshot.path,
-        kind: "pdf",
-        data: snapshot.data,
-        mimeType: snapshot.mimeType,
-        livePreview: {
-          generation: snapshot.generation,
-          documentEpoch: snapshot.documentEpoch,
-        },
-      });
-    },
   });
   onFilesTabActive = () => editorSession.updateMiniOutline();
 

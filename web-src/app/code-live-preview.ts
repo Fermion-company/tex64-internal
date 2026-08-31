@@ -1,12 +1,17 @@
-// Real-time preview for Code mode (settings > Build > Preview).
-// TDOM owns incremental compilation only. Every landed PDF is handed to the
-// same PDF.js surface Code already uses for an ordinary build; there is no
-// live-only iframe, toolbar, window, or page interaction model. AI mode keeps
-// its normal build-backed paper view and never receives TDOM snapshots.
+// Real-time preview for Code mode (beta, settings > Build > Preview).
+//
+// The preview replaces only the page canvas inside the ordinary in-tab PDF
+// viewer. The existing PDF toolbar and split-view path stay in place; no
+// separate window or second preview surface is created. While the
+// `preview.realtime` flag is on and the app is in Code mode, this module
+// starts the local TDOM engine, streams the active .tex buffer to it as the
+// user types, and flips those viewers into live mode; each viewer swaps only
+// its page canvas for the engine's embedded client, keeping its own toolbar
+// and chrome. Turning the flag off restores the static PDF everywhere and
+// stops the engine.
 
 import type { EditorGroupState } from "./editor-session/types.js";
 import type { BridgeWindow } from "./types.js";
-import type { LivePdfSnapshot } from "./viewer.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 
 const createDebouncedTask = (task: () => void, delayMs: number) => {
@@ -45,7 +50,6 @@ export const initCodeLivePreview = ({
   getWorkspaceRoot,
   getRootFile,
   getDirtyFileSnapshots,
-  openCodePreview,
 }: {
   getActiveGroup: () => EditorGroupState;
   getEditorGroups: () => EditorGroupState[];
@@ -53,17 +57,13 @@ export const initCodeLivePreview = ({
   getWorkspaceRoot: () => string | null;
   getRootFile: () => string | null;
   getDirtyFileSnapshots: () => DirtySnapshot[];
-  openCodePreview: (snapshot: LivePdfSnapshot) => void;
 }) => {
   const bridge = (window as BridgeWindow).tex64Tdom;
   let active = false;
   let starting = false;
   let engineStarted = false;
   let engineUrl: string | null = null;
-  let livePdf: (LivePdfSnapshot & { mainFile: string }) | null = null;
-  let snapshotDocumentEpoch = 0;
-  let snapshotGeneration = 0;
-  let snapshotInFlight = false;
+  let liveGeneration = 0;
   let lifecycleVersion = 0;
   let latestPushVersion = 0;
   let liveSessionKey: string | null = null;
@@ -101,14 +101,12 @@ export const initCodeLivePreview = ({
   };
   const debouncedFocus = createDebouncedTask(focusCurrent, 160);
 
-  const distributeLive = (snapshot: typeof livePdf) => {
-    const groups = getEditorGroups();
-    for (const group of groups) group.viewer.setLivePreview(snapshot);
-    if (
-      snapshot &&
-      !groups.some((group) => group.openTabs.includes(snapshot.path))
-    ) {
-      openCodePreview(snapshot);
+  // Flip the existing in-tab PDF surfaces into or out of live mode. The PDF
+  // frame keeps its ordinary toolbar and swaps only the page canvas for the
+  // embedded incremental renderer.
+  const distributeLive = (url: string | null, generation = liveGeneration) => {
+    for (const group of getEditorGroups()) {
+      group.viewer.setLivePreview(url, generation);
     }
   };
 
@@ -149,12 +147,10 @@ export const initCodeLivePreview = ({
       };
       const rootInsideWorkspace = projectRelative(rootFile);
       const currentRelative = projectRelative(current?.path);
-      // Code must stream the open root even before its dirty marker settles.
-      // Non-root files remain dirty-only overlays.
-      if (
-        current &&
-        (current.group.isDirty || currentRelative === rootInsideWorkspace)
-      ) {
+      // Keep the configured root exact even while it is clean. This also
+      // notices an external reload of main.tex; all non-root files remain
+      // dirty-only overlays and are never serialized just for a tab switch.
+      if (current && (current.group.isDirty || currentRelative === rootInsideWorkspace)) {
         buffers.set(current.path, current.editor.getValue?.() ?? "");
       }
       const sessionKey = `${workspaceRoot}\0${rootFile}`;
@@ -184,47 +180,6 @@ export const initCodeLivePreview = ({
     };
   };
 
-  const pollSnapshot = async () => {
-    if (!active || !engineStarted || !liveSessionKey || snapshotInFlight || !bridge?.snapshot) return;
-    const pollLifecycleVersion = lifecycleVersion;
-    snapshotInFlight = true;
-    try {
-      const result = await bridge.snapshot({
-        afterDocumentEpoch: snapshotDocumentEpoch,
-        afterGeneration: snapshotGeneration,
-      });
-      if (!active || pollLifecycleVersion !== lifecycleVersion) return;
-      if (!result?.ok) throw new Error(result?.error || "live preview snapshot failed");
-      snapshotDocumentEpoch = Number(result.documentEpoch) || snapshotDocumentEpoch;
-      snapshotGeneration = Number(result.generation) || snapshotGeneration;
-      if (result.unchanged) return;
-      if (
-        typeof result.path !== "string" ||
-        !result.path.toLowerCase().endsWith(".pdf") ||
-        typeof result.mainFile !== "string" ||
-        !result.mainFile.toLowerCase().endsWith(".tex") ||
-        typeof result.data !== "string" ||
-        !result.data
-      ) {
-        return;
-      }
-      livePdf = {
-        path: result.path,
-        mainFile: result.mainFile,
-        data: result.data,
-        mimeType: result.mimeType || "application/pdf",
-        generation: Number(result.generation) || 0,
-        documentEpoch: Number(result.documentEpoch) || 0,
-      };
-      distributeLive(livePdf);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      showLiveError(message);
-    } finally {
-      snapshotInFlight = false;
-    }
-  };
-
   const retireObsoleteSession = (nextSessionKey: string) => {
     const queuedSessionIsObsolete = queuedSessionKey !== null && queuedSessionKey !== nextSessionKey;
     const visibleSessionIsObsolete = liveSessionKey !== null && liveSessionKey !== nextSessionKey;
@@ -232,18 +187,16 @@ export const initCodeLivePreview = ({
 
     // Invalidate an in-flight result immediately, before the 80ms push
     // debounce. Otherwise a completed /open for the previous project can
-    // briefly replace the new project's PDF after the editor has switched.
+    // briefly reactivate its iframe after the editor has already switched.
     latestPushVersion += 1;
     pendingPush = null;
     queuedSessionKey = null;
     queuedBuffers.clear();
-    if (engineUrl || livePdf || visibleSessionIsObsolete) {
+    if (engineUrl || visibleSessionIsObsolete) {
       engineUrl = null;
       liveSessionKey = null;
-      livePdf = null;
-      snapshotDocumentEpoch = 0;
-      snapshotGeneration = 0;
-      distributeLive(null);
+      liveGeneration += 1;
+      distributeLive(null, liveGeneration);
     }
   };
 
@@ -267,15 +220,10 @@ export const initCodeLivePreview = ({
           snapshot.lifecycleVersion === lifecycleVersion &&
           snapshot.pushVersion === latestPushVersion;
         if (result.url && isCurrent) {
+          if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl) liveGeneration += 1;
           engineUrl = result.url;
           liveSessionKey = snapshot.sessionKey;
-          if (snapshot.payload.fresh) {
-            livePdf = null;
-            snapshotDocumentEpoch = 0;
-            snapshotGeneration = 0;
-            distributeLive(null);
-          }
-          void pollSnapshot();
+          distributeLive(engineUrl, liveGeneration);
         }
         if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs) latestInputAtEpochMs = 0;
         attemptedSnapshot = null;
@@ -319,10 +267,7 @@ export const initCodeLivePreview = ({
       debouncedPush();
       return;
     }
-    if (
-      snapshot.sessionKey === queuedSessionKey &&
-      sameBuffers(snapshot.buffers, queuedBuffers)
-    ) return;
+    if (snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers)) return;
     queuedSessionKey = snapshot.sessionKey;
     queuedBuffers = new Map(snapshot.buffers);
     pendingPush = {
@@ -375,8 +320,9 @@ export const initCodeLivePreview = ({
         return;
       }
       engineStarted = true;
-      // The first project push resets the engine's boot sample. Only a PDF
-      // snapshot belonging to that project is ever distributed.
+      // Do not expose the engine's tiny boot sample. The first successful
+      // project push below returns the same URL and reveals the viewer only
+      // after the configured root document is actually open.
       bindActiveEditor();
       debouncedPush();
     } finally {
@@ -401,9 +347,7 @@ export const initCodeLivePreview = ({
     engineStarted = false;
     engineUrl = null;
     liveSessionKey = null;
-    livePdf = null;
-    snapshotDocumentEpoch = 0;
-    snapshotGeneration = 0;
+    liveGeneration += 1;
     distributeLive(null);
   };
 
@@ -418,11 +362,7 @@ export const initCodeLivePreview = ({
   };
 
   const refresh = () => {
-    const mode = getAppMode();
-    applyActive(
-      editorSettings.isEnabled("preview.realtime") &&
-      mode === "code",
-    );
+    applyActive(editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
     if (active) {
       if (!engineStarted && !starting) void start();
       bindActiveEditor();
@@ -434,15 +374,9 @@ export const initCodeLivePreview = ({
       // match the last successful enqueue.
       const snapshot = currentSnapshot();
       if (snapshot) retireObsoleteSession(snapshot.sessionKey);
-      if (
-        snapshot &&
-        (snapshot.sessionKey !== queuedSessionKey ||
-          !sameBuffers(snapshot.buffers, queuedBuffers))
-      ) debouncedPush();
-      if (livePdf) distributeLive(livePdf);
-    } else {
-      distributeLive(null);
-    }
+      if (snapshot && (snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers))) debouncedPush();
+      if (engineUrl) distributeLive(engineUrl);
+    } else distributeLive(null);
   };
 
   editorSettings.subscribe((change) => {
@@ -454,9 +388,6 @@ export const initCodeLivePreview = ({
   // swaps and app-mode changes without threading callbacks through every
   // call site.
   const poll = window.setInterval(refresh, 200);
-  const snapshotPoll = window.setInterval(() => {
-    void pollSnapshot();
-  }, 250);
   let checkingHealth = false;
   const healthPoll = window.setInterval(async () => {
     if (!active || !engineStarted || checkingHealth || !bridge?.status) return;
@@ -471,10 +402,10 @@ export const initCodeLivePreview = ({
         engineStarted = false;
         engineUrl = null;
         liveSessionKey = null;
-        livePdf = null;
-        snapshotDocumentEpoch = 0;
-        snapshotGeneration = 0;
-        distributeLive(null);
+        // Force the recovered URL through even when the OS gives the new
+        // process the same port as the dead one.
+        liveGeneration += 1;
+        distributeLive(null, liveGeneration);
         queuedSessionKey = null;
         queuedBuffers.clear();
         pendingPush = null;
@@ -488,9 +419,10 @@ export const initCodeLivePreview = ({
   }, 2_000);
   window.addEventListener("beforeunload", () => {
     window.clearInterval(poll);
-    window.clearInterval(snapshotPoll);
     window.clearInterval(healthPoll);
   }, { once: true });
+  // Clear renderer state left by a reload before restoring the current
+  // setting.
   distributeLive(null);
   refresh();
   return { isActive: () => active };

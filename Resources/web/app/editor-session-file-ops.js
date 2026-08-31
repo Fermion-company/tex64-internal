@@ -112,7 +112,7 @@ export const createEditorSessionFileOps = (ctx) => {
             editor.setValue(newContent);
         }
     };
-    const applyViewerFile = (group, path, kind, data, mimeType, livePreview) => {
+    const applyViewerFile = (group, path, kind, data, mimeType) => {
         clearTemporaryTabs(group, path);
         group.currentFilePath = path;
         group.currentFileSavedContent = null;
@@ -136,15 +136,6 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         if (kind === "image") {
             group.viewer.showImageViewer(path, data, mimeType);
-        }
-        else if (data && livePreview) {
-            group.viewer.showLivePdfViewer({
-                path,
-                data,
-                mimeType: mimeType !== null && mimeType !== void 0 ? mimeType : "application/pdf",
-                generation: livePreview.generation,
-                documentEpoch: livePreview.documentEpoch,
-            });
         }
         else {
             group.viewer.showPdfViewer(path, data, mimeType);
@@ -794,7 +785,7 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         if (kind === "image" || kind === "pdf") {
-            applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType, payload.livePreview);
+            applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType);
             return;
         }
         if (kind === "unsupported") {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'none';"
+      content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' data: blob: http://127.0.0.1:*;"
     >
     <title>PDF</title>
     <link rel="stylesheet" href="./pdfjs/pdf_viewer.css">
@@ -61,6 +61,7 @@
         <div class="pdf-scroll" id="pdf-scroll">
           <div class="pdf-pages pdfViewer" id="pdf-pages"></div>
         </div>
+        <iframe class="pdf-live-frame" id="pdf-live-frame" title="Live preview" aria-hidden="true"></iframe>
       </div>
     </div>
 

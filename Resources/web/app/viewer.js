@@ -6,7 +6,9 @@ export const createViewer = (deps) => {
     let pdfViewerPath = null;
     let pendingPdfOpen = null;
     let pendingPdfSync = null;
-    let staticPdf = null;
+    // Real-time preview: when set, the pdf viewer swaps its page canvas for the
+    // live engine frame (same chrome). Re-sent on every viewer "ready" so it
+    // survives the pdf iframe being torn down and recreated.
     let livePreview = null;
     const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
     const postPdfMessage = (payload) => {
@@ -51,6 +53,9 @@ export const createViewer = (deps) => {
             if (pendingPdfOpen) {
                 postPdfMessage({ type: "open", payload: pendingPdfOpen });
                 pendingPdfOpen = null;
+            }
+            if (livePreview) {
+                postPdfMessage({ type: "live", payload: livePreview });
             }
             if (pendingPdfSync) {
                 postPdfMessage({ type: "sync", payload: pendingPdfSync });
@@ -118,7 +123,6 @@ export const createViewer = (deps) => {
         pendingPdfOpen = null;
         pendingPdfSync = null;
         pdfViewerPath = null;
-        staticPdf = null;
         setViewerMode("hidden");
     };
     const showUnsupportedViewer = (hint) => {
@@ -168,7 +172,7 @@ export const createViewer = (deps) => {
             showUnsupportedViewer();
         }
     };
-    const renderPdf = (path, data, mimeType) => {
+    const showPdfViewer = (path, data, mimeType) => {
         if (!data || !(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             showUnsupportedViewer();
             return;
@@ -180,6 +184,9 @@ export const createViewer = (deps) => {
             const payload = { url, path };
             if (pdfViewerReady) {
                 postPdfMessage({ type: "open", payload });
+                if (livePreview) {
+                    postPdfMessage({ type: "live", payload: livePreview });
+                }
                 if (!(pendingPdfSync === null || pendingPdfSync === void 0 ? void 0 : pendingPdfSync.pdfPath) || pendingPdfSync.pdfPath === path) {
                     if (pendingPdfSync) {
                         postPdfMessage({ type: "sync", payload: pendingPdfSync });
@@ -197,20 +204,6 @@ export const createViewer = (deps) => {
             showUnsupportedViewer();
         }
     };
-    const showPdfViewer = (path, data, mimeType) => {
-        var _a, _b;
-        if (!data) {
-            showUnsupportedViewer();
-            return;
-        }
-        staticPdf = { path, data, mimeType: mimeType !== null && mimeType !== void 0 ? mimeType : "application/pdf" };
-        const live = (livePreview === null || livePreview === void 0 ? void 0 : livePreview.path) === path ? livePreview : null;
-        renderPdf(path, (_a = live === null || live === void 0 ? void 0 : live.data) !== null && _a !== void 0 ? _a : data, (_b = live === null || live === void 0 ? void 0 : live.mimeType) !== null && _b !== void 0 ? _b : mimeType);
-    };
-    const showLivePdfViewer = (snapshot) => {
-        livePreview = snapshot;
-        renderPdf(snapshot.path, snapshot.data, snapshot.mimeType);
-    };
     const syncPdf = (payload) => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
@@ -221,29 +214,27 @@ export const createViewer = (deps) => {
             ensurePdfFrame();
             return;
         }
+        if (livePreview) {
+            // The PDF frame may have been recreated while the tab was hidden.
+            // Establish Live ownership synchronously before SyncTeX so the jump is
+            // queued for the visible TDOM surface instead of the static fallback.
+            postPdfMessage({ type: "live", payload: livePreview });
+        }
         postPdfMessage({ type: "sync", payload });
     };
-    const setLivePreview = (next) => {
-        var _a;
-        if ((livePreview === null || livePreview === void 0 ? void 0 : livePreview.path) === (next === null || next === void 0 ? void 0 : next.path) &&
-            (livePreview === null || livePreview === void 0 ? void 0 : livePreview.generation) === (next === null || next === void 0 ? void 0 : next.generation) &&
-            (livePreview === null || livePreview === void 0 ? void 0 : livePreview.documentEpoch) === (next === null || next === void 0 ? void 0 : next.documentEpoch))
+    const setLivePreview = (url, generation = 0) => {
+        const next = url ? { url, generation } : null;
+        if ((livePreview === null || livePreview === void 0 ? void 0 : livePreview.url) === (next === null || next === void 0 ? void 0 : next.url) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.generation) === (next === null || next === void 0 ? void 0 : next.generation))
             return;
-        const previousPath = (_a = livePreview === null || livePreview === void 0 ? void 0 : livePreview.path) !== null && _a !== void 0 ? _a : null;
         livePreview = next;
-        if (next && pdfViewerPath === next.path && viewerMode === "pdf") {
-            renderPdf(next.path, next.data, next.mimeType);
-            return;
-        }
-        if (!next && staticPdf && viewerMode === "pdf" && pdfViewerPath === previousPath) {
-            renderPdf(staticPdf.path, staticPdf.data, staticPdf.mimeType);
+        if (pdfViewerReady) {
+            postPdfMessage({ type: "live", payload: next });
         }
     };
     return {
         hideViewer,
         showImageViewer,
         showPdfViewer,
-        showLivePdfViewer,
         showUnsupportedViewer,
         setViewerMode,
         getViewerMode: () => viewerMode,

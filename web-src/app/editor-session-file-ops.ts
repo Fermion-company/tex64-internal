@@ -229,7 +229,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     kind: "image" | "pdf",
     data?: string,
     mimeType?: string,
-    livePreview?: { generation: number; documentEpoch: number },
   ) => {
     clearTemporaryTabs(group, path);
     group.currentFilePath = path;
@@ -256,14 +255,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
     if (kind === "image") {
       group.viewer.showImageViewer(path, data, mimeType);
-    } else if (data && livePreview) {
-      group.viewer.showLivePdfViewer({
-        path,
-        data,
-        mimeType: mimeType ?? "application/pdf",
-        generation: livePreview.generation,
-        documentEpoch: livePreview.documentEpoch,
-      });
     } else {
       group.viewer.showPdfViewer(path, data, mimeType);
     }
@@ -1038,7 +1029,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         kind,
         payload.data,
         payload.mimeType,
-        payload.livePreview,
       );
       return;
     }
