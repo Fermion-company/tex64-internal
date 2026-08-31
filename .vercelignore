@@ -1,0 +1,37 @@
+# The legacy Vercel project serves only the browser build in Resources/web.
+# Desktop releases, native runtimes, tests, and local worktrees are unrelated
+# deployment inputs and can exceed Vercel's source-file limit.
+.git
+.worktrees
+.venv
+.venv-ocr
+.claude
+node_modules
+dist
+release
+services
+native-macos
+build
+artifacts
+electron
+marketing
+marketing-video
+prototypes
+tests
+test-workspace
+test-sample-hover
+docs
+assets
+store
+update
+
+Resources/math-ocr
+Resources/texlab
+Resources/tdom-engine
+Resources/icons
+Resources/mac
+
+web-src/math/fork/node_modules
+web-src/math/fork/dist
+web-src/math/fork/build
+web-src/math/fork/coverage
