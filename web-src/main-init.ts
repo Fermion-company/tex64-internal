@@ -792,6 +792,11 @@ export const initMain = () => {
     updateIssues: updateIssuesProxy,
   });
   resizerUi = initSidebarResizer(appContext, {
+    collapseSidebar: () => {
+      if (bottomPanelUi.isSidebarVisible()) {
+        bottomPanelUi.toggleSidebar();
+      }
+    },
     layoutEditors: () => {
       editorSession.forEachEditorGroup((group) => {
         const editor = group.editor as { layout?: () => void };

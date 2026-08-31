@@ -263,7 +263,26 @@ class TdomEngineService {
       // The engine keeps one forked lualatex per checkpoint (~100-300MB
       // each); cap it well below the engine's own default of 64.
       TDOM_MAX_CHECKPOINTS: process.env.TDOM_MAX_CHECKPOINTS || "8",
+      // Real output-routine shipping is the fast exact-page successor to
+      // glyph overlays. It runs off the keystroke path and fails closed to
+      // the ordinary canonical compile for unsupported preambles.
+      TDOM_SHIP: process.env.TDOM_SHIP ?? "1",
+      TDOM_SHIP_PRIVATE_PDF: process.env.TDOM_SHIP_PRIVATE_PDF ?? "1",
+      // Certified plain-text anchoring maps resident LuaLaTeX line output
+      // onto the last canonical PDF. Unsupported rules, graphics, callbacks
+      // and ambiguous SyncTeX locations fail closed to ordinary shipping.
+      TDOM_CANONICAL_ANCHOR: process.env.TDOM_CANONICAL_ANCHOR ?? "1",
     };
+    // Reuse TeX64's packaged pdf.js in the external TDOM process. The engine
+    // is intentionally dependency-free when used standalone, so pass the
+    // exact resolved module instead of making its Application Support clone
+    // install another copy.
+    try {
+      env.TDOM_PDFJS_PATH = require.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+    } catch {
+      // No pdf.js means only the certified fast-anchor path is unavailable;
+      // canonical LuaLaTeX rendering remains fully functional.
+    }
     if (this.workDir) env.TDOM_WORKDIR = this.workDir;
     // The engine frame remains an isolated localhost origin, but it may
     // serve TeX64's already-vendored MathLive assets for the single active
@@ -426,7 +445,14 @@ class TdomEngineService {
         try {
           await requestJson(`${this.url}/edit`, {
             method: "POST",
-            body: { ...edit, ...(overlays.length ? { overlays } : {}), ...(removeOverlays.length ? { removeOverlays } : {}) },
+            body: {
+              ...edit,
+              ...(Number.isFinite(Number(payload.clientEditAtEpochMs))
+                ? { clientEditAtEpochMs: Number(payload.clientEditAtEpochMs) }
+                : {}),
+              ...(overlays.length ? { overlays } : {}),
+              ...(removeOverlays.length ? { removeOverlays } : {}),
+            },
             timeoutMs: openTimeout,
           });
           this.lastSource = snapshot.source;
@@ -457,6 +483,20 @@ class TdomEngineService {
     const result = this.pushQueue.then(run, run);
     this.pushQueue = result.then(() => undefined, () => undefined);
     return result;
+  }
+
+  async focus(payload = {}) {
+    if (!this.isRunning() || this.state !== "ready" || this.lastSource === null) {
+      return { ok: false, error: "live preview engine is not ready" };
+    }
+    const offset = Number(payload.offset);
+    if (!Number.isFinite(offset)) return { ok: false, error: "focus requires a finite offset" };
+    const response = await requestJson(`${this.url}/warm`, {
+      method: "POST",
+      body: { offset },
+      timeoutMs: 2_000,
+    });
+    return { ok: true, ...response };
   }
 
   stop() {

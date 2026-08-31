@@ -356,7 +356,9 @@ export type TdomBridge = {
     workspaceRoot?: string;
     rootFile?: string;
     buffers?: Array<{ path: string; text: string }>;
+    clientEditAtEpochMs?: number;
   }) => Promise<{ ok: boolean; url?: string; error?: string }>;
+  focus?: (payload: { offset: number }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
   windowLive?: (payload: { url: string | null; generation?: number; show?: boolean; hide?: boolean; error?: string | null }) => Promise<{ ok: boolean; error?: string }>;
 };
 export type AiCompletionBridge = {

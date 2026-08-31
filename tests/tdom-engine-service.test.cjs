@@ -67,6 +67,10 @@ test("TdomEngineService spawn env pins the engine knobs", () => {
   assert.equal(env.TDOM_WORKDIR, "/tmp/tdom-work");
   assert.equal(env.TDOM_SAMPLE, process.env.TDOM_SAMPLE || "demo-lua.tex");
   assert.ok(Number(env.TDOM_MAX_CHECKPOINTS) >= 1);
+  assert.equal(env.TDOM_SHIP, process.env.TDOM_SHIP ?? "1");
+  assert.equal(env.TDOM_SHIP_PRIVATE_PDF, process.env.TDOM_SHIP_PRIVATE_PDF ?? "1");
+  assert.equal(env.TDOM_CANONICAL_ANCHOR, process.env.TDOM_CANONICAL_ANCHOR ?? "1");
+  assert.match(env.TDOM_PDFJS_PATH, /pdfjs-dist[/\\]legacy[/\\]build[/\\]pdf\.mjs$/);
   assert.ok(env.PATH.split(path.delimiter).includes("/opt/homebrew/bin"));
 });
 
@@ -110,7 +114,8 @@ test("TdomEngineService starts the engine and streams minimal edits", async (t) 
 
   // First push opens the document; the next push becomes a range edit.
   await service.push({ source: "\\documentclass{article}\nhello", fresh: true });
-  await service.push({ source: "\\documentclass{article}\nhello world" });
+  const clientEditAtEpochMs = Date.now();
+  await service.push({ source: "\\documentclass{article}\nhello world", clientEditAtEpochMs });
 
   const http = require("node:http");
   const doc = await new Promise((resolve, reject) => {
@@ -125,6 +130,17 @@ test("TdomEngineService starts the engine and streams minimal edits", async (t) 
   assert.equal(doc.edits[1].kind, "edit");
   assert.equal(doc.edits[1].text, " world");
   assert.equal(doc.edits[1].end - doc.edits[1].start, 0);
+  assert.equal(doc.edits[1].clientEditAtEpochMs, clientEditAtEpochMs);
+  const focus = await service.focus({ offset: 17 });
+  assert.equal(focus.ok, true);
+  const focusedDoc = await new Promise((resolve, reject) => {
+    http.get(`${service.url}/doc`, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch (e) { reject(e); } });
+    }).on("error", reject);
+  });
+  assert.deepEqual(focusedDoc.warms.at(-1), { offset: 17 });
 
   // The active file path is part of document identity. Switching projects
   // with identical text must still reopen so relative images/includes/.bib
