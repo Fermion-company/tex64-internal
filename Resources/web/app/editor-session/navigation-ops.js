@@ -2,11 +2,11 @@ export const createEditorSessionNavigationOps = (runtime, coreOps, issueOps, dep
     const applyContentToOpenFile = (path, content, options) => {
         const targetGroupKey = coreOps.findGroupKeyByPath(path);
         if (!targetGroupKey) {
-            return { handled: false, conflict: false };
+            return false;
         }
         const targetGroup = coreOps.getEditorGroup(targetGroupKey);
-        const conflict = deps.applyFormattedContent(targetGroup, path, content, options);
-        return { handled: true, conflict };
+        deps.applyFormattedContent(targetGroup, path, content, options);
+        return true;
     };
     const jumpToFileLine = (path, line, groupKey, options = {}) => {
         const forceOpen = options.force === true;

@@ -25,6 +25,7 @@ const STRINGS: Record<string, Entry> = {
   model_efficient: { en: "Fast and efficient", ja: "高速・低コスト", zh: "快速高效", ko: "빠르고 효율적", fr: "Rapide et efficace", de: "Schnell und effizient", es: "Rápido y eficiente" },
   model_autonomous: { en: "Advanced autonomous writing", ja: "高度な自律執筆", zh: "高级自主写作", ko: "고급 자율 글쓰기", fr: "Rédaction autonome avancée", de: "Fortgeschrittenes autonomes Schreiben", es: "Redacción autónoma avanzada" },
   model_requires_pro: { en: "Requires Pro plan", ja: "Proプランが必要", zh: "需要 Pro 套餐", ko: "Pro 플랜 필요", fr: "Nécessite le plan Pro", de: "Erfordert Pro-Plan", es: "Requiere plan Pro" },
+  model_codex: { en: "Uses your ChatGPT subscription", ja: "あなたのChatGPTサブスクで動作", zh: "使用您的 ChatGPT 订阅", ko: "내 ChatGPT 구독으로 실행", fr: "Utilise votre abonnement ChatGPT", de: "Nutzt Ihr ChatGPT-Abo", es: "Usa tu suscripción de ChatGPT" },
   upsell_title: { en: "Axiom 1.0 Pro is a Pro feature", ja: "Axiom 1.0 Pro は Pro 限定です", zh: "Axiom 1.0 Pro 是 Pro 功能", ko: "Axiom 1.0 Pro는 Pro 전용입니다", fr: "Axiom 1.0 Pro est une fonctionnalité Pro", de: "Axiom 1.0 Pro ist eine Pro-Funktion", es: "Axiom 1.0 Pro es una función Pro" },
   upsell_sub: { en: "Upgrade to Pro for advanced autonomous writing.", ja: "Proにアップグレードすると高度な自律執筆を利用できます。", zh: "升级到 Pro 即可使用高级自主写作。", ko: "Pro로 업그레이드하면 고급 자율 글쓰기를 사용할 수 있습니다.", fr: "Passez à Pro pour la rédaction autonome avancée.", de: "Mit Pro erhalten Sie fortgeschrittenes autonomes Schreiben.", es: "Cambia a Pro para usar la redacción autónoma avanzada." },
   see_pro_plans: { en: "See Pro plans", ja: "Proプランを見る", zh: "查看 Pro 套餐", ko: "Pro 플랜 보기", fr: "Voir les plans Pro", de: "Pro-Pläne ansehen", es: "Ver planes Pro" },
@@ -39,12 +40,15 @@ const STRINGS: Record<string, Entry> = {
 
   // ── Login / overlay ──
   login: { en: "Login", ja: "ログイン", zh: "登录", ko: "로그인", fr: "Connexion", de: "Anmelden", es: "Entrar" },
+  // Named after the account it signs into: the Codex model runs on the user's
+  // own ChatGPT subscription, and an unqualified "Login" next to the model
+  // picker reads as "ChatGPT is not connected".
   login_tex64: { en: "TeX64 Login", ja: "TeX64 にログイン", zh: "登录 TeX64", ko: "TeX64 로그인", fr: "Connexion TeX64", de: "TeX64 anmelden", es: "Entrar en TeX64" },
-  login_tex64_hint: { en: "Optional sign-in links your Axiom allowance to your account.", ja: "任意ログインでAxiomの利用枠をアカウントに紐付けられます。", zh: "可选登录可将 Axiom 额度关联到您的账户。", ko: "로그인은 선택 사항이며 Axiom 사용 한도를 계정에 연결합니다.", fr: "Connexion facultative pour associer votre quota Axiom à votre compte.", de: "Optional anmelden, um das Axiom-Kontingent mit Ihrem Konto zu verknüpfen.", es: "Inicio de sesión opcional para vincular tu cuota de Axiom a tu cuenta." },
+  login_tex64_hint: { en: "Signs in to your TeX64 account — unrelated to ChatGPT.", ja: "TeX64 アカウントへのログインです（ChatGPT のログインとは別）。", zh: "登录 TeX64 账户（与 ChatGPT 登录无关）。", ko: "TeX64 계정 로그인입니다(ChatGPT 로그인과 무관).", fr: "Connexion à votre compte TeX64 — sans rapport avec ChatGPT.", de: "Meldet Sie bei Ihrem TeX64-Konto an – unabhängig von ChatGPT.", es: "Inicia sesión en tu cuenta de TeX64: no tiene relación con ChatGPT." },
   login_with_google: { en: "Log in with Google", ja: "Googleでログイン", zh: "使用 Google 登录", ko: "Google로 로그인", fr: "Se connecter avec Google", de: "Mit Google anmelden", es: "Iniciar sesión con Google" },
   login_failed: { en: "Login failed.", ja: "ログインに失敗しました。", zh: "登录失败。", ko: "로그인에 실패했습니다.", fr: "Échec de la connexion.", de: "Anmeldung fehlgeschlagen.", es: "Error al iniciar sesión." },
   overlay_title: { en: "Accelerate TeX writing with Axiom", ja: "Axiom で TeX 執筆を加速", zh: "用 Axiom 加速 TeX 写作", ko: "Axiom으로 TeX 작성 가속화", fr: "Accélérez l'écriture TeX avec Axiom", de: "TeX-Schreiben mit Axiom beschleunigen", es: "Acelera la escritura TeX con Axiom" },
-  overlay_subtitle: { en: "Optional sign-in links your Axiom allowance to your account", ja: "任意ログインでAxiomの利用枠をアカウントに紐付けられます", zh: "可选登录可将 Axiom 额度关联到您的账户", ko: "로그인은 선택 사항이며 Axiom 사용 한도를 계정에 연결합니다", fr: "Connexion facultative pour associer votre quota Axiom à votre compte", de: "Optional anmelden, um das Axiom-Kontingent mit Ihrem Konto zu verknüpfen", es: "Inicio de sesión opcional para vincular tu cuota de Axiom a tu cuenta" },
+  overlay_subtitle: { en: "Log in to use Axiom", ja: "Axiom を使うにはログイン", zh: "登录后即可使用 Axiom", ko: "Axiom을 사용하려면 로그인", fr: "Connectez-vous pour utiliser Axiom", de: "Anmelden, um Axiom zu nutzen", es: "Inicia sesión para usar Axiom" },
   login_err_open: { en: "The login page could not be opened.", ja: "ログインページを開けませんでした。", zh: "无法打开登录页面。", ko: "로그인 페이지를 열 수 없습니다.", fr: "Impossible d'ouvrir la page de connexion.", de: "Die Anmeldeseite konnte nicht geöffnet werden.", es: "No se pudo abrir la página de inicio de sesión." },
   login_err_browser: { en: "Failed to start the browser.", ja: "ブラウザを起動できませんでした。", zh: "无法启动浏览器。", ko: "브라우저를 시작하지 못했습니다.", fr: "Échec du démarrage du navigateur.", de: "Browser konnte nicht gestartet werden.", es: "No se pudo iniciar el navegador." },
   login_err_timeout: { en: "Login timed out.", ja: "ログインがタイムアウトしました。", zh: "登录超时。", ko: "로그인 시간이 초과되었습니다.", fr: "Délai de connexion dépassé.", de: "Zeitüberschreitung bei der Anmeldung.", es: "Tiempo de inicio de sesión agotado." },
@@ -55,7 +59,6 @@ const STRINGS: Record<string, Entry> = {
   status_thinking: { en: "Thinking...", ja: "考え中...", zh: "思考中...", ko: "생각 중...", fr: "Réflexion...", de: "Denkt nach...", es: "Pensando..." },
   status_working: { en: "Working...", ja: "作業中...", zh: "处理中...", ko: "작업 중...", fr: "En cours...", de: "Arbeitet...", es: "Trabajando..." },
   status_preparing: { en: "Preparing...", ja: "準備中...", zh: "准备中...", ko: "준비 중...", fr: "Préparation...", de: "Vorbereitung...", es: "Preparando..." },
-  status_finishing: { en: "Finishing partial changes...", ja: "途中までの変更を反映中...", zh: "正在应用已完成的更改...", ko: "완료된 변경 사항 반영 중...", fr: "Application des modifications effectuées...", de: "Bisherige Änderungen werden übernommen...", es: "Aplicando los cambios realizados..." },
 
   // ── Tool activity labels (shown while the agent runs a tool) ──
   tool_read_file: { en: "Reading file", ja: "ファイルを読み取り中", zh: "正在读取文件", ko: "파일 읽는 중", fr: "Lecture du fichier", de: "Datei wird gelesen", es: "Leyendo archivo" },
@@ -104,7 +107,6 @@ const BACKEND_STATUS_KEYS: Record<string, string> = {
   "Thinking...": "status_thinking",
   "Working...": "status_working",
   "Preparing...": "status_preparing",
-  "Finishing partial changes...": "status_finishing",
 };
 
 /** Localize a backend-issued status string when it is one of the known ones. */

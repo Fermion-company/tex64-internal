@@ -53,13 +53,6 @@ test("a lightweight managed build installs a missing package and retries once", 
     loadSettings: async () => null,
     rootInfo: async () => ({ path: "main.tex" }),
     resolveTexRootFromMagic: async () => null,
-    resolvePath: (relativePath) => {
-      const resolved = path.resolve(root, relativePath);
-      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-        throw new Error("invalid path");
-      }
-      return resolved;
-    },
   };
   const handlers = createBuildCoreHandlers(
     {

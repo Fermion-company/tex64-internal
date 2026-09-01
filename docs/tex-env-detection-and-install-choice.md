@@ -59,3 +59,4 @@ managed root の `tex64-install.json` には `variant: "light"` を記録する�
 - `tests/tex-install-variants.test.cjs`: variant、profile、marker、ログ解析、tlmgr 検索/導入
 - `tests/build-auto-package-install.test.cjs`: 不足パッケージ導入後の自動再ビルド
 - `tests/onboarding-eta.test.mjs`: light / full の時間曲線と残り時間
+- `tests/e2e/onboarding-flow.test.cjs`: 軽量導入アクション、進捗、完了/失敗遷移

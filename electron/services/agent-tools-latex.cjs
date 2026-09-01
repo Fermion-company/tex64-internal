@@ -326,7 +326,6 @@ const handleReplaceSection = async (service, args, policy, conversationId) => {
         ? args.summary
         : `Replace ${node.type} "${node.title}"`,
     allowFullRewrite: args?.allowFullRewrite === true,
-    allowStructuralRemoval: args?.allowStructuralRemoval === true,
     proposalType: "patch",
   });
 };

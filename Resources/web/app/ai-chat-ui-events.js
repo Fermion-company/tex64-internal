@@ -1,5 +1,5 @@
 export const initAiChatEventBindings = (params) => {
-    const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, resetToNewChatState, } = params;
+    const { aiInput, aiSend, aiAttach, aiAttachInput, aiStatus, aiUndo, aiStop, aiChatNew, postToNative, getActiveChatId, setActiveChatId, getPendingAttachments, getChat, createChat, setChatTitle, renderHistoryList, appendMessage, autoGrow, updateContextBar, requestAgentRun, buildContextPayload, getAgentSettings, clearPendingAttachments, clearMentionPaths, addImageFiles, isAiBlocked, needsLogin, requestAiAccessCheck, requestPlatformUsage, updateStatusDisplay, showLoginOverlay, resolvePricingUrl, openExternalUrl, runningConversations, resumableConversations, pendingAgentRequests, clearThinkingMessage, upsertThinkingMessage, updateSendState, disableAutonomous, resetToNewChatState, } = params;
     let sendGuard = false;
     // Core submit path shared by the send button, Enter, and the quick-action
     // chips. clearInput is false for quick actions so a half-typed draft is kept.
@@ -165,14 +165,13 @@ export const initAiChatEventBindings = (params) => {
             if (!chat)
                 return;
             if (runningConversations.has(chat.id)) {
+                disableAutonomous(chat.id);
                 postToNative({ type: "agent:abort", conversationId: chat.id }, true);
                 resumableConversations.delete(chat.id);
                 pendingAgentRequests.delete(chat.id);
-                // Keep the conversation locked until main reports a terminal state.
-                // Main may still be compiling a completed partial edit; reopening send
-                // here can replace its run token and abandon that definitive build.
-                chat.statusMessage = "Finishing partial changes...";
-                upsertThinkingMessage(chat.id, chat.statusMessage);
+                chat.statusMessage = "";
+                runningConversations.delete(chat.id);
+                clearThinkingMessage(chat.id);
                 renderHistoryList();
                 updateSendState();
                 updateStatusDisplay();

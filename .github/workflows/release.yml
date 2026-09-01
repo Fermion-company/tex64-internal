@@ -39,10 +39,6 @@ concurrency:
   group: release-${{ github.ref }}-${{ inputs.windows_only && 'windows-only' || 'full' }}
   cancel-in-progress: true
 
-env:
-  TDOM_ENGINE_REPOSITORY: https://github.com/Fermion-company/tdom-engine.git
-  TDOM_ENGINE_COMMIT: 5195b76362de7786ac73138a331c1c00c82c014b
-
 jobs:
   build:
     name: Build (macOS ${{ matrix.arch }})
@@ -83,15 +79,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Vendor pinned TDOM engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          engine_dir="${RUNNER_TEMP}/tdom-engine"
-          git clone --no-checkout "${TDOM_ENGINE_REPOSITORY}" "${engine_dir}"
-          git -C "${engine_dir}" checkout --detach "${TDOM_ENGINE_COMMIT}"
-          TEX64_TDOM_ENGINE_DIR="${engine_dir}" npm run -s tdom:sync
 
       - name: Verify product activity reporting
         run: node --test tests/platform-activity.test.cjs
@@ -352,24 +339,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Vendor pinned TDOM engine
-        shell: pwsh
-        run: |
-          $engineDir = Join-Path $env:RUNNER_TEMP "tdom-engine"
-          git clone --no-checkout $env:TDOM_ENGINE_REPOSITORY $engineDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not clone the TDOM engine"
-          }
-          git -C $engineDir checkout --detach $env:TDOM_ENGINE_COMMIT
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not check out the pinned TDOM engine commit"
-          }
-          $env:TEX64_TDOM_ENGINE_DIR = $engineDir
-          npm run -s tdom:sync
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not vendor the TDOM engine"
-          }
-
       - name: Sync version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -426,7 +395,8 @@ jobs:
             tests/billing-checkout-contract.test.cjs `
             tests/billing-checkout-url.test.cjs `
             tests/platform-activity.test.cjs `
-            tests/platform-session-secret-storage.test.cjs
+            tests/platform-session-secret-storage.test.cjs `
+            tests/e2e/billing-flow.test.cjs
 
       - name: Build unsigned Store AppX
         shell: pwsh

@@ -1021,13 +1021,6 @@ body.has-onboarding .launcher {
   min-height: 0;
 }
 
-/* Electron webviews are native surfaces and can paint above ordinary DOM
-   stacking contexts. Billing explicitly hides the host while its parent modal
-   is open; keep this stronger than the normal flex display. */
-.ai-mode-webview-host[hidden] {
-  display: none !important;
-}
-
 .ai-mode-webview {
   flex: 1;
   width: 100%;
@@ -6316,15 +6309,6 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: rgba(239, 68, 68, 0.12);
   color: #f87171;
 }
-.ai-history-item-wrap:hover .ai-history-delete:disabled {
-  opacity: 0.25;
-}
-.ai-history-delete:disabled,
-.ai-history-delete:disabled:hover {
-  background: transparent;
-  color: var(--muted);
-  cursor: default;
-}
 
 /* ── Chat Delete Modal (compact) ──── */
 .ai-chat-delete-modal {
@@ -8695,8 +8679,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   border: 1px solid var(--panel-border);
   background: var(--bg-accent);
 }
-.plan-card.is-recommended,
-.plan-card.is-targeted {
+.plan-card.is-recommended {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: 0 18px 38px -14px var(--accent-soft-strong);

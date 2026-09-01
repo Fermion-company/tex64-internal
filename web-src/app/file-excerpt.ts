@@ -1,5 +1,3 @@
-import type { WorkspaceFileCacheScope } from "./file-preview.js";
-
 export type FileExcerptResultPayload = {
   requestId: string;
   ok: boolean;
@@ -8,7 +6,6 @@ export type FileExcerptResultPayload = {
   lines?: string[];
   truncated?: boolean;
   error?: string;
-  stale?: boolean;
 };
 
 type ExcerptResult =
@@ -28,7 +25,6 @@ type FileExcerptBroker = {
     options?: { radius?: number; maxLines?: number }
   ) => Promise<ExcerptResult>;
   handleExcerptResult: (payload: FileExcerptResultPayload) => void;
-  setWorkspaceScope: (scope: WorkspaceFileCacheScope) => void;
 };
 
 const buildRequestId = (() => {
@@ -45,23 +41,6 @@ export const createFileExcerptBroker = (
   >();
   const cache = new Map<string, { result: ExcerptResult; updatedAt: number }>();
   const cacheTtlMs = 30_000;
-  let workspaceScopeKey = "none:0";
-
-  const setWorkspaceScope = (scope: WorkspaceFileCacheScope) => {
-    const workspace = scope.workspaceId || scope.rootPath || "none";
-    const generation = Number.isSafeInteger(scope.workspaceGeneration)
-      ? scope.workspaceGeneration
-      : 0;
-    const nextScopeKey = `${workspace}:${generation}`;
-    if (nextScopeKey === workspaceScopeKey) return;
-    workspaceScopeKey = nextScopeKey;
-    cache.clear();
-    for (const entry of pending.values()) {
-      window.clearTimeout(entry.timeoutId);
-      entry.resolve({ ok: false, error: "Workspace changed." });
-    }
-    pending.clear();
-  };
 
   const requestExcerpt = (
     path: string,
@@ -82,7 +61,7 @@ export const createFileExcerptBroker = (
     const maxLines = Number.isFinite(options.maxLines)
       ? Math.min(360, Math.max(1, Math.floor(options.maxLines ?? 0)))
       : Math.min(2 * radius + 1, 25);
-    const cacheKey = `${workspaceScopeKey}\0${trimmed}:${lineNumber}:${radius}:${maxLines}`;
+    const cacheKey = `${trimmed}:${lineNumber}:${radius}:${maxLines}`;
     const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
       return Promise.resolve(cached.result);
@@ -138,5 +117,5 @@ export const createFileExcerptBroker = (
     entry.resolve(result);
   };
 
-  return { requestExcerpt, handleExcerptResult, setWorkspaceScope };
+  return { requestExcerpt, handleExcerptResult };
 };

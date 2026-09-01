@@ -362,7 +362,7 @@ const handleRunCommand = async (service, args) => {
   if (service?.agentOptions?.allowRunCommand !== true) {
     return {
       error:
-        "run_command is not available to the product agent.",
+        "run_command is currently disabled. Enable allowRunCommand in agent settings if needed.",
     };
   }
   const command = typeof args.command === "string" ? args.command.trim() : "";

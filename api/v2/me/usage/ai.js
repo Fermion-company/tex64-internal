@@ -1,7 +1,4 @@
-import {
-  getOptionalAuthenticatedUser,
-} from "../../_lib/auth.js";
-import { loadAdmittedAnonymousAppUser } from "../../_lib/anonymous-abuse.js";
+import { requireAuthenticatedUser } from "../../_lib/auth.js";
 import {
   ApiError,
   createRequestId,
@@ -12,11 +9,7 @@ import {
   setCorsHeaders,
 } from "../../_lib/http.js";
 import { getRuntimeConfig } from "../../_lib/runtime-config.js";
-import {
-  ANONYMOUS_AI_PERIOD,
-  getUsageSnapshot,
-  getUserContext,
-} from "../../_lib/user-context.js";
+import { getUsageSnapshot, getUserContext } from "../../_lib/user-context.js";
 
 const resolvePeriodLabel = (periodStartIso) => {
   if (typeof periodStartIso !== "string" || !periodStartIso.trim()) {
@@ -42,11 +35,7 @@ const handler = async (req, res) => {
       throw new ApiError("METHOD_NOT_ALLOWED", "Method Not Allowed.", 405);
     }
     const config = getRuntimeConfig();
-    let userClaims = getOptionalAuthenticatedUser(req, config);
-    if (!userClaims) {
-      const anonymous = await loadAdmittedAnonymousAppUser(req, config);
-      userClaims = anonymous.user;
-    }
+    const userClaims = requireAuthenticatedUser(req, config);
     const url = parseUrl(req);
     const period = url.searchParams.get("period");
     if (period && period !== "current_month") {
@@ -58,10 +47,7 @@ const handler = async (req, res) => {
 
     sendJson(res, 200, {
       requestId,
-      period:
-        userClaims.anonymous === true
-          ? ANONYMOUS_AI_PERIOD.key
-          : resolvePeriodLabel(summary.periodStart) || "current_month",
+      period: resolvePeriodLabel(summary.periodStart) || "current_month",
       plan: context.subscription.plan,
       summary,
       byFeature: usage.byFeature,

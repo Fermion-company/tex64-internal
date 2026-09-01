@@ -1,21 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 
-const mapConcurrent = async (items, limit, worker) => {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  const run = async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await worker(items[index], index);
-    }
-  };
-  const workerCount = Math.min(items.length, Math.max(1, Math.floor(limit)));
-  await Promise.all(Array.from({ length: workerCount }, () => run()));
-  return results;
-};
-
 module.exports = (SynctexService) => {
   SynctexService.prototype.reverse = async function ({
     page,
@@ -25,7 +10,6 @@ module.exports = (SynctexService) => {
     refineLines = 3,
     bypassHint = false,
     allowExpandedOffsets = true,
-    preferExact = false,
   }) {
     const synctexPath = this.findSynctex();
     if (!synctexPath) {
@@ -90,32 +74,6 @@ module.exports = (SynctexService) => {
           scoreGap: null,
           distance: 0,
           hinted: true,
-          hintCandidateCount,
-          hintPreview,
-        };
-      }
-    }
-    if (preferExact) {
-      const exact = await this.resolveReverseLine({
-        synctexPath,
-        pdfPath,
-        cwd,
-        env,
-        point: { page, x, y },
-      });
-      if (exact) {
-        return {
-          ok: true,
-          ...exact,
-          count: 1,
-          exactHit: true,
-          minOffsetDistance: 0,
-          confidence:
-            this.getReverseLinePenalty({ sourcePath: exact.path, line: exact.line }) === 0,
-          scoreGap: null,
-          distance: 0,
-          hinted: false,
-          fastPath: true,
           hintCandidateCount,
           hintPreview,
         };
@@ -379,33 +337,26 @@ module.exports = (SynctexService) => {
   }) {
     const { xOffsets, yOffsets } = this.buildReverseOffsets({ x, y, expanded });
     const candidates = new Map();
-    const probes = [];
     for (const dx of xOffsets) {
       for (const dy of yOffsets) {
-        probes.push({ dx, dy });
-      }
-    }
-    const resolved = await mapConcurrent(probes, 12, async ({ dx, dy }) => {
-      const target = `${page}:${x + dx}:${y + dy}:${pdfPath}`;
-      let result;
-      try {
-        result = await this.runProcess(synctexPath, ["edit", "-o", target], cwd, env);
-      } catch (_error) {
-        return null;
-      }
-      if (result.status !== 0) {
-        return null;
-      }
-      const entries = this.parseReverseResults(result.output, cwd);
-      return entries.length > 0 ? { dx, dy, entries } : null;
-    });
-    for (const probe of resolved) {
-      if (!probe) continue;
-      for (const parsed of probe.entries) {
+        const target = `${page}:${x + dx}:${y + dy}:${pdfPath}`;
+        let result;
+        try {
+          result = await this.runProcess(synctexPath, ["edit", "-o", target], cwd, env);
+        } catch (_error) {
+          continue;
+        }
+        if (result.status !== 0) {
+          continue;
+        }
+        const parsed = this.parseReverseResult(result.output, cwd);
+        if (!parsed) {
+          continue;
+        }
         const normalizedPath = this.normalizeComparePath(parsed.path) ?? parsed.path;
         const key = `${normalizedPath}:${parsed.line}:${parsed.column ?? 1}`;
         const existing = candidates.get(key);
-        const offsetDistance = Math.abs(probe.dx) + Math.abs(probe.dy);
+        const offsetDistance = Math.abs(dx) + Math.abs(dy);
         if (existing) {
           existing.count += 1;
           if (offsetDistance === 0) {
@@ -530,7 +481,8 @@ module.exports = (SynctexService) => {
     const countWeight = 4;
     const offsetWeight = 12;
     const exactHitBonus = 24;
-    const measuredCandidates = await mapConcurrent(activeCandidates, 8, async (candidate) => {
+    const scoredCandidates = [];
+    for (const candidate of activeCandidates) {
       const distance = await this.measureForwardDistance({
         synctexPath,
         pdfPath,
@@ -542,7 +494,7 @@ module.exports = (SynctexService) => {
         env,
       });
       if (!Number.isFinite(distance)) {
-        return null;
+        continue;
       }
       const medianDiff = medianLine === null ? 0 : Math.abs(candidate.line - medianLine);
       const offsetPenalty = Number.isFinite(candidate.minOffsetDistance)
@@ -559,9 +511,8 @@ module.exports = (SynctexService) => {
         offsetPenalty -
         candidate.count * countWeight -
         (candidate.exactHit === true ? exactHitBonus : 0);
-      return { candidate, distance, score };
-    });
-    const scoredCandidates = measuredCandidates.filter(Boolean);
+      scoredCandidates.push({ candidate, distance, score });
+    }
     if (!scoredCandidates.length) {
       const fallback = candidates.reduce(
         (prev, next) => (next.count > prev.count ? next : prev),
@@ -594,3 +545,4 @@ module.exports = (SynctexService) => {
     };
   };
 };
+

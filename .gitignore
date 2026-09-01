@@ -89,4 +89,3 @@ playwright-report/
 /test-sample-hover/**/*.pdf
 !/test-sample-hover/assets/pdfs/sample.pdf
 .worktrees/
-.vercel

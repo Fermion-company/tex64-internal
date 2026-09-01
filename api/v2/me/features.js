@@ -1,7 +1,4 @@
-import {
-  getOptionalAuthenticatedUser,
-} from "../_lib/auth.js";
-import { loadAdmittedAnonymousAppUser } from "../_lib/anonymous-abuse.js";
+import { requireAuthenticatedUser } from "../_lib/auth.js";
 import {
   ApiError,
   createRequestId,
@@ -36,11 +33,7 @@ const handler = async (req, res) => {
       throw new ApiError("METHOD_NOT_ALLOWED", "Method Not Allowed.", 405);
     }
     const config = getRuntimeConfig();
-    let userClaims = getOptionalAuthenticatedUser(req, config);
-    if (!userClaims) {
-      const anonymous = await loadAdmittedAnonymousAppUser(req, config);
-      userClaims = anonymous.user;
-    }
+    const userClaims = requireAuthenticatedUser(req, config);
     const url = parseUrl(req);
     const includeAi = hasAiName(url);
     const context = await getUserContext(config, userClaims);
@@ -54,10 +47,9 @@ const handler = async (req, res) => {
       requestId,
       user: {
         id: context.user.id,
-        email: userClaims.anonymous === true ? null : context.user.email,
+        email: context.user.email,
         name: context.user.name,
         plan: context.subscription.plan,
-        anonymous: userClaims.anonymous === true,
       },
       features: includeAi
         ? {

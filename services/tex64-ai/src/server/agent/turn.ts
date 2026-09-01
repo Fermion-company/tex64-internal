@@ -75,7 +75,7 @@ export type RunDocumentTurnInput = {
  * bound: a single tool result can carry the whole document, and every step of
  * the turn resends the lot. Oldest messages fall off first.
  */
-const MAX_REPLAYED_THREAD_CHARS = 48_000;
+const MAX_REPLAYED_THREAD_CHARS = 120_000;
 
 /** Placeholder left in place of a document snapshot that a later read replaced. */
 const SUPERSEDED_DOCUMENT_SNAPSHOT =
@@ -233,9 +233,6 @@ export async function* runDocumentTurn(
     activeTools,
     providerOptions: agentProviderOptions(),
     maxOutputTokens: MAX_AGENT_OUTPUT_TOKENS_PER_STEP,
-    // A failed paid request is ambiguous. Retrying it can purchase the same
-    // generation twice, so the user explicitly retries the turn instead.
-    maxRetries: 0,
     // Two independent runaway valves: a step count, and measured tokens for
     // the turn. Without the second one, 24 steps over a long thread can cost
     // far more than the step count suggests.

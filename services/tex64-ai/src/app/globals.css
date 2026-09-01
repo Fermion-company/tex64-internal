@@ -221,14 +221,6 @@ textarea {
   min-width: 0;
 }
 
-.native-workspace-title {
-  display: flex;
-  max-width: min(320px, 26vw);
-  min-width: 0;
-  align-items: center;
-  padding: 5px 9px;
-}
-
 .document-switcher-button {
   display: flex;
   max-width: min(320px, 26vw);
@@ -316,212 +308,10 @@ textarea {
   gap: 8px;
 }
 
-.native-command-bar {
-  display: inline-flex;
-  height: 42px;
-  align-items: center;
-  gap: 3px;
-  border: 1px solid var(--line-strong);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
-  padding: 3px;
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 12%, transparent);
-}
-
-.native-platform-controls {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.native-command-divider {
-  width: 1px;
-  height: 20px;
-  margin: 0 2px;
-  background: var(--line-strong);
-}
-
-.native-model-trigger,
-.native-account-button,
-.native-usage-button {
-  height: 34px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--ink-soft);
-  font: inherit;
-  font-size: 11.5px;
-}
-
-.native-model-picker,
-.native-settings-picker {
-  position: relative;
-}
-
-.native-settings-trigger {
-  display: inline-flex;
-  width: 34px;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  color: var(--ink-faint);
-}
-
-.native-settings-trigger:hover,
-.native-settings-trigger[aria-expanded="true"] {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.native-model-trigger {
-  display: inline-flex;
-  width: 128px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 9px 0 11px;
-  text-align: left;
-}
-
-.native-model-trigger svg {
-  flex: 0 0 auto;
-  transition: transform 140ms ease;
-}
-
-.native-model-trigger[aria-expanded="true"] svg {
-  transform: rotate(180deg);
-}
-
-.native-model-menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 50;
-  display: grid;
-  width: 218px;
-  gap: 3px;
-  border: 1px solid var(--line-strong);
-  border-radius: 11px;
-  background: var(--panel);
-  padding: 5px;
-  box-shadow: var(--shadow-menu);
-}
-
-.native-settings-menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 50;
-  display: grid;
-  width: 164px;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  background: var(--panel);
-  padding: 4px;
-  box-shadow: var(--shadow-menu);
-}
-
-.native-settings-menu button {
-  min-height: 36px;
-  border-radius: 6px;
-  padding: 0 9px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  text-align: left;
-}
-
-.native-settings-menu button:hover,
-.native-settings-menu button:focus-visible {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.native-settings-menu button + button {
-  margin-top: 2px;
-  color: var(--ink-faint);
-}
-
-.native-model-menu button {
-  display: flex;
-  width: 100%;
-  min-height: 38px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border-radius: 7px;
-  padding: 7px 9px;
-  color: var(--ink-soft);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-}
-
-.native-model-menu button:hover,
-.native-model-menu button:focus-visible {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.native-model-menu button[aria-selected="true"] {
-  color: var(--accent-strong);
-  font-weight: 650;
-}
-
-.native-model-option-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.native-model-pro-label {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  color: var(--ink-faint);
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.native-account-button,
-.native-usage-button {
-  padding: 0 9px;
-}
-
-.native-account-button:hover:not(:disabled),
-.native-usage-button:hover:not(:disabled),
-.native-model-trigger:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--ink);
-}
-
-.native-account-button.is-primary {
-  background: transparent;
-  color: var(--ink);
-  font-weight: 700;
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-}
-
-.native-account-button:disabled {
-  opacity: 0.55;
-}
-
-.native-model-trigger:disabled {
-  opacity: 0.55;
-}
-
-.native-usage-button {
-  color: var(--ink-faint);
-  font-variant-numeric: tabular-nums;
-}
-
 .topbar-icon-button,
-.topbar-new-button,
-.topbar-build-button {
+.topbar-new-button {
   display: inline-flex;
+  height: 34px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line-strong);
@@ -532,7 +322,6 @@ textarea {
 
 .topbar-icon-button {
   width: 34px;
-  height: 34px;
 }
 
 .topbar-icon-button:hover {
@@ -540,19 +329,7 @@ textarea {
   color: var(--accent-strong);
 }
 
-.native-command-bar .topbar-icon-button {
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-}
-
-.native-command-bar .topbar-icon-button:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-
 .topbar-new-button {
-  height: 34px;
   gap: 6px;
   border: 0;
   background: var(--cta-gradient);
@@ -564,28 +341,6 @@ textarea {
 
 .topbar-new-button:hover {
   filter: brightness(1.08);
-}
-
-.topbar-build-button {
-  min-width: 100px;
-  height: 34px;
-  gap: 7px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--ink);
-  padding: 0 16px;
-  color: var(--header);
-  font-size: 12.5px;
-  font-weight: 720;
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 20%, transparent);
-}
-
-.topbar-build-button:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.topbar-build-button:disabled {
-  opacity: 0.55;
 }
 
 .workspace-grid {
@@ -658,22 +413,6 @@ textarea {
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-}
-
-.agent-user-message.is-queued {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  border: 1px dashed var(--line-strong);
-  background: transparent;
-  color: var(--ink-soft);
-}
-
-.queued-message-state {
-  color: var(--ink-faint);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
 }
 
 .assistant-message {
@@ -1268,10 +1007,6 @@ textarea {
     padding: 4px 8px;
   }
 
-  .native-workspace-title {
-    padding: 4px 8px;
-  }
-
   .document-switcher-titles strong {
     font-size: 12px;
   }
@@ -1283,22 +1018,6 @@ textarea {
   .topbar-new-button {
     width: 34px;
     padding: 0;
-  }
-
-  .topbar-build-button {
-    min-width: 88px;
-    height: 34px;
-    padding: 0 13px;
-    font-size: 12px;
-  }
-
-  .native-usage-button,
-  .native-platform-controls .native-account-button:not(.is-primary):last-child {
-    display: none;
-  }
-
-  .native-model-trigger {
-    width: 118px;
   }
 
   .mobile-view-tabs {
@@ -1372,23 +1091,6 @@ textarea {
   .topbar-new-button {
     width: 31px;
     height: 31px;
-  }
-
-  .topbar-build-button {
-    min-width: 78px;
-    height: 34px;
-    padding: 0 10px;
-    font-size: 11.5px;
-  }
-
-  .native-platform-controls .native-account-button:not(.is-primary) {
-    display: none;
-  }
-
-  .native-model-trigger {
-    width: 102px;
-    padding-left: 6px;
-    font-size: 10.5px;
   }
 
   .document-kind-picker button {
@@ -1465,12 +1167,6 @@ textarea {
   box-shadow: var(--shadow-menu);
   color: var(--ink);
   font-size: 12px;
-  max-width: min(720px, calc(100% - 36px));
-}
-
-.compile-banner span {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1596,7 +1292,7 @@ textarea {
   color: var(--danger);
 }
 
-/* 直接編集: 人が触る文章と数式だけを見せ、TeX 構造は内部保持する。 */
+/* 直接編集: 文章は打ち直せる面、チップは保たれる不透明な部分。 */
 .paragraph-edit-area {
   min-height: 72px;
   max-height: 32vh;
@@ -1618,38 +1314,26 @@ textarea {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.paragraph-syntax {
-  display: none;
-}
-
-.paragraph-math {
-  display: inline-flex;
-  max-width: 100%;
-  margin: 2px 4px;
-  vertical-align: middle;
-}
-
-.paragraph-math-field {
+.paragraph-chip {
   display: inline-block;
-  min-width: 72px;
-  max-width: 100%;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--ink);
-  font-size: 16px;
-}
-
-.paragraph-math-field:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.paragraph-editor-error {
-  margin: 8px 0 0;
-  color: var(--danger);
+  margin: 0 2px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  background: var(--accent-faint);
+  color: var(--accent-strong);
   font-size: 11.5px;
+  line-height: 1.6;
+  vertical-align: baseline;
+  user-select: all;
+  cursor: default;
+}
+
+.paragraph-edit-note {
+  margin: 8px 0 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 /* ネイティブの新規文書: 題名ひとつでフォルダも main.tex も用意される。 */

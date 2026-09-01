@@ -20,8 +20,9 @@ test("application menu exposes standard file actions and shortcuts", () => {
   assert.equal(byLabel.get("New File").accelerator, "CmdOrCtrl+N");
   assert.equal(byLabel.get("Open Folder…").accelerator, "CmdOrCtrl+O");
   assert.equal(byLabel.get("Save").accelerator, "CmdOrCtrl+S");
-  assert.equal(byLabel.has("Build"), false);
+  assert.equal(byLabel.get("Build").accelerator, "CmdOrCtrl+Enter");
 
   byLabel.get("New File").click();
-  assert.deepEqual(commands, ["file:new"]);
+  byLabel.get("Build").click();
+  assert.deepEqual(commands, ["file:new", "document:build"]);
 });

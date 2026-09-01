@@ -7,7 +7,7 @@ editor-session をそのまま使う。旧 Pro から Code に残す新機能は
 
 - PDF は既存の分割表示を有効にして右グループの通常ビューアで開く。
 - 画像・テキスト・PDF のタブは `editor-session` が一貫して所有する。
-- Real-time Preview は `code-live-preview.ts` から Code / AI の既存 PDF ビューアへ配布する。別ウィンドウや専用 iframe は使わない。
+- Real-time Preview は `code-live-preview.ts` から各 group viewer と別ウィンドウへ配布する。
 - 固定プレビューペイン、専用ヘッダー、専用 splitter、専用比率設定は作らない。
 - PDF の紙面はテーマで反転しない。ダークテーマでも原稿どおりの色で表示する。
 
@@ -54,5 +54,5 @@ PNG 化、SVG 取り込み、AI 画像変換、`.sty` 書き出し、任意 TikZ
 
 ```bash
 npx tsc -p web-src/tsconfig.json
-node --test tests/pro-canvas-*.test.mjs
+node --test tests/code-live-preview-boundary.test.mjs tests/pro-canvas-*.test.mjs
 ```

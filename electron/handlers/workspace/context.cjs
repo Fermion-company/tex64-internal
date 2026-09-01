@@ -3,7 +3,6 @@ const {
   EXTENDED_TEXT_FILE_NAMES,
   isExtendedTextFileName,
 } = require("../../services/text-file-types.cjs");
-const crypto = require("crypto");
 
 const createWorkspaceContext = (deps) => {
   const {
@@ -23,86 +22,7 @@ const createWorkspaceContext = (deps) => {
     state,
     userSettings,
     fileAccess = { ensureAccess: async () => true },
-    beforeWorkspaceChange = async () => {},
-    beginRendererWorkspaceMutation = () => () => {},
   } = deps;
-
-  if (!Number.isSafeInteger(state.workspaceGeneration)) {
-    state.workspaceGeneration = 0;
-  }
-  if (typeof state.workspaceId !== "string") {
-    state.workspaceId = null;
-  }
-
-  const canonicalWorkspacePath = (rootPath) => {
-    let resolved = path.resolve(rootPath);
-    try {
-      resolved =
-        typeof fs.realpathSync?.native === "function"
-          ? fs.realpathSync.native(resolved)
-          : fs.realpathSync(resolved);
-    } catch {
-      // A just-created directory can briefly be unresolved; path.resolve is
-      // still deterministic for this session.
-    }
-    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  };
-
-  const workspaceIdForRoot = (rootPath) =>
-    crypto
-      .createHash("sha256")
-      .update(canonicalWorkspacePath(rootPath), "utf8")
-      .digest("hex")
-      .slice(0, 24);
-
-  const beginWorkspaceSession = (rootPath) => {
-    state.workspaceGeneration += 1;
-    state.workspaceId = workspaceIdForRoot(rootPath);
-    state.currentWorkspacePath = null;
-    return {
-      workspaceGeneration: state.workspaceGeneration,
-      workspaceId: state.workspaceId,
-    };
-  };
-
-  const workspaceSessionIsCurrent = (rootPath, generation = state.workspaceGeneration) =>
-    workspace.getRootPath() === rootPath && state.workspaceGeneration === generation;
-
-  // Root changes and renderer-originated filesystem mutations share one FIFO
-  // lease. Project handlers hold the lease from quiesce through setRootPath;
-  // file/document handlers hold it across their final root check and write.
-  // This closes the only remaining gap where an awaited formatter/read could
-  // resume after a project switch and reinterpret its relative path.
-  let workspaceMutationTail = Promise.resolve();
-  const acquireWorkspaceMutation = async () => {
-    const previous = workspaceMutationTail;
-    let releaseGate;
-    workspaceMutationTail = new Promise((resolve) => {
-      releaseGate = resolve;
-    });
-    await previous;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      releaseGate();
-    };
-  };
-
-  const withWorkspaceMutation = async (operation) => {
-    const mutationRootPath = workspace.getRootPath();
-    // This synchronous lease handshake is shared with AgentService. It makes
-    // renderer mutations and the external Codex writer mutually exclusive;
-    // an in-process file lock alone cannot serialize a separate process.
-    const releaseRendererMutation = beginRendererWorkspaceMutation(mutationRootPath);
-    const release = await acquireWorkspaceMutation();
-    try {
-      return await operation();
-    } finally {
-      release();
-      releaseRendererMutation?.();
-    }
-  };
 
   const TEXT_FILE_EXTENSIONS = new Set([
     "tex",
@@ -166,92 +86,43 @@ const createWorkspaceContext = (deps) => {
   const isImageFilePath = (relativePath) => IMAGE_FILE_EXTENSIONS.has(getFileExtension(relativePath));
   const isPdfFilePath = (relativePath) => getFileExtension(relativePath) === "pdf";
 
-  let latestWorkspaceSnapshotRequest = 0;
-  const WORKSPACE_SNAPSHOT_TIMEOUT_MS = 5000;
-  const boundedWorkspaceOperation = (promise, label) =>
-    new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (callback, value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        callback(value);
-      };
-      const timer = setTimeout(
-        () => finish(reject, new Error(`${label} timed out.`)),
-        WORKSPACE_SNAPSHOT_TIMEOUT_MS,
-      );
-      timer.unref?.();
-      Promise.resolve(promise).then(
-        (value) => finish(resolve, value),
-        (error) => finish(reject, error),
-      );
-    });
-
-  const sendWorkspace = async (rootPath, expectedGeneration = state.workspaceGeneration) => {
-    const requestSequence = ++latestWorkspaceSnapshotRequest;
-    if (!workspaceSessionIsCurrent(rootPath, expectedGeneration)) {
-      return false;
-    }
+  const sendWorkspace = async (rootPath) => {
     let files = [];
     let folders = [];
     let errorMessage = null;
-    let enumerationFailed = false;
+    try {
+      files = await workspace.listFiles();
+    } catch (error) {
+      errorMessage = error.message;
+    }
+    try {
+      folders = await workspace.listFolders();
+    } catch (error) {
+      if (!errorMessage) {
+        errorMessage = error.message;
+      }
+    }
     let rootFile = "";
     let rootSource = "";
     let buildProfiles = [];
     let buildProfileId = "";
-    const [filesResult, foldersResult, infoResult, settingsResult] = await Promise.allSettled([
-      boundedWorkspaceOperation(workspace.listFiles(), "Workspace file listing"),
-      boundedWorkspaceOperation(workspace.listFolders(), "Workspace folder listing"),
-      boundedWorkspaceOperation(workspace.rootInfo(), "Workspace root detection"),
-      boundedWorkspaceOperation(workspace.loadSettings(), "Workspace settings"),
-    ]);
-    if (filesResult.status === "fulfilled" && Array.isArray(filesResult.value)) {
-      files = filesResult.value;
-    } else {
-      enumerationFailed = true;
-      errorMessage = filesResult.reason?.message || "Unable to list workspace files.";
-    }
-    if (foldersResult.status === "fulfilled" && Array.isArray(foldersResult.value)) {
-      folders = foldersResult.value;
-    } else {
-      enumerationFailed = true;
-      if (!errorMessage) {
-        errorMessage = foldersResult.reason?.message || "Unable to list workspace folders.";
+    try {
+      const info = await workspace.rootInfo();
+      if (info?.path) {
+        rootFile = info.path;
+        rootSource = info.source;
       }
-    }
-    if (infoResult.status === "fulfilled" && infoResult.value?.path) {
-      rootFile = infoResult.value.path;
-      rootSource = infoResult.value.source;
-    } else if (infoResult.status === "rejected" && !errorMessage) {
-      errorMessage = infoResult.reason?.message || "Unable to detect the root document.";
-    }
-    if (settingsResult.status === "fulfilled") {
-      const settings = settingsResult.value;
-      if (Array.isArray(settings?.buildProfiles)) buildProfiles = settings.buildProfiles;
+      const settings = await workspace.loadSettings().catch(() => null);
+      if (Array.isArray(settings?.buildProfiles)) {
+        buildProfiles = settings.buildProfiles;
+      }
       if (typeof settings?.buildProfileId === "string") {
         buildProfileId = settings.buildProfileId;
       }
-    } else if (!errorMessage) {
-      errorMessage = settingsResult.reason?.message || "Unable to load workspace settings.";
-    }
-    if (
-      requestSequence !== latestWorkspaceSnapshotRequest ||
-      !workspaceSessionIsCurrent(rootPath, expectedGeneration)
-    ) {
-      return false;
-    }
-    if (enumerationFailed) {
-      sendIssues(1, errorMessage || "Unable to refresh workspace files.", "error", [
-        { severity: "error", message: errorMessage || "Unable to refresh workspace files." },
-      ]);
-      // The root identity has already changed. Publish that new identity even
-      // when enumeration failed so renderer actions can never keep targeting
-      // the old tree while main resolves relative paths in the new one.
-      // Empty lists fail closed and a later refresh can repopulate them.
-      files = [];
-      folders = [];
+    } catch (error) {
+      if (!errorMessage) {
+        errorMessage = error.message;
+      }
     }
     sendToRenderer("updateWorkspace", {
       rootName: path.basename(rootPath),
@@ -262,40 +133,25 @@ const createWorkspaceContext = (deps) => {
       rootSource,
       buildProfiles,
       buildProfileId,
-      workspaceGeneration: expectedGeneration,
-      workspaceId: state.workspaceId,
     });
     if (errorMessage) {
       sendIssues(1, errorMessage, "error", [
         { severity: "error", message: errorMessage },
       ]);
     }
-    return true;
   };
 
   const updateWorkspaceIfNeeded = async (rootPath, force = false) => {
-    const expectedGeneration = state.workspaceGeneration;
-    if (!workspaceSessionIsCurrent(rootPath, expectedGeneration)) {
-      return false;
-    }
     if (!force && state.currentWorkspacePath === rootPath) {
-      return true;
-    }
-    const sent = await sendWorkspace(rootPath, expectedGeneration);
-    if (!sent || !workspaceSessionIsCurrent(rootPath, expectedGeneration)) {
-      return false;
+      return;
     }
     state.currentWorkspacePath = rootPath;
-    return true;
+    await sendWorkspace(rootPath);
   };
 
   const requestIndex = (rootPath) => {
-    const expectedGeneration = state.workspaceGeneration;
     indexerService.requestIndex(rootPath, (snapshot) => {
-      if (
-        state.currentWorkspacePath !== rootPath ||
-        !workspaceSessionIsCurrent(rootPath, expectedGeneration)
-      ) {
+      if (state.currentWorkspacePath !== rootPath) {
         return;
       }
       sendToRenderer("updateIndex", snapshot);
@@ -366,8 +222,6 @@ const createWorkspaceContext = (deps) => {
     state,
     userSettings,
     fileAccess,
-    beforeWorkspaceChange,
-    beginRendererWorkspaceMutation,
 
     TEXT_FILE_EXTENSIONS,
     IMAGE_FILE_EXTENSIONS,
@@ -380,10 +234,6 @@ const createWorkspaceContext = (deps) => {
 
     sendWorkspace,
     updateWorkspaceIfNeeded,
-    beginWorkspaceSession,
-    workspaceSessionIsCurrent,
-    acquireWorkspaceMutation,
-    withWorkspaceMutation,
     requestIndex,
     sendLauncherStatus,
     ensureWorkspace,

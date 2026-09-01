@@ -7,26 +7,8 @@ module.exports = (SynctexService) => {
       return null;
     }
     const normalizedPath = this.normalizeComparePath(sourcePath) ?? path.resolve(sourcePath);
-    let metadata = null;
-    try {
-      const stat = fs.statSync(normalizedPath);
-      metadata = {
-        size: stat.size,
-        mtimeMs: stat.mtimeMs,
-        ctimeMs: stat.ctimeMs,
-      };
-    } catch {
-      this.sourceLineCache.delete(normalizedPath);
-      return null;
-    }
-    const cached = this.sourceLineCache.get(normalizedPath);
-    if (
-      cached &&
-      cached.size === metadata.size &&
-      cached.mtimeMs === metadata.mtimeMs &&
-      cached.ctimeMs === metadata.ctimeMs
-    ) {
-      return cached.lines;
+    if (this.sourceLineCache.has(normalizedPath)) {
+      return this.sourceLineCache.get(normalizedPath);
     }
     let lines = null;
     try {
@@ -35,7 +17,7 @@ module.exports = (SynctexService) => {
     } catch {
       lines = null;
     }
-    this.sourceLineCache.set(normalizedPath, { ...metadata, lines });
+    this.sourceLineCache.set(normalizedPath, lines);
     return lines;
   };
 
@@ -100,3 +82,4 @@ module.exports = (SynctexService) => {
       .slice(0, 6);
   };
 };
+

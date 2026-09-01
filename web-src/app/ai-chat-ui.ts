@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 import type { DiffContext, FileDiff } from "./diff-modal.js";
 import {
+  AUTONOMOUS_LOOP_LIMIT,
   createChat as createChatState,
   ensureChat as ensureChatState,
   getChat as getChatState,
@@ -57,7 +58,6 @@ type AiChatDeps = {
     count: number; summary: string; status: IssuesStatus; issues: IssueItem[]; updatedAt: number;
   } | null;
   getWorkspaceFiles?: () => string[];
-  getWorkspaceRoot?: () => string | null;
   showDiffModal: (original: string, modified: string, lineOffset?: number, options?: { title?: string; fileName?: string; submitLabel?: string }) => void;
   showMultiFileDiff: (files: FileDiff[], options?: { title?: string; submitLabel?: string }) => void;
   setDiffContext: (context: DiffContext) => void;
@@ -83,11 +83,6 @@ export type AiChatApi = {
   handleScratchpad: (payload: { content: string; conversationId?: string }) => void;
   handleThought: (payload: { text: string; conversationId?: string }) => void;
   handleError: (message: string, conversationId?: string) => void;
-  handleRequestRejected: (payload: {
-    conversationId?: string;
-    message?: string;
-  }) => void;
-  handleWorkspaceChanged: (rootPath: string | null) => void;
   getCurrentPlan: () => string;
   getUsageSnapshot: () => PlatformUsageSnapshot | null;
   refreshPlan: (force?: boolean) => void;
@@ -182,13 +177,18 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   // the choice and shows Axiom 1.0 Pro as a locked row for non-Pro plans.
   const DEFAULT_MODEL = "Axiom1.0";
   const PRO_MODEL = "Axiom1.0-pro";
+  // Runs on the user's own ChatGPT/Codex subscription via the local Codex
+  // app-server — no TeX64 platform quota involved.
+  const CODEX_MODEL = "codex";
   const MODEL_LABELS: Record<string, string> = {
     [DEFAULT_MODEL]: "Axiom 1.0",
     [PRO_MODEL]: "Axiom 1.0 Pro",
+    [CODEX_MODEL]: "Codex (ChatGPT)",
   };
   const MODEL_OPTIONS: Array<{ id: string; name: string; descKey: string; pro: boolean }> = [
     { id: DEFAULT_MODEL, name: "Axiom 1.0", descKey: "model_efficient", pro: false },
     { id: PRO_MODEL, name: "Axiom 1.0 Pro", descKey: "model_autonomous", pro: true },
+    { id: CODEX_MODEL, name: "Codex (ChatGPT)", descKey: "model_codex", pro: false },
   ];
   const migrateLegacyModelId = (model: string) =>
     model === "Axiom0.9.1"
@@ -227,19 +227,15 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   const currentModelId = () => {
     const configured = agentSettings?.model || DEFAULT_MODEL;
     const stored = migrateLegacyModelId(configured);
-    if (stored !== DEFAULT_MODEL && stored !== PRO_MODEL) return DEFAULT_MODEL;
     return stored === PRO_MODEL && !isProPlan() ? DEFAULT_MODEL : stored;
   };
   const persistCompatibleModelSelection = () => {
     if (!agentSettings) return;
     const configured = agentSettings.model || DEFAULT_MODEL;
     const migrated = migrateLegacyModelId(configured);
-    const canonical =
-      migrated === DEFAULT_MODEL || migrated === PRO_MODEL ? migrated : DEFAULT_MODEL;
-    const allowed =
-      canonical === PRO_MODEL && hasResolvedPlan() && !isProPlan()
-        ? DEFAULT_MODEL
-        : canonical;
+    const allowed = migrated === PRO_MODEL && hasResolvedPlan() && !isProPlan()
+      ? DEFAULT_MODEL
+      : migrated;
     if (configured === allowed) return;
     agentSettings.model = allowed;
     deps.postToNative({ type: "agent:settings:set", settings: { model: allowed } }, true);
@@ -384,8 +380,11 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     },
   });
 
-  const gatedNeedsLogin = () => needsLogin();
-  const gatedAiBlocked = () => isAiBlocked();
+  // The Codex backend authenticates against the user's own ChatGPT account, so
+  // the platform (Google) login and token-quota gates do not apply to it.
+  const isCodexModelSelected = () => currentModelId() === CODEX_MODEL;
+  const gatedNeedsLogin = () => !isCodexModelSelected() && needsLogin();
+  const gatedAiBlocked = () => !isCodexModelSelected() && isAiBlocked();
 
   const _rawUpdateStatusDisplay = updateStatusDisplay;
   const wrappedUpdateStatusDisplay = () => {
@@ -396,18 +395,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   };
 
   const getChat = (chatId?: string | null) => getChatState(chatIndex, activeChatId, chatId);
-  const normalizeWorkspaceRoot = (value: string | null | undefined) => {
-    const normalized = typeof value === "string"
-      ? value.trim().replace(/\\/g, "/").replace(/\/$/, "")
-      : "";
-    return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
-  };
-  let chatWorkspaceRoot = normalizeWorkspaceRoot(deps.getWorkspaceRoot?.());
 
   const resolveChatTitle = (chatId: string) => {
-    if (chatId === "search-rename" || chatId.startsWith("search-rename:")) {
-      return "symbol rename";
-    }
+    if (chatId === "search-rename") return "symbol rename";
     return `Chat ${chats.length + 1}`;
   };
 
@@ -417,6 +407,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       activeChatId,
       chats,
       chatIndex,
+      defaultAutonomous: true,
+      defaultAutoLoopBudget: AUTONOMOUS_LOOP_LIMIT,
       resolveChatTitle,
     });
 
@@ -426,6 +418,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
       chatIndex,
       makeChatId,
       resolveChatTitle,
+      defaultAutonomous: true,
+      defaultAutoLoopBudget: AUTONOMOUS_LOOP_LIMIT,
     });
     return chat;
   };
@@ -756,6 +750,18 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     thinkingMessages.delete(chat.id);
   };
 
+  const disableAutonomous = (chatId?: string | null) => {
+    const chat = getChat(chatId);
+    if (!chat) return;
+    chat.autonomous = false;
+    chat.autoLoopBudget = 0;
+  };
+
+  const enableAutonomous = (chat: ChatState) => {
+    chat.autonomous = true;
+    chat.autoLoopBudget = AUTONOMOUS_LOOP_LIMIT;
+  };
+
   let pendingAiProposalIds: string[] = [];
   const buildUnifiedProposalCard = (proposals: AgentProposal[], chat: ChatState) =>
     createUnifiedProposalCard(proposals, chat.appliedProposalIds, {
@@ -821,12 +827,12 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     ensureChat,
     runningConversations,
     pendingAgentRequests,
+    buildContextPayload,
+    getAgentSettings: () => agentSettings,
     upsertThinkingMessage,
     renderHistoryList,
     updateSendState,
     postToNative: deps.postToNative,
-    buildContextPayload,
-    getAgentSettings: () => agentSettings,
     clearThinkingMessage,
     restoreDraftFromPending,
   });
@@ -875,6 +881,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     clearThinkingMessage,
     upsertThinkingMessage,
     updateSendState,
+    disableAutonomous,
     resetToNewChatState,
   });
 
@@ -897,8 +904,8 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     handleScratchpad,
     handleThought,
     handleError,
-    handleRequestRejected,
   } = createAiChatIncomingHandlers({
+    postToNative: deps.postToNative,
     chats,
     chatIndex,
     proposalIndex,
@@ -925,10 +932,14 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     ensureStreamingMessage,
     scrollToBottom,
     appendMessage,
+    disableAutonomous,
+    enableAutonomous,
     scheduleUsageRefresh,
     rebuildProposalCards,
     restoreDraftFromPending,
     updateContextBar,
+    buildContextPayload,
+    getAgentSettings: () => agentSettings,
     switchActiveChat,
   });
 
@@ -943,35 +954,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
   });
   requestPlatformState();
 
-  const handleWorkspaceChanged = (rootPath: string | null) => {
-    const nextRoot = normalizeWorkspaceRoot(rootPath);
-    if (nextRoot === chatWorkspaceRoot) return;
-    chatWorkspaceRoot = nextRoot;
-    chats.splice(0, chats.length);
-    chatIndex.clear();
-    proposalIndex.clear();
-    runningConversations.clear();
-    resumableConversations.clear();
-    streamingMessages.clear();
-    thinkingMessages.clear();
-    pendingAgentRequests.clear();
-    resetToNewChatState();
-    renderHistoryList();
-  };
-
   return {
-    handleSettings,
-    handleState: (state) =>
-      handleState({
-        ...state,
-        sessions: (Array.isArray(state.sessions) ? state.sessions : []).filter(
-          (session) =>
-            normalizeWorkspaceRoot(session.workspaceRootPath) === chatWorkspaceRoot,
-        ),
-      }),
-    handleStatus, handleMessage, handleMessageDelta, handleTool,
-    handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError, handleRequestRejected,
-    handleWorkspaceChanged,
+    handleSettings, handleState, handleStatus, handleMessage, handleMessageDelta, handleTool,
+    handleProposal, handleApplyResult, handleUndoResult, handleUndoAvailability, handleScratchpad, handleThought, handleError,
     refreshContextBar: updateContextBar,
     getCurrentPlan: () => platformState.platformAiAccess?.plan ?? "free",
     getUsageSnapshot: () => platformState.platformUsage,
@@ -980,10 +965,7 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     handlePlatformAuth, handlePlatformAiAccess, handlePlatformUsage,
     handlePlatformUpdate,
     applyPendingFromDiffModal: () => {
-      deps.postToNative({
-        type: "agent:applyBatch",
-        proposalIds: [...pendingAiProposalIds],
-      });
+      for (const id of pendingAiProposalIds) { deps.postToNative({ type: "agent:apply", proposalId: id }); }
       pendingAiProposalIds = [];
       // Clear the editor's Undo/Confirm bar to keep it in sync
       const bar = document.getElementById("ai-undo-keep-bar");

@@ -89,7 +89,7 @@ export const marqueeHits = (rect: Bounds, objects: Array<{id: string; bounds: Bo
 ## 7. 検証
 
 - `tsc` クリーン、既存全テスト + 新テスト green。
-- UI 変更は担当エージェントにかかわらず、実画面で目視監査し、必要な画面と操作のスクリーンショットを確認記録に残す。
+- 目視監査は Claude 側 driver（拡張予定）。Codex はスクショ不要。
 
 ## 制約
 

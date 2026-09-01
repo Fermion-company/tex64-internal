@@ -3,7 +3,7 @@ import type {
   AgentStatusState,
   AgentUiState,
 } from "./types.js";
-import type { ChatMessage, ChatState } from "./ai-chat-state.js";
+import { AUTONOMOUS_LOOP_LIMIT, type ChatMessage, type ChatState } from "./ai-chat-state.js";
 import type { PendingAiRequest } from "./ai-chat-runner.js";
 import { updateMessageElement } from "./ai-chat-message.js";
 import { aiText, localizeAgentStatus, localizeToolLabel } from "./ai-i18n.js";
@@ -12,6 +12,7 @@ type StreamingEntry = { message: ChatMessage; element: HTMLElement | null };
 type ThinkingEntry = { text: string; element: HTMLElement | null };
 
 type CreateAiChatIncomingHandlersOptions = {
+  postToNative: (payload: { type: string; [key: string]: unknown }, silent?: boolean) => boolean;
   chats: ChatState[];
   chatIndex: Map<string, ChatState>;
   proposalIndex: Map<string, string>;
@@ -36,10 +37,14 @@ type CreateAiChatIncomingHandlersOptions = {
   ensureStreamingMessage: (chatId: string) => StreamingEntry | null;
   scrollToBottom: (force?: boolean) => void;
   appendMessage: (message: ChatMessage, chatId?: string) => void;
+  disableAutonomous: (chatId?: string | null) => void;
+  enableAutonomous: (chat: ChatState) => void;
   scheduleUsageRefresh: (force?: boolean) => void;
   rebuildProposalCards: (chatId: string) => void;
   restoreDraftFromPending: (chatId: string, request: PendingAiRequest | null) => void;
   updateContextBar: () => void;
+  buildContextPayload: (settings: unknown) => Record<string, unknown>;
+  getAgentSettings: () => unknown;
   switchActiveChat?: (chatId: string) => void;
 };
 
@@ -71,12 +76,19 @@ export const createAiChatIncomingHandlers = (
     ensureStreamingMessage,
     scrollToBottom,
     appendMessage,
+    disableAutonomous,
+    enableAutonomous,
     scheduleUsageRefresh,
     rebuildProposalCards,
     restoreDraftFromPending,
     updateContextBar,
+    buildContextPayload,
+    getAgentSettings,
+    postToNative,
     switchActiveChat,
   } = options;
+
+  const AUTONOMOUS_RESUME_DELAY_MS = 600;
 
   // バックグラウンドでDoneしたエージェントのトースト通知
   const showCompletionToast = (chatId: string, isError: boolean) => {
@@ -109,6 +121,9 @@ export const createAiChatIncomingHandlers = (
 
   const handleState = (state: AgentUiState) => {
     const sessions = Array.isArray(state?.sessions) ? state.sessions : [];
+    if (sessions.length === 0) {
+      return;
+    }
     sessions.sort((a, b) => {
       const aUpdated = typeof a?.updatedAt === "number" ? a.updatedAt : 0;
       const bUpdated = typeof b?.updatedAt === "number" ? b.updatedAt : 0;
@@ -174,14 +189,11 @@ export const createAiChatIncomingHandlers = (
       const statusMessage =
         typeof session.status?.message === "string" ? session.status.message : "";
       chat.hasUndo = session.status?.undoAvailable === true;
-      if (statusState === "running" || statusState === "stopping") {
+      if (statusState === "running") {
         runningConversations.add(chat.id);
-        chat.statusMessage = localizeAgentStatus(
-          statusMessage ||
-            (statusState === "stopping" ? "Finishing partial changes..." : "Thinking..."),
-        );
+        chat.statusMessage = localizeAgentStatus(statusMessage || "Thinking...");
         upsertThinkingMessage(chat.id, chat.statusMessage);
-      } else if (statusState === "error" || statusState === "resumable") {
+      } else if (statusState === "error") {
         resumableConversations.add(chat.id);
         chat.statusMessage = "";
       } else {
@@ -195,40 +207,61 @@ export const createAiChatIncomingHandlers = (
     updateStatusDisplay();
   };
 
+  const tryAutonomousContinuation = (chat: ChatState) => {
+    if (!chat.autonomous || chat.autoLoopBudget <= 0) return false;
+    chat.autoLoopBudget -= 1;
+    chat.statusMessage = aiText("status_working");
+    runningConversations.add(chat.id);
+    resumableConversations.delete(chat.id);
+    upsertThinkingMessage(chat.id, chat.statusMessage);
+    renderHistoryList();
+    updateSendState();
+    updateStatusDisplay();
+    const contextToSend = buildContextPayload(getAgentSettings());
+    window.setTimeout(() => {
+      const posted = postToNative(
+        { type: "agent:resume", conversationId: chat.id, context: contextToSend },
+        true
+      );
+      if (!posted) {
+        runningConversations.delete(chat.id);
+        resumableConversations.add(chat.id);
+        chat.statusMessage = "";
+        clearThinkingMessage(chat.id);
+        renderHistoryList();
+        updateSendState();
+        updateStatusDisplay();
+      }
+    }, AUTONOMOUS_RESUME_DELAY_MS);
+    return true;
+  };
+
   const handleStatus = (state: AgentStatusState, message?: string, conversationId?: string) => {
     if (!conversationId) return;
     const chat = ensureChat(conversationId);
     if (!chat) return;
-    if (state === "running" || state === "stopping") {
+    if (state === "running") {
       runningConversations.add(chat.id);
       resumableConversations.delete(chat.id);
-      chat.statusMessage = localizeAgentStatus(
-        message || (state === "stopping" ? "Finishing partial changes..." : "Thinking..."),
-      );
+      chat.statusMessage = localizeAgentStatus(message || "Thinking...");
       upsertThinkingMessage(chat.id, chat.statusMessage);
     } else {
       runningConversations.delete(chat.id);
       chat.statusMessage = "";
       clearThinkingMessage(chat.id);
       if (state === "resumable") {
-        // A new provider turn always requires the explicit Resume action.
-        // This prevents compile/conflict failures (and processing limits) from
-        // silently consuming more API quota in a retry loop.
+        // max_iterations reached — try autonomous continuation
+        if (tryAutonomousContinuation(chat)) {
+          // auto-continuation started, skip marking as idle
+          return;
+        }
+        // fallback: mark as resumable for manual resume button
         resumableConversations.add(chat.id);
       } else if (state === "error") {
         resumableConversations.add(chat.id);
       } else {
         resumableConversations.delete(chat.id);
       }
-      const pending = pendingAgentRequests.get(chat.id) ?? null;
-      pendingAgentRequests.delete(chat.id);
-      if ((state === "error" || state === "resumable") && pending) {
-        restoreDraftFromPending(chat.id, pending);
-      }
-      showCompletionToast(
-        chat.id,
-        state === "error" || state === "resumable",
-      );
       scheduleUsageRefresh(true);
     }
     renderHistoryList();
@@ -239,10 +272,19 @@ export const createAiChatIncomingHandlers = (
   const handleMessage = (text: string, conversationId?: string) => {
     if (!conversationId) return;
     clearThinkingMessage(conversationId);
+    pendingAgentRequests.delete(conversationId);
     if (finalizeStreamingMessage(conversationId, text)) scrollToBottom();
     else appendMessage({ role: "assistant", text }, conversationId);
+    runningConversations.delete(conversationId);
+    resumableConversations.delete(conversationId);
+    updateSendState();
     renderHistoryList();
-    ensureChat(conversationId);
+    // バックグラウンド会話のDoneトースト
+    if (conversationId !== getActiveChatId()) {
+      showCompletionToast(conversationId, false);
+    }
+    const chat = ensureChat(conversationId);
+    if (chat) chat.statusMessage = "";
     updateStatusDisplay();
     scheduleUsageRefresh(true);
   };
@@ -342,16 +384,6 @@ export const createAiChatIncomingHandlers = (
       if (editorBar) editorBar.remove();
       renderHistoryList();
       updateSendState();
-    } else {
-      appendMessage(
-        {
-          role: "system",
-          text: payload.error || "The proposed change could not be applied.",
-        },
-        chat.id,
-      );
-      renderHistoryList();
-      updateSendState();
     }
   };
 
@@ -377,19 +409,6 @@ export const createAiChatIncomingHandlers = (
         if (chat.id === getActiveChatId()) {
           rebuildProposalCards(chat.id);
         }
-        renderHistoryList();
-        updateSendState();
-      }
-    } else {
-      const chat = getChat(targetChatId);
-      if (chat) {
-        appendMessage(
-          {
-            role: "system",
-            text: payload.message || "The change could not be undone.",
-          },
-          chat.id,
-        );
         renderHistoryList();
         updateSendState();
       }
@@ -434,40 +453,24 @@ export const createAiChatIncomingHandlers = (
     if (!conversationId) return;
     const chat = ensureChat(conversationId);
     if (chat) {
-      // agent:error is diagnostic and may arrive while a Codex/OpenPrism turn
-      // continues. Only terminal agent:status owns the run lock and draft
-      // restoration; unlocking here permits a second request to be dropped or
-      // to race unfinished file settlement.
-      chat.statusMessage = message;
-      upsertThinkingMessage(chat.id, message);
+      chat.statusMessage = "";
+      disableAutonomous(chat.id);
+      resumableConversations.add(chat.id);
+      clearThinkingMessage(chat.id);
     }
+    streamingMessages.delete(conversationId);
+    const pending = pendingAgentRequests.get(conversationId) ?? null;
+    pendingAgentRequests.delete(conversationId);
+    restoreDraftFromPending(conversationId, pending);
+    runningConversations.delete(conversationId);
     renderHistoryList();
     updateSendState();
-    updateStatusDisplay();
-  };
-
-  const handleRequestRejected = (payload: {
-    conversationId?: string;
-    message?: string;
-  }) => {
-    if (!payload.conversationId) return;
-    const chat = getChat(payload.conversationId);
-    const pending = pendingAgentRequests.get(payload.conversationId) ?? null;
-    if (!chat || !pending) return;
-    pendingAgentRequests.delete(payload.conversationId);
-    // submitMessage adds this optimistic user row immediately before posting.
-    // The host rejected that post, so remove exactly the newest user row and
-    // restore its draft without unlocking the operation already in progress.
-    for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
-      if (chat.messages[index]?.role !== "user") continue;
-      chat.messages.splice(index, 1);
-      break;
+    // バックグラウンド会話のIssuesトースト
+    if (conversationId !== getActiveChatId()) {
+      showCompletionToast(conversationId, true);
     }
-    restoreDraftFromPending(chat.id, pending);
-    if (chat.id === getActiveChatId()) renderChatContent();
-    renderHistoryList();
-    updateSendState();
     updateStatusDisplay();
+    scheduleUsageRefresh(true);
   };
 
   return {
@@ -483,6 +486,5 @@ export const createAiChatIncomingHandlers = (
     handleScratchpad,
     handleThought,
     handleError,
-    handleRequestRejected,
   };
 };

@@ -95,59 +95,17 @@ const sanitizeHttpUrl = (value, fallback) => {
   return candidate.replace(/\/+$/, "");
 };
 
-const sanitizeHeaderName = (value) => {
-  if (typeof value !== "string") {
-    return "";
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!/^[a-z0-9-]{1,100}$/.test(normalized)) {
-    return "";
-  }
-  return normalized;
-};
-
 let runtimeConfigCache = null;
 
 export const getRuntimeConfig = () => {
   if (runtimeConfigCache) {
     return runtimeConfigCache;
   }
-  // Internal budget conversion. Dollar values stay server-side; clients only
-  // receive the resulting token allowance and token consumption.
-  const blendedCostPerTokenUsd = 0.000005;
+  // Blended cost for gpt-5.4-mini: input $0.25/1M, output $2.00/1M,
+  // assumed 4:1 input:output ratio → (4×0.25 + 1×2.00) / 5M = $0.60/1M
+  const blendedCostPerTokenUsd = 0.0000006;
   runtimeConfigCache = {
     jwtSecret: resolveJwtSecret(),
-    runtimeEnvironment: (process.env.NODE_ENV || "development").trim().toLowerCase(),
-    vercelRuntime: process.env.VERCEL === "1",
-    // Non-Vercel production deployments may opt into a custom header only
-    // when their trusted proxy overwrites it and direct origin access is
-    // blocked. Ordinary forwarded headers are never implicitly trusted.
-    trustedClientIpHeader: sanitizeHeaderName(
-      process.env.TEX64_PLATFORM_TRUSTED_CLIENT_IP_HEADER
-    ),
-    anonymousDeviceWindowSec: Math.max(
-      60,
-      parseInteger(process.env.TEX64_ANONYMOUS_DEVICE_WINDOW_SEC, 24 * 60 * 60)
-    ),
-    anonymousDevicesPerIp: Math.max(
-      1,
-      parseInteger(process.env.TEX64_ANONYMOUS_DEVICES_PER_IP, 24)
-    ),
-    anonymousAiWindowSec: Math.max(
-      60,
-      parseInteger(process.env.TEX64_ANONYMOUS_AI_WINDOW_SEC, 60 * 60)
-    ),
-    anonymousAiRequestsPerIp: Math.max(
-      1,
-      parseInteger(process.env.TEX64_ANONYMOUS_AI_REQUESTS_PER_IP, 120)
-    ),
-    anonymousAiReservedTokensPerIp: Math.max(
-      1,
-      parseInteger(
-        process.env.TEX64_ANONYMOUS_AI_RESERVED_TOKENS_PER_IP,
-        400_000
-      )
-    ),
     allowDevAuth: parseBoolean(process.env.TEX64_PLATFORM_ALLOW_DEV_AUTH, false),
     adminSecret:
       typeof process.env.TEX64_PLATFORM_ADMIN_SECRET === "string" &&
@@ -167,10 +125,10 @@ export const getRuntimeConfig = () => {
     blendedCostPerTokenUsd,
     freeMonthlyTokens: Math.max(
       0,
-      parseInteger(process.env.TEX64_PLATFORM_FREE_MONTHLY_TOKENS, 200_000)
+      parseInteger(process.env.TEX64_PLATFORM_FREE_MONTHLY_TOKENS, 0)
     ),
-    basicBudgetUsd: 4,
-    proBudgetUsd: 15,
+    basicBudgetUsd: 8,
+    proBudgetUsd: 20,
     requestLimitFree: Math.max(
       0,
       parseInteger(process.env.TEX64_PLATFORM_REQUEST_LIMIT_FREE, 100)
@@ -243,86 +201,6 @@ export const getRuntimeConfig = () => {
     openaiBaseUrl: sanitizeHttpUrl(
       process.env.TEX64_OPENAI_BASE_URL,
       "https://api.openai.com/v1"
-    ),
-    // These ids are deliberately server-only. Deployments may override them
-    // without changing the two public Axiom aliases used by desktop clients.
-    axiomStandardModel:
-      typeof process.env.TEX64_LLM_AXIOM_100_UPSTREAM === "string" &&
-      process.env.TEX64_LLM_AXIOM_100_UPSTREAM.trim()
-        ? process.env.TEX64_LLM_AXIOM_100_UPSTREAM.trim()
-        : "gpt-5.6-luna",
-    axiomStandardInputUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_INPUT_USD_PER_MILLION,
-        0.2,
-      ),
-    ),
-    axiomStandardCachedInputUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_CACHED_INPUT_USD_PER_MILLION,
-        parseNumber(
-          process.env.TEX64_LLM_AXIOM_100_INPUT_USD_PER_MILLION,
-          0.2,
-        ) * 0.1,
-      ),
-    ),
-    axiomStandardCacheWriteUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_CACHE_WRITE_USD_PER_MILLION,
-        parseNumber(
-          process.env.TEX64_LLM_AXIOM_100_INPUT_USD_PER_MILLION,
-          0.2,
-        ) * 1.25,
-      ),
-    ),
-    axiomStandardOutputUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_OUTPUT_USD_PER_MILLION,
-        1.2,
-      ),
-    ),
-    axiomProModel:
-      typeof process.env.TEX64_LLM_AXIOM_100_PRO_UPSTREAM === "string" &&
-      process.env.TEX64_LLM_AXIOM_100_PRO_UPSTREAM.trim()
-        ? process.env.TEX64_LLM_AXIOM_100_PRO_UPSTREAM.trim()
-        : "gpt-5.6-terra",
-    axiomProInputUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_PRO_INPUT_USD_PER_MILLION,
-        2,
-      ),
-    ),
-    axiomProCachedInputUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_PRO_CACHED_INPUT_USD_PER_MILLION,
-        parseNumber(
-          process.env.TEX64_LLM_AXIOM_100_PRO_INPUT_USD_PER_MILLION,
-          2,
-        ) * 0.1,
-      ),
-    ),
-    axiomProCacheWriteUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_PRO_CACHE_WRITE_USD_PER_MILLION,
-        parseNumber(
-          process.env.TEX64_LLM_AXIOM_100_PRO_INPUT_USD_PER_MILLION,
-          2,
-        ) * 1.25,
-      ),
-    ),
-    axiomProOutputUsdPerMillion: Math.max(
-      0.000001,
-      parseNumber(
-        process.env.TEX64_LLM_AXIOM_100_PRO_OUTPUT_USD_PER_MILLION,
-        12,
-      ),
     ),
   };
   return runtimeConfigCache;

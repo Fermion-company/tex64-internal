@@ -104,11 +104,10 @@ const tdomApi = {
   stop: async () => ipcRenderer.invoke("tex64:tdom:stop"),
   push: async (payload) => ipcRenderer.invoke("tex64:tdom:push", payload),
   focus: async (payload) => ipcRenderer.invoke("tex64:tdom:focus", payload),
-  snapshot: async (payload) => ipcRenderer.invoke("tex64:tdom:snapshot", payload),
+  windowLive: async (payload) => ipcRenderer.invoke("tex64:tdom:window-live", payload),
 };
 const aiApi = {
   complete: async (payload) => ipcRenderer.invoke("tex64:ai:complete", payload),
-  quiesce: async () => ipcRenderer.invoke("tex64:agent:quiesce"),
 };
 
 const filesApi = {
@@ -272,6 +271,22 @@ const billingApi = {
     } catch (error) {
       return { error: error && error.message ? error.message : "portal failed" };
     }
+  },
+  onCheckoutClosed: (handler) => {
+    if (typeof handler !== "function") {
+      return () => {};
+    }
+    const listener = (_event, payload) => {
+      try {
+        handler(payload);
+      } catch (error) {
+        console.error("tex64Billing checkout handler error:", error);
+      }
+    };
+    ipcRenderer.on("tex64:billing:checkout-closed", listener);
+    return () => {
+      ipcRenderer.removeListener("tex64:billing:checkout-closed", listener);
+    };
   },
   onPortalClosed: (handler) => {
     if (typeof handler !== "function") {

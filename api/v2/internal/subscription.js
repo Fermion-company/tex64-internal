@@ -312,11 +312,7 @@ const handler = async (req, res) => {
           email: context.user.email,
           name: context.user.name,
         },
-        // Preserve the stored Stripe state for bridge callers and ordering
-        // diagnostics, while making the entitlement actually exposed to users
-        // explicit. For a terminal paid cancellation these intentionally differ.
-        subscription: context.rawSubscription || context.subscription,
-        effectiveSubscription: context.subscription,
+        subscription: context.subscription,
         summary: usage.summary,
         byFeature: usage.byFeature,
       });

@@ -1848,6 +1848,33 @@ const initPdfViewer = () => {
     }
     if (Number.isInteger(liveActivation.documentEpoch) &&
         Number(data.documentEpoch) !== liveActivation.documentEpoch) return;
+    if (data.action === "source") {
+      bridge?.postMessage?.({
+        type: "live-source",
+        payload: { file: data.file, line: data.line, column: data.column },
+      });
+      return;
+    }
+    if (data.action === "edit") {
+      bridge?.postMessage?.({
+        type: "live-edit",
+        payload: {
+          sessionId: data.sessionId,
+          regionId: data.regionId,
+          kind: data.kind,
+          file: data.file,
+          start: data.start,
+          end: data.end,
+          baseValue: data.baseValue,
+          value: data.value,
+          replacement: data.replacement,
+          cancel: data.cancel === true,
+          finish: data.finish === true,
+          sourceRev: data.sourceRev,
+        },
+      });
+      return;
+    }
     renderLiveToolbar();
     renderLiveStatus(data);
   });

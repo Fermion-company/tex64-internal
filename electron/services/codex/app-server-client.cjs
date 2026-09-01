@@ -11,11 +11,8 @@
 //   サーバー発リクエスト（承認要求など）。ハンドラが respond を呼ばなければ
 //   タイムアウト等はサーバー側に委ねる。
 
+const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
-const {
-  spawnOwnedProcess,
-  terminateWindowsProcessTree,
-} = require('../process-tree.cjs');
 
 const CLIENT_INFO = {
   name: 'tex64',
@@ -36,8 +33,6 @@ class CodexAppServerClient extends EventEmitter {
     this.stderrTail = [];
     this._buf = '';
     this._closed = false;
-    this.stopPromise = null;
-    this.exitNotificationPromise = null;
   }
 
   isRunning() {
@@ -47,17 +42,11 @@ class CodexAppServerClient extends EventEmitter {
   async start() {
     if (this.isRunning()) return this.initializeResult;
     this._closed = false;
-    this.stopPromise = null;
-    this.exitNotificationPromise = null;
     const env = { ...process.env, ...(this.opts.env || {}) };
-    const useShell =
-      process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(this.binPath);
-    this.child = spawnOwnedProcess(this.binPath, ['app-server'], {
+    this.child = spawn(this.binPath, ['app-server'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
       cwd: this.opts.cwd || undefined,
-      detached: process.platform !== 'win32',
-      shell: useShell,
     });
 
     this.child.stdout.setEncoding('utf8');
@@ -73,7 +62,7 @@ class CodexAppServerClient extends EventEmitter {
     this.child.on('error', (err) => {
       this._failAllPending(new Error(`codex app-server spawn error: ${err.message}`));
       this._closed = true;
-      this._notifyExitAfterQuiescence({ error: err });
+      this.emit('exit', { error: err });
     });
     this.child.on('exit', (code, signal) => {
       this._closed = true;
@@ -81,127 +70,24 @@ class CodexAppServerClient extends EventEmitter {
       this._failAllPending(
         new Error(`codex app-server exited (code=${code}, signal=${signal})`)
       );
-      this._notifyExitAfterQuiescence({
-        code,
-        signal,
-        stderr: this.stderrTail.join('\n'),
-      });
+      this.emit('exit', { code, signal, stderr: this.stderrTail.join('\n') });
     });
 
-    this.initializeResult = await this.request(
-      'initialize',
-      {
-        clientInfo: CLIENT_INFO,
-        capabilities: { experimentalApi: true },
-      },
-      { timeoutMs: 15000 },
-    );
+    this.initializeResult = await this.request('initialize', {
+      clientInfo: CLIENT_INFO,
+      capabilities: { experimentalApi: true },
+    });
     this.notify('initialized');
     this.initialized = true;
     return this.initializeResult;
   }
 
   stop() {
-    if (this.stopPromise) return this.stopPromise;
-    const child = this.child;
+    if (this.child) {
+      try { this.child.kill(); } catch (_) { /* already dead */ }
+    }
     this._closed = true;
     this.initialized = false;
-    this._failAllPending(new Error('codex app-server stopped'));
-    if (!child) return Promise.resolve();
-
-    this.stopPromise = new Promise((resolve, reject) => {
-      let settled = false;
-      let forceTimer = null;
-      let postKillTimer = null;
-      let windowsTerminationPromise = null;
-      const processGroupAlive = () => {
-        if (process.platform === 'win32' || !Number.isInteger(child.pid)) {
-          return child.exitCode === null;
-        }
-        try {
-          process.kill(-child.pid, 0);
-          return true;
-        } catch (error) {
-          return error?.code !== 'ESRCH';
-        }
-      };
-      const finish = (error = null) => {
-        if (settled) return;
-        settled = true;
-        if (forceTimer !== null) clearTimeout(forceTimer);
-        if (postKillTimer !== null) clearTimeout(postKillTimer);
-        child.removeListener('exit', onExit);
-        if (this.child === child) this.child = null;
-        if (error) reject(error);
-        else resolve();
-      };
-      const onExit = () => {
-        // On POSIX the direct process can exit while a same-group descendant
-        // still writes to the workspace. Only settle early if the whole group
-        // is gone; otherwise the forced group kill below remains authoritative.
-        if (process.platform !== 'win32' && !processGroupAlive()) finish();
-      };
-      child.once('exit', onExit);
-      try {
-        if (process.platform === 'win32' && Number.isInteger(child.pid)) {
-          windowsTerminationPromise = terminateWindowsProcessTree(child);
-          void windowsTerminationPromise.then((safe) => {
-            finish(
-              safe
-                ? null
-                : new Error('Codex Windows process-tree cleanup could not be verified.'),
-            );
-          });
-        } else if (Number.isInteger(child.pid)) {
-          process.kill(-child.pid, 'SIGTERM');
-        } else {
-          child.kill('SIGTERM');
-        }
-      } catch (_) { /* already dead */ }
-      forceTimer = setTimeout(() => {
-        try {
-          if (process.platform === 'win32' && Number.isInteger(child.pid)) {
-            const retry = windowsTerminationPromise?.then((safe) =>
-              safe ? true : terminateWindowsProcessTree(child),
-            ) ?? terminateWindowsProcessTree(child);
-            void retry.then((safe) => {
-              finish(
-                safe
-                  ? null
-                  : new Error('Codex Windows process-tree cleanup could not be verified.'),
-              );
-            });
-          } else if (Number.isInteger(child.pid)) {
-            process.kill(-child.pid, 'SIGKILL');
-          } else if (child.exitCode === null) {
-            child.kill('SIGKILL');
-          }
-        } catch (_) { /* already dead */ }
-        if (process.platform !== 'win32') {
-          postKillTimer = setTimeout(finish, 150);
-          if (typeof postKillTimer?.unref === 'function') postKillTimer.unref();
-        }
-      }, 2000);
-      if (typeof forceTimer?.unref === 'function') forceTimer.unref();
-      if (process.platform !== 'win32' && !processGroupAlive()) finish();
-    });
-    return this.stopPromise;
-  }
-
-  _notifyExitAfterQuiescence(payload) {
-    if (this.exitNotificationPromise) return this.exitNotificationPromise;
-    // The app-server can die while a detached command in the same process group
-    // is still writing. Reuse the normal tree shutdown and only advertise the
-    // backend as stopped once descendants have been terminated as well.
-    this.exitNotificationPromise = Promise.resolve(this.stop()).then(
-      () => {
-        this.emit('exit', payload);
-      },
-      (error) => {
-        this.emit('exit', { ...payload, error, cleanupFailed: true });
-      },
-    );
-    return this.exitNotificationPromise;
   }
 
   request(method, params, { timeoutMs = 0 } = {}) {

@@ -98,14 +98,9 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
             runtime.dirtyFiles.clear();
         }
         const workspaceFileSet = new Set(workspaceFiles);
-        const missingDirtyPaths = new Set();
         if (runtime.monacoModels.size > 0) {
             Array.from(runtime.monacoModels.keys()).forEach((path) => {
                 if (!workspaceFileSet.has(path)) {
-                    if (runtime.dirtyFiles.has(path)) {
-                        missingDirtyPaths.add(path);
-                        return;
-                    }
                     const entry = runtime.monacoModels.get(path);
                     if (entry && typeof entry.model.dispose === "function") {
                         entry.model.dispose();
@@ -118,14 +113,12 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
         coreOps.forEachEditorGroup((group) => {
             if (group.viewStates.size > 0) {
                 Array.from(group.viewStates.keys()).forEach((path) => {
-                    if (!workspaceFileSet.has(path) && !runtime.dirtyFiles.has(path)) {
+                    if (!workspaceFileSet.has(path)) {
                         group.viewStates.delete(path);
                     }
                 });
             }
-            if (group.currentFilePath &&
-                !workspaceFileSet.has(group.currentFilePath) &&
-                !runtime.dirtyFiles.has(group.currentFilePath)) {
+            if (group.currentFilePath && !workspaceFileSet.has(group.currentFilePath)) {
                 group.currentFilePath = null;
                 group.currentFileSavedContent = null;
                 group.isDirty = false;
@@ -134,7 +127,7 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
                 }
             }
             if (group.openTabs.length > 0) {
-                group.openTabs = group.openTabs.filter((path) => workspaceFileSet.has(path) || runtime.dirtyFiles.has(path));
+                group.openTabs = group.openTabs.filter((path) => workspaceFileSet.has(path));
                 if (group.currentFilePath && !group.openTabs.includes(group.currentFilePath)) {
                     group.currentFilePath = null;
                     group.currentFileSavedContent = null;
@@ -154,13 +147,6 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
         splitViewOps.updateBreadcrumbs();
         coreOps.forEachEditorGroup((group) => runtime.deps.editorTabs.render(group));
         runtime.deps.outline.render();
-        if (missingDirtyPaths.size > 0) {
-            const paths = Array.from(missingDirtyPaths).join(", ");
-            const message = `File removed on disk; your unsaved buffer was kept: ${paths}`;
-            runtime.deps.updateIssues(1, message, "error", [
-                { severity: "error", message },
-            ]);
-        }
     };
     const getDirtyPaths = () => runtime.dirtyFiles;
     return {

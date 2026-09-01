@@ -85,65 +85,7 @@ const createWorkspaceProjectHandlers = (ctx) => {
     sendWorkspace,
     searchService,
     fileAccess,
-    beforeWorkspaceChange,
-    beginRendererWorkspaceMutation = () => () => {},
-    beginWorkspaceSession,
-    acquireWorkspaceMutation = async () => () => {},
-    withWorkspaceMutation = async (operation) => operation(),
   } = ctx;
-
-  const mutateCapturedWorkspace = (rootPath, operation) =>
-    withWorkspaceMutation(async () => {
-      if (ensureWorkspace() !== rootPath) {
-        throw new Error("The workspace changed before the operation finished.");
-      }
-      return operation();
-    });
-
-  const prepareWorkspaceChange = async (toRootPath, reason) => {
-    const releaseWorkspace = await acquireWorkspaceMutation();
-    let releaseTransition = null;
-    try {
-      const fromRootPath = workspace.getRootPath();
-      await beforeWorkspaceChange({
-        fromRootPath,
-        toRootPath,
-        reason,
-      });
-      // `waitForIdle` is only an observation. A new turn can reserve the old
-      // workspace immediately after it resolves, so synchronously acquire the
-      // shared external-writer leases before changing root identity. Hold both
-      // the old and new roots until the first new-root snapshot is complete.
-      const transitionReleases = [];
-      try {
-        for (const rootPath of new Set([fromRootPath, toRootPath])) {
-          if (typeof rootPath !== "string" || !rootPath) continue;
-          transitionReleases.push(beginRendererWorkspaceMutation(rootPath));
-        }
-      } catch (error) {
-        transitionReleases.reverse().forEach((release) => release?.());
-        throw error;
-      }
-      releaseTransition = () => {
-        transitionReleases.reverse().forEach((release) => release?.());
-      };
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        releaseTransition?.();
-        releaseWorkspace();
-      };
-    } catch (error) {
-      releaseTransition?.();
-      releaseWorkspace();
-      sendLauncherStatus({
-        isBusy: false,
-        message: error?.message || "Could not finish work in the current project.",
-      });
-      return null;
-    }
-  };
 
   const e2eDialogQueueState = {
     initialized: false,
@@ -214,19 +156,11 @@ const createWorkspaceProjectHandlers = (ctx) => {
       return;
     }
     const rootPath = result.filePaths[0];
-    const releaseWorkspace = await prepareWorkspaceChange(rootPath, "open");
-    if (!releaseWorkspace) {
-      return;
-    }
-    try {
-      workspace.setRootPath(rootPath);
-      beginWorkspaceSession(rootPath);
-      state.lastBuildPdfPath = null;
-      await updateWorkspaceIfNeeded(rootPath, true);
-      requestIndex(rootPath);
-    } finally {
-      releaseWorkspace();
-    }
+    workspace.setRootPath(rootPath);
+    state.lastBuildPdfPath = null;
+    state.currentWorkspacePath = null;
+    await updateWorkspaceIfNeeded(rootPath, true);
+    requestIndex(rootPath);
     // Track recent project
     if (userSettings) {
       userSettings
@@ -276,19 +210,11 @@ const createWorkspaceProjectHandlers = (ctx) => {
       }
       return;
     }
-    const releaseWorkspace = await prepareWorkspaceChange(projectPath, "recent");
-    if (!releaseWorkspace) {
-      return;
-    }
-    try {
-      workspace.setRootPath(projectPath);
-      beginWorkspaceSession(projectPath);
-      state.lastBuildPdfPath = null;
-      await updateWorkspaceIfNeeded(projectPath, true);
-      requestIndex(projectPath);
-    } finally {
-      releaseWorkspace();
-    }
+    workspace.setRootPath(projectPath);
+    state.lastBuildPdfPath = null;
+    state.currentWorkspacePath = null;
+    await updateWorkspaceIfNeeded(projectPath, true);
+    requestIndex(projectPath);
     // Track recent project (moves it to top)
     if (userSettings) {
       userSettings
@@ -323,29 +249,17 @@ const createWorkspaceProjectHandlers = (ctx) => {
     const SUPPORTED_TEMPLATE_LOCALES = new Set(["ja", "en", "zh", "ko", "de", "fr", "es"]);
     const requestedLocale = payload && typeof payload.locale === "string" ? payload.locale : null;
     const locale = SUPPORTED_TEMPLATE_LOCALES.has(requestedLocale) ? requestedLocale : "en";
-    // Initializing writes the selected folder. Quiesce the current workspace
-    // before that first mutation, not merely before setRootPath, so selecting
-    // the current/nested folder cannot race an old agent or build.
-    const releaseWorkspace = await prepareWorkspaceChange(rootPath, "create");
-    if (!releaseWorkspace) {
-      return;
-    }
     try {
       await workspace.initializeProject(rootPath, locale);
     } catch (error) {
-      releaseWorkspace();
       sendLauncherStatus({ isBusy: false, message: error.message });
       return;
     }
-    try {
-      workspace.setRootPath(rootPath);
-      beginWorkspaceSession(rootPath);
-      state.lastBuildPdfPath = null;
-      await updateWorkspaceIfNeeded(rootPath, true);
-      requestIndex(rootPath);
-    } finally {
-      releaseWorkspace();
-    }
+    workspace.setRootPath(rootPath);
+    state.lastBuildPdfPath = null;
+    state.currentWorkspacePath = null;
+    await updateWorkspaceIfNeeded(rootPath, true);
+    requestIndex(rootPath);
     // Track recent project
     if (userSettings) {
       userSettings
@@ -367,11 +281,9 @@ const createWorkspaceProjectHandlers = (ctx) => {
       return;
     }
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
-        await workspace.setRootFile(relativePath);
-        await sendWorkspace(rootPath);
-        sendIssues(0, "Main TeX updated.", "success", []);
-      });
+      await workspace.setRootFile(relativePath);
+      await sendWorkspace(rootPath);
+      sendIssues(0, "Main TeX updated.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },
@@ -388,11 +300,9 @@ const createWorkspaceProjectHandlers = (ctx) => {
       return;
     }
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
-        await workspace.clearRootOverride();
-        await sendWorkspace(rootPath);
-        sendIssues(0, "Main TeX auto-detected.", "success", []);
-      });
+      await workspace.clearRootOverride();
+      await sendWorkspace(rootPath);
+      sendIssues(0, "Main TeX auto-detected.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },
@@ -440,23 +350,21 @@ const createWorkspaceProjectHandlers = (ctx) => {
     const resolvedActive = activeExists ? nextActive : "";
 
     try {
-      await mutateCapturedWorkspace(rootPath, async () => {
-        await workspace.updateSettings((settings) => {
-          if (cleaned.length > 0) {
-            settings.buildProfiles = cleaned;
-          } else {
-            delete settings.buildProfiles;
-          }
-          if (resolvedActive) {
-            settings.buildProfileId = resolvedActive;
-          } else {
-            delete settings.buildProfileId;
-          }
-          return settings;
-        });
-        await sendWorkspace(rootPath);
-        sendIssues(0, "Build profile updated.", "success", []);
+      await workspace.updateSettings((settings) => {
+        if (cleaned.length > 0) {
+          settings.buildProfiles = cleaned;
+        } else {
+          delete settings.buildProfiles;
+        }
+        if (resolvedActive) {
+          settings.buildProfileId = resolvedActive;
+        } else {
+          delete settings.buildProfileId;
+        }
+        return settings;
       });
+      await sendWorkspace(rootPath);
+      sendIssues(0, "Build profile updated.", "success", []);
     } catch (error) {
       sendIssues(1, error.message, "error", [
         { severity: "error", message: error.message, line: null },

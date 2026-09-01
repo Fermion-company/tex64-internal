@@ -48,70 +48,24 @@ export function requestFromHost(
     type: string;
     resultType: string;
     payload?: Record<string, unknown>;
-    timeoutMs?: number | null;
-    abort?: {
-      signal: AbortSignal;
-      onAbort: () => void;
-      acknowledgementTimeoutMs?: number;
-      isAcknowledgement: (message: HostMessage) => boolean;
-    };
+    timeoutMs?: number;
   },
 ): Promise<Record<string, unknown>> {
   requestCounter += 1;
   const requestId = `ai-${Date.now().toString(36)}-${requestCounter}`;
   return new Promise<Record<string, unknown>>((resolve, reject) => {
-    let settled = false;
-    let abortTimer: ReturnType<typeof setTimeout> | null = null;
-    const cleanup = () => {
-      if (timer !== null) clearTimeout(timer);
-      if (abortTimer !== null) clearTimeout(abortTimer);
-      input.abort?.signal.removeEventListener("abort", onAbort);
+    const timer = setTimeout(() => {
       unsubscribe();
-    };
-    const finish = (
-      callback: (value: Record<string, unknown> | Error) => void,
-      value: Record<string, unknown> | Error,
-    ) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      callback(value);
-    };
-    const onAbort = () => {
-      if (settled || abortTimer !== null) return;
-      input.abort?.onAbort();
-      abortTimer = setTimeout(() => {
-        finish(
-          reject as (value: Record<string, unknown> | Error) => void,
-          new Error(`Host did not acknowledge stopping ${input.type}.`),
-        );
-      }, input.abort?.acknowledgementTimeoutMs ?? 10_000);
-    };
-    const timer = input.timeoutMs === null
-      ? null
-      : setTimeout(() => {
-          finish(
-            reject as (value: Record<string, unknown> | Error) => void,
-            new Error(`Host did not answer ${input.type}.`),
-          );
-        }, input.timeoutMs ?? 12_000);
+      reject(new Error(`Host did not answer ${input.type}.`));
+    }, input.timeoutMs ?? 12_000);
     const unsubscribe = host.onMessage((message) => {
-      if (
-        input.abort?.signal.aborted &&
-        input.abort.isAcknowledgement(message)
-      ) {
-        if (abortTimer !== null) clearTimeout(abortTimer);
-        abortTimer = null;
-      }
       if (message.type !== input.resultType) return;
       const body = hostMessageBody(message);
       if (body.requestId !== requestId) return;
-      finish(resolve as (value: Record<string, unknown> | Error) => void, body);
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(body);
     });
-    input.abort?.signal.addEventListener("abort", onAbort, { once: true });
-    if (input.abort?.signal.aborted) {
-      onAbort();
-    }
     host.send(input.type, { ...input.payload, requestId });
   });
 }

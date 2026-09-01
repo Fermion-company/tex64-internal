@@ -26,7 +26,6 @@ const executeForwardLikeApp = async (service, payload, options) => {
         refineLines: 0,
         bypassHint: options.probeBypassHint,
         allowExpandedOffsets: false,
-        preferExact: options.reversePreferExact,
       });
     } catch {
       reverseProbe = null;
@@ -286,7 +285,6 @@ const runSingleBenchmark = async ({ runIndex, options, workspacePath, pdfPath, c
         y: forwardLike.result.y,
         pdfPath,
         bypassHint: options.probeBypassHint,
-        preferExact: options.reversePreferExact,
       });
     } catch (error) {
       reverseResult = { ok: false, error: error?.message ?? String(error) };

@@ -59,9 +59,7 @@ const PROOFREAD_REQUEST_PATTERN =
 // Keep this strict: generic words like "文書/プロジェクト" alone should NOT trigger workspace mode.
 const EXPLICIT_WORKSPACE_REFERENCE_PATTERN =
   /(?:\b[\w./-]+\.(?:tex|bib|sty|cls|ltx|md|txt|json|ya?ml|toml)\b|main\.tex|\\(?:input|include)\{|(?:この|今の|現在の|開いている|編集中の|対象の)\s*ファイル|(?:this|current)\s+file)/i;
-// Version 4 also records the exact content produced by each AI write. Undo is
-// refused if the file changed afterwards, so it can never erase later user work.
-const PERSIST_SESSION_VERSION = 4;
+const PERSIST_SESSION_VERSION = 1;
 const PERSIST_MAX_MESSAGES = 140;
 const PERSIST_DEBOUNCE_MS = 450;
 const PERSIST_MAX_TEXT_CHARS = 50_000;

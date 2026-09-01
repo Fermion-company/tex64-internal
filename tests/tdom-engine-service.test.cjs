@@ -74,6 +74,19 @@ test("TdomEngineService spawn env pins the engine knobs", () => {
   assert.ok(env.PATH.split(path.delimiter).includes("/opt/homebrew/bin"));
 });
 
+test("TdomEngineService serves packaged MathLive assets from app.asar.unpacked", () => {
+  const resourcesPath = "/fake/TeX64.app/Contents/Resources";
+  const unpackedWeb = path.join(resourcesPath, "app.asar.unpacked", "Resources", "web");
+  const service = new TdomEngineService({
+    engineDir: fixtureDir,
+    resourcesPath,
+    existsSync: (candidate) => candidate === unpackedWeb || candidate === path.join(fixtureDir, "server.js"),
+  });
+  service.port = 4646;
+  assert.equal(service.hostWebRoot, unpackedWeb);
+  assert.equal(service.buildSpawnEnv().TDOM_HOST_WEB_ROOT, unpackedWeb);
+});
+
 test("TdomEngineService boots on a sample that actually exists", () => {
   const engineDir = "/fake/engine";
   const service = new TdomEngineService({

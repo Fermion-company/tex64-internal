@@ -3,11 +3,7 @@ const { normalizeRelativePath } = require("./workspace.cjs");
 
 const DEFAULT_MAX_FILE_BYTES = 400_000;
 const DEFAULT_MAX_READ_FILES = 16;
-// A user turn is a paid multi-call loop. This is an absolute product safety
-// boundary, not a UI preference; 24 still covers the longest accepted writing
-// flow while preventing a stale setting from restoring the former 500-call
-// runaway behavior.
-const DEFAULT_MAX_ITERATIONS = 24;
+const DEFAULT_MAX_ITERATIONS = 500;
 const DEFAULT_TEXT_EXTENSIONS = [
   "tex",
   "bib",

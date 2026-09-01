@@ -30,50 +30,6 @@ const signHs256 = (headerSegment, payloadSegment, secret) => {
 const sanitizeString = (value) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
 
-export const isValidDeviceId = (value) =>
-  typeof value === "string" &&
-  value.length >= 8 &&
-  value.length <= 200 &&
-  /^[A-Za-z0-9._:-]+$/.test(value);
-
-const readHeader = (req, name) => {
-  const headers = req?.headers;
-  if (!headers) {
-    return null;
-  }
-  const lowerName = name.toLowerCase();
-  if (typeof headers.get === "function") {
-    return sanitizeString(headers.get(lowerName));
-  }
-  if (typeof headers !== "object") {
-    return null;
-  }
-  const matchingKey = Object.keys(headers).find(
-    (key) => key.toLowerCase() === lowerName
-  );
-  const direct = matchingKey ? headers[matchingKey] : null;
-  if (Array.isArray(direct)) {
-    return sanitizeString(direct[0]);
-  }
-  return sanitizeString(direct);
-};
-
-const buildAnonymousUserId = (deviceId, config) => {
-  const secret = sanitizeString(config?.jwtSecret);
-  if (!secret) {
-    throw new ApiError(
-      "INTERNAL_ERROR",
-      "Anonymous app identity is not configured.",
-      500
-    );
-  }
-  const digest = crypto
-    .createHmac("sha256", secret)
-    .update(`tex64-anonymous-app-v1\0${deviceId}`)
-    .digest("hex");
-  return `anon_${digest.slice(0, 40)}`;
-};
-
 const sanitizeUserId = (value) => {
   const raw = sanitizeString(value);
   if (!raw) {
@@ -182,12 +138,12 @@ export const verifyRefreshToken = (token, config) =>
   decodeAndVerifyJwt(token, config, "refresh");
 
 export const requireAuthenticatedUser = (req, config) => {
-  const token = parseBearerToken(readHeader(req, "authorization"));
+  const token = parseBearerToken(req.headers?.authorization);
   if (token) {
     return verifyAccessToken(token, config);
   }
   if (config?.allowDevAuth) {
-    const devHeader = readHeader(req, "x-tex64-dev-user");
+    const devHeader = sanitizeString(req.headers?.["x-tex64-dev-user"]);
     if (devHeader) {
       const [rawEmail] = devHeader.split(",");
       const email = sanitizeString(rawEmail);
@@ -202,38 +158,6 @@ export const requireAuthenticatedUser = (req, config) => {
     }
   }
   throw new ApiError("AUTH_REQUIRED", "Google sign-in is required.", 401);
-};
-
-export const getOptionalAuthenticatedUser = (req, config) => {
-  const token = parseBearerToken(readHeader(req, "authorization"));
-  if (token) {
-    return verifyAccessToken(token, config);
-  }
-  if (config?.allowDevAuth && readHeader(req, "x-tex64-dev-user")) {
-    return requireAuthenticatedUser(req, config);
-  }
-  return null;
-};
-
-export const getAnonymousAppUser = (req, config) => {
-  const deviceId = readHeader(req, "x-tex64-device-id");
-  if (!deviceId) {
-    return { ok: false, reason: "MISSING_DEVICE_ID", user: null };
-  }
-  if (!isValidDeviceId(deviceId)) {
-    return { ok: false, reason: "INVALID_DEVICE_ID", user: null };
-  }
-  return {
-    ok: true,
-    reason: "anonymous",
-    user: {
-      id: buildAnonymousUserId(deviceId, config),
-      email: null,
-      name: "TeX64 App",
-      deviceId,
-      anonymous: true,
-    },
-  };
 };
 
 export const issueAccessToken = ({ user, plan, deviceId = "" }, config) =>

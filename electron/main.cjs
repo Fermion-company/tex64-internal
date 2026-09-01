@@ -11,7 +11,6 @@ const {
   shell,
   systemPreferences,
   Notification,
-  utilityProcess,
 } = require("electron");
 const fs = require("fs");
 const fsp = require("fs/promises");
@@ -25,9 +24,6 @@ const { PDFWindowManager } = require("./services/pdf.cjs");
 const { SynctexService } = require("./services/synctex.cjs");
 const { SearchService } = require("./services/search.cjs");
 const { WorkspaceManager, WorkspaceError } = require("./services/workspace.cjs");
-const {
-  WorkspaceWriterCoordinator,
-} = require("./services/workspace-writer-coordinator.cjs");
 const { EnvService } = require("./services/env.cjs");
 const { BlocksStore } = require("./services/blocks.cjs");
 const { UserSettingsService } = require("./services/user-settings.cjs");
@@ -41,12 +37,6 @@ const { TerminalService } = require("./services/terminal.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
-const {
-  flushAgentSessionsForQuit,
-} = require("./services/agent-quit-flush.cjs");
-const {
-  createQuitCoordinator,
-} = require("./services/quit-coordinator.cjs");
 const { ApiUsageService } = require("./services/api-usage.cjs");
 const { PlatformAccessService } = require("./services/platform-access.cjs");
 const {
@@ -55,7 +45,6 @@ const {
 const {
   getCheckoutReturnOutcome,
   normalizeStripeCheckoutUrl,
-  parseBillingCompletionDeepLink,
 } = require("./services/billing-checkout.cjs");
 const { createWorkspaceHandlers } = require("./handlers/workspace.cjs");
 const { createBuildHandlers } = require("./handlers/build.cjs");
@@ -63,11 +52,6 @@ const { registerTexizeHandlers } = require("./handlers/texize.cjs");
 const { registerTdomEngineHandlers } = require("./handlers/tdom-engine.cjs");
 const { registerAiWebHandlers } = require("./handlers/ai-web.cjs");
 const { AiWebService } = require("./services/ai-web.cjs");
-const {
-  hardenAiWebviewPreferences,
-  isAllowedAiWebviewSource,
-  secureAiWebviewContents,
-} = require("./services/ai-web-security.cjs");
 
 const { createMiscHandlers } = require("./handlers/misc.cjs");
 const { createAgentHandlers } = require("./handlers/agent.cjs");
@@ -142,7 +126,6 @@ const state = {
   // surfaces (dialogs, menu, notifications) read this instead of the OS locale.
   uiLocale: "en",
 };
-let mainRendererReady = false;
 const macFileAccess = new MacFileAccessService({
   // E2E runs must never block on the native permission dialog; the denied
   // state still reaches the renderer through the normal status reporting.
@@ -296,11 +279,7 @@ const getTexizeService = () => {
 let aiWebService = null;
 const getAiWebService = () => {
   if (!aiWebService) {
-    aiWebService = new AiWebService({
-      app,
-      utilityProcess,
-      resourcesPath: process.resourcesPath,
-    });
+    aiWebService = new AiWebService({ app, ensureUserSettings });
   }
   return aiWebService;
 };
@@ -347,11 +326,7 @@ const getTerminalService = () => {
   return terminalService;
 };
 
-let allowMainWindowClose = false;
-let mainWindowClosePromise = null;
-
 const createMainWindow = () => {
-  allowMainWindowClose = false;
   const preloadPath = path.join(__dirname, "preload.cjs");
   const indexPath = path.join(app.getAppPath(), "Resources", "web", "index.html");
 
@@ -380,48 +355,6 @@ const createMainWindow = () => {
   }
 
   state.mainWindow = new BrowserWindow(windowOptions);
-  mainRendererReady = false;
-  state.mainWindow.webContents.on(
-    "did-start-navigation",
-    (_event, _url, _isInPlace, isMainFrame) => {
-      if (isMainFrame) {
-        mainRendererReady = false;
-      }
-    },
-  );
-  state.mainWindow.webContents.on("did-finish-load", () => {
-    mainRendererReady = true;
-    flushPendingBillingCompletionLinks();
-  });
-
-  const aiWebPreloadPath = path.join(__dirname, "ai-web-preload.cjs");
-  const pendingAiWebviewUrls = [];
-  state.mainWindow.webContents.on(
-    "will-attach-webview",
-    (event, webPreferences, params) => {
-      hardenAiWebviewPreferences(webPreferences, aiWebPreloadPath);
-      const expectedOrigin = getAiWebService().getNativeOrigin();
-      if (
-        !isAllowedAiWebviewSource(params.src, {
-          packaged: app.isPackaged === true,
-          expectedOrigin,
-        })
-      ) {
-        event.preventDefault();
-        return;
-      }
-      pendingAiWebviewUrls.push(params.src);
-    },
-  );
-  state.mainWindow.webContents.on("did-attach-webview", (_event, contents) => {
-    const initialUrl = pendingAiWebviewUrls.shift() ?? contents.getURL();
-    const secured = secureAiWebviewContents(contents, {
-      initialUrl,
-      packaged: app.isPackaged === true,
-      expectedOrigin: getAiWebService().getNativeOrigin(),
-    });
-    if (!secured) contents.close();
-  });
 
   // Persist window position and size on move/resize.
   const trackWindowBounds = () => {
@@ -431,34 +364,6 @@ const createMainWindow = () => {
   };
   state.mainWindow.on("resize", trackWindowBounds);
   state.mainWindow.on("move", trackWindowBounds);
-
-  state.mainWindow.on("close", (event) => {
-    const finalQuitInProgress = ["relaunching", "exiting", "forced"].includes(
-      quitCoordinator.getPhase(),
-    );
-    if (allowMainWindowClose || finalQuitInProgress) return;
-    event.preventDefault();
-    if (mainWindowClosePromise) return;
-    const closingWindow = state.mainWindow;
-    mainWindowClosePromise = (async () => {
-      const prepared = await prepareRendererForQuit();
-      if (!prepared?.ok) {
-        throw new Error(prepared?.error || "The editor could not save its open files.");
-      }
-      await quiesceWorkspaceActivity();
-      if (!closingWindow || closingWindow.isDestroyed()) return;
-      allowMainWindowClose = true;
-      closingWindow.close();
-    })()
-      .catch((error) => {
-        const message = error?.message || "The window could not close safely.";
-        sendIssues(1, message, "error", [{ severity: "error", message }]);
-        focusMainWindow();
-      })
-      .finally(() => {
-        mainWindowClosePromise = null;
-      });
-  });
 
   // texlab restart on renderer (re)load is handled by the texlab service itself
   // (it restarts when a fresh client sends `initialize`). We intentionally do
@@ -475,12 +380,10 @@ const createMainWindow = () => {
   state.mainWindow.on("closed", () => {
     // Ensure any teardown work doesn't try to message a destroyed window.
     state.mainWindow = null;
-    mainRendererReady = false;
     if (terminalService) {
       terminalService.killAll();
     }
     clearWorkspaceSession({ closePdfWindow: true });
-    allowMainWindowClose = false;
     if (state.captureShortcut) {
       globalShortcut.unregister(state.captureShortcut);
       state.captureShortcut = null;
@@ -512,6 +415,67 @@ const sendToRenderer = (type, payload) => {
     }
     console.warn("[main] sendToRenderer failed", error);
   }
+};
+
+const handleLivePreviewSource = (payload) => {
+  const rootPath = workspace.getRootPath();
+  const sourceFile = typeof payload?.file === "string" ? payload.file.replace(/\0/g, "") : "";
+  const line = Number(payload?.line);
+  const column = Number(payload?.column);
+  if (!rootPath || !sourceFile || !Number.isFinite(line) || line < 1) {
+    return;
+  }
+  const root = path.resolve(rootPath);
+  const absolute = path.isAbsolute(sourceFile)
+    ? path.resolve(sourceFile)
+    : path.resolve(root, sourceFile);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return;
+  }
+  sendToRenderer("synctex:reverseResult", {
+    ok: true,
+    path: relative.split(path.sep).join("/"),
+    line: Math.floor(line),
+    column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+    source: "live-preview",
+  });
+};
+
+const handleLivePreviewEdit = (payload) => {
+  const rootPath = workspace.getRootPath();
+  const sourceFile = typeof payload?.file === "string" ? payload.file.replace(/\0/g, "") : "";
+  if (!rootPath || !sourceFile || typeof payload?.sessionId !== "string") return;
+  const root = path.resolve(rootPath);
+  const absolute = path.isAbsolute(sourceFile)
+    ? path.resolve(sourceFile)
+    : path.resolve(root, sourceFile);
+  const relative = path.relative(root, absolute);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return;
+  const positionValid = (value) =>
+    value && Number.isFinite(Number(value.line)) && Number(value.line) >= 1 &&
+    Number.isFinite(Number(value.column)) && Number(value.column) >= 1;
+  if (!positionValid(payload.start) || !positionValid(payload.end)) return;
+  sendToRenderer("live-preview:edit", {
+    sessionId: payload.sessionId,
+    regionId: typeof payload.regionId === "string" ? payload.regionId : undefined,
+    kind: payload.kind === "math" ? "math" : "text",
+    path: relative.split(path.sep).join("/"),
+    start: {
+      line: Math.floor(Number(payload.start.line)),
+      column: Math.floor(Number(payload.start.column)),
+    },
+    end: {
+      line: Math.floor(Number(payload.end.line)),
+      column: Math.floor(Number(payload.end.column)),
+    },
+    baseValue: typeof payload.baseValue === "string" ? payload.baseValue : "",
+    value: typeof payload.value === "string" ? payload.value : undefined,
+    replacement: typeof payload.replacement === "string" ? payload.replacement : "",
+    cancel: payload.cancel === true,
+    finish: payload.finish === true,
+    sourceRev: Number.isFinite(Number(payload.sourceRev)) ? Number(payload.sourceRev) : undefined,
+  });
 };
 
 const installApplicationMenu = () => {
@@ -621,12 +585,6 @@ const getPlatformAccessService = () => {
   return platformAccessService;
 };
 
-const workspaceChangeCoordinator = {
-  beforeChange: async () => {},
-};
-
-const externalWriterCoordinator = new WorkspaceWriterCoordinator();
-
 const workspaceHandlers = createWorkspaceHandlers({
   dialog,
   shell,
@@ -647,9 +605,6 @@ const workspaceHandlers = createWorkspaceHandlers({
     removeRecentProject: (p) => ensureUserSettings().removeRecentProject(p),
   },
   fileAccess: macFileAccess,
-  beforeWorkspaceChange: (change) => workspaceChangeCoordinator.beforeChange(change),
-  beginRendererWorkspaceMutation: (rootPath) =>
-    externalWriterCoordinator.beginRendererMutation(rootPath),
 });
 
 const agentService = new AgentService({
@@ -669,12 +624,7 @@ const agentService = new AgentService({
   sessionsService: getAgentSessionsService(),
   platformAccess: getPlatformAccessService(),
   envService,
-  isRendererWorkspaceMutationActive: (rootPath) =>
-    externalWriterCoordinator.hasRendererMutation(rootPath),
 });
-
-externalWriterCoordinator.setAgentActiveCheck((rootPath) =>
-  agentService.runningWorkspaceRoots.has(rootPath));
 
 const buildHandlers = createBuildHandlers({
   fs,
@@ -696,40 +646,9 @@ const buildHandlers = createBuildHandlers({
   delay,
 });
 
-const quiesceWorkspaceActivity = async () => {
-  agentService.abort();
-  buildHandlers.cancelAllBuilds();
-  const [agentStopped, buildStopped] = await Promise.all([
-    agentService.waitForIdle(10_000),
-    buildHandlers.waitForBuildIdle(10_000),
-  ]);
-  if (!agentStopped || !buildStopped) {
-    throw new Error("The current project is still finishing work. Please try again.");
-  }
-  return true;
-};
-
-workspaceChangeCoordinator.beforeChange = async (change = {}) => {
-  await quiesceWorkspaceActivity();
-  if (
-    typeof change.fromRootPath === "string" &&
-    change.fromRootPath &&
-    agentService.hasContentConflictInWorkspace(change.fromRootPath)
-  ) {
-    throw new Error(
-      "Resolve the Axiom edit conflict before switching projects.",
-    );
-  }
-};
-
 const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
-  agentService.abort();
-  buildHandlers.cancelAllBuilds();
-  agentService.discardContentConflictsForWorkspace(workspace.getRootPath());
+  buildHandlers.handleBuildCancel();
   workspace.setRootPath(null);
-  state.workspaceGeneration =
-    (Number.isSafeInteger(state.workspaceGeneration) ? state.workspaceGeneration : 0) + 1;
-  state.workspaceId = null;
   state.currentWorkspacePath = null;
   state.lastBuildPdfPath = null;
   if (closePdfWindow && typeof pdfWindowManager.close === "function") {
@@ -845,51 +764,6 @@ const looksLikeOAuthCallbackUrl = (value) => {
 };
 
 const pendingOAuthCallbackUrls = [];
-const pendingBillingCompletionPayloads = [];
-
-const canDeliverBillingCompletion = () => {
-  const mainWindow = state.mainWindow;
-  return Boolean(
-    app.isReady() &&
-      mainRendererReady &&
-      mainWindow &&
-      !mainWindow.isDestroyed() &&
-      mainWindow.webContents &&
-      !mainWindow.webContents.isDestroyed(),
-  );
-};
-
-const deliverBillingCompletion = (payload) => {
-  if (!canDeliverBillingCompletion()) {
-    return false;
-  }
-  focusMainWindow();
-  sendToRenderer("billing:checkoutClosed", payload);
-  return true;
-};
-
-const queueBillingCompletionDeepLink = (value) => {
-  const payload = parseBillingCompletionDeepLink(value);
-  if (!payload) {
-    return false;
-  }
-  if (!deliverBillingCompletion(payload)) {
-    pendingBillingCompletionPayloads.push(payload);
-  }
-  return true;
-};
-
-const flushPendingBillingCompletionLinks = () => {
-  if (!canDeliverBillingCompletion()) {
-    return;
-  }
-  while (pendingBillingCompletionPayloads.length > 0) {
-    const payload = pendingBillingCompletionPayloads.shift();
-    if (payload) {
-      deliverBillingCompletion(payload);
-    }
-  }
-};
 
 const allowMultiInstance =
   process.env.TEX64_ALLOW_MULTI_INSTANCE === "1";
@@ -940,19 +814,13 @@ if (!hasSingleInstanceLock) {
 } else {
   if (!allowMultiInstance) {
     app.on("second-instance", (_event, argv = []) => {
-      const protocolArgs = Array.isArray(argv)
-        ? argv.filter(
-            (arg) =>
-              looksLikeOAuthCallbackUrl(arg) ||
-              Boolean(parseBillingCompletionDeepLink(arg)),
-          )
+      const oauthArgs = Array.isArray(argv)
+        ? argv.filter((arg) => looksLikeOAuthCallbackUrl(arg))
         : [];
-      if (protocolArgs.length > 0) {
+      if (oauthArgs.length > 0) {
         focusMainWindow();
-        protocolArgs.forEach((arg) => {
-          if (!queueBillingCompletionDeepLink(arg)) {
-            queueOAuthCallbackUrl(arg);
-          }
+        oauthArgs.forEach((arg) => {
+          queueOAuthCallbackUrl(arg);
         });
         return;
       }
@@ -967,9 +835,7 @@ if (!hasSingleInstanceLock) {
 app.on("open-url", (event, url) => {
   event.preventDefault();
   focusMainWindow();
-  if (!queueBillingCompletionDeepLink(url)) {
-    queueOAuthCallbackUrl(url);
-  }
+  queueOAuthCallbackUrl(url);
 });
 
 app.whenReady().then(() => {
@@ -989,9 +855,7 @@ app.whenReady().then(() => {
     }
   }
   process.argv.forEach((arg) => {
-    if (!queueBillingCompletionDeepLink(arg)) {
-      queueOAuthCallbackUrl(arg);
-    }
+    queueOAuthCallbackUrl(arg);
   });
   if (!e2eHeadless) {
     if (app.isPackaged === true) {
@@ -1047,148 +911,31 @@ app.whenReady().then(() => {
   });
 });
 
-let quitPreparationSequence = 0;
-let pendingRendererQuitPreparation = null;
-
-const settleRendererQuitPreparation = (pending, result) => {
-  if (!pending || pendingRendererQuitPreparation !== pending) return false;
-  pendingRendererQuitPreparation = null;
-  try {
-    pending.webContents.removeListener("destroyed", pending.onDestroyed);
-  } catch {
-    // A renderer that disappeared while quitting has no listener to remove.
-  }
-  pending.resolve(result);
-  return true;
-};
-
-const prepareRendererForQuit = () => {
-  if (pendingRendererQuitPreparation) {
-    return pendingRendererQuitPreparation.promise;
-  }
-  const mainWindow = state.mainWindow;
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    return Promise.resolve({ ok: true });
-  }
-  const webContents = mainWindow.webContents;
-  if (!webContents || webContents.isDestroyed()) {
-    return Promise.resolve({ ok: true });
-  }
-
-  const requestId = `quit:${process.pid}:${++quitPreparationSequence}`;
-  let resolvePreparation;
-  const promise = new Promise((resolve) => {
-    resolvePreparation = resolve;
-  });
-  const pending = {
-    requestId,
-    webContents,
-    promise,
-    resolve: resolvePreparation,
-    onDestroyed: null,
-  };
-  pending.onDestroyed = () => {
-    settleRendererQuitPreparation(pending, {
-      ok: false,
-      error: "The editor closed before its files were saved.",
-    });
-  };
-  pendingRendererQuitPreparation = pending;
-  webContents.once("destroyed", pending.onDestroyed);
-  try {
-    webContents.send("tex64:message", {
-      type: "prepareQuit",
-      payload: { requestId },
-    });
-  } catch (error) {
-    settleRendererQuitPreparation(pending, {
-      ok: false,
-      error: error?.message ?? "Could not ask the editor to save its files.",
-    });
-  }
-  return promise;
-};
-
-const acceptRendererQuitPreparation = (event, message) => {
-  const pending = pendingRendererQuitPreparation;
-  if (
-    !pending ||
-    event.sender !== pending.webContents ||
-    message.requestId !== pending.requestId
-  ) {
-    return false;
-  }
-  return settleRendererQuitPreparation(pending, {
-    ok: message.ok === true,
-    error: typeof message.error === "string" ? message.error : undefined,
-  });
-};
-
-const shutdownQuitServices = () => {
-  const steps = [
-    ["agent", () => agentService.abort()],
-    ["build", () => buildHandlers.cancelAllBuilds()],
-    ["terminal", () => terminalService?.killAll()],
-    ["pdf", () => pdfWindowManager.close?.()],
-    ["ai-web", () => aiWebService?.shutdown?.()],
-    ["texlab", () => texlabService?.shutdown?.()],
-    ["texize", () => texizeService?.shutdown?.()],
-    ["tdom", () => tdomEngineService?.shutdown?.()],
-  ];
-  for (const [name, stop] of steps) {
-    try {
-      stop();
-    } catch (error) {
-      console.warn(`[quit] ${name} shutdown failed:`, error?.message ?? error);
-    }
-  }
-};
-
-const quitCoordinator = createQuitCoordinator({
-  prepareRenderer: prepareRendererForQuit,
-  flushAgent: () => flushAgentSessionsForQuit(agentService),
-  teardown: shutdownQuitServices,
-  requestQuit: () => app.quit(),
-  forceExit: (code) => app.exit(code),
-  // Native save acknowledgements already have bounded waits. Do not race them
-  // with a second timer: a late renderer success could otherwise freeze the UI
-  // after this coordinator had canceled the quit attempt.
-  prepareTimeoutMs: null,
-  forceExitTimeoutMs: 1_000,
-  onError: (error, stage) => {
-    console.warn(`[quit] ${stage} failed:`, error?.message ?? error);
-    if (stage === "prepare-renderer") focusMainWindow();
-  },
-});
-
-app.on("before-quit", (event) => {
-  quitCoordinator.handleBeforeQuit(event);
-});
-app.on("will-quit", () => {
-  quitCoordinator.handleWillQuit();
-});
-app.on("quit", () => {
-  quitCoordinator.handleQuit();
-});
-
 app.on("window-all-closed", () => {
-  const finalQuitInProgress = ["relaunching", "exiting", "forced"].includes(
-    quitCoordinator.getPhase(),
-  );
-  if (!finalQuitInProgress) {
-    if (texlabService) {
-      texlabService.shutdown();
-    }
-    if (texizeService) {
-      texizeService.shutdown();
-    }
-    if (tdomEngineService) {
-      tdomEngineService.shutdown();
-    }
-    clearWorkspaceSession({ closePdfWindow: true });
+  if (texlabService) {
+    texlabService.shutdown();
   }
+  if (texizeService) {
+    texizeService.shutdown();
+  }
+  if (tdomEngineService) {
+    tdomEngineService.shutdown();
+  }
+  clearWorkspaceSession({ closePdfWindow: true });
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+app.on("before-quit", () => {
+  if (texlabService) {
+    texlabService.shutdown();
+  }
+  if (texizeService) {
+    texizeService.shutdown();
+  }
+  if (tdomEngineService) {
+    tdomEngineService.shutdown();
   }
 });
 
@@ -1353,8 +1100,20 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
-registerTdomEngineHandlers({ ipcMain, getTdomEngineService });
+registerTdomEngineHandlers({ ipcMain, getTdomEngineService, getPdfWindowManager: () => pdfWindowManager });
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
+
+// AI-mode webview guests: window.open / target=_blank goes to the system
+// browser, never to a new in-app window.
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() !== "webview") return;
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: "deny" };
+  });
+});
 ipcMain.handle("tex64:files:read-text", async (_event, payload) => {
   try {
     const relativePath = typeof payload?.path === "string" ? payload.path : "";
@@ -1371,28 +1130,14 @@ ipcMain.handle("tex64:files:write-base64", async (_event, payload) => {
     const relativePath = typeof payload?.path === "string" ? payload.path : "";
     const data = typeof payload?.data === "string" ? payload.data : "";
     if (!relativePath || !data) throw new Error("A workspace path and image data are required.");
-    const rootPath = workspace.getRootPath();
-    if (!rootPath) throw new Error("No workspace is selected.");
-    await workspaceHandlers.withWorkspaceMutation(async () => {
-      if (workspace.getRootPath() !== rootPath) {
-        throw new Error("The workspace changed before the file was saved.");
-      }
-      await workspace.writeBinaryFile(relativePath, Buffer.from(data, "base64"));
-    });
+    if (!workspace.getRootPath()) throw new Error("No workspace is selected.");
+    await workspace.writeBinaryFile(relativePath, Buffer.from(data, "base64"));
     return { ok: true, path: relativePath };
   } catch (error) {
     return { ok: false, error: error?.message || String(error) };
   }
 });
 ipcMain.handle("tex64:ai:complete", async (_event, payload) => agentHandlers.handleStashComplete(payload));
-ipcMain.handle("tex64:agent:quiesce", async () => {
-  try {
-    await quiesceWorkspaceActivity();
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error?.message || String(error) };
-  }
-});
 
 // LSP transport: the renderer owns the LSP client; main just relays JSON-RPC
 // to/from texlab over stdio. Outgoing messages are fire-and-forget; replies and
@@ -1449,7 +1194,7 @@ let billingCheckoutRequestInFlight = false;
 // The production API currently returns hosted Checkout sessions. Keep the
 // payment inside TeX64, then report the Stripe return URL back to the renderer
 // so it can refresh the user's entitlement without guessing that they paid.
-const openBillingCheckoutWindow = ({ url, plan }) => {
+const openBillingCheckoutWindow = ({ url, plan, sender }) => {
   if (billingCheckoutWindow && !billingCheckoutWindow.isDestroyed()) {
     billingCheckoutWindow.focus();
     return billingCheckoutWindow;
@@ -1524,10 +1269,19 @@ const openBillingCheckoutWindow = ({ url, plan }) => {
     if (billingCheckoutWindow === win) {
       billingCheckoutWindow = null;
     }
-    // Use the app's normal host -> renderer bus. Unlike a listener installed
-    // directly on ipcRenderer by the preload, this survives renderer reloads
-    // and is initialized through the same bridge as plan/usage updates.
-    sendToRenderer("billing:checkoutClosed", { plan, outcome });
+    const target =
+      sender && !sender.isDestroyed()
+        ? sender
+        : state.mainWindow && !state.mainWindow.isDestroyed()
+          ? state.mainWindow.webContents
+          : null;
+    if (target && !target.isDestroyed()) {
+      try {
+        target.send("tex64:billing:checkout-closed", { plan, outcome });
+      } catch {
+        // The main window may have closed between the guard and send.
+      }
+    }
   });
   win.loadURL(url).catch(() => {
     if (outcome === "closed") {
@@ -1586,7 +1340,7 @@ const openBillingPortalWindow = ({ url, sender }) => {
   return win;
 };
 
-ipcMain.handle("tex64:billing:checkout", async (_event, payload) => {
+ipcMain.handle("tex64:billing:checkout", async (event, payload) => {
   const plan = payload && typeof payload === "object" ? payload.plan : undefined;
   if (billingCheckoutWindow && !billingCheckoutWindow.isDestroyed()) {
     billingCheckoutWindow.focus();
@@ -1603,7 +1357,7 @@ ipcMain.handle("tex64:billing:checkout", async (_event, payload) => {
     const checkout = await getPlatformAccessService().createBillingCheckout(plan);
     const checkoutUrl = normalizeStripeCheckoutUrl(checkout.checkoutUrl);
     if (checkoutUrl) {
-      openBillingCheckoutWindow({ url: checkoutUrl, plan });
+      openBillingCheckoutWindow({ url: checkoutUrl, plan, sender: event.sender });
       return { hosted: true, uiMode: "hosted", sessionId: checkout.sessionId };
     }
     return {
@@ -1667,69 +1421,12 @@ ipcMain.handle("tex64:spell:add", async (_event, request) => {
   }
 });
 
-const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
-const validateAiModeTurn = (message) => {
-  const conversationId =
-    typeof message?.conversationId === "string" ? message.conversationId : "";
-  if (!conversationId.startsWith(AI_MODE_CONVERSATION_PREFIX)) {
-    return { ok: true, context: message?.context };
-  }
-  const rootPath = workspace.getRootPath();
-  const workspaceId =
-    typeof message.workspaceId === "string" ? message.workspaceId.trim() : "";
-  const documentMainFile =
-    typeof message.documentMainFile === "string"
-      ? message.documentMainFile.trim().replace(/\\/g, "/").replace(/^\.\/+/, "")
-      : "";
-  const generationMatches =
-    Number.isSafeInteger(message.workspaceGeneration) &&
-    message.workspaceGeneration === state.workspaceGeneration;
-  if (
-    !rootPath ||
-    !workspaceId ||
-    workspaceId !== state.workspaceId ||
-    !generationMatches ||
-    !documentMainFile ||
-    !documentMainFile.toLowerCase().endsWith(".tex")
-  ) {
-    return { ok: false };
-  }
-  const expectedConversationId = `${AI_MODE_CONVERSATION_PREFIX}${encodeURIComponent(
-    workspaceId
-  )}:${encodeURIComponent(documentMainFile)}`;
-  if (conversationId !== expectedConversationId) {
-    return { ok: false };
-  }
-  const resolved = path.resolve(rootPath, documentMainFile);
-  const relative = path.relative(rootPath, resolved);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    return { ok: false };
-  }
-  return {
-    ok: true,
-    context: {
-      ...(message.context && typeof message.context === "object"
-        ? message.context
-        : {}),
-      activeFilePath: documentMainFile,
-      workspaceRoot: rootPath,
-      workspaceId,
-      workspaceGeneration: state.workspaceGeneration,
-      documentMainFile,
-    },
-  };
-};
-
-ipcMain.on("tex64", (event, message) => {
+ipcMain.on("tex64", (_event, message) => {
   if (!message || typeof message !== "object") {
     return;
   }
   const { type } = message;
   if (!type) {
-    return;
-  }
-  if (type === "prepareQuit:result") {
-    acceptRendererQuitPreparation(event, message);
     return;
   }
   if (type === "ready") {
@@ -1767,9 +1464,6 @@ ipcMain.on("tex64", (event, message) => {
         rootPath: null,
         files: [],
         folders: [],
-        workspaceGeneration:
-          Number.isSafeInteger(state.workspaceGeneration) ? state.workspaceGeneration : 0,
-        workspaceId: null,
       });
     }
     return;
@@ -1814,6 +1508,10 @@ ipcMain.on("tex64", (event, message) => {
     buildHandlers.handleSynctexReverse(message);
     return;
   }
+  if (type === "live-preview:source") {
+    handleLivePreviewSource(message);
+    return;
+  }
   if (type === "build") {
     // targetFile (AI mode) builds exactly that document; mainFile (Code mode)
     // keeps deferring to the workspace's designated root.
@@ -1825,11 +1523,6 @@ ipcMain.on("tex64", (event, message) => {
       engine: message.engine,
       pdfViewerMode: message.pdfViewerMode,
       exactTarget,
-      requestId: message.requestId,
-      workspaceGeneration: message.workspaceGeneration,
-      workspaceId: message.workspaceId,
-      documentMainFile: message.documentMainFile,
-      queueIfBusy: message.queueIfBusy === true,
     });
     return;
   }
@@ -1857,24 +1550,16 @@ ipcMain.on("tex64", (event, message) => {
       line: message.line,
       radius: message.radius,
       maxLines: message.maxLines,
-      workspaceGeneration: message.workspaceGeneration,
-      workspaceId: message.workspaceId,
-      documentMainFile: message.documentMainFile,
     });
     return;
   }
   if (type === "file:bytes") {
-    workspaceHandlers.handleFileBytes(message.requestId, message.path, {
-      workspaceGeneration: message.workspaceGeneration,
-      workspaceId: message.workspaceId,
-      documentMainFile: message.documentMainFile,
-    });
+    workspaceHandlers.handleFileBytes(message.requestId, message.path);
     return;
   }
   if (type === "saveFile") {
     workspaceHandlers.handleSaveFile(message.path, message.content, {
       format: message.format,
-      expectedContent: message.expectedContent,
       formatSource: message.formatSource,
       formatSettings: message.formatSettings,
     });
@@ -1887,53 +1572,39 @@ ipcMain.on("tex64", (event, message) => {
         endLine: message.endLine,
         expectedText: message.expectedText,
         replacementText: message.replacementText,
-        expectedContentHash: message.expectedContentHash,
-        workspaceGeneration: message.workspaceGeneration,
-        workspaceId: message.workspaceId,
-        documentMainFile: message.documentMainFile,
-        conversationId: message.conversationId,
       })
       .then((outcome) => {
         // The page must follow the paragraph that just changed. Rebuilding
         // here, off the write itself, cannot be lost the way a second
         // build request from the guest can.
         if (outcome && outcome.ok === true) {
-          if (
-            typeof outcome.previousContent === "string" &&
-            typeof message.path === "string" &&
-            message.path
-          ) {
-            agentService.pushUndoEntry({
-              type: "write",
-              conversationId:
-                typeof outcome.conversationId === "string" && outcome.conversationId
-                  ? outcome.conversationId
-                  : "tex64-ai-direct-edit",
-              runId: `direct:${message.requestId || Date.now()}`,
-              path: message.path,
-              existed: true,
-              previousBuffer: Buffer.from(outcome.previousContent, "utf8"),
-              wasBinary: false,
-              appliedHash: outcome.contentHash,
-              workspaceRootPath: outcome.workspaceRootPath,
-            });
-          }
+          // The edited file's own document builds — its folder's main.tex
+          // when it has one, the workspace root otherwise.
+          const editedPath = typeof message.path === "string" ? message.path : "";
+          const folder = editedPath.includes("/")
+            ? editedPath.slice(0, editedPath.lastIndexOf("/"))
+            : "";
+          const candidate = folder ? `${folder}/main.tex` : null;
+          const rootPath = workspaceHandlers.ensureWorkspace();
           const documentMain =
-            typeof outcome.documentMainFile === "string" && outcome.documentMainFile
-              ? outcome.documentMainFile
-              : undefined;
-          return buildHandlers.handleBuild(documentMain, {
+            candidate && rootPath && fs.existsSync(path.join(rootPath, candidate))
+              ? candidate
+              : null;
+          return buildHandlers.handleBuild(documentMain ?? undefined, {
             pdfViewerMode: "none",
-            exactTarget: Boolean(documentMain),
-            requestId: `${message.requestId || "direct-edit"}:build`,
-            workspaceGeneration: message.workspaceGeneration,
-            workspaceId: message.workspaceId,
-            documentMainFile: documentMain,
-            queueIfBusy: true,
+            exactTarget: documentMain !== null,
           });
         }
         return undefined;
       });
+    return;
+  }
+  if (type === "document:create") {
+    workspaceHandlers.handleDocumentCreate(message.requestId, message.title);
+    return;
+  }
+  if (type === "document:list") {
+    workspaceHandlers.handleDocumentList(message.requestId);
     return;
   }
   if (type === "formatFile") {
@@ -2091,38 +1762,16 @@ ipcMain.on("tex64", (event, message) => {
     agentHandlers.handleAgentSettingsSet(message.settings);
     return;
   }
-  if (type === "agent:model:get") {
-    agentHandlers.handleAgentModelGet();
-    return;
-  }
-  if (type === "agent:model:set") {
-    agentHandlers.handleAgentModelSet(message.model);
-    return;
-  }
   if (type === "agent:state:get") {
-    agentHandlers.handleAgentStateGet(message.requestId, message.conversationId);
+    agentHandlers.handleAgentStateGet();
     return;
   }
   if (type === "agent:run") {
-    const turn = validateAiModeTurn(message);
-    if (!turn.ok) {
-      sendToRenderer("agent:error", {
-        conversationId: message.conversationId,
-        message: "The workspace changed. Retry in the document now open.",
-      });
-      agentService.sendStatus(
-        "error",
-        "The workspace changed.",
-        message.conversationId,
-      );
-      return;
-    }
     agentHandlers.handleAgentRun(
       message.message,
-      turn.context,
+      message.context,
       message.conversationId,
-      message.parts,
-      () => validateAiModeTurn(message).ok,
+      message.parts
     );
     return;
   }
@@ -2134,20 +1783,8 @@ ipcMain.on("tex64", (event, message) => {
     agentHandlers.handleAgentAbort(message.conversationId);
     return;
   }
-  if (type === "agent:contentConflict") {
-    agentHandlers.handleAgentContentConflict(message.conversationId, message.path);
-    return;
-  }
-  if (type === "agent:contentConflictResolved") {
-    agentHandlers.handleAgentContentConflictResolved(message.conversationId, message.path);
-    return;
-  }
   if (type === "agent:apply") {
     agentHandlers.handleAgentApply(message.proposalId);
-    return;
-  }
-  if (type === "agent:applyBatch") {
-    agentHandlers.handleAgentApplyBatch(message.proposalIds);
     return;
   }
   if (type === "agent:proposal:dismiss") {
@@ -2155,10 +1792,7 @@ ipcMain.on("tex64", (event, message) => {
     return;
   }
   if (type === "agent:undoLastRunApply") {
-    agentHandlers.handleAgentUndoLastRunApply(
-      message.conversationId,
-      message.requestId
-    );
+    agentHandlers.handleAgentUndoLastRunApply(message.conversationId);
     return;
   }
   if (type === "agent:undoLastApply") {
@@ -2191,7 +1825,7 @@ ipcMain.on("tex64", (event, message) => {
 
 });
 
-ipcMain.on("tex64:pdf", (_event, message) => {
+ipcMain.on("tex64:pdf", (event, message) => {
   if (!message || typeof message !== "object") {
     return;
   }
@@ -2203,6 +1837,14 @@ ipcMain.on("tex64:pdf", (_event, message) => {
     pdfWindowManager.markReady();
     return;
   }
+  if (type === "live-surface-ready") {
+    pdfWindowManager.markLiveReady(message.payload ?? {}, event.sender);
+    return;
+  }
+  if (type === "live-error-surface-ready") {
+    pdfWindowManager.markLiveErrorReady(message.payload ?? {}, event.sender);
+    return;
+  }
   if (type === "reverse") {
     const payload = message.payload ?? {};
     buildHandlers.handleSynctexReverse({
@@ -2212,5 +1854,12 @@ ipcMain.on("tex64:pdf", (_event, message) => {
       pdfPath: payload.path,
     });
     return;
+  }
+  if (type === "live-source") {
+    handleLivePreviewSource(message.payload);
+    return;
+  }
+  if (type === "live-edit") {
+    handleLivePreviewEdit(message.payload);
   }
 });

@@ -14,12 +14,11 @@
  *     list_sections, read_section, replace_section, append_to_section
  *
  *   Whole-file replacement (last resort, with safety guards):
- *     write_file  — refuses destructive shrinks unless allowFullRewrite=true;
- *                   protected LaTeX structure cannot be removed by the agent
+ *     write_file  — refuses destructive shrinks unless allowFullRewrite=true
  *
- *   Compile / arXiv / environment:
- *     compile_document, arxiv_search, arxiv_bibtex,
- *     check_environment
+ *   Shell / arXiv / environment:
+ *     run_command, arxiv_search, arxiv_bibtex,
+ *     check_environment, install_environment
  *
  * Every file-modifying tool returns a structured success result
  * containing { status, path, change: { linesBefore, linesAfter,
@@ -59,10 +58,7 @@ const describeToolTarget = (name, args) => {
  */
 const wrapWithIpc = (name, fn, service, conversationId) => {
   return async (args) => {
-    const label =
-      name === "compile_document"
-        ? "Compiling document"
-        : TOOL_STATUS_LABELS[name] || name;
+    const label = TOOL_STATUS_LABELS[name] || name;
     const detail = describeToolTarget(name, args);
     service.sendToRenderer("agent:tool", {
       name,
@@ -124,7 +120,7 @@ const getXMLParser = async () => {
  * @param {string} conversationId
  * @param {object} policy   — resolved agent policy
  */
-const buildTools = (service, conversationId, policy, runContext = {}) => {
+const buildTools = (service, conversationId, policy) => {
   const {
     handleCreateFile,
     handleDeleteLines,
@@ -140,62 +136,15 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     handleReplaceSection,
     handleAppendToSection,
   } = require("../agent-tools-latex.cjs");
+  const { handleRunCommand } = require("../agent-tools-file-utils.cjs");
   const { handleFindMathRegion } = require("../agent-tools-math.cjs");
 
-  const rootPath =
-    typeof runContext.rootPath === "string" && runContext.rootPath.trim()
-      ? runContext.rootPath.trim()
-      : service.workspace.getRootPath() || "";
-  const activeDocumentPath =
-    typeof runContext.context?.activeFilePath === "string"
-      ? runContext.context.activeFilePath.trim()
-      : "";
-  const turnSignal = runContext.signal;
-
-  const assertWorkspaceBound = () => {
-    if (service.workspace.getRootPath() !== rootPath) {
-      const error = new Error(
-        "The workspace changed during this Axiom turn. This tool was refused; retry in the current workspace."
-      );
-      error.code = "AGENT_WORKSPACE_CHANGED";
-      throw error;
-    }
-  };
-  const resolveCapturedWorkspacePath = (relativePath) => {
-    // Keep the preview read on the same canonical boundary as the actual
-    // proposal/apply path. A lexical prefix check alone follows a symlink in
-    // the workspace to an arbitrary file outside it.
-    const resolved = service.workspace.resolvePath(String(relativePath ?? ""));
-    const resolvedRoot = nodePath.resolve(rootPath);
-    if (resolved !== resolvedRoot && !resolved.startsWith(`${resolvedRoot}${nodePath.sep}`)) {
-      throw new Error("The requested path must stay inside the captured workspace.");
-    }
-    return resolved;
-  };
+  const rootPath = service.workspace.getRootPath() || "";
 
   const make = (name, description, parameters, fn) => ({
     type: "function",
     function: { name, description, parameters },
-    execute: wrapWithIpc(
-      name,
-      async (args) => {
-        assertWorkspaceBound();
-        // Structural removal has no model-facing approval primitive today.
-        // Force the internal escape hatch off at the common execution boundary
-        // so omitted JSON-schema strictness or an invented extra property can
-        // never turn it on. A future UI approval must use a trusted path that
-        // does not pass through buildTools.
-        const safeArgs =
-          args && typeof args === "object" && !Array.isArray(args)
-            ? { ...args, allowStructuralRemoval: false }
-            : args;
-        const result = await fn(safeArgs);
-        assertWorkspaceBound();
-        return result;
-      },
-      service,
-      conversationId,
-    ),
+    execute: wrapWithIpc(name, fn, service, conversationId),
   });
 
   // ---- Read tools ----
@@ -252,13 +201,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       },
       required: ["path", "startLine", "endLine", "content"],
     },
-    async (args) =>
-      handleReplaceLines(
-        service,
-        { ...args, allowStructuralRemoval: false },
-        policy,
-        conversationId,
-      ),
+    async (args) => handleReplaceLines(service, args, policy, conversationId),
   );
 
   const insertLinesTool = make(
@@ -282,7 +225,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
   const deleteLinesTool = make(
     "delete_lines",
     "Delete a contiguous block of lines from an existing file. " +
-      "Input: { path, startLine, endLine, allowFullRewrite?, summary? }. 1-based inclusive. " +
+      "Input: { path, startLine, endLine, summary? }. 1-based inclusive. " +
       "Refuses destructive deletions (> 50% of the file) unless allowFullRewrite=true.",
     {
       type: "object",
@@ -295,13 +238,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       },
       required: ["path", "startLine", "endLine"],
     },
-    async (args) =>
-      handleDeleteLines(
-        service,
-        { ...args, allowStructuralRemoval: false },
-        policy,
-        conversationId,
-      ),
+    async (args) => handleDeleteLines(service, args, policy, conversationId),
   );
 
   const createFileTool = make(
@@ -378,13 +315,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       },
       required: ["path", "content"],
     },
-    async (args) =>
-      handleReplaceSection(
-        service,
-        { ...args, allowStructuralRemoval: false },
-        policy,
-        conversationId,
-      ),
+    async (args) => handleReplaceSection(service, args, policy, conversationId),
   );
 
   const appendToSectionTool = make(
@@ -437,8 +368,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       "tool: for any targeted change in an existing file, prefer replace_lines / " +
       "insert_lines / delete_lines / replace_section / append_to_section. " +
       "Destructive shrinks (new content < 50% of original lines) are REJECTED " +
-      "unless you explicitly pass allowFullRewrite=true. Protected LaTeX structure " +
-      "is preserved even then and cannot be removed by Axiom editing tools. " +
+      "unless you explicitly pass allowFullRewrite=true. " +
       "Input: { path, content, mode?, allowFullRewrite?, summary? }.",
     {
       type: "object",
@@ -467,9 +397,6 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           summary: args.summary || "Full file rewrite",
           mode: args.mode,
           allowFullRewrite: args.allowFullRewrite,
-          // This internal escape hatch is reserved for a future trusted UI
-          // approval flow. Model-supplied extra properties cannot enable it.
-          allowStructuralRemoval: false,
         },
         policy,
         conversationId,
@@ -483,14 +410,12 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     "apply_patch",
     "Apply a unified diff to a file. Prefer replace_lines / insert_lines / " +
       "delete_lines or the replace_section family unless you have a precise " +
-      "unified diff ready. Protected LaTeX structure cannot be removed by Axiom " +
-      "editing tools. Input: { patch, path?, allowFullRewrite? }.",
+      "unified diff ready. Input: { patch, path? }.",
     {
       type: "object",
       properties: {
         patch: { type: "string" },
         path: { type: "string" },
-        allowFullRewrite: { type: "boolean" },
       },
       required: ["patch"],
     },
@@ -509,7 +434,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
         );
       }
 
-      const absPath = resolveCapturedWorkspacePath(targetPath);
+      const absPath = nodePath.resolve(rootPath, targetPath);
       const oldContent = existsSync(absPath) ? readFileSync(absPath, "utf8") : "";
 
       const Diff = require("diff");
@@ -533,7 +458,6 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
           // current file, so destructive shrink is unlikely; still let it be
           // gated by allowFullRewrite if the patch removes most of the file.
           allowFullRewrite: args.allowFullRewrite === true,
-          allowStructuralRemoval: false,
         },
         policy,
         conversationId,
@@ -571,42 +495,6 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     },
   );
 
-  // ---- compile_document ----
-  const compileDocumentTool = make(
-    "compile_document",
-    "Compile a LaTeX document through TeX64's real build service and return " +
-      "structured errors plus the relevant compiler log. With no mainFile it " +
-      "compiles the active .tex document " +
-      "for this turn; a nested document is built exactly and is not replaced by " +
-      "the workspace-wide root. Input: { mainFile?, engine? }.",
-    {
-      type: "object",
-      properties: {
-        mainFile: {
-          type: "string",
-          description: "Workspace-relative .tex document. Omit to compile the active document.",
-        },
-        engine: {
-          type: "string",
-          enum: ["lualatex", "pdflatex", "xelatex", "uplatex"],
-        },
-      },
-    },
-    async (args) =>
-      service.executeToolCall(
-        {
-          name: "run_build",
-          args: {
-            ...(typeof args?.mainFile === "string"
-              ? { mainFile: args.mainFile }
-              : {}),
-            ...(typeof args?.engine === "string" ? { engine: args.engine } : {}),
-          },
-        },
-        conversationId,
-      ),
-  );
-
   // ---- arxiv_search ----
   const arxivSearchTool = make(
     "arxiv_search",
@@ -624,10 +512,6 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
       const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(args.query)}&start=0&max_results=${max}`;
       const res = await fetch(url, {
         headers: { "User-Agent": "tex64/1.0" },
-        signal:
-          turnSignal && typeof AbortSignal.any === "function"
-            ? AbortSignal.any([turnSignal, AbortSignal.timeout(30_000)])
-            : AbortSignal.timeout(30_000),
       });
       if (!res.ok) {
         throw new Error(`arXiv search failed: ${res.status}`);
@@ -677,7 +561,7 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     async (args) => {
       const id = extractArxivId(args.arxivId);
       if (!id) throw new Error("Invalid arXiv ID");
-      const entry = await fetchArxivEntry(id, { signal: turnSignal });
+      const entry = await fetchArxivEntry(id);
       if (!entry) throw new Error("No arXiv metadata found");
       return buildArxivBibtex(entry);
     },
@@ -706,6 +590,56 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     },
   );
 
+  // ---- install_environment ----
+  const installEnvironmentTool = make(
+    "install_environment",
+    "Install a TeX-related package. Input: { target }. Supported targets: 'basictex' " +
+      "(TeX64 managed TeX Live), 'latexmk', 'latexindent'. Uses the official TeX Live installer on macOS/Windows.",
+    {
+      type: "object",
+      properties: { target: { type: "string" } },
+      required: ["target"],
+    },
+    async (args) => {
+      if (!service.envService) {
+        return JSON.stringify({ error: "Environment service is not available." });
+      }
+      const target = typeof args.target === "string" ? args.target.trim() : "";
+      if (!target) {
+        return JSON.stringify({ error: "target is required." });
+      }
+      const result = await service.envService.installEnvironment(target);
+      return JSON.stringify(result);
+    },
+  );
+
+  // ---- run_command ----
+  const runCommandTool = make(
+    "run_command",
+    "Run a shell command in the project directory and return stdout/stderr. " +
+      "Use for: building (latexmk), file operations (rm, mv, mkdir), inspecting " +
+      "logs, grep, and any other terminal task.",
+    {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command to execute" },
+        cwd: { type: "string", description: "Working directory (relative to project root, optional)" },
+        timeoutMs: { type: "number", description: "Timeout in milliseconds (optional, max 120000)" },
+      },
+      required: ["command"],
+    },
+    async (args) => {
+      const result = await handleRunCommand(service, args);
+      if (result?.error) return JSON.stringify(result);
+      const parts = [];
+      if (result.stdout) parts.push(result.stdout);
+      if (result.stderr) parts.push(`[stderr] ${result.stderr}`);
+      if (result.timedOut) parts.push("[timed out]");
+      const output = parts.join("\n").slice(0, 20000) || "(no output)";
+      return `[exit ${result.exitCode ?? "?"}]\n${output}`;
+    },
+  );
+
   return [
     readFileTool,
     listFilesTool,
@@ -720,11 +654,12 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     createFileTool,
     writeFileTool,
     applyPatchTool,
-    compileDocumentTool,
+    runCommandTool,
     getCompileLogTool,
     arxivSearchTool,
     arxivBibtexTool,
     checkEnvironmentTool,
+    installEnvironmentTool,
   ];
 };
 

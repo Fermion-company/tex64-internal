@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, History, Play, Plus, Undo2 } from "lucide-react";
+import { ChevronDown, History, Plus } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -27,28 +27,17 @@ import {
   rebasePatchAfterConflict,
 } from "@/lib/client/document-save";
 import { drainPendingSaves } from "@/lib/client/save-drain";
+import { segmentParagraph } from "@/domain/source/paragraph-editing";
 import {
   conversationIdFor,
-  loadNativeConversation,
-  nativeConversationRestoreMode,
-  nativeTerminalFailed,
-  nativeThreadSessionKey,
-  runNativeTurn,
-  scheduleAttachedAbortFallback,
-  stopWorkspaceTurn,
-  undoNativeConversation,
-} from "@/lib/client/native-agent";
-import { getNativeHost, hostMessageBody, type HostMessage } from "@/lib/client/native-host";
-import {
   requestWorkspaceBuild,
-  useNativeWorkspace,
-} from "@/lib/client/use-native-workspace";
+  runNativeTurn,
+} from "@/lib/client/native-agent";
+import { useAiDocuments } from "@/lib/client/use-ai-documents";
 import { useParagraphEditor } from "@/lib/client/use-paragraph-editor";
 import { useSourceLocator } from "@/lib/client/use-source-locator";
 import { useWorkspacePdf } from "@/lib/client/use-workspace-pdf";
-import { useNativePlatform } from "@/lib/client/use-native-platform";
-import { NativeWorkspacePanel } from "@/components/native-workspace-panel";
-import { NativePlatformControls } from "@/components/native-platform-controls";
+import { NativeNewDocumentPanel } from "@/components/native-new-document-panel";
 import { ParagraphEditCard } from "@/components/paragraph-edit-card";
 import type {
   ChatMessage,
@@ -104,7 +93,7 @@ export function DocumentWorkspace() {
   const [streamingText, setStreamingText] = useState("");
   const [activityTool, setActivityTool] = useState<string | null>(null);
   const [turnDocumentId, setTurnDocumentId] = useState<string | null>(null);
-  const [queuedPrompts, setQueuedPrompts] = useState<string[]>([]);
+  const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
   const [turnError, setTurnError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -113,7 +102,7 @@ export function DocumentWorkspace() {
   const flushOutstandingSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const turnAbortRef = useRef<AbortController | null>(null);
-  const queuedPromptsRef = useRef<string[]>([]);
+  const queuedPromptRef = useRef<string | null>(null);
   const runTurnRef = useRef<
     ((document: DocumentDetail, prompt: string, targetNodeId?: string) => Promise<void>) | null
   >(null);
@@ -126,88 +115,22 @@ export function DocumentWorkspace() {
   const saveVersionRef = useRef(0);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const pendingCreateRequestRef = useRef<PendingCreateRequest | null>(null);
-  // Code and AI share the same workspace and configured build root. AI has no
-  // private document list or document-creation flow inside the desktop app.
-  const nativeWorkspace = useNativeWorkspace();
-  const nativePlatform = useNativePlatform();
-  const nativeWorkspaceId = nativeWorkspace.workspaceId;
-  const nativeMainFile = nativeWorkspace.current?.mainFile ?? null;
-  const nativeWorkspaceIdentity = useMemo(
-    () => ({
-      workspaceId: nativeWorkspace.workspaceId,
-      workspaceRoot: nativeWorkspace.workspaceRoot,
-      workspaceGeneration: nativeWorkspace.workspaceGeneration,
-    }),
-    [
-      nativeWorkspace.workspaceGeneration,
-      nativeWorkspace.workspaceId,
-      nativeWorkspace.workspaceRoot,
-    ],
-  );
-  const workspacePdf = useWorkspacePdf(nativeWorkspace.current);
-  const nativeDocumentContext = useMemo(
-    () => ({
-      ...nativeWorkspaceIdentity,
-      documentMainFile: nativeMainFile,
-      conversationId:
-        nativeMainFile && nativeWorkspaceId
-          ? conversationIdFor(nativeWorkspaceId, nativeMainFile)
-          : null,
-    }),
-    [nativeMainFile, nativeWorkspaceId, nativeWorkspaceIdentity],
-  );
-  const sourceLocator = useSourceLocator(nativeDocumentContext);
-  const paragraphEditor = useParagraphEditor(nativeDocumentContext);
-  const sourceLocation = sourceLocator.location;
-  const clearSourceLocation = sourceLocator.clear;
-  const openParagraphEditor = paragraphEditor.open;
-
-  // A paper click is already an editing intent. Resolve it and open the
-  // human-facing editor directly; never stop at a source file/line card.
-  useEffect(() => {
-    const location = sourceLocation;
-    if (!workspacePdf.native || !location) return;
-    openParagraphEditor({
-      path: location.path,
-      line: location.line,
-      selectedText: location.selectedText,
-    });
-    clearSourceLocation();
-  }, [
-    clearSourceLocation,
-    openParagraphEditor,
-    sourceLocation,
-    workspacePdf.native,
-  ]);
+  // Inside the desktop app the page comes from the workspace build, not from
+  // this service's own artifact, and the agent keeps its own thread. Each
+  // document is a folder in the workspace; the page follows the current one.
+  const aiDocs = useAiDocuments();
+  const workspacePdf = useWorkspacePdf(aiDocs.current);
+  const sourceLocator = useSourceLocator();
+  const paragraphEditor = useParagraphEditor();
+  const [nativeNewOpen, setNativeNewOpen] = useState(false);
   const agentWorking = turnDocumentId !== null;
   // The desktop agent keeps its own thread; this service's document knows
   // nothing about it, so reloading the document must not wipe the chat.
   const [nativeMessages, setNativeMessages] = useState<ChatMessage[]>([]);
-  const [nativeUndoCount, setNativeUndoCount] = useState(0);
-  const [nativeHistoryLoading, setNativeHistoryLoading] = useState(false);
-  const [nativeTurnStopping, setNativeTurnStopping] = useState(false);
-  const nativeThreadWorking =
-    turnDocumentId !== null &&
-    turnDocumentId === nativeDocumentContext.conversationId;
   const messages = useMemo<ChatMessage[]>(
     () => (workspacePdf.native ? nativeMessages : (activeDocument?.messages ?? [])),
     [activeDocument?.messages, nativeMessages, workspacePdf.native],
   );
-  const enqueuePrompt = useCallback((prompt: string) => {
-    const next = [...queuedPromptsRef.current, prompt];
-    queuedPromptsRef.current = next;
-    setQueuedPrompts(next);
-  }, []);
-  const takeQueuedPrompt = useCallback((): string | null => {
-    const [nextPrompt, ...remaining] = queuedPromptsRef.current;
-    queuedPromptsRef.current = remaining;
-    setQueuedPrompts(remaining);
-    return nextPrompt ?? null;
-  }, []);
-  const clearQueuedPrompts = useCallback(() => {
-    queuedPromptsRef.current = [];
-    setQueuedPrompts([]);
-  }, []);
   const selectedElement = useMemo(
     () =>
       activeDocument?.elements.find(
@@ -435,13 +358,6 @@ export function DocumentWorkspace() {
   );
 
   useEffect(() => {
-    // The desktop branch is backed by the Code workspace and local agent. Its
-    // bundled Next server has no document database and must not probe the web
-    // service routes during startup.
-    if (getNativeHost()) {
-      initialLoadRef.current = false;
-      return;
-    }
     let cancelled = false;
 
     void listDocuments().then(async (result) => {
@@ -770,14 +686,11 @@ export function DocumentWorkspace() {
       );
 
       turnAbortRef.current = null;
-      setTurnDocumentId((current) =>
-        current === document.id ? null : current,
-      );
+      setTurnDocumentId(null);
       setActivityTool(null);
       setStreamingText("");
       if (!result.ok) {
         setTurnError("送信できませんでした。もう一度お試しください。");
-        clearQueuedPrompts();
         return;
       }
       // The stored thread now holds the assistant's reply; reloading also
@@ -786,104 +699,35 @@ export function DocumentWorkspace() {
       if (revisionChanged) setCompileFailed(false);
 
       // A message typed while this turn was running goes next, in order.
-      const queued = takeQueuedPrompt();
+      const queued = queuedPromptRef.current;
       if (queued) {
+        queuedPromptRef.current = null;
+        setQueuedPrompt(null);
         const latest = latestDocumentsRef.current[document.id] ?? document;
         void runTurnRef.current?.(latest, queued);
       }
     },
-    [
-      clearQueuedPrompts,
-      flushOutstandingSave,
-      refreshAfterTurn,
-      takeQueuedPrompt,
-      updateStoredDocument,
-    ],
+    [flushOutstandingSave, refreshAfterTurn, updateStoredDocument],
   );
 
   useEffect(() => {
     runTurnRef.current = runTurn;
   }, [runTurn]);
 
-  /** One desktop-agent turn scoped to Code's current workspace build root. */
-  const runNativeDocTurnRef = useRef<
-    ((prompt: string, onStarted?: () => void) => Promise<void>) | null
-  >(null);
-  const nativeDocument = nativeWorkspace.current;
-  const nativeConversationId = useMemo(
-    () =>
-      nativeMainFile && nativeWorkspace.workspaceId
-        ? conversationIdFor(nativeWorkspace.workspaceId, nativeMainFile)
-        : null,
-    [nativeMainFile, nativeWorkspace.workspaceId],
-  );
-  const nativeThreadSession = useMemo(
-    () =>
-      nativeThreadSessionKey(
-        nativeWorkspace.workspaceId,
-        nativeWorkspace.workspaceGeneration,
-        nativeMainFile,
-      ),
-    [
-      nativeMainFile,
-      nativeWorkspace.workspaceGeneration,
-      nativeWorkspace.workspaceId,
-    ],
-  );
-  const nativeConversationIdRef = useRef<string | null>(nativeConversationId);
-  const nativeThreadSessionRef = useRef<string | null>(nativeThreadSession);
-  const activeNativeTurnRef = useRef<{
-    sessionKey: string;
-    conversationId: string;
-    controller: AbortController;
-  } | null>(null);
-  const nativeTurnStoppingRef = useRef(false);
-  const attachedNativeTurnRef = useRef<{
-    sessionKey: string;
-    conversationId: string;
-  } | null>(null);
-  const pendingNativeLookupRef = useRef<{
-    sessionKey: string;
-    conversationId: string;
-  } | null>(null);
-  const nativeInitialBuildSessionRef = useRef<string | null>(null);
-  const cancelAttachedAbortFallbackRef = useRef<(() => void) | null>(null);
-  useEffect(
-    () => () => {
-      cancelAttachedAbortFallbackRef.current?.();
-    },
-    [],
-  );
-  useEffect(() => {
-    nativeConversationIdRef.current = nativeConversationId;
-    nativeThreadSessionRef.current = nativeThreadSession;
-  }, [nativeConversationId, nativeThreadSession]);
+  /**
+   * One turn on the desktop agent, scoped to the current document: its own
+   * thread (the folder names it), its own main.tex as the active file, and a
+   * typeset of that document once the turn is done.
+   */
+  const runNativeDocTurnRef = useRef<((prompt: string) => Promise<void>) | null>(null);
+  const nativeDocument = aiDocs.current;
   const runNativeDocTurn = useCallback(
-    async (prompt: string, onStarted?: () => void) => {
+    async (prompt: string) => {
       const document = nativeDocument;
-      const conversationId = nativeConversationId;
-      const sessionKey = nativeThreadSession;
-      const workspaceRoot = nativeWorkspaceIdentity.workspaceRoot;
-      if (
-        !document ||
-        !conversationId ||
-        !sessionKey ||
-        !workspaceRoot ||
-        nativeHistoryLoading ||
-        !nativePlatform.canRun
-      ) {
-        return;
-      }
-      // A queued caller removes its prompt only after these authoritative
-      // runtime guards pass. If readiness changed since the effect rendered,
-      // the prompt remains at the head of the queue for a later retry.
-      onStarted?.();
+      if (!document) return;
       const controller = new AbortController();
-      nativeTurnStoppingRef.current = false;
-      setNativeTurnStopping(false);
       turnAbortRef.current = controller;
-      activeNativeTurnRef.current = { sessionKey, conversationId, controller };
-      setTurnDocumentId(conversationId);
+      setTurnDocumentId(`native:${document.folder || "root"}`);
       setStreamingText("");
       setActivityTool(null);
       setTurnError(null);
@@ -894,9 +738,11 @@ export function DocumentWorkspace() {
         { id: `local:${shownAt}`, role: "user", text: prompt, createdAt: shownAt },
       ]);
 
+      let replyText = "";
       const onFrame = (frame: TurnFrame) => {
         switch (frame.type) {
           case "text":
+            replyText += frame.delta;
             setStreamingText((current) => current + frame.delta);
             setActivityTool(null);
             break;
@@ -915,472 +761,69 @@ export function DocumentWorkspace() {
         prompt,
         onFrame,
         signal: controller.signal,
-        conversationId,
+        conversationId: conversationIdFor(document.folder),
         activeFilePath: document.mainFile,
-        workspaceRoot,
-        workspaceId: nativeWorkspaceIdentity.workspaceId,
-        workspaceGeneration: nativeWorkspaceIdentity.workspaceGeneration,
-        documentMainFile: document.mainFile,
-      }).catch(() => null);
+      })
+        .then(() => ({ ok: true }) as const)
+        .catch(() => ({ ok: false }) as const);
 
-      const stillOwnsTurn = activeNativeTurnRef.current?.controller === controller;
-      if (stillOwnsTurn) {
-        if (turnAbortRef.current === controller) turnAbortRef.current = null;
-        activeNativeTurnRef.current = null;
-        nativeTurnStoppingRef.current = false;
-        setNativeTurnStopping(false);
-        setTurnDocumentId((current) =>
-          current === conversationId ? null : current,
-        );
-        setActivityTool(null);
-        setStreamingText("");
-      }
-      if (
-        nativeConversationIdRef.current !== conversationId ||
-        nativeThreadSessionRef.current !== sessionKey
-      ) {
-        return;
-      }
-      if (!result) {
+      turnAbortRef.current = null;
+      setTurnDocumentId(null);
+      setActivityTool(null);
+      setStreamingText("");
+      if (!result.ok) {
         setTurnError("送信できませんでした。もう一度お試しください。");
-        clearQueuedPrompts();
         return;
       }
-      if (result.finalText.trim()) {
+      // The page must reflect what the turn wrote, whether or not the agent
+      // typeset it itself.
+      requestWorkspaceBuild(document.mainFile);
+      // Nothing on this service stores the turn, so the reply is kept here.
+      if (replyText.trim()) {
         const repliedAt = new Date().toISOString();
         setNativeMessages((current) => [
           ...current,
           {
             id: `local:${repliedAt}`,
             role: "assistant",
-            text: result.finalText,
+            text: replyText,
             createdAt: repliedAt,
           },
         ]);
       }
-      getNativeHost()?.send("platform:usage:get", { source: "ai-mode-turn" });
-      if (result.status !== "completed") {
-        clearQueuedPrompts();
+      // A message typed while this turn was running goes next, in order.
+      const queued = queuedPromptRef.current;
+      if (queued) {
+        queuedPromptRef.current = null;
+        setQueuedPrompt(null);
+        void runNativeDocTurnRef.current?.(queued);
       }
     },
-    [
-      clearQueuedPrompts,
-      nativeWorkspaceIdentity,
-      nativeConversationId,
-      nativeDocument,
-      nativeHistoryLoading,
-      nativePlatform.canRun,
-      nativeThreadSession,
-    ],
+    [nativeDocument],
   );
 
   useEffect(() => {
     runNativeDocTurnRef.current = runNativeDocTurn;
   }, [runNativeDocTurn]);
 
-  useEffect(() => {
-    const runQueuedTurn = runNativeDocTurnRef.current;
-    if (
-      !workspacePdf.native ||
-      queuedPrompts.length === 0 ||
-      agentWorking ||
-      nativeHistoryLoading ||
-      nativeTurnStopping ||
-      !nativePlatform.canRun ||
-      !nativeDocument ||
-      !nativeConversationId ||
-      !nativeThreadSession ||
-      !nativeWorkspaceIdentity.workspaceRoot ||
-      !runQueuedTurn
-    ) {
-      return;
-    }
-    // Dequeue only after every execution precondition is satisfied. Readiness
-    // can change between terminal delivery and the next React render, so a
-    // direct handoff from the previous turn could otherwise lose this prompt.
-    const queued = queuedPromptsRef.current[0] ?? null;
-    if (!queued) return;
-    void runQueuedTurn(queued, () => {
-      if (queuedPromptsRef.current[0] === queued) takeQueuedPrompt();
-    });
-  }, [
-    agentWorking,
-    nativeConversationId,
-    nativeDocument,
-    nativeHistoryLoading,
-    nativePlatform.canRun,
-    nativeThreadSession,
-    nativeTurnStopping,
-    nativeWorkspaceIdentity.workspaceRoot,
-    queuedPrompts.length,
-    takeQueuedPrompt,
-    workspacePdf.native,
-  ]);
-
-  // A desktop conversation is persisted by the app. A file-tree refresh may
-  // replace the document object, but this effect is keyed only by the stable
-  // workspace generation + main file. Only a real session boundary may stop
-  // the old turn.
-  useEffect(() => {
-    const host = getNativeHost();
-    const previousLookup = pendingNativeLookupRef.current;
-    if (previousLookup && previousLookup.sessionKey !== nativeThreadSession) {
-      host?.send("agent:abort", {
-        conversationId: previousLookup.conversationId,
-        reason: "native-state-lookup-session-changed",
-      });
-      pendingNativeLookupRef.current = null;
-    }
-    let activeTurn = activeNativeTurnRef.current;
-    if (activeTurn && activeTurn.sessionKey !== nativeThreadSession) {
-      activeTurn.controller.abort();
-      if (turnAbortRef.current === activeTurn.controller) turnAbortRef.current = null;
-      activeNativeTurnRef.current = null;
-      nativeTurnStoppingRef.current = false;
-      setNativeTurnStopping(false);
-      activeTurn = null;
-    }
-    const activeTurnIsCurrent =
-      Boolean(nativeThreadSession) &&
-      activeTurn?.sessionKey === nativeThreadSession &&
-      !activeTurn.controller.signal.aborted;
-    const attachedTurn = attachedNativeTurnRef.current;
-    if (attachedTurn && attachedTurn.sessionKey !== nativeThreadSession) {
-      cancelAttachedAbortFallbackRef.current?.();
-      cancelAttachedAbortFallbackRef.current = null;
-      host?.send("agent:abort", {
-        conversationId: attachedTurn.conversationId,
-        reason: "native-thread-session-changed",
-      });
-      attachedNativeTurnRef.current = null;
-      setTurnDocumentId((current) =>
-        current === attachedTurn.conversationId ? null : current,
-      );
-      setActivityTool(null);
-      setStreamingText("");
-    }
-    if (!activeTurnIsCurrent) {
-      clearQueuedPrompts();
-      setNativeMessages([]);
-      setNativeUndoCount(0);
-      setTurnError(null);
-      setTurnDocumentId(null);
-      setActivityTool(null);
-      setStreamingText("");
-    }
-    if (!nativeConversationId || !nativeThreadSession) {
-      setNativeHistoryLoading(false);
-      return;
-    }
-
-    const lookupIdentity = {
-      sessionKey: nativeThreadSession,
-      conversationId: nativeConversationId,
-    };
-    pendingNativeLookupRef.current = lookupIdentity;
-
-    let cancelled = false;
-    let lookupRetryTimer: ReturnType<typeof setTimeout> | null = null;
-    let waitingForTerminal = false;
-    let terminalObserved: "idle" | "error" | "resumable" | null = null;
-    let attachedFailureMessage: string | null = null;
-
-    const applyRestoredState = (
-      state: Awaited<ReturnType<typeof loadNativeConversation>>,
-    ) => {
-      if (cancelled || nativeThreadSessionRef.current !== nativeThreadSession) return;
-      setNativeMessages(state.messages);
-      setNativeUndoCount(state.undoCount);
-      if (state.undoUnavailableReason === "persistence_limit") {
-        setTurnError(
-          "前回の変更は、安全に戻すための保存上限を超えたため、再起動後はまとめて戻せません。",
-        );
-      }
-    };
-
-    const finishAttachedTurn = (terminalState: "idle" | "error" | "resumable") => {
-      if (!waitingForTerminal || cancelled) return;
-      waitingForTerminal = false;
-      cancelAttachedAbortFallbackRef.current?.();
-      cancelAttachedAbortFallbackRef.current = null;
-      attachedNativeTurnRef.current = null;
-      nativeTurnStoppingRef.current = false;
-      setNativeTurnStopping(false);
-      setActivityTool(null);
-      setStreamingText("");
-      setNativeHistoryLoading(true);
-      const terminalFailed = nativeTerminalFailed(
-        terminalState,
-        Boolean(attachedFailureMessage),
-      );
-      if (terminalFailed) {
-        clearQueuedPrompts();
-        setTurnError(
-          attachedFailureMessage ??
-            "処理が最後まで進みませんでした。もう一度お試しください。",
-        );
-      }
-      void loadNativeConversation(nativeConversationId)
-        .then((state) => {
-          applyRestoredState(state);
-          if (cancelled || nativeThreadSessionRef.current !== nativeThreadSession) return;
-          if (terminalFailed) {
-            setTurnError(
-              attachedFailureMessage ??
-                "処理が最後まで進みませんでした。もう一度お試しください。",
-            );
-          }
-        })
-        .catch(() => {
-          if (!cancelled && !terminalFailed) {
-            setTurnError("会話履歴を読み込めませんでした。");
-          }
-        })
-        .finally(() => {
-          if (!cancelled && nativeThreadSessionRef.current === nativeThreadSession) {
-            setTurnDocumentId((current) =>
-              current === nativeConversationId ? null : current,
-            );
-            setNativeHistoryLoading(false);
-          }
-        });
-    };
-
-    if (!activeTurnIsCurrent) setNativeHistoryLoading(true);
-    const unsubscribe = host?.onMessage((message: HostMessage) => {
-      const body = hostMessageBody(message);
-      if (
-        message.type === "agent:status" &&
-        body.conversationId === nativeConversationId &&
-        body.state === "stopping"
-      ) {
-        nativeTurnStoppingRef.current = true;
-        setNativeTurnStopping(true);
-        clearQueuedPrompts();
-        cancelAttachedAbortFallbackRef.current?.();
-        cancelAttachedAbortFallbackRef.current = null;
-        return;
-      }
-      if (
-        message.type === "agent:error" &&
-        body.conversationId === nativeConversationId
-      ) {
-        attachedFailureMessage =
-          typeof body.message === "string" && body.message
-            ? body.message
-            : "処理が最後まで進みませんでした。もう一度お試しください。";
-        if (waitingForTerminal) setTurnError(attachedFailureMessage);
-        return;
-      }
-      if (
-        message.type === "agent:status" &&
-        body.conversationId === nativeConversationId &&
-        (body.state === "idle" ||
-          body.state === "error" ||
-          body.state === "resumable")
-      ) {
-        terminalObserved = body.state;
-        finishAttachedTurn(body.state);
-        return;
-      }
-      if (
-        waitingForTerminal &&
-        message.type === "agent:messageDelta" &&
-        body.conversationId === nativeConversationId &&
-        typeof body.text === "string"
-      ) {
-        setStreamingText((current) => current + body.text);
-        setActivityTool(null);
-        return;
-      }
-      if (
-        waitingForTerminal &&
-        message.type === "agent:tool" &&
-        body.conversationId === nativeConversationId &&
-        typeof body.name === "string"
-      ) {
-        setActivityTool(
-          body.summary === "running"
-            ? typeof body.label === "string" && body.label
-              ? body.label
-              : body.name
-            : null,
-        );
-        return;
-      }
-      if (message.type !== "agent:undoAvailability") return;
-      if (body.conversationId !== nativeConversationId) return;
-      if (typeof body.count === "number") {
-        setNativeUndoCount(Math.max(0, Math.trunc(body.count)));
-      }
-    });
-    const clearPendingLookup = () => {
-      if (
-        pendingNativeLookupRef.current?.sessionKey === lookupIdentity.sessionKey &&
-        pendingNativeLookupRef.current?.conversationId === lookupIdentity.conversationId
-      ) {
-        pendingNativeLookupRef.current = null;
-      }
-    };
-    const loadAuthoritativeState = () => {
-      void loadNativeConversation(nativeConversationId)
-        .then((state) => {
-        if (cancelled || nativeThreadSessionRef.current !== nativeThreadSession) return;
-        clearPendingLookup();
-        if (state.stopping) {
-          nativeTurnStoppingRef.current = true;
-          setNativeTurnStopping(true);
-          clearQueuedPrompts();
-        } else {
-          // A stopping/terminal event may arrive while this authoritative state
-          // request is in flight. An idle reply is the final source of truth and
-          // must release a stale stopping lock left by the earlier event.
-          nativeTurnStoppingRef.current = false;
-          setNativeTurnStopping(false);
-        }
-        const restoreMode = nativeConversationRestoreMode(
-          state.running,
-          nativeThreadSession,
-          activeNativeTurnRef.current?.controller.signal.aborted
-            ? null
-            : activeNativeTurnRef.current?.sessionKey ?? null,
-        );
-        if (restoreMode === "active") {
-          // A state reply captured just before this component started its turn
-          // is stale. Never overwrite the optimistic user message or stop the
-          // live controller it belongs to.
-          setNativeHistoryLoading(false);
-          return;
-        }
-        applyRestoredState(state);
-        if (restoreMode === "reattach") {
-          waitingForTerminal = true;
-          attachedNativeTurnRef.current = {
-            sessionKey: nativeThreadSession,
-            conversationId: nativeConversationId,
-          };
-          setTurnDocumentId(nativeConversationId);
-          setNativeHistoryLoading(false);
-          if (terminalObserved) finishAttachedTurn(terminalObserved);
-        } else if (terminalObserved) {
-          // A terminal event can win the race with this lookup while its reply
-          // still reports idle. Route that event through the same settlement
-          // path so its error and any queued prompt are not stranded.
-          waitingForTerminal = true;
-          attachedNativeTurnRef.current = {
-            sessionKey: nativeThreadSession,
-            conversationId: nativeConversationId,
-          };
-          setTurnDocumentId(nativeConversationId);
-          setNativeHistoryLoading(false);
-          finishAttachedTurn(terminalObserved);
-        } else if (
-          nativeMainFile &&
-          terminalObserved === null &&
-          nativeInitialBuildSessionRef.current !== nativeThreadSession
-        ) {
-          // The host agent state is authoritative. Build an idle document on
-          // initial open, but never race a reattached/stopping turn whose host
-          // owns the definitive terminal compile. Key this by the stable
-          // workspace generation + main file; a build refresh replaces the
-          // document object and must not recursively request another build.
-          nativeInitialBuildSessionRef.current = nativeThreadSession;
-          requestWorkspaceBuild({ mainFile: nativeMainFile }, nativeWorkspaceIdentity);
-        }
-        })
-        .catch(() => {
-          if (cancelled || nativeThreadSessionRef.current !== nativeThreadSession) return;
-          // A missing state reply is unknown, not idle. Keep the composer locked
-          // and re-query instead of starting a second turn in the same host
-          // conversation. An explicitly owned local turn remains usable.
-          setTurnError("会話状態を確認しています。接続が戻るまでお待ちください。");
-          if (activeTurnIsCurrent) setNativeHistoryLoading(false);
-          lookupRetryTimer = setTimeout(loadAuthoritativeState, 1_000);
-        })
-        .finally(() => {
-          if (
-            !cancelled &&
-            pendingNativeLookupRef.current !== lookupIdentity &&
-            !waitingForTerminal
-          ) {
-            setNativeHistoryLoading(false);
-          }
-        });
-    };
-    loadAuthoritativeState();
-    return () => {
-      cancelled = true;
-      if (lookupRetryTimer !== null) clearTimeout(lookupRetryTimer);
-      unsubscribe?.();
-    };
-  }, [
-    clearQueuedPrompts,
-    nativeConversationId,
-    nativeMainFile,
-    nativeThreadSession,
-    nativeWorkspaceIdentity,
-  ]);
-
-  const undoNativeChange = useCallback(async () => {
-    if (
-      !nativeConversationId ||
-      !nativeDocument ||
-      nativeHistoryLoading ||
-      agentWorking
-    ) {
-      return;
-    }
-    const sessionKey = nativeThreadSession;
-    if (!sessionKey) return;
-    const controller = new AbortController();
-    nativeTurnStoppingRef.current = false;
-    setNativeTurnStopping(false);
-    turnAbortRef.current = controller;
-    activeNativeTurnRef.current = {
-      sessionKey,
-      conversationId: nativeConversationId,
-      controller,
-    };
-    setTurnDocumentId(nativeConversationId);
-    setNativeHistoryLoading(true);
+  // Moving to another document changes the subject entirely: the visible
+  // thread, the queue, and any error belonged to the previous one. Adjusted
+  // during render, the same way selections reset on document switches.
+  const nativeFolder = nativeDocument?.folder ?? null;
+  const [threadFolder, setThreadFolder] = useState<string | null>(nativeFolder);
+  if (threadFolder !== nativeFolder) {
+    setThreadFolder(nativeFolder);
+    setNativeMessages([]);
     setTurnError(null);
-    try {
-      const result = await undoNativeConversation(
-        nativeConversationId,
-        controller.signal,
-      );
-      if (nativeConversationIdRef.current !== nativeConversationId) return;
-      if (!result.ok) {
-        if (!result.aborted || result.error) {
-          setTurnError(result.error ?? "変更を戻せませんでした。");
-        }
-        return;
-      }
-    } catch {
-      if (nativeConversationIdRef.current === nativeConversationId) {
-        setTurnError("変更を戻せませんでした。");
-      }
-    } finally {
-      if (activeNativeTurnRef.current?.controller === controller) {
-        activeNativeTurnRef.current = null;
-      }
-      if (turnAbortRef.current === controller) turnAbortRef.current = null;
-      if (nativeConversationIdRef.current === nativeConversationId) {
-        nativeTurnStoppingRef.current = false;
-        setNativeTurnStopping(false);
-        setTurnDocumentId((current) =>
-          current === nativeConversationId ? null : current,
-        );
-        setNativeHistoryLoading(false);
-      }
-    }
-  }, [
-    agentWorking,
-    nativeConversationId,
-    nativeDocument,
-    nativeHistoryLoading,
-    nativeThreadSession,
-  ]);
+    setQueuedPrompt(null);
+    setNativeNewOpen(false);
+  }
+
+  /** Leaves the current document: whatever ran there stops following us. */
+  const leaveNativeThread = useCallback(() => {
+    turnAbortRef.current?.abort();
+    queuedPromptRef.current = null;
+  }, []);
 
   const confirmSelectionEdit = useCallback(async () => {
     const documentId = selectedDocumentRef.current;
@@ -1393,44 +836,10 @@ export function DocumentWorkspace() {
   }, [flushOutstandingSave, runCompile]);
 
   const stopTurn = useCallback(() => {
-    clearQueuedPrompts();
-    nativeTurnStoppingRef.current = true;
-    setNativeTurnStopping(true);
-    stopWorkspaceTurn({
-      activeNativeController: activeNativeTurnRef.current?.controller ?? null,
-      attachedConversationId:
-        attachedNativeTurnRef.current?.conversationId ?? null,
-      // Hosted/web-service turns use the shared controller without a native
-      // lifecycle record.
-      fallbackController: turnAbortRef.current,
-      abortAttached: (conversationId) => {
-        getNativeHost()?.send("agent:abort", {
-          conversationId,
-          reason: "user-stop",
-        });
-        cancelAttachedAbortFallbackRef.current?.();
-        cancelAttachedAbortFallbackRef.current = scheduleAttachedAbortFallback(
-          conversationId,
-          (expectedConversationId) =>
-            attachedNativeTurnRef.current?.conversationId === expectedConversationId,
-          () => {
-            attachedNativeTurnRef.current = null;
-            nativeTurnStoppingRef.current = false;
-            setNativeTurnStopping(false);
-            setTurnDocumentId((current) =>
-              current === conversationId ? null : current,
-            );
-            setActivityTool(null);
-            setStreamingText("");
-            setNativeHistoryLoading(false);
-            setTurnError(
-              "処理の停止確認が届きませんでした。もう一度お試しください。",
-            );
-          },
-        );
-      },
-    });
-  }, [clearQueuedPrompts]);
+    queuedPromptRef.current = null;
+    setQueuedPrompt(null);
+    turnAbortRef.current?.abort();
+  }, []);
 
   const createNewDocument = useCallback(
     async (prompt: string) => {
@@ -1472,20 +881,21 @@ export function DocumentWorkspace() {
   const submitWritingRequest = useCallback(
     (prompt: string) => {
       if (workspacePdf.native) {
-        if (!nativeDocument || nativeHistoryLoading || !nativePlatform.canRun) return;
+        if (!nativeDocument) return;
         // A message sent while the agent is working waits its turn instead of
         // being refused; the composer never locks.
-        if (agentWorking && nativeThreadWorking) {
-          enqueuePrompt(prompt);
+        if (agentWorking) {
+          queuedPromptRef.current = prompt;
+          setQueuedPrompt(prompt);
           return;
         }
-        if (agentWorking) return;
         void runNativeDocTurn(prompt);
         return;
       }
       if (!activeDocument) return;
       if (agentWorking) {
-        enqueuePrompt(prompt);
+        queuedPromptRef.current = prompt;
+        setQueuedPrompt(prompt);
         return;
       }
       const targetNodeId = selectedElement?.id;
@@ -1495,11 +905,7 @@ export function DocumentWorkspace() {
     [
       activeDocument,
       agentWorking,
-      enqueuePrompt,
       nativeDocument,
-      nativeHistoryLoading,
-      nativePlatform.canRun,
-      nativeThreadWorking,
       runNativeDocTurn,
       runTurn,
       selectedElement,
@@ -1558,93 +964,69 @@ export function DocumentWorkspace() {
               /
             </span>
           </div>
-          {workspacePdf.native ? (
-            <div
-              className="native-workspace-title"
-              aria-label={`ワークスペース: ${nativeDocument?.name ?? "未選択"}`}
+          <div className="document-switcher">
+            <button
+              type="button"
+              className="document-switcher-button"
+              aria-expanded={documentMenuOpen}
+              onClick={() => setDocumentMenuOpen((open) => !open)}
             >
               <span className="document-switcher-titles">
-                <strong>{nativeDocument?.name ?? "ワークスペース未選択"}</strong>
-                <small>ワークスペース</small>
-              </span>
-            </div>
-          ) : (
-            <div className="document-switcher">
-              <button
-                type="button"
-                className="document-switcher-button"
-                aria-expanded={documentMenuOpen}
-                onClick={() => setDocumentMenuOpen((open) => !open)}
-              >
-                <span className="document-switcher-titles">
-                  <strong>{activeDocument?.title ?? "新しい文書"}</strong>
-                  <small>
-                    {activeDocument
+                <strong>
+                  {workspacePdf.native
+                    ? (nativeDocument?.name ?? "文書がありません")
+                    : (activeDocument?.title ?? "新しい文書")}
+                </strong>
+                <small>
+                  {workspacePdf.native
+                    ? "文書"
+                    : activeDocument
                       ? (KIND_LABELS[activeDocument.kind] ?? "文書")
                       : "TeX64"}
-                  </small>
-                </span>
-                {documents.length ? (
-                  <ChevronDown aria-hidden="true" size={14} />
-                ) : null}
-              </button>
-              {documentMenuOpen && documents.length ? (
-                <div className="document-menu" aria-label="文書を選ぶ">
-                  {documents.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      aria-current={activeDocument?.id === item.id ? "page" : undefined}
-                      onClick={() => void openDocument(item.id)}
-                    >
-                      {item.title}
-                    </button>
-                  ))}
-                </div>
+                </small>
+              </span>
+              {(workspacePdf.native ? aiDocs.documents.length : documents.length) ? (
+                <ChevronDown aria-hidden="true" size={14} />
               ) : null}
-            </div>
-          )}
+            </button>
+            {documentMenuOpen && workspacePdf.native && aiDocs.documents.length ? (
+              <div className="document-menu" aria-label="文書を選ぶ">
+                {aiDocs.documents.map((item) => (
+                  <button
+                    key={item.folder || "(root)"}
+                    type="button"
+                    aria-current={
+                      nativeDocument?.folder === item.folder ? "page" : undefined
+                    }
+                    onClick={() => {
+                      setDocumentMenuOpen(false);
+                      leaveNativeThread();
+                      aiDocs.select(item);
+                    }}
+                  >
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {documentMenuOpen && !workspacePdf.native && documents.length ? (
+              <div className="document-menu" aria-label="文書を選ぶ">
+                {documents.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-current={activeDocument?.id === item.id ? "page" : undefined}
+                    onClick={() => void openDocument(item.id)}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="topbar-actions">
-          {workspacePdf.native ? (
-            <div className="native-command-bar">
-              <NativePlatformControls platform={nativePlatform} />
-              {nativeDocument && nativeUndoCount > 0 ? (
-                <button
-                  type="button"
-                  className="topbar-icon-button"
-                  aria-label="直前の変更を戻す"
-                  title="直前の変更を戻す"
-                  disabled={nativeHistoryLoading || agentWorking}
-                  onClick={() => void undoNativeChange()}
-                >
-                  <Undo2 size={16} />
-                </button>
-              ) : null}
-              <span className="native-command-divider" aria-hidden="true" />
-              <button
-                type="button"
-                className="topbar-build-button"
-                disabled={
-                  !workspacePdf.hasWorkspace ||
-                  !nativeDocument ||
-                  workspacePdf.building
-                }
-                onClick={() =>
-                  nativeDocument
-                    ? requestWorkspaceBuild(
-                        nativeDocument,
-                        nativeWorkspaceIdentity,
-                      )
-                    : null
-                }
-              >
-                <Play aria-hidden="true" size={15} fill="currentColor" />
-                <span>{workspacePdf.building ? "ビルド中…" : "ビルド"}</span>
-              </button>
-            </div>
-          ) : null}
           {!workspacePdf.native && activeDocument && activeDocument.versions.length > 0 ? (
             <div className="history-anchor">
               <button
@@ -1689,17 +1071,23 @@ export function DocumentWorkspace() {
               ) : null}
             </div>
           ) : null}
-          {!workspacePdf.native ? (
-            <button
-              type="button"
-              className="topbar-new-button"
-              aria-label="新規"
-              onClick={() => void showNewDocument()}
-            >
-              <Plus aria-hidden="true" size={16} />
-              <span>新規</span>
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="topbar-new-button"
+            aria-label="新規"
+            onClick={() => {
+              if (workspacePdf.native) {
+                setDocumentMenuOpen(false);
+                setNativeNewOpen(true);
+                setMobileView("conversation");
+                return;
+              }
+              void showNewDocument();
+            }}
+          >
+            <Plus aria-hidden="true" size={16} />
+            <span>新規</span>
+          </button>
         </div>
       </header>
 
@@ -1726,33 +1114,29 @@ export function DocumentWorkspace() {
           data-mobile-hidden={mobileView !== "conversation"}
         >
           {workspacePdf.native ? (
-            !nativeWorkspace.hasWorkspace && !nativeWorkspace.loading ? (
-              <NativeWorkspacePanel
-                onOpen={nativeWorkspace.openWorkspace}
-                onCreate={nativeWorkspace.createWorkspace}
+            nativeNewOpen || (!nativeDocument && !aiDocs.loading) ? (
+              <NativeNewDocumentPanel
+                creating={aiDocs.creating}
+                error={aiDocs.error}
+                canCancel={Boolean(nativeDocument)}
+                onCancel={() => setNativeNewOpen(false)}
+                onSubmit={(title) => {
+                  leaveNativeThread();
+                  void aiDocs.create(title).then((created) => {
+                    if (created) setNativeNewOpen(false);
+                  });
+                }}
               />
             ) : (
               <AgentPanel
                 document={null}
-                ready={
-                  Boolean(nativeDocument) &&
-                  !nativeHistoryLoading &&
-                  (!agentWorking || nativeThreadWorking) &&
-                  !nativeTurnStopping &&
-                  nativePlatform.canRun
-                }
+                ready={Boolean(nativeDocument)}
                 messages={messages}
                 streamingText={streamingText}
                 activityTool={activityTool}
                 isWorking={agentWorking}
-                queuedPrompts={queuedPrompts}
-                error={
-                  turnError ??
-                  nativePlatform.blockedReason ??
-                  (!nativeDocument && !nativeWorkspace.loading
-                    ? "Codeでビルドするルート文書を設定してください。"
-                    : null)
-                }
+                queuedPrompt={queuedPrompt}
+                error={turnError}
                 selectedElement={null}
                 composerRef={composerRef}
                 onSubmit={submitWritingRequest}
@@ -1767,7 +1151,7 @@ export function DocumentWorkspace() {
               streamingText={streamingText}
               activityTool={activityTool}
               isWorking={agentWorking}
-              queuedPrompts={queuedPrompts}
+              queuedPrompt={queuedPrompt}
               error={turnError}
               selectedElement={selectedElement}
               composerRef={composerRef}
@@ -1815,19 +1199,12 @@ export function DocumentWorkspace() {
                         }
                       : undefined
                   }
-                  pointSelectionActive={
-                    workspacePdf.native
-                      ? sourceLocator.locating ||
-                        paragraphEditor.loading ||
-                        paragraphEditor.paragraph !== null
-                      : undefined
-                  }
                   emptyHint={
                     workspacePdf.native
                       ? !workspacePdf.hasWorkspace
-                        ? "プロジェクトを選んでください。"
-                        : !nativeDocument && !nativeWorkspace.loading
-                          ? "Codeでビルドするルート文書を設定してください。"
+                        ? "プロジェクトが開かれていません。Code モードで開いてください。"
+                        : !nativeDocument && !aiDocs.loading
+                          ? "右上の「新規」から文書を作りましょう。"
                           : workspacePdf.building
                             ? "紙面を組み立てています…"
                             : (workspacePdf.failure ??
@@ -1839,7 +1216,20 @@ export function DocumentWorkspace() {
                           : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
                   toolbarAction={
-                    !workspacePdf.native && activeDocument ? (
+                    workspacePdf.native ? (
+                      <button
+                        type="button"
+                        className="paper-build-button"
+                        disabled={
+                          !workspacePdf.hasWorkspace ||
+                          !nativeDocument ||
+                          workspacePdf.building
+                        }
+                        onClick={() => requestWorkspaceBuild(nativeDocument?.mainFile)}
+                      >
+                        {workspacePdf.building ? "組版中…" : "組版"}
+                      </button>
+                    ) : activeDocument ? (
                       <button
                         type="button"
                         className="paper-build-button"
@@ -1858,11 +1248,7 @@ export function DocumentWorkspace() {
                         <ParagraphEditCard
                           segments={paragraphEditor.paragraph.segments}
                           saving={paragraphEditor.saving}
-                          error={paragraphEditor.error}
-                          onCancel={() => {
-                            paragraphEditor.close();
-                            sourceLocator.clear();
-                          }}
+                          onCancel={paragraphEditor.close}
                           onSave={(replacementText) => {
                             void paragraphEditor
                               .save(replacementText)
@@ -1871,6 +1257,84 @@ export function DocumentWorkspace() {
                               });
                           }}
                         />
+                      ) : sourceLocator.location ||
+                        sourceLocator.error ||
+                        sourceLocator.locating ||
+                        paragraphEditor.loading ||
+                        paragraphEditor.error ? (
+                        <div className="element-card" aria-label="選択中の箇所">
+                          <div className="element-card-head">
+                            <button
+                              type="button"
+                              className="element-card-close"
+                              onClick={() => {
+                                paragraphEditor.close();
+                                sourceLocator.clear();
+                              }}
+                            >
+                              閉じる
+                            </button>
+                            <strong>
+                              {sourceLocator.locating
+                                ? "探しています…"
+                                : sourceLocator.location
+                                  ? sourceLocator.location.confident
+                                    ? "この箇所"
+                                    : "この付近"
+                                  : "見つかりません"}
+                            </strong>
+                            <div className="element-card-head-actions">
+                              {sourceLocator.location ? (
+                                <button
+                                  type="button"
+                                  className="element-card-confirm"
+                                  disabled={paragraphEditor.loading}
+                                  onClick={() => {
+                                    const location = sourceLocator.location;
+                                    if (location) {
+                                      paragraphEditor.open({
+                                        path: location.path,
+                                        line: location.line,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {paragraphEditor.loading
+                                    ? "読み出しています…"
+                                    : "文章を直す"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="element-card-editor">
+                            {sourceLocator.locating ? (
+                              <p>本文のどこかを確かめています。</p>
+                            ) : paragraphEditor.error ? (
+                              <p>{paragraphEditor.error}</p>
+                            ) : sourceLocator.location ? (
+                              <p className="source-line-preview">
+                                {sourceLocator.location.text
+                                  ? // 原則どおり既定の視界は文章。命令はチップで示す。
+                                    segmentParagraph(sourceLocator.location.text).map(
+                                      (segment, segmentIndex) =>
+                                        segment.kind === "chip" ? (
+                                          <span
+                                            key={segmentIndex}
+                                            className="paragraph-chip"
+                                          >
+                                            {segment.label}
+                                          </span>
+                                        ) : (
+                                          <span key={segmentIndex}>{segment.latex}</span>
+                                        ),
+                                    )
+                                  : `${sourceLocator.location.path} の ${sourceLocator.location.line} 行目`}
+                              </p>
+                            ) : (
+                              <p>{sourceLocator.error}</p>
+                            )}
+                          </div>
+                        </div>
                       ) : null
                     ) : selectedElement ? (
                       <div className="element-card" aria-label="選択中の要素">
@@ -1930,23 +1394,7 @@ export function DocumentWorkspace() {
                     ) : null
                   }
                 />
-                {workspacePdf.native && workspacePdf.failure && nativeDocument ? (
-                  <div className="compile-banner" role="alert">
-                    <span title={workspacePdf.failure}>{workspacePdf.failure}</span>
-                    <button
-                      type="button"
-                      disabled={workspacePdf.building}
-                      onClick={() =>
-                        requestWorkspaceBuild(
-                          nativeDocument,
-                          nativeWorkspaceIdentity,
-                        )
-                      }
-                    >
-                      再試行
-                    </button>
-                  </div>
-                ) : compileFailed && activeDocument ? (
+                {compileFailed && activeDocument ? (
                   <div className="compile-banner" role="alert">
                     <span>紙面を更新できませんでした。</span>
                     <button

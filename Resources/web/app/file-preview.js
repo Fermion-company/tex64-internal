@@ -7,30 +7,12 @@ export const createFilePreviewBroker = (postToNative) => {
     const pending = new Map();
     const cache = new Map();
     const cacheTtlMs = 60000;
-    let workspaceScopeKey = "none:0";
-    const setWorkspaceScope = (scope) => {
-        const workspace = scope.workspaceId || scope.rootPath || "none";
-        const generation = Number.isSafeInteger(scope.workspaceGeneration)
-            ? scope.workspaceGeneration
-            : 0;
-        const nextScopeKey = `${workspace}:${generation}`;
-        if (nextScopeKey === workspaceScopeKey)
-            return;
-        workspaceScopeKey = nextScopeKey;
-        cache.clear();
-        for (const entry of pending.values()) {
-            window.clearTimeout(entry.timeoutId);
-            entry.resolve({ ok: false, error: "Workspace changed." });
-        }
-        pending.clear();
-    };
     const requestPreview = (path) => {
         const trimmed = typeof path === "string" ? path.trim() : "";
         if (!trimmed) {
             return Promise.resolve({ ok: false, error: uiText("path is empty.", "path が空です。") });
         }
-        const cacheKey = `${workspaceScopeKey}\0${trimmed}`;
-        const cached = cache.get(cacheKey);
+        const cached = cache.get(trimmed);
         if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
             return Promise.resolve({ ok: true, dataUrl: cached.dataUrl });
         }
@@ -42,7 +24,7 @@ export const createFilePreviewBroker = (postToNative) => {
                 pending.delete(requestId);
                 resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
             }, 4000);
-            pending.set(requestId, { resolve, timeoutId, cacheKey });
+            pending.set(requestId, { resolve, timeoutId });
             postToNative({
                 type: "file:preview",
                 requestId,
@@ -72,8 +54,10 @@ export const createFilePreviewBroker = (postToNative) => {
             return;
         }
         const dataUrl = `data:${mimeType};base64,${data}`;
-        cache.set(entry.cacheKey, { dataUrl, updatedAt: Date.now() });
+        if (typeof payload.path === "string" && payload.path.trim()) {
+            cache.set(payload.path.trim(), { dataUrl, updatedAt: Date.now() });
+        }
         entry.resolve({ ok: true, dataUrl });
     };
-    return { requestPreview, handlePreviewResult, setWorkspaceScope };
+    return { requestPreview, handlePreviewResult };
 };

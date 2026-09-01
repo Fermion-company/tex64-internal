@@ -18,7 +18,6 @@ const DEFAULT_ALLOWED_HEADERS = [
   "Content-Type",
   "X-Tex64-Admin-Secret",
   "X-Tex64-Dev-User",
-  "X-Tex64-Device-Id",
 ].join(", ");
 
 const isObject = (value) => Boolean(value && typeof value === "object" && !Array.isArray(value));

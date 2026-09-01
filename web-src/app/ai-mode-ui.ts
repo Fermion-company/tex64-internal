@@ -33,67 +33,59 @@ type WebviewIpcEvent = Event & { channel?: string; args?: unknown[] };
  */
 const GUEST_REQUESTS: ReadonlySet<string> = new Set([
   "workspace:state:get",
-  "openWorkspace",
-  "createProject",
+  "openFile",
   "file:excerpt",
+  "file:preview",
   "file:bytes",
   "file:replaceLines",
+  "document:create",
+  "document:list",
+  "saveFile",
+  "createFile",
+  "createFolder",
+  "search",
   "build",
   "build:cancel",
+  "synctex:forward",
   "synctex:reverse",
-  "agent:model:get",
-  "agent:model:set",
+  "agent:settings:get",
+  "agent:settings:set",
   "agent:state:get",
   "agent:run",
   "agent:abort",
-  "agent:undoLastRunApply",
   "agent:clear",
-  "platform:state:get",
-  "feature:check",
-  "platform:usage:get",
-  "auth:google:start",
-  "auth:signout",
 ]);
 
 /** What the host relays back into the webview. */
 const GUEST_EVENTS: ReadonlySet<string> = new Set([
   "updateWorkspace",
+  "updateIndex",
+  "updateSearch",
+  "openFileResult",
   "file:excerptResult",
+  "file:previewResult",
   "file:bytesResult",
   "file:replaceLinesResult",
+  "document:createResult",
+  "document:listResult",
+  "saveResult",
   "setBuildState",
+  "buildLog",
+  "updateIssues",
+  "synctex:forwardResult",
   "synctex:reverseResult",
-  "agent:model",
+  "agent:settings",
   "agent:state",
   "agent:status",
   "agent:message",
   "agent:messageDelta",
   "agent:tool",
   "agent:thought",
+  "agent:applyContent",
   "agent:error",
-  "agent:undoAvailability",
-  "agent:undoResult",
-  "platform:auth",
-  "platform:aiAccess",
-  "platform:usage",
 ]);
 
 const GUEST_CHANNEL = "tex64-ai-host";
-const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
-const REQUEST_SCOPED_GUEST_EVENTS: ReadonlySet<string> = new Set([
-  "file:excerptResult",
-  "file:bytesResult",
-  "file:replaceLinesResult",
-  "synctex:reverseResult",
-  "agent:state",
-  "agent:undoResult",
-]);
-const WORKSPACE_SCOPED_GUEST_EVENTS: ReadonlySet<string> = new Set([
-  "file:excerptResult",
-  "file:bytesResult",
-  "file:replaceLinesResult",
-  "synctex:reverseResult",
-]);
 type WebviewFailEvent = Event & {
   errorCode?: number;
   isMainFrame?: boolean;
@@ -108,162 +100,6 @@ export type AiModeApi = {
 export type AiModeDeps = {
   /** Sends an allowlisted request on to the main process. */
   postToNative: PostToNative;
-  /** Opens the renderer-owned billing modal; billing IPC stays out of the guest. */
-  openPlans: (plan?: "basic" | "pro") => void;
-};
-
-const recordPayload = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-
-const isAiModeConversation = (
-  value: unknown,
-  expectedWorkspace?: WorkspaceRequestScope,
-): value is string => {
-  if (typeof value !== "string" || !value.startsWith(AI_MODE_CONVERSATION_PREFIX)) {
-    return false;
-  }
-  const suffix = value.slice(AI_MODE_CONVERSATION_PREFIX.length);
-  if (!suffix || !suffix.includes(":")) return false;
-  const workspaceId =
-    typeof expectedWorkspace?.workspaceId === "string"
-      ? expectedWorkspace.workspaceId.trim()
-      : "";
-  return workspaceId
-    ? value.startsWith(
-        `${AI_MODE_CONVERSATION_PREFIX}${encodeURIComponent(workspaceId)}:`,
-      )
-    : true;
-};
-const isAiModeRequestId = (value: unknown): value is string =>
-  typeof value === "string" && value.startsWith("ai-");
-
-type WorkspaceRequestScope = {
-  workspaceId?: string | null;
-  workspaceGeneration?: number | null;
-};
-
-const WORKSPACE_SCOPED_REQUESTS: ReadonlySet<string> = new Set([
-  "file:excerpt",
-  "file:bytes",
-  "file:replaceLines",
-  "build",
-  "build:cancel",
-  "synctex:reverse",
-]);
-
-const DOCUMENT_SCOPED_REQUESTS: ReadonlySet<string> = new Set([
-  "file:excerpt",
-  "file:bytes",
-  "file:replaceLines",
-  "build",
-  "synctex:reverse",
-]);
-
-const hasCurrentWorkspaceScope = (
-  body: Record<string, unknown>,
-  expected?: WorkspaceRequestScope,
-): boolean => {
-  const workspaceId =
-    typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
-  const workspaceGeneration = body.workspaceGeneration;
-  if (!workspaceId || !Number.isSafeInteger(workspaceGeneration)) return false;
-  if (expected?.workspaceId && workspaceId !== expected.workspaceId) return false;
-  if (
-    Number.isSafeInteger(expected?.workspaceGeneration) &&
-    workspaceGeneration !== expected?.workspaceGeneration
-  ) {
-    return false;
-  }
-  return true;
-};
-
-const isScopedAgentRequest = (type: string): boolean =>
-  type === "agent:state:get" ||
-  type === "agent:run" ||
-  type === "agent:abort" ||
-  type === "agent:undoLastRunApply" ||
-  type === "agent:clear";
-
-/** Keep the guest inside its own conversations and current workspace turn. */
-export const isAllowedAiGuestRequest = (
-  type: string,
-  payload: unknown,
-  expectedWorkspace?: WorkspaceRequestScope,
-): boolean => {
-  if (!GUEST_REQUESTS.has(type)) return false;
-  const body = recordPayload(payload);
-  if (WORKSPACE_SCOPED_REQUESTS.has(type)) {
-    if (!hasCurrentWorkspaceScope(body, expectedWorkspace)) return false;
-    if (type !== "build:cancel" && !isAiModeRequestId(body.requestId)) return false;
-    if (
-      DOCUMENT_SCOPED_REQUESTS.has(type) &&
-      (typeof body.documentMainFile !== "string" || !body.documentMainFile.trim())
-    ) {
-      return false;
-    }
-  }
-  if (type === "file:bytes") {
-    return (
-      typeof body.path === "string" &&
-      body.path.toLowerCase().endsWith(".pdf")
-    );
-  }
-  if (!isScopedAgentRequest(type)) return true;
-  if (!isAiModeConversation(body.conversationId, expectedWorkspace)) return false;
-  if (type !== "agent:run") return true;
-  const workspaceId =
-    typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
-  const documentMainFile =
-    typeof body.documentMainFile === "string"
-      ? body.documentMainFile.trim().replace(/\\/g, "/").replace(/^\.\/+/, "")
-      : "";
-  return Boolean(
-    workspaceId &&
-      Number.isSafeInteger(body.workspaceGeneration) &&
-      documentMainFile &&
-      body.conversationId ===
-        `${AI_MODE_CONVERSATION_PREFIX}${encodeURIComponent(workspaceId)}:${encodeURIComponent(documentMainFile)}`,
-  );
-};
-
-/** Never relay Code-mode transcripts or agent events into the webview. */
-export const sanitizeAiGuestEvent = (
-  message: { type: string; payload?: unknown },
-  expectedWorkspace?: WorkspaceRequestScope,
-): { type: string; payload?: unknown } | null => {
-  if (!GUEST_EVENTS.has(message.type)) return null;
-  if (message.type === "agent:model") return message;
-  const payload = recordPayload(message.payload);
-  // Replies share the renderer-wide host bus with Code mode. Do not expose a
-  // Code request's source excerpt, file bytes, document list, or operation
-  // result merely because the AI webview happens to be alive in the
-  // background. Every native AI round trip uses an `ai-*` correlation id.
-  if (
-    REQUEST_SCOPED_GUEST_EVENTS.has(message.type) &&
-    !isAiModeRequestId(payload.requestId)
-  ) {
-    return null;
-  }
-  if (
-    WORKSPACE_SCOPED_GUEST_EVENTS.has(message.type) &&
-    expectedWorkspace?.workspaceId &&
-    Number.isSafeInteger(expectedWorkspace.workspaceGeneration) &&
-    !hasCurrentWorkspaceScope(payload, expectedWorkspace)
-  ) {
-    return null;
-  }
-  if (!message.type.startsWith("agent:")) return message;
-  if (!isAiModeConversation(payload.conversationId, expectedWorkspace)) return null;
-  if (message.type !== "agent:state") return message;
-  const sessions = Array.isArray(payload.sessions)
-    ? payload.sessions.filter(
-        (session) =>
-          session &&
-          typeof session === "object" &&
-          (session as Record<string, unknown>).conversationId === payload.conversationId,
-      )
-    : [];
-  return { ...message, payload: { ...payload, sessions } };
 };
 
 export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
@@ -271,6 +107,8 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
   const fallback = document.getElementById("ai-mode-fallback");
   const status = document.getElementById("ai-mode-fallback-status");
   const retryButton = document.getElementById("ai-mode-retry");
+  const browserButton = document.getElementById("ai-mode-open-browser");
+  const axiomButton = document.getElementById("ai-mode-open-axiom");
   const devHint = document.getElementById("ai-mode-dev-hint");
   const bridge = (window as BridgeWindow).tex64AiWeb as AiWebBridge | undefined;
 
@@ -282,21 +120,8 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
    * last build went. Both are announced once, and the AI mode is created on
    * demand — long after.
    */
-  const STICKY_EVENTS = [
-    "updateWorkspace",
-    "setBuildState",
-    "agent:model",
-    "agent:state",
-    "platform:auth",
-    "platform:aiAccess",
-    "platform:usage",
-  ] as const;
+  const STICKY_EVENTS = ["updateWorkspace", "setBuildState"] as const;
   const sticky = new Map<string, { type: string; payload?: unknown }>();
-  const WORKSPACE_BOUND_STICKY_EVENTS = new Set([
-    "agent:state",
-    "setBuildState",
-  ]);
-  let currentWorkspaceScope: WorkspaceRequestScope = {};
   let currentUrl = "";
   let creating = false;
 
@@ -305,13 +130,6 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     fallback?.classList.remove("is-hidden");
   };
   const hideFallback = () => fallback?.classList.add("is-hidden");
-  const discardWebview = () => {
-    const previous = webview;
-    webview = null;
-    currentUrl = "";
-    pending.length = 0;
-    previous?.remove();
-  };
 
   const createWebview = async () => {
     if (webview || creating || !host) return;
@@ -340,50 +158,32 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
     // failure until the next load attempt starts.
     let lastLoadFailed = false;
     element.addEventListener("dom-ready", () => {
-      if (webview !== element) return;
-      for (const message of sticky.values()) {
-        const safeMessage = sanitizeAiGuestEvent(message, currentWorkspaceScope);
-        if (safeMessage) sendToGuest(element, safeMessage);
-      }
+      // Deliver to this element, not the module's handle: the handle is only
+      // assigned after the element is appended, and dom-ready can beat it.
+      for (const message of sticky.values()) sendToGuest(element, message);
       const backlog = pending.splice(0, pending.length);
-      for (const message of backlog) {
-        const safeMessage = sanitizeAiGuestEvent(message, currentWorkspaceScope);
-        if (safeMessage) sendToGuest(element, safeMessage);
-      }
+      for (const message of backlog) sendToGuest(element, message);
     });
     element.addEventListener("did-start-loading", () => {
-      if (webview !== element) return;
       // A reload gives us a new guest; anything queued was for the old one.
       pending.length = 0;
       lastLoadFailed = false;
     });
     element.addEventListener("did-fail-load", (event: WebviewFailEvent) => {
-      if (webview !== element) return;
       // -3 = ERR_ABORTED (in-page navigations); not a connection failure.
       if (event.isMainFrame === false || event.errorCode === -3) return;
       lastLoadFailed = true;
       showFallback(
         uiText(
-          "Could not connect to the AI workspace. Try reconnecting.",
-          "AIワークスペースに接続できませんでした。再接続してください。"
+          "Could not connect to the AI workspace. Check that the server is running.",
+          "AIワークスペースに接続できませんでした。サーバーが起動しているか確認してください。"
         )
       );
     });
     element.addEventListener("did-finish-load", () => {
-      if (webview !== element) return;
       if (!lastLoadFailed) hideFallback();
     });
-    element.addEventListener("render-process-gone", () => {
-      if (webview !== element) return;
-      showFallback(
-        uiText(
-          "The AI workspace stopped. Try reconnecting.",
-          "AIワークスペースが停止しました。再接続してください。",
-        ),
-      );
-    });
     element.addEventListener("ipc-message", (event: WebviewIpcEvent) => {
-      if (webview !== element) return;
       if (event.channel !== "tex64-ai-web") return;
       const payload = event.args?.[0] as
         | {
@@ -398,44 +198,43 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
       }
       if (payload?.type === "host-request") {
         const requestType = payload.request?.type;
-        const body = payload.request?.payload;
-        if (requestType === "billing:open-plans") {
-          const request = recordPayload(body);
-          deps.openPlans(
-            request.plan === "basic" || request.plan === "pro"
-              ? request.plan
-              : undefined,
-          );
-          return;
-        }
-        if (
-          typeof requestType !== "string" ||
-          !isAllowedAiGuestRequest(requestType, body, currentWorkspaceScope)
-        ) {
+        if (typeof requestType !== "string" || !GUEST_REQUESTS.has(requestType)) {
           // A request the AI mode makes but the host does not open is a wiring
           // mistake, and silence is the worst way to report one.
           console.warn("[ai-mode] blocked host request:", requestType);
           return;
         }
         console.debug("[ai-mode] host request:", requestType);
+        const body = payload.request?.payload;
         deps.postToNative({
           type: requestType,
           ...(body && typeof body === "object" ? body : {}),
         });
       }
     });
-    webview = element;
     host.appendChild(element);
+    webview = element;
   };
 
   retryButton?.addEventListener("click", () => {
-    // A packaged AI server owns a loopback port for the lifetime of its child
-    // process. If that process died, reloading the old URL can never recover;
-    // discard the guest so getConfig starts the server again and returns its
-    // new port/token.
-    discardWebview();
-    showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続しています…"));
-    void createWebview();
+    if (webview) {
+      showFallback(uiText("Reconnecting to the AI workspace…", "AIワークスペースに再接続しています…"));
+      webview.reload?.();
+    } else {
+      void createWebview();
+    }
+  });
+  browserButton?.addEventListener("click", () => {
+    if (currentUrl) void bridge?.openExternal?.(currentUrl);
+  });
+  // AI mode and the Axiom chat are different surfaces, and the Codex (ChatGPT)
+  // backend lives in the latter. When AI mode cannot connect — in dev it needs
+  // its own server — offer the chat that is right there instead of dead-ending.
+  axiomButton?.addEventListener("click", () => {
+    document
+      .querySelector<HTMLButtonElement>('[data-app-mode-tab="code"]')
+      ?.click();
+    document.querySelector<HTMLButtonElement>('.tab[data-tab="ai"]')?.click();
   });
 
   /**
@@ -460,38 +259,12 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
   };
 
   const deliver = (message: { type: string; payload?: unknown }) => {
-    const safeMessage = sanitizeAiGuestEvent(message, currentWorkspaceScope);
-    if (!safeMessage) return;
-    if (safeMessage.type === "updateWorkspace") {
-      const body = recordPayload(safeMessage.payload);
-      const nextWorkspaceScope = {
-        workspaceId:
-          typeof body.workspaceId === "string" && body.workspaceId.trim()
-            ? body.workspaceId.trim()
-            : null,
-        workspaceGeneration: Number.isSafeInteger(body.workspaceGeneration)
-          ? (body.workspaceGeneration as number)
-          : null,
-      };
-      const workspaceChanged =
-        currentWorkspaceScope.workspaceId !== nextWorkspaceScope.workspaceId ||
-        currentWorkspaceScope.workspaceGeneration !==
-          nextWorkspaceScope.workspaceGeneration;
-      currentWorkspaceScope = nextWorkspaceScope;
-      if (workspaceChanged) {
-        // Messages already sanitized for workspace A are not safe merely
-        // because they sit in a renderer queue when workspace B becomes
-        // current. Drop request results/transcripts and replay only state that
-        // is either global or freshly scoped to B.
-        pending.length = 0;
-        for (const type of WORKSPACE_BOUND_STICKY_EVENTS) sticky.delete(type);
-      }
+    if (!GUEST_EVENTS.has(message.type)) return;
+    if ((STICKY_EVENTS as readonly string[]).includes(message.type)) {
+      sticky.set(message.type, message);
     }
-    if ((STICKY_EVENTS as readonly string[]).includes(safeMessage.type)) {
-      sticky.set(safeMessage.type, safeMessage);
-    }
-    if (sendToGuest(webview, safeMessage)) return;
-    if (pending.length < MAX_PENDING) pending.push(safeMessage);
+    if (sendToGuest(webview, message)) return;
+    if (pending.length < MAX_PENDING) pending.push(message);
   };
 
   return {

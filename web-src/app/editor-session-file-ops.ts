@@ -72,11 +72,6 @@ type FileOpsDeps = {
 
 export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   let lastSaveErrorMessage: string | null = null;
-  const contentConflicts = new Map<
-    string,
-    { diskContent: string | null; conversationId: string | null }
-  >();
-  let reopenNextContentConflict = () => {};
   const {
     deps,
     editorGroups,
@@ -110,75 +105,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
   };
 
-  const clearOwnSaveError = () => {
-    if (lastSaveErrorMessage === null) return;
-    const snapshot = deps.getRecentIssuesSnapshot?.();
-    const stillOurs =
-      !snapshot ||
-      (snapshot.status === "error" &&
-        snapshot.issues.length === 1 &&
-        snapshot.issues[0].message === lastSaveErrorMessage);
-    if (stillOurs) deps.updateIssues(0, "", "info", []);
-    lastSaveErrorMessage = null;
-  };
-
-  const clearContentConflicts = () => {
-    contentConflicts.clear();
-    document.getElementById("ai-content-conflict-bar")?.remove();
-    clearOwnSaveError();
-  };
-
-  const savePathContent = (
-    path: string,
-    value: string,
-    timeoutMs = 8000,
-    expectedContent: string | null | undefined = monacoModels.get(path)?.savedContent,
-  ): Promise<boolean> =>
-    new Promise<boolean>((resolve, reject) => {
-      const startedAt = Date.now();
-      const enqueue = () => {
-        if (state.pendingSave) {
-          if (Date.now() - startedAt >= timeoutMs) {
-            reject("Waiting for save timed out.");
-            return;
-          }
-          window.setTimeout(enqueue, 25);
-          return;
-        }
-        state.pendingSave = { path, content: value, resolve, reject };
-        const safetyTimer = window.setTimeout(() => {
-          if (state.pendingSave && state.pendingSave.path === path) {
-            console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
-            state.pendingSave.reject("Timed out waiting for a save response.");
-            state.pendingSave = null;
-          }
-        }, 30_000);
-        const origResolve = resolve;
-        const origReject = reject;
-        state.pendingSave.resolve = (result: boolean) => {
-          clearTimeout(safetyTimer);
-          origResolve(result);
-        };
-        state.pendingSave.reject = (error: unknown) => {
-          clearTimeout(safetyTimer);
-          origReject(error);
-        };
-        const ok = deps.postToNative({
-          type: "saveFile",
-          path,
-          content: value,
-          ...(typeof expectedContent === "string" ? { expectedContent } : {}),
-          format: false,
-        });
-        if (!ok) {
-          clearTimeout(safetyTimer);
-          state.pendingSave = null;
-          reject("Native integration is not available.");
-        }
-      };
-      enqueue();
-    });
-
   /**
    * Replace model content via executeEdits (preserves undo stack) when available,
    * falling back to setValue (clears undo stack) otherwise.
@@ -206,19 +132,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         return;
       }
     }
-    if (model?.pushEditOperations && model.getFullModelRange) {
-      const fullRange = model.getFullModelRange();
-      if (fullRange) {
-        model.pushStackElement?.();
-        model.pushEditOperations(
-          [],
-          [{ range: fullRange, text: newContent, forceMoveMarkers: true }],
-          () => null,
-        );
-        model.pushStackElement?.();
-        return;
-      }
-    }
     if (model?.setValue) { model.setValue(newContent); return; }
     if (editor?.setValue) { editor.setValue(newContent); }
   };
@@ -228,7 +141,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     path: string,
     kind: "image" | "pdf",
     data?: string,
-    mimeType?: string,
+    mimeType?: string
   ) => {
     clearTemporaryTabs(group, path);
     group.currentFilePath = path;
@@ -429,18 +342,10 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     group: EditorGroupState,
     path: string,
     content: string,
-    options?: {
-      updateSaved?: boolean;
-      showAiDiff?: boolean;
-      expectedContent?: string;
-      expectedFileMissing?: boolean;
-      fileDeleted?: boolean;
-      conversationId?: string;
-      forceConflict?: boolean;
-    }
+    options?: { updateSaved?: boolean; showAiDiff?: boolean }
   ) => {
     if (!group.editor) {
-      return false;
+      return;
     }
     const editor = group.editor as {
       getValue?: () => string;
@@ -457,170 +362,9 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     };
     const entry = monacoModels.get(path);
     const currentValue = entry?.model.getValue() ?? editor.getValue?.() ?? "";
-    const targetIsVisible = group.currentFilePath === path;
-    const viewState = targetIsVisible ? editor.saveViewState?.() : undefined;
-    const fileDeleted = options?.fileDeleted === true;
-    // Codex edits the workspace on disk. If the user typed in the same open
-    // buffer after the agent's source snapshot, never overwrite that newer
-    // unsaved work. Updating savedContent below still records the new disk
-    // baseline, so the retained buffer stays visibly dirty and can be saved or
-    // reviewed by the user.
-    const hasConcurrentEdit =
-      options?.forceConflict === true ||
-      (fileDeleted
-        ? typeof options?.expectedContent === "string" &&
-          currentValue !== options.expectedContent
-        : currentValue !== content &&
-          ((typeof options?.expectedContent === "string" &&
-            currentValue !== options.expectedContent) ||
-            options?.expectedFileMissing === true));
+    const viewState = editor.saveViewState?.();
 
-    if (hasConcurrentEdit) {
-      const conversationId =
-        typeof options?.conversationId === "string" && options.conversationId.trim()
-          ? options.conversationId.trim()
-          : null;
-      contentConflicts.set(path, {
-        diskContent: fileDeleted ? null : content,
-        conversationId,
-      });
-      const message = uiText(
-        fileDeleted
-          ? `Axiom deleted ${path} while it had unsaved edits. Choose which version to keep.`
-          : `Axiom changed ${path} on disk while it had unsaved edits. Choose which version to keep.`,
-        fileDeleted
-          ? `未保存の編集中にAxiomが ${path} を削除しました。残す内容を選んでください。`
-          : `未保存の編集中にAxiomが ${path} を変更しました。残す内容を選んでください。`,
-      );
-      reportSaveError(message);
-
-      if (!targetIsVisible && !fileDeleted) {
-        // Move the affected background tab into view so the two explicit
-        // resolution buttons operate in the file the user is reviewing.
-        requestOpenFile(path, group.key, true);
-      }
-
-      const editorDom = editor.getDomNode?.();
-      const editorContainer = editorDom?.parentElement;
-      if (editorContainer) {
-        document.getElementById("ai-content-conflict-bar")?.remove();
-        const bar = document.createElement("div");
-        bar.id = "ai-content-conflict-bar";
-        bar.className = "ai-undo-keep-bar";
-
-        const keepMine = document.createElement("button");
-        keepMine.className = "ai-undo-keep-btn is-undo";
-        keepMine.textContent = uiText("Keep mine", "自分の編集を残す");
-        keepMine.addEventListener("click", () => {
-          const conflict = contentConflicts.get(path);
-          if (!conflict) return;
-          const mine = entry?.model.getValue() ?? editor.getValue?.() ?? currentValue;
-          keepMine.disabled = true;
-          useAxiom.disabled = true;
-          void savePathContent(
-            path,
-            mine,
-            8000,
-            conflict.diskContent === null ? null : monacoModels.get(path)?.savedContent,
-          )
-            .then((saved) => {
-              if (!saved) throw new Error("Saving failed.");
-              contentConflicts.delete(path);
-              bar.remove();
-              clearOwnSaveError();
-              if (conflict.conversationId) {
-                deps.postToNative({
-                  type: "agent:contentConflictResolved",
-                  conversationId: conflict.conversationId,
-                  path,
-                });
-              }
-              reopenNextContentConflict();
-            })
-            .catch((error: unknown) => {
-              keepMine.disabled = false;
-              useAxiom.disabled = false;
-              reportSaveError(error instanceof Error ? error.message : String(error));
-            });
-        });
-
-        const useAxiom = document.createElement("button");
-        useAxiom.className = "ai-undo-keep-btn is-keep";
-        useAxiom.textContent =
-          contentConflicts.get(path)?.diskContent === null
-            ? uiText("Keep deleted", "削除したまま")
-            : uiText("Use Axiom", "Axiomを使う");
-        useAxiom.addEventListener("click", () => {
-          const conflict = contentConflicts.get(path);
-          if (!conflict) return;
-          if (conflict.diskContent === null) {
-            contentConflicts.delete(path);
-            dirtyFiles.delete(path);
-            bar.remove();
-            clearOwnSaveError();
-            deps.postToNative({ type: "requestWorkspace" });
-            if (conflict.conversationId) {
-              deps.postToNative({
-                type: "agent:contentConflictResolved",
-                conversationId: conflict.conversationId,
-                path,
-              });
-            }
-            reopenNextContentConflict();
-            return;
-          }
-          keepMine.disabled = true;
-          useAxiom.disabled = true;
-          void savePathContent(path, conflict.diskContent)
-            .then((saved) => {
-              if (!saved) throw new Error("Saving failed.");
-              contentConflicts.delete(path);
-              group.isApplyingFile = true;
-              replaceContentViaEdits(
-                group.currentFilePath === path ? editor : null,
-                entry?.model ?? null,
-                conflict.diskContent,
-                "ai-conflict",
-              );
-              group.isApplyingFile = false;
-              if (entry) entry.savedContent = conflict.diskContent;
-              if (group.currentFilePath === path) {
-                group.currentFileSavedContent = conflict.diskContent;
-              }
-              updateDirtyState(path, conflict.diskContent, conflict.diskContent);
-              bar.remove();
-              clearOwnSaveError();
-              if (conflict.conversationId) {
-                deps.postToNative({
-                  type: "agent:contentConflictResolved",
-                  conversationId: conflict.conversationId,
-                  path,
-                });
-              }
-              reopenNextContentConflict();
-              if (isActiveGroup(group)) {
-                updateBreadcrumbs();
-                deps.fileTree.render();
-              }
-            })
-            .catch((error: unknown) => {
-              keepMine.disabled = false;
-              useAxiom.disabled = false;
-              reportSaveError(error instanceof Error ? error.message : String(error));
-            });
-        });
-
-        bar.append(keepMine, useAxiom);
-        editorContainer.appendChild(bar);
-      }
-    }
-
-    if (fileDeleted) {
-      updateDirtyState(path, currentValue, entry?.savedContent ?? currentValue);
-      return hasConcurrentEdit;
-    }
-
-    if (!hasConcurrentEdit && currentValue !== content) {
+    if (currentValue !== content) {
       // Compute changed line numbers BEFORE replacing (for diff decorations).
       // Use LCS-based diff so that only truly added/modified lines are marked,
       // not lines that merely shifted position due to an insertion above.
@@ -642,23 +386,18 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
 
       group.isApplyingFile = true;
       replaceContentViaEdits(
-        targetIsVisible ? editor : null,
+        editor,
         entry?.model ?? null,
         content,
         options?.showAiDiff ? "ai-apply" : "format-on-save",
       );
       group.isApplyingFile = false;
-      if (targetIsVisible && viewState && editor.restoreViewState) {
+      if (viewState && editor.restoreViewState) {
         editor.restoreViewState(viewState);
       }
 
       // Add AI diff decorations
-      if (
-        targetIsVisible &&
-        options?.showAiDiff &&
-        changedLineNumbers.length > 0 &&
-        editor.deltaDecorations
-      ) {
+      if (options?.showAiDiff && changedLineNumbers.length > 0 && editor.deltaDecorations) {
         clearAiDiffDecorations(group);
 
         const decorations = changedLineNumbers.map((lineNumber) => ({
@@ -745,31 +484,11 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         : entry?.savedContent) ??
       entry?.savedContent ??
       content;
-    updateDirtyState(path, hasConcurrentEdit ? currentValue : content, savedContent);
+    updateDirtyState(path, content, savedContent);
     if (isActiveGroup(group)) {
       updateBreadcrumbs();
       deps.fileTree.render();
     }
-    return hasConcurrentEdit;
-  };
-
-  reopenNextContentConflict = () => {
-    const next = contentConflicts.entries().next();
-    if (next.done) return;
-    const [nextPath, conflict] = next.value;
-    const groupKey = findGroupKeyByPath(nextPath);
-    if (!groupKey) return;
-    applyFormattedContent(
-      getEditorGroup(groupKey),
-      nextPath,
-      conflict.diskContent ?? "",
-      {
-        updateSaved: conflict.diskContent !== null,
-        fileDeleted: conflict.diskContent === null,
-        conversationId: conflict.conversationId ?? undefined,
-        forceConflict: true,
-      },
-    );
   };
 
   const requestOpenFile = (path: string, groupKey: EditorGroupKey, force = false) => {
@@ -824,15 +543,52 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
     const editor = activeGroup.editor as { getValue: () => string };
     const content = editor.getValue();
-    if (contentConflicts.has(activePath)) {
-      reportSaveError(
-        uiText(
-          "Resolve the Axiom edit conflict before saving.",
-          "保存する前にAxiomとの編集競合を解決してください。",
-        ),
-      );
-      return Promise.resolve(false);
-    }
+    const savePathContent = (
+      path: string,
+      value: string,
+      timeoutMs = 8000
+    ): Promise<boolean> =>
+      new Promise<boolean>((resolve, reject) => {
+        const startedAt = Date.now();
+        const enqueue = () => {
+          if (state.pendingSave) {
+            if (Date.now() - startedAt >= timeoutMs) {
+              reject("Waiting for save timed out.");
+              return;
+            }
+            window.setTimeout(enqueue, 25);
+            return;
+          }
+          state.pendingSave = { path, content: value, resolve, reject };
+          // Safety timeout: if the native side never responds, release the lock so
+          // subsequent saves are not blocked indefinitely.
+          const safetyTimer = window.setTimeout(() => {
+            if (state.pendingSave && state.pendingSave.path === path) {
+              console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
+              state.pendingSave.reject("Timed out waiting for a save response.");
+              state.pendingSave = null;
+            }
+          }, 30_000);
+          const origResolve = resolve;
+          const origReject = reject;
+          const wrappedResolve = (v: boolean) => { clearTimeout(safetyTimer); origResolve(v); };
+          const wrappedReject = (e: unknown) => { clearTimeout(safetyTimer); origReject(e); };
+          state.pendingSave.resolve = wrappedResolve;
+          state.pendingSave.reject = wrappedReject;
+          const ok = deps.postToNative({
+            type: "saveFile",
+            path,
+            content: value,
+            format: false,
+          });
+          if (!ok) {
+            clearTimeout(safetyTimer);
+            state.pendingSave = null;
+            reject("Native integration is not available.");
+          }
+        };
+        enqueue();
+      });
     return savePathContent(activePath as string, content);
   };
 
@@ -852,15 +608,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
     if (dirtyPaths.length === 0) {
       return true;
-    }
-    if (dirtyPaths.some((path) => contentConflicts.has(path))) {
-      reportSaveError(
-        uiText(
-          "Resolve the Axiom edit conflict before saving.",
-          "保存する前にAxiomとの編集競合を解決してください。",
-        ),
-      );
-      return false;
     }
     const activePath = getActiveGroup().currentFilePath;
     const ordered = dirtyPaths.slice().sort((a, b) => {
@@ -904,7 +651,43 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         return false;
       }
       try {
-        await savePathContent(path, content);
+        await new Promise<boolean>((resolve, reject) => {
+          const startedAt = Date.now();
+          const enqueue = () => {
+            if (state.pendingSave) {
+              if (Date.now() - startedAt >= 8000) {
+                reject("Waiting for save timed out.");
+                return;
+              }
+              window.setTimeout(enqueue, 25);
+              return;
+            }
+            state.pendingSave = { path, content, resolve, reject };
+            const safetyTimer = window.setTimeout(() => {
+              if (state.pendingSave && state.pendingSave.path === path) {
+                console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
+                state.pendingSave.reject("Timed out waiting for a save response.");
+                state.pendingSave = null;
+              }
+            }, 30_000);
+            const origResolve2 = resolve;
+            const origReject2 = reject;
+            state.pendingSave.resolve = (v: boolean) => { clearTimeout(safetyTimer); origResolve2(v); };
+            state.pendingSave.reject = (e: unknown) => { clearTimeout(safetyTimer); origReject2(e); };
+            const ok = deps.postToNative({
+              type: "saveFile",
+              path,
+              content,
+              format: false,
+            });
+            if (!ok) {
+              clearTimeout(safetyTimer);
+              state.pendingSave = null;
+              reject("Native integration is not available.");
+            }
+          };
+          enqueue();
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Saving failed.";
@@ -953,7 +736,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     kind?: "text" | "image" | "pdf" | "unsupported";
     data?: string;
     mimeType?: string;
-    livePreview?: { generation: number; documentEpoch: number };
   }) => {
     // Handle non-file-open message types before consuming pending requests.
     const type = (payload as any).type;
@@ -1023,13 +805,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       return;
     }
     if (kind === "image" || kind === "pdf") {
-      applyViewerFile(
-        targetGroup,
-        path,
-        kind,
-        payload.data,
-        payload.mimeType,
-      );
+      applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType);
       return;
     }
     if (kind === "unsupported") {
@@ -1043,7 +819,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   const handleSaveResult = (payload: {
     path: string;
     ok: boolean;
-    busy?: boolean;
     error?: string;
     content?: string;
     formatError?: string;
@@ -1052,9 +827,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const saveErrorMessage = payload.error ?? "Saving failed.";
     if (state.pendingSave) {
       if (state.pendingSave.path === payload.path) {
-        if (payload.busy) {
-          state.pendingSave.resolve(false);
-        } else if (payload.ok) {
+        if (payload.ok) {
           if (payload.content) {
             state.pendingSave.content = payload.content;
           }
@@ -1071,10 +844,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           `[file-ops] handleSaveResult path mismatch: expected "${state.pendingSave.path}", got "${payload.path}"`
         );
       }
-    }
-    if (payload.busy) {
-      scheduleAutoSave();
-      return;
     }
     if (!payload.ok) {
       reportSaveError(saveErrorMessage);
@@ -1158,6 +927,5 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     scheduleAutoSave,
     handleOpenFileResult,
     handleSaveResult,
-    clearContentConflicts,
   };
 };

@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  findTextBlock,
   findTextBlockRects,
-  hasSelectableText,
   type TextItemLike,
 } from "@/components/pdf-text-blocks";
 
@@ -27,17 +25,6 @@ describe("text block from a click", () => {
     expect(rects).toHaveLength(3);
     expect(rects[0]?.top).toBe(0);
     expect(rects[2]?.top).toBe(24);
-  });
-
-  it("returns the human-visible text in reading order", () => {
-    const items = [
-      { ...line(0, 80, "Mechanisms"), transform: [10, 0, 0, 10, 190, 7.8] },
-      { ...line(0, 80, "Attention "), transform: [10, 0, 0, 10, 100, 7.8] },
-      line(12, 120, "A Brief Survey"),
-    ];
-    expect(findTextBlock(items, { x: 150, y: 5 }).text).toBe(
-      "Attention Mechanisms A Brief Survey",
-    );
   });
 
   it("stops at a paragraph break", () => {
@@ -99,22 +86,6 @@ describe("text block from a click", () => {
 
   it("returns nothing when the click misses the text", () => {
     expect(findTextBlockRects([line(0, 300)], { x: 150, y: 400 })).toEqual([]);
-  });
-
-  it("only treats a hit with visible PDF text as editable", () => {
-    expect(hasSelectableText({ rects: [], text: "" })).toBe(false);
-    expect(
-      hasSelectableText({
-        rects: [{ left: 100, top: 0, width: 20, height: 10 }],
-        text: "   ",
-      }),
-    ).toBe(false);
-    expect(
-      hasSelectableText({
-        rects: [{ left: 100, top: 0, width: 40, height: 10 }],
-        text: "Paper",
-      }),
-    ).toBe(true);
   });
 
   it("ignores entries that carry no geometry", () => {

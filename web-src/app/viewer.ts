@@ -16,6 +16,21 @@ export type PdfSyncPayload = {
   sourceColumn?: number;
 };
 
+export type LivePreviewEditRequest = {
+  sessionId: string;
+  regionId?: string;
+  kind: "text" | "math";
+  file: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
+  value?: string;
+  replacement: string;
+  cancel?: boolean;
+  finish?: boolean;
+  sourceRev?: number;
+};
+
 export type ViewerDeps = {
   editorViewer: HTMLElement | null;
   editorViewerImage: HTMLImageElement | null;
@@ -27,6 +42,12 @@ export type ViewerDeps = {
     y: number;
     pdfPath: string | null;
   }) => void;
+  onLiveSourceRequest?: (payload: {
+    file: string;
+    line: number;
+    column: number;
+  }) => void;
+  onLiveEditRequest?: (payload: LivePreviewEditRequest) => void;
 };
 
 export const createViewer = (deps: ViewerDeps) => {
@@ -109,6 +130,39 @@ export const createViewer = (deps: ViewerDeps) => {
       const pdfPath = typeof detail?.path === "string" ? detail.path : null;
       deps.onPdfReverseRequest?.({ page, x, y, pdfPath });
       return;
+    }
+    if (payload.type === "live-source") {
+      const detail = (payload as { payload?: unknown }).payload as
+        | { file?: unknown; line?: unknown; column?: unknown }
+        | null
+        | undefined;
+      const file = typeof detail?.file === "string" ? detail.file : "";
+      const line = Number(detail?.line);
+      const column = Number(detail?.column);
+      if (file && Number.isFinite(line) && line >= 1) {
+        deps.onLiveSourceRequest?.({
+          file,
+          line: Math.floor(line),
+          column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+        });
+      }
+      return;
+    }
+    if (payload.type === "live-edit") {
+      const detail = (payload as { payload?: unknown }).payload as Partial<LivePreviewEditRequest> | null | undefined;
+      if (
+        typeof detail?.sessionId === "string" &&
+        (detail.kind === "text" || detail.kind === "math") &&
+        typeof detail.file === "string" &&
+        typeof detail.baseValue === "string" &&
+        typeof detail.replacement === "string" &&
+        typeof detail.start?.line === "number" &&
+        typeof detail.start?.column === "number" &&
+        typeof detail.end?.line === "number" &&
+        typeof detail.end?.column === "number"
+      ) {
+        deps.onLiveEditRequest?.(detail as LivePreviewEditRequest);
+      }
     }
   });
 

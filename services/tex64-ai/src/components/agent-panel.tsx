@@ -21,7 +21,7 @@ interface AgentPanelProps {
   /** Tool the agent is running right now, or null when it is writing. */
   activityTool: string | null;
   isWorking: boolean;
-  queuedPrompts: string[];
+  queuedPrompt: string | null;
   error: string | null;
   selectedElement: DocumentElement | null;
   composerRef: RefObject<HTMLTextAreaElement | null>;
@@ -37,7 +37,7 @@ export function AgentPanel({
   streamingText,
   activityTool,
   isWorking,
-  queuedPrompts,
+  queuedPrompt,
   error,
   selectedElement,
   composerRef,
@@ -86,15 +86,9 @@ export function AgentPanel({
           </p>
         ) : null}
 
-        {queuedPrompts.map((queuedPrompt, index) => (
-          <div
-            className="agent-user-message is-queued"
-            key={`queued-${index}-${queuedPrompt}`}
-          >
-            <span className="queued-message-state">待機中</span>
-            <span>{queuedPrompt}</span>
-          </div>
-        ))}
+        {queuedPrompt ? (
+          <div className="agent-user-message is-queued">{queuedPrompt}</div>
+        ) : null}
 
         {error ? <AssistantMessage error>{error}</AssistantMessage> : null}
       </div>

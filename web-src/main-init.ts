@@ -24,7 +24,7 @@ import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
-import { createViewer } from "./app/viewer.js";
+import { createViewer, type LivePreviewEditRequest } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
 import { initBlockEditSession } from "./app/blocks/edit-session.js";
 import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
@@ -50,17 +50,8 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
-import {
-  APP_MODE_STORAGE_KEY,
-  initAppModeUi,
-  prepareCodeWorkspaceHandoff,
-  prepareAppModeTransition,
-  resolveInitialAppMode,
-} from "./app/app-mode.js";
-import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
-import { prepareRendererForQuit } from "./app/quit-preparation.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -97,6 +88,8 @@ export const initMain = () => {
   } = dom;
 
   let postToNative: PostToNative = () => false;
+  let requestLiveSource = (_payload: { file: string; line: number; column: number }) => {};
+  let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
   let isReverseSynctexEnabled = () => true;
   let blockAutoDetect: ReturnType<typeof initBlockAutoDetection> | null = null;
   let blockEditSession: ReturnType<typeof initBlockEditSession> | null = null;
@@ -134,6 +127,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -155,6 +150,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -179,42 +176,8 @@ export const initMain = () => {
     bridgeWindow,
     updateIssues: updateIssuesProxy,
   });
-  let workspaceSwitchInFlight = false;
-  const requestWorkspaceChange = (
-    payload: { type: "openWorkspace" | "openRecentProject" | "createProject"; [key: string]: unknown },
-  ): boolean => {
-    if (workspaceSwitchInFlight) return false;
-    workspaceSwitchInFlight = true;
-    void (async () => {
-      try {
-        // A root switch changes what every relative path means. Save Code's
-        // buffers only after every old-root writer has really stopped.
-        const handoff = await prepareCodeWorkspaceHandoff({
-          quiesce: async () =>
-            (await bridgeWindow.tex64Ai?.quiesce?.()) ?? { ok: false },
-          saveCode: () => editorSession.saveDirtyFiles(),
-        });
-        if (!handoff.ok) {
-          const message =
-            handoff.error ??
-            (handoff.phase === "save"
-              ? uiText(
-                  "Save the current files before changing projects.",
-                  "現在のファイルを保存してからプロジェクトを切り替えてください。",
-                )
-              : uiText(
-                  "The current operation has not stopped yet. Try changing projects again.",
-                  "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。",
-                ));
-          updateIssues(1, message, "error", [{ severity: "error", message }]);
-          return;
-        }
-        postToNative(payload);
-      } finally {
-        workspaceSwitchInFlight = false;
-      }
-    })();
-    return true;
+  requestLiveSource = (payload) => {
+    postToNative({ type: "live-preview:source", ...payload }, true);
   };
   const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
     postToNative(payload, silent)
@@ -362,13 +325,13 @@ export const initMain = () => {
   const contextMenu = initContextMenu(appContext);
   const launcherUi = initLauncherUi(appContext, {
     onCreate: () => {
-      requestWorkspaceChange({ type: "createProject", locale: getUiLocale() });
+      postToNative({ type: "createProject", locale: getUiLocale() });
     },
     onOpen: () => {
-      requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
+      postToNative({ type: "openWorkspace", locale: getUiLocale() });
     },
     onOpenRecent: (path) => {
-      requestWorkspaceChange({ type: "openRecentProject", path });
+      postToNative({ type: "openRecentProject", path });
     },
     onRemoveRecent: (path) => {
       postToNative({ type: "removeRecentProject", path });
@@ -475,125 +438,44 @@ export const initMain = () => {
     },
     getMonacoApi: appActions.getMonacoApi,
   });
+  requestLiveEdit = (payload) => {
+    const workspaceRoot = getWorkspaceRootKey()?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
+    const sourcePath = payload.file.replace(/\\/g, "/").replace(/^\.\//, "");
+    const absolute = sourcePath.startsWith("/") || /^[A-Za-z]:\//.test(sourcePath);
+    const candidate = absolute && workspaceRoot && sourcePath.startsWith(`${workspaceRoot}/`)
+      ? sourcePath.slice(workspaceRoot.length + 1)
+      : absolute
+        ? ""
+        : sourcePath;
+    const parts = candidate.split("/").filter((part) => part && part !== ".");
+    const path = parts.includes("..") || parts.some((part) => part.includes("\0"))
+      ? ""
+      : parts.join("/");
+    if (!path) {
+      const message = uiText(
+        "The PDF edit is outside this workspace.",
+        "PDF編集対象がワークスペース外です。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+      return;
+    }
+    const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
+    if (!ok) {
+      const message = uiText(
+        "The source changed. Click the text again to edit it.",
+        "ソースが更新されています。文字をもう一度クリックしてください。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+    }
+  };
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
-  });
-  const aiModeApi = initAiModeUi({
-    postToNative: (payload, silent) => {
-      if (
-        payload.type === "openWorkspace" ||
-        payload.type === "openRecentProject" ||
-        payload.type === "createProject"
-      ) {
-        return requestWorkspaceChange(payload as {
-          type: "openWorkspace" | "openRecentProject" | "createProject";
-          [key: string]: unknown;
-        });
-      }
-      return postToNative(payload, silent);
-    },
-    openPlans: (plan) =>
-      window.dispatchEvent(
-        new CustomEvent("tex64:open-plans", {
-          detail: plan ? { plan } : undefined,
-        }),
-      ),
-  });
-  // The embedded app receives the same host events as Code, then applies its
-  // own narrow allowlist. A second listener leaves the existing dispatcher
-  // and Code workspace behavior untouched.
-  bridgeWindow.tex64Bridge?.onMessage?.((message) => aiModeApi.deliver(message));
-  let quitPreparation: Promise<{
-    ok: boolean;
-    phase?: "quiesce" | "save";
-    error?: string;
-  }> | null = null;
-  bridgeWindow.tex64Bridge?.onMessage?.((message) => {
-    if (message.type !== "prepareQuit") return;
-    const payload =
-      message.payload && typeof message.payload === "object"
-        ? (message.payload as Record<string, unknown>)
-        : {};
-    const requestId =
-      typeof payload.requestId === "string" ? payload.requestId : "";
-    if (!requestId) return;
-    if (!quitPreparation) {
-      quitPreparation = prepareRendererForQuit({
-        quiesce: async () =>
-          (await bridgeWindow.tex64Ai?.quiesce?.()) ?? {
-            ok: false,
-            error: "Native integration is not available.",
-          },
-        saveDirtyFiles: () => editorSession.saveDirtyFiles(),
-        getDirtyFileCount: () => editorSession.getDirtyPaths().size,
-        freeze: () => {
-          document.documentElement.dataset.quitPrepared = "true";
-          document.body.inert = true;
-        },
-      });
-    }
-    void quitPreparation.then((result) => {
-      if (!result.ok) {
-        const fallback =
-          result.phase === "save"
-            ? uiText(
-                "Some files could not be saved. Quit was canceled.",
-                "保存できなかったファイルがあるため、終了を中止しました。",
-              )
-            : uiText(
-                "The current operation could not be stopped. Quit was canceled.",
-                "実行中の処理を停止できなかったため、終了を中止しました。",
-              );
-        const error = result.error || fallback;
-        updateIssues(1, error, "error", [{ severity: "error", message: error }]);
-        quitPreparation = null;
-      }
-      postToNative(
-        {
-          type: "prepareQuit:result",
-          requestId,
-          ok: result.ok,
-          error: result.error,
-        },
-        true,
-      );
-    });
-  });
-  let appModeApi: ReturnType<typeof initAppModeUi>;
-  appModeApi = initAppModeUi({
-    initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)),
-    beforeModeChange: (mode, previous) => {
-      if (previous === null) return true;
-      return (async () => {
-        const result = await prepareAppModeTransition({
-          next: mode,
-          previous,
-          quiesce: async () =>
-            (await bridgeWindow.tex64Ai?.quiesce?.()) ?? {
-              ok: false,
-            },
-          saveCode: () => editorSession.saveDirtyFiles(),
-        });
-        if (result?.ok === true) return true;
-        if (result.phase === "save") return false;
-        const message =
-          result?.error ??
-          uiText(
-            "The current operation has not stopped yet. Try switching modes again.",
-            "実行中の処理がまだ停止していません。もう一度モードを切り替えてください。",
-          );
-        updateIssues(1, message, "error", [{ severity: "error", message }]);
-        return false;
-      })();
-    },
-    onModeChange: (mode) => {
-      if (mode === "ai") aiModeApi.activate();
-    },
   });
   initCodeLivePreview({
     getActiveGroup: editorSession.getActiveGroup,
     getEditorGroups: editorSession.getEditorGroups,
-    getAppMode: () => appModeApi.getMode(),
+    getAppMode: () => "code",
+    getPdfViewerMode: settingsUi.getPdfViewerMode,
     getWorkspaceRoot: getWorkspaceRootKey,
     getRootFile: getRootFilePath,
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
@@ -658,7 +540,6 @@ export const initMain = () => {
     getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
     getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
     getWorkspaceFiles,
-    getWorkspaceRoot: getWorkspaceRootKey,
     showDiffModal: diffModalApi.showDiffModal,
     showMultiFileDiff: diffModalApi.showMultiFileDiff,
     setDiffContext: diffModalApi.setDiffContext,
@@ -1052,6 +933,7 @@ export const initMain = () => {
     blockInsert: blockInsertApi,
     buildOps: {
       setupActionButtons: () => buildOps.setupActionButtons(),
+      startBuild: () => buildOps.startBuild(),
     },
     rootSelectorUi: {
       setupActions: () => rootSelectorUi.setupActions(),
@@ -1061,8 +943,10 @@ export const initMain = () => {
   uiEvents.setup();
 
   window.addEventListener("beforeunload", () => {
-    // Native Quit uses the acknowledged prepareQuit batch above. Keep this as
-    // a best-effort fallback for an isolated renderer reload/window close.
+    // For an auto-save editor, flush any pending saves immediately rather
+    // than blocking the close with a confusing "Leave site?" dialog.
+    // The IPC messages are enqueued synchronously and will be processed by
+    // the main process even after the renderer is torn down.
     if (editorSession.getDirtyPaths().size > 0) {
       editorSession.saveDirtyFiles().catch(() => {});
     }
@@ -1143,11 +1027,7 @@ export const initMain = () => {
     bridgeWindow,
     postToNative: (payload, silent) => postToNative(payload, silent),
     updateIssues: updateIssuesProxy,
-    handleWorkspaceUpdate: (payload) => {
-      aiChatUi?.handleWorkspaceChanged(payload.rootPath);
-      workspaceController.handleWorkspaceUpdate(payload);
-      postToNative({ type: "agent:state:get" }, true);
-    },
+    handleWorkspaceUpdate: workspaceController.handleWorkspaceUpdate,
     handleIndexUpdate: workspaceController.handleIndexUpdate,
     handleLauncherStatus,
     handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
@@ -1159,24 +1039,25 @@ export const initMain = () => {
           return;
         }
         if (command === "project:new") {
-          requestWorkspaceChange({ type: "createProject", locale: getUiLocale() });
+          postToNative({ type: "createProject", locale: getUiLocale() });
           return;
         }
         if (command === "project:open") {
-          requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
+          postToNative({ type: "openWorkspace", locale: getUiLocale() });
           return;
         }
         if (command === "file:save") {
           editorSession.saveCurrentFile();
           return;
         }
+        if (command === "document:build") {
+          buildOps.startBuild();
+          return;
+        }
         if (command === "settings:open") {
           setActiveTab("settings");
         }
       },
-    },
-    billing: {
-      handleCheckoutClosed: (payload) => billingUi?.handleCheckoutClosed(payload),
     },
     search: {
       handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
@@ -1233,8 +1114,6 @@ export const initMain = () => {
       handleThought: (payload) => aiChatUi?.handleThought(payload),
       handleError: (message, conversationId) =>
         aiChatUi?.handleError(message, conversationId),
-      handleRequestRejected: (payload) =>
-        aiChatUi?.handleRequestRejected(payload),
     },
     api: {
       handleUsage: () => {},
@@ -1261,11 +1140,9 @@ export const initMain = () => {
     },
     filePreview: {
       handlePreviewResult: (payload) => filePreviewBroker.handlePreviewResult(payload),
-      setWorkspaceScope: (scope) => filePreviewBroker.setWorkspaceScope(scope),
     },
     fileExcerpt: {
       handleExcerptResult: (payload) => fileExcerptBroker.handleExcerptResult(payload),
-      setWorkspaceScope: (scope) => fileExcerptBroker.setWorkspaceScope(scope),
     },
     editorSession: {
       handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),
@@ -1275,6 +1152,7 @@ export const initMain = () => {
       handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
       applyContentToOpenFile: (path, content, options) =>
         editorSession.applyContentToOpenFile(path, content, options),
+      applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
     },
   });
 

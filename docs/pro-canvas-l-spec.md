@@ -178,5 +178,5 @@
 ## 完了条件
 
 - `npx tsc -p web-src/tsconfig.json` が 0 エラー。
-- `node --test tests/*.test.cjs tests/*.test.mjs` が全 pass（`tests/nightly` は対象外）。
+- `node --test tests/*.test.cjs tests/*.test.mjs` が全 pass（`tests/e2e`・`tests/nightly` は対象外）。
 - 上の L2 テストを追加済み。L1 は DOM 依存のため単体テストなし（tsc + 実走で確認する）。
