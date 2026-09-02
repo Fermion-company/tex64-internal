@@ -33,7 +33,7 @@ export const createViewer = (deps) => {
         }
     };
     window.addEventListener("message", (event) => {
-        var _a;
+        var _a, _b, _c, _d, _e, _f, _g;
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
         }
@@ -74,6 +74,44 @@ export const createViewer = (deps) => {
             const pdfPath = typeof (detail === null || detail === void 0 ? void 0 : detail.path) === "string" ? detail.path : null;
             (_a = deps.onPdfReverseRequest) === null || _a === void 0 ? void 0 : _a.call(deps, { page, x, y, pdfPath });
             return;
+        }
+        if (payload.type === "live-source") {
+            const detail = payload.payload;
+            const file = typeof (detail === null || detail === void 0 ? void 0 : detail.file) === "string" ? detail.file : "";
+            const line = Number(detail === null || detail === void 0 ? void 0 : detail.line);
+            const column = Number(detail === null || detail === void 0 ? void 0 : detail.column);
+            if (file && Number.isFinite(line) && line >= 1) {
+                (_b = deps.onLiveSourceRequest) === null || _b === void 0 ? void 0 : _b.call(deps, {
+                    file,
+                    line: Math.floor(line),
+                    column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+                });
+            }
+            return;
+        }
+        if (payload.type === "live-edit") {
+            const detail = payload.payload;
+            const startLine = Number((_c = detail === null || detail === void 0 ? void 0 : detail.start) === null || _c === void 0 ? void 0 : _c.line);
+            const startColumn = Number((_d = detail === null || detail === void 0 ? void 0 : detail.start) === null || _d === void 0 ? void 0 : _d.column);
+            const endLine = Number((_e = detail === null || detail === void 0 ? void 0 : detail.end) === null || _e === void 0 ? void 0 : _e.line);
+            const endColumn = Number((_f = detail === null || detail === void 0 ? void 0 : detail.end) === null || _f === void 0 ? void 0 : _f.column);
+            if (typeof (detail === null || detail === void 0 ? void 0 : detail.sessionId) === "string" &&
+                detail.sessionId.length > 0 &&
+                (detail.kind === "text" || detail.kind === "math") &&
+                typeof detail.file === "string" &&
+                detail.file.length > 0 &&
+                typeof detail.baseValue === "string" &&
+                typeof detail.replacement === "string" &&
+                Number.isFinite(startLine) && startLine >= 1 &&
+                Number.isFinite(startColumn) && startColumn >= 1 &&
+                Number.isFinite(endLine) && endLine >= 1 &&
+                Number.isFinite(endColumn) && endColumn >= 1) {
+                (_g = deps.onLiveEditRequest) === null || _g === void 0 ? void 0 : _g.call(deps, {
+                    ...detail,
+                    start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
+                    end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
+                });
+            }
         }
     });
     const clearViewerUrl = () => {

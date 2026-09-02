@@ -379,6 +379,12 @@ export const initCodeLivePreview = ({
     } else distributeLive(null);
   };
 
+  const refreshSource = () => {
+    if (!active) return;
+    latestInputAtEpochMs = Date.now();
+    debouncedPush();
+  };
+
   editorSettings.subscribe((change) => {
     if (change.kind !== "flag" || change.id !== "preview.realtime") return;
     refresh();
@@ -425,5 +431,5 @@ export const initCodeLivePreview = ({
   // setting.
   distributeLive(null);
   refresh();
-  return { isActive: () => active };
+  return { isActive: () => active, refreshSource };
 };

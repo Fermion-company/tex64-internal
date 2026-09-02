@@ -601,6 +601,24 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         return ok;
     };
+    const requestOpenFileInBackground = (path, groupKey) => {
+        if (monacoModels.has(path))
+            return false;
+        if (state.pendingOpenRequests.some((entry) => entry.path === path))
+            return true;
+        const requestEntry = { path, group: groupKey, background: true };
+        state.pendingOpenRequests.push(requestEntry);
+        const ok = deps.postToNative({ type: "openFile", path });
+        if (!ok) {
+            const index = state.pendingOpenRequests.indexOf(requestEntry);
+            if (index >= 0)
+                state.pendingOpenRequests.splice(index, 1);
+            deps.updateIssues(1, "Unable to open file.", "error", [
+                { severity: "error", message: "Unable to open file." },
+            ]);
+        }
+        return ok;
+    };
     const saveCurrentFileInternal = () => {
         const activeGroup = getActiveGroup();
         const activePath = activeGroup.currentFilePath;
@@ -721,7 +739,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }, 400);
     };
     const handleOpenFileResult = (payload) => {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         // Handle non-file-open message types before consuming pending requests.
         const type = payload.type;
         if (type === "searchResult") {
@@ -741,16 +759,17 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const pendingIndex = state.pendingOpenRequests.findIndex((entry) => entry.path === payload.path);
-        let targetGroupKey = pendingIndex >= 0
-            ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
-            : getActiveEditorGroupKey();
+        const pendingEntry = pendingIndex >= 0
+            ? state.pendingOpenRequests.splice(pendingIndex, 1)[0]
+            : null;
+        let targetGroupKey = (_a = pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.group) !== null && _a !== void 0 ? _a : getActiveEditorGroupKey();
         if (!payload.path) {
             return;
         }
         const path = payload.path;
         const kind = payload.kind === "text" && !isTextFilePath(path)
             ? "unsupported"
-            : (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+            : (_b = payload.kind) !== null && _b !== void 0 ? _b : (isPdfFilePath(path)
                 ? "pdf"
                 : isImageFilePath(path)
                     ? "image"
@@ -784,6 +803,22 @@ export const createEditorSessionFileOps = (ctx) => {
             ]);
             return;
         }
+        if (pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.background) {
+            if (kind !== "text") {
+                deps.updateIssues(1, "The live preview source is not editable.", "error", [
+                    { severity: "error", message: "The live preview source is not editable." },
+                ]);
+                return;
+            }
+            const entry = ensureModelEntry(path, (_c = payload.content) !== null && _c !== void 0 ? _c : "", (_d = payload.content) !== null && _d !== void 0 ? _d : "");
+            if (!entry) {
+                deps.updateFallback("Editor is not ready.");
+                return;
+            }
+            addOpenTab(targetGroup, path);
+            deps.editorTabs.render(targetGroup);
+            return;
+        }
         if (kind === "image" || kind === "pdf") {
             applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType);
             return;
@@ -792,7 +827,7 @@ export const createEditorSessionFileOps = (ctx) => {
             applyUnsupportedFile(targetGroup, path);
             return;
         }
-        const content = (_b = payload.content) !== null && _b !== void 0 ? _b : "";
+        const content = (_e = payload.content) !== null && _e !== void 0 ? _e : "";
         applyFileContent(targetGroup, path, content, content);
     };
     const handleSaveResult = (payload) => {
@@ -902,6 +937,7 @@ export const createEditorSessionFileOps = (ctx) => {
     return {
         applyFormattedContent,
         requestOpenFile,
+        requestOpenFileInBackground,
         saveCurrentFile,
         saveDirtyFiles,
         scheduleAutoSave,

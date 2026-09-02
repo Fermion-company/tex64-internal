@@ -42,6 +42,21 @@ export type MonacoModel = {
 };
 export type MonacoModelEntry = { model: MonacoModel; savedContent: string };
 
+export type LivePreviewEditPayload = {
+  sessionId: string;
+  regionId?: string;
+  kind: "text" | "math";
+  path: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
+  value?: string;
+  replacement: string;
+  cancel?: boolean;
+  finish?: boolean;
+  sourceRev?: number;
+};
+
 export type EditorSessionDeps = {
   getWorkspaceFiles: () => string[];
   getRootFilePath: () => string | null;
@@ -98,6 +113,7 @@ export type EditorSessionDeps = {
     }) => void;
   };
   getMonacoApi: () => Record<string, unknown> | null;
+  onLivePreviewSourceChanged?: () => void;
 };
 
 export type EditorSessionApi = {
@@ -180,6 +196,7 @@ export type EditorSessionApi = {
       conversationId?: string;
     }
   ) => { handled: boolean; conflict: boolean };
+  applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;

@@ -1,9 +1,10 @@
 # リアルタイムプレビュー（ベータ）
 
-Code / AI 共通の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、TeX64 本体には同梱せずプロセスとして起動する。
+Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、TeX64 本体には同梱せずプロセスとして起動する。
 
 - 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
-- **ライブ専用の表示面は作らない。** TDOM が確定した PDF バイトを、Code では通常の `pdf-viewer.html`、AI では通常の `PdfPreview` へ渡す。ズーム、スクロール、検索、サイドバー、SyncTeX は通常ビルド後の PDF と同じ経路を通る。Code では既存の PDF タブを更新し、まだ無ければ通常と同じセカンダリグループに PDF タブを開く。別ウィンドウは起動しない。
+- **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。既存の PDF タブを使い、別ウィンドウは起動しない。
+- プレビュー上の文字・数式は直接編集できる。編集は同じ Monaco モデルへ入り、未保存状態・自動保存・Undo を通常のソース編集と共有する。ソース位置が競合した場合は推測で別箇所を書き換えず、その編集を拒否する。
 
 ## 配線
 
@@ -12,13 +13,14 @@ Code / AI 共通の設定トグルで有効化する、書きながら組版さ�
 | main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy・`/canonical.pdf` snapshot |
 | main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,focus,snapshot}` |
 | preload | `electron/preload.cjs` | `window.tex64Tdom` |
-| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・確定 PDF snapshot の配信 |
-| renderer | `web-src/app/viewer.ts` | ライブ PDF を通常の `showPdfViewer` と同じ PDF.js 読み込みへ渡し、静的 PDF を last-good として保持 |
-| AI | `services/tex64-ai/src/lib/client/use-workspace-pdf.ts` | native host から受けた同じ PDF snapshot を既存の `PdfPreview` URL として採用 |
+| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・既存 PDF ビューアへのライブ URL 配信 |
+| renderer | `Resources/web/pdf-viewer.js` | 通常 PDF の last-good を保持しつつページ面を TDOM iframe に切替、ツールバー操作と直接編集イベントを中継 |
+| renderer | `web-src/app/viewer.ts` | PDF iframe と Code 側のソース移動・直接編集を接続 |
+| renderer | `web-src/app/editor-session/init.ts` | 直接編集を Monaco の単一 Undo セッションとして適用し、競合時は安全に拒否 |
 
 エディタ全文を main に送り、main 側が前回ソースとの共通 prefix/suffix を削った**最小レンジ編集**にして `POST /edit` する。ファイル切替時は `POST /open` で開き直す。編集が食い違ったら `/open` で再同期。
 
-表示するのは TDOM の provisional DOM ではなく、確定した LuaLaTeX PDF だけである。したがって画面更新は canonical の着地単位になるが、通常 PDF と異なる字形・改ページ・操作系が混在しない。
+通常時は TDOM の canonical 面を表示する。編集中に provisional 面へ切り替わる場合もページ単位で二値化し、同一ページ上に旧 canonical 行と新 provisional 行を帯状合成しない。
 
 ## エンジンの解決順序（tdom-engine.cjs）
 
@@ -35,6 +37,7 @@ Code / AI 共通の設定トグルで有効化する、書きながら組版さ�
 - 必須バイナリ: `lualatex`（managed TeX / システム texbin を PATH に前置）、poppler の `pdftocairo` / `pdftotext` / `pdfinfo`、fork shim 初回ビルド用の `cc`（PATH に `/opt/homebrew/bin` `/usr/local/bin` を追加して spawn）。欠けるとエンジンが起動せず console にエラーが出る（ビューアは静的表示のまま）。従来ビルドには影響しない。
 - `TDOM_MAX_CHECKPOINTS=8`（checkpoint 1 個 ≒ 常駐 lualatex fork 1 個 ≒ 100–300MB。エンジン既定の 64 は踏まない）。
 - `TDOM_WORKDIR` は userData 配下の絶対パス（tdom-core 側に絶対パス対応を追加済み）。
+- 数式の直接編集に使う MathLive / WYSIWYG 資産だけを `app.asar.unpacked` に展開し、`TDOM_HOST_WEB_ROOT` で外部 TDOM プロセスへ渡す。renderer 全体は公開しない。
 - boot サンプルは `samples/` の実在ファイルから選ぶ（`demo-lua.tex` 優先）。既定の stress-test-ja は起動に数分かかるため使わない。
 - トグル OFF・アプリ終了で SIGTERM → エンジン側の shutdown が常駐 lualatex ツリーを回収する。
 - ポートは 4646 起点で空きを探す（tdom 開発サーバーの 4633 とは衝突させない）。

@@ -24,7 +24,7 @@ import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
-import { createViewer } from "./app/viewer.js";
+import { createViewer, type LivePreviewEditRequest } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
 import { initBlockEditSession } from "./app/blocks/edit-session.js";
 import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
@@ -60,6 +60,7 @@ import {
 import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
+import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
 import { prepareRendererForQuit } from "./app/quit-preparation.js";
 import type {
   BlockContext,
@@ -97,6 +98,9 @@ export const initMain = () => {
   } = dom;
 
   let postToNative: PostToNative = () => false;
+  let requestLiveSource = (_payload: { file: string; line: number; column: number }) => {};
+  let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
+  let refreshCodeLivePreview = () => {};
   let isReverseSynctexEnabled = () => true;
   let blockAutoDetect: ReturnType<typeof initBlockAutoDetection> | null = null;
   let blockEditSession: ReturnType<typeof initBlockEditSession> | null = null;
@@ -134,6 +138,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -155,6 +161,8 @@ export const initMain = () => {
         true
       );
     },
+    onLiveSourceRequest: (payload) => requestLiveSource(payload),
+    onLiveEditRequest: (payload) => requestLiveEdit(payload),
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -474,7 +482,42 @@ export const initMain = () => {
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     getMonacoApi: appActions.getMonacoApi,
+    onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
   });
+  const reportInvalidLivePreviewPath = () => {
+    const message = uiText(
+      "The PDF edit is outside this workspace.",
+      "PDF編集対象がワークスペース外です。"
+    );
+    updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+  };
+  requestLiveSource = (payload) => {
+    const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
+    if (!path) {
+      reportInvalidLivePreviewPath();
+      return;
+    }
+    editorSession.jumpToFileLine(path, payload.line, "primary", {
+      force: true,
+      focus: true,
+      column: payload.column,
+    });
+  };
+  requestLiveEdit = (payload) => {
+    const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
+    if (!path) {
+      reportInvalidLivePreviewPath();
+      return;
+    }
+    const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
+    if (!ok) {
+      const message = uiText(
+        "The source changed. Click the text again to edit it.",
+        "ソースが更新されています。文字をもう一度クリックしてください。"
+      );
+      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+    }
+  };
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
   });
@@ -590,7 +633,7 @@ export const initMain = () => {
       if (mode === "ai") aiModeApi.activate();
     },
   });
-  initCodeLivePreview({
+  const codeLivePreview = initCodeLivePreview({
     getActiveGroup: editorSession.getActiveGroup,
     getEditorGroups: editorSession.getEditorGroups,
     getAppMode: () => appModeApi.getMode(),
@@ -602,6 +645,7 @@ export const initMain = () => {
       onlyDirty: true,
     }).snapshots,
   });
+  refreshCodeLivePreview = codeLivePreview.refreshSource;
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
   const openInCodeEditor = (path: string, line?: number) => {

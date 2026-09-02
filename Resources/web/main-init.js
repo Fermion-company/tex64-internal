@@ -51,6 +51,7 @@ import { APP_MODE_STORAGE_KEY, initAppModeUi, prepareCodeWorkspaceHandoff, prepa
 import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
+import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
 import { prepareRendererForQuit } from "./app/quit-preparation.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
@@ -63,6 +64,9 @@ export const initMain = () => {
         const dom = getDomRefs();
         const { tabs, settingsTab, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
         let postToNative = () => false;
+        let requestLiveSource = (_payload) => { };
+        let requestLiveEdit = (_payload) => { };
+        let refreshCodeLivePreview = () => { };
         let isReverseSynctexEnabled = () => true;
         let blockAutoDetect = null;
         let blockEditSession = null;
@@ -96,6 +100,8 @@ export const initMain = () => {
                     pdfPath: payload.pdfPath,
                 }, true);
             },
+            onLiveSourceRequest: (payload) => requestLiveSource(payload),
+            onLiveEditRequest: (payload) => requestLiveEdit(payload),
         });
         const secondaryViewer = createViewer({
             editorViewer: editorViewerSecondary,
@@ -114,6 +120,8 @@ export const initMain = () => {
                     pdfPath: payload.pdfPath,
                 }, true);
             },
+            onLiveSourceRequest: (payload) => requestLiveSource(payload),
+            onLiveEditRequest: (payload) => requestLiveEdit(payload),
         });
         const bridgeWindow = window;
         bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl) => recognizeMath(imageDataUrl);
@@ -406,7 +414,36 @@ export const initMain = () => {
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             getMonacoApi: appActions.getMonacoApi,
+            onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
         });
+        const reportInvalidLivePreviewPath = () => {
+            const message = uiText("The PDF edit is outside this workspace.", "PDF編集対象がワークスペース外です。");
+            updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+        };
+        requestLiveSource = (payload) => {
+            const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
+            if (!path) {
+                reportInvalidLivePreviewPath();
+                return;
+            }
+            editorSession.jumpToFileLine(path, payload.line, "primary", {
+                force: true,
+                focus: true,
+                column: payload.column,
+            });
+        };
+        requestLiveEdit = (payload) => {
+            const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
+            if (!path) {
+                reportInvalidLivePreviewPath();
+                return;
+            }
+            const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
+            if (!ok) {
+                const message = uiText("The source changed. Click the text again to edit it.", "ソースが更新されています。文字をもう一度クリックしてください。");
+                updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+            }
+        };
         initProCanvasUi({
             getActiveGroup: editorSession.getActiveGroup,
         });
@@ -504,7 +541,7 @@ export const initMain = () => {
                     aiModeApi.activate();
             },
         });
-        initCodeLivePreview({
+        const codeLivePreview = initCodeLivePreview({
             getActiveGroup: editorSession.getActiveGroup,
             getEditorGroups: editorSession.getEditorGroups,
             getAppMode: () => appModeApi.getMode(),
@@ -516,6 +553,7 @@ export const initMain = () => {
                 onlyDirty: true,
             }).snapshots,
         });
+        refreshCodeLivePreview = codeLivePreview.refreshSource;
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInCodeEditor = (path, line) => {
             if (typeof line === "number") {

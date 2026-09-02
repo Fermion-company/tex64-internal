@@ -364,6 +364,12 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         else
             distributeLive(null);
     };
+    const refreshSource = () => {
+        if (!active)
+            return;
+        latestInputAtEpochMs = Date.now();
+        debouncedPush();
+    };
     editorSettings.subscribe((change) => {
         if (change.kind !== "flag" || change.id !== "preview.realtime")
             return;
@@ -413,5 +419,5 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // setting.
     distributeLive(null);
     refresh();
-    return { isActive: () => active };
+    return { isActive: () => active, refreshSource };
 };

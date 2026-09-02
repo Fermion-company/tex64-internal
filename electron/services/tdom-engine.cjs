@@ -140,6 +140,19 @@ class TdomEngineService {
     this.explicitEngineDir = options.engineDir;
     this.vendoredDir = options.vendoredDir
       || (options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
+    const directHostWebRoot = options.resourcesPath
+      ? path.join(options.resourcesPath, "web")
+      : null;
+    const unpackedHostWebRoot = options.resourcesPath
+      ? path.join(options.resourcesPath, "app.asar.unpacked", "Resources", "web")
+      : null;
+    // The engine is an external process and cannot read Electron's virtual
+    // app.asar. Packaged builds expose only the MathLive/WYSIWYG files needed
+    // by the formula editor; development uses Resources/web directly.
+    this.hostWebRoot = options.hostWebRoot ||
+      (unpackedHostWebRoot && pathExists(unpackedHostWebRoot)
+        ? unpackedHostWebRoot
+        : directHostWebRoot);
     this.workDir = options.workDir
       || (options.userDataPath ? path.join(options.userDataPath, "tdom-work") : null);
     this.homeDir = options.homeDir || os.homedir();
@@ -296,6 +309,7 @@ class TdomEngineService {
       // canonical LuaLaTeX rendering remains fully functional.
     }
     if (this.workDir) env.TDOM_WORKDIR = this.workDir;
+    if (this.hostWebRoot) env.TDOM_HOST_WEB_ROOT = this.hostWebRoot;
     return env;
   }
 

@@ -31,7 +31,11 @@ type PendingReveal = {
 };
 
 export type FileOpsState = {
-  pendingOpenRequests: Array<{ path: string; group: EditorGroupKey }>;
+  pendingOpenRequests: Array<{
+    path: string;
+    group: EditorGroupKey;
+    background?: boolean;
+  }>;
   pendingReveal: PendingReveal | null;
   pendingSave: PendingSave | null;
   autoSaveTimer: number | null;
@@ -812,6 +816,22 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     return ok;
   };
 
+  const requestOpenFileInBackground = (path: string, groupKey: EditorGroupKey) => {
+    if (monacoModels.has(path)) return false;
+    if (state.pendingOpenRequests.some((entry) => entry.path === path)) return true;
+    const requestEntry = { path, group: groupKey, background: true };
+    state.pendingOpenRequests.push(requestEntry);
+    const ok = deps.postToNative({ type: "openFile", path });
+    if (!ok) {
+      const index = state.pendingOpenRequests.indexOf(requestEntry);
+      if (index >= 0) state.pendingOpenRequests.splice(index, 1);
+      deps.updateIssues(1, "Unable to open file.", "error", [
+        { severity: "error", message: "Unable to open file." },
+      ]);
+    }
+    return ok;
+  };
+
   const saveCurrentFileInternal = () => {
     const activeGroup = getActiveGroup();
     const activePath = activeGroup.currentFilePath;
@@ -976,10 +996,10 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const pendingIndex = state.pendingOpenRequests.findIndex(
       (entry) => entry.path === payload.path
     );
-    let targetGroupKey: EditorGroupKey =
-      pendingIndex >= 0
-        ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
-        : getActiveEditorGroupKey();
+    const pendingEntry = pendingIndex >= 0
+      ? state.pendingOpenRequests.splice(pendingIndex, 1)[0]
+      : null;
+    let targetGroupKey: EditorGroupKey = pendingEntry?.group ?? getActiveEditorGroupKey();
     if (!payload.path) {
       return;
     }
@@ -1020,6 +1040,22 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       deps.updateIssues(1, payload.error, "error", [
         { severity: "error", message: payload.error },
       ]);
+      return;
+    }
+    if (pendingEntry?.background) {
+      if (kind !== "text") {
+        deps.updateIssues(1, "The live preview source is not editable.", "error", [
+          { severity: "error", message: "The live preview source is not editable." },
+        ]);
+        return;
+      }
+      const entry = ensureModelEntry(path, payload.content ?? "", payload.content ?? "");
+      if (!entry) {
+        deps.updateFallback("Editor is not ready.");
+        return;
+      }
+      addOpenTab(targetGroup, path);
+      deps.editorTabs.render(targetGroup);
       return;
     }
     if (kind === "image" || kind === "pdf") {
@@ -1153,6 +1189,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   return {
     applyFormattedContent,
     requestOpenFile,
+    requestOpenFileInBackground,
     saveCurrentFile,
     saveDirtyFiles,
     scheduleAutoSave,
