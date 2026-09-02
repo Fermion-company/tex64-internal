@@ -103,6 +103,10 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
     if (diffModalSubmit instanceof HTMLButtonElement) {
       diffModalSubmit.addEventListener("click", () => {
         const diffContext = deps.diffModal.getDiffContext();
+        if (diffContext?.type === "view") {
+          deps.diffModal.closeDiffModal();
+          return;
+        }
         if (diffContext?.type === "aiApply") {
           deps.aiOps?.applyPendingFromDiffModal();
           deps.diffModal.closeDiffModal();

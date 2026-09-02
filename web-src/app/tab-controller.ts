@@ -4,6 +4,8 @@ import type { AppContext } from "./context.js";
 type TabControllerDeps = {
   onFilesTabActive: () => void;
   onSettingsTabActive: () => void;
+  /** Fired for every tab, so panels that read live state can refresh on show. */
+  onTabActive?: (tabKey: TabKey) => void;
 };
 
 export type TabControllerApi = {
@@ -69,6 +71,7 @@ export const initTabController = (
     if (tabKey === "settings") {
       deps.onSettingsTabActive();
     }
+    deps.onTabActive?.(tabKey);
   };
 
   return {

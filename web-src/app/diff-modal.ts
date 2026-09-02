@@ -4,6 +4,9 @@ import type { AppContext } from "./context.js";
 export type DiffContext =
   | { type: "block" }
   | { type: "aiApply"; proposalIds: string[] }
+  // Read-only: the Source Control panel shows a diff to look at, with nothing
+  // to apply, so the confirm button just dismisses it.
+  | { type: "view" }
   | null;
 
 export type FileDiff = {

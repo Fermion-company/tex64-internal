@@ -190,6 +190,9 @@ export const createEditorSessionFileOps = (ctx) => {
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
         }
+        // Switching to a tab whose file changed on disk while it held unsaved
+        // edits must bring its notice along.
+        renderExternalChangeBar();
     };
     // Track active AI diff decorations per editor group
     const aiDiffDecorations = new Map();
@@ -716,6 +719,146 @@ export const createEditorSessionFileOps = (ctx) => {
             }
         });
     };
+    // --- External changes -------------------------------------------------
+    //
+    // The main process watches the workspace and reports files that changed on
+    // disk. A buffer with no unsaved edits is refreshed in place — cursor,
+    // selection and scroll survive, because the new text is applied as an edit
+    // rather than a setValue. A buffer with unsaved edits is never overwritten;
+    // it gets a bar offering the choice.
+    const EXTERNAL_BAR_ID = "external-change-bar";
+    const externallyChangedDirtyPaths = new Set();
+    const isPathOpen = (path) => {
+        let open = false;
+        forEachEditorGroup((group) => {
+            if (group.currentFilePath === path || group.openTabs.includes(path)) {
+                open = true;
+            }
+        });
+        return open;
+    };
+    const removeExternalChangeBar = () => {
+        var _a;
+        (_a = document.getElementById(EXTERNAL_BAR_ID)) === null || _a === void 0 ? void 0 : _a.remove();
+    };
+    const renderExternalChangeBar = () => {
+        removeExternalChangeBar();
+        const activePath = getActiveGroup().currentFilePath;
+        if (!activePath || !externallyChangedDirtyPaths.has(activePath)) {
+            return;
+        }
+        const host = getActiveGroup().editor
+            ? document.querySelector(`[data-editor-group="${getActiveGroup().key}"]`)
+            : null;
+        if (!host) {
+            return;
+        }
+        const bar = document.createElement("div");
+        bar.id = EXTERNAL_BAR_ID;
+        bar.className = "external-change-bar";
+        const text = document.createElement("span");
+        text.className = "external-change-bar-text";
+        text.textContent = uiText(`${activePath} changed on disk, and this tab has unsaved edits.`, `${activePath} がディスク上で変更されました。このタブには未保存の編集があります。`);
+        const reload = document.createElement("button");
+        reload.type = "button";
+        reload.className = "external-change-bar-action";
+        reload.textContent = uiText("Reload from disk", "ディスクから読み込む");
+        reload.addEventListener("click", () => {
+            externallyChangedDirtyPaths.delete(activePath);
+            dirtyFiles.delete(activePath);
+            requestExternalReload(activePath);
+            renderExternalChangeBar();
+        });
+        const keep = document.createElement("button");
+        keep.type = "button";
+        keep.className = "external-change-bar-action is-secondary";
+        keep.textContent = uiText("Keep my version", "自分の編集を残す");
+        keep.addEventListener("click", () => {
+            externallyChangedDirtyPaths.delete(activePath);
+            renderExternalChangeBar();
+        });
+        bar.append(text, reload, keep);
+        host.appendChild(bar);
+    };
+    const requestExternalReload = (path) => {
+        deps.postToNative({ type: "reloadFile", path }, true);
+    };
+    const handleExternalChanges = (changes) => {
+        if (!Array.isArray(changes)) {
+            return;
+        }
+        let barNeedsUpdate = false;
+        for (const change of changes) {
+            const path = typeof (change === null || change === void 0 ? void 0 : change.path) === "string" ? change.path : "";
+            if (!path || !isPathOpen(path)) {
+                continue;
+            }
+            if (change.kind === "removed") {
+                // The file is gone but its buffer still holds the text; treating it as
+                // unsaved work keeps it recoverable with a save.
+                dirtyFiles.add(path);
+                forEachEditorGroup((group) => {
+                    if (group.currentFilePath === path) {
+                        group.isDirty = true;
+                    }
+                    if (group.openTabs.includes(path)) {
+                        deps.editorTabs.render(group);
+                    }
+                });
+                continue;
+            }
+            if (change.kind !== "changed") {
+                continue;
+            }
+            if (dirtyFiles.has(path)) {
+                externallyChangedDirtyPaths.add(path);
+                barNeedsUpdate = true;
+                continue;
+            }
+            requestExternalReload(path);
+        }
+        if (barNeedsUpdate) {
+            renderExternalChangeBar();
+        }
+    };
+    // The reply to requestExternalReload. Applying the text as a model edit (not
+    // setValue) is what keeps the caret where the writer left it.
+    const handleFileReloaded = (payload) => {
+        var _a;
+        const path = typeof (payload === null || payload === void 0 ? void 0 : payload.path) === "string" ? payload.path : "";
+        if (!path || typeof (payload === null || payload === void 0 ? void 0 : payload.content) !== "string" || payload.error) {
+            return;
+        }
+        const entry = monacoModels.get(path);
+        if (!entry) {
+            return;
+        }
+        const model = entry.model;
+        if (model.getValue() === payload.content) {
+            entry.savedContent = payload.content;
+            return;
+        }
+        const range = (_a = model.getFullModelRange) === null || _a === void 0 ? void 0 : _a.call(model);
+        if (range && model.pushEditOperations) {
+            model.pushEditOperations([], [{ range, text: payload.content }], () => null);
+        }
+        else {
+            model.setValue(payload.content);
+        }
+        entry.savedContent = payload.content;
+        externallyChangedDirtyPaths.delete(path);
+        updateDirtyState(path, payload.content, payload.content);
+        forEachEditorGroup((group) => {
+            if (group.currentFilePath === path) {
+                group.currentFileSavedContent = payload.content;
+                group.isDirty = false;
+            }
+            if (group.openTabs.includes(path)) {
+                deps.editorTabs.render(group);
+            }
+        });
+        renderExternalChangeBar();
+    };
     return {
         applyFormattedContent,
         requestOpenFile,
@@ -724,5 +867,8 @@ export const createEditorSessionFileOps = (ctx) => {
         scheduleAutoSave,
         handleOpenFileResult,
         handleSaveResult,
+        handleExternalChanges,
+        handleFileReloaded,
+        renderExternalChangeBar,
     };
 };

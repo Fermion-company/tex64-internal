@@ -21,6 +21,7 @@ const createWorkspaceContext = (deps) => {
     WorkspaceError,
     state,
     userSettings,
+    workspaceWatcher = null,
     fileAccess = { ensureAccess: async () => true },
   } = deps;
 
@@ -146,6 +147,15 @@ const createWorkspaceContext = (deps) => {
       return;
     }
     state.currentWorkspacePath = rootPath;
+    // Follow the workspace with the file watcher so edits made outside the app
+    // reach the open editors.
+    if (workspaceWatcher) {
+      const watched = workspaceWatcher.watch(rootPath);
+      if (watched && watched.error) {
+        // The editor still works; only live refresh of outside edits is lost.
+        console.warn("[workspace] file watch unavailable:", watched.error);
+      }
+    }
     await sendWorkspace(rootPath);
   };
 
@@ -234,6 +244,7 @@ const createWorkspaceContext = (deps) => {
 
     sendWorkspace,
     updateWorkspaceIfNeeded,
+    workspaceWatcher,
     requestIndex,
     sendLauncherStatus,
     ensureWorkspace,

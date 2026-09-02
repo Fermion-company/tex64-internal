@@ -18,7 +18,7 @@ export const initEditorSession = (context, deps) => {
     const issueOps = createEditorSessionIssueOps(runtime, coreOps);
     const bufferOps = createEditorSessionBufferOps(runtime, coreOps);
     const tabStateOps = createEditorSessionTabStateOps(runtime);
-    const { applyFormattedContent, requestOpenFile, saveCurrentFile, saveDirtyFiles, scheduleAutoSave, handleOpenFileResult, handleSaveResult, } = createEditorSessionFileOps({
+    const { applyFormattedContent, requestOpenFile, saveCurrentFile, saveDirtyFiles, scheduleAutoSave, handleOpenFileResult, handleSaveResult, handleExternalChanges, handleFileReloaded, } = createEditorSessionFileOps({
         deps: runtime.deps,
         editorGroups: runtime.editorGroups,
         monacoModels: runtime.monacoModels,
@@ -258,6 +258,8 @@ export const initEditorSession = (context, deps) => {
         focusIssue: issueFocusOps.focusIssue,
         handleOpenFileResult: handleOpenFileResultWithLiveEdit,
         handleSaveResult,
+        handleExternalChanges,
+        handleFileReloaded,
         handleRenameResult: workspaceOps.handleRenameResult,
         syncWorkspaceFiles: workspaceOps.syncWorkspaceFiles,
         getDirtyPaths: workspaceOps.getDirtyPaths,

@@ -43,6 +43,10 @@ import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
+import { initGitUi } from "./app/git-ui.js";
+import { initSnippetsUi } from "./app/snippets-ui.js";
+import { insertAtEditorCursor } from "./app/pro-editor-insert.js";
+import { registerSnippetCompletion } from "./app/snippets-completion.js";
 import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
@@ -207,9 +211,11 @@ export const initMain = () => {
   let setSettingsTabAlert = (_hasAlert: boolean) => {};
   let updateEditorWordWrap = (_enabled: boolean) => {};
   let pendingEditorWordWrapEnabled: boolean | null = null;
+  let onSidebarTabActive: (tabKey: TabKey) => void = () => {};
   const tabController = initTabController(appContext, {
     onFilesTabActive: () => onFilesTabActive(),
     onSettingsTabActive: () => onSettingsTabActive(),
+    onTabActive: (tabKey) => onSidebarTabActive(tabKey),
   });
   const setActiveTab = (tabKey: TabKey) => {
     tabController.setActiveTab(tabKey);
@@ -357,6 +363,8 @@ export const initMain = () => {
 
   // Request recent projects on startup
   postToNative({ type: "getRecentProjects" });
+  let openIntegratedTerminalAt: (folderPath: string) => void = () => {};
+
   const fileTreeUi = initFileTreeUi(appContext, {
     contextMenu,
     getWorkspaceRootKey,
@@ -371,6 +379,9 @@ export const initMain = () => {
     isAnyGroupComposing: () => editorSession.isAnyGroupComposing(),
     postToNative: (payload) => postToNative(payload),
     getDirtyPaths: () => editorSession.getDirtyPaths(),
+    // The terminal UI is built further down; the file tree only ever calls this
+    // in response to a click, long after both exist.
+    openIntegratedTerminal: (folderPath) => openIntegratedTerminalAt(folderPath),
   });
 
   const detectedBlockUi = initDetectedBlockUi(dom);
@@ -717,6 +728,80 @@ export const initMain = () => {
     onTerminalHide: () => terminalUi.hide(),
     onTerminalRestart: () => terminalUi.restart(),
   });
+  openIntegratedTerminalAt = (folderPath: string) => {
+    bottomPanelUi.openTerminal();
+    terminalUi.newSession({ cwd: folderPath, focus: true });
+  };
+
+  const gitUi = initGitUi(appContext, {
+    contextMenu,
+    getWorkspaceRootKey: appActions.getWorkspaceRootKey,
+    requestOpenFile: (path) =>
+      editorSession.requestOpenFile(path, editorSession.getActiveEditorGroupKey()),
+    showDiff: (original, modified, options) => {
+      // Read-only: the modal's confirm button just dismisses it.
+      diffModalApi.setDiffContext({ type: "view" });
+      diffModalApi.showDiffModal(original, modified, 0, {
+        title: options.title,
+        fileName: options.fileName,
+        submitLabel: uiText("Close", "閉じる"),
+      });
+    },
+  });
+
+  const snippetsUi = initSnippetsUi(appContext, {
+    hasWorkspace: () => Boolean(appActions.getWorkspaceRootKey()),
+    getSelectedText: () => {
+      const group = editorSession.getActiveGroup();
+      const editor = group.editor as {
+        getModel?: () => { getValueInRange?: (range: unknown) => string } | null;
+        getSelection?: () => unknown;
+      } | null;
+      const model = editor?.getModel?.();
+      const selection = editor?.getSelection?.();
+      if (!model?.getValueInRange || !selection) {
+        return "";
+      }
+      return model.getValueInRange(selection) ?? "";
+    },
+    insertSnippet: (body) => {
+      const group = editorSession.getActiveGroup();
+      const editor = group.editor as {
+        getContribution?: (id: string) => { insert?: (text: string) => void } | null;
+        focus?: () => void;
+      } | null;
+      if (!editor || !group.currentFilePath) {
+        return false;
+      }
+      // snippetController2 is what makes ${1:...} become real tab stops; a
+      // plain insert is the fallback if Monaco ever stops exposing it.
+      const controller = editor.getContribution?.("snippetController2");
+      editor.focus?.();
+      if (controller?.insert) {
+        controller.insert(body);
+        return true;
+      }
+      try {
+        insertAtEditorCursor(editor as never, body, "snippet");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+
+  // Both panels read live state (the working tree, the snippet files), so they
+  // refresh when their tab is shown rather than polling.
+  onSidebarTabActive = (tabKey) => {
+    if (tabKey === "git") {
+      gitUi.activate();
+    } else {
+      gitUi.deactivate();
+    }
+    if (tabKey === "snippets") {
+      snippetsUi.activate();
+    }
+  };
 
   // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
   // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
@@ -1067,6 +1152,7 @@ export const initMain = () => {
       setBuildState: (state, message) => buildOps.setBuildState(state, message),
       handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
       handleBuildLog: (log) => buildOps.handleBuildLog(log),
+      handleBuildTarget: (payload) => buildOps.handleBuildTarget(payload),
       handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),
       handleSynctexReverseResult: (payload) => {
         if (payload?.ok && payload.path && typeof payload.line === "number") {
@@ -1153,6 +1239,13 @@ export const initMain = () => {
       applyContentToOpenFile: (path, content, options) =>
         editorSession.applyContentToOpenFile(path, content, options),
       applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
+      handleExternalChanges: (changes) => {
+        editorSession.handleExternalChanges(changes);
+        // A checkout or a script touching the tree also changes what Source
+        // Control should be showing.
+        gitUi.refresh();
+      },
+      handleFileReloaded: (payload) => editorSession.handleFileReloaded(payload),
     },
   });
 
@@ -1170,7 +1263,11 @@ export const initMain = () => {
       setTreeFocus: (focus) => fileTreeUi.setTreeFocus(focus),
     },
     updateFallback,
-    setMonacoApi: (api) => appActions.setMonacoApi(api),
+    setMonacoApi: (api) => {
+      appActions.setMonacoApi(api);
+      // Saved snippets complete by prefix in .tex/.bib buffers.
+      registerSnippetCompletion(api);
+    },
     getIndexLabels,
     getIndexCitations,
     getWorkspaceFiles,

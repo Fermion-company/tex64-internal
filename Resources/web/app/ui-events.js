@@ -40,6 +40,10 @@ export const initUiEvents = (context, deps) => {
             diffModalSubmit.addEventListener("click", () => {
                 var _a, _b;
                 const diffContext = deps.diffModal.getDiffContext();
+                if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "view") {
+                    deps.diffModal.closeDiffModal();
+                    return;
+                }
                 if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "aiApply") {
                     (_a = deps.aiOps) === null || _a === void 0 ? void 0 : _a.applyPendingFromDiffModal();
                     deps.diffModal.closeDiffModal();

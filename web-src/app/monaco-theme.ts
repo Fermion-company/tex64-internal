@@ -86,9 +86,11 @@ const darkThemeColors: Record<string, string> = {
   "editorWarning.foreground": "#CCA700",
   "editorOverviewRuler.background": "#00000000",
   "scrollbar.shadow": "#00000000",
-  "scrollbarSlider.background": "#79797966",
-  "scrollbarSlider.hoverBackground": "#646464B3",
-  "scrollbarSlider.activeBackground": "#BFBFBF66",
+  // The slider is painted permanently (editor option scrollbar.vertical =
+  // "visible"), so it needs enough contrast to read at rest, not only on hover.
+  "scrollbarSlider.background": "#8B95A3AA",
+  "scrollbarSlider.hoverBackground": "#AEB8C6DD",
+  "scrollbarSlider.activeBackground": "#D2D9E2EE",
   "editorRuler.foreground": "#5A5A5A",
 };
 
@@ -134,9 +136,10 @@ const lightThemeColors: Record<string, string> = {
   "editorWarning.foreground": "#B45309",
   "editorOverviewRuler.background": "#00000000",
   "scrollbar.shadow": "#00000000",
-  "scrollbarSlider.background": "#94A3B866",
-  "scrollbarSlider.hoverBackground": "#64748BB3",
-  "scrollbarSlider.activeBackground": "#47556966",
+  // Same reasoning as the dark theme: an always-on slider must stay legible.
+  "scrollbarSlider.background": "#8296AEAA",
+  "scrollbarSlider.hoverBackground": "#5B6D85DD",
+  "scrollbarSlider.activeBackground": "#3F4E63EE",
   "editorRuler.foreground": "#CBD5E1",
 };
 

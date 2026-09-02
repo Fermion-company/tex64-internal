@@ -28,6 +28,7 @@ export const initTabController = (context, deps) => {
     };
     let activeTab = loadStoredActiveTab();
     const setActiveTab = (tabKey) => {
+        var _a;
         tabs.forEach((tab) => {
             const isActive = tab.dataset.tab === tabKey;
             tab.classList.toggle("is-active", isActive);
@@ -46,6 +47,7 @@ export const initTabController = (context, deps) => {
         if (tabKey === "settings") {
             deps.onSettingsTabActive();
         }
+        (_a = deps.onTabActive) === null || _a === void 0 ? void 0 : _a.call(deps, tabKey);
     };
     return {
         getActiveTab: () => activeTab,

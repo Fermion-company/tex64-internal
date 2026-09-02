@@ -91,6 +91,11 @@ type BridgeHandlersDeps = {
       source?: string;
     }) => void;
     handleBuildLog: (log: string | null) => void;
+    handleBuildTarget: (payload: {
+      target?: string;
+      reason?: string;
+      requested?: string | null;
+    }) => void;
     handleSynctexForwardResult: (payload: {
       ok?: boolean;
       error?: string;
@@ -242,6 +247,8 @@ type BridgeHandlersDeps = {
       options?: { updateSaved?: boolean; showAiDiff?: boolean }
     ) => void;
     applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+    handleExternalChanges: (changes: Array<{ path?: string; kind?: string }>) => void;
+    handleFileReloaded: (payload: { path?: string; content?: string; error?: string }) => void;
   };
   filePreview?: {
     handlePreviewResult: (payload: FilePreviewResultPayload) => void;
@@ -422,6 +429,22 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
         break;
       case "buildLog":
         deps.build.handleBuildLog((message.payload as { log?: string | null })?.log ?? null);
+        break;
+      case "workspaceChanged":
+        deps.editorSession.handleExternalChanges(
+          ((message.payload ?? {}) as { changes?: Array<{ path?: string; kind?: string }> })
+            .changes ?? []
+        );
+        break;
+      case "fileReloaded":
+        deps.editorSession.handleFileReloaded(
+          (message.payload ?? {}) as { path?: string; content?: string; error?: string }
+        );
+        break;
+      case "buildTarget":
+        deps.build.handleBuildTarget(
+          (message.payload ?? {}) as { target?: string; reason?: string; requested?: string | null }
+        );
         break;
       case "synctex:forwardResult":
         deps.build.handleSynctexForwardResult(message.payload as any);

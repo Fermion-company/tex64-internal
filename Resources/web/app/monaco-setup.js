@@ -99,7 +99,19 @@ export const initMonacoSetup = (context, deps) => {
             automaticLayout: true,
             glyphMargin: true,
             minimap: { enabled: false },
-            scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
+            // The vertical slider stays painted even when the pointer is elsewhere:
+            // with Monaco's default "auto" it fades out, and a long file gives no
+            // hint of how far down the viewport sits (reported as "there is no
+            // slider"). The overview ruler keeps its own lane next to it.
+            scrollbar: {
+                vertical: "visible",
+                horizontal: "auto",
+                verticalScrollbarSize: 14,
+                horizontalScrollbarSize: 12,
+                verticalSliderSize: 14,
+                useShadows: false,
+                alwaysConsumeMouseWheel: false,
+            },
             fontFamily: editorSettings.getFontFamily(),
             fontSize: editorSettings.getFontSize(),
             lineHeight: editorSettings.getLineHeight(),

@@ -34,6 +34,9 @@ const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
 const { TerminalService } = require("./services/terminal.cjs");
+const { WorkspaceWatcher } = require("./services/file-watcher.cjs");
+const { GitService } = require("./services/git.cjs");
+const { SnippetsService } = require("./services/snippets.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
@@ -315,12 +318,32 @@ const getSpellService = () => {
   return spellService;
 };
 
+// Detached terminal windows own their own xterm but share the pty sessions in
+// this process, so shell output has to reach every window that might be showing
+// the session, not just the main one.
+const terminalWindows = new Set();
+
+const sendToTerminalSurfaces = (channel, data) => {
+  sendLspToRenderer(channel, data);
+  for (const win of terminalWindows) {
+    if (!win || (typeof win.isDestroyed === "function" && win.isDestroyed())) {
+      terminalWindows.delete(win);
+      continue;
+    }
+    try {
+      win.webContents.send(channel, data);
+    } catch {
+      /* a window closing mid-send is not an error worth reporting */
+    }
+  }
+};
+
 const getTerminalService = () => {
   if (!terminalService) {
     terminalService = new TerminalService({
-      onData: (id, data) => sendLspToRenderer("tex64:terminal:data", { id, data }),
+      onData: (id, data) => sendToTerminalSurfaces("tex64:terminal:data", { id, data }),
       onExit: (id, exitCode, signal) =>
-        sendLspToRenderer("tex64:terminal:exit", { id, exitCode, signal }),
+        sendToTerminalSurfaces("tex64:terminal:exit", { id, exitCode, signal }),
     });
   }
   return terminalService;
@@ -538,6 +561,13 @@ const sendBuildLog = (log) => {
   sendToRenderer("buildLog", { log });
 };
 
+// Which document a build actually compiles is no longer always the workspace
+// root, so the renderer is told the resolved target and why it was picked; the
+// status bar shows it so a surprising PDF is traceable to a file.
+const sendBuildTarget = (payload) => {
+  sendToRenderer("buildTarget", payload && typeof payload === "object" ? payload : {});
+};
+
 const ensureUserSettings = () => {
   if (!state.userSettings) {
     state.userSettings = new UserSettingsService(app.getPath("userData"));
@@ -585,6 +615,32 @@ const getPlatformAccessService = () => {
   return platformAccessService;
 };
 
+let lastWorkspaceListingRefresh = 0;
+
+// Edits made outside TeX64 (git checkout, a script, another editor) are pushed
+// to the renderer, which reloads clean buffers in place and flags dirty ones.
+// A create/delete also refreshes the file tree, which previously only updated
+// when the workspace was reopened.
+const workspaceWatcher = new WorkspaceWatcher({
+  onChanges: (changes) => {
+    const rootPath = workspace.getRootPath();
+    if (!rootPath) {
+      return;
+    }
+    sendToRenderer("workspaceChanged", { changes });
+    // A create, delete or rename changes the tree; a plain content edit does
+    // not. The kinds are indistinguishable from a raw watch event, so the
+    // listing is refreshed on any change but no more than twice a second —
+    // enough to feel live without walking the project on every keystroke a
+    // background tool makes.
+    const now = Date.now();
+    if (now - lastWorkspaceListingRefresh >= 500) {
+      lastWorkspaceListingRefresh = now;
+      void workspaceHandlers.sendWorkspace(rootPath).catch(() => {});
+    }
+  },
+});
+
 const workspaceHandlers = createWorkspaceHandlers({
   dialog,
   shell,
@@ -605,6 +661,7 @@ const workspaceHandlers = createWorkspaceHandlers({
     removeRecentProject: (p) => ensureUserSettings().removeRecentProject(p),
   },
   fileAccess: macFileAccess,
+  workspaceWatcher,
 });
 
 const agentService = new AgentService({
@@ -638,6 +695,7 @@ const buildHandlers = createBuildHandlers({
   sendBuildState,
   sendIssues,
   sendBuildLog,
+  sendBuildTarget,
   sendToRenderer,
   ensureWorkspace: workspaceHandlers.ensureWorkspace,
   updateWorkspaceIfNeeded: workspaceHandlers.updateWorkspaceIfNeeded,
@@ -648,6 +706,7 @@ const buildHandlers = createBuildHandlers({
 
 const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
   buildHandlers.handleBuildCancel();
+  workspaceWatcher.stop();
   workspace.setRootPath(null);
   state.currentWorkspacePath = null;
   state.lastBuildPdfPath = null;
@@ -1154,16 +1213,142 @@ ipcMain.handle("tex64:lsp:status", async () => {
   return { available: service.isAvailable(), running: service.isRunning() };
 });
 
+// Source control: every operation runs the machine's own `git` against the open
+// workspace. Nothing is cached here — the renderer asks for a fresh status after
+// each action, which is also what keeps it correct when the user works in a
+// terminal at the same time.
+const gitService = new GitService({ getRootPath: () => workspace.getRootPath() });
+
+const gitOperations = {
+  status: () => gitService.status(),
+  branches: () => gitService.branches(),
+  diff: (payload) => gitService.diff(payload?.path, { staged: payload?.staged === true }),
+  stage: (payload) => gitService.stage(payload?.paths),
+  stageAll: () => gitService.stageAll(),
+  unstage: (payload) => gitService.unstage(payload?.paths),
+  discard: (payload) => gitService.discard(payload?.paths),
+  commit: (payload) => gitService.commit(payload?.message, { amend: payload?.amend === true }),
+  fetch: () => gitService.fetch(),
+  pull: () => gitService.pull(),
+  push: (payload) =>
+    gitService.push({ setUpstream: payload?.setUpstream === true, branch: payload?.branch }),
+  checkout: (payload) => gitService.checkout(payload?.branch, { create: payload?.create === true }),
+  init: () => gitService.init(),
+};
+
+ipcMain.handle("tex64:git:invoke", async (_event, message) => {
+  const op = message && typeof message === "object" ? message.op : null;
+  const handler = typeof op === "string" ? gitOperations[op] : null;
+  if (!handler) {
+    return { ok: false, error: `Unknown git operation: ${op}` };
+  }
+  try {
+    const result = await handler(message.payload ?? {});
+    // The git helpers return execFile output; the renderer only needs the
+    // outcome and whatever git said about it.
+    return {
+      ok: result?.ok !== false,
+      ...result,
+      stdout: typeof result?.stdout === "string" ? result.stdout.slice(0, 20000) : undefined,
+      stderr: undefined,
+    };
+  } catch (error) {
+    return { ok: false, error: error && error.message ? error.message : "git failed" };
+  }
+});
+
+// Snippets: user-managed macro templates, stored per user and per workspace.
+let snippetsService = null;
+const getSnippetsService = () => {
+  if (!snippetsService) {
+    snippetsService = new SnippetsService({
+      userDataPath: app.getPath("userData"),
+      getRootPath: () => workspace.getRootPath(),
+    });
+  }
+  return snippetsService;
+};
+
+ipcMain.handle("tex64:snippets:list", async () => {
+  try {
+    return await getSnippetsService().list();
+  } catch (error) {
+    return { ok: false, error: error && error.message ? error.message : "snippets failed" };
+  }
+});
+
+ipcMain.handle("tex64:snippets:save", async (_event, snippet) => {
+  try {
+    return await getSnippetsService().save(snippet);
+  } catch (error) {
+    return { ok: false, error: error && error.message ? error.message : "snippets failed" };
+  }
+});
+
+ipcMain.handle("tex64:snippets:remove", async (_event, message) => {
+  try {
+    return await getSnippetsService().remove(message?.id, message?.scope);
+  } catch (error) {
+    return { ok: false, error: error && error.message ? error.message : "snippets failed" };
+  }
+});
+
 // Integrated terminal: the renderer owns the xterm UI and drives sessions by id.
 // Output and exit stream back on the "tex64:terminal:data" / ":exit" channels.
 ipcMain.handle("tex64:terminal:create", async (_event, options) => {
   const opts = options && typeof options === "object" ? options : {};
   try {
-    const cwd = workspace.getRootPath() || undefined;
+    const rootPath = workspace.getRootPath() || undefined;
+    // "Open terminal here" in the file tree passes a workspace-relative folder;
+    // anything pointing outside the workspace falls back to its root.
+    let cwd = rootPath;
+    if (rootPath && typeof opts.cwd === "string" && opts.cwd.trim()) {
+      const candidate = path.resolve(rootPath, opts.cwd.trim());
+      const rootResolved = path.resolve(rootPath);
+      if (candidate === rootResolved || candidate.startsWith(rootResolved + path.sep)) {
+        const stat = fs.existsSync(candidate) ? fs.statSync(candidate) : null;
+        cwd = stat ? (stat.isDirectory() ? candidate : path.dirname(candidate)) : rootPath;
+      }
+    }
     return getTerminalService().create({ cols: opts.cols, rows: opts.rows, cwd });
   } catch (error) {
     console.warn("[terminal] create failed", error);
     return { error: error && error.message ? error.message : "terminal create failed" };
+  }
+});
+
+// A terminal in its own window: same pty sessions, a window the user can move
+// to another display and keep next to the editor.
+ipcMain.handle("tex64:terminal:openWindow", async (_event, options) => {
+  const opts = options && typeof options === "object" ? options : {};
+  try {
+    const win = new BrowserWindow({
+      width: 760,
+      height: 420,
+      title: "TeX64 Terminal",
+      backgroundColor: opts.theme === "light" ? "#f8fafc" : "#0e1116",
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, "terminal-preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    terminalWindows.add(win);
+    win.on("closed", () => {
+      terminalWindows.delete(win);
+    });
+    const theme = opts.theme === "light" ? "light" : "dark";
+    // app.getAppPath() is what the main window uses; inside the packaged
+    // bundle __dirname sits in app.asar/electron and would need a "..".
+    await win.loadFile(path.join(app.getAppPath(), "Resources", "web", "terminal-window.html"), {
+      search: `theme=${theme}`,
+    });
+    win.show();
+    return { ok: true };
+  } catch (error) {
+    console.warn("[terminal] window failed", error);
+    return { error: error && error.message ? error.message : "terminal window failed" };
   }
 });
 
@@ -1614,6 +1799,10 @@ ipcMain.on("tex64", (_event, message) => {
       message.source,
       message.formatSettings
     );
+    return;
+  }
+  if (type === "reloadFile") {
+    void workspaceHandlers.handleReloadFile(message.path);
     return;
   }
   if (type === "createFile") {

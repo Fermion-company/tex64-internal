@@ -113,6 +113,11 @@ export type BuildOpsApi = {
   updateSynctexButtonState: () => void;
   setBuildState: (state: BuildState, message?: string) => void;
   startBuild: () => void;
+  handleBuildTarget: (payload: {
+    target?: string;
+    reason?: string;
+    requested?: string | null;
+  }) => void;
   requestFormatCurrentFile: (source: string) => void;
   handleFormatResult: (payload: {
     path: string;
@@ -586,11 +591,21 @@ export const initBuildOpsUi = (
 
     deps.cacheCurrentBuffer(deps.getActiveGroup());
 
-    const mainFile =
-      deps.getRootFilePath() ??
-      (deps.getActiveFilePath() && deps.getActiveFilePath()?.endsWith(".tex")
-        ? deps.getActiveFilePath()
-        : undefined);
+    // Send the .tex the writer is looking at, not the workspace root. The main
+    // process decides which document that file belongs to (its own root when it
+    // is self-contained, the including document otherwise) — sending the root
+    // here made every build compile the top-level document, so a project with a
+    // second document in a subfolder always showed the wrong PDF.
+    const isTexPath = (value: string | null | undefined): value is string =>
+      typeof value === "string" && value.toLowerCase().endsWith(".tex");
+    const activePath = deps.getActiveFilePath();
+    const openTexPath = isTexPath(activePath)
+      ? activePath
+      : deps
+          .getEditorGroups()
+          .map((group) => group.currentFilePath)
+          .find((path) => isTexPath(path)) ?? null;
+    const mainFile = openTexPath ?? deps.getRootFilePath() ?? undefined;
 
     deps.setLastBuildMainFile(mainFile ?? null);
 
@@ -877,10 +892,32 @@ export const initBuildOpsUi = (
 
   };
 
+  // The main process decides which document a build compiles (the open file's
+  // own root, not necessarily the workspace root), and reports it back here so
+  // SyncTeX targets the same document and the button says what was built.
+  const handleBuildTarget = (payload: {
+    target?: string;
+    reason?: string;
+    requested?: string | null;
+  }) => {
+    const target = typeof payload?.target === "string" ? payload.target.trim() : "";
+    if (!target) {
+      return;
+    }
+    deps.setLastBuildMainFile(target);
+    if (buildButton instanceof HTMLButtonElement) {
+      buildButton.dataset.buildTarget = target;
+      if (currentBuildState === "building") {
+        buildButton.title = uiText(`Building ${target}`, `${target} をビルド中`);
+      }
+    }
+  };
+
   return {
     updateSynctexButtonState,
     setBuildState,
     startBuild,
+    handleBuildTarget,
     requestFormatCurrentFile,
     handleFormatResult,
     handleSaveFormatError,

@@ -31,6 +31,8 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     scheduleAutoSave,
     handleOpenFileResult,
     handleSaveResult,
+    handleExternalChanges,
+    handleFileReloaded,
   } = createEditorSessionFileOps({
     deps: runtime.deps,
     editorGroups: runtime.editorGroups,
@@ -289,6 +291,8 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     focusIssue: issueFocusOps.focusIssue,
     handleOpenFileResult: handleOpenFileResultWithLiveEdit,
     handleSaveResult,
+    handleExternalChanges,
+    handleFileReloaded,
     handleRenameResult: workspaceOps.handleRenameResult,
     syncWorkspaceFiles: workspaceOps.syncWorkspaceFiles,
     getDirtyPaths: workspaceOps.getDirtyPaths,

@@ -3877,6 +3877,11 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 .file-tree {
   min-height: 0;
+  /* A column box so the blank filler below the last row can stretch to the
+     bottom of the panel and stay right-clickable there. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
@@ -3885,6 +3890,13 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   overscroll-behavior: contain;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+}
+
+/* The tree is focusable (tabindex=0) for its keyboard shortcuts, and clicking
+   its background now opens the workspace menu — so a mouse click would paint
+   the UA focus ring around the whole panel. Keyboard focus still shows it. */
+.file-tree:focus:not(:focus-visible) {
+  outline: none;
 }
 
 .file-tree.is-drop-target {
@@ -3896,6 +3908,34 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 .file-folder-children.is-drop-target {
   background: rgba(92, 156, 255, 0.08);
   border-radius: var(--radius-sm);
+}
+
+/* The empty space under the last row is a real target: hovering it says so,
+   and right-clicking it opens the workspace-root menu (new file/folder at the
+   top level, paste, reveal). It also accepts drops to move an item to the root. */
+.file-tree > .file-folder,
+.file-tree > .file-item,
+.file-tree > .panel-placeholder {
+  flex: 0 0 auto;
+}
+
+.file-tree-blank {
+  min-height: 44px;
+  flex: 1 0 auto;
+  margin-top: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.file-tree-blank:hover {
+  background: rgba(92, 156, 255, 0.07);
+  border-color: rgba(92, 156, 255, 0.28);
+}
+
+.file-tree-blank.is-drop-target {
+  background: rgba(92, 156, 255, 0.14);
+  border-color: rgba(92, 156, 255, 0.5);
 }
 
 .panel-actions {
@@ -6857,6 +6897,54 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 /* ── Undo/Keep bar (editor bottom) ────────────────────── */
+/* Shown when a file with unsaved edits also changed on disk. The buffer is
+   never overwritten silently; this is the choice. */
+.external-change-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  background: var(--panel-bg, rgba(30, 30, 46, 0.96));
+  border: 1px solid var(--panel-border-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  z-index: 100;
+  font-size: 11px;
+}
+
+.external-change-bar-text {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-change-bar-action {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--accent, #5c9cff);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.external-change-bar-action.is-secondary {
+  background: transparent;
+  border-color: var(--panel-border-strong, rgba(255, 255, 255, 0.2));
+  color: var(--text);
+}
+
+.external-change-bar-action:hover {
+  filter: brightness(1.08);
+}
+
 .ai-undo-keep-bar {
   position: absolute;
   bottom: 8px;
@@ -7865,16 +7953,32 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: transparent !important;
 }
 
+/* The vertical slider is painted permanently (Monaco option
+   scrollbar.vertical = "visible"), so it has to read at rest — at 0.12 alpha it
+   was effectively invisible and long files gave no sense of position at all. */
 .monaco-editor .monaco-scrollable-element > .scrollbar > .slider {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 99px;
 }
 
 .monaco-editor .monaco-scrollable-element > .scrollbar > .slider:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.42);
 }
 
 .monaco-editor .monaco-scrollable-element > .scrollbar > .slider.active {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+:root[data-theme="light"] .monaco-editor .monaco-scrollable-element > .scrollbar > .slider {
+  background: rgba(30, 41, 59, 0.26);
+}
+
+:root[data-theme="light"] .monaco-editor .monaco-scrollable-element > .scrollbar > .slider:hover {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+:root[data-theme="light"] .monaco-editor .monaco-scrollable-element > .scrollbar > .slider.active {
+  background: rgba(30, 41, 59, 0.55);
 }
 
 .monaco-editor .scroll-decoration,
@@ -8569,17 +8673,566 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   padding: 0;
 }
 
+/* --- Source Control panel --- */
+
+.git-panel-body,
+.snippets-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.git-status-line {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0;
+  word-break: break-word;
+}
+
+.git-status-line.is-error {
+  color: var(--danger, #f47067);
+}
+
+.git-empty {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.git-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.git-branch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.git-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+  background: none;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-branch:hover {
+  border-color: var(--panel-border-strong);
+}
+
+.git-tracking {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-branch-actions {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.git-icon-button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.git-icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.git-icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.git-commit-message {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: var(--input-bg, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
+.git-commit-row {
+  display: flex;
+  gap: 6px;
+}
+
+.git-primary-button,
+.git-secondary-button,
+.git-danger-button {
+  flex: 1 1 auto;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.git-primary-button {
+  background: var(--accent, #5c9cff);
+  color: #fff;
+}
+
+.git-secondary-button {
+  background: transparent;
+  border-color: var(--panel-border-strong);
+  color: var(--text);
+}
+
+.git-danger-button {
+  background: transparent;
+  border-color: rgba(244, 112, 103, 0.6);
+  color: var(--danger, #f47067);
+}
+
+.git-primary-button:hover:not(:disabled),
+.git-secondary-button:hover:not(:disabled),
+.git-danger-button:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.git-primary-button:disabled,
+.git-secondary-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.git-sections {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.git-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 2px 2px 4px;
+}
+
+.git-section-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.git-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px;
+  border-radius: var(--radius-sm);
+}
+
+.git-row:hover {
+  background: rgba(92, 156, 255, 0.08);
+}
+
+.git-badge {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.git-badge.is-modified { color: #daaa3f; }
+.git-badge.is-added { color: #6bc46d; }
+.git-badge.is-deleted { color: #f47067; }
+.git-badge.is-untracked { color: #56d4dd; }
+.git-badge.is-conflicted { color: #ff938a; }
+
+.git-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  padding: 2px 0;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.git-row-dir {
+  color: var(--muted);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git-row-actions {
+  display: flex;
+  gap: 0;
+  flex: 0 0 auto;
+  opacity: 0;
+}
+
+.git-row:hover .git-row-actions,
+.git-row:focus-within .git-row-actions {
+  opacity: 1;
+}
+
+.git-row-action {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.git-row-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.git-row-action.is-danger:hover {
+  color: var(--danger, #f47067);
+}
+
+.git-init {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* --- Snippets panel --- */
+
+.snippets-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.snippets-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--input-bg, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.snippets-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.snippet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.snippet-row:hover {
+  background: rgba(92, 156, 255, 0.08);
+}
+
+.snippet-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 4px 6px;
+  align-items: baseline;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.snippet-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet-row-prefix {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  color: var(--accent, #5c9cff);
+}
+
+.snippet-row-scope {
+  font-size: 9px;
+  color: var(--muted);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  padding: 0 5px;
+}
+
+.snippet-row-desc {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet-row-action {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.snippet-row:hover .snippet-row-action,
+.snippet-row:focus-within .snippet-row-action {
+  opacity: 1;
+}
+
+.snippet-row-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.snippets-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 8px;
+}
+
+.snippets-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.snippets-field input,
+.snippets-field select,
+.snippets-field textarea {
+  background: var(--input-bg, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  padding: 4px 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.snippets-field textarea {
+  font-family: var(--mono, monospace);
+  resize: vertical;
+}
+
+.snippets-editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.snippets-error {
+  font-size: 10px;
+  color: var(--danger, #f47067);
+}
+
+.snippets-error:empty,
+.snippets-error.is-hidden {
+  display: none;
+}
+
 /* --- Integrated terminal --- */
 
-.terminal-host {
+.terminal-area {
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 6px 4px 6px 10px;
+  display: flex;
+  flex-direction: column;
   background: var(--terminal-bg);
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
+}
+
+/* Tab strip: one entry per running shell, plus new/split/detach on the right. */
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 0 8px;
+  border-bottom: 1px solid var(--panel-border);
+  overflow: hidden;
+}
+
+.terminal-tab-list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-tab-list::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+}
+
+.terminal-tab.is-active {
+  background: var(--panel-bg);
+  border-color: var(--panel-border);
+}
+
+.terminal-tab.is-focused .terminal-tab-label {
+  color: var(--text);
+}
+
+.terminal-tab-label {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 4px 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.terminal-tab-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px 4px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.terminal-tab-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.terminal-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.terminal-action {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.terminal-action:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.terminal-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Panes: one column normally, two side by side when split. Hidden sessions stay
+   mounted so their scrollback and running process survive a tab switch. */
+.terminal-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  background: var(--panel-border);
+  overflow: hidden;
+}
+
+.terminal-view {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  padding: 6px 4px 6px 10px;
+  background: var(--terminal-bg);
+  overflow: hidden;
+}
+
+.terminal-view.is-visible {
+  display: block;
+}
+
+.terminal-panes[data-pane-count="2"] .terminal-view.is-visible.is-focused-pane {
+  box-shadow: inset 2px 0 0 0 var(--accent, #5c9cff);
 }
 
 /* Keep xterm at its standard sizing: don't force `.xterm { height: 100% }` and
@@ -8593,7 +9246,7 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
    input. Restyle it to read as inline composing text in the terminal palette;
    its opaque background covers the static block cursor, and the underline mimics
    the OS IME. The committed text is echoed by the shell on confirm as usual. */
-.terminal-host .xterm .composition-view {
+.terminal-view .xterm .composition-view {
   background: var(--terminal-bg);
   color: var(--terminal-fg);
   text-decoration: underline;
@@ -8601,12 +9254,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   z-index: 5;
 }
 
-/* Pane switching: terminal-host is permanent; block-compose is moved in/out. */
+/* Pane switching: the terminal area is permanent; block-compose is moved in/out. */
 .bottom-panel-body[data-pane="terminal"] > .block-compose {
   display: none;
 }
 
-.bottom-panel-body[data-pane="blocks"] > .terminal-host {
+.bottom-panel-body[data-pane="blocks"] > .terminal-area {
   display: none;
 }
 

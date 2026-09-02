@@ -206,6 +206,8 @@ export type EditorSessionApi = {
     content?: string;
     formatError?: string;
   }) => void;
+  handleExternalChanges: (changes: Array<{ path?: string; kind?: string }>) => void;
+  handleFileReloaded: (payload: { path?: string; content?: string; error?: string }) => void;
   handleRenameResult: (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => void;
   syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
   getDirtyPaths: () => Set<string>;

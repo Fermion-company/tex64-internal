@@ -41,8 +41,26 @@ test("PDF theming never inverts document pixels", () => {
 
 test("the integrated terminal uses theme colors instead of a dark frame", () => {
   const css = read("../Resources/web/theme.css");
-  assert.match(css, /\.terminal-host\s*\{[^}]*background:\s*var\(--terminal-bg\)/s);
+  // The terminal is now a tab strip plus one or two panes; both the frame and
+  // each pane take their ground from the theme.
+  assert.match(css, /\.terminal-area\s*\{[^}]*background:\s*var\(--terminal-bg\)/s);
+  assert.match(css, /\.terminal-view\s*\{[^}]*background:\s*var\(--terminal-bg\)/s);
   assert.match(css, /:root\[data-theme="light"\][\s\S]*--terminal-bg:\s*#f8fafc/i);
+});
+
+test("the terminal panel offers more than one shell", () => {
+  const html = read("../Resources/web/index.html");
+  const ui = read("../web-src/app/terminal-ui.ts");
+  // Issue #38 asked for tabs, splitting and a detachable window; the markup
+  // carries the strip and the pane host, and the UI owns the three actions.
+  assert.match(html, /id="terminal-tabs"/);
+  assert.match(html, /id="terminal-panes"/);
+  assert.match(ui, /const newSession =/);
+  assert.match(ui, /const toggleSplit =/);
+  assert.match(ui, /const openInNewWindow =/);
+  // A shell that exited must accept a keystroke and come back rather than
+  // swallowing input, which is what read as "commands stopped working".
+  assert.match(ui, /if \(!session\.sessionId\) \{[\s\S]*startPty\(session\)/);
 });
 
 test("every topbar control uses an SVG and consistent accessible states", () => {

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;"
+    >
+    <title>TeX64 Terminal</title>
+    <link rel="stylesheet" href="./vendor/xterm.css">
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0e1116;
+        overflow: hidden;
+      }
+      #terminal-window-host {
+        height: 100%;
+        padding: 6px 4px 6px 10px;
+        box-sizing: border-box;
+        color: #cdd3de;
+        font-family: Menlo, Monaco, "SF Mono", monospace;
+        font-size: 12px;
+      }
+      /* Same IME treatment as the panel terminal: the underlined composition
+         text marks the insertion point while composing. */
+      #terminal-window-host .xterm .composition-view {
+        background: #0e1116;
+        color: #cdd3de;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        z-index: 5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="terminal-window-host"></div>
+    <script src="./vendor/xterm.js"></script>
+    <script src="./vendor/xterm-addon-fit.js"></script>
+    <script type="module" src="./terminal-window.js"></script>
+  </body>
+</html>

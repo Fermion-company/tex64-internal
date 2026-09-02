@@ -9,6 +9,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     sendBuildState,
     sendIssues,
     sendBuildLog,
+    // Reporting the resolved target is a notification, never a precondition for
+    // building: a caller that does not wire it must still get its PDF.
+    sendBuildTarget = () => {},
     ensureWorkspace,
     updateWorkspaceIfNeeded,
     handleOpenFile,
@@ -118,19 +121,35 @@ const createBuildCoreHandlers = (deps, resolvers) => {
     const rootInfo = await workspace.rootInfo().catch(() => null);
     const requestedFile = mainFile && mainFile.trim() ? mainFile.trim() : null;
     let targetFile = rootInfo?.path || "main.tex";
-    if (requestedFile && requestedFile.endsWith(".tex")) {
-      const magicRoot = await workspace.resolveTexRootFromMagic(requestedFile).catch(() => null);
-      if (magicRoot) {
-        targetFile = magicRoot;
-      } else if (options.exactTarget === true) {
-        // The AI mode builds one document folder inside the workspace; the
-        // workspace's designated root must not override it.
-        targetFile = requestedFile;
+    let targetReason = rootInfo?.path ? "workspace-root" : "fallback";
+    if (options.exactTarget === true && requestedFile && requestedFile.endsWith(".tex")) {
+      // The AI mode builds one document folder inside the workspace; the
+      // workspace's designated root must not override it.
+      targetFile = requestedFile;
+      targetReason = "exact-target";
+    } else if (requestedFile) {
+      // Compile the document the open file actually belongs to. A workspace
+      // holding a second document in a subfolder used to build the top-level
+      // root instead, showing a PDF for a file the user was not editing.
+      const resolved =
+        typeof workspace.resolveBuildTarget === "function"
+          ? await workspace.resolveBuildTarget(requestedFile).catch(() => null)
+          : null;
+      if (resolved?.target) {
+        targetFile = resolved.target;
+        targetReason = resolved.reason;
       } else if (!rootInfo?.path) {
         targetFile = requestedFile;
+        targetReason = "self";
       }
-    } else if (requestedFile && !rootInfo?.path) {
-      targetFile = requestedFile;
+    }
+    sendBuildTarget({ target: targetFile, reason: targetReason, requested: requestedFile });
+    if (targetFile) {
+      // Name the document being compiled: with more than one .tex in a project
+      // the PDF that appears is otherwise unattributable.
+      const targetMessage = `Building ${targetFile}...`;
+      sendBuildState("building", targetMessage);
+      sendIssues(0, targetMessage, "info", []);
     }
     // Formatting removed from build — only runs via the Format button.
     const buildProfile = await resolveBuildProfile().catch(() => null);

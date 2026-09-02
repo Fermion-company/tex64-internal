@@ -3,6 +3,8 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
 
+const { isStandaloneDocument, parseTexIncludes } = require("./tex-build-target.cjs");
+
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".tex64",
@@ -2585,6 +2587,189 @@ class WorkspaceManager {
       current = next;
     }
     return resolvedAtLeastOnce ? current : null;
+  }
+
+  // Which .tex should the build button compile while `relativePath` is open?
+  //
+  // The old answer was "always the workspace root", which produced the wrong
+  // PDF for any project holding more than one document (issue #38: main.tex at
+  // the top and a second main.tex in a subfolder). The order below is the one a
+  // writer expects, most explicit first:
+  //
+  //   1. "% !TEX root" in the open file — an explicit per-file declaration.
+  //   2. The workspace root itself, or any file the root pulls in: editing a
+  //      chapter still builds the book.
+  //   3. The open file, when it carries its own \documentclass and document
+  //      body — a self-contained document is its own build target.
+  //   4. Any other .tex in the workspace that includes the open file.
+  //   5. The workspace root (or the open file when there is none).
+  async resolveBuildTarget(relativePath) {
+    const rootInfo = await this.rootInfo().catch(() => null);
+    const rootTarget = rootInfo?.path ?? null;
+    const requested = normalizeRelativePath(relativePath ?? "");
+    if (!requested || path.extname(requested).toLowerCase() !== ".tex") {
+      return { target: rootTarget, reason: rootTarget ? "workspace-root" : "none" };
+    }
+    const exists = await fsp
+      .stat(this.resolvePath(requested))
+      .then((stat) => stat.isFile())
+      .catch(() => false);
+    if (!exists) {
+      return { target: rootTarget, reason: rootTarget ? "workspace-root" : "none" };
+    }
+
+    const magic = await this.resolveTexRootFromMagic(requested).catch(() => null);
+    if (magic) {
+      return { target: magic, reason: "magic-comment" };
+    }
+
+    if (rootTarget) {
+      if (rootTarget === requested) {
+        return { target: rootTarget, reason: "workspace-root" };
+      }
+      const reachable = await this.texIncludesFile(rootTarget, requested).catch(() => false);
+      if (reachable) {
+        return { target: rootTarget, reason: "included-by-root" };
+      }
+    }
+
+    const content = await readUtf8File(this.resolvePath(requested)).catch(() => null);
+    if (content !== null && isStandaloneDocument(content)) {
+      return { target: requested, reason: "standalone-document" };
+    }
+
+    const including = await this.findTexIncludingFile(requested).catch(() => null);
+    if (including) {
+      return { target: including, reason: "included-by-sibling" };
+    }
+
+    return { target: rootTarget ?? requested, reason: rootTarget ? "workspace-root" : "self" };
+  }
+
+  // Does `fromPath` reach `targetPath` through \input / \include / \subfile /
+  // \import, directly or through intermediate files?
+  async texIncludesFile(fromPath, targetPath, options = {}) {
+    const maxDepth = Number.isFinite(options?.maxDepth) ? Math.max(1, Math.floor(options.maxDepth)) : 8;
+    const target = normalizeRelativePath(targetPath ?? "");
+    const start = normalizeRelativePath(fromPath ?? "");
+    if (!target || !start) {
+      return false;
+    }
+    const visited = new Set();
+    const queue = [{ file: start, depth: 0 }];
+    while (queue.length > 0) {
+      const { file, depth } = queue.shift();
+      const key = file.toLowerCase();
+      if (visited.has(key) || depth > maxDepth) {
+        continue;
+      }
+      visited.add(key);
+      const children = await this.resolveTexIncludeTargets(file);
+      for (const child of children) {
+        if (child === target) {
+          return true;
+        }
+        queue.push({ file: child, depth: depth + 1 });
+      }
+    }
+    return false;
+  }
+
+  // Every workspace .tex is scanned for one that pulls `targetPath` in. Shallow
+  // candidates win so a chapter shared by a book and a standalone excerpt
+  // builds the nearer document.
+  async findTexIncludingFile(targetPath) {
+    const target = normalizeRelativePath(targetPath ?? "");
+    if (!target) {
+      return null;
+    }
+    const candidates = [];
+    await this.walkEntries({
+      onFile: async (relativePath, absolutePath) => {
+        if (path.extname(absolutePath).toLowerCase() !== ".tex") {
+          return;
+        }
+        const normalized = normalizeRelativePath(relativePath);
+        if (normalized === target) {
+          return;
+        }
+        candidates.push(normalized);
+      },
+    });
+    const matches = [];
+    for (const candidate of candidates) {
+      const includes = await this.resolveTexIncludeTargets(candidate);
+      if (includes.includes(target)) {
+        matches.push(candidate);
+      }
+    }
+    if (matches.length === 0) {
+      // A grandparent still counts: chapter -> part -> book.
+      for (const candidate of candidates) {
+        if (await this.texIncludesFile(candidate, target).catch(() => false)) {
+          matches.push(candidate);
+        }
+      }
+    }
+    if (matches.length === 0) {
+      return null;
+    }
+    matches.sort((a, b) => {
+      const depthA = a.split("/").length;
+      const depthB = b.split("/").length;
+      if (depthA !== depthB) {
+        return depthA - depthB;
+      }
+      return a.localeCompare(b, "ja");
+    });
+    return matches[0];
+  }
+
+  // Include arguments as written turned into workspace-relative .tex paths that
+  // actually exist. Anything escaping the workspace is dropped.
+  async resolveTexIncludeTargets(relativePath) {
+    const normalized = normalizeRelativePath(relativePath ?? "");
+    if (!normalized || !this.rootPath) {
+      return [];
+    }
+    let absPath;
+    try {
+      absPath = this.resolvePath(normalized);
+    } catch {
+      return [];
+    }
+    const content = await readUtf8File(absPath).catch(() => null);
+    if (content === null) {
+      return [];
+    }
+    const baseDir = path.dirname(absPath);
+    const rootResolved = path.resolve(this.rootPath);
+    const results = [];
+    for (const raw of parseTexIncludes(content)) {
+      const forms = path.extname(raw) ? [raw] : [`${raw}.tex`, raw];
+      for (const form of forms) {
+        const candidates = [path.resolve(baseDir, form), path.resolve(rootResolved, form)];
+        let matched = null;
+        for (const candidate of candidates) {
+          if (candidate !== rootResolved && !candidate.startsWith(rootResolved + path.sep)) {
+            continue;
+          }
+          const stat = await fsp.stat(candidate).catch(() => null);
+          if (stat && stat.isFile()) {
+            matched = candidate;
+            break;
+          }
+        }
+        if (matched) {
+          const rel = normalizeRelativePath(path.relative(rootResolved, matched));
+          if (!results.includes(rel)) {
+            results.push(rel);
+          }
+          break;
+        }
+      }
+    }
+    return results;
   }
 
   async updateSettings(mutator) {

@@ -335,6 +335,43 @@
               class="tab"
               type="button"
               role="tab"
+              data-tab="git"
+              aria-selected="false"
+              aria-label="Source Control"
+              title="Source Control"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="7" cy="6" r="2.4"></circle>
+                  <circle cx="7" cy="18" r="2.4"></circle>
+                  <circle cx="17" cy="12" r="2.4"></circle>
+                  <path d="M7 8.4v7.2"></path>
+                  <path d="M14.6 12H12a5 5 0 0 1-5-5"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              data-tab="snippets"
+              aria-selected="false"
+              aria-label="Snippets"
+              title="Snippets"
+            >
+              <span class="tab-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M9 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9"></path>
+                  <path d="M13 9H6"></path>
+                  <path d="M13 15H6"></path>
+                  <path d="M4 9l-1.5 3L4 15"></path>
+                </svg>
+              </span>
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
               data-tab="project"
               aria-selected="false"
               aria-label="Project"
@@ -706,6 +743,94 @@
                 <summary class="issues-log-summary">Detailed log</summary>
                 <pre class="issues-log-content" id="issues-log-content"></pre>
               </details>
+            </div>
+          </div>
+          <div class="panel no-header" data-panel="git">
+            <div class="panel-header">
+              <span class="panel-title">Source Control</span>
+            </div>
+            <div class="panel-body git-panel-body">
+              <div class="git-status-line" id="git-status-line"></div>
+              <div class="git-empty" id="git-empty">Open a folder to use source control.</div>
+              <div class="git-main is-hidden" id="git-main">
+                <div class="git-branch-bar">
+                  <button class="git-branch" id="git-branch" type="button" title="Switch branch">
+                    <span id="git-branch-name">—</span>
+                  </button>
+                  <span class="git-tracking" id="git-tracking"></span>
+                  <div class="git-branch-actions">
+                    <button class="git-icon-button" id="git-fetch" type="button" title="Fetch">⟳</button>
+                    <button class="git-icon-button" id="git-pull" type="button" title="Pull (fast-forward only)">↓</button>
+                    <button class="git-icon-button" id="git-push" type="button" title="Push">↑</button>
+                  </div>
+                </div>
+                <textarea
+                  class="git-commit-message"
+                  id="git-commit-message"
+                  rows="2"
+                  placeholder="Commit message"
+                ></textarea>
+                <div class="git-commit-row">
+                  <button class="git-primary-button" id="git-commit" type="button">Commit</button>
+                  <button class="git-secondary-button" id="git-stage-all" type="button">Stage all</button>
+                </div>
+                <div class="git-sections" id="git-sections"></div>
+              </div>
+              <div class="git-init is-hidden" id="git-init">
+                <p class="panel-placeholder" id="git-init-text">This folder is not a Git repository.</p>
+                <button class="git-secondary-button" id="git-init-button" type="button">
+                  Initialize repository
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="panel no-header" data-panel="snippets">
+            <div class="panel-header">
+              <span class="panel-title">Snippets</span>
+            </div>
+            <div class="panel-body snippets-panel-body">
+              <div class="snippets-toolbar">
+                <input
+                  class="snippets-filter"
+                  id="snippets-filter"
+                  type="search"
+                  placeholder="Filter snippets"
+                  autocomplete="off"
+                >
+                <button class="git-icon-button" id="snippets-new" type="button" title="New snippet">+</button>
+              </div>
+              <div class="snippets-list" id="snippets-list"></div>
+              <form class="snippets-editor is-hidden" id="snippets-editor">
+                <label class="snippets-field">
+                  <span>Name</span>
+                  <input id="snippet-name" type="text" autocomplete="off">
+                </label>
+                <label class="snippets-field">
+                  <span>Prefix</span>
+                  <input id="snippet-prefix" type="text" autocomplete="off" placeholder="fig">
+                </label>
+                <label class="snippets-field">
+                  <span>Description</span>
+                  <input id="snippet-description" type="text" autocomplete="off">
+                </label>
+                <label class="snippets-field">
+                  <span>Scope</span>
+                  <select id="snippet-scope">
+                    <option value="global">All projects</option>
+                    <option value="workspace">This workspace</option>
+                  </select>
+                </label>
+                <label class="snippets-field snippets-field-grow">
+                  <span>Body — $1, $2 are tab stops</span>
+                  <textarea id="snippet-body" rows="7" spellcheck="false"></textarea>
+                </label>
+                <div class="snippets-editor-actions">
+                  <button class="git-primary-button" id="snippet-save" type="submit">Save</button>
+                  <button class="git-secondary-button" id="snippet-cancel" type="button">Cancel</button>
+                  <button class="git-danger-button is-hidden" id="snippet-delete" type="button">Delete</button>
+                </div>
+                <div class="snippets-error" id="snippets-error"></div>
+              </form>
             </div>
           </div>
           <div class="panel no-header" data-panel="settings">
@@ -1425,7 +1550,10 @@
               </button>
             </div>
             <div class="bottom-panel-body" id="bottom-panel-body" data-pane="blocks">
-              <div class="terminal-host" id="terminal-host"></div>
+              <div class="terminal-area" id="terminal-area">
+                <div class="terminal-tabs" id="terminal-tabs" role="tablist" aria-label="Terminal sessions"></div>
+                <div class="terminal-panes" id="terminal-panes" data-pane-count="1"></div>
+              </div>
             </div>
           </div>
         </section>

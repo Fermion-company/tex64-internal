@@ -23,6 +23,7 @@ const createWorkspaceFileHandlers = (ctx) => {
 
     sendWorkspace,
     updateWorkspaceIfNeeded,
+    workspaceWatcher,
     requestIndex,
     ensureWorkspace,
     resolveWorkspacePath,
@@ -281,6 +282,28 @@ const createWorkspaceFileHandlers = (ctx) => {
     }
   };
 
+  // Re-read one already-open text file after the watcher reported it changed
+  // on disk. Deliberately separate from handleOpenFile: nothing about the tab
+  // layout, focus or active group may move for a background refresh.
+  const handleReloadFile = async (relativePath) => {
+    const rootPath = ensureWorkspace();
+    if (!rootPath || typeof relativePath !== "string" || !relativePath) {
+      return;
+    }
+    if (!isTextFilePath(relativePath) && !isExtendedTextFilePath(relativePath)) {
+      return;
+    }
+    try {
+      const content = await workspace.readFile(relativePath);
+      sendToRenderer("fileReloaded", { path: relativePath, content });
+    } catch (error) {
+      sendToRenderer("fileReloaded", {
+        path: relativePath,
+        error: error && error.message ? error.message : "reload failed",
+      });
+    }
+  };
+
   const handleSaveFile = async (relativePath, content, options = {}) => {
     const rootPath = ensureWorkspace();
     if (!rootPath) {
@@ -336,6 +359,9 @@ const createWorkspaceFileHandlers = (ctx) => {
           }
         }
       }
+      // TeX64's own write would otherwise come straight back as an external
+      // change and cost a pointless reload round trip on every save.
+      workspaceWatcher?.suppress(relativePath, finalContent);
       await workspace.writeFile(relativePath, finalContent);
       sendToRenderer("saveResult", {
         path: relativePath,
@@ -410,6 +436,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         ...replacementText.split(/\r?\n/),
         ...allLines.slice(endLine),
       ].join(newline);
+      workspaceWatcher?.suppress(relativePath, replaced);
       await workspace.writeFile(relativePath, replaced);
       const outcome = reply({ ok: true });
       if (workspace.isIndexTarget(relativePath)) {
@@ -724,6 +751,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     handleFileExcerpt,
     handleFileBytes,
     handleSaveFile,
+    handleReloadFile,
     handleReplaceLines,
     handleFormatFile,
     handleCreateFile,

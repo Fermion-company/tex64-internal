@@ -70,7 +70,7 @@ export const initBridgeHandlers = (deps) => {
         (_a = deps.agent) === null || _a === void 0 ? void 0 : _a.handleError(payload.message, payload.conversationId);
     };
     const handleBridgeMessage = (message) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46;
         if (!(message === null || message === void 0 ? void 0 : message.type)) {
             return;
         }
@@ -105,6 +105,16 @@ export const initBridgeHandlers = (deps) => {
             case "buildLog":
                 deps.build.handleBuildLog((_m = (_l = message.payload) === null || _l === void 0 ? void 0 : _l.log) !== null && _m !== void 0 ? _m : null);
                 break;
+            case "workspaceChanged":
+                deps.editorSession.handleExternalChanges((_p = ((_o = message.payload) !== null && _o !== void 0 ? _o : {})
+                    .changes) !== null && _p !== void 0 ? _p : []);
+                break;
+            case "fileReloaded":
+                deps.editorSession.handleFileReloaded(((_q = message.payload) !== null && _q !== void 0 ? _q : {}));
+                break;
+            case "buildTarget":
+                deps.build.handleBuildTarget(((_r = message.payload) !== null && _r !== void 0 ? _r : {}));
+                break;
             case "synctex:forwardResult":
                 deps.build.handleSynctexForwardResult(message.payload);
                 break;
@@ -115,34 +125,34 @@ export const initBridgeHandlers = (deps) => {
                 deps.editorSession.applyLivePreviewEdit(message.payload);
                 break;
             case "renameResult":
-                (_o = bridgeWindow.tex64RenameResult) === null || _o === void 0 ? void 0 : _o.call(bridgeWindow, message.payload);
+                (_s = bridgeWindow.tex64RenameResult) === null || _s === void 0 ? void 0 : _s.call(bridgeWindow, message.payload);
                 break;
             case "env:checkResult":
-                (_p = deps.settings) === null || _p === void 0 ? void 0 : _p.updateEnvStatus((_q = message.payload.command) !== null && _q !== void 0 ? _q : "", Boolean(message.payload.available));
+                (_t = deps.settings) === null || _t === void 0 ? void 0 : _t.updateEnvStatus((_u = message.payload.command) !== null && _u !== void 0 ? _u : "", Boolean(message.payload.available));
                 break;
             case "env:detectResult":
-                (_s = (_r = deps.settings) === null || _r === void 0 ? void 0 : _r.handleEnvDetectResult) === null || _s === void 0 ? void 0 : _s.call(_r, message.payload);
+                (_w = (_v = deps.settings) === null || _v === void 0 ? void 0 : _v.handleEnvDetectResult) === null || _w === void 0 ? void 0 : _w.call(_v, message.payload);
                 break;
             case "env:installStart":
-                (_u = (_t = deps.settings) === null || _t === void 0 ? void 0 : _t.handleEnvInstallStart) === null || _u === void 0 ? void 0 : _u.call(_t, message.payload);
+                (_y = (_x = deps.settings) === null || _x === void 0 ? void 0 : _x.handleEnvInstallStart) === null || _y === void 0 ? void 0 : _y.call(_x, message.payload);
                 break;
             case "env:installResult":
-                (_w = (_v = deps.settings) === null || _v === void 0 ? void 0 : _v.handleEnvInstallResult) === null || _w === void 0 ? void 0 : _w.call(_v, message.payload);
+                (_0 = (_z = deps.settings) === null || _z === void 0 ? void 0 : _z.handleEnvInstallResult) === null || _0 === void 0 ? void 0 : _0.call(_z, message.payload);
                 break;
             case "env:installProgress":
-                (_y = (_x = deps.settings) === null || _x === void 0 ? void 0 : _x.handleEnvInstallProgress) === null || _y === void 0 ? void 0 : _y.call(_x, message.payload);
+                (_2 = (_1 = deps.settings) === null || _1 === void 0 ? void 0 : _1.handleEnvInstallProgress) === null || _2 === void 0 ? void 0 : _2.call(_1, message.payload);
                 break;
             case "launcherStatus":
                 deps.handleLauncherStatus(message.payload);
                 break;
             case "recentProjects":
-                deps.handleRecentProjects((_z = message.payload.projects) !== null && _z !== void 0 ? _z : []);
+                deps.handleRecentProjects((_3 = message.payload.projects) !== null && _3 !== void 0 ? _3 : []);
                 break;
             case "agent:settings":
-                (_0 = deps.agent) === null || _0 === void 0 ? void 0 : _0.handleSettings(message.payload.settings);
+                (_4 = deps.agent) === null || _4 === void 0 ? void 0 : _4.handleSettings(message.payload.settings);
                 break;
             case "agent:state":
-                (_2 = (_1 = deps.agent) === null || _1 === void 0 ? void 0 : _1.handleState) === null || _2 === void 0 ? void 0 : _2.call(_1, message.payload);
+                (_6 = (_5 = deps.agent) === null || _5 === void 0 ? void 0 : _5.handleState) === null || _6 === void 0 ? void 0 : _6.call(_5, message.payload);
                 break;
             case "settings:request": {
                 const payload = message.payload;
@@ -153,11 +163,11 @@ export const initBridgeHandlers = (deps) => {
                 let snapshot = null;
                 let ok = false;
                 if ((payload === null || payload === void 0 ? void 0 : payload.action) === "set") {
-                    snapshot = (_6 = (_4 = (_3 = deps.settings) === null || _3 === void 0 ? void 0 : _3.applySettingsPatch) === null || _4 === void 0 ? void 0 : _4.call(_3, (_5 = payload.settings) !== null && _5 !== void 0 ? _5 : {})) !== null && _6 !== void 0 ? _6 : null;
+                    snapshot = (_10 = (_8 = (_7 = deps.settings) === null || _7 === void 0 ? void 0 : _7.applySettingsPatch) === null || _8 === void 0 ? void 0 : _8.call(_7, (_9 = payload.settings) !== null && _9 !== void 0 ? _9 : {})) !== null && _10 !== void 0 ? _10 : null;
                     ok = Boolean(snapshot);
                 }
                 else {
-                    snapshot = (_9 = (_8 = (_7 = deps.settings) === null || _7 === void 0 ? void 0 : _7.getSettingsSnapshot) === null || _8 === void 0 ? void 0 : _8.call(_7)) !== null && _9 !== void 0 ? _9 : null;
+                    snapshot = (_13 = (_12 = (_11 = deps.settings) === null || _11 === void 0 ? void 0 : _11.getSettingsSnapshot) === null || _12 === void 0 ? void 0 : _12.call(_11)) !== null && _13 !== void 0 ? _13 : null;
                     ok = Boolean(snapshot);
                 }
                 const keys = Array.isArray(payload === null || payload === void 0 ? void 0 : payload.keys) ? payload.keys : [];
@@ -182,73 +192,73 @@ export const initBridgeHandlers = (deps) => {
                 break;
             }
             case "agent:status":
-                (_10 = deps.agent) === null || _10 === void 0 ? void 0 : _10.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
+                (_14 = deps.agent) === null || _14 === void 0 ? void 0 : _14.handleStatus(message.payload.state, message.payload.message, message.payload.conversationId);
                 break;
             case "agent:message":
-                (_11 = deps.agent) === null || _11 === void 0 ? void 0 : _11.handleMessage((_12 = message.payload.text) !== null && _12 !== void 0 ? _12 : "", message.payload.conversationId);
+                (_15 = deps.agent) === null || _15 === void 0 ? void 0 : _15.handleMessage((_16 = message.payload.text) !== null && _16 !== void 0 ? _16 : "", message.payload.conversationId);
                 break;
             case "agent:messageDelta":
-                (_14 = (_13 = deps.agent) === null || _13 === void 0 ? void 0 : _13.handleMessageDelta) === null || _14 === void 0 ? void 0 : _14.call(_13, (_15 = message.payload.text) !== null && _15 !== void 0 ? _15 : "", message.payload.conversationId);
+                (_18 = (_17 = deps.agent) === null || _17 === void 0 ? void 0 : _17.handleMessageDelta) === null || _18 === void 0 ? void 0 : _18.call(_17, (_19 = message.payload.text) !== null && _19 !== void 0 ? _19 : "", message.payload.conversationId);
                 break;
             case "agent:tool":
-                (_16 = deps.agent) === null || _16 === void 0 ? void 0 : _16.handleTool(message.payload);
+                (_20 = deps.agent) === null || _20 === void 0 ? void 0 : _20.handleTool(message.payload);
                 break;
             case "agent:proposal":
-                (_17 = deps.agent) === null || _17 === void 0 ? void 0 : _17.handleProposal(message.payload.proposal);
+                (_21 = deps.agent) === null || _21 === void 0 ? void 0 : _21.handleProposal(message.payload.proposal);
                 break;
             case "agent:applyResult":
-                (_18 = deps.agent) === null || _18 === void 0 ? void 0 : _18.handleApplyResult(message.payload);
+                (_22 = deps.agent) === null || _22 === void 0 ? void 0 : _22.handleApplyResult(message.payload);
                 break;
             case "agent:undoResult":
-                (_19 = deps.agent) === null || _19 === void 0 ? void 0 : _19.handleUndoResult(message.payload);
+                (_23 = deps.agent) === null || _23 === void 0 ? void 0 : _23.handleUndoResult(message.payload);
                 break;
             case "agent:undoAvailability":
-                (_21 = (_20 = deps.agent) === null || _20 === void 0 ? void 0 : _20.handleUndoAvailability) === null || _21 === void 0 ? void 0 : _21.call(_20, message.payload);
+                (_25 = (_24 = deps.agent) === null || _24 === void 0 ? void 0 : _24.handleUndoAvailability) === null || _25 === void 0 ? void 0 : _25.call(_24, message.payload);
                 break;
             case "agent:scratchpad":
-                (_23 = (_22 = deps.agent) === null || _22 === void 0 ? void 0 : _22.handleScratchpad) === null || _23 === void 0 ? void 0 : _23.call(_22, message.payload);
+                (_27 = (_26 = deps.agent) === null || _26 === void 0 ? void 0 : _26.handleScratchpad) === null || _27 === void 0 ? void 0 : _27.call(_26, message.payload);
                 break;
             case "agent:thought":
-                (_25 = (_24 = deps.agent) === null || _24 === void 0 ? void 0 : _24.handleThought) === null || _25 === void 0 ? void 0 : _25.call(_24, message.payload);
+                (_29 = (_28 = deps.agent) === null || _28 === void 0 ? void 0 : _28.handleThought) === null || _29 === void 0 ? void 0 : _29.call(_28, message.payload);
                 break;
             case "agent:error":
-                (_26 = deps.agent) === null || _26 === void 0 ? void 0 : _26.handleError((_27 = message.payload.message) !== null && _27 !== void 0 ? _27 : uiText("Axiom error", "Axiom エラー"), message.payload.conversationId);
+                (_30 = deps.agent) === null || _30 === void 0 ? void 0 : _30.handleError((_31 = message.payload.message) !== null && _31 !== void 0 ? _31 : uiText("Axiom error", "Axiom エラー"), message.payload.conversationId);
                 break;
             case "api:usage":
-                (_28 = deps.api) === null || _28 === void 0 ? void 0 : _28.handleUsage(message.payload);
+                (_32 = deps.api) === null || _32 === void 0 ? void 0 : _32.handleUsage(message.payload);
                 break;
             case "platform:auth":
-                (_29 = deps.platform) === null || _29 === void 0 ? void 0 : _29.handleAuth(message.payload);
+                (_33 = deps.platform) === null || _33 === void 0 ? void 0 : _33.handleAuth(message.payload);
                 break;
             case "platform:aiAccess":
-                (_30 = deps.platform) === null || _30 === void 0 ? void 0 : _30.handleAiAccess(message.payload);
+                (_34 = deps.platform) === null || _34 === void 0 ? void 0 : _34.handleAiAccess(message.payload);
                 break;
             case "platform:usage":
-                (_31 = deps.platform) === null || _31 === void 0 ? void 0 : _31.handleUsage(message.payload);
+                (_35 = deps.platform) === null || _35 === void 0 ? void 0 : _35.handleUsage(message.payload);
                 break;
             case "platform:update":
-                (_32 = deps.platform) === null || _32 === void 0 ? void 0 : _32.handleUpdate(message.payload);
+                (_36 = deps.platform) === null || _36 === void 0 ? void 0 : _36.handleUpdate(message.payload);
                 break;
             case "platform:updateStatus":
-                (_33 = deps.platform) === null || _33 === void 0 ? void 0 : _33.handleUpdateStatus(message.payload);
+                (_37 = deps.platform) === null || _37 === void 0 ? void 0 : _37.handleUpdateStatus(message.payload);
                 break;
             case "platform:feedback":
-                (_34 = deps.platform) === null || _34 === void 0 ? void 0 : _34.handleFeedback(message.payload);
+                (_38 = deps.platform) === null || _38 === void 0 ? void 0 : _38.handleFeedback(message.payload);
                 break;
             case "platform:announcements":
-                (_36 = (_35 = deps.platform) === null || _35 === void 0 ? void 0 : _35.handleAnnouncements) === null || _36 === void 0 ? void 0 : _36.call(_35, message.payload);
+                (_40 = (_39 = deps.platform) === null || _39 === void 0 ? void 0 : _39.handleAnnouncements) === null || _40 === void 0 ? void 0 : _40.call(_39, message.payload);
                 break;
             case "app:command":
-                (_37 = deps.app) === null || _37 === void 0 ? void 0 : _37.handleCommand((_38 = message.payload.command) !== null && _38 !== void 0 ? _38 : "");
+                (_41 = deps.app) === null || _41 === void 0 ? void 0 : _41.handleCommand((_42 = message.payload.command) !== null && _42 !== void 0 ? _42 : "");
                 break;
             case "file:previewResult":
-                (_39 = deps.filePreview) === null || _39 === void 0 ? void 0 : _39.handlePreviewResult(message.payload);
+                (_43 = deps.filePreview) === null || _43 === void 0 ? void 0 : _43.handlePreviewResult(message.payload);
                 break;
             case "file:excerptResult":
-                (_40 = deps.fileExcerpt) === null || _40 === void 0 ? void 0 : _40.handleExcerptResult(message.payload);
+                (_44 = deps.fileExcerpt) === null || _44 === void 0 ? void 0 : _44.handleExcerptResult(message.payload);
                 break;
             case "agent:applyContent":
-                deps.editorSession.applyContentToOpenFile((_41 = message.payload.path) !== null && _41 !== void 0 ? _41 : "", (_42 = message.payload.content) !== null && _42 !== void 0 ? _42 : "", {
+                deps.editorSession.applyContentToOpenFile((_45 = message.payload.path) !== null && _45 !== void 0 ? _45 : "", (_46 = message.payload.content) !== null && _46 !== void 0 ? _46 : "", {
                     updateSaved: message.payload.updateSaved === true,
                     showAiDiff: true,
                 });

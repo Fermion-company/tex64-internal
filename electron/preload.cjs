@@ -226,6 +226,13 @@ ipcRenderer.on("tex64:terminal:exit", (_event, message) => {
 });
 
 const terminalApi = {
+  openWindow: async (options = {}) => {
+    try {
+      return await ipcRenderer.invoke("tex64:terminal:openWindow", options);
+    } catch (error) {
+      return { error: error && error.message ? error.message : "terminal window failed" };
+    }
+  },
   create: async (options = {}) => {
     try {
       return await ipcRenderer.invoke("tex64:terminal:create", options);
@@ -316,7 +323,45 @@ Object.defineProperty(bridgeApi, "postMessage", {
   enumerable: true,
 });
 
+// Source control and snippets: plain request/response, no event channels — the
+// renderer refetches after every action rather than holding cached state.
+const gitApi = {
+  invoke: async (op, payload = {}) => {
+    try {
+      return await ipcRenderer.invoke("tex64:git:invoke", { op, payload });
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : "git failed" };
+    }
+  },
+};
+
+const snippetsApi = {
+  list: async () => {
+    try {
+      return await ipcRenderer.invoke("tex64:snippets:list");
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : "snippets failed" };
+    }
+  },
+  save: async (snippet) => {
+    try {
+      return await ipcRenderer.invoke("tex64:snippets:save", snippet);
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : "snippets failed" };
+    }
+  },
+  remove: async (id, scope) => {
+    try {
+      return await ipcRenderer.invoke("tex64:snippets:remove", { id, scope });
+    } catch (error) {
+      return { ok: false, error: error && error.message ? error.message : "snippets failed" };
+    }
+  },
+};
+
 contextBridge.exposeInMainWorld("tex64Bridge", bridgeApi);
+contextBridge.exposeInMainWorld("tex64Git", gitApi);
+contextBridge.exposeInMainWorld("tex64Snippets", snippetsApi);
 contextBridge.exposeInMainWorld("tex64Capture", captureApi);
 contextBridge.exposeInMainWorld("tex64MathOcr", mathOcrApi);
 contextBridge.exposeInMainWorld("tex64Texize", texizeApi);

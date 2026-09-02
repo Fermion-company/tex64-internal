@@ -32,6 +32,8 @@ type FileTreeDeps = {
   isAnyGroupComposing: () => boolean;
   postToNative: (payload: { type: string; [key: string]: unknown }) => boolean;
   getDirtyPaths: () => Set<string>;
+  /** Opens the built-in terminal in a workspace folder ("" = workspace root). */
+  openIntegratedTerminal: (folderPath: string) => void;
 };
 
 export type FileTreeUiApi = {
@@ -152,6 +154,15 @@ export const initFileTreeUi = (
     fileTree
       .querySelectorAll<HTMLElement>("summary.is-selected")
       .forEach((summary) => summary.classList.remove("is-selected"));
+  };
+
+  // Right-clicking the empty space below the tree targets the workspace root,
+  // so the previous file/folder selection must stop steering "New file..." and
+  // "Paste".
+  const clearTreeSelection = () => {
+    clearFolderSelection();
+    selectedTreePath = null;
+    selectedTreeType = null;
   };
 
   const setTreeFocus = (value: boolean) => {
@@ -400,6 +411,12 @@ export const initFileTreeUi = (
     closeRenameModal();
   };
 
+  // The system Terminal.app stays available, but the built-in one is what most
+  // people want when they are already in the editor.
+  const requestIntegratedTerminal = (path: string) => {
+    deps.openIntegratedTerminal(path);
+  };
+
   const requestRevealInFinder = (path: string) => {
     deps.postToNative({ type: "revealInFinder", path });
   };
@@ -571,7 +588,12 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("Open in terminal", "open in terminal"),
+      label: uiText("Open in built-in terminal", "内蔵ターミナルで開く"),
+      action: () => requestIntegratedTerminal(path),
+    },
+    {
+      type: "action",
+      label: uiText("Open in system terminal", "システムのターミナルで開く"),
       action: () => requestOpenInTerminal(path),
     },
     { type: "separator" },
@@ -632,7 +654,12 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("Open in terminal", "open in terminal"),
+      label: uiText("Open in built-in terminal", "内蔵ターミナルで開く"),
+      action: () => requestIntegratedTerminal(path),
+    },
+    {
+      type: "action",
+      label: uiText("Open in system terminal", "システムのターミナルで開く"),
       action: () => requestOpenInTerminal(path),
     },
     { type: "separator" },
@@ -664,6 +691,68 @@ export const initFileTreeUi = (
       label: uiText("Delete", "削除"),
       danger: true,
       action: () => requestDeleteItem(path, "dir"),
+    },
+  ];
+
+  // The blank area under the last row is the natural place to ask for something
+  // at the top level of the project: before this, right-clicking there did
+  // nothing and the only way to create a top-level folder was to right-click an
+  // unrelated sibling.
+  const buildRootContextMenu = (): ContextMenuItem[] => [
+    {
+      type: "action",
+      label: uiText("New file...", "新しいファイル..."),
+      action: () => {
+        clearTreeSelection();
+        requestCreate("file");
+      },
+    },
+    {
+      type: "action",
+      label: uiText("New folder...", "新しいフォルダー..."),
+      action: () => {
+        clearTreeSelection();
+        requestCreate("folder");
+      },
+    },
+    { type: "separator" },
+    {
+      type: "action",
+      label: uiText("Paste", "貼り付け"),
+      enabled: Boolean(fileClipboard),
+      action: () => {
+        clearTreeSelection();
+        pasteClipboard();
+      },
+    },
+    { type: "separator" },
+    {
+      type: "action",
+      label: uiText("Show in Finder", "Finderで表示"),
+      enabled: Boolean(deps.getWorkspaceRootKey()),
+      action: () => requestRevealInFinder(""),
+    },
+    {
+      type: "action",
+      label: uiText("Open in built-in terminal", "内蔵ターミナルで開く"),
+      enabled: Boolean(deps.getWorkspaceRootKey()),
+      action: () => requestIntegratedTerminal(""),
+    },
+    {
+      type: "action",
+      label: uiText("Open in system terminal", "システムのターミナルで開く"),
+      enabled: Boolean(deps.getWorkspaceRootKey()),
+      action: () => requestOpenInTerminal(""),
+    },
+    {
+      type: "action",
+      label: uiText("Copy workspace path", "ワークスペースのパスをコピー"),
+      enabled: Boolean(deps.getWorkspaceRootKey()),
+      action: () => {
+        const root = deps.getWorkspaceRootKey();
+        if (!root) return;
+        navigator.clipboard.writeText(root).then(() => {}, () => {});
+      },
     },
   ];
 
@@ -710,6 +799,8 @@ export const initFileTreeUi = (
       toggleFolderOpen,
       buildFileContextMenu,
       buildFolderContextMenu,
+      buildRootContextMenu,
+      clearTreeSelection,
       requestMoveItem,
       getDragPayload,
       setDragPayload,
@@ -837,6 +928,15 @@ export const initFileTreeUi = (
   if (fileTree instanceof HTMLElement) {
     fileTree.addEventListener("contextmenu", (event) => {
       event.preventDefault();
+      const target = event.target as HTMLElement | null;
+      // Rows carry their own menus and stop here via their own handlers; this
+      // only fires for the background around and below them.
+      if (target && target.closest(".file-item, summary")) {
+        return;
+      }
+      clearTreeSelection();
+      setTreeFocus(true);
+      deps.contextMenu.open(event.clientX, event.clientY, buildRootContextMenu());
     });
     fileTree.addEventListener("mousedown", () => {
       setTreeFocus(true);

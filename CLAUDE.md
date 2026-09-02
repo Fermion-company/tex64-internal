@@ -68,6 +68,10 @@ node --test tests/        # テスト（node:test。*.test.cjs / *.test.mjs）
 - `electron/services/env.cjs` — managed TeX 環境の軽量導入・不足パッケージ自動補完・`scheme-full` 昇格と環境判定（`detectEnvironment`）。判定の純粋ロジックは `tex-detect.cjs`。
 - `electron/services/texlab/` — texlab プロセスの spawn と JSON-RPC over stdio の中継。
 - `electron/services/{build,synctex,spell,math-ocr,terminal,indexer,search}.cjs` — ビルド / SyncTeX / スペル / 数式OCR / ターミナル / 索引 / 検索。
+- `electron/services/file-watcher.cjs` — ワークスペースの外部変更監視（`fs.watch` recursive、ビルド生成物は無視、自前書き込みは内容ハッシュで抑制）。
+- `electron/services/git.cjs` — ソース管理（マシンの `git` を execFile。トークンは持たず認証は既存の git 資格情報に委ねる）。
+- `electron/services/snippets.cjs` — スニペット保存（global = userData / workspace = `.tex64/snippets.json`）。
+- `electron/services/tex-build-target.cjs` — ビルド対象判定の純粋ロジック（standalone 判定・`\input` 系の解析）。
 - `web-src/math/wysiwyg/` — 数式 WYSIWYG サジェスト（コア機能）。`triggers-data/manual-part-*.ts` がトリガー辞書。
 - `web-src/math/fork/` — MathLive fork（`tsc` の対象外、専用ビルド）。
 - `web-src/app/lsp/` — 自作の軽量 LSP クライアント（monaco グローバル provider へアダプト）。
