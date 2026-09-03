@@ -528,6 +528,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         path: relativePath,
         ok: true,
         content: shouldFormat ? finalContent : undefined,
+        savedContent: finalContent,
         formatError: formatError ?? undefined,
       });
       if (workspace.isIndexTarget(relativePath)) {

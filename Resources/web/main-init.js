@@ -67,6 +67,7 @@ export const initMain = () => {
         let requestLiveSource = (_payload) => { };
         let requestLiveEdit = (_payload) => { };
         let refreshCodeLivePreview = () => { };
+        let openIntegratedTerminal = (_directory) => { };
         let isReverseSynctexEnabled = () => true;
         let blockAutoDetect = null;
         let blockEditSession = null;
@@ -353,6 +354,7 @@ export const initMain = () => {
             isAnyGroupComposing: () => editorSession.isAnyGroupComposing(),
             postToNative: (payload) => postToNative(payload),
             getDirtyPaths: () => editorSession.getDirtyPaths(),
+            openTerminal: (directory) => openIntegratedTerminal(directory),
         });
         const detectedBlockUi = initDetectedBlockUi(dom);
         let activeBlockContext = null;
@@ -767,7 +769,13 @@ export const initMain = () => {
             onTerminalShow: () => terminalUi.show(),
             onTerminalHide: () => terminalUi.hide(),
             onTerminalRestart: () => terminalUi.restart(),
+            onTerminalCreate: () => terminalUi.create(),
+            onTerminalSplit: () => terminalUi.split(),
         });
+        openIntegratedTerminal = (directory) => {
+            terminalUi.create(directory);
+            bottomPanelUi.openTerminal();
+        };
         // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
         // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
         // plan + usage state through the AI chat UI.
@@ -810,12 +818,14 @@ export const initMain = () => {
             getActiveFilePath: () => editorSession.getActiveFilePath(),
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
+            getWorkspaceRootKey,
             setLastBuildMainFile: (path) => {
                 lastBuildMainFile = path;
             },
             getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
             cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
             saveCurrentFile: () => editorSession.saveCurrentFile(),
+            saveDirtyFiles: () => editorSession.saveDirtyFiles(),
             postToNative: (payload, silent) => postToNative(payload, silent),
             updateIssues: updateIssuesProxy,
             setPendingBuildIssuesFocus: (value) => setPendingBuildIssuesFocus(value),
@@ -1109,6 +1119,7 @@ export const initMain = () => {
             },
             build: {
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
+                setBuildTarget: (path) => { lastBuildMainFile = path; },
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
                 handleBuildLog: (log) => buildOps.handleBuildLog(log),
                 handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),
@@ -1195,6 +1206,7 @@ export const initMain = () => {
                 },
                 handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
                 applyContentToOpenFile: (path, content, options) => editorSession.applyContentToOpenFile(path, content, options),
+                handleExternalFileChange: editorSession.handleExternalFileChange,
             },
         });
         postToNative({ type: "agent:settings:get" }, true);

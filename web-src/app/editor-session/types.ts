@@ -197,6 +197,7 @@ export type EditorSessionApi = {
     }
   ) => { handled: boolean; conflict: boolean };
   applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+  handleExternalFileChange: (payload: { path: string; content: string | null; fileDeleted?: boolean }) => void;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;

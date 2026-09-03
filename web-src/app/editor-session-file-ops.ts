@@ -78,7 +78,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   let lastSaveErrorMessage: string | null = null;
   const contentConflicts = new Map<
     string,
-    { diskContent: string | null; conversationId: string | null }
+    { diskContent: string | null; conversationId: string | null; externalChange?: boolean }
   >();
   let reopenNextContentConflict = () => {};
   const {
@@ -441,6 +441,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       fileDeleted?: boolean;
       conversationId?: string;
       forceConflict?: boolean;
+      externalChange?: boolean;
     }
   ) => {
     if (!group.editor) {
@@ -487,8 +488,12 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       contentConflicts.set(path, {
         diskContent: fileDeleted ? null : content,
         conversationId,
+        externalChange: options?.externalChange,
       });
-      const message = uiText(
+      const message = options?.externalChange ? uiText(
+        `${path} changed outside TeX64. Your unsaved edits were kept.`,
+        `${path} が外部で変更されました。未保存の編集は保持しています。`,
+      ) : uiText(
         fileDeleted
           ? `Axiom deleted ${path} while it had unsaved edits. Choose which version to keep.`
           : `Axiom changed ${path} on disk while it had unsaved edits. Choose which version to keep.`,
@@ -553,7 +558,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         useAxiom.textContent =
           contentConflicts.get(path)?.diskContent === null
             ? uiText("Keep deleted", "削除したまま")
-            : uiText("Use Axiom", "Axiomを使う");
+            : options?.externalChange ? uiText("Use disk version", "ディスクの内容を使う") : uiText("Use Axiom", "Axiomを使う");
         useAxiom.addEventListener("click", () => {
           const conflict = contentConflicts.get(path);
           if (!conflict) return;
@@ -772,6 +777,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         fileDeleted: conflict.diskContent === null,
         conversationId: conflict.conversationId ?? undefined,
         forceConflict: true,
+        externalChange: conflict.externalChange,
       },
     );
   };
@@ -847,8 +853,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     if (contentConflicts.has(activePath)) {
       reportSaveError(
         uiText(
-          "Resolve the Axiom edit conflict before saving.",
-          "保存する前にAxiomとの編集競合を解決してください。",
+          "Resolve the edit conflict before saving.",
+          "保存する前に編集競合を解決してください。",
         ),
       );
       return Promise.resolve(false);
@@ -876,8 +882,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     if (dirtyPaths.some((path) => contentConflicts.has(path))) {
       reportSaveError(
         uiText(
-          "Resolve the Axiom edit conflict before saving.",
-          "保存する前にAxiomとの編集競合を解決してください。",
+          "Resolve the edit conflict before saving.",
+          "保存する前に編集競合を解決してください。",
         ),
       );
       return false;

@@ -32,6 +32,7 @@ type FileTreeDeps = {
   isAnyGroupComposing: () => boolean;
   postToNative: (payload: { type: string; [key: string]: unknown }) => boolean;
   getDirtyPaths: () => Set<string>;
+  openTerminal?: (directory: string) => void;
 };
 
 export type FileTreeUiApi = {
@@ -83,6 +84,7 @@ export const initFileTreeUi = (
   let selectedTreeType: "file" | "dir" | null = null;
   let treeHasFocus = false;
   let createModalKind: CreateKind | null = null;
+  let createBasePath = "";
   let renameTargetPath: string | null = null;
   let renameTargetType: "file" | "dir" | null = null;
   let deleteTargetPath: string | null = null;
@@ -175,8 +177,8 @@ export const initFileTreeUi = (
   };
 
   const resolveCreateBasePath = () => {
-    if (selectedTreeType === "dir" && selectedTreePath) {
-      return selectedTreePath;
+    if (selectedTreeType === "dir") {
+      return selectedTreePath ?? "";
     }
     if (selectedTreeType === "file" && selectedTreePath) {
       return getParentPath(selectedTreePath);
@@ -189,8 +191,8 @@ export const initFileTreeUi = (
   };
 
   const resolvePasteTarget = () => {
-    if (selectedTreeType === "dir" && selectedTreePath) {
-      return selectedTreePath;
+    if (selectedTreeType === "dir") {
+      return selectedTreePath ?? "";
     }
     if (selectedTreeType === "file" && selectedTreePath) {
       return getParentPath(selectedTreePath);
@@ -224,6 +226,7 @@ export const initFileTreeUi = (
     }
     createModalKind = kind;
     const basePath = resolveCreateBasePath();
+    createBasePath = basePath;
     setText(createModalTitle, kind === "file" ? uiText("Create New File", "create new file") : uiText("Create New Folder", "Create new folder"));
     setText(createModalSubtitle, "");
     setText(createModalParent, basePath ? basePath : uiText("Workspace root", "Directly below the workspace"));
@@ -273,8 +276,7 @@ export const initFileTreeUi = (
     if (createModalKind === "folder") {
       value = value.replace(/\/+$/, "");
     }
-    const basePath = resolveCreateBasePath();
-    const fullPath = basePath ? `${basePath}/${value}` : value;
+    const fullPath = createBasePath ? `${createBasePath}/${value}` : value;
     const error = validatePath(fullPath, createModalKind === "file" ? "file" : "folder");
     if (error) {
       setCreateModalHelp(error, true);
@@ -405,7 +407,9 @@ export const initFileTreeUi = (
   };
 
   const requestOpenInTerminal = (path: string) => {
-    deps.postToNative({ type: "openInTerminal", path });
+    if (deps.openTerminal) {
+      deps.openTerminal(!path || deps.getWorkspaceFolders().includes(path) ? path : getParentPath(path));
+    } else deps.postToNative({ type: "openInTerminal", path });
   };
 
   const setDeleteModalOpen = (open: boolean) => {
@@ -837,7 +841,21 @@ export const initFileTreeUi = (
   if (fileTree instanceof HTMLElement) {
     fileTree.addEventListener("contextmenu", (event) => {
       event.preventDefault();
+      if ((event.target as HTMLElement)?.closest(".file-item, summary")) return;
+      if (!deps.getWorkspaceRootKey()) return;
+      clearFolderSelection();
+      setSelection("", "dir");
+      setTreeFocus(true);
+      deps.contextMenu.open(event.clientX, event.clientY, [
+        ...buildFolderContextMenu("").slice(0, 4),
+        { type: "separator" },
+        { type: "action", label: uiText("Paste", "貼り付け"), enabled: Boolean(fileClipboard), action: () => pasteClipboard() },
+      ]);
     });
+    fileTree.addEventListener("mousemove", (event) => {
+      fileTree.classList.toggle("is-root-hover", !(event.target as HTMLElement)?.closest(".file-item, summary"));
+    });
+    fileTree.addEventListener("mouseleave", () => fileTree.classList.remove("is-root-hover"));
     fileTree.addEventListener("mousedown", () => {
       setTreeFocus(true);
     });

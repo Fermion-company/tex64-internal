@@ -99,7 +99,7 @@ export const initMonacoSetup = (context, deps) => {
             automaticLayout: true,
             glyphMargin: true,
             minimap: { enabled: false },
-            scrollbar: { verticalScrollbarSize: 18, horizontalScrollbarSize: 18 },
+            scrollbar: { vertical: "visible", horizontal: "auto", verticalScrollbarSize: 14, horizontalScrollbarSize: 14 },
             fontFamily: editorSettings.getFontFamily(),
             fontSize: editorSettings.getFontSize(),
             lineHeight: editorSettings.getLineHeight(),

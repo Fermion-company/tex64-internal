@@ -233,6 +233,43 @@ export const initEditorSession = (context, deps) => {
         pendingLiveEdits.clear();
         openingLivePaths.clear();
     };
+    const pendingExternalChanges = new Map();
+    const handleExternalFileChange = (payload) => {
+        const entry = runtime.monacoModels.get(payload.path);
+        const groupKey = coreOps.findGroupKeyByPath(payload.path);
+        if (!entry || !groupKey)
+            return;
+        const group = coreOps.getEditorGroup(groupKey);
+        pendingExternalChanges.set(payload.path, payload);
+        const apply = () => {
+            var _a, _b, _c;
+            if (pendingExternalChanges.get(payload.path) !== payload)
+                return;
+            if (runtime.monacoModels.get(payload.path) !== entry) {
+                pendingExternalChanges.delete(payload.path);
+                return;
+            }
+            if (group.isComposing) {
+                window.setTimeout(apply, 100);
+                return;
+            }
+            pendingExternalChanges.delete(payload.path);
+            if (!payload.fileDeleted && payload.content === entry.savedContent)
+                return;
+            if (!payload.fileDeleted && ((_a = runtime.fileOpsState.pendingSave) === null || _a === void 0 ? void 0 : _a.path) === payload.path &&
+                runtime.fileOpsState.pendingSave.content === payload.content)
+                return;
+            applyFormattedContent(group, payload.path, (_b = payload.content) !== null && _b !== void 0 ? _b : "", {
+                updateSaved: true,
+                showAiDiff: false,
+                expectedContent: entry.savedContent,
+                fileDeleted: payload.fileDeleted,
+                externalChange: true,
+            });
+            (_c = deps.onLivePreviewSourceChanged) === null || _c === void 0 ? void 0 : _c.call(deps);
+        };
+        apply();
+    };
     return {
         getEditorGroup: coreOps.getEditorGroup,
         getEditorGroups: () => Object.values(runtime.editorGroups),
@@ -265,6 +302,7 @@ export const initEditorSession = (context, deps) => {
         applyFormattedContent,
         applyContentToOpenFile: navigationOps.applyContentToOpenFile,
         applyLivePreviewEdit,
+        handleExternalFileChange,
         saveCurrentFile,
         saveDirtyFiles,
         requestInitialOpen: initialOpenOps.requestInitialOpen,
@@ -280,6 +318,7 @@ export const initEditorSession = (context, deps) => {
             if (payload.rootChanged) {
                 clearContentConflicts();
                 clearLivePreviewEdits();
+                pendingExternalChanges.clear();
             }
             workspaceOps.syncWorkspaceFiles(payload);
         },

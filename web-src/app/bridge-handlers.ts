@@ -114,6 +114,7 @@ type BridgeHandlersDeps = {
   };
   build: {
     setBuildState: (state: BuildState, message?: string) => void;
+    setBuildTarget?: (path: string) => void;
     handleFormatResult: (payload: {
       path: string;
       ok: boolean;
@@ -252,6 +253,7 @@ type BridgeHandlersDeps = {
     }) => void;
   };
   editorSession: {
+    handleExternalFileChange: (payload: { path: string; content: string | null; fileDeleted?: boolean }) => void;
     handleOpenFileResult: (payload: {
       path: string;
       content?: string;
@@ -298,8 +300,11 @@ type BridgeHandlersDeps = {
 
 export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   const { bridgeWindow } = deps;
+  let externalWorkspaceRoot: string | null = null;
+  let externalWorkspaceGeneration: number | undefined;
 
   bridgeWindow.tex64SetBuildState = (payload) => {
+    if (payload.targetFile && !payload.requestId) deps.build.setBuildTarget?.(payload.targetFile);
     deps.build.setBuildState(payload.state, payload.message);
   };
 
@@ -309,6 +314,8 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   };
 
   bridgeWindow.tex64UpdateWorkspace = (payload) => {
+    externalWorkspaceRoot = payload.rootPath;
+    externalWorkspaceGeneration = payload.workspaceGeneration;
     deps.filePreview?.setWorkspaceScope(payload);
     deps.fileExcerpt?.setWorkspaceScope(payload);
     deps.handleWorkspaceUpdate(payload);
@@ -457,6 +464,15 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           error?: string;
         });
         break;
+      case "file:externalChange": {
+        const change = message.payload as {
+          root: string; workspaceGeneration?: number; path: string; content: string | null; fileDeleted?: boolean;
+        };
+        if (change.root === externalWorkspaceRoot && change.workspaceGeneration === externalWorkspaceGeneration) {
+          deps.editorSession.handleExternalFileChange(change);
+        }
+        break;
+      }
       case "saveResult":
         bridgeWindow.tex64SaveResult?.(message.payload as {
           path: string;

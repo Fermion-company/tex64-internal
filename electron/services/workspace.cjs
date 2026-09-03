@@ -2073,6 +2073,10 @@ const extractTexMagicRoot = (content) => {
 };
 
 class WorkspaceManager {
+  async resolveBuildTarget(relativePath) {
+    return require("./tex-build-target.cjs").resolveBuildTarget(this, relativePath);
+  }
+
   constructor() {
     this.rootPath = null;
     this.rootFileInfo = null;
