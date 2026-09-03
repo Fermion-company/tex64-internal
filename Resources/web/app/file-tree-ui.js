@@ -7,6 +7,7 @@ export const initFileTreeUi = (context, deps) => {
     let selectedTreeType = null;
     let treeHasFocus = false;
     let createModalKind = null;
+    let createBasePath = "";
     let renameTargetPath = null;
     let renameTargetType = null;
     let deleteTargetPath = null;
@@ -90,8 +91,8 @@ export const initFileTreeUi = (context, deps) => {
         selectedTreeType = null;
     };
     const resolveCreateBasePath = () => {
-        if (selectedTreeType === "dir" && selectedTreePath) {
-            return selectedTreePath;
+        if (selectedTreeType === "dir") {
+            return selectedTreePath !== null && selectedTreePath !== void 0 ? selectedTreePath : "";
         }
         if (selectedTreeType === "file" && selectedTreePath) {
             return getParentPath(selectedTreePath);
@@ -103,8 +104,8 @@ export const initFileTreeUi = (context, deps) => {
         return "";
     };
     const resolvePasteTarget = () => {
-        if (selectedTreeType === "dir" && selectedTreePath) {
-            return selectedTreePath;
+        if (selectedTreeType === "dir") {
+            return selectedTreePath !== null && selectedTreePath !== void 0 ? selectedTreePath : "";
         }
         if (selectedTreeType === "file" && selectedTreePath) {
             return getParentPath(selectedTreePath);
@@ -135,6 +136,7 @@ export const initFileTreeUi = (context, deps) => {
         }
         createModalKind = kind;
         const basePath = resolveCreateBasePath();
+        createBasePath = basePath;
         setText(createModalTitle, kind === "file" ? uiText("Create New File", "create new file") : uiText("Create New Folder", "Create new folder"));
         setText(createModalSubtitle, "");
         setText(createModalParent, basePath ? basePath : uiText("Workspace root", "Directly below the workspace"));
@@ -182,8 +184,7 @@ export const initFileTreeUi = (context, deps) => {
         if (createModalKind === "folder") {
             value = value.replace(/\/+$/, "");
         }
-        const basePath = resolveCreateBasePath();
-        const fullPath = basePath ? `${basePath}/${value}` : value;
+        const fullPath = createBasePath ? `${createBasePath}/${value}` : value;
         const error = validatePath(fullPath, createModalKind === "file" ? "file" : "folder");
         if (error) {
             setCreateModalHelp(error, true);
@@ -303,7 +304,11 @@ export const initFileTreeUi = (context, deps) => {
         deps.postToNative({ type: "revealInFinder", path });
     };
     const requestOpenInTerminal = (path) => {
-        deps.postToNative({ type: "openInTerminal", path });
+        if (deps.openTerminal) {
+            deps.openTerminal(!path || deps.getWorkspaceFolders().includes(path) ? path : getParentPath(path));
+        }
+        else
+            deps.postToNative({ type: "openInTerminal", path });
     };
     const setDeleteModalOpen = (open) => {
         if (!deleteModal) {
@@ -699,8 +704,26 @@ export const initFileTreeUi = (context, deps) => {
     }
     if (fileTree instanceof HTMLElement) {
         fileTree.addEventListener("contextmenu", (event) => {
+            var _a;
             event.preventDefault();
+            if ((_a = event.target) === null || _a === void 0 ? void 0 : _a.closest(".file-item, summary"))
+                return;
+            if (!deps.getWorkspaceRootKey())
+                return;
+            clearFolderSelection();
+            setSelection("", "dir");
+            setTreeFocus(true);
+            deps.contextMenu.open(event.clientX, event.clientY, [
+                ...buildFolderContextMenu("").slice(0, 4),
+                { type: "separator" },
+                { type: "action", label: uiText("Paste", "貼り付け"), enabled: Boolean(fileClipboard), action: () => pasteClipboard() },
+            ]);
         });
+        fileTree.addEventListener("mousemove", (event) => {
+            var _a;
+            fileTree.classList.toggle("is-root-hover", !((_a = event.target) === null || _a === void 0 ? void 0 : _a.closest(".file-item, summary")));
+        });
+        fileTree.addEventListener("mouseleave", () => fileTree.classList.remove("is-root-hover"));
         fileTree.addEventListener("mousedown", () => {
             setTreeFocus(true);
         });

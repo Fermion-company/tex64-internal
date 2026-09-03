@@ -1,22 +1,16 @@
 import type { AppContext } from "./context.js";
-import {
-  getCurrentAppearanceTheme,
-  onAppearanceThemeChange,
-  type AppearanceTheme,
-} from "./appearance.js";
+import { getCurrentAppearanceTheme, onAppearanceThemeChange, type AppearanceTheme } from "./appearance.js";
+import { uiText } from "./i18n.js";
 
 type TerminalBridge = {
-  create: (options?: { cols?: number; rows?: number }) => Promise<{ id?: string; error?: string }>;
+  create: (options?: { cols?: number; rows?: number; cwd?: string }) =>
+    Promise<{ id?: string; error?: string; shell?: string; cwd?: string }>;
   write: (id: string, data: string) => void;
   resize: (id: string, cols: number, rows: number) => void;
   kill: (id: string) => void;
+  setFocused: (focused: boolean) => void;
   onData: (handler: (msg: { id: string; data: string }) => void) => () => void;
   onExit: (handler: (msg: { id: string; exitCode: number }) => void) => () => void;
-};
-
-const getBridge = (): TerminalBridge | null => {
-  const bridge = (window as unknown as { tex64Terminal?: TerminalBridge }).tex64Terminal;
-  return bridge && typeof bridge.create === "function" ? bridge : null;
 };
 
 // xterm needs concrete colors (no CSS vars). Keep these aligned with app themes.
@@ -48,295 +42,360 @@ const TERMINAL_THEMES = {
 const getTerminalTheme = (theme: AppearanceTheme) =>
   TERMINAL_THEMES[theme] ?? TERMINAL_THEMES.dark;
 
+
+type Session = {
+  // xterm is a vendored UMD global, not a bundled npm import.
+  term: any;
+  fit: any;
+  element: HTMLElement;
+  screen: HTMLElement;
+  label: HTMLElement;
+  id: string | null;
+  title: string;
+  cwd?: string;
+  state: "starting" | "running" | "exited" | "error";
+  pendingInput: string;
+  generation: number;
+  disposed: boolean;
+  disposers: Array<() => void>;
+};
+type Group = { number: number; panes: Session[] };
+
 export type TerminalUiApi = {
-  /** Called when the Terminal tab becomes visible: starts the session lazily and fits. */
   show: () => void;
-  /** Called when the tab/panel is hidden; the session is kept alive. */
   hide: () => void;
-  /** Kill the current shell and start a fresh session (header ⟳ button). */
+  create: (cwd?: string) => void;
+  split: () => void;
   restart: () => void;
   dispose: () => void;
 };
 
 export const initTerminalUi = (context: AppContext): TerminalUiApi => {
   const host = context.dom.terminalHost;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let term: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let fitAddon: any = null;
-  let sessionId: string | null = null;
-  let starting = false;
-  let termInputDisposer: (() => void) | null = null;
-  let sessionDisposers: Array<() => void> = [];
-  let resizeObserver: ResizeObserver | null = null;
+  const bridge = (window as unknown as { tex64Terminal?: TerminalBridge }).tex64Terminal;
+  const globals = window as unknown as { Terminal?: any; FitAddon?: { FitAddon?: any } };
+  const groups: Group[] = [];
+  const sessionsById = new Map<string, Session>();
+  // PTY output can arrive before invoke(create) resolves. Subscribe once, before
+  // any spawn, and replay those early events when its id becomes known.
+  const early = new Map<string, { data: string; exitCode?: number }>();
+  let activeGroup: Group | null = null;
+  let activeSession: Session | null = null;
+  let nextNumber = 1;
+  let visible = false;
+  let disposed = false;
+  let startingCount = 0;
   let rafId: number | null = null;
   let currentTheme = getCurrentAppearanceTheme();
+  const tabs = document.createElement("div");
+  tabs.className = "terminal-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", uiText("Terminal sessions", "ターミナルセッション"));
+  const body = document.createElement("div");
+  body.className = "terminal-panes";
+  host?.replaceChildren(tabs, body);
 
-  const applyTerminalTheme = () => {
-    if (term) {
-      term.options.theme = { ...getTerminalTheme(currentTheme) };
+  const allSessions = () => groups.flatMap((group) => group.panes);
+  const setState = (session: Session, state: Session["state"]) => {
+    session.state = state;
+    session.element.dataset.state = state;
+    session.label.textContent = session.title;
+  };
+  const fitNow = () => {
+    if (!visible) return;
+    for (const session of activeGroup?.panes ?? []) {
+      if (!session.screen.clientWidth || !session.screen.clientHeight) continue;
+      try {
+        session.fit.fit();
+        if (session.id) bridge?.resize(session.id, session.term.cols, session.term.rows);
+      } catch { /* hidden or just disposed */ }
     }
   };
-
-  const disposeThemeListener = onAppearanceThemeChange((theme) => {
-    currentTheme = theme;
-    applyTerminalTheme();
+  const scheduleFit = () => {
+    if (rafId !== null || disposed) return;
+    rafId = requestAnimationFrame(() => { rafId = null; fitNow(); });
+  };
+  const focus = () => {
+    if (visible && !disposed) activeSession?.term.focus();
+  };
+  const render = () => {
+    tabs.replaceChildren();
+    for (const group of groups) {
+      const item = document.createElement("div");
+      item.className = "terminal-tab";
+      item.classList.toggle("is-active", group === activeGroup);
+      const select = document.createElement("button");
+      select.type = "button";
+      select.setAttribute("role", "tab");
+      select.setAttribute("aria-selected", String(group === activeGroup));
+      select.textContent = `${group.number}: ${group.panes.map((pane) => pane.title).join(" / ")}`;
+      select.addEventListener("click", () => {
+        activeGroup = group;
+        activeSession = group.panes[0];
+        render();
+        focus();
+      });
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "terminal-tab-close";
+      close.textContent = "×";
+      close.title = uiText("Close terminal (stops shell)", "ターミナルを終了");
+      close.setAttribute("aria-label", close.title);
+      close.addEventListener("click", () => {
+        for (const session of [...group.panes]) closeSession(session);
+      });
+      item.append(select, close);
+      tabs.append(item);
+      for (const session of group.panes) {
+        session.element.hidden = group !== activeGroup;
+        session.element.classList.toggle("is-active", session === activeSession);
+        session.element.classList.toggle("is-split", group.panes.length > 1);
+      }
+    }
+    scheduleFit();
+  };
+  const exited = (session: Session, code: number) => {
+    if (session.id) sessionsById.delete(session.id);
+    session.id = null;
+    delete session.element.dataset.sessionId;
+    setState(session, "exited");
+    session.term.writeln(`\r\n\x1b[90m${uiText("Shell exited", "シェル終了")} (${code}). ${uiText("Press Enter to restart.", "Enterで再開。")}\x1b[0m`);
+  };
+  const offData = bridge?.onData(({ id, data }) => {
+    const session = sessionsById.get(id);
+    if (session) session.term.write(data);
+    else if (startingCount && early.size < 24) {
+      const event = early.get(id) ?? { data: "" };
+      event.data = (event.data + data).slice(-65536);
+      early.set(id, event);
+    }
+  });
+  const offExit = bridge?.onExit(({ id, exitCode }) => {
+    const session = sessionsById.get(id);
+    if (session) exited(session, exitCode);
+    else if (startingCount && early.size < 24) {
+      const event = early.get(id) ?? { data: "" };
+      event.exitCode = exitCode;
+      early.set(id, event);
+    }
   });
 
-  const showMessage = (text: string) => {
-    if (host) {
-      host.textContent = text;
-    }
-  };
-
-  const clearSessionDisposers = () => {
-    sessionDisposers.forEach((d) => {
-      try {
-        d();
-      } catch {
-        /* ignore */
-      }
-    });
-    sessionDisposers = [];
-  };
-
-  const fitNow = () => {
-    if (!term || !fitAddon || !host) {
-      return;
-    }
-    if (host.clientWidth === 0 || host.clientHeight === 0) {
-      return;
-    }
+  const start = async (session: Session) => {
+    if (!bridge || session.disposed || disposed || session.id) return;
+    const generation = ++session.generation;
+    setState(session, "starting");
+    startingCount += 1;
     try {
-      fitAddon.fit();
-    } catch {
-      return;
-    }
-    const bridge = getBridge();
-    if (bridge && sessionId && term.cols > 0 && term.rows > 0) {
-      bridge.resize(sessionId, term.cols, term.rows);
-    }
-  };
-
-  const scheduleFit = () => {
-    if (rafId !== null) {
-      return;
-    }
-    rafId = window.requestAnimationFrame(() => {
-      rafId = null;
-      fitNow();
-    });
-  };
-
-  const startSession = async () => {
-    const bridge = getBridge();
-    if (!bridge || !term || sessionId) {
-      return;
-    }
-    clearSessionDisposers();
-    const result = await bridge.create({ cols: term.cols, rows: term.rows });
-    if (!result || result.error || !result.id) {
-      const reason = result && result.error ? result.error : "unknown error";
-      term.writeln(`\x1b[31mFailed to start terminal: ${reason}\x1b[0m`);
-      return;
-    }
-    sessionId = result.id;
-    const offData = bridge.onData((msg) => {
-      if (msg && msg.id === sessionId && term) {
-        term.write(msg.data);
-      }
-    });
-    const offExit = bridge.onExit((msg) => {
-      if (msg && msg.id === sessionId) {
-        sessionId = null;
-        if (term) {
-          term.writeln(
-            "\r\n\x1b[90m[process exited — reopen Terminal to start a new session]\x1b[0m"
-          );
-        }
-      }
-    });
-    sessionDisposers.push(offData, offExit);
-  };
-
-  const ensureStarted = async () => {
-    if (term) {
-      // Session ended (shell exited / failed to start): spin up a fresh one.
-      if (!sessionId && !starting) {
-        starting = true;
-        try {
-          await startSession();
-        } finally {
-          starting = false;
-        }
-      }
-      return;
-    }
-    if (starting) {
-      return;
-    }
-
-    const TerminalCtor = (window as unknown as { Terminal?: unknown }).Terminal;
-    const fitNamespace = (window as unknown as { FitAddon?: { FitAddon?: unknown } }).FitAddon;
-    const FitCtor = fitNamespace && (fitNamespace.FitAddon || fitNamespace);
-
-    if (!host || typeof TerminalCtor !== "function" || typeof FitCtor !== "function") {
-      showMessage("Terminal is unavailable in this environment.");
-      return;
-    }
-    if (!getBridge()) {
-      showMessage("Terminal is unavailable (no shell bridge).");
-      return;
-    }
-
-    starting = true;
-    try {
-      host.textContent = "";
-      // eslint-disable-next-line new-cap
-      term = new (TerminalCtor as new (options: unknown) => unknown)({
-        fontFamily: 'Menlo, Monaco, "SF Mono", "Cascadia Code", "Roboto Mono", monospace',
-        fontSize: 12,
-        cursorBlink: true,
-        theme: getTerminalTheme(currentTheme),
-        scrollback: 5000,
+      const result = await bridge.create({
+        cols: session.term.cols, rows: session.term.rows, cwd: session.cwd,
       });
-      // eslint-disable-next-line new-cap
-      fitAddon = new (FitCtor as new () => unknown)();
-      term.loadAddon(fitAddon);
-      term.open(host);
-      fitNow();
-
-      const inputSub = term.onData((data: string) => {
-        const bridge = getBridge();
-        if (bridge && sessionId) {
-          bridge.write(sessionId, data);
-        }
-      });
-
-      // During IME composition xterm keeps its block cursor parked at the
-      // composition start, so it sits stranded to the left of the text being
-      // typed and "jumps" on commit. Blend the cursor into the background while
-      // composing — the underlined composition text (styled in CSS) marks the
-      // insertion point instead — then restore it on commit/cancel.
-      const textarea: HTMLTextAreaElement | null = term.textarea ?? null;
-      const hideCursor = () => {
-        if (term) {
-          const baseTheme = getTerminalTheme(currentTheme);
-          term.options.theme = {
-            ...baseTheme,
-            cursor: baseTheme.background,
-            cursorAccent: baseTheme.background,
-          };
-        }
-      };
-      const restoreCursor = () => {
-        applyTerminalTheme();
-      };
-      if (textarea) {
-        textarea.addEventListener("compositionstart", hideCursor);
-        textarea.addEventListener("compositionend", restoreCursor);
+      if (disposed || session.disposed || generation !== session.generation) {
+        if (result?.id) bridge.kill(result.id);
+        return;
       }
-
-      termInputDisposer = () => {
-        try {
-          inputSub.dispose();
-        } catch {
-          /* ignore */
-        }
-        if (textarea) {
-          textarea.removeEventListener("compositionstart", hideCursor);
-          textarea.removeEventListener("compositionend", restoreCursor);
-        }
-      };
-
-      await startSession();
-
-      if (!resizeObserver && typeof ResizeObserver !== "undefined") {
-        resizeObserver = new ResizeObserver(() => scheduleFit());
-        resizeObserver.observe(host);
+      if (!result?.id || result.error) throw new Error(result?.error || "Unable to start shell.");
+      session.id = result.id;
+      session.cwd = result.cwd ?? session.cwd;
+      session.title = result.shell?.split(/[\\/]/).pop() || "Shell";
+      session.element.dataset.sessionId = result.id;
+      session.element.title = session.cwd ?? "";
+      sessionsById.set(result.id, session);
+      setState(session, "running");
+      const event = early.get(result.id);
+      early.delete(result.id);
+      if (event?.data) session.term.write(event.data);
+      if (event?.exitCode !== undefined) exited(session, event.exitCode);
+      if (session.id && session.pendingInput) bridge.write(session.id, session.pendingInput);
+      session.pendingInput = "";
+      render();
+    } catch (error) {
+      if (!session.disposed && generation === session.generation) {
+        session.pendingInput = "";
+        setState(session, "error");
+        session.term.writeln(`\r\n\x1b[31m${String(error instanceof Error ? error.message : error)}\x1b[0m`);
+        session.term.writeln(uiText("Press Enter to retry.", "Enterで再試行。"));
       }
     } finally {
-      starting = false;
+      startingCount -= 1;
+      if (!startingCount) early.clear();
     }
   };
 
-  const show = () => {
-    void ensureStarted().then(() => {
-      scheduleFit();
-      if (term) {
-        try {
-          term.focus();
-        } catch {
-          /* ignore */
-        }
+  const makeSession = (cwd?: string): Session | null => {
+    const Fit = globals.FitAddon?.FitAddon;
+    if (!host || !bridge || !globals.Terminal || !Fit) {
+      body.textContent = uiText("Terminal is unavailable.", "ターミナルを利用できません。");
+      return null;
+    }
+    const element = document.createElement("section");
+    element.className = "terminal-pane";
+    const header = document.createElement("div");
+    header.className = "terminal-pane-header";
+    const label = document.createElement("span");
+    label.textContent = "Shell";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "×";
+    close.title = uiText("Close terminal (stops shell)", "ターミナルを終了");
+    close.setAttribute("aria-label", close.title);
+    const screen = document.createElement("div");
+    screen.className = "terminal-screen";
+    header.append(label, close);
+    element.append(header, screen);
+    body.append(element);
+    const term = new globals.Terminal({
+      fontFamily: 'Menlo, Monaco, "SF Mono", "Cascadia Code", monospace',
+      fontSize: 12, cursorBlink: true, scrollback: 10000,
+      theme: { ...getTerminalTheme(currentTheme) },
+    });
+    const fit = new Fit();
+    term.loadAddon(fit);
+    term.open(screen);
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) =>
+      !((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "t")
+      && !(event.ctrlKey && event.code === "Backquote")
+    );
+    const session: Session = {
+      term, fit, element, screen, label, id: null, title: "Shell", cwd,
+      state: "starting", pendingInput: "", generation: 0, disposed: false, disposers: [],
+    };
+    close.addEventListener("click", () => closeSession(session));
+    screen.addEventListener("focusin", () => {
+      activeSession = session;
+      for (const pane of allSessions()) pane.element.classList.toggle("is-active", pane === session);
+    });
+    const input = term.onData((data: string) => {
+      if (session.disposed) return;
+      if (session.id) bridge.write(session.id, data);
+      else if (session.state === "starting") session.pendingInput += data;
+      else {
+        // Retain the first keystroke after exit; Enter simply starts the shell.
+        session.pendingInput = data === "\r" ? "" : data;
+        void start(session);
       }
     });
+    session.disposers.push(() => input.dispose());
+    const textarea: HTMLTextAreaElement | undefined = term.textarea;
+    const composing = () => {
+      const theme = getTerminalTheme(currentTheme);
+      term.options.theme = { ...theme, cursor: theme.background, cursorAccent: theme.background };
+    };
+    const composed = () => { term.options.theme = { ...getTerminalTheme(currentTheme) }; };
+    textarea?.addEventListener("compositionstart", composing);
+    textarea?.addEventListener("compositionend", composed);
+    session.disposers.push(() => {
+      textarea?.removeEventListener("compositionstart", composing);
+      textarea?.removeEventListener("compositionend", composed);
+    });
+    return session;
   };
-
-  const hide = () => {
-    /* Keep the pty session alive while hidden, mirroring VS Code. */
+  const destroySession = (session: Session) => {
+    session.disposed = true;
+    session.generation += 1;
+    if (session.id) {
+      sessionsById.delete(session.id);
+      bridge?.kill(session.id);
+    }
+    session.disposers.forEach((dispose) => dispose());
+    session.term.dispose();
+    session.element.remove();
   };
-
+  const closeSession = (session: Session) => {
+    const group = groups.find((entry) => entry.panes.includes(session));
+    if (!group) return;
+    destroySession(session);
+    group.panes.splice(group.panes.indexOf(session), 1);
+    if (!group.panes.length) {
+      const index = groups.indexOf(group);
+      groups.splice(index, 1);
+      if (activeGroup === group) activeGroup = groups[Math.max(0, index - 1)] ?? null;
+    }
+    if (activeSession === session) activeSession = activeGroup?.panes[0] ?? null;
+    render();
+    focus();
+  };
+  const create = (cwd?: string) => {
+    if (disposed) return;
+    const session = makeSession(cwd);
+    if (!session) return;
+    const group = { number: nextNumber++, panes: [session] };
+    groups.push(group);
+    activeGroup = group;
+    activeSession = session;
+    render();
+    fitNow();
+    void start(session);
+    focus();
+  };
+  const split = () => {
+    if (!activeGroup) { create(); return; }
+    if (activeGroup.panes.length >= 2) return;
+    const session = makeSession();
+    if (!session) return;
+    activeGroup.panes.push(session);
+    activeSession = session;
+    render();
+    fitNow();
+    void start(session);
+    focus();
+  };
   const restart = () => {
-    const bridge = getBridge();
-    if (bridge && sessionId) {
-      const oldId = sessionId;
-      // Drop the id first so the onExit handler doesn't print the
-      // "process exited" hint for a restart the user asked for.
-      sessionId = null;
-      clearSessionDisposers();
-      bridge.kill(oldId);
+    const session = activeSession;
+    if (!session) { create(); return; }
+    if (session.state === "starting") return;
+    if (session.id) {
+      sessionsById.delete(session.id);
+      bridge?.kill(session.id);
+      session.id = null;
     }
-    if (term) {
-      try {
-        term.reset();
-      } catch {
-        /* ignore */
-      }
-    }
-    void ensureStarted().then(() => {
-      scheduleFit();
-      if (term) {
-        try {
-          term.focus();
-        } catch {
-          /* ignore */
-        }
-      }
-    });
+    session.term.reset();
+    session.pendingInput = "";
+    void start(session);
+    focus();
   };
-
+  const keydown = (event: KeyboardEvent) => {
+    if (event.isComposing) return;
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "t") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.shiftKey) split(); else create();
+    } else if (!(event.ctrlKey && event.code === "Backquote")) {
+      // Shell controls (Ctrl+C/D/Z/L/S etc.) must never reach editor shortcuts.
+      event.stopPropagation();
+    }
+  };
+  host?.addEventListener("keydown", keydown);
+  const focusIn = () => bridge?.setFocused(true);
+  const focusOut = (event: FocusEvent) => {
+    if (!host?.contains(event.relatedTarget as Node | null)) bridge?.setFocused(false);
+  };
+  host?.addEventListener("focusin", focusIn);
+  host?.addEventListener("focusout", focusOut);
+  const resizeObserver = new ResizeObserver(scheduleFit);
+  if (host) resizeObserver.observe(host);
+  const offTheme = onAppearanceThemeChange((theme) => {
+    currentTheme = theme;
+    for (const session of allSessions()) session.term.options.theme = { ...getTerminalTheme(theme) };
+  });
   const dispose = () => {
-    disposeThemeListener();
-    if (rafId !== null) {
-      window.cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-    if (resizeObserver) {
-      resizeObserver.disconnect();
-      resizeObserver = null;
-    }
-    clearSessionDisposers();
-    if (termInputDisposer) {
-      termInputDisposer();
-      termInputDisposer = null;
-    }
-    const bridge = getBridge();
-    if (bridge && sessionId) {
-      bridge.kill(sessionId);
-    }
-    sessionId = null;
-    if (term) {
-      try {
-        term.dispose();
-      } catch {
-        /* ignore */
-      }
-      term = null;
-    }
-    fitAddon = null;
+    if (disposed) return;
+    disposed = true;
+    offData?.(); offExit?.(); offTheme();
+    resizeObserver.disconnect();
+    host?.removeEventListener("keydown", keydown);
+    host?.removeEventListener("focusin", focusIn);
+    host?.removeEventListener("focusout", focusOut);
+    bridge?.setFocused(false);
+    window.removeEventListener("beforeunload", dispose);
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    for (const session of allSessions()) destroySession(session);
+    groups.length = 0;
+    early.clear();
   };
-
-  return { show, hide, restart, dispose };
+  window.addEventListener("beforeunload", dispose);
+  return {
+    show: () => { visible = true; if (!groups.length) create(); scheduleFit(); focus(); },
+    hide: () => { visible = false; bridge?.setFocused(false); },
+    create, split, restart, dispose,
+  };
 };

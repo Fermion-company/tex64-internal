@@ -69,11 +69,13 @@ type BuildOpsDeps = {
   getActiveEditorGroupKey: () => EditorGroupKey;
   getActiveFilePath: () => string | null;
   getRootFilePath: () => string | null;
+  getWorkspaceRootKey?: () => string | null;
   getLastBuildMainFile: () => string | null;
   setLastBuildMainFile: (path: string | null) => void;
   getStoredCursorPosition: (path: string) => { line: number; column: number } | null;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
   saveCurrentFile: () => Promise<boolean>;
+  saveDirtyFiles?: () => Promise<boolean>;
   postToNative: (
     payload: { type: string; [key: string]: unknown },
     silent?: boolean
@@ -163,6 +165,8 @@ export const initBuildOpsUi = (
   let formatInFlightSnapshot: { path: string; content: string } | null = null;
   let currentBuildLog: string | null = null;
   let currentBuildState: BuildState = "idle";
+  let preparingBuild = false;
+  let preparationGeneration = 0;
   let buildProgressPhase: BuildProgressPhase = "building";
   let buildStartedAt = 0;
   let buildCancelRequested = false;
@@ -528,7 +532,13 @@ export const initBuildOpsUi = (
     }
   };
 
-  const startBuild = () => {
+  const startBuild = async () => {
+    if (preparingBuild) {
+      preparingBuild = false;
+      preparationGeneration += 1;
+      setBuildState("idle");
+      return;
+    }
     if (currentBuildState === "building") {
       const ok = deps.postToNative({ type: "build:cancel" });
       if (ok) {
@@ -582,12 +592,24 @@ export const initBuildOpsUi = (
     }
 
     deps.cacheCurrentBuffer(deps.getActiveGroup());
+    const buildWorkspace = deps.getWorkspaceRootKey?.();
 
-    const mainFile =
-      deps.getRootFilePath() ??
-      (deps.getActiveFilePath() && deps.getActiveFilePath()?.endsWith(".tex")
-        ? deps.getActiveFilePath()
-        : undefined);
+    const activePath = deps.getActiveFilePath();
+    const mainFile = (activePath && /\.tex$/i.test(activePath) ? activePath : null) ??
+      deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))?.currentFilePath ??
+      deps.getLastBuildMainFile() ?? deps.getRootFilePath() ?? undefined;
+
+    if (deps.saveDirtyFiles) {
+      const generation = ++preparationGeneration;
+      preparingBuild = true;
+      setBuildState("building");
+      let saved = false;
+      try { saved = await deps.saveDirtyFiles(); } catch { /* save path reports the error */ }
+      if (generation !== preparationGeneration) return;
+      preparingBuild = false;
+      if (!saved) { setBuildState("failed"); return; }
+      if (buildWorkspace !== deps.getWorkspaceRootKey?.()) { setBuildState("idle"); return; }
+    }
 
     deps.setLastBuildMainFile(mainFile ?? null);
 

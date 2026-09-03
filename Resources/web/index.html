@@ -1422,12 +1422,18 @@
                 <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
                 <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
+              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-split" data-terminal-action type="button" aria-label="Split terminal" title="Split terminal (Ctrl/Cmd+Shift+T)">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+              </button>
               <button
                 class="bottom-panel-close is-hidden"
                 id="bottom-panel-terminal-restart"
                 type="button"
-                aria-label="New Terminal Session"
-                title="New Terminal Session"
+                aria-label="Restart terminal"
+                title="Restart terminal (stops current shell)"
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5"/>

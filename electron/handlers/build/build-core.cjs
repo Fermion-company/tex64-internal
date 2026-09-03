@@ -286,6 +286,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       } else if (requestedFile && !rootInfo?.path) {
         targetFile = requestedFile;
       }
+      if (options.exactTarget !== true && typeof workspace.resolveBuildTarget === "function") {
+        targetFile = await workspace.resolveBuildTarget(requestedFile);
+      }
       // Treat the renderer/webview target as untrusted. Besides rejecting
       // lexical traversal, WorkspaceManager.resolvePath verifies the nearest
       // existing ancestor's realpath so an in-workspace symlink cannot send
@@ -366,9 +369,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         return;
       }
       sendBuildLog(result.log ?? null);
-      // A build writes new files into the workspace (PDF, .log, .aux, …). Nothing
-      // watches the filesystem, so the file tree only learns about them when we
-      // force a refresh here.
+      // Publish build outputs immediately, without waiting for the watcher.
       await updateWorkspaceIfNeeded(rootPath, true);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       if (result.kind === "success") {
@@ -474,6 +475,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         }
       } else if (requestedFile && !rootInfo?.path) {
         targetFile = requestedFile;
+      }
+      if (typeof workspace.resolveBuildTarget === "function") {
+        targetFile = await workspace.resolveBuildTarget(requestedFile);
       }
       targetFile = resolveWorkspaceBuildTarget(rootPath, targetFile);
       const buildProfile =

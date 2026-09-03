@@ -3883,6 +3883,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 .file-tree {
+  flex: 1;
+  padding-bottom: 48px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -3892,6 +3894,11 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   overscroll-behavior: contain;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+}
+
+.file-tree.is-root-hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: inset 0 -1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .file-tree.is-drop-target {
@@ -7882,15 +7889,15 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 .monaco-editor .monaco-scrollable-element > .scrollbar > .slider {
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--text) 32%, transparent);
 }
 
 .monaco-editor .monaco-scrollable-element > .scrollbar > .slider:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, var(--text) 48%, transparent);
 }
 
 .monaco-editor .monaco-scrollable-element > .scrollbar > .slider.active {
-  background: rgba(255, 255, 255, 0.28);
+  background: color-mix(in srgb, var(--text) 60%, transparent);
 }
 
 .monaco-editor .scroll-decoration,
@@ -8568,12 +8575,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 /* Restart sits next to Close on the right; hidden unless the Terminal pane
    is active (toggled from bottom-panel-ui). */
-#bottom-panel-terminal-restart {
+#bottom-panel-terminal-new {
   margin-left: auto;
-  margin-right: 4px;
 }
 
-#bottom-panel-terminal-restart.is-hidden {
+#bottom-panel-terminal-restart.is-hidden,
+[data-terminal-action].is-hidden {
   display: none;
 }
 
@@ -8588,15 +8595,33 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 /* --- Integrated terminal --- */
 
 .terminal-host {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 6px 4px 6px 10px;
+  padding: 0;
   background: var(--terminal-bg);
   color: var(--muted);
   font-size: 12px;
   overflow: hidden;
 }
+
+.terminal-tabs { display: flex; flex-shrink: 0; min-height: 28px; overflow-x: auto; border-bottom: 1px solid var(--panel-border); }
+.terminal-tab { display: flex; align-items: center; border-right: 1px solid var(--panel-border); border-bottom: 2px solid transparent; }
+.terminal-tab.is-active { border-bottom-color: var(--accent); color: var(--text); }
+.terminal-tab button, .terminal-pane-header button { color: inherit; background: transparent; border: 0; cursor: pointer; padding: 4px 8px; font: inherit; white-space: nowrap; }
+.terminal-tab button:hover, .terminal-pane-header button:hover { background: var(--control-bg); color: var(--text); }
+.terminal-tab-close { opacity: .65; }
+.terminal-panes { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.terminal-pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.terminal-pane[hidden] { display: none; }
+.terminal-pane + .terminal-pane:not([hidden]) { border-left: 1px solid var(--panel-border); }
+.terminal-pane-header { display: none; height: 25px; flex-shrink: 0; align-items: center; padding-left: 10px; border-bottom: 1px solid var(--panel-border); }
+.terminal-pane-header button { margin-left: auto; }
+.terminal-pane.is-split .terminal-pane-header { display: flex; }
+.terminal-pane.is-split.is-active .terminal-pane-header { color: var(--text); box-shadow: inset 0 -1px var(--accent); }
+.terminal-screen { flex: 1; min-height: 0; overflow: hidden; padding: 6px 4px 6px 10px; }
 
 /* Keep xterm at its standard sizing: don't force `.xterm { height: 100% }` and
    don't override `.xterm-viewport` overflow. xterm sizes its own viewport to

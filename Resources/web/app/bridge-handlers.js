@@ -18,7 +18,12 @@ const isAiModeAgentPayload = (payload) => {
 export const initBridgeHandlers = (deps) => {
     var _a;
     const { bridgeWindow } = deps;
+    let externalWorkspaceRoot = null;
+    let externalWorkspaceGeneration;
     bridgeWindow.tex64SetBuildState = (payload) => {
+        var _a, _b;
+        if (payload.targetFile && !payload.requestId)
+            (_b = (_a = deps.build).setBuildTarget) === null || _b === void 0 ? void 0 : _b.call(_a, payload.targetFile);
         deps.build.setBuildState(payload.state, payload.message);
     };
     bridgeWindow.tex64UpdateIssues = (payload) => {
@@ -28,6 +33,8 @@ export const initBridgeHandlers = (deps) => {
     };
     bridgeWindow.tex64UpdateWorkspace = (payload) => {
         var _a, _b;
+        externalWorkspaceRoot = payload.rootPath;
+        externalWorkspaceGeneration = payload.workspaceGeneration;
         (_a = deps.filePreview) === null || _a === void 0 ? void 0 : _a.setWorkspaceScope(payload);
         (_b = deps.fileExcerpt) === null || _b === void 0 ? void 0 : _b.setWorkspaceScope(payload);
         deps.handleWorkspaceUpdate(payload);
@@ -127,6 +134,13 @@ export const initBridgeHandlers = (deps) => {
             case "openFileResult":
                 (_h = bridgeWindow.tex64OpenFileResult) === null || _h === void 0 ? void 0 : _h.call(bridgeWindow, message.payload);
                 break;
+            case "file:externalChange": {
+                const change = message.payload;
+                if (change.root === externalWorkspaceRoot && change.workspaceGeneration === externalWorkspaceGeneration) {
+                    deps.editorSession.handleExternalFileChange(change);
+                }
+                break;
+            }
             case "saveResult":
                 (_j = bridgeWindow.tex64SaveResult) === null || _j === void 0 ? void 0 : _j.call(bridgeWindow, message.payload);
                 break;

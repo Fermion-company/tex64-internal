@@ -12,7 +12,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-const makeHarness = ({ readFile, readBinaryFile, formatContent }) => {
+const makeHarness = ({ readFile, readBinaryFile, formatContent, writeFile }) => {
   const sent = [];
   const session = {
     rootPath: "/workspace-a",
@@ -25,6 +25,8 @@ const makeHarness = ({ readFile, readBinaryFile, formatContent }) => {
     workspace: {
       readFile,
       readBinaryFile,
+      writeFile,
+      isIndexTarget: () => false,
     },
     formatterService: { formatContent },
     sendToRenderer: (type, payload) => sent.push({ type, payload }),
@@ -46,6 +48,25 @@ const makeHarness = ({ readFile, readBinaryFile, formatContent }) => {
   };
   return { handlers, sent, switchWorkspace };
 };
+
+test("ordinary save snapshots do not masquerade as editor replacements", async () => {
+  const writes = [];
+  const { handlers, sent } = makeHarness({
+    writeFile: async (file, content) => writes.push({ file, content }),
+    formatContent: async () => ({ ok: true, content: "formatted" }),
+  });
+  await handlers.handleSaveFile("main.tex", "saved snapshot", { format: false });
+  const plain = sent.find((message) => message.type === "saveResult").payload;
+  assert.equal(plain.ok, true);
+  assert.equal(plain.savedContent, "saved snapshot");
+  assert.equal(plain.content, undefined, "an acknowledgement must not overwrite typing that happened during the save");
+  sent.length = 0;
+  await handlers.handleSaveFile("main.tex", "unformatted", { format: true });
+  const formatted = sent.find((message) => message.type === "saveResult").payload;
+  assert.equal(formatted.savedContent, "formatted");
+  assert.equal(formatted.content, "formatted");
+  assert.deepEqual(writes.map((write) => write.content), ["saved snapshot", "formatted"]);
+});
 
 test("an old openFile read cannot populate the same relative path in a new workspace", async () => {
   const started = deferred();

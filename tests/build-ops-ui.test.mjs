@@ -6,6 +6,49 @@ import {
   resolveBuildProgressPhase,
 } from "../Resources/web/app/build-ops-ui.js";
 
+test("Build saves first, uses the active nested TeX file, and cancels a stale workspace request", async () => {
+  const previous = { window: globalThis.window, HTMLElement: globalThis.HTMLElement, HTMLButtonElement: globalThis.HTMLButtonElement, localStorage: globalThis.localStorage };
+  globalThis.HTMLElement = class {};
+  globalThis.HTMLButtonElement = class extends globalThis.HTMLElement {};
+  globalThis.window = { setTimeout, setInterval, clearInterval };
+  globalThis.localStorage = { getItem: () => null };
+  let api;
+  try {
+    const { initBuildOpsUi } = await import("../Resources/web/app/build-ops-ui.js");
+    const sent = [];
+    let root = "/workspace-a";
+    let saved;
+    const group = { currentFilePath: "sub/main.tex", editor: null };
+    api = initBuildOpsUi({ dom: {} }, {
+      getActiveGroup: () => group, getActiveEditorGroupKey: () => "primary",
+      getActiveFilePath: () => "sub/main.tex", getRootFilePath: () => "main.tex",
+      getWorkspaceRootKey: () => root, getLastBuildMainFile: () => null, setLastBuildMainFile: () => {},
+      getStoredCursorPosition: () => null, cacheCurrentBuffer: () => {},
+      saveCurrentFile: async () => true, saveDirtyFiles: () => new Promise((resolve) => { saved = resolve; }),
+      postToNative: (payload) => { sent.push(payload); return true; }, updateIssues: () => {},
+      setPendingBuildIssuesFocus: () => {}, applyFormattedContent: () => {}, getEditorGroups: () => [group],
+      renderEditorTabs: () => {}, requestOpenFile: () => true, getSplitViewEnabled: () => false, setSplitViewEnabled: () => {},
+      settings: { getPdfViewerMode: () => "tab", getAutoSynctexOnBuildEnabled: () => false,
+        buildFormatSettingsPayload: () => ({}), getRuntimeStatusSummary: () => null, checkEnvironmentStatus: () => {} },
+    });
+    const run = api.startBuild();
+    assert.equal(sent.length, 0);
+    saved(true); await run;
+    assert.equal(sent[0].mainFile, "sub/main.tex");
+    api.setBuildState("idle");
+    sent.length = 0;
+    const stale = api.startBuild();
+    root = "/workspace-b"; saved(true); await stale;
+    assert.equal(sent.length, 0);
+    const cancelled = api.startBuild();
+    await api.startBuild(); saved(true); await cancelled;
+    assert.equal(sent.length, 0);
+  } finally {
+    api?.setBuildState("idle");
+    Object.assign(globalThis, previous);
+  }
+});
+
 test("build progress distinguishes work, package installation, and cancellation", () => {
   assert.equal(resolveBuildProgressPhase(), "building");
   assert.equal(resolveBuildProgressPhase("Building..."), "building");

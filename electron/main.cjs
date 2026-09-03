@@ -38,6 +38,7 @@ const { MacFileAccessService } = require("./services/mac-file-access.cjs");
 const { TexlabService } = require("./services/texlab/service.cjs");
 const { SpellService } = require("./services/spell/service.cjs");
 const { TerminalService } = require("./services/terminal.cjs");
+const { WorkspaceFileWatcher } = require("./services/workspace-file-watcher.cjs");
 const { AgentService } = require("./services/agent.cjs");
 const { AgentAuditService } = require("./services/agent-audit.cjs");
 const { AgentSessionsService } = require("./services/agent-sessions.cjs");
@@ -269,6 +270,9 @@ let tdomEngineService = null;
 let texlabService = null;
 let spellService = null;
 let terminalService = null;
+let terminalFocused = false;
+let workspaceFileWatcher = null;
+let workspaceTreeSignature = "";
 let apiUsageService = null;
 let platformAccessService = null;
 let agentAuditService = null;
@@ -380,12 +384,21 @@ const createMainWindow = () => {
   }
 
   state.mainWindow = new BrowserWindow(windowOptions);
+  terminalFocused = false;
   mainRendererReady = false;
+  state.mainWindow.webContents.on("before-input-event", (_event, input) => {
+    // Native Edit/File menu accelerators run before DOM key handlers. In a
+    // terminal, Ctrl+C/Z/S belong to the shell (especially on Windows).
+    // Keep macOS Command shortcuts, including copy/paste, available.
+    state.mainWindow?.webContents.setIgnoreMenuShortcuts(terminalFocused && input.control && !input.meta);
+  });
   state.mainWindow.webContents.on(
     "did-start-navigation",
     (_event, _url, _isInPlace, isMainFrame) => {
       if (isMainFrame) {
         mainRendererReady = false;
+        terminalFocused = false;
+        terminalService?.killAll();
       }
     },
   );
@@ -393,6 +406,7 @@ const createMainWindow = () => {
     mainRendererReady = true;
     flushPendingBillingCompletionLinks();
   });
+  state.mainWindow.webContents.on("render-process-gone", () => terminalService?.killAll());
 
   const aiWebPreloadPath = path.join(__dirname, "ai-web-preload.cjs");
   const pendingAiWebviewUrls = [];
@@ -489,6 +503,14 @@ const createMainWindow = () => {
 };
 
 const sendToRenderer = (type, payload) => {
+  if (type === "updateWorkspace") {
+    workspaceTreeSignature = JSON.stringify([payload.files, payload.folders]);
+    workspaceFileWatcher?.start(payload.rootPath, payload.workspaceGeneration);
+  } else if ((type === "openFileResult" && !payload.error) ||
+    (type === "saveResult" && payload.ok) ||
+    (type === "agent:applyContent" && payload.updateSaved)) {
+    workspaceFileWatcher?.track(payload.path, payload.savedContent ?? payload.content);
+  }
   const mainWindow = state.mainWindow;
   if (!mainWindow) {
     return;
@@ -652,6 +674,25 @@ const workspaceHandlers = createWorkspaceHandlers({
     externalWriterCoordinator.beginRendererMutation(rootPath),
 });
 
+workspaceFileWatcher = new WorkspaceFileWatcher({
+  resolvePath: (file) => workspace.resolvePath(file),
+  onChange: (change) => {
+    if (workspace.getRootPath() !== change.root || state.workspaceGeneration !== change.generation) return;
+    sendToRenderer("file:externalChange", {
+      ...change, workspaceId: state.workspaceId, workspaceGeneration: change.generation,
+    });
+    workspaceHandlers.requestIndex(change.root);
+  },
+  onTree: async ({ root, generation }) => {
+    const [files, folders] = await Promise.all([workspace.listFiles(), workspace.listFolders()]);
+    if (workspace.getRootPath() !== root || state.workspaceGeneration !== generation) return;
+    if (workspaceTreeSignature !== JSON.stringify([files, folders])) {
+      await workspaceHandlers.updateWorkspaceIfNeeded(root, true);
+    }
+  },
+  onError: (error) => console.warn("[workspace-watch]", error.message),
+});
+
 const agentService = new AgentService({
   workspace,
   searchService,
@@ -723,6 +764,7 @@ workspaceChangeCoordinator.beforeChange = async (change = {}) => {
 };
 
 const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
+  workspaceFileWatcher?.stop();
   agentService.abort();
   buildHandlers.cancelAllBuilds();
   agentService.discardContentConflictsForWorkspace(workspace.getRootPath());
@@ -1411,10 +1453,18 @@ ipcMain.handle("tex64:lsp:status", async () => {
 
 // Integrated terminal: the renderer owns the xterm UI and drives sessions by id.
 // Output and exit stream back on the "tex64:terminal:data" / ":exit" channels.
-ipcMain.handle("tex64:terminal:create", async (_event, options) => {
+ipcMain.on("tex64:terminal:focus", (event, focused) => {
+  if (event.sender !== state.mainWindow?.webContents) return;
+  terminalFocused = focused === true;
+  if (!terminalFocused) event.sender.setIgnoreMenuShortcuts(false);
+});
+ipcMain.handle("tex64:terminal:create", async (event, options) => {
+  if (event.sender !== state.mainWindow?.webContents) return { error: "Invalid terminal owner." };
   const opts = options && typeof options === "object" ? options : {};
   try {
-    const cwd = workspace.getRootPath() || undefined;
+    const cwd = typeof opts.cwd === "string" && workspace.getRootPath()
+      ? workspace.resolvePath(opts.cwd)
+      : workspace.getRootPath() || undefined;
     return getTerminalService().create({ cols: opts.cols, rows: opts.rows, cwd });
   } catch (error) {
     console.warn("[terminal] create failed", error);
@@ -1422,21 +1472,24 @@ ipcMain.handle("tex64:terminal:create", async (_event, options) => {
   }
 });
 
-ipcMain.on("tex64:terminal:write", (_event, message) => {
+ipcMain.on("tex64:terminal:write", (event, message) => {
+  if (event.sender !== state.mainWindow?.webContents) return;
   if (!message || typeof message !== "object") {
     return;
   }
   getTerminalService().write(message.id, message.data);
 });
 
-ipcMain.on("tex64:terminal:resize", (_event, message) => {
+ipcMain.on("tex64:terminal:resize", (event, message) => {
+  if (event.sender !== state.mainWindow?.webContents) return;
   if (!message || typeof message !== "object") {
     return;
   }
   getTerminalService().resize(message.id, message.cols, message.rows);
 });
 
-ipcMain.on("tex64:terminal:kill", (_event, message) => {
+ipcMain.on("tex64:terminal:kill", (event, message) => {
+  if (event.sender !== state.mainWindow?.webContents) return;
   if (!message || typeof message !== "object") {
     return;
   }
@@ -1816,7 +1869,7 @@ ipcMain.on("tex64", (event, message) => {
   }
   if (type === "build") {
     // targetFile (AI mode) builds exactly that document; mainFile (Code mode)
-    // keeps deferring to the workspace's designated root.
+    // resolves the active file's document, including magic roots and chapters.
     const exactTarget =
       typeof message.targetFile === "string" && message.targetFile.trim() !== "";
     buildHandlers.handleBuild(exactTarget ? message.targetFile : message.mainFile, {

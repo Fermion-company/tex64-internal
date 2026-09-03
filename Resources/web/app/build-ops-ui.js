@@ -24,6 +24,8 @@ export const initBuildOpsUi = (context, deps) => {
     let formatInFlightSnapshot = null;
     let currentBuildLog = null;
     let currentBuildState = "idle";
+    let preparingBuild = false;
+    let preparationGeneration = 0;
     let buildProgressPhase = "building";
     let buildStartedAt = 0;
     let buildCancelRequested = false;
@@ -349,8 +351,14 @@ export const initBuildOpsUi = (context, deps) => {
             deps.updateIssues(0, message, "info", []);
         }
     };
-    const startBuild = () => {
-        var _a, _b;
+    const startBuild = async () => {
+        var _a, _b, _c, _d, _e, _f, _g;
+        if (preparingBuild) {
+            preparingBuild = false;
+            preparationGeneration += 1;
+            setBuildState("idle");
+            return;
+        }
         if (currentBuildState === "building") {
             const ok = deps.postToNative({ type: "build:cancel" });
             if (ok) {
@@ -393,9 +401,30 @@ export const initBuildOpsUi = (context, deps) => {
             return;
         }
         deps.cacheCurrentBuffer(deps.getActiveGroup());
-        const mainFile = (_a = deps.getRootFilePath()) !== null && _a !== void 0 ? _a : (deps.getActiveFilePath() && ((_b = deps.getActiveFilePath()) === null || _b === void 0 ? void 0 : _b.endsWith(".tex"))
-            ? deps.getActiveFilePath()
-            : undefined);
+        const buildWorkspace = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
+        const activePath = deps.getActiveFilePath();
+        const mainFile = (_f = (_e = (_d = (_b = (activePath && /\.tex$/i.test(activePath) ? activePath : null)) !== null && _b !== void 0 ? _b : (_c = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _c === void 0 ? void 0 : _c.currentFilePath) !== null && _d !== void 0 ? _d : deps.getLastBuildMainFile()) !== null && _e !== void 0 ? _e : deps.getRootFilePath()) !== null && _f !== void 0 ? _f : undefined;
+        if (deps.saveDirtyFiles) {
+            const generation = ++preparationGeneration;
+            preparingBuild = true;
+            setBuildState("building");
+            let saved = false;
+            try {
+                saved = await deps.saveDirtyFiles();
+            }
+            catch { /* save path reports the error */ }
+            if (generation !== preparationGeneration)
+                return;
+            preparingBuild = false;
+            if (!saved) {
+                setBuildState("failed");
+                return;
+            }
+            if (buildWorkspace !== ((_g = deps.getWorkspaceRootKey) === null || _g === void 0 ? void 0 : _g.call(deps))) {
+                setBuildState("idle");
+                return;
+            }
+        }
         deps.setLastBuildMainFile(mainFile !== null && mainFile !== void 0 ? mainFile : null);
         const engine = localStorage.getItem("tex64.compileEngine") || "lualatex";
         const payload = { type: "build" };
