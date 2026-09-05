@@ -109,7 +109,7 @@ export type AiChatApi = {
   handleFeedbackResult: (payload: { conversationId?: string; assistantIndex?: number; rating?: "up" | "down"; ok?: boolean; error?: string }) => void;
   handleBranchResult: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
   handleProposalScope: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
-  handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string }) => void;
+  handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => void;
   handleDocumentMap: (payload: {
     requestId?: string;
     mainFile?: string | null;

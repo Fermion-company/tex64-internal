@@ -822,7 +822,7 @@ const createAgentHandlers = (deps) => {
       }
       const result = await response.json().catch(() => null);
       const text = typeof result?.text === "string" ? result.text.trim() : "";
-      reply(text ? { ok: true, text } : { ok: false, error: "Nothing was heard." });
+      reply(text ? { ok: true, text } : { ok: false, code: "empty", error: "Nothing was heard." });
     } catch (error) {
       reply({ ok: false, error: error?.name === "TimeoutError" ? "Transcription timed out." : error?.message || "Transcription failed." });
     }
