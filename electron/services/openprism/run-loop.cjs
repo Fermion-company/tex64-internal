@@ -17,7 +17,16 @@
 
 "use strict";
 
-const { buildTools } = require("./tools.cjs");
+const { buildTools, OPTIONAL_TOOL_GROUPS, WRITE_TOOL_NAMES } = require("./tools.cjs");
+const {
+  computeSourceFingerprint,
+  formatDocumentMapForPrompt,
+  resolveMainTexFile,
+  scanDocument,
+} = require("../agent-document-map.cjs");
+const { generateConversationTitle } = require("../agent-conversation-title.cjs");
+const { buildUsageFromAccess } = require("../platform-usage-payload.cjs");
+const { resolveProposalPages } = require("../agent-proposal-scope.cjs");
 const {
   OFFICIAL_PLATFORM_CHAT_ENDPOINT,
   isOfficialPlatformProxyUrl,
@@ -26,6 +35,8 @@ const {
   resolveOwnApiKey,
 } = require("./llm-config.cjs");
 const {
+  DOCUMENT_MAX_AGENT_ITERATIONS,
+  DOCUMENT_TURN_TOKEN_BUDGET,
   MAX_AGENT_TOKENS_PER_RUN,
   buildReplayHistory,
   compactRequestMessages,
@@ -34,7 +45,20 @@ const {
 } = require("./run-budget.cjs");
 const { normalizeUserMessageParts } = require("../agent-message-parts.cjs");
 const { extractTextFromParts } = require("../agent-core-utils.cjs");
-const { buildSystemPrompt } = require("../agent-prompt-utils.cjs");
+const fsp = require("fs/promises");
+const fsSync = require("fs");
+
+/** Optional trace of loop decisions, for driving the app from a script. */
+const traceRunLoop = (entry) => {
+  const target = process.env.TEX64_RUN_LOOP_LOG;
+  if (!target) return;
+  try {
+    fsSync.appendFileSync(target, `${JSON.stringify({ ts: new Date().toISOString(), ...entry })}\n`);
+  } catch {
+    // Tracing never affects the run.
+  }
+};
+const { buildSystemPrompt, buildSurveySystemPrompt } = require("../agent-prompt-utils.cjs");
 
 const requiresReasoningNoneForChatTools = (model) => {
   if (typeof model !== "string") return false;
@@ -43,6 +67,15 @@ const requiresReasoningNoneForChatTools = (model) => {
 };
 
 const TURN_REMAINING_TOKENS_HEADER = "X-Tex64-Turn-Remaining-Tokens";
+const QUOTA_REMAINING_HEADER = "x-tex64-quota-remaining-tokens";
+
+/** Tokens the proxy charges for one call: cached prompt tokens count half. */
+const billableTokensOf = (promptTokens, completionTokens, cachedTokens) => {
+  const prompt = Math.max(0, promptTokens || 0);
+  const completion = Math.max(0, completionTokens || 0);
+  const cached = Math.max(0, Math.min(prompt, cachedTokens || 0));
+  return prompt - cached + Math.round(cached * 0.5) + completion;
+};
 
 const parseToolResult = (value) => {
   if (value && typeof value === "object") return value;
@@ -53,6 +86,68 @@ const parseToolResult = (value) => {
   } catch {
     return null;
   }
+};
+
+/**
+ * The model declares what its final reply is: "[edit]" when it changed files
+ * this turn, "[report]" otherwise. The tag is stripped before display; the
+ * declaration replaces the old phrase-matching guess about edit claims.
+ */
+const REPLY_TAG_PATTERN = /^\s*\[(edit|edits|change|changes|report|answer|question)\]\s*/i;
+const REPLY_TAG_MAX_PREFIX = 20;
+const replyKindFromTag = (tag) =>
+  /^(edit|edits|change|changes)$/i.test(tag) ? "edit" : "report";
+const splitReplyTag = (text) => {
+  const source = typeof text === "string" ? text : "";
+  const match = source.match(REPLY_TAG_PATTERN);
+  if (!match) return { kind: null, text: source };
+  return { kind: replyKindFromTag(match[1]), text: source.slice(match[0].length) };
+};
+/** Holds streamed text until a leading tag is resolved, then passes it on. */
+const createReplyTagStream = (emit) => {
+  let buffer = "";
+  let resolved = false;
+  let kind = null;
+  const settle = (send) => {
+    resolved = true;
+    if (send) emit(buffer);
+    buffer = "";
+  };
+  return {
+    push(delta) {
+      if (resolved) {
+        emit(delta);
+        return;
+      }
+      buffer += delta;
+      const lead = buffer.replace(/^\s+/, "");
+      if (!lead) return;
+      if (!lead.startsWith("[")) {
+        settle(true);
+        return;
+      }
+      if (!lead.includes("]")) {
+        if (lead.length > REPLY_TAG_MAX_PREFIX) settle(true);
+        return;
+      }
+      const match = lead.match(REPLY_TAG_PATTERN);
+      if (!match) {
+        settle(true);
+        return;
+      }
+      kind = replyKindFromTag(match[1]);
+      const rest = lead.slice(match[0].length);
+      buffer = "";
+      resolved = true;
+      if (rest) emit(rest);
+    },
+    flush() {
+      if (!resolved) settle(true);
+    },
+    get kind() {
+      return kind;
+    },
+  };
 };
 
 const compileResultSucceeded = (value) => {
@@ -220,6 +315,85 @@ const completeSingleChat = async (service, { system, user }) => {
   return text;
 };
 
+/**
+ * The AI mode is a conversation about one document. What only the user knows
+ * is asked for, not invented; a finished piece of work hands the next steps
+ * back as recorded proposals instead of a dead end.
+ */
+const DOCUMENT_CONVERSATION_RULES = `
+
+DOCUMENT CONVERSATION (the paper-centred AI mode):
+- Writing depends on facts only the user has: the subject, the audience, the
+  goal, results, data, deadlines, or a choice between real alternatives. When
+  the request needs one of these and the document does not contain it, call
+  ask_user with that ONE question (fields for several short facts, options for
+  a real choice) and stop; do not edit or compile in that turn. The user's
+  next message is the answer.
+- When the request carries the answer (for example "答え: ..."), use it and
+  write; do not ask again.
+- Once the subject, audience and goal are known, every step is writing: put
+  a structure into the document as real sections with their first content,
+  compile, and report in one or two sentences. Never answer a writing step
+  with an outline in prose instead of edits.
+- Work economically: an edit tool's result is the proof that it applied. Do
+  not re-read the whole file after writing, and do not read it twice in one
+  turn; read the section you touch.
+- A refused edit is not an edit. If a tool answers with an error (a rejected
+  shrink, a protected structure, a missing file), fix the call or say plainly
+  what could not be done. Never report a change that did not apply.
+- To blank or empty the paper: keep the magic line, \\documentclass and the
+  packages, leave \\begin{document} ... \\end{document} with nothing inside
+  (no \\maketitle, no \\tableofcontents, no abstract), and write it with
+  write_file and allowFullRewrite=true, then compile. The page must come out
+  blank; a deleted file cannot be typeset. A new document starts with write_file on
+  main.tex (it exists but is empty), using \\documentclass{ltjsarticle} for
+  Japanese with "% !TEX program = lualatex" on the first line.
+- Never fill a subject, audience, or result with a placeholder or a guess.
+- A request that leans on a value you do not have (a deadline, a page or
+  word count, a reader level, a title, data) is a question first: call
+  ask_user for that value before touching the document.
+- Japanese text needs a Japanese-capable setup: with LuaLaTeX use
+  \\documentclass{ltjsarticle} (or article plus \\usepackage{luatexja}). Plain
+  article with Japanese prints nothing, and "Missing character" in the log
+  means exactly that: fix the class or package, do not ignore it.
+- Files the user attaches arrive as an "[添付ファイル]" block (images also
+  inline). Each is already saved in the workspace at the assets/ path given:
+  place an image with \\includegraphics[width=...]{assets/name} (graphicx),
+  turn spreadsheet rows into a tabular or pgfplots data, and transcribe the
+  text and formulas you can read in an image or PDF faithfully. Use only what
+  the file shows; never fill in numbers or facts it does not contain.
+- Every turn that does not end in a question ends with propose_next_steps:
+  up to 3 next steps in order of value, each with a "line" from list_sections
+  where it applies and an "asks" question where the user must decide. There
+  is always a next step: continue the document, tighten a section, or ask
+  what the user wants next. A reply without next steps is a dead end.`;
+
+/** The next step offered when a turn stops at its processing limit. */
+const RESUME_STEP_COPY = {
+  ja: { title: "続きから進める", request: "前回のターンは途中で止まりました。文書の現状を確認し、上の依頼の続きから進めてください。", scope: "再開" },
+  en: { title: "Continue from where it stopped", request: "The previous turn stopped partway. Check the document's current state and continue the request above from there.", scope: "resume" },
+  zh: { title: "从中断处继续", request: "上一回合中途停止。请检查文档现状，从上面请求的中断处继续。", scope: "继续" },
+  ko: { title: "멈춘 곳에서 계속", request: "이전 턴이 중간에 멈췄습니다. 문서의 현재 상태를 확인하고 위 요청을 이어서 진행해 주세요.", scope: "재개" },
+  de: { title: "Dort weitermachen", request: "Der letzte Durchlauf brach ab. Prüfe den Stand des Dokuments und führe die obige Anfrage von dort fort.", scope: "Fortsetzen" },
+  fr: { title: "Reprendre où ça s'est arrêté", request: "Le tour précédent s'est interrompu. Vérifie l'état du document et poursuis la demande ci-dessus.", scope: "reprise" },
+  es: { title: "Continuar donde se detuvo", request: "El turno anterior se interrumpió. Revisa el estado del documento y continúa la solicitud anterior desde ahí.", scope: "reanudar" },
+};
+
+/** The user asking, in their own message, to blank or reset the document. */
+const RESET_REQUEST_PATTERN =
+  /真っ白|白紙|まっさら|(?:空|から)に(?:して|戻|し)|全部消し|中身を消し|全て消し|すべて消し|初期化|リセット|\b(?:blank|empty|clear|wipe|reset)\b[^.]{0,40}\b(?:document|paper|page|file|everything)\b|\b(?:document|paper|page|file)\b[^.]{0,40}\b(?:blank|empty|clear|wipe|reset)/i;
+
+/** Tools the opening read may use: reading and recording next steps only. */
+const SURVEY_TOOL_NAMES = new Set([
+  "read_file",
+  "list_files",
+  "list_sections",
+  "read_section",
+  "find_math_region",
+  "get_compile_log",
+  "propose_next_steps",
+]);
+
 const runAgentConversation = async (
   service,
   {
@@ -235,6 +409,49 @@ const runAgentConversation = async (
     typeof conversationId === "string" && conversationId.trim()
       ? conversationId.trim()
       : "default";
+  // "survey": the app opened the document and asks where to start. That turn
+  // is read-only and ends with recorded next steps.
+  const turnOrigin = context?.turnOrigin === "survey" ? "survey" : null;
+  // Ask mode: the user is asking, not delegating. Reads only; edits and the
+  // compiler are withheld from the tool list and refused if called anyway.
+  const askMode = context?.axiomMode === "ask" && turnOrigin !== "survey";
+  // Plan mode: read-only like Ask, and the reply carries a recorded plan.
+  const planMode = context?.axiomMode === "plan" && turnOrigin !== "survey";
+  const readOnlyTurn = askMode || planMode;
+  // A step the user picked from the offered ones. A writing step starts with
+  // the brief: this turn lists no edit tools, so the agent asks and stops; a
+  // mechanical step (build fix, references, formatting) is done at once.
+  const stepStart = context?.turnOrigin === "step";
+  const briefTurn = stepStart && context?.stepKind !== "mechanical" && !readOnlyTurn;
+  // The Code chat: next steps are offered there too, and the reply gets a
+  // model-written title the first time a chat is answered.
+  const isCodeSurface = !targetConversationId.startsWith("tex64-ai-mode:");
+  // The user, in their own words, asking to empty or reset the whole document
+  // is the one trusted signal that lets this turn remove protected structure
+  // (title, abstract, table of contents). Model output never grants it.
+  const userRequestsReset = RESET_REQUEST_PATTERN.test(
+    typeof message === "string" ? message : "",
+  );
+  const takeRecordedNextSteps = () => {
+    const recorded = service.nextStepsByConversation?.get(targetConversationId);
+    service.nextStepsByConversation?.delete(targetConversationId);
+    return Array.isArray(recorded) && recorded.length > 0 ? recorded : null;
+  };
+  const takePendingQuestion = () => {
+    const pending = service.pendingQuestionByConversation?.get(targetConversationId);
+    service.pendingQuestionByConversation?.delete(targetConversationId);
+    return pending && typeof pending === "object" ? pending : null;
+  };
+  const hasRecordedNextSteps = () => {
+    const recorded = service.nextStepsByConversation?.get(targetConversationId);
+    return Array.isArray(recorded) && recorded.length > 0;
+  };
+  // The reply the model finished with, kept while one more call records the
+  // next steps it forgot. That call must not replace the user-facing text.
+  let deferredFinalReply = null;
+  let nextStepsFollowUps = 0;
+  /** The paper-centred AI mode; set once the context is known. */
+  let isDocumentConversation = false;
 
   // ---- Validate workspace ----
   const rootPath = service.workspace.getRootPath();
@@ -276,9 +493,41 @@ const runAgentConversation = async (
     typeof context.activeSelection.text === "string" &&
     context.activeSelection.text.trim()
   ) {
-    llmInputParts.push(`Selection:\n${context.activeSelection.text}`);
+    const selection = context.activeSelection;
+    const where =
+      typeof selection.path === "string" && Number.isFinite(selection.startLine)
+        ? ` (${selection.path} L${selection.startLine}-${selection.endLine ?? selection.startLine})`
+        : "";
+    llmInputParts.push(`Selection${where}:\n${selection.text}`);
   }
-  const llmInput = llmInputParts.filter(Boolean).join("\n\n");
+  // Items the user pointed at with @: a section, a label, a bib entry, an
+  // issue. Each comes with its exact place so the model reads there first.
+  const contextRefs = Array.isArray(context?.explicitContextRefs)
+    ? context.explicitContextRefs.filter((ref) => ref && typeof ref === "object").slice(0, 12)
+    : [];
+  if (contextRefs.length > 0) {
+    const lines = contextRefs.map((ref) => {
+      const at = typeof ref.path === "string" ? `${ref.path}${Number.isFinite(ref.line) ? `:${ref.line}` : ""}` : "";
+      switch (ref.kind) {
+        case "section":
+          return `- section "${ref.title ?? ""}" in ${ref.path} L${ref.line}-${ref.endLine ?? ref.line}${Number.isFinite(ref.id) ? ` (id ${ref.id})` : ""}`;
+        case "label":
+          return `- label ${ref.key} defined at ${at}`;
+        case "bib":
+          return `- bib entry ${ref.key} in ${ref.path}${ref.title ? ` ("${ref.title}")` : ""}`;
+        case "issue":
+          return `- build issue at ${at}: ${ref.message ?? ""}`;
+        case "file":
+          return `- file ${ref.path}`;
+        case "pdf":
+          return `- the place the user marked on page ${ref.page} of the typeset PDF${ref.line ? `, which is ${ref.path}:${ref.line} in the source` : ""}${typeof ref.text === "string" && ref.text.trim() ? `; the text there reads: "${ref.text.trim().slice(0, 400)}"` : ""}. "Here" in the request means this place.`;
+        default:
+          return `- ${JSON.stringify(ref).slice(0, 200)}`;
+      }
+    });
+    llmInputParts.push(`REFERENCED ITEMS (the user pointed at these; start there):\n${lines.join("\n")}`);
+  }
+  const llmInputHead = llmInputParts.filter(Boolean).join("\n\n");
 
   // Register before the first awaited preflight operation. Stop, window
   // reattach, and workspace transitions must be able to address this turn
@@ -304,6 +553,9 @@ const runAgentConversation = async (
 
   let options;
   let conversation;
+  let settings;
+  let documentMap = null;
+  let mainTexFile = null;
   let llmConfig;
   let apiUrl;
   let accessToken;
@@ -326,7 +578,7 @@ const runAgentConversation = async (
     assertWorkspaceCurrent();
     const persistedModel =
       persistedSettings?.model === "Axiom1.0-pro" ? "Axiom1.0-pro" : "Axiom1.0";
-    const settings = forcePlatformAxiom
+    settings = forcePlatformAxiom
       ? {
           ...persistedSettings,
           model: persistedModel,
@@ -337,6 +589,8 @@ const runAgentConversation = async (
     const policy = service.resolveAgentPolicy(settings);
     options = service.resolveAgentOptions(settings);
     service.contextByConversation.set(targetConversationId, context ?? {});
+    service.nextStepsByConversation?.delete(targetConversationId);
+    service.pendingQuestionByConversation?.delete(targetConversationId);
 
     // ---- Build conversation history ----
     conversation = service.buildConversation(targetConversationId);
@@ -355,33 +609,82 @@ const runAgentConversation = async (
     assertWorkspaceCurrent();
 
     // ---- Build tools ----
+    traceRunLoop({ conversationId: targetConversationId, userRequestsReset, userText: userText.slice(0, 80) });
     const tools = buildTools(service, targetConversationId, policy, {
       rootPath,
       context: context ?? {},
       signal: run.controller.signal,
+      allowStructuralRemoval: userRequestsReset,
     });
-    toolDefinitions = tools.map((tool) => ({
+    // The opening read only reads and records next steps; offering fewer
+    // tools also keeps its requests small enough for the smallest quota.
+    // Ask mode lists no edit or compile tool. Tools that only some turns
+    // need (arXiv, environment checks) are listed when the conversation
+    // mentions their subject; every tool stays executable if called anyway.
+    const conversationText = [
+      ...conversation.filter((entry) => entry?.role === "user" && typeof entry.content === "string").slice(-6).map((entry) => entry.content),
+      userText,
+    ].join("\n");
+    const optionalHidden = new Set();
+    for (const group of OPTIONAL_TOOL_GROUPS) {
+      if (!group.pattern.test(conversationText)) group.names.forEach((name) => optionalHidden.add(name));
+    }
+    // git_diff exists only where the workspace is a repository; record_plan
+    // only in Plan mode.
+    const isGitRepo = fsSync.existsSync(require("path").join(rootPath, ".git"));
+    const listedTools =
+      turnOrigin === "survey"
+        ? tools.filter((tool) => SURVEY_TOOL_NAMES.has(tool.function.name))
+        : tools.filter((tool) => {
+            const name = tool.function.name;
+            if (optionalHidden.has(name)) return false;
+            if ((readOnlyTurn || briefTurn) && (WRITE_TOOL_NAMES.has(name) || name === "compile_document")) return false;
+            if (name === "git_diff" && !isGitRepo) return false;
+            if (name === "record_plan" && !planMode) return false;
+            if (name === "propose_next_steps" && planMode) return false;
+            return true;
+          });
+    toolDefinitions = listedTools.map((tool) => ({
       type: tool.type,
       function: tool.function,
     }));
     for (const tool of tools) {
       toolExecutors.set(tool.function.name, tool.execute);
     }
+    traceRunLoop({ conversationId: targetConversationId, askMode, planMode, stepStart, briefTurn, listedTools: listedTools.map((t) => t.function.name) });
+    service.planByConversation?.delete(targetConversationId);
 
     // ---- Build system prompt and bounded history ----
-    const system = `${buildSystemPrompt(context, rootPath)}
-
-COMPILATION (MANDATORY):
-- Compile LaTeX only with compile_document. General shell execution is not
-  available to the product agent.
-- compile_document without arguments builds this turn's active document,
-  including a document nested inside the workspace, and returns real compiler
-  issues and a useful log excerpt. Use those results for the autonomous
-  build-error fix cycle.`;
+    isDocumentConversation =
+      typeof context?.documentMainFile === "string" && context.documentMainFile.trim() !== "";
+    // The project's own writing rules, when the user keeps them in the
+    // workspace; they ride with every turn.
+    let projectRules = "";
+    try {
+      projectRules = (await fsp.readFile(require("path").join(rootPath, ".tex64", "rules.md"), "utf8")).trim().slice(0, 4_000);
+    } catch {
+      projectRules = "";
+    }
+    const system = turnOrigin === "survey"
+      ? buildSurveySystemPrompt(context)
+      : `${buildSystemPrompt({ ...(context ?? {}), userInstructions: projectRules }, rootPath, { askMode, planMode, briefTurn, mechanicalStep: stepStart && !briefTurn })}${isDocumentConversation ? DOCUMENT_CONVERSATION_RULES : ""}`;
     const chatHistory = buildReplayHistory(conversation);
+    // One deterministic scan of the document travels with the request, so
+    // the model edits by section and line range instead of reading files.
+    mainTexFile = await resolveMainTexFile(service, context ?? {});
+    documentMap = mainTexFile ? await scanDocument(service, mainTexFile) : null;
+    const mapText = documentMap ? formatDocumentMapForPrompt(documentMap) : "";
+    const llmInput = mapText ? `${llmInputHead}\n\n${mapText}` : llmInputHead;
+    traceRunLoop({ conversationId: targetConversationId, documentMap: documentMap ? { files: documentMap.files.length, chars: mapText.length } : null });
 
     // ---- Store user message in conversation (clean text only) ----
-    conversation.push({ role: "user", content: userText });
+    // The opening read is started by the app, not typed by the user; the
+    // transcript keeps it for the model but never shows it.
+    conversation.push({
+      role: "user",
+      content: userText,
+      ...(turnOrigin === "survey" ? { hidden: true } : {}),
+    });
     service.markSessionDirty(targetConversationId);
 
     const userContent = userImages.length > 0
@@ -419,8 +722,34 @@ COMPILATION (MANDATORY):
   // ReferenceError and silently skip local usage recording on every run.
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  /** What the proxy charged this turn (its own units), for the local allowance. */
+  let totalBillableTokens = 0;
+  /** The allowance the proxy reported with its last response, if it did. */
+  let quotaRemainingFromHeader = null;
   let needsCompile = false;
   let lastCompileFailed = false;
+  /** What the compiler said the last time it failed, for the repair round. */
+  let lastCompileReport = "";
+  /** Sources at the last successful build in this turn; the same sources are not built again. */
+  let compiledFingerprint = null;
+  const currentFingerprint = async () => {
+    if (!documentMap) return null;
+    try {
+      return await computeSourceFingerprint(service, documentMap);
+    } catch {
+      return null;
+    }
+  };
+  /** Pages of this turn's changes, once a build succeeded (for the change card). */
+  const markProposalPages = (result) => {
+    const parsed = parseToolResult(result);
+    const pdfPath = typeof parsed?.pdfPath === "string" ? parsed.pdfPath : "";
+    if (!pdfPath) return;
+    void resolveProposalPages(service, targetConversationId, pdfPath);
+  };
+  /** A failed final compile gets this many repair rounds inside the turn. */
+  const MAX_COMPILE_REPAIRS = 2;
+  let compileRepairCount = 0;
   const compileFailureMessage = localizedCompileFailureSuffix(
     context?.uiLocale,
   ).trim();
@@ -441,10 +770,25 @@ COMPILATION (MANDATORY):
     }
     try {
       assertWorkspaceCurrent();
+      // The same sources build to the same PDF: skip a build that would
+      // only repeat the last successful one of this turn.
+      const fingerprint = await currentFingerprint();
+      if (fingerprint && compiledFingerprint && fingerprint === compiledFingerprint) {
+        traceRunLoop({ conversationId: targetConversationId, compileSkipped: "unchanged sources" });
+        needsCompile = false;
+        return "ok";
+      }
       const result = await compile({});
       assertWorkspaceCurrent();
       needsCompile = false;
       lastCompileFailed = !compileResultSucceeded(result);
+      if (lastCompileFailed) {
+        const report = typeof result === "string" ? result : JSON.stringify(result);
+        lastCompileReport = report.length > 2_000 ? `${report.slice(0, 2_000)}…` : report;
+      } else {
+        compiledFingerprint = fingerprint;
+        markProposalPages(result);
+      }
       return lastCompileFailed ? "failed" : "ok";
     } catch (error) {
       // A terminal handler may call this helper again after the exception.
@@ -454,6 +798,58 @@ COMPILATION (MANDATORY):
       lastCompileFailed = true;
       throw error;
     }
+  };
+  /**
+   * Japanese text under a plain Latin class prints nothing ("Missing
+   * character" for every glyph). That failure has one fix: a Japanese-capable
+   * class. Apply it deterministically through the normal edit tool, so undo
+   * and the audit see it, and rebuild without spending a model call.
+   */
+  const JAPANESE_CLASS_FOR = {
+    article: "ltjsarticle",
+    report: "ltjsreport",
+    book: "ltjsbook",
+    jarticle: "ltjsarticle",
+    jsarticle: "ltjsarticle",
+    jreport: "ltjsreport",
+    jsbook: "ltjsbook",
+    jbook: "ltjsbook",
+  };
+  const GLYPH_FAILURE = /missing-glyph|Missing character|Unicode character|cannot display/i;
+  const repairMissingGlyphSetup = async () => {
+    if (!GLYPH_FAILURE.test(lastCompileReport)) return false;
+    const mainFile =
+      typeof context?.documentMainFile === "string" ? context.documentMainFile.trim() : "";
+    const replaceLines = toolExecutors.get("replace_lines");
+    if (!mainFile || !replaceLines) return false;
+    let source;
+    try {
+      source = await fsp.readFile(service.workspace.resolvePath(mainFile), "utf8");
+    } catch {
+      return false;
+    }
+    if (!/[\u3040-\u30ff\u3400-\u9fff]/.test(source)) return false;
+    const lines = source.split(/\r?\n/);
+    const index = lines.findIndex((line) => /^\s*\\documentclass\b/.test(line));
+    if (index < 0) return false;
+    const match = lines[index].match(/\\documentclass(\[[^\]]*\])?\{([A-Za-z]+)\}/);
+    const target = match ? JAPANESE_CLASS_FOR[match[2]] : null;
+    if (!match || !target || target === match[2]) return false;
+    const fixedLine = lines[index].replace(match[0], `\\documentclass${match[1] ?? ""}{${target}}`);
+    // The Japanese classes need LuaLaTeX; the magic comment makes the build
+    // pick it regardless of the workspace default.
+    const hasProgramMagic = lines.some((line) => /^\s*%\s*!TEX\s+program\s*=/i.test(line));
+    const result = await replaceLines({
+      path: mainFile,
+      startLine: index + 1,
+      endLine: index + 1,
+      content: hasProgramMagic ? fixedLine : `% !TEX program = lualatex\n${fixedLine}`,
+    });
+    traceRunLoop({ conversationId: targetConversationId, glyphRepair: { from: match[2], to: target, magic: !hasProgramMagic } });
+    if (!writeToolResultApplied(result)) return false;
+    needsCompile = true;
+    lastCompileFailed = false;
+    return true;
   };
   const settlePendingChangesAfterInterruption = async () => {
     try {
@@ -465,62 +861,48 @@ COMPILATION (MANDATORY):
 
   try {
     // ---- Agent loop ----
-    const maxIterations = resolveMaxAgentIterations(options.maxIterations);
+    // Writing turns in both the AI mode and the Code chat rewrite whole
+    // sections and read the paper back; both get the larger per-turn room.
+    // The platform quota still bounds every turn.
+    const maxIterations = Math.max(
+      resolveMaxAgentIterations(options.maxIterations),
+      DOCUMENT_MAX_AGENT_ITERATIONS,
+    );
+    const turnTokenBudget = Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
     let iterations = 0;
     let platformBudgetAtStart = null;
     let usageWasMeasurable = true;
     const toolErrorHistory = []; // Track consecutive identical errors for loop detection
+    // Reads repeated within one turn cost tokens and time without new
+    // information. The first result of each read is remembered until a
+    // write or a compile could have changed the workspace; a repeat gets a
+    // short pointer back to it, and a long run of reads without an edit gets
+    // one nudge to act.
+    const READ_TOOL_NAMES = new Set(["read_file", "read_section", "list_sections", "list_files", "find_math_region", "check_references", "check_bibliography"]);
+    const READS_BEFORE_NUDGE = 8;
+    const readResultsThisRun = new Map();
+    let readsSinceLastWrite = 0;
+    let readNudgeGiven = false;
 
     // Track write tool usage across the entire run so we can verify that
     // the final assistant message matches what actually happened. The E2E
     // test showed the LLM would report "I added the Preliminaries content"
     // after making zero tool calls. We refuse to let such hallucinated
     // success reach the user.
-    const WRITE_TOOL_NAMES = new Set([
-      "write_file",
-      "create_file",
-      "apply_patch",
-      "replace_lines",
-      "insert_lines",
-      "delete_lines",
-      "replace_section",
-      "append_to_section",
-    ]);
     const writeToolInvocations = [];
-    // Regexes matching "modification claim" phrasing in the final assistant
-    // message. If we see one of these but the run made ZERO write tool
-    // calls, we treat the turn as a hallucination and loop the agent back
-    // with a corrective system message.
-    const MODIFICATION_CLAIM_PATTERNS = [
-      // English
-      /\b(?:I(?:'ve| have)?|I'll|let me|i just)\s+(?:added|inserted|updated|modified|changed|created|wrote|filled(?:\s+in)?|replaced|removed|deleted|fixed|refactored|renamed|rewrote|expanded|appended)\b/i,
-      /\b(?:added|inserted|updated|modified|changed|created|wrote|filled(?:\s+in)?|replaced|removed|deleted|fixed|rewrote|expanded|appended)\s+(?:the|a|an)\b/i,
-      /\b(?:has been|have been)\s+(?:added|inserted|updated|modified|changed|created|written|filled(?:\s+in)?|replaced|removed|deleted|fixed|rewrote|expanded|appended)\b/i,
-      // Japanese — requires an edit verb before the past-tense ending. (A
-      // bare /(?:しました|…)\b/ pattern used to sit here, but \b after kana
-      // only matches when an ASCII word char follows, so it was dead code —
-      // and its intended broad form would flag ANY polite past sentence.)
-      /(?:追加|挿入|更新|変更|作成|書[きい]|記述|修正|置換|削除|リファクタ|名称?変更|書き換え|書き加え|埋め)(?:しました|されました|ました|した)/,
-      // Chinese (Simplified) — past-tense action confirmations: 已 + verb, 完成
-      /已(?:添加|新增|插入|更新|修改|更改|创建|写入|编写|替换|移除|删除|修复|重构|重命名|改名|重写|扩展|追加|应用|完成)/,
-      /(?:添加|新增|插入|更新|修改|更改|创建|写入|编写|替换|移除|删除|修复|重构|重命名|改名|重写|扩展|追加|应用)了/,
-      // Korean — completed-action endings on common edit verbs
-      /(?:추가|삽입|갱신|업데이트|수정|변경|생성|작성|기록|교체|치환|제거|삭제|수정|리팩터링|이름\s?변경|개명|재작성|확장|추가\s?작성|적용|완료)(?:했(?:습니다|어요|다)|됐(?:습니다|어요|다)|되었(?:습니다|어요|다)|했음|함)/,
-      // German — Ich habe ... ge<verb>; X wurde/wurden ge<verb>
-      /\bIch\s+(?:habe|hab)\b[\s\S]{0,80}?\b(?:hinzugefügt|eingefügt|aktualisiert|geändert|modifiziert|erstellt|geschrieben|ersetzt|entfernt|gelöscht|behoben|umbenannt|umgeschrieben|erweitert|angehängt|angewendet)\b/i,
-      /\b(?:wurde|wurden|ist|sind)\s+(?:hinzugefügt|eingefügt|aktualisiert|geändert|modifiziert|erstellt|geschrieben|ersetzt|entfernt|gelöscht|behoben|umbenannt|umgeschrieben|erweitert|angehängt|angewendet)\b/i,
-      // French — J'ai ... <verbe>; X a été <verbe>
-      // (Trailing \b dropped: most past participles end in `é` which is not in
-      // ASCII \w, so \b fails. Using \p{L} lookahead with the `u` flag instead.)
-      /\bJ['’]ai\b[\s\S]{0,80}?(?:ajouté|inséré|mis\s+à\s+jour|modifié|changé|créé|écrit|rempli|remplacé|retiré|supprimé|corrigé|refactorisé|renommé|réécrit|étendu|appliqué)(?!\p{L})/iu,
-      /\b(?:a|ont)\s+été\s+(?:ajouté|inséré|mis\s+à\s+jour|modifié|changé|créé|écrit|rempli|remplacé|retiré|supprimé|corrigé|refactorisé|renommé|réécrit|étendu|appliqué)e?s?(?!\p{L})/iu,
-      // Spanish — He ... <verbo>; X ha sido / se ha <verbo>
-      /\bHe\b[\s\S]{0,80}?\b(?:añadido|agregado|insertado|actualizado|modificado|cambiado|creado|escrito|rellenado|reemplazado|eliminado|borrado|corregido|refactorizado|renombrado|reescrito|ampliado|aplicado)\b/i,
-      /\b(?:ha\s+sido|han\s+sido|se\s+ha|se\s+han)\s+(?:añadido|agregado|insertado|actualizado|modificado|cambiado|creado|escrito|rellenado|reemplazado|eliminado|borrado|corregido|refactorizado|renombrado|reescrito|ampliado|aplicado)s?\b/i,
-    ];
+    // The reply's own tag ("[edit]" / "[report]") says whether the model
+    // believes it changed files. "[edit]" with no real write is a
+    // hallucinated success and is sent back for the edit; everything else
+    // is trusted, so an answer to a question is never bounced.
     let halluciationRetryCount = 0;
     const MAX_HALLUCINATION_RETRIES = 2;
 
+    // The allowance is fetched once, when the turn starts. Every later
+    // iteration works from the proxy's response header (the figure before
+    // that call) minus what the call was charged, or from the local count
+    // when the header is absent. No HTTP round trip per model call.
+    let lastFreshBudget = null;
+    let billableAtLastFresh = 0;
     const readFreshPlatformBudget = async () => {
       if (
         !isOfficialPlatformProxyUrl(apiUrl) ||
@@ -528,12 +910,25 @@ COMPILATION (MANDATORY):
       ) {
         return { allowed: true, remainingTokens: null, reason: null };
       }
+      if (lastFreshBudget) {
+        const base =
+          quotaRemainingFromHeader !== null
+            ? quotaRemainingFromHeader
+            : lastFreshBudget.remainingTokens === null
+              ? null
+              : lastFreshBudget.remainingTokens - (totalBillableTokens - billableAtLastFresh);
+        return {
+          allowed: base === null || base > 0,
+          remainingTokens: base === null ? null : Math.max(0, Math.floor(base)),
+          reason: base !== null && base <= 0 ? "QUOTA_EXCEEDED" : null,
+        };
+      }
       const access = await awaitAbortable(
         service.platformAccess.checkAiAccess({ force: true }),
         run.controller.signal,
       );
       const remaining = Number(access?.quota?.remainingTokens);
-      return {
+      lastFreshBudget = {
         allowed: access?.allowed === true,
         remainingTokens:
           Number.isFinite(remaining) && remaining >= 0
@@ -541,9 +936,28 @@ COMPILATION (MANDATORY):
             : null,
         reason: typeof access?.reason === "string" ? access.reason : null,
       };
+      billableAtLastFresh = totalBillableTokens;
+      return lastFreshBudget;
+    };
+
+    // A Code chat gets its title from the model once its first reply exists:
+    // a few words about the request, in the user's language, in the background.
+    const assistantRepliesBefore = conversation.filter((entry) => entry?.role === "assistant").length;
+    const maybeTitleConversation = (replyText) => {
+      if (!isCodeSurface || turnOrigin === "survey") return;
+      const meta = service.sessionMetaByConversation?.get(targetConversationId);
+      if (meta?.title || assistantRepliesBefore > 0) return;
+      void generateConversationTitle(service, {
+        conversationId: targetConversationId,
+        userText,
+        replyText: typeof replyText === "string" ? replyText : "",
+        locale: context?.uiLocale,
+        settings,
+      }).catch(() => {});
     };
 
     const settleWithoutAnotherModelCall = async (kind) => {
+      traceRunLoop({ conversationId: targetConversationId, settle: kind, iterations, totalPromptTokens, totalCompletionTokens });
       const compileState = await compilePendingChanges();
       if (!isCurrentRun()) return;
 
@@ -607,11 +1021,30 @@ COMPILATION (MANDATORY):
             ? localizedCompileFailureSuffix(context?.uiLocale)
             : "";
       const reply = `${base}${suffix}`;
-      conversation.push({ role: "assistant", content: reply });
+      // A turn cut short is not a dead end either: without another model
+      // call, the one honest next step is to pick up where it stopped.
+      const resumeStep =
+        (isDocumentConversation || isCodeSurface) && kind !== "access"
+          ? [
+              {
+                id: "p1",
+                title: RESUME_STEP_COPY[context?.uiLocale]?.title ?? RESUME_STEP_COPY.en.title,
+                request: `${userText}\n\n${RESUME_STEP_COPY[context?.uiLocale]?.request ?? RESUME_STEP_COPY.en.request}`,
+                scope: RESUME_STEP_COPY[context?.uiLocale]?.scope ?? RESUME_STEP_COPY.en.scope,
+              },
+            ]
+          : null;
+      const nextSteps = takeRecordedNextSteps() ?? resumeStep;
+      conversation.push({
+        role: "assistant",
+        content: reply,
+        ...(nextSteps ? { proposals: nextSteps } : {}),
+      });
       service.markSessionDirty(targetConversationId);
       service.sendToRenderer("agent:message", {
         text: reply,
         conversationId: targetConversationId,
+        ...(nextSteps ? { proposals: nextSteps } : {}),
       });
       if (compileState === "failed") {
         sendCompileFailure();
@@ -648,8 +1081,8 @@ COMPILATION (MANDATORY):
       const localRemaining = Math.max(
         0,
         Math.min(
-          MAX_AGENT_TOKENS_PER_RUN,
-          platformBudgetAtStart ?? MAX_AGENT_TOKENS_PER_RUN,
+          turnTokenBudget,
+          platformBudgetAtStart ?? turnTokenBudget,
         ) -
           totalPromptTokens -
           totalCompletionTokens,
@@ -668,7 +1101,7 @@ COMPILATION (MANDATORY):
           : 0;
       const normalizedTurnRemaining = Math.max(
         0,
-        MAX_AGENT_TOKENS_PER_RUN - normalizedQuotaSpent,
+        turnTokenBudget - normalizedQuotaSpent,
       );
       const effectiveRemaining = Math.min(
         localRemaining,
@@ -733,7 +1166,11 @@ COMPILATION (MANDATORY):
           signal: run.controller.signal,
         });
 
-        if (response.ok) break;
+        if (response.ok) {
+          const headerRemaining = Number(response.headers.get(QUOTA_REMAINING_HEADER));
+          quotaRemainingFromHeader = Number.isFinite(headerRemaining) ? Math.max(0, headerRemaining) : null;
+          break;
+        }
 
         const errorText = await response.text().catch(() => "");
         const status = response.status;
@@ -783,9 +1220,17 @@ COMPILATION (MANDATORY):
 
       // ---- Parse response (SSE stream or JSON fallback) ----
       let assistantContent = "";
+      const replyStream = createReplyTagStream((text) => {
+        if (!text) return;
+        service.sendToRenderer("agent:messageDelta", {
+          text,
+          conversationId: targetConversationId,
+        });
+      });
       const toolCallAccumulators = new Map();
       let iterationPromptTokens = 0;
       let iterationCompletionTokens = 0;
+      let iterationCachedTokens = 0;
       let iterationUsageSeen = false;
 
       const contentType = response.headers.get("content-type") || "";
@@ -831,6 +1276,7 @@ COMPILATION (MANDATORY):
                 0,
                 Number(chunk.usage.completion_tokens) || 0,
               );
+              iterationCachedTokens = Math.max(0, Number(chunk.usage.prompt_tokens_details?.cached_tokens) || 0);
             }
 
             const delta = chunk.choices?.[0]?.delta;
@@ -839,10 +1285,7 @@ COMPILATION (MANDATORY):
             // Text content delta
             if (delta.content) {
               assistantContent += delta.content;
-              service.sendToRenderer("agent:messageDelta", {
-                text: delta.content,
-                conversationId: targetConversationId,
-              });
+              replyStream.push(delta.content);
             }
 
             // Tool call deltas
@@ -878,16 +1321,12 @@ COMPILATION (MANDATORY):
             0,
             Number(data.usage.completion_tokens) || 0,
           );
+          iterationCachedTokens = Math.max(0, Number(data.usage.prompt_tokens_details?.cached_tokens) || 0);
         }
         const choice = data.choices?.[0];
         if (choice?.message) {
           assistantContent = choice.message.content || "";
-          if (assistantContent) {
-            service.sendToRenderer("agent:messageDelta", {
-              text: assistantContent,
-              conversationId: targetConversationId,
-            });
-          }
+          if (assistantContent) replyStream.push(assistantContent);
           if (choice.message.tool_calls) {
             for (let i = 0; i < choice.message.tool_calls.length; i++) {
               const tc = choice.message.tool_calls[i];
@@ -901,8 +1340,16 @@ COMPILATION (MANDATORY):
         }
       }
 
+      replyStream.flush();
       totalPromptTokens += iterationPromptTokens;
       totalCompletionTokens += iterationCompletionTokens;
+      const iterationBillable = billableTokensOf(iterationPromptTokens, iterationCompletionTokens, iterationCachedTokens);
+      totalBillableTokens += iterationBillable;
+      // The header said what was left before this call; what is left now is
+      // that minus this call.
+      if (quotaRemainingFromHeader !== null) {
+        quotaRemainingFromHeader = Math.max(0, quotaRemainingFromHeader - iterationBillable);
+      }
       // Missing usage makes a second paid call unknowable. Complete any tools
       // already returned, then stop before another model request.
       usageWasMeasurable = iterationUsageSeen;
@@ -918,6 +1365,7 @@ COMPILATION (MANDATORY):
         });
       }
       console.log(`[run-loop] iteration=${iterations} text=${assistantContent.length}chars toolCalls=${toolCalls.length}${toolCalls.length > 0 ? ` tools=[${toolCalls.map(t => t.function.name).join(",")}]` : ""}`);
+      traceRunLoop({ conversationId: targetConversationId, iteration: iterations, text: assistantContent.slice(0, 120), tools: toolCalls.map((t) => t.function.name) });
 
       const assistantMessage = { role: "assistant", content: assistantContent || null };
       if (toolCalls.length > 0) {
@@ -932,54 +1380,127 @@ COMPILATION (MANDATORY):
         // deterministic build only: it never spends another model request.
         // A successful model-triggered compile clears needsCompile, so this
         // path cannot build the same final edit twice.
-        const finalCompileState = await compilePendingChanges();
+        let finalCompileState = await compilePendingChanges();
         if (!isCurrentRun()) return;
-        const finalCompileFailureMessage =
-          finalCompileState === "failed" ? compileFailureMessage : "";
-        const reply = [assistantContent, finalCompileFailureMessage]
-          .filter((part) => typeof part === "string" && part.trim())
-          .join("\n\n");
-
-        // ---- Claim verification ----
-        // If the assistant's final message claims a modification but the
-        // agent made zero write tool calls during the ENTIRE run, this is
-        // a hallucinated success. Reject it and loop back with a corrective
-        // system reminder (up to MAX_HALLUCINATION_RETRIES times).
-        const claimsModification = MODIFICATION_CLAIM_PATTERNS.some((re) => re.test(reply));
-        const madeAnyWrite = writeToolInvocations.length > 0;
+        traceRunLoop({ conversationId: targetConversationId, finalCompile: finalCompileState, report: lastCompileReport.slice(0, 300) });
+        if (finalCompileState === "failed" && (await repairMissingGlyphSetup())) {
+          finalCompileState = await compilePendingChanges();
+          if (!isCurrentRun()) return;
+          traceRunLoop({ conversationId: targetConversationId, glyphRepairCompile: finalCompileState, report: lastCompileReport.slice(0, 300) });
+        }
+        // ---- Repair instead of reporting ----
+        // A document that stopped compiling is the agent's problem, not the
+        // user's. Hand the compiler's report back and let it fix and rebuild,
+        // a bounded number of times, before anything reaches the chat.
         if (
-          claimsModification &&
-          !madeAnyWrite &&
-          halluciationRetryCount < MAX_HALLUCINATION_RETRIES
+          finalCompileState === "failed" &&
+          compileRepairCount < MAX_COMPILE_REPAIRS &&
+          iterations < maxIterations
         ) {
-          halluciationRetryCount += 1;
-          console.warn(
-            `[run-loop] Hallucination detected — message claims a modification but zero write tools were called. ` +
-              `Injecting corrective reminder (retry ${halluciationRetryCount}/${MAX_HALLUCINATION_RETRIES}).`
-          );
+          compileRepairCount += 1;
+          lastCompileFailed = false;
+          needsCompile = true;
+          traceRunLoop({ conversationId: targetConversationId, repairRound: compileRepairCount });
           messages.push({
             role: "user",
             content:
-              "SYSTEM: Your last response claims you made a change, but you did not " +
-              "actually call any file-editing tool (write_file, replace_lines, " +
-              "insert_lines, delete_lines, replace_section, append_to_section, " +
-              "apply_patch, or create_file). You MUST call the appropriate tool to " +
-              "make the change, then verify by re-reading the file. Do not claim " +
-              "success without a real tool call. Retry the user's request now.",
+              "SYSTEM: The document does not compile after your changes. Compiler report:\n" +
+              `${lastCompileReport || "(no report)"}\n\n` +
+              "Read the file around the reported lines, make the minimal fix, then call " +
+              "compile_document. Reply to the user only after it compiles, and do not " +
+              "mention the compiler or this message.",
           });
-          // Reset streaming buffers and fall through to next iteration
+          continue;
+        }
+        const finalCompileFailureMessage =
+          finalCompileState === "failed" ? compileFailureMessage : "";
+        const tagged = splitReplyTag(assistantContent);
+        const replyKind = tagged.kind ?? replyStream.kind;
+        const reply = [tagged.text, finalCompileFailureMessage]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join("\n\n");
+
+        // ---- Declared edit without an edit ----
+        // The model tagged its reply "[edit]" but no edit tool ran this
+        // turn: a claimed change that never happened. Send it back for the
+        // real edit (twice at most); a "[report]" reply is never bounced.
+        const madeAnyWrite = writeToolInvocations.length > 0;
+        if (
+          deferredFinalReply === null &&
+          replyKind === "edit" &&
+          !madeAnyWrite &&
+          !readOnlyTurn &&
+          !briefTurn &&
+          halluciationRetryCount < MAX_HALLUCINATION_RETRIES
+        ) {
+          halluciationRetryCount += 1;
+          traceRunLoop({ conversationId: targetConversationId, editClaimWithoutWrite: halluciationRetryCount });
+          // The streamed text claimed a change that never happened; the chat
+          // drops it and keeps the working line while the edit is made.
+          service.sendToRenderer("agent:messageReset", { conversationId: targetConversationId });
+          messages.push({
+            role: "user",
+            content:
+              "SYSTEM: Your reply is tagged [edit], but no edit tool ran this turn, so " +
+              "nothing changed. Make the change now with the right edit tool " +
+              "(replace_section, replace_lines, insert_lines, delete_lines, write_file), " +
+              "compile, then reply. If nothing needs to change, reply tagged [report].",
+          });
           continue;
         }
 
-        // Store AI response in conversation
-        conversation.push({ role: "assistant", content: reply });
+        // ---- Every turn ends with a way forward ----
+        // A document conversation never dead-ends: if the model finished
+        // without recording next steps, one more call asks for exactly that,
+        // and its prose is discarded in favour of the reply already written.
+        const finalReplyText = deferredFinalReply ?? reply;
+        // The Code chat asks for next steps only after real work (tools ran);
+        // a plain answer is not padded with an extra model call.
+        const wantsNextSteps =
+          turnOrigin !== "survey" &&
+          !planMode &&
+          (isDocumentConversation || (isCodeSurface && iterations > 1));
+        if (
+          wantsNextSteps &&
+          !hasRecordedNextSteps() &&
+          nextStepsFollowUps < 1 &&
+          iterations < maxIterations
+        ) {
+          nextStepsFollowUps += 1;
+          deferredFinalReply = finalReplyText;
+          traceRunLoop({ conversationId: targetConversationId, nextStepsFollowUp: true });
+          messages.push({
+            role: "user",
+            content:
+              "SYSTEM: Your reply above stands as the answer. Now call propose_next_steps " +
+              "once with up to 3 concrete next steps for this document from its current " +
+              "state (a 'line' from list_sections where it applies, an 'asks' question " +
+              "where the user must decide). If the document is empty, the first step asks " +
+              "what to write. Do not write prose.",
+          });
+          continue;
+        }
+
+        // Store AI response in conversation, with the next steps it recorded
+        const nextSteps = takeRecordedNextSteps();
+        const plan = planMode ? service.planByConversation?.get(targetConversationId) ?? null : null;
+        service.planByConversation?.delete(targetConversationId);
+        conversation.push({
+          role: "assistant",
+          content: finalReplyText,
+          ...(nextSteps ? { proposals: nextSteps } : {}),
+          ...(plan ? { plan } : {}),
+        });
         service.markSessionDirty(targetConversationId);
 
         // Send final message (finalizes streaming element on frontend)
         service.sendToRenderer("agent:message", {
-          text: reply || "Done.",
+          text: finalReplyText || "Done.",
           conversationId: targetConversationId,
+          ...(nextSteps ? { proposals: nextSteps } : {}),
+          ...(plan ? { plan } : {}),
         });
+        maybeTitleConversation(finalReplyText);
         if (finalCompileFailureMessage) {
           // The persisted assistant reply explains the incomplete result after
           // reopen; the error event also makes the live native turn terminally
@@ -1004,7 +1525,27 @@ COMPILATION (MANDATORY):
         const executor = toolExecutors.get(fnName);
         let toolResult;
 
-        if (!executor) {
+        // The opening read never changes the workspace, whatever the model
+        // decides: a deterministic refusal, not a prompt-only rule.
+        const refusedOnSurvey =
+          turnOrigin === "survey" &&
+          (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document");
+        const refusedInAskMode =
+          (readOnlyTurn || briefTurn) && (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document");
+        if (refusedOnSurvey) {
+          toolResult = JSON.stringify({
+            error:
+              "The opening read is read-only. Record this change as a proposal with propose_next_steps instead.",
+          });
+        } else if (refusedInAskMode) {
+          toolResult = JSON.stringify({
+            error: planMode
+              ? "Plan mode is read-only: record the plan with record_plan instead of editing."
+              : briefTurn
+                ? "This step starts with the brief: no edits this turn. Ask with ask_user what decides the result and stop; the next turn writes."
+                : "Ask mode is read-only: no edits or builds this turn. Describe the change and where it goes; the user can switch to Agent mode to apply it.",
+          });
+        } else if (!executor) {
           toolResult = JSON.stringify({ error: `Unknown tool: ${fnName}` });
         } else {
           let args = {};
@@ -1023,6 +1564,8 @@ COMPILATION (MANDATORY):
             "arxiv_search",
             "arxiv_bibtex",
             "check_environment",
+            "check_references",
+            "check_bibliography",
           ]);
           toolResult = abortableReadTools.has(fnName)
             ? await awaitAbortable(executor(args), run.controller.signal)
@@ -1031,7 +1574,27 @@ COMPILATION (MANDATORY):
         }
 
         // Add tool result to messages
-        const toolResultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
+        let toolResultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
+        if (READ_TOOL_NAMES.has(fnName) && !toolResultStr.includes('"error"')) {
+          const readKey = `${fnName}:${toolCall.function?.arguments || ""}`;
+          const seen = readResultsThisRun.get(readKey);
+          if (seen && seen.result === toolResultStr) {
+            toolResultStr = JSON.stringify({
+              unchanged: true,
+              note:
+                `This exact ${fnName} call already ran at step ${seen.iteration} and nothing has ` +
+                "changed since. Its content still applies; do not read it again. Make the edit " +
+                "now, or read a different range or file.",
+            });
+          } else {
+            readResultsThisRun.set(readKey, { iteration: iterations, result: toolResultStr });
+          }
+          readsSinceLastWrite += 1;
+        } else if (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document") {
+          readResultsThisRun.clear();
+          readsSinceLastWrite = 0;
+        }
+        traceRunLoop({ conversationId: targetConversationId, tool: fnName, result: toolResultStr.slice(0, 240) });
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -1059,6 +1622,11 @@ COMPILATION (MANDATORY):
           writeToolInvocations.push({ name: fnName });
           needsCompile = true;
           lastCompileFailed = false;
+          // A write can add an \input or a bib file; the map (and the build
+          // fingerprint drawn from it) follows the document as it grows.
+          if (mainTexFile) {
+            documentMap = await scanDocument(service, mainTexFile).catch(() => documentMap);
+          }
         }
         if (fnName === "compile_document") {
           const parsedCompileResult = parseToolResult(toolResult);
@@ -1069,12 +1637,81 @@ COMPILATION (MANDATORY):
           if (buildWasAttempted) {
             needsCompile = false;
             lastCompileFailed = !compileResultSucceeded(toolResult);
+            if (lastCompileFailed) {
+              lastCompileReport =
+                toolResultStr.length > 2_000 ? `${toolResultStr.slice(0, 2_000)}…` : toolResultStr;
+            } else {
+              compiledFingerprint = await currentFingerprint();
+              markProposalPages(toolResult);
+            }
           }
         }
         // Abort is cooperative while a tool is awaited. Record the completed
         // tool first (especially a write), then stop before any sibling tool
         // from the same model response can mutate the workspace.
         throwIfRunAborted();
+      }
+
+      // ---- The deferred reply is complete once its next steps exist ----
+      // The follow-up call only had to record next steps; no further model
+      // call is spent on prose that would be discarded anyway.
+      if (deferredFinalReply !== null && hasRecordedNextSteps()) {
+        const nextSteps = takeRecordedNextSteps();
+        conversation.push({ role: "assistant", content: deferredFinalReply, proposals: nextSteps });
+        service.markSessionDirty(targetConversationId);
+        service.sendToRenderer("agent:message", {
+          text: deferredFinalReply || "Done.",
+          conversationId: targetConversationId,
+          proposals: nextSteps,
+        });
+        maybeTitleConversation(deferredFinalReply);
+        service.sendStatus("idle", "Waiting", targetConversationId);
+        return;
+      }
+
+      // ---- A question for the user ends the turn here ----
+      // The model asked something only the user can answer. Whatever it
+      // already changed is compiled, the question becomes its reply, and the
+      // answer arrives as the next user message. No further model call.
+      const pendingQuestion = takePendingQuestion();
+      if (pendingQuestion) {
+        const questionCompileState = await compilePendingChanges();
+        if (!isCurrentRun()) return;
+        const questionSteps = takeRecordedNextSteps();
+        conversation.push({
+          role: "assistant",
+          content: pendingQuestion.question,
+          question: pendingQuestion,
+          ...(questionSteps ? { proposals: questionSteps } : {}),
+        });
+        service.markSessionDirty(targetConversationId);
+        service.sendToRenderer("agent:message", {
+          text: pendingQuestion.question,
+          question: pendingQuestion,
+          conversationId: targetConversationId,
+          ...(questionSteps ? { proposals: questionSteps } : {}),
+        });
+        maybeTitleConversation(pendingQuestion.question);
+        if (questionCompileState === "failed") sendCompileFailure();
+        service.sendStatus(
+          questionCompileState === "failed" ? "resumable" : "idle",
+          questionCompileState === "failed" ? "Compilation failed" : "Waiting",
+          targetConversationId,
+        );
+        return;
+      }
+
+      if (readsSinceLastWrite >= READS_BEFORE_NUDGE && !readNudgeGiven) {
+        readNudgeGiven = true;
+        traceRunLoop({ conversationId: targetConversationId, readNudge: readsSinceLastWrite });
+        messages.push({
+          role: "user",
+          content:
+            "SYSTEM: You have read the document many times without editing it. You now know " +
+            "enough. Make the requested change with one edit tool call (replace_lines, " +
+            "replace_section, or write_file) and compile, or tell the user plainly what " +
+            "you could not find. Do not read the file again.",
+        });
       }
 
       // Detect repeated identical tool failures (same tool, same error 3+ times)
@@ -1131,6 +1768,28 @@ COMPILATION (MANDATORY):
   } finally {
     service.finishConversationRun(targetConversationId, run.token);
     service.markSessionDirty(targetConversationId);
+
+    // The allowance moves forward locally; the chat and the settings page
+    // learn it from here, not from another request.
+    if (
+      isOfficialPlatformProxyUrl(apiUrl) &&
+      (totalBillableTokens > 0 || quotaRemainingFromHeader !== null) &&
+      typeof service.platformAccess?.noteAiUsage === "function"
+    ) {
+      try {
+        const access = await service.platformAccess.noteAiUsage({
+          consumedTokens: totalBillableTokens,
+          remainingTokens: quotaRemainingFromHeader,
+        });
+        if (access) {
+          service.sendToRenderer("platform:aiAccess", { source: "turn", access });
+          const usage = buildUsageFromAccess(access);
+          if (usage) service.sendToRenderer("platform:usage", { source: "turn", usage });
+        }
+      } catch {
+        /* the next access check refreshes it */
+      }
+    }
 
     // Record local usage tracking
     if (totalPromptTokens > 0 || totalCompletionTokens > 0) {

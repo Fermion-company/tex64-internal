@@ -18,7 +18,6 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { getCodexService } = require('./index.cjs');
-const { TOOL_STATUS_LABELS } = require('../agent-core-utils.cjs');
 const { isExtendedTextFileName, looksBinary } = require('../text-file-types.cjs');
 
 const LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
@@ -310,7 +309,6 @@ const rewriteFileCitations = (text, rootPath) => {
 const toolEvent = (service, conversationId, name, detail, summary) => {
   service.sendToRenderer('agent:tool', {
     name,
-    label: TOOL_STATUS_LABELS[name] || name,
     detail,
     summary,
     conversationId,

@@ -64,10 +64,9 @@ const isOfficialPlatformProxyUrl = (endpoint) =>
  * A custom OpenAI-compatible endpoint must use credentials supplied by the
  * user/developer.  Never fall back to the TeX64 platform identity here.
  */
-const resolveOwnApiKey = (settings) => {
-  const settingsKey =
-    typeof settings?.apiKey === "string" ? settings.apiKey.trim() : "";
-  if (settingsKey) return settingsKey;
+const resolveOwnApiKey = (_settings) => {
+  // Only a developer's environment can point Axiom elsewhere; the settings
+  // file carries no endpoint or key.
   const envKey =
     typeof process.env.TEX64_LLM_API_KEY === "string"
       ? process.env.TEX64_LLM_API_KEY.trim()
@@ -87,25 +86,26 @@ const resolveLLMConfig = (settings) => {
     settings && typeof settings === "object" ? settings : {};
 
   const endpoint = (
-    (typeof agentSettings.endpoint === "string" && agentSettings.endpoint.trim()) ||
     (typeof process.env.TEX64_LLM_ENDPOINT === "string" && process.env.TEX64_LLM_ENDPOINT.trim()) ||
     `${DEFAULT_BASE_URL}/chat/completions`
   ).trim();
 
+  const envModel =
+    typeof process.env.TEX64_LLM_MODEL === "string" ? process.env.TEX64_LLM_MODEL.trim() : "";
   const configuredModel = (
     (typeof agentSettings.model === "string" && agentSettings.model.trim()) ||
-    (typeof process.env.TEX64_LLM_MODEL === "string" && process.env.TEX64_LLM_MODEL.trim()) ||
+    envModel ||
     "Axiom1.0"
   ).trim();
-  const model = migrateLegacyAxiomModel(configuredModel);
+  let model = migrateLegacyAxiomModel(configuredModel);
+  // An Axiom alias only means something to the TeX64 proxy. A developer
+  // pointing the app straight at a provider names the upstream model.
+  if (envModel && !isOfficialPlatformProxyUrl(endpoint) && /^Axiom/i.test(model)) {
+    model = envModel;
+  }
 
-  const rawTemp = agentSettings.temperature;
-  const parsedTemp = typeof rawTemp === "number" ? rawTemp : Number(rawTemp);
-  const temperature = Number.isFinite(parsedTemp)
-    ? Math.min(2, Math.max(0, parsedTemp))
-    : undefined; // omit → use model default
-
-  return { endpoint, model, temperature };
+  // No temperature: the model's own default applies.
+  return { endpoint, model, temperature: undefined };
 };
 
 module.exports = {

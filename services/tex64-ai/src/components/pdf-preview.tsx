@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import { CircleAlert, Minus, Plus, RotateCw } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
+import { loadPdfjs, type PdfJsModule } from "@/lib/client/pdfjs";
 import {
   useCallback,
   useEffect,
@@ -54,9 +55,24 @@ function applyTransform(outer: number[], inner: number[]): number[] {
 
 export type { PdfElementRegion, PdfRegionRect } from "./pdf-preview-geometry";
 
+/** A proposed step pinned to the place on the page it applies to. */
+export interface PdfAnchor {
+  id: string;
+  page: number;
+  /** PDF points from the page's top-left. */
+  y: number;
+  title: string;
+}
+
 export interface PdfPreviewProps {
   /** Same-origin URL of the compiled PDF; null = nothing compiled yet. */
   pdfUrl: string | null;
+  /** Proposed steps shown in the page margin at the place they touch. */
+  anchors?: PdfAnchor[] | null;
+  onAnchorSelect?: (id: string) => void;
+  /** The step highlighted in the chat; its anchor lights up too, and back. */
+  activeAnchorId?: string | null;
+  onAnchorHover?: (id: string | null) => void;
   /** Element regions for the overlay; null/[] = overlay disabled. */
   regions: PdfElementRegion[] | null;
   selectedId: string | null;
@@ -97,29 +113,7 @@ const HIGH_RES_RENDER_DELAY_MS = 120;
 /** Commit the GPU preview to actual page layout once the pinch stream pauses. */
 const PINCH_COMMIT_DELAY_MS = 80;
 
-type PdfJsModule = typeof import("pdfjs-dist");
 type PdfDocumentInitParameters = NonNullable<Parameters<PdfJsModule["getDocument"]>[0]>;
-
-let pdfjsModulePromise: Promise<PdfJsModule> | null = null;
-
-/**
- * Load pdfjs lazily on the client only. The worker is created from the
- * bundler-emitted asset (`new URL(..., import.meta.url)` works under both
- * turbopack and webpack) so the production CSP (`worker-src 'self' blob:`,
- * no `unsafe-eval`) is satisfied without any CDN or eval fallback.
- */
-function loadPdfjs(): Promise<PdfJsModule> {
-  pdfjsModulePromise ??= import("pdfjs-dist").then((pdfjs) => {
-    if (!pdfjs.GlobalWorkerOptions.workerPort) {
-      pdfjs.GlobalWorkerOptions.workerPort = new Worker(
-        new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url),
-        { type: "module" },
-      );
-    }
-    return pdfjs;
-  });
-  return pdfjsModulePromise;
-}
 
 interface LoadedDocument {
   /** Monotonic key: bumps once per successfully swapped-in document. */
@@ -166,6 +160,10 @@ export function PdfPreview({
   emptyHint = "まだ紙面がありません",
   selectionCard = null,
   toolbarAction = null,
+  anchors = null,
+  onAnchorSelect,
+  activeAnchorId = null,
+  onAnchorHover,
 }: PdfPreviewProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const pagesRef = useRef<HTMLDivElement | null>(null);
@@ -554,8 +552,49 @@ export function PdfPreview({
     handleScroll();
   }, [handleScroll]);
 
+  // A zoom from the toolbar has no fingers to follow; keep whatever sits at
+  // the middle of the viewport in place instead of letting the page slide.
+  const anchorViewportCenter = () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const bounds = scroller.getBoundingClientRect();
+    const viewportX = scroller.clientWidth / 2;
+    const viewportY = scroller.clientHeight / 2;
+    const clientX = bounds.left + viewportX;
+    const clientY = bounds.top + viewportY;
+    let pageIndex: number | null = null;
+    let pageXRatio = 0;
+    let pageYRatio = 0;
+    for (const node of scroller.querySelectorAll<HTMLElement>("[data-pdf-page-index]")) {
+      const rect = node.getBoundingClientRect();
+      if (clientY < rect.top || clientY > rect.bottom) continue;
+      const index = Number(node.dataset.pdfPageIndex);
+      if (!Number.isSafeInteger(index)) break;
+      pageIndex = index;
+      pageXRatio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      pageYRatio = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+      break;
+    }
+    pendingZoomAnchorRef.current = {
+      clientX,
+      clientY,
+      fromPercent: zoomPercent,
+      pageIndex,
+      pageXRatio,
+      pageYRatio,
+      scrollLeft: scroller.scrollLeft,
+      scrollTop: scroller.scrollTop,
+      viewportX,
+      viewportY,
+    };
+  };
   const adjustZoom = (delta: number) => {
+    anchorViewportCenter();
     setZoom({ mode: "manual", percent: clampZoomPercent(zoomPercent + delta) });
+  };
+  const fitZoom = () => {
+    anchorViewportCenter();
+    setZoom({ mode: "fit" });
   };
 
   const handleRendered = useCallback((index: number) => {
@@ -607,7 +646,7 @@ export function PdfPreview({
           className={clsx(styles.fitButton, zoom.mode === "fit" && styles.fitButtonActive)}
           aria-pressed={zoom.mode === "fit"}
           disabled={!loaded}
-          onClick={() => setZoom({ mode: "fit" })}
+          onClick={fitZoom}
         >
           幅に合わせる
         </button>
@@ -701,6 +740,10 @@ export function PdfPreview({
                         ? activePointAt.rects
                         : null
                     }
+                    anchors={anchors?.filter((anchor) => anchor.page === index + 1) ?? null}
+                    onAnchorSelect={onAnchorSelect}
+                    activeAnchorId={activeAnchorId}
+                    onAnchorHover={onAnchorHover}
                     onRendered={handleRendered}
                     onRenderFailed={handleRenderFailed}
                   />
@@ -751,6 +794,11 @@ interface PdfPageViewProps {
   onRendered: (index: number) => void;
   /** The render failed for a reason other than being cancelled/superseded. */
   onRenderFailed: (index: number) => void;
+  /** Proposed steps pinned to this page. */
+  anchors?: PdfAnchor[] | null;
+  onAnchorSelect?: (id: string) => void;
+  activeAnchorId?: string | null;
+  onAnchorHover?: (id: string | null) => void;
 }
 
 /** pdfjs reports cancellations by exception name, not by a dedicated type. */
@@ -779,6 +827,10 @@ function PdfPageView({
   pointRects = null,
   selectionCard,
   selectionCardTop = null,
+  anchors = null,
+  onAnchorSelect,
+  activeAnchorId = null,
+  onAnchorHover,
   index,
   onRendered,
   onRenderFailed,
@@ -797,16 +849,24 @@ function PdfPageView({
     const height = Math.max(1, Math.floor(viewport.height));
     // Pinching does not reach this effect until the gesture settles, so the
     // previous bitmap remains visible and CSS-scaled throughout the motion.
-    // Reuse the one canvas per page to avoid doubling memory on long PDFs.
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
+    // Resizing the visible canvas would blank the page until the new render
+    // lands, which reads as a jolt after every zoom. Draw off-screen instead
+    // and swap the finished bitmap in one paint; the stretched old frame stays
+    // up until then.
+    const target = document.createElement("canvas");
+    target.width = width;
+    target.height = height;
     let superseded = false;
-    const renderTask = page.render({ canvas, viewport });
+    const renderTask = page.render({ canvas: target, viewport });
     renderTask.promise.then(
       () => {
-        if (!superseded) onRendered(index);
+        if (superseded) return;
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        canvas.getContext("2d")?.drawImage(target, 0, 0);
+        onRendered(index);
       },
       (error: unknown) => {
         // A cancelled render is routine (zoom change, document swap) and keeps
@@ -835,6 +895,25 @@ function PdfPageView({
         style={{ width: cssWidth, height: cssHeight }}
         aria-hidden="true"
       />
+      {anchors && anchors.length > 0 ? (
+        <div className={styles.anchorLayer}>
+          {anchors.map((anchor) => (
+            <button
+              key={anchor.id}
+              type="button"
+              className={clsx(styles.anchor, activeAnchorId === anchor.id && styles.anchorActive)}
+              style={{ top: anchor.y * scale }}
+              title={anchor.title}
+              onClick={() => onAnchorSelect?.(anchor.id)}
+              onMouseEnter={() => onAnchorHover?.(anchor.id)}
+              onMouseLeave={() => onAnchorHover?.(null)}
+            >
+              <span className={styles.anchorLabel}>{anchor.title}</span>
+              <span className={styles.anchorDot} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      ) : null}
       {pointRects && pointRects.length > 0 ? (
         <div className={styles.overlay} aria-hidden="true">
           {pointRects.map((rect, rectIndex) => (

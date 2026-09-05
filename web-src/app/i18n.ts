@@ -785,6 +785,15 @@ const EN_TO_JA: Record<string, string> = {
   "Edit comment": "コメントを編集",
   "Delete comment": "コメントを削除",
   "Write a comment": "コメントを入力",
+  "Ask anything about this document. @ adds a file": "この文書について何でも。@ でファイルを渡せます",
+  "Ask a question. Nothing is changed": "質問を書く。文書は変更しません",
+  "Plan first. Nothing is written yet": "まず計画を立てる。まだ書きません",
+  "Plans first, then writes on your go": "先に計画を出し、合図で書く",
+  "Edits and typesets the document": "文書を編集して組版する",
+  "Answers without changing anything": "何も変えずに答える",
+  "Dictate": "音声で入力",
+  "Stop and transcribe": "止めて文字にする",
+  "Axiom mode": "Axiom のモード",
   "Comment cannot be empty.": "コメントは空にできません。",
   "Delete this comment?": "このコメントを削除しますか？",
   "Build": "ビルド",
@@ -1748,6 +1757,15 @@ const EN_TO_ZH: Record<string, string> = {
   "Edit comment": "编辑注释",
   "Delete comment": "删除注释",
   "Write a comment": "输入注释",
+  "Ask anything about this document. @ adds a file": "关于这篇文档，随便问。@ 可添加文件",
+  "Ask a question. Nothing is changed": "提问。不会更改文档",
+  "Plan first. Nothing is written yet": "先做计划。暂不写入",
+  "Plans first, then writes on your go": "先给出计划，确认后再写",
+  "Edits and typesets the document": "编辑并排版文档",
+  "Answers without changing anything": "只回答，不做更改",
+  "Dictate": "语音输入",
+  "Stop and transcribe": "停止并转写",
+  "Axiom mode": "Axiom 模式",
   "Comment cannot be empty.": "注释不能为空。",
   "Delete this comment?": "删除此注释？",
   "Add": "添加",
@@ -2653,6 +2671,15 @@ const EN_TO_KO: Record<string, string> = {
   "Edit comment": "코멘트 편집",
   "Delete comment": "코멘트 삭제",
   "Write a comment": "코멘트 입력",
+  "Ask anything about this document. @ adds a file": "이 문서에 대해 무엇이든. @ 로 파일을 추가",
+  "Ask a question. Nothing is changed": "질문하기. 문서는 바뀌지 않습니다",
+  "Plan first. Nothing is written yet": "먼저 계획을 세웁니다. 아직 쓰지 않습니다",
+  "Plans first, then writes on your go": "먼저 계획을 내고, 신호를 주면 씁니다",
+  "Edits and typesets the document": "문서를 편집하고 조판",
+  "Answers without changing anything": "아무것도 바꾸지 않고 답변",
+  "Dictate": "음성 입력",
+  "Stop and transcribe": "멈추고 받아쓰기",
+  "Axiom mode": "Axiom 모드",
   "Comment cannot be empty.": "코멘트는 비워 둘 수 없습니다.",
   "Delete this comment?": "이 코멘트를 삭제할까요?",
   "Add": "추가",
@@ -3558,6 +3585,15 @@ const EN_TO_FR: Record<string, string> = {
   "Edit comment": "Modifier le commentaire",
   "Delete comment": "Supprimer le commentaire",
   "Write a comment": "Écrire un commentaire",
+  "Ask anything about this document. @ adds a file": "Tout sur ce document. @ ajoute un fichier",
+  "Ask a question. Nothing is changed": "Posez une question. Rien n'est modifié",
+  "Plan first. Nothing is written yet": "Le plan d'abord. Rien n'est écrit",
+  "Plans first, then writes on your go": "Propose un plan, puis écrit à votre signal",
+  "Edits and typesets the document": "Modifie et compose le document",
+  "Answers without changing anything": "Répond sans rien modifier",
+  "Dictate": "Dicter",
+  "Stop and transcribe": "Arrêter et transcrire",
+  "Axiom mode": "Mode Axiom",
   "Comment cannot be empty.": "Le commentaire ne peut pas être vide.",
   "Delete this comment?": "Supprimer ce commentaire ?",
   "Add": "Ajouter",
@@ -4462,6 +4498,15 @@ const EN_TO_DE: Record<string, string> = {
   "Edit comment": "Kommentar bearbeiten",
   "Delete comment": "Kommentar löschen",
   "Write a comment": "Kommentar schreiben",
+  "Ask anything about this document. @ adds a file": "Alles zu diesem Dokument. @ fügt eine Datei hinzu",
+  "Ask a question. Nothing is changed": "Frage stellen. Nichts wird geändert",
+  "Plan first. Nothing is written yet": "Erst der Plan. Noch wird nichts geschrieben",
+  "Plans first, then writes on your go": "Plant zuerst, schreibt auf Ihr Zeichen",
+  "Edits and typesets the document": "Bearbeitet und setzt das Dokument",
+  "Answers without changing anything": "Antwortet, ohne etwas zu ändern",
+  "Dictate": "Diktieren",
+  "Stop and transcribe": "Stoppen und transkribieren",
+  "Axiom mode": "Axiom-Modus",
   "Comment cannot be empty.": "Kommentar darf nicht leer sein.",
   "Delete this comment?": "Diesen Kommentar löschen?",
   "Add": "Hinzufügen",
@@ -5366,6 +5411,15 @@ const EN_TO_ES: Record<string, string> = {
   "Edit comment": "Editar comentario",
   "Delete comment": "Eliminar comentario",
   "Write a comment": "Escribe un comentario",
+  "Ask anything about this document. @ adds a file": "Lo que sea sobre este documento. @ añade un archivo",
+  "Ask a question. Nothing is changed": "Haz una pregunta. No se cambia nada",
+  "Plan first. Nothing is written yet": "Primero el plan. Aún no se escribe nada",
+  "Plans first, then writes on your go": "Planifica primero y escribe cuando digas",
+  "Edits and typesets the document": "Edita y compone el documento",
+  "Answers without changing anything": "Responde sin cambiar nada",
+  "Dictate": "Dictar",
+  "Stop and transcribe": "Detener y transcribir",
+  "Axiom mode": "Modo Axiom",
   "Comment cannot be empty.": "El comentario no puede estar vacío.",
   "Delete this comment?": "¿Eliminar este comentario?",
   "Add": "Añadir",
@@ -5644,6 +5698,20 @@ const getAttributeOriginal = (element: Element, attributeName: string, currentVa
     record.set(attributeName, currentValue);
   }
   return record.get(attributeName) ?? currentValue;
+};
+
+/**
+ * Give an attribute a new English source at runtime (a placeholder that
+ * changes with a mode, a button label that flips while recording). The
+ * observer keeps translating from the recorded original, so the original
+ * itself has to move.
+ */
+export const setLocalizedAttribute = (element: Element, attributeName: string, source: string) => {
+  const record = attributeOriginalMap.get(element) ?? new Map<string, string>();
+  if (!attributeOriginalMap.has(element)) attributeOriginalMap.set(element, record);
+  record.set(attributeName, source);
+  const next = currentLocale === "en" ? source : translateKeepingWhitespace(source);
+  if (element.getAttribute(attributeName) !== next) element.setAttribute(attributeName, next);
 };
 
 const applyLocaleToAttributes = (element: Element) => {

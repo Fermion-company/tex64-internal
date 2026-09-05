@@ -99,6 +99,14 @@ export const initMain = () => {
 
   let postToNative: PostToNative = () => false;
   let requestLiveSource = (_payload: { file: string; line: number; column: number }) => {};
+  // A place marked in the live preview names its source file the engine's
+  // way; the chat needs the workspace path.
+  const withResolvedPdfSource = <T extends { source?: { file: string; line: number; column: number } | null }>(payload: T) => {
+    const source = payload.source ?? null;
+    if (!source) return payload;
+    const path = resolveLivePreviewWorkspacePath(source.file, getWorkspaceRootKey());
+    return { ...payload, sourcePath: path ?? null };
+  };
   let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
   let refreshCodeLivePreview = () => {};
   let openIntegratedTerminal = (_directory: string) => {};
@@ -141,6 +149,10 @@ export const initMain = () => {
     },
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
+    onPdfAskAxiom: (payload) => {
+      setActiveTab("ai");
+      aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
+    },
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -164,6 +176,10 @@ export const initMain = () => {
     },
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
+    onPdfAskAxiom: (payload) => {
+      setActiveTab("ai");
+      aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
+    },
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -604,19 +620,20 @@ export const initMain = () => {
       );
     });
   });
+  // The host decides whether this build offers AI mode; without it the
+  // switcher stays hidden and the app stays in Code.
+  const aiModeEnabled = bridgeWindow.tex64Bridge?.aiModeEnabled !== false;
+  document.getElementById("mode-switcher")?.toggleAttribute("hidden", !aiModeEnabled);
   let appModeApi: ReturnType<typeof initAppModeUi>;
   appModeApi = initAppModeUi({
-    initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)),
+    initialMode: aiModeEnabled ? resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)) : "code",
     beforeModeChange: (mode, previous) => {
+      if (mode === "ai" && !aiModeEnabled) return false;
       if (previous === null) return true;
       return (async () => {
         const result = await prepareAppModeTransition({
           next: mode,
           previous,
-          quiesce: async () =>
-            (await bridgeWindow.tex64Ai?.quiesce?.()) ?? {
-              ok: false,
-            },
           saveCode: () => editorSession.saveDirtyFiles(),
         });
         if (result?.ok === true) return true;
@@ -1198,9 +1215,13 @@ export const initMain = () => {
     postToNative: (payload, silent) => postToNative(payload, silent),
     updateIssues: updateIssuesProxy,
     handleWorkspaceUpdate: (payload) => {
-      aiChatUi?.handleWorkspaceChanged(payload.rootPath);
+      // The chat list belongs to the workspace root: it is fetched when the
+      // root changes, not on every file-tree refresh (writes during a turn
+      // produce many of those). Everything else about a chat arrives as
+      // events while it happens.
+      const rootChanged = aiChatUi?.handleWorkspaceChanged(payload.rootPath) === true;
       workspaceController.handleWorkspaceUpdate(payload);
-      postToNative({ type: "agent:state:get" }, true);
+      if (rootChanged) postToNative({ type: "agent:state:get" }, true);
     },
     handleIndexUpdate: workspaceController.handleIndexUpdate,
     handleLauncherStatus,
@@ -1277,7 +1298,19 @@ export const initMain = () => {
       handleState: (state) => aiChatUi?.handleState(state),
       handleStatus: (state, message, conversationId) =>
         aiChatUi?.handleStatus(state, message, conversationId),
-      handleMessage: (text, conversationId) => aiChatUi?.handleMessage(text, conversationId),
+      handleMessage: (text, conversationId, extras) => aiChatUi?.handleMessage(text, conversationId, extras),
+      handleTitle: (payload) => aiChatUi?.handleTitle(payload),
+      handleMessageReset: (payload) => aiChatUi?.handleMessageReset(payload),
+      askFromPdf: (payload) => {
+        setActiveTab("ai");
+        aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
+      },
+      handlePdfReverseResult: (payload) => aiChatUi?.handlePdfReverseResult(payload),
+      handleFeedbackResult: (payload) => aiChatUi?.handleFeedbackResult(payload),
+      handleBranchResult: (payload) => aiChatUi?.handleBranchResult(payload),
+      handleProposalScope: (payload) => aiChatUi?.handleProposalScope(payload),
+      handleTranscribeResult: (payload) => aiChatUi?.handleTranscribeResult(payload),
+      handleDocumentMap: (payload) => aiChatUi?.handleDocumentMap(payload),
       handleMessageDelta: (text, conversationId) =>
         aiChatUi?.handleMessageDelta(text, conversationId),
       handleTool: (payload) => aiChatUi?.handleTool(payload),
@@ -1301,10 +1334,12 @@ export const initMain = () => {
       },
       handleAiAccess: (payload) => {
         aiChatUi?.handlePlatformAiAccess(payload);
+        settingsUi.handlePlatformAiAccess(payload);
         billingUi?.handlePlanUpdated();
       },
       handleUsage: (payload) => {
         aiChatUi?.handlePlatformUsage(payload);
+        settingsUi.handlePlatformUsage(payload);
         billingUi?.handleUsageUpdated();
       },
       handleUpdate: (payload) => {
@@ -1357,6 +1392,8 @@ export const initMain = () => {
     onCursorSelectionChange: handleCursorPositionChange,
     openAiWithSelection: () => {
       setActiveTab("ai");
+      // The selection chip in the composer reflects what was selected.
+      aiChatUi?.refreshContextBar();
       const input = document.getElementById("ai-input");
       if (input instanceof HTMLTextAreaElement) {
         input.focus();

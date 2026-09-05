@@ -45,13 +45,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 /.vercel
-test-results/
-playwright-report/
 /web-src/math/fork/node_modules/
 /web-src/math/fork/dist/
 /web-src/math/fork/build/
 /web-src/math/fork/declarations/
-/web-src/math/fork/coverage/
 /services/tex64-ai/node_modules/
 /services/tex64-ai/.next/
 /services/tex64-ai/.data/

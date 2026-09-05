@@ -449,10 +449,13 @@ const ensureSessionsRestored = async (service) => {
         typeof session.updatedAt === "number" && Number.isFinite(session.updatedAt)
           ? session.updatedAt
           : null;
-      if ((createdAt || updatedAt) && !service.sessionMetaByConversation.has(conversationId)) {
+      const storedTitle =
+        typeof session.title === "string" && session.title.trim() ? session.title.trim().slice(0, 80) : "";
+      if ((createdAt || updatedAt || storedTitle) && !service.sessionMetaByConversation.has(conversationId)) {
         service.sessionMetaByConversation.set(conversationId, {
           createdAt: createdAt ?? updatedAt ?? Date.now(),
           updatedAt: updatedAt ?? createdAt ?? Date.now(),
+          ...(storedTitle ? { title: storedTitle } : {}),
         });
       }
 
@@ -605,6 +608,7 @@ const persistSession = async (service, conversationId) => {
     workspaceRootPath: workspaceRootPath || null,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
+    ...(typeof meta.title === "string" && meta.title ? { title: meta.title } : {}),
     lastStatus,
     scratchpad,
     proposals,
@@ -710,11 +714,27 @@ const getUiState = async (service) => {
           if (match) display = match[1].trim();
         }
         if (display.trim()) {
-          messages.push({ role: "user", text: clipLongString(display, 20_000) });
+          messages.push({
+            role: "user",
+            text: clipLongString(display, 20_000),
+            // An app-started turn (the opening read) stays out of the transcript view.
+            ...(entry.hidden === true ? { hidden: true } : {}),
+          });
         }
       } else if (role === "assistant") {
         if (content.trim()) {
-          messages.push({ role: "assistant", text: clipLongString(content, 30_000) });
+          messages.push({
+            role: "assistant",
+            text: clipLongString(content, 30_000),
+            ...(Array.isArray(entry.proposals) && entry.proposals.length > 0
+              ? { proposals: entry.proposals }
+              : {}),
+            ...(entry.question && typeof entry.question === "object"
+              ? { question: entry.question }
+              : {}),
+            ...(entry.rating === "up" || entry.rating === "down" ? { rating: entry.rating } : {}),
+            ...(entry.plan && typeof entry.plan === "object" ? { plan: entry.plan } : {}),
+          });
         }
       }
     });
@@ -754,7 +774,10 @@ const getUiState = async (service) => {
         : lastStatus?.state === "resumable"
           ? "resumable"
           : "idle";
-    const title = buildTitle(messages, normalizedConversationId);
+    const title =
+      typeof meta?.title === "string" && meta.title.trim()
+        ? meta.title.trim()
+        : buildTitle(messages, normalizedConversationId);
     sessions.push({
       conversationId: normalizedConversationId,
       title,

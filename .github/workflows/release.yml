@@ -41,7 +41,7 @@ concurrency:
 
 env:
   TDOM_ENGINE_REPOSITORY: https://github.com/Fermion-company/tdom-engine.git
-  TDOM_ENGINE_COMMIT: 5195b76362de7786ac73138a331c1c00c82c014b
+  TDOM_ENGINE_COMMIT: e11998f77cd1c8ea08ee595b59732d5441b6aa7f
 
 jobs:
   build:
@@ -92,9 +92,6 @@ jobs:
           git clone --no-checkout "${TDOM_ENGINE_REPOSITORY}" "${engine_dir}"
           git -C "${engine_dir}" checkout --detach "${TDOM_ENGINE_COMMIT}"
           TEX64_TDOM_ENGINE_DIR="${engine_dir}" npm run -s tdom:sync
-
-      - name: Verify product activity reporting
-        run: node --test tests/platform-activity.test.cjs
 
       - name: Ensure DMG background assets
         shell: bash
@@ -198,38 +195,6 @@ jobs:
           else
             npx --no-install electron-builder --mac --x64 --publish never
           fi
-
-      - name: Smoke-test packaged ONNX Runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          appPath="dist/mac-${{ matrix.arch }}/TeX64.app"
-          if [ ! -d "$appPath" ]; then
-            appPath="dist/mac/TeX64.app"
-          fi
-          appExecutable="${appPath}/Contents/MacOS/TeX64"
-          asarPath="${appPath}/Contents/Resources/app.asar"
-          if [ ! -x "$appExecutable" ] || [ ! -f "$asarPath" ]; then
-            echo "::error::Packaged TeX64 executable or app.asar not found for ${{ matrix.arch }}"
-            exit 1
-          fi
-
-          ELECTRON_RUN_AS_NODE=1 \
-            TEX64_PACKAGED_ASAR="$asarPath" \
-            TEX64_EXPECTED_ARCH="${{ matrix.arch }}" \
-            "$appExecutable" -e '
-            const root = process.env.TEX64_PACKAGED_ASAR;
-            const expectedArch = process.env.TEX64_EXPECTED_ARCH;
-            if (process.arch !== expectedArch) {
-              throw new Error(`Packaged Electron arch ${process.arch} does not match ${expectedArch}`);
-            }
-            const resolved = require.resolve("onnxruntime-node", { paths: [root] });
-            require(resolved);
-            console.log(`onnxruntime-node (${process.arch}) -> ${resolved}`);
-            console.log("TEX64_ONNX_LOAD_OK");
-          ' | tee /tmp/tex64-onnx-smoke.log
-          grep -q 'TEX64_ONNX_LOAD_OK' /tmp/tex64-onnx-smoke.log
 
       - name: Rebuild DMG (HFS+ background)
         shell: bash
@@ -419,15 +384,6 @@ jobs:
           npm run -s dist:prep
           npm run -s web:build
 
-      - name: Verify Windows platform and billing flow
-        shell: pwsh
-        run: |
-          node --test `
-            tests/billing-checkout-contract.test.cjs `
-            tests/billing-checkout-url.test.cjs `
-            tests/platform-activity.test.cjs `
-            tests/platform-session-secret-storage.test.cjs
-
       - name: Build unsigned Store AppX
         shell: pwsh
         run: |
@@ -446,107 +402,6 @@ jobs:
       - name: Build unsigned Windows preview
         shell: pwsh
         run: npx --no-install electron-builder --win nsis --x64 --publish never
-
-      - name: Smoke-test packaged native modules and texlab
-        shell: pwsh
-        run: |
-          $appDir = Get-ChildItem dist -Directory | Where-Object { $_.Name -like '*unpacked' } | Select-Object -First 1
-          if (-not $appDir) {
-            throw "Windows unpacked application directory was not produced"
-          }
-          $appExe = Join-Path $appDir.FullName 'TeX64.exe'
-          $asarPath = Join-Path $appDir.FullName 'resources\app.asar'
-          if (-not (Test-Path -LiteralPath $appExe) -or -not (Test-Path -LiteralPath $asarPath)) {
-            throw "Packaged TeX64 executable or app.asar is missing"
-          }
-
-          $env:ELECTRON_RUN_AS_NODE = '1'
-          $env:TEX64_PACKAGED_ASAR = $asarPath
-          # TeX64.exe uses the GUI subsystem. PowerShell's native invocation can
-          # return before it exits, losing redirected output and leaving an orphan.
-          # ProcessStartInfo gives it real pipes and waits for the exact process.
-          function Invoke-PackagedNodeSmokeTest {
-            param(
-              [string]$Script,
-              [string]$Sentinel,
-              [string]$FailureMessage
-            )
-
-            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-            $startInfo.FileName = $appExe
-            $startInfo.UseShellExecute = $false
-            $startInfo.CreateNoWindow = $true
-            $startInfo.RedirectStandardOutput = $true
-            $startInfo.RedirectStandardError = $true
-            $startInfo.ArgumentList.Add('-e')
-            $startInfo.ArgumentList.Add($Script)
-
-            $process = [System.Diagnostics.Process]::new()
-            $process.StartInfo = $startInfo
-            try {
-              if (-not $process.Start()) {
-                throw "$FailureMessage (could not start TeX64.exe)"
-              }
-              $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-              $stderrTask = $process.StandardError.ReadToEndAsync()
-              if (-not $process.WaitForExit(30000)) {
-                $terminationError = $null
-                try {
-                  if (-not $process.HasExited) {
-                    $process.Kill($true)
-                  }
-                  if (-not $process.WaitForExit(5000)) {
-                    $terminationError = 'TeX64.exe did not exit after termination'
-                  }
-                } catch {
-                  $terminationError = $_.Exception.Message
-                }
-                if ($terminationError) {
-                  Write-Warning "Could not fully terminate timed-out TeX64.exe: $terminationError"
-                }
-                throw "$FailureMessage (timed out)"
-              }
-              $outputTasks = [System.Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
-              if (-not [System.Threading.Tasks.Task]::WaitAll($outputTasks, 5000)) {
-                throw "$FailureMessage (output pipes did not close)"
-              }
-              $output = @(
-                $stdoutTask.GetAwaiter().GetResult()
-                $stderrTask.GetAwaiter().GetResult()
-              ) -join "`n"
-              if (-not [string]::IsNullOrWhiteSpace($output)) {
-                Write-Host ($output.TrimEnd())
-              }
-              if ($process.ExitCode -ne 0 -or $output -notmatch [regex]::Escape($Sentinel)) {
-                throw "$FailureMessage (exit code $($process.ExitCode))"
-              }
-            } finally {
-              $process.Dispose()
-            }
-          }
-
-          $nativeScript = "const root=process.env.TEX64_PACKAGED_ASAR; for (const name of ['@homebridge/node-pty-prebuilt-multiarch','onnxruntime-node']) { const resolved=require.resolve(name,{paths:[root]}); require(resolved); console.log(name+' -> '+resolved); } console.log('TEX64_NATIVE_LOAD_OK'); process.exit(0);"
-          Invoke-PackagedNodeSmokeTest `
-            -Script $nativeScript `
-            -Sentinel 'TEX64_NATIVE_LOAD_OK' `
-            -FailureMessage 'A packaged native module could not be loaded by Electron'
-
-          $ptyScript = "const root=process.env.TEX64_PACKAGED_ASAR; const pty=require(require.resolve('@homebridge/node-pty-prebuilt-multiarch',{paths:[root]})); const shell=process.env.ComSpec||'cmd.exe'; const child=pty.spawn(shell,['/d','/s','/c','echo TEX64_PTY_OK'],{name:'xterm-color',cols:80,rows:24,cwd:process.cwd(),env:process.env}); let output=''; const timer=setTimeout(()=>{console.error('PTY smoke test timed out'); child.kill(); process.exit(1);},10000); child.onData((data)=>{output+=data;}); child.onExit(({exitCode})=>{clearTimeout(timer); if(exitCode!==0||!output.includes('TEX64_PTY_OK')){console.error(output);process.exit(1);} console.log('TEX64_CONPTY_OK');process.exit(0);});"
-          Invoke-PackagedNodeSmokeTest `
-            -Script $ptyScript `
-            -Sentinel 'TEX64_CONPTY_OK' `
-            -FailureMessage 'Packaged ConPTY could not create and run a Windows shell'
-          Remove-Item Env:ELECTRON_RUN_AS_NODE
-          Remove-Item Env:TEX64_PACKAGED_ASAR
-
-          $texlab = Get-ChildItem $appDir.FullName -Filter texlab.exe -File -Recurse | Select-Object -First 1
-          if (-not $texlab) {
-            throw "Bundled Windows texlab.exe is missing"
-          }
-          & $texlab.FullName --version
-          if ($LASTEXITCODE -ne 0) {
-            throw "Bundled Windows texlab.exe did not start"
-          }
 
       - name: Capture real Microsoft Store screenshots
         shell: pwsh

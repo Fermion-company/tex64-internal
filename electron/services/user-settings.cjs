@@ -1,94 +1,15 @@
 const path = require("path");
 const fsp = require("fs/promises");
 const { migrateLegacyAxiomModel } = require("./openprism/llm-config.cjs");
-const {
-  resolveMaxAgentIterations,
-} = require("./openprism/run-budget.cjs");
 
 const MAX_RECENT_PROJECTS = 10;
 
 const DEFAULT_SETTINGS = {
+  // The agent's behaviour (iterations, auto-apply, auto-build, file limits,
+  // blocked folders, endpoint) is fixed in code; the only stored choice is
+  // the model. Developer overrides stay on environment variables.
   agent: {
     model: "Axiom1.0",
-    endpoint: "",
-    maxIterations: 24,
-    stream: true,
-    autoApply: true,
-    autoBuild: true,
-    allowRunCommand: false,
-    maxFileBytes: 400_000,
-    maxReadFiles: 16,
-    openFileMaxBytes: 0,
-    openFileMaxChars: 12000,
-    allowedTopLevel: [],
-    blockedTopLevel: [
-      ".git",
-      ".tex64",
-      ".ssh",
-      ".aws",
-      ".gnupg",
-      ".npm",
-      ".yarn",
-      ".pnpm-store",
-      ".cache",
-      "node_modules",
-      "build",
-      "dist",
-      "out",
-      "coverage",
-      ".next",
-      ".swiftpm",
-      "DerivedData",
-      "tex64.xcodeproj",
-      ".env",
-      ".env.local",
-      ".env.development",
-      ".env.production",
-      ".env.test",
-      ".npmrc",
-      ".yarnrc",
-      ".yarnrc.yml",
-      ".pypirc",
-      ".netrc",
-    ],
-    textExtensions: [
-      "tex",
-      "bib",
-      "sty",
-      "cls",
-      "ltx",
-      "dtx",
-      "md",
-      "txt",
-      "log",
-      "json",
-      "yaml",
-      "yml",
-      "toml",
-      "csv",
-      "tsv",
-      "xml",
-      "html",
-      "css",
-      "svg",
-      "js",
-      "ts",
-      "cjs",
-      "mjs",
-      "sh",
-      "py",
-    ],
-    extraTextExtensions: [
-      "aux",
-      "toc",
-      "out",
-      "bbl",
-      "blg",
-      "fls",
-      "fdb_latexmk",
-    ],
-    costInputPerMillion: 0,
-    costOutputPerMillion: 0,
   },
   recentProjects: [],
   dismissedAnnouncementIds: [],
@@ -134,20 +55,17 @@ class UserSettingsService {
       storedObject.agent && typeof storedObject.agent === "object"
         ? storedObject.agent
         : {};
+    // Older settings files carried agent knobs; only the model survives.
     const mergedAgent = {
       ...clone(DEFAULT_SETTINGS.agent),
-      ...storedAgent,
+      ...(typeof storedAgent.model === "string" ? { model: storedAgent.model } : {}),
     };
-    const didDisableRunCommand = mergedAgent.allowRunCommand !== false;
-    mergedAgent.allowRunCommand = false;
-    const safeMaxIterations = resolveMaxAgentIterations(mergedAgent.maxIterations);
-    const didClampMaxIterations = safeMaxIterations !== mergedAgent.maxIterations;
-    mergedAgent.maxIterations = safeMaxIterations;
+    const hadLegacyAgentKeys = Object.keys(storedAgent).some((key) => key !== "model");
     const migratedModel = migrateLegacyAxiomModel(mergedAgent.model);
     const didMigrateModel = migratedModel !== mergedAgent.model;
-    if (didMigrateModel || didDisableRunCommand || didClampMaxIterations) {
-      mergedAgent.model = migratedModel;
-    }
+    mergedAgent.model = migratedModel;
+    const didDisableRunCommand = hadLegacyAgentKeys;
+    const didClampMaxIterations = false;
 
     this.state = {
       ...clone(DEFAULT_SETTINGS),
@@ -179,15 +97,15 @@ class UserSettingsService {
 
   async updateAgentSettings(partial) {
     const state = await this.load();
+    const accepted =
+      partial && typeof partial === "object" && typeof partial.model === "string"
+        ? { model: partial.model }
+        : {};
     state.agent = {
       ...state.agent,
-      ...(partial && typeof partial === "object" ? partial : {}),
+      ...accepted,
     };
     state.agent.model = migrateLegacyAxiomModel(state.agent.model);
-    state.agent.allowRunCommand = false;
-    state.agent.maxIterations = resolveMaxAgentIterations(
-      state.agent.maxIterations,
-    );
     this.state = state;
     await this.save();
     return clone(state.agent);

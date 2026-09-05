@@ -150,11 +150,10 @@ export const resolveEffectiveSubscription = (subscription, config = {}) => {
   if (!isObject(subscription)) {
     return subscription;
   }
-  const rawPlan = normalizePlan(subscription.plan, "free");
   const rawStatus = normalizeStatus(subscription.status, "active");
-  const isCanceledPaidPlan =
-    (rawPlan === "basic" || rawPlan === "pro") && rawStatus === "canceled";
-  if (!isCanceledPaidPlan) {
+  // Every account keeps the Free entitlement. A canceled record, whatever plan
+  // it once carried, is therefore Free and active, never "AI disabled".
+  if (rawStatus !== "canceled") {
     return subscription;
   }
   return {
@@ -496,9 +495,6 @@ export const buildQuotaSummary = (usage) => {
 const resolveQuotaDisabledReason = (subscription, quota) => {
   if (subscription.status === "past_due") {
     return "PAYMENT_PAST_DUE";
-  }
-  if (subscription.status === "canceled") {
-    return "FEATURE_NOT_ENABLED";
   }
   if (subscription.plan === "free" && quota.limitTokens <= 0) {
     return "PLAN_REQUIRED";

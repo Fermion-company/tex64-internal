@@ -266,6 +266,110 @@ const createWorkspaceFileHandlers = (ctx) => {
   const MAX_FILE_BYTES_RESULT = 32 * 1024 * 1024;
   const VIEWABLE_BYTE_FORMATS = new Set(["pdf", "png", "jpg", "jpeg"]);
 
+  // Files the reader drops into the AI conversation land here, next to the
+  // document, so the agent can \\includegraphics or read them in later turns.
+  const ATTACHMENT_DIRECTORY = "assets";
+  const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+  const ATTACHMENT_EXTENSIONS = new Set([
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "pdf",
+    "csv", "tsv", "txt", "md", "json", "xlsx", "xls", "tex", "bib", "dat",
+  ]);
+
+  const safeAttachmentName = (value) => {
+    const base = path.basename(String(value ?? "").replace(/\\/g, "/")).trim();
+    const cleaned = base
+      .replace(/[\u0000-\u001f<>:"|?*]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cleaned || cleaned === "." || cleaned === ".." || cleaned.startsWith(".")) return null;
+    return cleaned.length > 120 ? cleaned.slice(-120) : cleaned;
+  };
+
+  const handleImportAttachment = async (requestId, options = {}) => {
+    if (!requestId || typeof requestId !== "string") return;
+    const identity = requestIdentity(options);
+    const documentMainFile =
+      typeof options.documentMainFile === "string" && options.documentMainFile.trim()
+        ? options.documentMainFile.trim().replace(/\\/g, "/").replace(/^\.\/+/, "")
+        : "";
+    const reply = (payload) =>
+      sendToRenderer("file:importAttachmentResult", {
+        requestId,
+        ...identityPayload(identity),
+        ...(documentMainFile ? { documentMainFile } : {}),
+        ...payload,
+      });
+    const fail = (error, extra = {}) => reply({ ok: false, error, ...extra });
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      fail("No workspace is selected.");
+      return;
+    }
+    if (!workspaceRequestIsCurrent(rootPath, identity)) {
+      fail("The workspace changed.", { stale: true });
+      return;
+    }
+    const name = safeAttachmentName(options.name);
+    if (!name) {
+      fail("The file name is not usable.");
+      return;
+    }
+    if (!ATTACHMENT_EXTENSIONS.has(getFileExtension(name))) {
+      fail("This format cannot be attached.");
+      return;
+    }
+    const data = typeof options.data === "string" ? options.data.replace(/\s+/g, "") : "";
+    if (!data || !/^[A-Za-z0-9+/]+=*$/.test(data)) {
+      fail("The file data is not usable.");
+      return;
+    }
+    if (Math.floor((data.length * 3) / 4) > MAX_ATTACHMENT_BYTES) {
+      fail("The file is too large to attach (20 MB limit).");
+      return;
+    }
+    const buffer = Buffer.from(data, "base64");
+    if (buffer.length === 0) {
+      fail("The file is empty.");
+      return;
+    }
+    const digest = crypto.createHash("sha256").update(buffer).digest("hex");
+    try {
+      await updateWorkspaceIfNeeded(rootPath);
+      const saved = await mutateCapturedWorkspace(rootPath, async () => {
+        const dot = name.lastIndexOf(".");
+        const stem = dot > 0 ? name.slice(0, dot) : name;
+        const extension = dot > 0 ? name.slice(dot) : "";
+        let candidate = `${ATTACHMENT_DIRECTORY}/${name}`;
+        for (let ordinal = 2; ordinal < 1000; ordinal += 1) {
+          let stats = null;
+          try {
+            stats = fs.statSync(resolveWorkspacePath(candidate));
+          } catch (_error) {
+            stats = null;
+          }
+          if (!stats) break;
+          if (stats.isFile() && stats.size === buffer.length) {
+            const existing = await workspace.readBinaryFile(candidate);
+            if (crypto.createHash("sha256").update(existing).digest("hex") === digest) {
+              return { path: candidate, reused: true };
+            }
+          }
+          candidate = `${ATTACHMENT_DIRECTORY}/${stem}-${ordinal}${extension}`;
+        }
+        await workspace.writeBinaryFile(candidate, buffer);
+        await sendWorkspace(rootPath);
+        return { path: candidate, reused: false };
+      });
+      if (!workspaceRequestIsCurrent(rootPath, identity)) {
+        fail("The workspace changed.", { stale: true });
+        return;
+      }
+      reply({ ok: true, path: saved.path, reused: saved.reused, byteSize: buffer.length });
+    } catch (error) {
+      fail(error?.message || "Could not save the file.");
+    }
+  };
+
   const handleFileBytes = async (requestId, relativePath, options = {}) => {
     if (!requestId || typeof requestId !== "string") return;
     const identity = requestIdentity(options);
@@ -1031,6 +1135,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     handleFilePreview,
     handleFileExcerpt,
     handleFileBytes,
+    handleImportAttachment,
     handleSaveFile,
     handleReplaceLines,
     handleFormatFile,

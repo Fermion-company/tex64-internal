@@ -333,13 +333,15 @@ export function useWorkspacePdf(
         setLastBuilt(page);
         window.localStorage.setItem(rememberedPdfKey(expected, targetFile), pdfPath);
       } else if (state === "failed") {
+        // The compiler's own words (a raw "! Emergency stop." and the like)
+        // never reach the paper. The agent repairs builds on its next turn;
+        // the page only says that the paper is waiting.
         nextTarget = {
           ...previous,
           building: false,
-          failure:
-            typeof body.message === "string" && body.message
-              ? body.message
-              : "紙面を組み立てられませんでした。",
+          failure: previous.page
+            ? "紙面はまだ前の状態です。次の変更で更新されます。"
+            : "本文が整うと紙面ができます。",
           requestId: requestId ?? previous.requestId,
         };
       } else if (state === "idle") {
@@ -432,22 +434,42 @@ export function useWorkspacePdf(
       replaceLoadedPdf(null);
     }
     let cancelled = false;
-    void requestFromHost(host, {
-      type: "file:bytes",
-      resultType: "file:bytesResult",
-      payload: {
-        path: expectedPath,
-        documentMainFile: expectedMainFile,
-        ...workspaceRequestFields(expected),
-      },
-      timeoutMs: 30_000,
-    })
-      .then((reply) => {
-        if (cancelled || !sameWorkspaceSession(identityRef.current, expected)) return;
+    // The host streams the PDF through its own scheme: a plain fetch of the
+    // file, scoped to the current workspace. The bridge (base64 in a message)
+    // is only the fallback for a host without the scheme.
+    const streamedUrl = `tex64-pdf://workspace/${expectedPath
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/")}?workspaceId=${encodeURIComponent(expected.workspaceId)}&workspaceGeneration=${encodeURIComponent(String(expected.workspaceGeneration))}`;
+    const loadThroughScheme = async (): Promise<Uint8Array<ArrayBuffer>> => {
+      const response = await fetch(streamedUrl, { cache: "no-store" });
+      if (!response.ok) throw new Error(`PDF stream failed (${response.status}).`);
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength === 0 || buffer.byteLength > MAX_NATIVE_PDF_BYTES) {
+        throw new Error("Invalid PDF payload size.");
+      }
+      return new Uint8Array(buffer);
+    };
+    const loadThroughBridge = () =>
+      requestFromHost(host, {
+        type: "file:bytes",
+        resultType: "file:bytesResult",
+        payload: {
+          path: expectedPath,
+          documentMainFile: expectedMainFile,
+          ...workspaceRequestFields(expected),
+        },
+        timeoutMs: 30_000,
+      }).then((reply) => {
         if (!nativePdfReplyMatches(reply, expected, expectedMainFile, expectedPath)) {
           throw new Error("The PDF response did not match its request.");
         }
-        const bytes = decodeNativePdf(reply.base64 as string, reply.byteSize);
+        return decodeNativePdf(reply.base64 as string, reply.byteSize);
+      });
+    void loadThroughScheme()
+      .catch(() => loadThroughBridge())
+      .then((bytes) => {
+        if (cancelled || !sameWorkspaceSession(identityRef.current, expected)) return;
         const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
         if (cancelled || !sameWorkspaceSession(identityRef.current, expected)) {
           URL.revokeObjectURL(url);

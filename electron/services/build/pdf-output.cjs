@@ -14,6 +14,62 @@ const IGNORED_SOURCE_DIRECTORIES = new Set([
 ]);
 const MAX_STAGED_SOURCE_DIRECTORIES = 10_000;
 const SYNC_OUTPUT_SUFFIXES = [".synctex.gz", ".synctex"];
+// TeX reads these back on the next run: the table of contents, labels,
+// bibliography and index state. A staged build starts from the last good
+// set so one run usually suffices and the workspace copies stay current.
+const AUXILIARY_SUFFIXES = [
+  ".aux", ".toc", ".lof", ".lot", ".loa", ".lol", ".out", ".bbl", ".bcf", ".blg",
+  ".run.xml", ".idx", ".ind", ".ilg", ".glo", ".gls", ".acn", ".acr", ".ist", ".xdy",
+  ".nav", ".snm", ".vrb", ".thm",
+];
+
+const copyRegularFile = (fromPath, toPath) => {
+  const stats = lstatOrNull(fromPath);
+  if (!stats || !stats.isFile() || stats.isSymbolicLink()) return false;
+  const targetStats = lstatOrNull(toPath);
+  if (targetStats && (!targetStats.isFile() || targetStats.isSymbolicLink())) return false;
+  fs.copyFileSync(fromPath, toPath);
+  return true;
+};
+
+const auxiliaryFileNames = (stem, directory, extraSuffixes = []) => {
+  const names = [...AUXILIARY_SUFFIXES, ...extraSuffixes].map((suffix) => `${stem}${suffix}`);
+  // Chapters pulled in with \include keep their own .aux beside the main one.
+  let entries = [];
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    entries = [];
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".aux") && !names.includes(entry.name)) {
+      names.push(entry.name);
+    }
+  }
+  return names;
+};
+
+/** Seeds the staging directory with the previous build's auxiliary files. */
+const seedStagedAuxiliaries = ({ outputDir, stagingDir, stem }) => {
+  for (const name of auxiliaryFileNames(stem, outputDir)) {
+    try {
+      copyRegularFile(path.join(outputDir, name), path.join(stagingDir, name));
+    } catch {
+      // A missing or unreadable auxiliary only costs an extra TeX run.
+    }
+  }
+};
+
+/** After the PDF is committed, the auxiliaries and log follow it. */
+const carryBackStagedAuxiliaries = ({ outputDir, stagingDir, stem }) => {
+  for (const name of auxiliaryFileNames(stem, stagingDir, [".log"])) {
+    try {
+      copyRegularFile(path.join(stagingDir, name), path.join(outputDir, name));
+    } catch {
+      // The paper is already in place; stale auxiliaries are refreshed next time.
+    }
+  }
+};
 
 const resolveRealPath = (value) => {
   try {
@@ -325,6 +381,11 @@ module.exports = (BuildService) => {
         rootPath: rootRealPath,
         stagingDir,
       });
+      seedStagedAuxiliaries({
+        outputDir: outputDirRealPath,
+        stagingDir,
+        stem: path.basename(expectedPdfPath).replace(/\.pdf$/i, ""),
+      });
     } catch (error) {
       removeDirectory(transactionDir);
       throw error;
@@ -414,6 +475,11 @@ module.exports = (BuildService) => {
     }
     fs.renameSync(resolvedPdfPath, finalPdfPath);
     transaction.committed = true;
+    carryBackStagedAuxiliaries({
+      outputDir: path.dirname(finalPdfPath),
+      stagingDir,
+      stem: path.basename(finalPdfPath).replace(/\.pdf$/i, ""),
+    });
     return finalPdfPath;
   };
 

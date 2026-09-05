@@ -1,5 +1,6 @@
 import type { AppContext } from "./context.js";
 import { uiText } from "./i18n.js";
+import { aiText } from "./ai-i18n.js";
 import type { IndexEntry } from "./types.js";
 import type { EditorGroupKey, EditorSessionApi, EditorGroupState } from "./editor-session.js";
 import {
@@ -429,7 +430,9 @@ export const initMonacoSetup = (
           }
         );
 
-        // C-1: Inline AI editing — Cmd+K to open AI panel with selection context
+        // Selection → Axiom: the context-menu entry (⌘K) and a small button
+        // that floats at the end of a selection in a .tex file. Both open the
+        // chat with the selection as its context.
         if (deps.openAiWithSelection) {
           const KeyMod = (monacoWindow.monaco as any)?.KeyMod;
           const KeyCode = (monacoWindow.monaco as any)?.KeyCode;
@@ -437,7 +440,7 @@ export const initMonacoSetup = (
           if (KeyMod && KeyCode) {
             (editor as any).addAction?.({
               id: "tex64.ai-edit-selection",
-              label: uiText("Edit with Axiom", "Axiomで編集"),
+              label: aiText("ask_axiom"),
               keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],
               contextMenuGroupId: "9_ai",
               contextMenuOrder: 1,
@@ -445,6 +448,60 @@ export const initMonacoSetup = (
               run: () => { openAi(); },
             });
           }
+          const preference = (monacoWindow.monaco as any)?.editor?.ContentWidgetPositionPreference;
+          const askNode = document.createElement("button");
+          askNode.type = "button";
+          askNode.className = "ai-selection-ask";
+          askNode.textContent = aiText("ask_axiom");
+          askNode.addEventListener("mousedown", (event) => {
+            // Keep the editor selection: it is what the chat receives.
+            event.preventDefault();
+            event.stopPropagation();
+          });
+          askNode.addEventListener("click", (event) => {
+            event.preventDefault();
+            openAi();
+          });
+          let askPosition: { lineNumber: number; column: number } | null = null;
+          const askWidget = {
+            getId: () => "tex64.ai-selection-ask",
+            getDomNode: () => askNode,
+            getPosition: () =>
+              askPosition
+                ? {
+                    position: askPosition,
+                    preference: preference ? [preference.BELOW, preference.ABOVE] : [2, 1],
+                  }
+                : null,
+          };
+          let askShown = false;
+          const hideAsk = () => {
+            askPosition = null;
+            if (askShown) {
+              (editor as any).removeContentWidget?.(askWidget);
+              askShown = false;
+            }
+          };
+          const syncAsk = () => {
+            const selection = (editor as any).getSelection?.();
+            const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
+            const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
+            if (!isTex || empty) {
+              hideAsk();
+              return;
+            }
+            askNode.textContent = aiText("ask_axiom");
+            askPosition = { lineNumber: selection.endLineNumber, column: selection.endColumn };
+            if (!askShown) {
+              (editor as any).addContentWidget?.(askWidget);
+              askShown = true;
+            } else {
+              (editor as any).layoutContentWidget?.(askWidget);
+            }
+          };
+          editor.onDidChangeCursorSelection?.(() => syncAsk());
+          editor.onDidChangeModelContent?.(() => hideAsk());
+          (editor as any).onDidChangeModel?.(() => hideAsk());
         }
 
         (editor as any).addAction?.({

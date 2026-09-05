@@ -149,7 +149,10 @@ class AiWebService {
   }
 
   resolveDevUrl() {
-    return DEFAULT_DEV_URL;
+    // Source builds only: point the AI mode at a dev server on another port
+    // when 3100 is taken (TEX64_AI_WEB_URL=http://localhost:3110).
+    const override = process.env.TEX64_AI_WEB_URL;
+    return isHttpUrl(override) ? override.trim() : DEFAULT_DEV_URL;
   }
 
   resolveNativeBundleDir() {

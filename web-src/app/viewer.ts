@@ -48,6 +48,16 @@ export type ViewerDeps = {
     column: number;
   }) => void;
   onLiveEditRequest?: (payload: LivePreviewEditRequest) => void;
+  /** The reader marked a place on the page and wants to talk to Axiom about it. */
+  onPdfAskAxiom?: (payload: {
+    page: number;
+    x: number;
+    y: number;
+    text: string;
+    pdfPath: string | null;
+    /** The live preview's own source position; the static viewer has none. */
+    source?: { file: string; line: number; column: number } | null;
+  }) => void;
 };
 
 export const createViewer = (deps: ViewerDeps) => {
@@ -129,6 +139,30 @@ export const createViewer = (deps: ViewerDeps) => {
       }
       const pdfPath = typeof detail?.path === "string" ? detail.path : null;
       deps.onPdfReverseRequest?.({ page, x, y, pdfPath });
+      return;
+    }
+    if (payload.type === "ask-axiom") {
+      const detail = (payload as { payload?: unknown }).payload as
+        | { page?: unknown; x?: unknown; y?: unknown; text?: unknown; path?: unknown; source?: unknown }
+        | null
+        | undefined;
+      const page = Number(detail?.page);
+      const x = Number(detail?.x);
+      const y = Number(detail?.y);
+      const rawSource = detail?.source as { file?: unknown; line?: unknown; column?: unknown } | null | undefined;
+      const source =
+        rawSource && typeof rawSource.file === "string" && Number.isFinite(Number(rawSource.line))
+          ? { file: rawSource.file, line: Number(rawSource.line), column: Number.isFinite(Number(rawSource.column)) ? Number(rawSource.column) : 1 }
+          : null;
+      if (!Number.isFinite(page) || (!source && (!Number.isFinite(x) || !Number.isFinite(y)))) return;
+      deps.onPdfAskAxiom?.({
+        page,
+        x: Number.isFinite(x) ? x : 0,
+        y: Number.isFinite(y) ? y : 0,
+        text: typeof detail?.text === "string" ? detail.text : "",
+        pdfPath: typeof detail?.path === "string" ? detail.path : null,
+        ...(source ? { source } : {}),
+      });
       return;
     }
     if (payload.type === "live-source") {

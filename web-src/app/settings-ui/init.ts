@@ -12,6 +12,7 @@ import { createSettingsFormatOps } from "./format-ops.js";
 import { createSettingsEditorPreferenceOps } from "./editor-preferences-ops.js";
 import { createSettingsEnvOps } from "./env-ops.js";
 import { createSettingsPlatformAuthOps } from "./platform-auth-ops.js";
+import { createSettingsAccountUsageOps } from "./account-usage-ops.js";
 import { createSettingsPlatformUpdateOps } from "./platform-update-ops.js";
 import { createSettingsFeedbackOps } from "./feedback-ops.js";
 import { createSettingsPageNavOps } from "./page-nav-ops.js";
@@ -29,6 +30,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
   const editorPrefOps = createSettingsEditorPreferenceOps(runtime);
   const envOps = createSettingsEnvOps(runtime, attentionOps);
   const platformAuthOps = createSettingsPlatformAuthOps(runtime);
+  const accountUsageOps = createSettingsAccountUsageOps(runtime);
   const platformUpdateOps = createSettingsPlatformUpdateOps(runtime, attentionOps);
   const feedbackOps = createSettingsFeedbackOps(runtime);
   const appearanceOps = createSettingsAppearanceOps(runtime);
@@ -134,6 +136,7 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
   engineOps.updateEngineUI();
   feedbackOps.initFeedbackUi();
   platformAuthOps.updatePlatformAuthUi();
+  accountUsageOps.render();
   envOps.updateRuntimeSetupUi();
   envOps.updateRuntimeOnboardingUi();
   platformUpdateOps.updatePlatformUpdateUi();
@@ -158,7 +161,12 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     handlePlatformFeedback: feedbackOps.handlePlatformFeedback,
     submitFeedback: feedbackOps.submit,
     onFeedbackStatus: feedbackOps.onStatus,
-    handlePlatformAuth: platformAuthOps.handlePlatformAuth,
+    handlePlatformAuth: (payload) => {
+      platformAuthOps.handlePlatformAuth(payload);
+      accountUsageOps.render();
+    },
+    handlePlatformAiAccess: accountUsageOps.handlePlatformAiAccess,
+    handlePlatformUsage: accountUsageOps.handlePlatformUsage,
     handlePlatformUpdate: platformUpdateOps.handlePlatformUpdate,
     handlePlatformUpdateStatus: platformUpdateOps.handlePlatformUpdateStatus,
     openSettingsPage: (pageId) => pageNavOps.setSettingsPage(pageId),

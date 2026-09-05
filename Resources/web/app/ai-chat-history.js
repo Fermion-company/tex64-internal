@@ -1,3 +1,5 @@
+import { aiText } from "./ai-i18n.js";
+import { formatRelativeTime } from "./ai-chat-message.js";
 export const createHistoryController = (params) => {
     const { aiHistory, aiHistoryList, aiHistoryToggle, chats, chatIndex, proposalIndex, runningConversations, getActiveChatId, switchActiveChat, resetToNewChatState, postToNative, } = params;
     let historyOpen = false;
@@ -77,16 +79,22 @@ export const createHistoryController = (params) => {
                 item.classList.add("is-active");
             if (runningConversations.has(chat.id))
                 item.classList.add("is-running");
-            const suffixParts = [];
-            if (runningConversations.has(chat.id))
-                suffixParts.push("Running");
-            if (chat.proposals.size > 0)
-                suffixParts.push(`Proposals ${chat.proposals.size}`);
-            const suffix = suffixParts.length > 0 ? ` (${suffixParts.join(" / ")})` : "";
             const label = document.createElement("button");
             label.className = "ai-history-item";
             label.type = "button";
-            label.textContent = `${chat.title}${suffix}`;
+            const title = document.createElement("span");
+            title.className = "ai-history-title";
+            title.textContent = chat.title;
+            label.appendChild(title);
+            const meta = document.createElement("span");
+            meta.className = "ai-history-meta";
+            const when = chat.updatedAt ? formatRelativeTime(chat.updatedAt) : "";
+            const parts = [when];
+            if (chat.branchedFrom)
+                parts.push(aiText("branched"));
+            meta.textContent = parts.filter(Boolean).join(" · ");
+            if (meta.textContent)
+                label.appendChild(meta);
             label.addEventListener("click", () => {
                 switchActiveChat(chat.id);
                 closeHistory();

@@ -19,34 +19,39 @@ export type AppModeTransitionResult = {
   error?: string;
 };
 
-/** Stop every workspace writer before Code persists its final buffers. */
+/**
+ * Persist Code's buffers before another surface or another root takes over
+ * the files. A project switch also stops every writer first (`quiesce`); a
+ * mode switch passes none and lets work continue.
+ */
 export const prepareCodeWorkspaceHandoff = async (input: {
-  quiesce: () => Promise<{ ok: boolean; error?: string }>;
+  quiesce?: () => Promise<{ ok: boolean; error?: string }>;
   saveCode: () => Promise<boolean>;
 }): Promise<AppModeTransitionResult> => {
-  const quiet = await input.quiesce();
-  if (!quiet.ok) return { ok: false, phase: "quiesce", error: quiet.error };
+  if (input.quiesce) {
+    const quiet = await input.quiesce();
+    if (!quiet.ok) return { ok: false, phase: "quiesce", error: quiet.error };
+  }
   if (!(await input.saveCode())) return { ok: false, phase: "save" };
   return { ok: true };
 };
 
 /**
- * Hands one workspace between the two surfaces. Stop every writer first;
- * only then persist Code's buffers, so the old agent cannot overwrite the
- * state AI mode receives after the save completes.
+ * Hands one workspace between the two surfaces. Work in flight keeps running
+ * in the host: an agent turn or a build started in either mode continues in
+ * the background and each surface picks up its result. Only Code's unsaved
+ * buffers are persisted first, so the paper never shows stale text. Stopping
+ * work is reserved for leaving the workspace or closing the window.
  */
 export const prepareAppModeTransition = async (input: {
   next: AppMode;
   previous: AppMode | null;
-  quiesce: () => Promise<{ ok: boolean; error?: string }>;
   saveCode: () => Promise<boolean>;
 }): Promise<AppModeTransitionResult> => {
   if (input.previous === null) return { ok: true };
   if (input.next === "ai") {
     return prepareCodeWorkspaceHandoff(input);
   }
-  const quiet = await input.quiesce();
-  if (!quiet.ok) return { ok: false, phase: "quiesce", error: quiet.error };
   return { ok: true };
 };
 

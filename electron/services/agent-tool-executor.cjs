@@ -27,7 +27,7 @@ const {
   renameLatexInText,
 } = require("./agent-latex.cjs");
 const { readFileFromDisk } = require("./agent-tools-file.cjs");
-const { TOOL_STATUS_LABELS, clipText } = require("./agent-core-utils.cjs");
+const { clipText } = require("./agent-core-utils.cjs");
 
 const WORKSPACE_CHANGED_ERROR =
   "The workspace changed during this Axiom turn. The compile result was discarded; retry in the current workspace.";
@@ -116,22 +116,11 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       return text.length > max ? `${text.slice(0, max)}…` : text;
     };
 
-    // ---- Status label for IPC ----
-    const statusLabel = TOOL_STATUS_LABELS[name];
-    if (statusLabel) {
-      let detail = statusLabel;
-      if (name === "rename_latex_symbol") {
-        const from = clip(args.from, 24);
-        const to = clip(args.to, 24);
-        if (from && to) detail = `${statusLabel}: ${from} → ${to}`;
-      } else if (name === "run_build") {
-        const mainFile = clip(args.mainFile, 64);
-        const engine = clip(args.engine, 16);
-        if (mainFile || engine) {
-          detail = `${statusLabel}: ${[mainFile, engine].filter(Boolean).join(" ")}`;
-        }
-      }
-      service.sendStatus("running", detail, conversationId);
+    // ---- Status for IPC ----
+    // The tool event (name + target) carries the specifics; the status line
+    // only says that work is going on, in words each UI localizes.
+    if (name === "run_build" || name === "rename_latex_symbol") {
+      service.sendStatus("running", "Working...", conversationId);
     }
 
     // ---- run_build ----
@@ -353,6 +342,24 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         };
       }
       if (result.kind === "success") {
+        // A PDF that came out with error-level issues (missing glyphs: the
+        // text is simply absent from the page) is not a success for the
+        // agent. Report it as a failure with the fix in the message, so the
+        // repair round changes the setup instead of moving on.
+        const errorIssues = result.issues.filter((issue) => issue.severity === "error");
+        if (errorIssues.length > 0) {
+          const summaryText = errorIssues[0]?.message ?? result.summary;
+          service.sendBuildState?.("failed", summaryText, buildEventContext);
+          service.sendIssues?.(errorIssues.length, summaryText, "error", errorIssues);
+          return {
+            status: "failure",
+            targetFile,
+            summary: `The PDF was produced but has ${errorIssues.length} error(s): ${summaryText}`,
+            issues: errorIssues,
+            pdfPath: result.pdfPath ?? null,
+            logExcerpt: compileLogExcerpt(result.log),
+          };
+        }
         const warningIssues = result.issues.filter(
           (issue) => issue.severity === "warning"
         );

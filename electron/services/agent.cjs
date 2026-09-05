@@ -3,7 +3,6 @@ const path = require("path");
 const {
   DEFAULT_MAX_ITERATIONS,
   buildAgentPolicy,
-  clampNumber,
 } = require("./agent-policy.cjs");
 const {
   clipText,
@@ -76,6 +75,7 @@ class AgentService {
     sessionsService,
     platformAccess,
     envService,
+    synctexService,
     isRendererWorkspaceMutationActive,
   }) {
     this.workspace = workspace;
@@ -92,6 +92,9 @@ class AgentService {
     this.apiUsageService = apiUsageService;
     this.platformAccess = platformAccess ?? null;
     this.envService = envService ?? null;
+    this.synctexService = synctexService ?? null;
+    /** Written proposals of a conversation whose page is looked up after a build. */
+    this.proposalScopesByConversation = new Map();
     this.isRendererWorkspaceMutationActive =
       typeof isRendererWorkspaceMutationActive === "function"
         ? isRendererWorkspaceMutationActive
@@ -400,6 +403,7 @@ class AgentService {
     this.undoPersistenceBarriersByConversation.delete(normalized);
     this.contentConflictsByConversation.delete(normalized);
     this.contentConflictWorkspaceRootsByConversation.delete(normalized);
+    this.proposalScopesByConversation.delete(normalized);
     this.applyUndoStack = this.applyUndoStack.filter((entry) => entry?.conversationId !== normalized);
     this.emitUndoAvailability(normalized);
     if (this.sessionsService) {
@@ -583,14 +587,12 @@ class AgentService {
     return policy;
   }
 
-  resolveAgentOptions(settings) {
+  resolveAgentOptions() {
+    // The agent's nature is fixed in code: edits apply directly, every edit
+    // is built, the shell is never available. Nothing here is a preference.
     const options = {
-      maxIterations: clampNumber(
-        settings?.maxIterations,
-        DEFAULT_MAX_ITERATIONS,
-        { min: 1, max: DEFAULT_MAX_ITERATIONS }
-      ),
-      stream: settings?.stream !== false,
+      maxIterations: DEFAULT_MAX_ITERATIONS,
+      stream: true,
       autoApply: true,
       autoBuild: true,
       allowRunCommand: false,
