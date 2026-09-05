@@ -21,7 +21,7 @@ type VoiceControllerDeps = {
 export type VoiceController = {
   toggle: () => void;
   isBusy: () => boolean;
-  handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string }) => void;
+  handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => void;
   syncLabels: () => void;
 };
 
@@ -224,7 +224,7 @@ export const createVoiceController = (deps: VoiceControllerDeps): VoiceControlle
     else void start();
   };
 
-  const handleTranscribeResult = (payload: { requestId?: string; ok?: boolean; text?: string; error?: string }) => {
+  const handleTranscribeResult = (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => {
     if (!pendingRequestId || payload?.requestId !== pendingRequestId) return;
     pendingRequestId = null;
     setState("idle");
@@ -233,7 +233,7 @@ export const createVoiceController = (deps: VoiceControllerDeps): VoiceControlle
       insertText(payload.text);
       return;
     }
-    notify(typeof payload.error === "string" && payload.error.trim() ? payload.error.trim() : aiText("mic_failed"));
+    notify(payload.code === "empty" ? aiText("mic_empty") : typeof payload.error === "string" && payload.error.trim() ? payload.error.trim() : aiText("mic_failed"));
   };
 
   button.addEventListener("click", (event) => {

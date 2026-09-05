@@ -211,7 +211,7 @@ export const createVoiceController = (deps) => {
             insertText(payload.text);
             return;
         }
-        notify(typeof payload.error === "string" && payload.error.trim() ? payload.error.trim() : aiText("mic_failed"));
+        notify(payload.code === "empty" ? aiText("mic_empty") : typeof payload.error === "string" && payload.error.trim() ? payload.error.trim() : aiText("mic_failed"));
     };
     button.addEventListener("click", (event) => {
         event.preventDefault();

@@ -130,6 +130,7 @@ const STRINGS = {
     // ── Voice ──
     mic_transcribing: { en: "Transcribing…", ja: "文字にしています…", zh: "正在转写…", ko: "받아쓰는 중…", fr: "Transcription…", de: "Transkribiere…", es: "Transcribiendo…" },
     mic_denied: { en: "Microphone access was not granted.", ja: "マイクの使用が許可されていません。", zh: "未授予麦克风权限。", ko: "마이크 사용이 허용되지 않았습니다.", fr: "L'accès au micro n'a pas été accordé.", de: "Mikrofonzugriff wurde nicht gewährt.", es: "No se concedió acceso al micrófono." },
+    mic_empty: { en: "Nothing was heard.", ja: "音声が聞き取れませんでした。", zh: "没有听到声音。", ko: "소리가 들리지 않았습니다.", fr: "Rien n'a été entendu.", de: "Es wurde nichts gehört.", es: "No se oyó nada." },
     mic_failed: { en: "Could not transcribe the recording.", ja: "録音を文字にできませんでした。", zh: "无法转写录音。", ko: "녹음을 받아쓸 수 없었습니다.", fr: "Impossible de transcrire l'enregistrement.", de: "Aufnahme konnte nicht transkribiert werden.", es: "No se pudo transcribir la grabación." },
     // ── Change card ──
     scope_page: { en: "p.{n}", ja: "{n}ページ", zh: "第 {n} 页", ko: "{n}쪽", fr: "p. {n}", de: "S. {n}", es: "p. {n}" },
