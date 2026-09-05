@@ -1,10 +1,22 @@
 import { buildLineDiff } from "./diff.js";
 export const initDiffModal = (context, deps) => {
-    var _a;
-    const { diffModal, diffTitle, diffModalSubmit, blockDiffContainer, diffSummary, diffFileName } = context.dom;
+    var _a, _b;
+    const { diffModal, diffTitle, diffModalSubmit, diffModalCancel, blockDiffContainer, diffSummary, diffFileName } = context.dom;
     const defaultDiffSubmitLabel = diffModalSubmit instanceof HTMLButtonElement
         ? (_a = diffModalSubmit.textContent) !== null && _a !== void 0 ? _a : "Confirm"
         : "Confirm";
+    const defaultDiffCancelLabel = diffModalCancel instanceof HTMLButtonElement ? (_b = diffModalCancel.textContent) !== null && _b !== void 0 ? _b : "cancel" : "cancel";
+    // A read-only view hides the confirm button; Enter does nothing there.
+    const setViewOnly = (viewOnly, closeLabel) => {
+        if (diffModalSubmit instanceof HTMLButtonElement) {
+            // The button class sets display, so the hidden attribute alone would lose.
+            diffModalSubmit.style.display = viewOnly ? "none" : "";
+            diffModalSubmit.disabled = viewOnly;
+        }
+        if (diffModalCancel instanceof HTMLButtonElement) {
+            diffModalCancel.textContent = viewOnly && closeLabel ? closeLabel : defaultDiffCancelLabel;
+        }
+    };
     let diffEditor = null;
     let diffOriginalModel = null;
     let diffModifiedModel = null;
@@ -152,16 +164,18 @@ export const initDiffModal = (context, deps) => {
     const resetDiffEditor = () => {
         var _a, _b, _c, _d;
         disposeMultiDiffEditors();
-        (_a = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _a === void 0 ? void 0 : _a.call(diffOriginalModel);
-        (_b = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _b === void 0 ? void 0 : _b.call(diffModifiedModel);
-        diffOriginalModel = null;
-        diffModifiedModel = null;
+        // Detach the models from the widget before disposing them; Monaco logs
+        // an error when a model dies while a diff editor still shows it.
         if (diffEditor) {
             const diffEditorAny = diffEditor;
-            (_c = diffEditorAny.setModel) === null || _c === void 0 ? void 0 : _c.call(diffEditorAny, null);
-            (_d = diffEditorAny.dispose) === null || _d === void 0 ? void 0 : _d.call(diffEditorAny);
+            (_a = diffEditorAny.setModel) === null || _a === void 0 ? void 0 : _a.call(diffEditorAny, null);
+            (_b = diffEditorAny.dispose) === null || _b === void 0 ? void 0 : _b.call(diffEditorAny);
             diffEditor = null;
         }
+        (_c = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _c === void 0 ? void 0 : _c.call(diffOriginalModel);
+        (_d = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _d === void 0 ? void 0 : _d.call(diffModifiedModel);
+        diffOriginalModel = null;
+        diffModifiedModel = null;
         if (blockDiffContainer instanceof HTMLElement) {
             blockDiffContainer.innerHTML = "";
         }
@@ -171,6 +185,7 @@ export const initDiffModal = (context, deps) => {
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi)
             return;
+        setViewOnly((options === null || options === void 0 ? void 0 : options.viewOnly) === true, options === null || options === void 0 ? void 0 : options.closeLabel);
         const monacoApiAny = monacoApi;
         const container = blockDiffContainer;
         if (!container)
@@ -276,6 +291,7 @@ export const initDiffModal = (context, deps) => {
         const container = blockDiffContainer;
         if (!monacoApi || !container)
             return;
+        setViewOnly((options === null || options === void 0 ? void 0 : options.viewOnly) === true, options === null || options === void 0 ? void 0 : options.closeLabel);
         const monacoApiAny = monacoApi;
         if (!diffContext)
             diffContext = { type: "aiApply", proposalIds: [] };
@@ -418,6 +434,7 @@ export const initDiffModal = (context, deps) => {
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.textContent = defaultDiffSubmitLabel;
         }
+        setViewOnly(false);
         diffContext = null;
         resetDiffEditor();
     };

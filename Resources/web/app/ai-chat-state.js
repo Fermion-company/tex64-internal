@@ -7,6 +7,9 @@ export const createChatState = (id, title) => ({
     appliedProposalIds: new Set(),
     statusMessage: uiText("Waiting", "待機中"),
     hasUndo: false,
+    queue: [],
+    updatedAt: null,
+    branchedFrom: null,
 });
 export const getChat = (chatIndex, activeChatId, chatId) => {
     var _a, _b;

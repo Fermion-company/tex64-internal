@@ -95,6 +95,26 @@ module.exports = (SynctexService) => {
         };
       }
     }
+    // The parsed index answers from memory. The synctex process remains the
+    // fallback for a PDF whose SyncTeX data the index cannot read.
+    const quick = this.reverseQuick({ pdfPath, page, x, y });
+    if (quick) {
+      return {
+        ok: true,
+        path: quick.path,
+        line: quick.line,
+        column: quick.column,
+        count: 1,
+        exactHit: quick.exact,
+        confidence: quick.exact,
+        scoreGap: null,
+        distance: quick.distance,
+        hinted: false,
+        fastPath: "index",
+        hintCandidateCount,
+        hintPreview,
+      };
+    }
     if (preferExact) {
       const exact = await this.resolveReverseLine({
         synctexPath,

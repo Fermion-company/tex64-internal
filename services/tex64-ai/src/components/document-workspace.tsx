@@ -38,7 +38,7 @@ import {
   stopWorkspaceTurn,
   undoNativeConversation,
 } from "@/lib/client/native-agent";
-import { getNativeHost, hostMessageBody, type HostMessage } from "@/lib/client/native-host";
+import { getNativeHost, hostMessageBody, requestFromHost, type HostMessage } from "@/lib/client/native-host";
 import {
   requestWorkspaceBuild,
   useNativeWorkspace,
@@ -50,8 +50,19 @@ import { useNativePlatform } from "@/lib/client/use-native-platform";
 import { NativeWorkspacePanel } from "@/components/native-workspace-panel";
 import { NativePlatformControls } from "@/components/native-platform-controls";
 import { ParagraphEditCard } from "@/components/paragraph-edit-card";
+import type { PdfAnchor } from "@/components/pdf-preview";
+import { workspaceRequestFields } from "@/lib/client/workspace-identity";
+import {
+  attachmentBase64,
+  prepareAttachments,
+  releasePendingAttachment,
+  type PendingAttachment,
+} from "@/lib/client/attachments";
 import type {
+  AgentProposal,
+  ChatAttachment,
   ChatMessage,
+  MessagePart,
   CreateDocumentInput,
   DocumentBlock,
   DocumentChanges,
@@ -61,6 +72,57 @@ import type {
   TurnFrame,
 } from "@/lib/client/types";
 import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
+
+
+type NativeTurnOptions = {
+  /** "survey": the app opened the document and asks where to start; read-only.
+   *  "step": the user picked an offered step; the agent gathers the brief first. */
+  origin?: "survey" | "step";
+  /** With "step": a writing step withholds the edit tools on its first turn. */
+  stepKind?: "mechanical" | "writing";
+  /** Attached files as message parts; the first text part is the prompt. */
+  parts?: MessagePart[];
+  /** The files as the chat shows them under the user's message. */
+  attachments?: ChatAttachment[];
+};
+
+/**
+ * A message waiting for the agent. Files are prepared (saved into the
+ * workspace, read, rendered) while the message already shows as waiting.
+ */
+type QueuedTurn = {
+  id: string;
+  prompt: string;
+  preparing?: boolean;
+  parts?: MessagePart[];
+  attachments?: ChatAttachment[];
+};
+
+/**
+ * What the app asks when a document is opened with no conversation yet. It is
+ * sent as the model's user turn but never shown; the reply and its recorded
+ * next steps are what the user sees first.
+ */
+const OPENING_SURVEY_PROMPT =
+  "この文書を開きました。まず通読して、次を propose_next_steps で提案してください。編集と組版はしないでください。\n" +
+  "・改修を始めるべき箇所（内容の飛び、不整合、弱い箇所）\n" +
+  "・追加すべき内容（欠けている節、定理、図表、例、演習など）\n" +
+  "提案は3〜5件。それぞれ、そのまま依頼として送れる具体的な文にし、対象の箇所を含めてください。\n" +
+  "返答は2〜3文で、この文書が何で、どこから始めるべきかを述べてください。文書がほぼ空なら、何を書くべきかを提案してください。";
+
+/** The next steps the agent last attached; an assistant reply without any ends the list. */
+function latestProposalsOf(messages: ChatMessage[]): AgentProposal[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") continue;
+    return message.proposals && message.proposals.length > 0 ? message.proposals : [];
+  }
+  return [];
+}
+
+function proposalKeyOf(proposals: AgentProposal[]): string {
+  return proposals.map((proposal) => `${proposal.id}:${proposal.line ?? ""}`).join("|");
+}
 
 type MobileView = "conversation" | "document";
 
@@ -104,7 +166,7 @@ export function DocumentWorkspace() {
   const [streamingText, setStreamingText] = useState("");
   const [activityTool, setActivityTool] = useState<string | null>(null);
   const [turnDocumentId, setTurnDocumentId] = useState<string | null>(null);
-  const [queuedPrompts, setQueuedPrompts] = useState<string[]>([]);
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedTurn[]>([]);
   const [turnError, setTurnError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -113,7 +175,7 @@ export function DocumentWorkspace() {
   const flushOutstandingSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const turnAbortRef = useRef<AbortController | null>(null);
-  const queuedPromptsRef = useRef<string[]>([]);
+  const queuedPromptsRef = useRef<QueuedTurn[]>([]);
   const runTurnRef = useRef<
     ((document: DocumentDetail, prompt: string, targetNodeId?: string) => Promise<void>) | null
   >(null);
@@ -145,6 +207,12 @@ export function DocumentWorkspace() {
     ],
   );
   const workspacePdf = useWorkspacePdf(nativeWorkspace.current);
+  /** A step the user picked on the page; the chat handles it like a row. */
+  const [chosenProposal, setChosenProposal] = useState<{ proposal: AgentProposal; pick: number } | null>(null);
+  /** The next step under the pointer or keyboard, highlighted in both panes. */
+  const [activeProposalId, setActiveProposalId] = useState<string | null>(null);
+  /** Proposed steps placed on the page via forward SyncTeX, for one PDF and one proposal set. */
+  const [pageAnchors, setPageAnchors] = useState<{ pdfPath: string; key: string; anchors: PdfAnchor[] } | null>(null);
   const nativeDocumentContext = useMemo(
     () => ({
       ...nativeWorkspaceIdentity,
@@ -193,12 +261,17 @@ export function DocumentWorkspace() {
     () => (workspacePdf.native ? nativeMessages : (activeDocument?.messages ?? [])),
     [activeDocument?.messages, nativeMessages, workspacePdf.native],
   );
-  const enqueuePrompt = useCallback((prompt: string) => {
-    const next = [...queuedPromptsRef.current, prompt];
+  const enqueuePrompt = useCallback((turn: QueuedTurn) => {
+    const next = [...queuedPromptsRef.current, turn];
     queuedPromptsRef.current = next;
     setQueuedPrompts(next);
   }, []);
-  const takeQueuedPrompt = useCallback((): string | null => {
+  const updateQueuedTurn = useCallback((id: string, patch: Partial<QueuedTurn>) => {
+    const next = queuedPromptsRef.current.map((turn) => (turn.id === id ? { ...turn, ...patch } : turn));
+    queuedPromptsRef.current = next;
+    setQueuedPrompts(next);
+  }, []);
+  const takeQueuedPrompt = useCallback((): QueuedTurn | null => {
     const [nextPrompt, ...remaining] = queuedPromptsRef.current;
     queuedPromptsRef.current = remaining;
     setQueuedPrompts(remaining);
@@ -334,6 +407,69 @@ export function DocumentWorkspace() {
     ? (activeDocument.previewUrl ??
       (lastPreview?.documentId === activeDocument.id ? lastPreview.url : null))
     : null;
+  const latestProposals = latestProposalsOf(messages);
+  const latestProposalKey = proposalKeyOf(latestProposals);
+
+  // Each proposed step that names a source line is pinned to the page it
+  // lands on, so the paper shows the same next steps as the chat.
+  useEffect(() => {
+    const host = getNativeHost();
+    const pdfPath = workspacePdf.native ? workspacePdf.path : null;
+    const mainFile = nativeWorkspace.current?.mainFile ?? null;
+    const identity = nativeWorkspaceIdentity;
+    const proposals = latestProposalsOf(messages);
+    const anchored = proposals.filter((proposal) => typeof proposal.line === "number");
+    if (!host || !pdfPath || !mainFile || anchored.length === 0 || workspacePdf.building) {
+      return;
+    }
+    const key = proposalKeyOf(proposals);
+    let cancelled = false;
+    // One request resolves every line from the host's in-memory SyncTeX
+    // index, so the anchors are ready by the time the page is drawn.
+    void (async () => {
+      const anchors: PdfAnchor[] = [];
+      try {
+        const reply = await requestFromHost(host, {
+          type: "synctex:forwardBatch",
+          resultType: "synctex:forwardBatchResult",
+          payload: {
+            path: mainFile,
+            pdfPath,
+            lines: anchored.map((proposal) => proposal.line),
+            documentMainFile: mainFile,
+            ...workspaceRequestFields(identity),
+          },
+          timeoutMs: 10_000,
+        });
+        if (cancelled) return;
+        const results = reply.ok === true && Array.isArray(reply.results) ? reply.results : [];
+        const byLine = new Map<number, { page: number; y: number }>();
+        for (const entry of results) {
+          if (!entry || typeof entry !== "object") continue;
+          const hit = entry as { line?: unknown; found?: unknown; page?: unknown; y?: unknown };
+          if (
+            hit.found === true &&
+            typeof hit.line === "number" &&
+            typeof hit.page === "number" &&
+            typeof hit.y === "number"
+          ) {
+            byLine.set(hit.line, { page: hit.page, y: hit.y });
+          }
+        }
+        for (const proposal of anchored) {
+          const hit = byLine.get(proposal.line as number);
+          if (hit) anchors.push({ id: proposal.id, page: hit.page, y: hit.y, title: proposal.title });
+        }
+      } catch {
+        // A step without a place on the page simply stays in the chat.
+      }
+      if (!cancelled) setPageAnchors({ pdfPath, key, anchors });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, nativeWorkspace, nativeWorkspaceIdentity, workspacePdf.building, workspacePdf.native, workspacePdf.path]);
+
   const displayPdfUrl = workspacePdf.native ? workspacePdf.url : ownPdfUrl;
   const previewStale = workspacePdf.native
     ? workspacePdf.building
@@ -789,7 +925,7 @@ export function DocumentWorkspace() {
       const queued = takeQueuedPrompt();
       if (queued) {
         const latest = latestDocumentsRef.current[document.id] ?? document;
-        void runTurnRef.current?.(latest, queued);
+        void runTurnRef.current?.(latest, queued.prompt);
       }
     },
     [
@@ -807,8 +943,17 @@ export function DocumentWorkspace() {
 
   /** One desktop-agent turn scoped to Code's current workspace build root. */
   const runNativeDocTurnRef = useRef<
-    ((prompt: string, onStarted?: () => void) => Promise<void>) | null
+    | ((
+        prompt: string,
+        onStarted?: () => void,
+        options?: NativeTurnOptions,
+      ) => Promise<void>)
+    | null
   >(null);
+  /** Session keys whose opening read already started; a failed read is not retried. */
+  const surveyedSessionsRef = useRef<Set<string>>(new Set());
+  /** Session key whose restored, empty conversation asked for an opening read. */
+  const surveyRequestRef = useRef<string | null>(null);
   const nativeDocument = nativeWorkspace.current;
   const nativeConversationId = useMemo(
     () =>
@@ -859,7 +1004,7 @@ export function DocumentWorkspace() {
     nativeThreadSessionRef.current = nativeThreadSession;
   }, [nativeConversationId, nativeThreadSession]);
   const runNativeDocTurn = useCallback(
-    async (prompt: string, onStarted?: () => void) => {
+    async (prompt: string, onStarted?: () => void, options?: NativeTurnOptions) => {
       const document = nativeDocument;
       const conversationId = nativeConversationId;
       const sessionKey = nativeThreadSession;
@@ -889,10 +1034,20 @@ export function DocumentWorkspace() {
       setTurnError(null);
       setMobileView("conversation");
       const shownAt = new Date().toISOString();
-      setNativeMessages((current) => [
-        ...current,
-        { id: `local:${shownAt}`, role: "user", text: prompt, createdAt: shownAt },
-      ]);
+      if (options?.origin !== "survey") {
+        setNativeMessages((current) => [
+          ...current,
+          {
+            id: `local:${shownAt}`,
+            role: "user",
+            text: prompt,
+            createdAt: shownAt,
+            ...(options?.attachments && options.attachments.length > 0
+              ? { attachments: options.attachments }
+              : {}),
+          },
+        ]);
+      }
 
       const onFrame = (frame: TurnFrame) => {
         switch (frame.type) {
@@ -921,6 +1076,9 @@ export function DocumentWorkspace() {
         workspaceId: nativeWorkspaceIdentity.workspaceId,
         workspaceGeneration: nativeWorkspaceIdentity.workspaceGeneration,
         documentMainFile: document.mainFile,
+        ...(options?.origin ? { origin: options.origin } : {}),
+        ...(options?.stepKind ? { stepKind: options.stepKind } : {}),
+        ...(options?.parts && options.parts.length > 0 ? { parts: options.parts } : {}),
       }).catch(() => null);
 
       const stillOwnsTurn = activeNativeTurnRef.current?.controller === controller;
@@ -955,6 +1113,8 @@ export function DocumentWorkspace() {
             role: "assistant",
             text: result.finalText,
             createdAt: repliedAt,
+            ...(result.proposals ? { proposals: result.proposals } : {}),
+            ...(result.question ? { question: result.question } : {}),
           },
         ]);
       }
@@ -979,6 +1139,49 @@ export function DocumentWorkspace() {
   }, [runNativeDocTurn]);
 
   useEffect(() => {
+    const requested = surveyRequestRef.current;
+    if (!workspacePdf.native || !requested) return;
+    if (requested !== nativeThreadSession) {
+      surveyRequestRef.current = null;
+      return;
+    }
+    // Same readiness as a typed prompt; the history load that asked for the
+    // read finishes after asking, so this effect runs again once it has.
+    if (
+      agentWorking ||
+      nativeHistoryLoading ||
+      nativeTurnStopping ||
+      !nativePlatform.canRun ||
+      !nativeDocument ||
+      !nativeConversationId ||
+      !nativeWorkspaceIdentity.workspaceRoot
+    ) {
+      return;
+    }
+    surveyRequestRef.current = null;
+    // The user's own first message, or an earlier read, already started this
+    // conversation; the opening read only ever speaks first.
+    if (nativeMessages.length > 0 || surveyedSessionsRef.current.has(requested)) {
+      return;
+    }
+    surveyedSessionsRef.current.add(requested);
+    void runNativeDocTurnRef.current?.(OPENING_SURVEY_PROMPT, undefined, {
+      origin: "survey",
+    });
+  }, [
+    agentWorking,
+    nativeConversationId,
+    nativeDocument,
+    nativeHistoryLoading,
+    nativeMessages.length,
+    nativePlatform.canRun,
+    nativeThreadSession,
+    nativeTurnStopping,
+    nativeWorkspaceIdentity.workspaceRoot,
+    workspacePdf.native,
+  ]);
+
+  useEffect(() => {
     const runQueuedTurn = runNativeDocTurnRef.current;
     if (
       !workspacePdf.native ||
@@ -999,10 +1202,17 @@ export function DocumentWorkspace() {
     // can change between terminal delivery and the next React render, so a
     // direct handoff from the previous turn could otherwise lose this prompt.
     const queued = queuedPromptsRef.current[0] ?? null;
-    if (!queued) return;
-    void runQueuedTurn(queued, () => {
-      if (queuedPromptsRef.current[0] === queued) takeQueuedPrompt();
-    });
+    if (!queued || queued.preparing) return;
+    void runQueuedTurn(
+      queued.prompt,
+      () => {
+        if (queuedPromptsRef.current[0]?.id === queued.id) takeQueuedPrompt();
+      },
+      {
+        ...(queued.parts ? { parts: queued.parts } : {}),
+        ...(queued.attachments ? { attachments: queued.attachments } : {}),
+      },
+    );
   }, [
     agentWorking,
     nativeConversationId,
@@ -1012,7 +1222,7 @@ export function DocumentWorkspace() {
     nativeThreadSession,
     nativeTurnStopping,
     nativeWorkspaceIdentity.workspaceRoot,
-    queuedPrompts.length,
+    queuedPrompts,
     takeQueuedPrompt,
     workspacePdf.native,
   ]);
@@ -1253,6 +1463,12 @@ export function DocumentWorkspace() {
           return;
         }
         applyRestoredState(state);
+        if (restoreMode === "idle" && state.messages.length === 0) {
+          // A document with no conversation yet gets its opening read: the
+          // agent reads it and proposes where to start. The effect below
+          // starts it once the composer would accept a prompt.
+          surveyRequestRef.current = nativeThreadSession;
+        }
         if (restoreMode === "reattach") {
           waitingForTerminal = true;
           attachedNativeTurnRef.current = {
@@ -1469,23 +1685,85 @@ export function DocumentWorkspace() {
     [cancelSave, runTurn, updateStoredDocument],
   );
 
+  // Saves one attached file next to the document so the paper can include
+  // it; the agent is told the path. Null when it could not be saved.
+  const importAttachment = useCallback(
+    async (attachment: PendingAttachment): Promise<string | null> => {
+      const host = getNativeHost();
+      const mainFile = nativeDocument?.mainFile;
+      if (!host || !mainFile) return null;
+      try {
+        const data = await attachmentBase64(attachment.file);
+        const reply = await requestFromHost(host, {
+          type: "file:importAttachment",
+          resultType: "file:importAttachmentResult",
+          payload: {
+            name: attachment.name,
+            data,
+            documentMainFile: mainFile,
+            ...workspaceRequestFields(nativeWorkspaceIdentity),
+          },
+          timeoutMs: 60_000,
+        });
+        return reply.ok === true && typeof reply.path === "string" ? reply.path : null;
+      } catch {
+        return null;
+      }
+    },
+    [nativeDocument, nativeWorkspaceIdentity],
+  );
+
+  // A message with files shows as waiting at once; the files are saved and
+  // read meanwhile, and the turn starts as soon as they are ready.
+  const submitWithAttachments = useCallback(
+    (prompt: string, pending: PendingAttachment[]) => {
+      const id = `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const text = prompt.trim() || "添付ファイルを確認してください。";
+      enqueuePrompt({
+        id,
+        prompt: text,
+        preparing: true,
+        attachments: pending.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
+      });
+      void prepareAttachments(pending, importAttachment)
+        .then((prepared) => {
+          updateQueuedTurn(id, {
+            preparing: false,
+            parts: [{ text }, ...prepared.parts],
+            attachments: prepared.attachments,
+          });
+        })
+        .catch(() => {
+          updateQueuedTurn(id, { preparing: false, parts: [{ text }] });
+        })
+        .finally(() => {
+          pending.forEach(releasePendingAttachment);
+        });
+    },
+    [enqueuePrompt, importAttachment, updateQueuedTurn],
+  );
+
   const submitWritingRequest = useCallback(
-    (prompt: string) => {
+    (prompt: string, attachments?: PendingAttachment[], options?: { origin?: "step"; stepKind?: "mechanical" | "writing" }) => {
       if (workspacePdf.native) {
         if (!nativeDocument || nativeHistoryLoading || !nativePlatform.canRun) return;
+        if (attachments && attachments.length > 0) {
+          submitWithAttachments(prompt, attachments);
+          return;
+        }
         // A message sent while the agent is working waits its turn instead of
         // being refused; the composer never locks.
         if (agentWorking && nativeThreadWorking) {
-          enqueuePrompt(prompt);
+          enqueuePrompt({ id: `queued-${Date.now()}`, prompt });
           return;
         }
         if (agentWorking) return;
-        void runNativeDocTurn(prompt);
+        void runNativeDocTurn(prompt, undefined, options?.origin === "step" ? { origin: "step", stepKind: options.stepKind } : undefined);
         return;
       }
       if (!activeDocument) return;
       if (agentWorking) {
-        enqueuePrompt(prompt);
+        enqueuePrompt({ id: `queued-${Date.now()}`, prompt });
         return;
       }
       const targetNodeId = selectedElement?.id;
@@ -1503,6 +1781,7 @@ export function DocumentWorkspace() {
       runNativeDocTurn,
       runTurn,
       selectedElement,
+      submitWithAttachments,
       workspacePdf.native,
     ],
   );
@@ -1745,7 +2024,7 @@ export function DocumentWorkspace() {
                 streamingText={streamingText}
                 activityTool={activityTool}
                 isWorking={agentWorking}
-                queuedPrompts={queuedPrompts}
+                queuedPrompts={queuedPrompts.map((turn) => turn.prompt)}
                 error={
                   turnError ??
                   nativePlatform.blockedReason ??
@@ -1758,6 +2037,9 @@ export function DocumentWorkspace() {
                 onSubmit={submitWritingRequest}
                 onStop={stopTurn}
                 onClearSelection={() => setSelectedElementId(null)}
+                chosenProposal={chosenProposal}
+                activeProposalId={activeProposalId}
+                onActiveProposalChange={setActiveProposalId}
               />
             )
           ) : activeDocument ? (
@@ -1767,7 +2049,7 @@ export function DocumentWorkspace() {
               streamingText={streamingText}
               activityTool={activityTool}
               isWorking={agentWorking}
-              queuedPrompts={queuedPrompts}
+              queuedPrompts={queuedPrompts.map((turn) => turn.prompt)}
               error={turnError}
               selectedElement={selectedElement}
               composerRef={composerRef}
@@ -1794,6 +2076,26 @@ export function DocumentWorkspace() {
             <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
+                  anchors={
+                    workspacePdf.native &&
+                    pageAnchors &&
+                    pageAnchors.pdfPath === workspacePdf.path &&
+                    pageAnchors.key === latestProposalKey
+                      ? pageAnchors.anchors
+                      : null
+                  }
+                  activeAnchorId={activeProposalId}
+                  onAnchorHover={setActiveProposalId}
+                  onAnchorSelect={(id) => {
+                    const proposal = latestProposals.find((entry) => entry.id === id);
+                    if (!proposal || agentWorking) return;
+                    setMobileView("conversation");
+                    if (proposal.asks) {
+                      setChosenProposal((current) => ({ proposal, pick: (current?.pick ?? 0) + 1 }));
+                    } else {
+                      submitWritingRequest(proposal.request);
+                    }
+                  }}
                   regions={workspacePdf.native ? null : pdfRegions}
                   selectedId={selectedElementId}
                   refreshing={
@@ -1930,21 +2232,14 @@ export function DocumentWorkspace() {
                     ) : null
                   }
                 />
-                {workspacePdf.native && workspacePdf.failure && nativeDocument ? (
-                  <div className="compile-banner" role="alert">
-                    <span title={workspacePdf.failure}>{workspacePdf.failure}</span>
-                    <button
-                      type="button"
-                      disabled={workspacePdf.building}
-                      onClick={() =>
-                        requestWorkspaceBuild(
-                          nativeDocument,
-                          nativeWorkspaceIdentity,
-                        )
-                      }
-                    >
-                      再試行
-                    </button>
+                {workspacePdf.native &&
+                workspacePdf.failure &&
+                nativeDocument &&
+                displayPdfUrl ? (
+                  // A quiet note over the previous page; the agent's next turn
+                  // brings the paper up to date, so there is nothing to press.
+                  <div className="compile-banner" role="status">
+                    <span>{workspacePdf.failure}</span>
                   </div>
                 ) : compileFailed && activeDocument ? (
                   <div className="compile-banner" role="alert">

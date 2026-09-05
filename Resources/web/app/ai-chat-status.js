@@ -1,7 +1,7 @@
 import { getUiLocale, onUiLocaleChange } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 export const createAiChatStatusController = (params) => {
-    const { aiStatus, aiAuthTopbar, aiUsageMeter, aiUsageMeterText, postToNative, requestAiAccessCheck, requestPlatformUsage, pricingFallbackUrl, state, onStatusUpdate, } = params;
+    const { aiStatus, postToNative, requestAiAccessCheck, requestPlatformUsage, pricingFallbackUrl, state, onStatusUpdate, } = params;
     const normalizeUsageSnapshot = (usage) => {
         if (!usage || typeof usage !== "object")
             return null;
@@ -121,61 +121,10 @@ export const createAiChatStatusController = (params) => {
             aiStatus.appendChild(actionWrap);
         }
     };
-    const updateTopbarAuthButton = () => {
-        var _a;
-        if (!(aiAuthTopbar instanceof HTMLButtonElement)) {
-            return;
-        }
-        const authenticated = Boolean((_a = state.platformAuth) === null || _a === void 0 ? void 0 : _a.authenticated);
-        aiAuthTopbar.classList.toggle("is-hidden", authenticated);
-        aiAuthTopbar.textContent = aiText("login_tex64");
-        aiAuthTopbar.title = aiText("login_tex64_hint");
-        aiAuthTopbar.disabled = false;
-    };
-    const ensureTooltipDom = (parent) => {
-        let tooltip = parent.querySelector(".ai-usage-tooltip");
-        if (tooltip)
-            return tooltip;
-        tooltip = document.createElement("div");
-        tooltip.className = "ai-usage-tooltip";
-        tooltip.innerHTML = [
-            '<div class="ai-usage-tooltip-header" data-label="title"></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="used"></span><span class="ai-usage-tooltip-value" data-field="used">-</span></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="limit"></span><span class="ai-usage-tooltip-value" data-field="limit">-</span></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="remaining"></span><span class="ai-usage-tooltip-value" data-field="remaining">-</span></div>',
-            '<div class="ai-usage-tooltip-row"><span class="ai-usage-tooltip-label" data-label="reset"></span><span class="ai-usage-tooltip-value" data-field="reset">-</span></div>',
-            '<div class="ai-usage-tooltip-bar-track"><div class="ai-usage-tooltip-bar-fill"></div></div>',
-        ].join("");
-        parent.appendChild(tooltip);
-        return tooltip;
-    };
     const formatTokenCount = (value) => new Intl.NumberFormat(resolveIntlLocale()).format(Math.max(0, Math.round(value)));
-    const formatTokenCompact = (value) => {
-        const v = Math.max(0, Math.round(value));
-        if (v < 10000) {
-            return formatTokenCount(v);
-        }
-        if (v < 1000000) {
-            const k = v / 1000;
-            if (k < 100) {
-                return `${k.toFixed(1).replace(/\.0$/, "")}k`;
-            }
-            return `${Math.floor(k)}k`;
-        }
-        const m = v / 1000000;
-        if (m < 100) {
-            return `${m.toFixed(1).replace(/\.0$/, "")}M`;
-        }
-        return `${Math.floor(m)}M`;
-    };
-    const updateUsageMeter = () => {
-        var _a, _b, _c, _d, _e;
-        if (!(aiUsageMeter instanceof HTMLElement)) {
-            return;
-        }
-        // Usage is metered internally in dollars (real provider cost), but the
-        // user sees TOKENS — we never surface the internal budget/cost. The token
-        // figures are a blended-rate estimate of the monthly budget.
+    /** Share of the month's allowance still available, 0–100; null when unknown. */
+    const remainingPercent = () => {
+        var _a, _b, _c, _d;
         const quota = (_d = (_b = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _b !== void 0 ? _b : (_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.quota) !== null && _d !== void 0 ? _d : null;
         const limitTokens = typeof (quota === null || quota === void 0 ? void 0 : quota.limitTokens) === "number" && Number.isFinite(quota.limitTokens)
             ? Math.max(0, Math.round(quota.limitTokens))
@@ -183,60 +132,9 @@ export const createAiChatStatusController = (params) => {
         const usedTokens = typeof (quota === null || quota === void 0 ? void 0 : quota.usedTokens) === "number" && Number.isFinite(quota.usedTokens)
             ? Math.max(0, Math.round(quota.usedTokens))
             : 0;
-        if (!limitTokens) {
-            aiUsageMeter.classList.add("is-hidden");
-            aiUsageMeter.classList.remove("is-warn");
-            aiUsageMeter.classList.remove("is-critical");
-            aiUsageMeter.style.removeProperty("--ai-usage-pct");
-            aiUsageMeter.style.removeProperty("--ai-remaining-pct");
-            aiUsageMeter.removeAttribute("title");
-            aiUsageMeter.setAttribute("aria-label", "Axiom usage");
-            if (aiUsageMeterText instanceof HTMLElement) {
-                aiUsageMeterText.textContent = "-";
-            }
-            return;
-        }
-        const usedPct = Math.max(0, Math.min(100, (usedTokens / limitTokens) * 100));
-        const remainingPct = Math.max(0, 100 - usedPct);
-        const remainingTokens = Math.max(0, limitTokens - usedTokens);
-        aiUsageMeter.classList.remove("is-hidden");
-        aiUsageMeter.classList.toggle("is-warn", usedPct >= 80 && usedPct < 95);
-        aiUsageMeter.classList.toggle("is-critical", usedPct >= 95);
-        aiUsageMeter.style.setProperty("--ai-usage-pct", usedPct.toFixed(2));
-        aiUsageMeter.style.setProperty("--ai-remaining-pct", remainingPct.toFixed(2));
-        const label = `Remaining ${remainingPct.toFixed(0)}% (${formatTokenCompact(remainingTokens)})`;
-        aiUsageMeter.setAttribute("aria-label", `Axiom usage: ${label}`);
-        aiUsageMeter.removeAttribute("title");
-        if (aiUsageMeterText instanceof HTMLElement) {
-            aiUsageMeterText.textContent = `${remainingPct.toFixed(0)}%`;
-        }
-        const tooltip = ensureTooltipDom(aiUsageMeter);
-        const setField = (field, text) => {
-            const el = tooltip.querySelector(`[data-field="${field}"]`);
-            if (el)
-                el.textContent = text;
-        };
-        const setLabel = (label, text) => {
-            const el = tooltip.querySelector(`[data-label="${label}"]`);
-            if (el)
-                el.textContent = text;
-        };
-        setLabel("title", aiText("usage_title"));
-        setLabel("used", aiText("usage_used"));
-        setLabel("limit", aiText("usage_limit"));
-        setLabel("remaining", aiText("usage_remaining"));
-        setLabel("reset", aiText("usage_reset"));
-        const tokensUnit = aiText("usage_tokens");
-        setField("used", `${formatTokenCount(usedTokens)} ${tokensUnit}`);
-        setField("limit", `${formatTokenCount(limitTokens)} ${tokensUnit}`);
-        setField("remaining", `${remainingPct.toFixed(1)}% (${formatTokenCompact(remainingTokens)})`);
-        const periodEnd = typeof ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
-        if (periodEnd && Number.isFinite(Date.parse(periodEnd))) {
-            setField("reset", new Date(periodEnd).toLocaleDateString(resolveIntlLocale()));
-        }
-        else {
-            setField("reset", "-");
-        }
+        if (!limitTokens)
+            return null;
+        return Math.max(0, Math.min(100, 100 - (usedTokens / limitTokens) * 100));
     };
     const openExternalUrl = (url) => {
         if (typeof url !== "string" || !/^https?:\/\//i.test(url.trim())) {
@@ -262,8 +160,6 @@ export const createAiChatStatusController = (params) => {
     };
     const updateStatusDisplay = () => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
-        updateTopbarAuthButton();
-        updateUsageMeter();
         const pricingUrl = resolvePricingUrl();
         const quota = (_d = (_b = (_a = state.platformUsage) === null || _a === void 0 ? void 0 : _a.summary) !== null && _b !== void 0 ? _b : (_c = state.platformAiAccess) === null || _c === void 0 ? void 0 : _c.quota) !== null && _d !== void 0 ? _d : null;
         const periodEnd = typeof ((_e = state.platformAiAccess) === null || _e === void 0 ? void 0 : _e.periodEnd) === "string" ? state.platformAiAccess.periodEnd : null;
@@ -279,7 +175,8 @@ export const createAiChatStatusController = (params) => {
             return;
         }
         if (needsLogin()) {
-            renderStatus("");
+            // One line above the composer, with the way in. Nothing covers the chat.
+            renderStatus(aiText("login_needed"), "", withUtilityActions([{ action: "login", label: aiText("login_with_google") }]));
             return;
         }
         if (isAiBlocked()) {
@@ -315,10 +212,9 @@ export const createAiChatStatusController = (params) => {
             renderStatus(fallbackMessage, "", withUtilityActions([{ action: "pricing", label: aiText("status_see_plan") }]));
             return;
         }
-        if (!pricingUrl) {
-            renderStatus("", "", withUtilityActions());
-            return;
-        }
+        // The month's allowance is a settings matter (Account › AI chat); the
+        // chat never comments on it while requests still go through.
+        void pricingUrl;
         renderStatus("", "", withUtilityActions());
     };
     const handlePlatformAuth = (payload) => {
@@ -405,6 +301,8 @@ export const createAiChatStatusController = (params) => {
         needsLogin,
         openExternalUrl,
         resolvePricingUrl,
+        remainingPercent,
+        formatTokenCount,
         updateStatusDisplay,
         handlePlatformAuth,
         handlePlatformAiAccess,

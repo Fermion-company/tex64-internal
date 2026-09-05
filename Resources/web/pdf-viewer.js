@@ -39,6 +39,15 @@ const UI_STRINGS = {
     de: "Keine Gliederung.",
     es: "No hay índice.",
   },
+  askAxiom: {
+    en: "Ask Axiom",
+    ja: "Axiom に聞く",
+    zh: "问 Axiom",
+    ko: "Axiom에게 묻기",
+    fr: "Demander à Axiom",
+    de: "Axiom fragen",
+    es: "Preguntar a Axiom",
+  },
   jumpToSource: {
     en: "Jump to source",
     ja: "ソースへ移動",
@@ -681,6 +690,125 @@ const initPdfViewer = () => {
     });
   };
 
+  // The place the reader marks on the page becomes the chat's context: the
+  // selection (or the clicked spot) goes to the host with its page position,
+  // which SyncTeX turns into a source line.
+  const postAskAxiom = (point, text, source) => {
+    if (!bridge || typeof bridge.postMessage !== "function" || !point) {
+      return;
+    }
+    bridge.postMessage({
+      type: "ask-axiom",
+      payload: {
+        page: point.page,
+        x: point.x,
+        y: point.y,
+        text: typeof text === "string" ? text.slice(0, 2000) : "",
+        path: state.path || null,
+        // The live preview already knows the source position; the static
+        // viewer leaves this out and the host asks SyncTeX.
+        ...(source && typeof source.file === "string" && Number.isFinite(source.line)
+          ? { source: { file: source.file, line: source.line, column: Number.isFinite(source.column) ? source.column : 1 } }
+          : {}),
+      },
+    });
+  };
+
+  const askButtonState = { el: null, point: null, text: "", source: null };
+  const hideAskButton = () => {
+    if (askButtonState.el) {
+      askButtonState.el.remove();
+      askButtonState.el = null;
+    }
+    askButtonState.point = null;
+    askButtonState.text = "";
+    askButtonState.source = null;
+  };
+  const ensureAskButton = () => {
+    if (askButtonState.el) return askButtonState.el;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pdf-ask-axiom";
+    button.textContent = uiString("askAxiom");
+    button.addEventListener("mousedown", (event) => {
+      // Keep the selection: it is what the chat receives.
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      postAskAxiom(askButtonState.point, askButtonState.text, askButtonState.source);
+      hideAskButton();
+    });
+    document.body.appendChild(button);
+    askButtonState.el = button;
+    return button;
+  };
+  const placeAskButton = (right, bottom) => {
+    const button = ensureAskButton();
+    const width = button.offsetWidth || 110;
+    const left = Math.max(8, Math.min(right + 6, window.innerWidth - width - 8));
+    const top = Math.max(8, Math.min(bottom + 4, window.innerHeight - 34));
+    button.style.left = `${left}px`;
+    button.style.top = `${top}px`;
+  };
+  // The live preview reports the place the reader marked (a selection or a
+  // right-click) with its rectangle in the engine frame and its source line.
+  const showAskButtonForLivePlace = (data) => {
+    const frame = document.getElementById("pdf-live-frame");
+    const rect = data?.rect;
+    if (!frame || !rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) {
+      hideAskButton();
+      return;
+    }
+    const frameRect = frame.getBoundingClientRect();
+    askButtonState.point = { page: Number.isFinite(data.pageNumber) ? data.pageNumber : 0, x: null, y: null };
+    askButtonState.text = typeof data.text === "string" ? data.text : "";
+    askButtonState.source =
+      typeof data.file === "string" && Number.isFinite(data.line)
+        ? { file: data.file, line: data.line, column: Number.isFinite(data.column) ? data.column : 1 }
+        : null;
+    placeAskButton(frameRect.left + rect.right, frameRect.top + rect.bottom);
+  };
+  const currentTextSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const text = selection.toString().replace(/\s+/g, " ").trim();
+    if (!text) return null;
+    const range = selection.getRangeAt(0);
+    const startNode = range.startContainer instanceof Element ? range.startContainer : range.startContainer?.parentElement;
+    if (!(startNode instanceof Element) || !startNode.closest(".textLayer")) return null;
+    const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 || rect.height > 0);
+    if (rects.length === 0) return null;
+    return { text, first: rects[0], last: rects[rects.length - 1], startNode };
+  };
+  const showAskButtonForSelection = () => {
+    const found = currentTextSelection();
+    if (!found) {
+      hideAskButton();
+      return;
+    }
+    const point = resolveClickPoint({
+      target: found.startNode,
+      clientX: found.first.left + Math.min(4, found.first.width / 2),
+      clientY: found.first.top + found.first.height / 2,
+    });
+    if (!point) {
+      hideAskButton();
+      return;
+    }
+    askButtonState.point = point;
+    askButtonState.text = found.text;
+    askButtonState.source = null;
+    placeAskButton(found.last.right, found.last.bottom);
+  };
+  document.addEventListener("selectionchange", () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) hideAskButton();
+  });
+  document.addEventListener("scroll", () => hideAskButton(), true);
+
   const reverseSynctexKey = "tex64.editor.reverseSynctex";
   const isReverseSynctexEnabled = () => {
     try {
@@ -747,6 +875,18 @@ const initPdfViewer = () => {
       postReverseRequest(point);
     });
     menu.appendChild(button);
+    const askItem = document.createElement("button");
+    askItem.type = "button";
+    askItem.className = "pdf-context-menu-item";
+    askItem.textContent = uiString("askAxiom");
+    const selectedText = currentTextSelection()?.text ?? "";
+    askItem.addEventListener("click", (clickEvent) => {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      hideContextMenu();
+      postAskAxiom(point, selectedText);
+    });
+    menu.appendChild(askItem);
     if (document.body) {
       document.body.appendChild(menu);
     }
@@ -1837,6 +1977,11 @@ const initPdfViewer = () => {
       holdStaticForDocumentReset(data);
       return;
     }
+    if (data.action === "place") {
+      if (data.kind === "clear") hideAskButton();
+      else showAskButtonForLivePlace(data);
+      return;
+    }
 
     // Status snapshots may arrive while the frame is preloading.  Keep them
     // offscreen until the same activation explicitly declares its first
@@ -1959,6 +2104,11 @@ const initPdfViewer = () => {
       }
       event.preventDefault();
       applyScaleMode("fit-width");
+    });
+
+    pagesEl.addEventListener("mouseup", () => {
+      // After the selection settles.
+      window.setTimeout(showAskButtonForSelection, 0);
     });
 
     pagesEl.addEventListener("contextmenu", (event) => {

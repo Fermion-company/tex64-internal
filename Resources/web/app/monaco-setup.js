@@ -1,4 +1,5 @@
 import { uiText } from "./i18n.js";
+import { aiText } from "./ai-i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
 import { registerTexLanguages } from "./monaco-language.js";
 import { applyMonacoTheme } from "./monaco-theme.js";
@@ -126,7 +127,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -253,7 +254,9 @@ export const initMonacoSetup = (context, deps) => {
                     });
                 }
             });
-            // C-1: Inline AI editing — Cmd+K to open AI panel with selection context
+            // Selection → Axiom: the context-menu entry (⌘K) and a small button
+            // that floats at the end of a selection in a .tex file. Both open the
+            // chat with the selection as its context.
             if (deps.openAiWithSelection) {
                 const KeyMod = (_j = monacoWindow.monaco) === null || _j === void 0 ? void 0 : _j.KeyMod;
                 const KeyCode = (_k = monacoWindow.monaco) === null || _k === void 0 ? void 0 : _k.KeyCode;
@@ -261,7 +264,7 @@ export const initMonacoSetup = (context, deps) => {
                 if (KeyMod && KeyCode) {
                     (_m = (_l = editor).addAction) === null || _m === void 0 ? void 0 : _m.call(_l, {
                         id: "tex64.ai-edit-selection",
-                        label: uiText("Edit with Axiom", "Axiomで編集"),
+                        label: aiText("ask_axiom"),
                         keybindings: [KeyMod.CtrlCmd | KeyCode.KeyK],
                         contextMenuGroupId: "9_ai",
                         contextMenuOrder: 1,
@@ -269,8 +272,64 @@ export const initMonacoSetup = (context, deps) => {
                         run: () => { openAi(); },
                     });
                 }
+                const preference = (_p = (_o = monacoWindow.monaco) === null || _o === void 0 ? void 0 : _o.editor) === null || _p === void 0 ? void 0 : _p.ContentWidgetPositionPreference;
+                const askNode = document.createElement("button");
+                askNode.type = "button";
+                askNode.className = "ai-selection-ask";
+                askNode.textContent = aiText("ask_axiom");
+                askNode.addEventListener("mousedown", (event) => {
+                    // Keep the editor selection: it is what the chat receives.
+                    event.preventDefault();
+                    event.stopPropagation();
+                });
+                askNode.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    openAi();
+                });
+                let askPosition = null;
+                const askWidget = {
+                    getId: () => "tex64.ai-selection-ask",
+                    getDomNode: () => askNode,
+                    getPosition: () => askPosition
+                        ? {
+                            position: askPosition,
+                            preference: preference ? [preference.BELOW, preference.ABOVE] : [2, 1],
+                        }
+                        : null,
+                };
+                let askShown = false;
+                const hideAsk = () => {
+                    var _a, _b;
+                    askPosition = null;
+                    if (askShown) {
+                        (_b = (_a = editor).removeContentWidget) === null || _b === void 0 ? void 0 : _b.call(_a, askWidget);
+                        askShown = false;
+                    }
+                };
+                const syncAsk = () => {
+                    var _a, _b, _c, _d, _e, _f;
+                    const selection = (_b = (_a = editor).getSelection) === null || _b === void 0 ? void 0 : _b.call(_a);
+                    const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
+                    const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
+                    if (!isTex || empty) {
+                        hideAsk();
+                        return;
+                    }
+                    askNode.textContent = aiText("ask_axiom");
+                    askPosition = { lineNumber: selection.endLineNumber, column: selection.endColumn };
+                    if (!askShown) {
+                        (_d = (_c = editor).addContentWidget) === null || _d === void 0 ? void 0 : _d.call(_c, askWidget);
+                        askShown = true;
+                    }
+                    else {
+                        (_f = (_e = editor).layoutContentWidget) === null || _f === void 0 ? void 0 : _f.call(_e, askWidget);
+                    }
+                };
+                (_q = editor.onDidChangeCursorSelection) === null || _q === void 0 ? void 0 : _q.call(editor, () => syncAsk());
+                (_r = editor.onDidChangeModelContent) === null || _r === void 0 ? void 0 : _r.call(editor, () => hideAsk());
+                (_t = (_s = editor).onDidChangeModel) === null || _t === void 0 ? void 0 : _t.call(_s, () => hideAsk());
             }
-            (_p = (_o = editor).addAction) === null || _p === void 0 ? void 0 : _p.call(_o, {
+            (_v = (_u = editor).addAction) === null || _v === void 0 ? void 0 : _v.call(_u, {
                 id: "tex64.pro-canvas-edit",
                 label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
                 contextMenuGroupId: "9_ai",
@@ -297,7 +356,7 @@ export const initMonacoSetup = (context, deps) => {
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_r = (_q = editor).addAction) === null || _r === void 0 ? void 0 : _r.call(_q, {
+                (_x = (_w = editor).addAction) === null || _x === void 0 ? void 0 : _x.call(_w, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

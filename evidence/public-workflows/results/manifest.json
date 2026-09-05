@@ -2,7 +2,6 @@
   "schemaVersion": 1,
   "fixtureFamily": "tex64-public-workflows-v1",
   "implementationCommit": "163a7ca12d0bed2f5bb7db6261057c5153fb90e8",
-  "generatedBy": "scripts/generate-public-workflow-evidence.cjs",
   "environment": {
     "node": "v24.8.0",
     "platform": "darwin-arm64",
@@ -59,8 +58,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 1324,
-      "sha256": "f6ab07cd17061e133556e8b47c8ab2a44a51ef2b6eec9fd0009c2ec4414fca7d"
+      "bytes": 961,
+      "sha256": "429642b995b75822cacdbddd5f7d3a16a2878280f46d0789dc92b7fd323a99ec"
     },
     {
       "path": "results/artifacts/arxiv-citation.pdf",
@@ -151,11 +150,6 @@
       "path": "results/editor-exit-test.json",
       "bytes": 1969,
       "sha256": "1f9c7cfa09ff6cc1ea8ca73b255fb84e60dd02072c373a4909626a292037b942"
-    },
-    {
-      "path": "results/math-suggest-regression.json",
-      "bytes": 1337,
-      "sha256": "62babbb2de8ae7245ce5ef901d9bef0624e7e32188f5b058e568a09f70d8ef17"
     }
   ]
 }

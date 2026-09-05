@@ -6,7 +6,8 @@ import {
   requestFromHost,
   type HostMessage,
 } from "./native-host";
-import type { ChatMessage, TurnFrame } from "./types";
+import { attachmentKindOf, splitAttachmentBlock } from "./attachments";
+import type { AgentProposal, AgentQuestion, ChatMessage, MessagePart, TurnFrame } from "./types";
 
 /** The AI mode's own threads on the desktop agent, separate from Code mode's. */
 export const AI_MODE_CONVERSATION_ID = "tex64-ai-mode";
@@ -97,6 +98,8 @@ export function scheduleAttachedAbortFallback(
 type AgentEventBody = {
   conversationId?: unknown;
   text?: unknown;
+  proposals?: unknown;
+  question?: unknown;
   name?: unknown;
   label?: unknown;
   summary?: unknown;
@@ -108,7 +111,70 @@ export type NativeTurnResult = {
   status: "completed" | "aborted" | "failed";
   /** The persisted final message, preferred over assembled stream deltas. */
   finalText: string;
+  /** Next steps the agent recorded with its final message, if any. */
+  proposals: AgentProposal[] | null;
+  /** The agent stopped to ask this instead of finishing. */
+  question: AgentQuestion | null;
 };
+
+/** A question as the host sends it; malformed parts are dropped. */
+export function parseQuestion(value: unknown): AgentQuestion | null {
+  if (typeof value === "string") {
+    const question = value.trim();
+    return question ? { question } : null;
+  }
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  const question = typeof item.question === "string" ? item.question.trim() : "";
+  if (!question) return null;
+  const fields = Array.isArray(item.fields)
+    ? item.fields
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const field = entry as Record<string, unknown>;
+          const key = typeof field.key === "string" ? field.key.trim() : "";
+          const label = typeof field.label === "string" ? field.label.trim() : "";
+          if (!key || !label) return null;
+          const placeholder =
+            typeof field.placeholder === "string" ? field.placeholder.trim() : "";
+          return { key, label, ...(placeholder ? { placeholder } : {}) };
+        })
+        .filter((field): field is { key: string; label: string; placeholder?: string } => field !== null)
+    : [];
+  const options = Array.isArray(item.options)
+    ? item.options.filter((option): option is string => typeof option === "string" && option.trim() !== "")
+    : [];
+  return {
+    question,
+    ...(fields.length > 0 ? { fields } : {}),
+    ...(options.length > 0 ? { options } : {}),
+  };
+}
+
+/** Structured next steps as the host sends them; anything malformed is dropped. */
+export function parseProposals(value: unknown): AgentProposal[] | null {
+  if (!Array.isArray(value)) return null;
+  const proposals: AgentProposal[] = [];
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") return;
+    const item = entry as Record<string, unknown>;
+    const title = typeof item.title === "string" ? item.title.trim() : "";
+    const request = typeof item.request === "string" ? item.request.trim() : "";
+    if (!title || !request) return;
+    const scope = typeof item.scope === "string" ? item.scope.trim() : "";
+    const asks = parseQuestion(item.asks);
+    const line = typeof item.line === "number" && Number.isInteger(item.line) && item.line > 0 ? item.line : null;
+    proposals.push({
+      id: typeof item.id === "string" && item.id ? item.id : `p${index + 1}`,
+      title,
+      request,
+      ...(scope ? { scope } : {}),
+      ...(asks ? { asks } : {}),
+      ...(line ? { line } : {}),
+    });
+  });
+  return proposals.length > 0 ? proposals : null;
+}
 
 export type NativeTerminalState = "idle" | "error" | "resumable";
 
@@ -125,6 +191,13 @@ export type NativeTurnInput = {
   onFrame: (frame: TurnFrame) => void;
   signal: AbortSignal;
   conversationId: string;
+  /** "survey": the app opened the document and asks where to start (read-only).
+   *  "step": the user picked an offered step; the agent gathers the brief before writing. */
+  origin?: "survey" | "step";
+  /** With "step": a writing step withholds the edit tools on its first turn. */
+  stepKind?: "mechanical" | "writing";
+  /** Attached files as message parts: text extracts and inline images. */
+  parts?: MessagePart[];
   activeFilePath?: string;
   workspaceRoot: string;
   workspaceId: string;
@@ -136,12 +209,15 @@ export function buildNativeAgentRunPayload(input: NativeTurnInput) {
   const documentMainFile = normalizeMainFile(input.documentMainFile);
   return {
     message: input.prompt,
+    ...(input.parts && input.parts.length > 0 ? { parts: input.parts } : {}),
     conversationId: input.conversationId,
     workspaceId: input.workspaceId,
     workspaceGeneration: input.workspaceGeneration,
     documentMainFile,
     context: {
       ...(input.activeFilePath ? { activeFilePath: input.activeFilePath } : {}),
+      ...(input.origin ? { turnOrigin: input.origin } : {}),
+      ...(input.origin === "step" && input.stepKind ? { stepKind: input.stepKind } : {}),
       workspaceRoot: input.workspaceRoot,
       workspaceId: input.workspaceId,
       workspaceGeneration: input.workspaceGeneration,
@@ -168,6 +244,8 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
     let abortRequested = input.signal.aborted;
     let streamedText = "";
     let canonicalText = "";
+    let proposals: AgentProposal[] | null = null;
+    let question: AgentQuestion | null = null;
     let abortTimer: ReturnType<typeof setTimeout> | null = null;
     let errorTimer: ReturnType<typeof setTimeout> | null = null;
     let failurePending = false;
@@ -181,7 +259,7 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
       if (errorTimer !== null) clearTimeout(errorTimer);
       input.signal.removeEventListener("abort", onAbort);
       input.onFrame({ type: "done", status });
-      resolve({ status, finalText: canonicalText || streamedText });
+      resolve({ status, finalText: canonicalText || streamedText, proposals, question });
     };
 
     const onAbort = () => {
@@ -227,6 +305,8 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
           break;
         case "agent:message":
           if (typeof body.text === "string") canonicalText = body.text;
+          proposals = parseProposals(body.proposals);
+          question = parseQuestion(body.question);
           break;
         case "agent:tool": {
           if (typeof body.name !== "string") break;
@@ -234,7 +314,7 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
           const failed = /(?:error|failed|失敗)/i.test(summary);
           input.onFrame({
             type: "tool",
-            name: typeof body.label === "string" && body.label ? body.label : body.name,
+            name: body.name,
             state: summary === "running" ? "start" : failed ? "error" : "ok",
           });
           break;
@@ -298,6 +378,9 @@ type PersistedAgentMessage = {
   content?: unknown;
   text?: unknown;
   createdAt?: unknown;
+  hidden?: unknown;
+  proposals?: unknown;
+  question?: unknown;
 };
 
 export type NativeConversationState = {
@@ -315,6 +398,8 @@ function parseMessages(value: unknown): ChatMessage[] {
     if (!entry || typeof entry !== "object") return;
     const item = entry as PersistedAgentMessage;
     if (item.role !== "user" && item.role !== "assistant") return;
+    // The opening read is the app's question, not the user's.
+    if (item.hidden === true) return;
     const text =
       typeof item.content === "string"
         ? item.content
@@ -322,14 +407,29 @@ function parseMessages(value: unknown): ChatMessage[] {
           ? item.text
           : "";
     if (!text) return;
+    const proposals = item.role === "assistant" ? parseProposals(item.proposals) : null;
+    const question = item.role === "assistant" ? parseQuestion(item.question) : null;
+    // A user turn that carried files keeps their extracted contents for the
+    // model; the chat shows the message and the file names, not the dump.
+    const shown = item.role === "user" ? splitAttachmentBlock(text) : null;
+    const attachments =
+      shown && shown.names.length > 0
+        ? shown.names.map((name) => ({
+            name,
+            kind: attachmentKindOf(new File([], name)) ?? ("file" as const),
+          }))
+        : null;
     messages.push({
       id: `native-${index}-${text.length}`,
       role: item.role,
-      text,
+      text: shown && (shown.body || attachments) ? shown.body : text,
       createdAt:
         typeof item.createdAt === "string"
           ? item.createdAt
           : new Date(0).toISOString(),
+      ...(attachments ? { attachments } : {}),
+      ...(proposals ? { proposals } : {}),
+      ...(question ? { question } : {}),
     });
   });
   return messages;

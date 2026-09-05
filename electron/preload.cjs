@@ -28,7 +28,11 @@ ipcRenderer.on("tex64:message", (_event, message) => {
   dispatchMessage(message);
 });
 
+// Set by the main process per window; "off" holds AI mode out of the UI.
+const aiModeEnabled = !process.argv.includes("--tex64-ai-mode=off");
+
 const bridgeApi = {
+  aiModeEnabled,
   onMessage: (handler) => {
     if (typeof handler !== "function") {
       return () => {};

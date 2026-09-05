@@ -156,6 +156,15 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
 };
 
 const autoApplyProposal = async (service, proposal, options = {}) => {
+  // Where the change sits (section and first changed line) is decided from
+  // the written content itself; the page follows after the build.
+  try {
+    const { describeProposalScope } = require("./agent-proposal-scope.cjs");
+    const scope = describeProposalScope(proposal);
+    if (scope) proposal.scope = scope;
+  } catch {
+    // The card simply shows no place.
+  }
   service.proposals.set(proposal.id, proposal);
   const conversationId =
     typeof proposal.conversationId === "string" && proposal.conversationId.trim()
@@ -172,6 +181,12 @@ const autoApplyProposal = async (service, proposal, options = {}) => {
       : { ok: false, proposalId: proposal.id, error: "Operation failed." };
   // Send proposal to renderer so the chat shows a summary card (already in applied state)
   if (result.ok) {
+    try {
+      const { rememberProposalForPages } = require("./agent-proposal-scope.cjs");
+      rememberProposalForPages(service, proposal);
+    } catch {
+      // Page lookup is a nicety.
+    }
     service.sendToRenderer("agent:proposal", {
       proposal: { ...proposal, autoApplied: true },
     });
@@ -710,6 +725,13 @@ const submitEditedContent = async ({
       return { error: adjacentDuplicateError({ side: "above", line: duplicatedLine }) };
     }
   }
+  // Text after \end{document} is never typeset, and a second \begin{document}
+  // is a second document. Both are silent failures: the page would not show
+  // what was "written". Refuse them with the fix in the message.
+  const misplaced = findMisplacedDocumentContent(targetPath, originalContent, updatedContent);
+  if (misplaced) {
+    return { error: misplaced, conflict: true };
+  }
   if (!allowStructuralRemoval) {
     const brokenInvariants = checkLatexInvariants(
       targetPath,
@@ -791,6 +813,47 @@ const submitEditedContent = async ({
 // Only substantive lines (>= 24 trimmed chars) are flagged, so short tokens
 // like "}", "\\", or "\end{...}" never trip it.
 const ADJACENT_DUP_MIN_LEN = 24;
+const stripTexComments = (text) =>
+  text.replace(/(^|[^\\])%.*$/gm, "$1");
+
+/**
+ * Content that LaTeX will never typeset: anything after \end{document}, or a
+ * second \begin{document} / \documentclass. Only reported when the edit
+ * introduces it, so a file that already had the problem stays editable.
+ */
+const findMisplacedDocumentContent = (targetPath, originalContent, updatedContent) => {
+  if (!/\.tex$/i.test(String(targetPath))) return null;
+  const countAll = (text, re) => (stripTexComments(text).match(re) || []).length;
+  const beginRe = /\\begin\{document\}/g;
+  const classRe = /\\documentclass\b/g;
+  if (countAll(updatedContent, beginRe) > Math.max(1, countAll(originalContent, beginRe))) {
+    return (
+      "SECOND \\begin{document} REJECTED: the file would contain \\begin{document} more than once. " +
+      "There is exactly one document body; put the new content inside the existing " +
+      "\\begin{document} ... \\end{document} instead of starting another."
+    );
+  }
+  if (countAll(updatedContent, classRe) > Math.max(1, countAll(originalContent, classRe))) {
+    return (
+      "SECOND \\documentclass REJECTED: a file has one \\documentclass. Edit the existing " +
+      "preamble instead of adding a second one."
+    );
+  }
+  const trailing = (text) => {
+    const stripped = stripTexComments(text);
+    const index = stripped.lastIndexOf("\\end{document}");
+    if (index < 0) return "";
+    return stripped.slice(index + "\\end{document}".length).trim();
+  };
+  if (trailing(updatedContent) && !trailing(originalContent)) {
+    return (
+      "CONTENT AFTER \\end{document} REJECTED: LaTeX stops at \\end{document}, so text after it " +
+      "never reaches the page. Insert the new content before \\end{document}, inside the document body."
+    );
+  }
+  return null;
+};
+
 const findIntroducedAdjacentDuplicate = (lines, blockStartIndex, blockLength) => {
   if (!Array.isArray(lines) || blockLength <= 0) return null;
   const substantive = (s) => typeof s === "string" && s.trim().length >= ADJACENT_DUP_MIN_LEN;

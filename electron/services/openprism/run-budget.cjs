@@ -8,11 +8,21 @@
  */
 const HARD_MAX_AGENT_ITERATIONS = 24;
 const MAX_AGENT_TOKENS_PER_RUN = 100_000;
+// A document conversation writes whole sections in one turn and reads the
+// paper back between edits. It gets room for that; the hard iteration cap
+// and the platform quota still bound it.
+const DOCUMENT_MAX_AGENT_ITERATIONS = 40;
+const DOCUMENT_TURN_TOKEN_BUDGET = 300_000;
 const MAX_COMPLETION_TOKENS_PER_CALL = 32_000;
 const MIN_COMPLETION_TOKENS_PER_CALL = 256;
 
 const MAX_REPLAYED_HISTORY_CHARS = 48_000;
 const MAX_STALE_TOOL_ARGUMENT_CHARS = 1_024;
+// A tool result the model already saw stays in the request, because the
+// final reply is often written from it (a diff to review, a section to
+// answer about). Only a large one is cut to its head.
+const MAX_STALE_TOOL_RESULT_CHARS = 6_000;
+const STALE_TOOL_RESULT_HEAD_CHARS = 4_000;
 const REQUEST_TOKEN_OVERHEAD = 2_048;
 const IMAGE_TOKEN_RESERVE = 32_000;
 
@@ -78,13 +88,38 @@ const buildReplayHistory = (conversation) => {
   return replayed;
 };
 
+/**
+ * Arguments of a tool call the model already saw the result of. A big edit
+ * keeps its shape (which file, which range, how many lines, the first line)
+ * so the model still knows what it did, without re-sending the content.
+ */
 const compactToolArguments = (raw) => {
   if (typeof raw !== "string" || raw.length <= MAX_STALE_TOOL_ARGUMENT_CHARS) {
     return raw;
   }
-  return JSON.stringify({
-    _omitted: "Completed earlier in this turn; large arguments were compacted.",
-  });
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return JSON.stringify({
+      _omitted: "Completed earlier in this turn; large arguments were compacted.",
+    });
+  }
+  const compact = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === "string" && value.length > 160) {
+      const lines = value.split(/\r?\n/);
+      const firstLine = lines.find((line) => line.trim()) ?? "";
+      compact[key] = `<${lines.length} lines, ${value.length} chars; first: ${firstLine.trim().slice(0, 80)}>`;
+    } else {
+      compact[key] = value;
+    }
+  }
+  compact._note = "Completed earlier in this turn; long text arguments summarized.";
+  return JSON.stringify(compact);
 };
 
 /**
@@ -107,12 +142,12 @@ const compactRequestMessages = (messages) => {
   return source.map((message, index) => {
     if (!message || typeof message !== "object") return message;
     if (message.role === "tool" && index < latestToolCallIndex) {
+      const content = typeof message.content === "string" ? message.content : "";
+      if (content.length <= MAX_STALE_TOOL_RESULT_CHARS) return message;
       return {
         ...message,
-        content: JSON.stringify({
-          status: "completed",
-          detail: "Previous tool result omitted after it was consumed by the model.",
-        }),
+        content:
+          `${content.slice(0, STALE_TOOL_RESULT_HEAD_CHARS)}\n…(${content.length - STALE_TOOL_RESULT_HEAD_CHARS} more characters of this earlier result were dropped; call the tool again if you need them)`,
       };
     }
     if (
@@ -203,6 +238,8 @@ const planNextRequest = ({ remainingTokens, messages, tools }) => {
 };
 
 module.exports = {
+  DOCUMENT_MAX_AGENT_ITERATIONS,
+  DOCUMENT_TURN_TOKEN_BUDGET,
   HARD_MAX_AGENT_ITERATIONS,
   MAX_AGENT_TOKENS_PER_RUN,
   MAX_COMPLETION_TOKENS_PER_CALL,

@@ -278,9 +278,10 @@ export const initWorkspaceController = (
     deps.issuesUi.render(sorted);
     deps.editorSession.syncIssueMarkers(sorted);
 
+    // A failed build is not announced: the Issues panel holds the details and
+    // the missing PDF update says enough. The tab keeps its normal look.
     if (issuesTab instanceof HTMLElement) {
-      const hasAlert = sorted.length > 0 && status === "error";
-      issuesTab.classList.toggle("is-alert", hasAlert);
+      issuesTab.classList.remove("is-alert");
     }
     if (sorted.length === 0) {
       deps.editorSession.clearIssueHighlight();

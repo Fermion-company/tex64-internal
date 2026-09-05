@@ -17,11 +17,11 @@ export type DiffModalApi = {
     original: string,
     modified: string,
     lineOffset?: number,
-    options?: { title?: string; fileName?: string; submitLabel?: string }
+    options?: { title?: string; fileName?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string }
   ) => void;
   showMultiFileDiff: (
     files: FileDiff[],
-    options?: { title?: string; submitLabel?: string }
+    options?: { title?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string }
   ) => void;
   closeDiffModal: () => void;
   resetDiffEditor: () => void;
@@ -35,7 +35,7 @@ type DiffModalDeps = {
 };
 
 export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffModalApi => {
-  const { diffModal, diffTitle, diffModalSubmit, blockDiffContainer, diffSummary, diffFileName } =
+  const { diffModal, diffTitle, diffModalSubmit, diffModalCancel, blockDiffContainer, diffSummary, diffFileName } =
     context.dom;
 
   const defaultDiffSubmitLabel =
@@ -43,6 +43,19 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       ? diffModalSubmit.textContent ?? "Confirm"
       : "Confirm";
 
+  const defaultDiffCancelLabel =
+    diffModalCancel instanceof HTMLButtonElement ? diffModalCancel.textContent ?? "cancel" : "cancel";
+  // A read-only view hides the confirm button; Enter does nothing there.
+  const setViewOnly = (viewOnly: boolean, closeLabel?: string) => {
+    if (diffModalSubmit instanceof HTMLButtonElement) {
+      // The button class sets display, so the hidden attribute alone would lose.
+      diffModalSubmit.style.display = viewOnly ? "none" : "";
+      diffModalSubmit.disabled = viewOnly;
+    }
+    if (diffModalCancel instanceof HTMLButtonElement) {
+      diffModalCancel.textContent = viewOnly && closeLabel ? closeLabel : defaultDiffCancelLabel;
+    }
+  };
   let diffEditor: unknown = null;
   let diffOriginalModel: { setValue?: (value: string) => void; dispose?: () => void } | null =
     null;
@@ -210,10 +223,8 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
 
   const resetDiffEditor = () => {
     disposeMultiDiffEditors();
-    diffOriginalModel?.dispose?.();
-    diffModifiedModel?.dispose?.();
-    diffOriginalModel = null;
-    diffModifiedModel = null;
+    // Detach the models from the widget before disposing them; Monaco logs
+    // an error when a model dies while a diff editor still shows it.
     if (diffEditor) {
       const diffEditorAny = diffEditor as {
         setModel?: (model: { original: unknown; modified: unknown } | null) => void;
@@ -223,6 +234,10 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       diffEditorAny.dispose?.();
       diffEditor = null;
     }
+    diffOriginalModel?.dispose?.();
+    diffModifiedModel?.dispose?.();
+    diffOriginalModel = null;
+    diffModifiedModel = null;
     if (blockDiffContainer instanceof HTMLElement) {
       blockDiffContainer.innerHTML = "";
     }
@@ -232,10 +247,11 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     original: string,
     modified: string,
     lineOffset = 0,
-    options?: { title?: string; fileName?: string; submitLabel?: string }
+    options?: { title?: string; fileName?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string }
   ) => {
     const monacoApi = deps.getMonacoApi();
     if (!monacoApi) return;
+    setViewOnly(options?.viewOnly === true, options?.closeLabel);
     const monacoApiAny = monacoApi as {
       editor: {
         createDiffEditor: (el: HTMLElement, options: unknown) => unknown;
@@ -351,11 +367,12 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
 
   const showMultiFileDiff = (
     files: FileDiff[],
-    options?: { title?: string; submitLabel?: string }
+    options?: { title?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string }
   ) => {
     const monacoApi = deps.getMonacoApi();
     const container = blockDiffContainer;
     if (!monacoApi || !container) return;
+    setViewOnly(options?.viewOnly === true, options?.closeLabel);
     const monacoApiAny = monacoApi as {
       editor: {
         createDiffEditor: (el: HTMLElement, options: unknown) => unknown;
@@ -526,6 +543,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     if (diffModalSubmit instanceof HTMLButtonElement) {
       diffModalSubmit.textContent = defaultDiffSubmitLabel;
     }
+    setViewOnly(false);
     diffContext = null;
     resetDiffEditor();
   };

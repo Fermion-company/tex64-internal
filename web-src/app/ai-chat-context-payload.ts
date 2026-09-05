@@ -1,6 +1,7 @@
 import { getIssueResolution } from "./issue-resolution.js";
 import { getUiLocale } from "./i18n.js";
-import type { AgentSettings, IssueItem, IssuesStatus } from "./types.js";
+import type { IssueItem, IssuesStatus } from "./types.js";
+import type { MentionRef } from "./ai-chat-mention.js";
 
 type ContextDeps = {
   getActiveFilePath: () => string | null;
@@ -34,14 +35,20 @@ const MAX_OPEN_FILE_SNAPSHOTS = 4;
 const MAX_OPEN_FILES_METADATA = 12;
 const MAX_RECENT_ISSUES = 5;
 
-export const createContextPayloadBuilder = (deps: ContextDeps) => {
-  const resolveMaxChars = (value: number | undefined, fallback: number) => {
-    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-    return value <= 0 ? Number.POSITIVE_INFINITY : value;
-  };
+export type ContextExtras = {
+  /** "agent" edits and builds; "ask" answers; "plan" records the steps first. */
+  axiomMode?: "agent" | "ask" | "plan";
+  /** What the reader pointed at with @. */
+  explicitContextRefs?: MentionRef[];
+  /** "step": the request is one of the offered steps; the agent asks before writing. */
+  turnOrigin?: "step";
+  /** With "step": a writing step withholds the edit tools on its first turn. */
+  stepKind?: "mechanical" | "writing";
+};
 
-  const buildActiveFileContext = (agentSettings: AgentSettings | null) => {
-    const maxChars = resolveMaxChars(agentSettings?.openFileMaxChars, MAX_ACTIVE_FILE_CONTEXT_CHARS);
+export const createContextPayloadBuilder = (deps: ContextDeps) => {
+  const buildActiveFileContext = () => {
+    const maxChars = MAX_ACTIVE_FILE_CONTEXT_CHARS;
     const snapshot = deps.getActiveFileSnapshot?.() ?? null;
     const fallbackPath = deps.getActiveFilePath();
     if (!snapshot) return fallbackPath ? { activeFilePath: fallbackPath } : {};
@@ -60,8 +67,8 @@ export const createContextPayloadBuilder = (deps: ContextDeps) => {
     };
   };
 
-  const buildSelectionContext = (agentSettings: AgentSettings | null) => {
-    const maxChars = resolveMaxChars(agentSettings?.openFileMaxChars, MAX_SELECTION_CONTEXT_CHARS);
+  const buildSelectionContext = () => {
+    const maxChars = MAX_SELECTION_CONTEXT_CHARS;
     const selection = deps.getActiveSelectionSnapshot?.() ?? null;
     if (!selection || !selection.text) {
       return {};
@@ -88,8 +95,8 @@ export const createContextPayloadBuilder = (deps: ContextDeps) => {
     };
   };
 
-  const buildOpenFilesContext = (agentSettings: AgentSettings | null) => {
-    const maxChars = resolveMaxChars(agentSettings?.openFileMaxChars, MAX_OPEN_FILE_CONTEXT_CHARS);
+  const buildOpenFilesContext = () => {
+    const maxChars = MAX_OPEN_FILE_CONTEXT_CHARS;
     const s = deps.getOpenFileSnapshots?.({ maxFiles: MAX_OPEN_FILE_SNAPSHOTS, maxChars });
     if (!s) {
       return {};
@@ -121,13 +128,19 @@ export const createContextPayloadBuilder = (deps: ContextDeps) => {
     };
   };
 
-  return (agentSettings: AgentSettings | null) => {
+  return (extras: ContextExtras = {}) => {
     const payload = {
       uiLocale: getUiLocale(),
-      ...buildActiveFileContext(agentSettings),
-      ...buildSelectionContext(agentSettings),
-      ...buildOpenFilesContext(agentSettings),
+      axiomSurface: "code",
+      axiomMode: extras.axiomMode === "ask" || extras.axiomMode === "plan" ? extras.axiomMode : "agent",
+      ...(extras.turnOrigin === "step" ? { turnOrigin: "step", stepKind: extras.stepKind === "mechanical" ? "mechanical" : "writing" } : {}),
+      ...buildActiveFileContext(),
+      ...buildSelectionContext(),
+      ...buildOpenFilesContext(),
       ...buildIssuesContext(),
+      ...(Array.isArray(extras.explicitContextRefs) && extras.explicitContextRefs.length > 0
+        ? { explicitContextRefs: extras.explicitContextRefs }
+        : {}),
       contextControls: {
         includeSelection: true,
         includeOpenFiles: true,

@@ -1,3 +1,5 @@
+import { uiText } from "./i18n.js";
+import { aiText } from "./ai-i18n.js";
 /* ------------------------------------------------------------------ */
 /*  KaTeX math rendering                                              */
 /* ------------------------------------------------------------------ */
@@ -338,7 +340,300 @@ const attachCopyHandlers = (container) => {
 /* ------------------------------------------------------------------ */
 /** Chars beyond which a user message is collapsed behind a "Show more". */
 const LONG_USER_MESSAGE_CHARS = 600;
-export const createMessageElement = (message) => {
+// Thoughts and tool activity are stored as system lines with these marks;
+// the chat folds a run of them into one collapsed work log.
+const THOUGHT_MARK = "\u{1F4AD} ";
+const TOOL_MARK = "\u{1F527} ";
+export const isTraceMessage = (message) => message.role === "system" &&
+    (message.text.startsWith(THOUGHT_MARK) || message.text.startsWith(TOOL_MARK));
+export const traceLineText = (text) => text.startsWith(THOUGHT_MARK) || text.startsWith(TOOL_MARK) ? text.slice(THOUGHT_MARK.length) : text;
+export const formatRelativeTime = (createdAt) => {
+    if (typeof createdAt !== "number" || !Number.isFinite(createdAt))
+        return "";
+    const minutes = Math.floor(Math.max(0, Date.now() - createdAt) / 60000);
+    if (minutes < 1)
+        return aiText("time_now");
+    if (minutes < 60)
+        return aiText("time_minutes").replace("{n}", String(minutes));
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24)
+        return aiText("time_hours").replace("{n}", String(hours));
+    return aiText("time_days").replace("{n}", String(Math.floor(hours / 24)));
+};
+const ICONS = {
+    copy: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>',
+    retry: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
+    up: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 11v9H4v-9zM7 11l4-8a2 2 0 0 1 2 2v4h5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/></svg>',
+    down: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 13V4h3v9zM17 13l-4 8a2 2 0 0 1-2-2v-4H6a2 2 0 0 1-2-2.3l1.2-6A2 2 0 0 1 7.2 4H17"/></svg>',
+    branch: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M6 17c0-4 12-2 12-6"/></svg>',
+    send: '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><polygon points="7,4 19,12 7,20"/></svg>',
+    close: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+const ACTION_ICON = {
+    copy: ICONS.copy,
+    retry: ICONS.retry,
+    "rate-up": ICONS.up,
+    "rate-down": ICONS.down,
+    branch: ICONS.branch,
+};
+const createActionButton = (action, label) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ai-message-action";
+    button.dataset.aiAction = action;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.innerHTML = ACTION_ICON[action];
+    return button;
+};
+/** A line of the work log: what the agent read, wrote, or ran. */
+export const createTraceLineElement = (message) => {
+    const line = document.createElement("div");
+    line.className = "ai-trace-line";
+    line.textContent = traceLineText(message.text);
+    return line;
+};
+/* ------------------------------------------------------------------ */
+/*  Next steps and questions under a reply                            */
+/* ------------------------------------------------------------------ */
+/**
+ * The steps the agent offered: rows the reader can send as they are. The
+ * newest set answers to Tab and Enter; older sets stay clickable.
+ */
+export const createNextStepsElement = (steps, latest) => {
+    const root = document.createElement("div");
+    root.className = `ai-next-steps${latest ? " is-latest" : ""}`;
+    const list = document.createElement("div");
+    list.className = "ai-next-list";
+    steps.forEach((step, index) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "ai-step-row";
+        row.dataset.aiStepId = step.id;
+        row.dataset.aiRequest = step.request;
+        row.dataset.aiStepKind = step.kind === "mechanical" ? "mechanical" : "writing";
+        if (step.asks)
+            row.dataset.aiAsks = JSON.stringify(step.asks);
+        if (Number.isFinite(step.line))
+            row.dataset.aiLine = String(step.line);
+        row.style.setProperty("--ai-row-index", String(index));
+        row.title = step.asks ? step.asks.question : step.request;
+        const number = document.createElement("span");
+        number.className = "ai-step-index";
+        number.textContent = String(index + 1);
+        const text = document.createElement("span");
+        text.className = "ai-step-text";
+        const stepTitle = document.createElement("span");
+        stepTitle.className = "ai-step-title";
+        stepTitle.textContent = step.title;
+        text.appendChild(stepTitle);
+        if (step.scope) {
+            const scope = document.createElement("span");
+            scope.className = "ai-step-scope";
+            scope.textContent = step.scope;
+            text.appendChild(scope);
+        }
+        row.append(number, text);
+        if (step.asks) {
+            const mark = document.createElement("span");
+            mark.className = "ai-step-asks";
+            mark.textContent = "?";
+            mark.title = step.asks.question;
+            row.appendChild(mark);
+        }
+        list.appendChild(row);
+    });
+    root.appendChild(list);
+    return root;
+};
+/**
+ * The plan from Plan mode: steps with a checkbox each (all on), a line for
+ * additions, and the button that starts the checked steps in Agent mode.
+ */
+export const createPlanElement = (plan, latest) => {
+    const root = document.createElement("div");
+    root.className = `ai-plan${latest ? " is-latest" : ""}`;
+    root.dataset.aiPlan = "true";
+    const title = document.createElement("div");
+    title.className = "ai-plan-title";
+    title.textContent = plan.title;
+    root.appendChild(title);
+    const list = document.createElement("div");
+    list.className = "ai-plan-steps";
+    plan.steps.forEach((step, index) => {
+        const row = document.createElement("label");
+        row.className = "ai-plan-step";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.className = "ai-plan-check";
+        check.checked = true;
+        check.dataset.aiPlanStep = step.id;
+        const number = document.createElement("span");
+        number.className = "ai-step-index";
+        number.textContent = String(index + 1);
+        const text = document.createElement("span");
+        text.className = "ai-plan-text";
+        const head = document.createElement("span");
+        head.className = "ai-plan-step-title";
+        head.textContent = step.where ? `${step.title} · ${step.where}` : step.title;
+        const what = document.createElement("span");
+        what.className = "ai-plan-step-what";
+        what.textContent = step.what;
+        text.append(head, what);
+        if (step.asks) {
+            const ask = document.createElement("span");
+            ask.className = "ai-plan-step-asks";
+            ask.textContent = step.asks.question;
+            text.appendChild(ask);
+        }
+        row.append(check, number, text);
+        list.appendChild(row);
+    });
+    root.appendChild(list);
+    const note = document.createElement("textarea");
+    note.className = "ai-plan-note";
+    note.rows = 1;
+    note.placeholder = aiText("plan_note_placeholder");
+    root.appendChild(note);
+    const actions = document.createElement("div");
+    actions.className = "ai-plan-actions";
+    const run = document.createElement("button");
+    run.type = "button";
+    run.className = "panel-button ai-plan-run";
+    run.dataset.aiPlanRun = "true";
+    run.textContent = aiText("plan_run");
+    actions.appendChild(run);
+    root.appendChild(actions);
+    return root;
+};
+/** The request that runs a reviewed plan: the checked steps, then the note. */
+export const readPlanRequest = (planEl, plan) => {
+    var _a, _b;
+    const checked = new Set(Array.from(planEl.querySelectorAll("input.ai-plan-check"))
+        .filter((input) => input.checked)
+        .map((input) => { var _a; return (_a = input.dataset.aiPlanStep) !== null && _a !== void 0 ? _a : ""; }));
+    const lines = plan.steps
+        .filter((step) => checked.has(step.id))
+        .map((step, index) => `${index + 1}. ${step.title}${step.where ? ` (${step.where})` : ""}: ${step.what}`);
+    const note = (_b = (_a = planEl.querySelector(".ai-plan-note")) === null || _a === void 0 ? void 0 : _a.value.trim()) !== null && _b !== void 0 ? _b : "";
+    return `${aiText("plan_run_request")}\n\n${plan.title}\n${lines.join("\n")}${note ? `\n\n${aiText("plan_note_label")}: ${note}` : ""}`;
+};
+/**
+ * A question the agent put to the reader: short fields, a choice, or a free
+ * answer. Submitting sends the answer as the next message; a step's own
+ * question sends the step's request together with the answer.
+ */
+export const createQuestionElement = (question, options = {}) => {
+    const root = document.createElement("form");
+    root.className = "ai-question";
+    root.dataset.aiQuestion = "true";
+    if (options.request)
+        root.dataset.aiRequest = options.request;
+    if (options.stepId)
+        root.dataset.aiStepId = options.stepId;
+    if (options.lead) {
+        const lead = document.createElement("div");
+        lead.className = "ai-question-lead";
+        lead.textContent = options.lead;
+        root.appendChild(lead);
+    }
+    const text = document.createElement("div");
+    text.className = "ai-question-text";
+    text.textContent = question.question;
+    root.appendChild(text);
+    const fields = Array.isArray(question.fields) ? question.fields : [];
+    const choices = Array.isArray(question.options) ? question.options : [];
+    if (fields.length > 0) {
+        const grid = document.createElement("div");
+        grid.className = "ai-question-fields";
+        fields.forEach((field, index) => {
+            const label = document.createElement("label");
+            label.className = "ai-question-field";
+            const name = document.createElement("span");
+            name.className = "ai-question-field-label";
+            name.textContent = field.label;
+            const input = document.createElement("input");
+            input.type = "text";
+            input.className = "ai-question-input";
+            input.name = field.key;
+            input.dataset.aiFieldLabel = field.label;
+            if (field.placeholder)
+                input.placeholder = field.placeholder;
+            if (index === 0)
+                input.autofocus = true;
+            label.append(name, input);
+            grid.appendChild(label);
+        });
+        root.appendChild(grid);
+    }
+    if (choices.length > 0) {
+        const row = document.createElement("div");
+        row.className = "ai-question-options";
+        choices.forEach((choice) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "ai-question-option";
+            button.dataset.aiOption = choice;
+            button.textContent = choice;
+            row.appendChild(button);
+        });
+        root.appendChild(row);
+    }
+    if (fields.length === 0) {
+        const answer = document.createElement("textarea");
+        answer.className = "ai-question-answer";
+        answer.rows = 1;
+        answer.placeholder = aiText("answer_placeholder");
+        root.appendChild(answer);
+    }
+    const actions = document.createElement("div");
+    actions.className = "ai-question-actions";
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "panel-button ai-question-submit";
+    submit.textContent = aiText("answer_send");
+    actions.appendChild(submit);
+    if (options.stepId) {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "panel-button ghost";
+        cancel.dataset.aiQuestionCancel = "true";
+        cancel.textContent = aiText("cancel");
+        actions.appendChild(cancel);
+    }
+    root.appendChild(actions);
+    return root;
+};
+/** The answer a question form holds, as the text the agent receives. */
+export const readQuestionAnswer = (form) => {
+    var _a, _b, _c;
+    const inputs = Array.from(form.querySelectorAll("input.ai-question-input"));
+    if (inputs.length > 0) {
+        const lines = inputs
+            .map((input) => { var _a; return ({ label: (_a = input.dataset.aiFieldLabel) !== null && _a !== void 0 ? _a : input.name, value: input.value.trim() }); })
+            .filter((entry) => entry.value)
+            .map((entry) => `${entry.label}: ${entry.value}`);
+        return lines.join("\n");
+    }
+    const chosen = form.querySelector(".ai-question-option.is-chosen");
+    const free = form.querySelector(".ai-question-answer");
+    const freeText = (_a = free === null || free === void 0 ? void 0 : free.value.trim()) !== null && _a !== void 0 ? _a : "";
+    if (chosen && freeText)
+        return `${(_b = chosen.dataset.aiOption) !== null && _b !== void 0 ? _b : ""}\n${freeText}`;
+    if (chosen)
+        return (_c = chosen.dataset.aiOption) !== null && _c !== void 0 ? _c : "";
+    return freeText;
+};
+const applyRatingState = (wrapper, rating) => {
+    wrapper.dataset.aiRating = rating !== null && rating !== void 0 ? rating : "";
+    wrapper.querySelectorAll('[data-ai-action="rate-up"], [data-ai-action="rate-down"]').forEach((button) => {
+        const own = button.dataset.aiAction === "rate-up" ? "up" : "down";
+        button.classList.toggle("is-active", rating === own);
+    });
+};
+export const createMessageElement = (message, options = {}) => {
+    if (isTraceMessage(message))
+        return createTraceLineElement(message);
     const wrapper = document.createElement("div");
     wrapper.className = "ai-message";
     if (message.role === "user") {
@@ -347,9 +642,37 @@ export const createMessageElement = (message) => {
         content.className = "ai-message-content";
         content.textContent = message.text;
         wrapper.appendChild(content);
-        // A long writing brief otherwise pushes the whole run (progress, answer,
-        // produced files) out of view in a narrow panel.
-        if (message.text.length > LONG_USER_MESSAGE_CHARS) {
+        if (message.queued) {
+            // Typed while a turn was running: it waits its turn, and can be sent
+            // at once or taken back from here.
+            wrapper.classList.add("is-queued");
+            if (message.queueId)
+                wrapper.dataset.aiQueueId = message.queueId;
+            const bar = document.createElement("div");
+            bar.className = "ai-queued-bar";
+            const label = document.createElement("span");
+            label.className = "ai-queued-label";
+            label.textContent = aiText("queued");
+            const sendNow = document.createElement("button");
+            sendNow.type = "button";
+            sendNow.className = "ai-queued-action";
+            sendNow.dataset.aiQueueAction = "send";
+            sendNow.title = aiText("queue_send_now");
+            sendNow.setAttribute("aria-label", aiText("queue_send_now"));
+            sendNow.innerHTML = ICONS.send;
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "ai-queued-action";
+            remove.dataset.aiQueueAction = "remove";
+            remove.title = aiText("queue_remove");
+            remove.setAttribute("aria-label", aiText("queue_remove"));
+            remove.innerHTML = ICONS.close;
+            bar.append(label, sendNow, remove);
+            wrapper.appendChild(bar);
+        }
+        else if (message.text.length > LONG_USER_MESSAGE_CHARS) {
+            // A long writing brief otherwise pushes the whole run (progress, answer,
+            // produced files) out of view in a narrow panel.
             wrapper.classList.add("is-clamped", "has-expand");
             const toggle = document.createElement("button");
             toggle.type = "button";
@@ -369,6 +692,10 @@ export const createMessageElement = (message) => {
     }
     else if (message.role === "assistant") {
         wrapper.classList.add("is-assistant");
+        wrapper.dataset.rawText = message.text;
+        if (typeof options.assistantIndex === "number") {
+            wrapper.dataset.assistantIndex = String(options.assistantIndex);
+        }
         const body = document.createElement("div");
         body.className = "ai-message-body";
         const content = document.createElement("div");
@@ -377,6 +704,37 @@ export const createMessageElement = (message) => {
         attachCopyHandlers(content);
         body.appendChild(content);
         wrapper.appendChild(body);
+        if (Array.isArray(message.changes) && message.changes.length > 0 && options.renderChanges) {
+            const card = options.renderChanges(message, options.latest === true);
+            if (card)
+                wrapper.appendChild(card);
+        }
+        if (message.question && options.latest) {
+            wrapper.appendChild(createQuestionElement(message.question));
+        }
+        if (message.plan && Array.isArray(message.plan.steps) && message.plan.steps.length > 0) {
+            const planEl = createPlanElement(message.plan, options.latest === true);
+            planEl.dataset.aiPlanJson = JSON.stringify(message.plan);
+            wrapper.appendChild(planEl);
+        }
+        if (Array.isArray(message.proposals) && message.proposals.length > 0) {
+            wrapper.appendChild(createNextStepsElement(message.proposals, options.latest === true));
+        }
+        // Quiet row under the reply: copy, try again, rate, branch, and when it
+        // was written. It only shows while the pointer rests on the reply.
+        const actions = document.createElement("div");
+        actions.className = "ai-message-actions";
+        actions.appendChild(createActionButton("copy", aiText("action_copy")));
+        actions.appendChild(createActionButton("retry", aiText("action_retry")));
+        actions.appendChild(createActionButton("rate-up", aiText("rate_up")));
+        actions.appendChild(createActionButton("rate-down", aiText("rate_down")));
+        actions.appendChild(createActionButton("branch", aiText("branch")));
+        const time = document.createElement("span");
+        time.className = "ai-message-time";
+        time.textContent = formatRelativeTime(message.createdAt);
+        actions.appendChild(time);
+        wrapper.appendChild(actions);
+        applyRatingState(wrapper, message.rating);
     }
     else if (message.role === "system") {
         wrapper.classList.add("is-system");
@@ -400,6 +758,7 @@ export const updateMessageElement = (wrapper, text) => {
     if (!content)
         return;
     if (wrapper.classList.contains("is-assistant")) {
+        wrapper.dataset.rawText = text;
         content.innerHTML = renderMarkdownHtml(text);
         attachCopyHandlers(content);
     }
@@ -407,4 +766,38 @@ export const updateMessageElement = (wrapper, text) => {
         content.textContent = text;
     }
 };
-import { uiText } from "./i18n.js";
+/** Reflect a rating on an already rendered reply. */
+export const setMessageRating = (wrapper, rating) => {
+    if (wrapper)
+        applyRatingState(wrapper, rating);
+};
+/**
+ * The rating comment box under a reply: a line for what went wrong and a
+ * note that the exchange goes to the team. Sending posts the rating.
+ */
+export const createRatingBox = () => {
+    const box = document.createElement("form");
+    box.className = "ai-rate-box";
+    box.dataset.aiRateBox = "true";
+    const input = document.createElement("textarea");
+    input.className = "ai-rate-input";
+    input.rows = 1;
+    input.placeholder = aiText("rate_comment");
+    const note = document.createElement("div");
+    note.className = "ai-rate-note";
+    note.textContent = aiText("rate_note");
+    const actions = document.createElement("div");
+    actions.className = "ai-rate-actions";
+    const send = document.createElement("button");
+    send.type = "submit";
+    send.className = "panel-button ai-rate-send";
+    send.textContent = aiText("rate_send");
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "panel-button ghost";
+    cancel.dataset.aiRateCancel = "true";
+    cancel.textContent = aiText("cancel");
+    actions.append(send, cancel);
+    box.append(input, note, actions);
+    return box;
+};

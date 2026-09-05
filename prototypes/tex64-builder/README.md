@@ -1,10 +1,11 @@
 # TeX64 — AIとの対話でLaTeX文書が完成するアプリ
 
+旧AIアプリの試作。現行サービスは `/Users/wedd/Development/fermion/tex64-internal/services/tex64-ai` を参照する。
+
 「LaTeXを書けない人でも、AIとの対話だけで学術レベルのLaTeX文書が完成する」Webアプリ。
 チャットで執筆を依頼すると、右側に**実際にLuaLaTeXで組版されたPDF**が常に表示されます。
 TeXコードは前面に出ず、コンパイルは常にAIとバックエンドが完了させます(エラーUIは存在しません)。
 
-デザインの正は [design_handoff_tex64_builder/](design_handoff_tex64_builder/README.md)(実装対象: 7a)。
 
 ## 必要環境
 

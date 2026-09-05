@@ -80,29 +80,34 @@ export type AgentStatusState =
   | "stopping"
   | "error"
   | "resumable";
+/** The only stored Axiom choice; everything else about the agent is fixed in code. */
 export type AgentSettings = {
-  apiKey?: string;
-  endpoint?: string;
   model?: string;
+};
 
-  temperature: number;
-  maxIterations?: number;
-  stream?: boolean;
-  autoApply?: boolean;
-  autoBuild?: boolean;
-  allowRunCommand?: boolean;
-  maxFileBytes?: number;
-  maxReadFiles?: number;
-  openFileMaxBytes?: number;
-  openFileMaxChars?: number;
-  maxConversationMessages?: number;
-  maxConversationChars?: number;
-  allowedTopLevel?: string[];
-  blockedTopLevel?: string[];
-  textExtensions?: string[];
-  extraTextExtensions?: string[];
-  costInputPerMillion?: number;
-  costOutputPerMillion?: number;
+/** A next step the agent recorded with propose_next_steps. */
+export type AgentNextStep = {
+  id: string;
+  title: string;
+  request: string;
+  /** "writing" starts with the brief when taken; "mechanical" is done at once. */
+  kind?: "mechanical" | "writing";
+  scope?: string;
+  line?: number;
+  asks?: AgentQuestion;
+};
+
+/** The plan Plan mode records: the steps the reader reviews before anything is written. */
+export type AgentPlan = {
+  title: string;
+  steps: Array<{ id: string; title: string; where?: string; what: string; asks?: AgentQuestion }>;
+};
+
+/** One question the agent needs answered before it can go on. */
+export type AgentQuestion = {
+  question: string;
+  fields?: Array<{ key: string; label: string; placeholder?: string }>;
+  options?: string[];
 };
 
 export type ApiUsageSnapshot = {
@@ -263,6 +268,8 @@ export type AgentProposal = {
   baseExists?: boolean;
   baseSource?: "disk" | "snapshot";
   createdAt?: number;
+  /** Where the change sits: first changed line and its section; the page follows the build. */
+  scope?: { line: number; section?: string; sectionType?: string; sectionLine?: number; page?: number };
 };
 
 export type AgentUiSession = {
@@ -278,7 +285,15 @@ export type AgentUiSession = {
     undoCount?: number;
     undoUnavailableReason?: string;
   };
-  messages: Array<{ role: "user" | "assistant"; text: string }>;
+  branchedFrom?: string | null;
+  messages: Array<{
+    role: "user" | "assistant";
+    text: string;
+    proposals?: AgentNextStep[];
+    question?: AgentQuestion;
+    rating?: "up" | "down";
+    plan?: AgentPlan;
+  }>;
   proposals: AgentProposal[];
 };
 
@@ -311,6 +326,8 @@ export type FormatSettingsPayload = EditorFormatSettings & {
 export type WebkitHandler = { postMessage: (message: unknown) => void };
 export type WebkitBridge = { messageHandlers?: { tex64?: WebkitHandler } };
 export type ElectronBridge = {
+  /** false when the host holds AI mode out of this build (Code only). */
+  aiModeEnabled?: boolean;
   postMessage: (message: unknown) => void;
   onMessage?: (handler: (message: { type: string; payload?: unknown }) => void) => void;
 };

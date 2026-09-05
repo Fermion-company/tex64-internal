@@ -141,9 +141,23 @@ export const createAiChatAttachmentsController = (options) => {
         pendingAttachments.forEach((attachment, index) => {
             const chip = document.createElement("div");
             chip.className = "ai-attachment-chip";
+            // The picture itself is the icon; a PDF page arrives as an image too.
+            if (attachment.mimeType.startsWith("image/") && attachment.data) {
+                const thumb = document.createElement("img");
+                thumb.className = "ai-attachment-thumb";
+                thumb.alt = "";
+                thumb.src = `data:${attachment.mimeType};base64,${attachment.data}`;
+                chip.appendChild(thumb);
+            }
             const name = document.createElement("span");
             name.className = "ai-attachment-name";
             name.textContent = attachment.name || `image-${index + 1}`;
+            const size = document.createElement("span");
+            size.className = "ai-attachment-size";
+            size.textContent =
+                attachment.size < 1024 * 1024
+                    ? `${Math.max(1, Math.round(attachment.size / 1024))} KB`
+                    : `${(attachment.size / (1024 * 1024)).toFixed(1)} MB`;
             const remove = document.createElement("button");
             remove.type = "button";
             remove.className = "ai-attachment-remove";
@@ -153,7 +167,7 @@ export const createAiChatAttachmentsController = (options) => {
                 pendingAttachments = pendingAttachments.filter((_, targetIndex) => targetIndex !== index);
                 renderAttachmentBar();
             });
-            chip.append(name, remove);
+            chip.append(name, size, remove);
             aiAttachments.appendChild(chip);
         });
     };

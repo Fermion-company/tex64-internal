@@ -443,6 +443,42 @@ const featureMethods = {
     return this.fetchAiAccess(options);
   },
 
+  /**
+   * A turn just spent tokens: move the cached allowance forward so the chat
+   * and the settings page show it without another request. The server's own
+   * figure (from a response header) wins over the local estimate.
+   */
+  async noteAiUsage({ consumedTokens = 0, remainingTokens = null } = {}) {
+    const state = await this.ensureLoadedState();
+    const access = state.aiAccessCache;
+    if (!access || typeof access !== "object" || !access.quota || typeof access.quota !== "object") {
+      return null;
+    }
+    const quota = { ...access.quota };
+    const limit = Math.max(0, Math.round(Number(quota.limitTokens) || 0));
+    const consumed = Math.max(0, Math.round(Number(consumedTokens) || 0));
+    const serverRemaining = Number(remainingTokens);
+    const remaining = Number.isFinite(serverRemaining)
+      ? Math.max(0, Math.min(limit, Math.round(serverRemaining)))
+      : Math.max(0, Math.round(Number(quota.remainingTokens) || 0) - consumed);
+    quota.remainingTokens = remaining;
+    quota.usedTokens = limit > 0 ? Math.max(0, limit - remaining) : Math.max(0, Math.round(Number(quota.usedTokens) || 0) + consumed);
+    const updated = { ...access, quota, fetchedAt: Date.now() };
+    state.aiAccessCache = updated;
+    state.aiAccessFetchedAt = Date.now();
+    if (state.aiUsageCache && typeof state.aiUsageCache === "object" && state.aiUsageCache.summary) {
+      state.aiUsageCache = {
+        ...state.aiUsageCache,
+        summary: { ...state.aiUsageCache.summary, usedTokens: quota.usedTokens, remainingTokens: quota.remainingTokens },
+        fetchedAt: Date.now(),
+      };
+      state.aiUsageFetchedAt = Date.now();
+    }
+    this.state = state;
+    await this.save().catch(() => {});
+    return clone(updated);
+  },
+
   async startGoogleAuth() {
     const state = await this.ensureLoadedState();
     if (this.bypassEntitlement) {

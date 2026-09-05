@@ -55,7 +55,7 @@ import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
 import { prepareRendererForQuit } from "./app/quit-preparation.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         initAppearanceTheme();
         initI18n();
         requestAnimationFrame(() => {
@@ -65,6 +65,16 @@ export const initMain = () => {
         const { tabs, settingsTab, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
         let postToNative = () => false;
         let requestLiveSource = (_payload) => { };
+        // A place marked in the live preview names its source file the engine's
+        // way; the chat needs the workspace path.
+        const withResolvedPdfSource = (payload) => {
+            var _a;
+            const source = (_a = payload.source) !== null && _a !== void 0 ? _a : null;
+            if (!source)
+                return payload;
+            const path = resolveLivePreviewWorkspacePath(source.file, getWorkspaceRootKey());
+            return { ...payload, sourcePath: path !== null && path !== void 0 ? path : null };
+        };
         let requestLiveEdit = (_payload) => { };
         let refreshCodeLivePreview = () => { };
         let openIntegratedTerminal = (_directory) => { };
@@ -103,6 +113,10 @@ export const initMain = () => {
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
+            onPdfAskAxiom: (payload) => {
+                setActiveTab("ai");
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
+            },
         });
         const secondaryViewer = createViewer({
             editorViewer: editorViewerSecondary,
@@ -123,6 +137,10 @@ export const initMain = () => {
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
+            onPdfAskAxiom: (payload) => {
+                setActiveTab("ai");
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
+            },
         });
         const bridgeWindow = window;
         bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl) => recognizeMath(imageDataUrl);
@@ -510,10 +528,16 @@ export const initMain = () => {
                 }, true);
             });
         });
+        // The host decides whether this build offers AI mode; without it the
+        // switcher stays hidden and the app stays in Code.
+        const aiModeEnabled = ((_e = bridgeWindow.tex64Bridge) === null || _e === void 0 ? void 0 : _e.aiModeEnabled) !== false;
+        (_f = document.getElementById("mode-switcher")) === null || _f === void 0 ? void 0 : _f.toggleAttribute("hidden", !aiModeEnabled);
         let appModeApi;
         appModeApi = initAppModeUi({
-            initialMode: resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)),
+            initialMode: aiModeEnabled ? resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)) : "code",
             beforeModeChange: (mode, previous) => {
+                if (mode === "ai" && !aiModeEnabled)
+                    return false;
                 if (previous === null)
                     return true;
                 return (async () => {
@@ -521,12 +545,6 @@ export const initMain = () => {
                     const result = await prepareAppModeTransition({
                         next: mode,
                         previous,
-                        quiesce: async () => {
-                            var _a, _b, _c;
-                            return (_c = (await ((_b = (_a = bridgeWindow.tex64Ai) === null || _a === void 0 ? void 0 : _a.quiesce) === null || _b === void 0 ? void 0 : _b.call(_a)))) !== null && _c !== void 0 ? _c : {
-                                ok: false,
-                            };
-                        },
                         saveCode: () => editorSession.saveDirtyFiles(),
                     });
                     if ((result === null || result === void 0 ? void 0 : result.ok) === true)
@@ -790,7 +808,7 @@ export const initMain = () => {
         });
         // Settings > Account > Plans & Usage: close the full-screen settings first,
         // then open the same in-app Plans modal used everywhere else.
-        (_e = document.getElementById("settings-plan-open")) === null || _e === void 0 ? void 0 : _e.addEventListener("click", () => {
+        (_g = document.getElementById("settings-plan-open")) === null || _g === void 0 ? void 0 : _g.addEventListener("click", () => {
             var _a;
             (_a = document.getElementById("settings-close")) === null || _a === void 0 ? void 0 : _a.click();
             window.dispatchEvent(new CustomEvent("tex64:open-plans"));
@@ -936,7 +954,7 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_f = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _f === void 0 ? void 0 : _f.dataset.tab);
+        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_h = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _h === void 0 ? void 0 : _h.dataset.tab);
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();
@@ -1079,9 +1097,14 @@ export const initMain = () => {
             postToNative: (payload, silent) => postToNative(payload, silent),
             updateIssues: updateIssuesProxy,
             handleWorkspaceUpdate: (payload) => {
-                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleWorkspaceChanged(payload.rootPath);
+                // The chat list belongs to the workspace root: it is fetched when the
+                // root changes, not on every file-tree refresh (writes during a turn
+                // produce many of those). Everything else about a chat arrives as
+                // events while it happens.
+                const rootChanged = (aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleWorkspaceChanged(payload.rootPath)) === true;
                 workspaceController.handleWorkspaceUpdate(payload);
-                postToNative({ type: "agent:state:get" }, true);
+                if (rootChanged)
+                    postToNative({ type: "agent:state:get" }, true);
             },
             handleIndexUpdate: workspaceController.handleIndexUpdate,
             handleLauncherStatus,
@@ -1157,7 +1180,19 @@ export const initMain = () => {
                 handleSettings: (settings) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleSettings(settings),
                 handleState: (state) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleState(state),
                 handleStatus: (state, message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleStatus(state, message, conversationId),
-                handleMessage: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessage(text, conversationId),
+                handleMessage: (text, conversationId, extras) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessage(text, conversationId, extras),
+                handleTitle: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTitle(payload),
+                handleMessageReset: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageReset(payload),
+                askFromPdf: (payload) => {
+                    setActiveTab("ai");
+                    aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
+                },
+                handlePdfReverseResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePdfReverseResult(payload),
+                handleFeedbackResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleFeedbackResult(payload),
+                handleBranchResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleBranchResult(payload),
+                handleProposalScope: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposalScope(payload),
+                handleTranscribeResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTranscribeResult(payload),
+                handleDocumentMap: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleDocumentMap(payload),
                 handleMessageDelta: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageDelta(text, conversationId),
                 handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),
                 handleProposal: (proposal) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposal(proposal),
@@ -1178,10 +1213,12 @@ export const initMain = () => {
                 },
                 handleAiAccess: (payload) => {
                     aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformAiAccess(payload);
+                    settingsUi.handlePlatformAiAccess(payload);
                     billingUi === null || billingUi === void 0 ? void 0 : billingUi.handlePlanUpdated();
                 },
                 handleUsage: (payload) => {
                     aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformUsage(payload);
+                    settingsUi.handlePlatformUsage(payload);
                     billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleUsageUpdated();
                 },
                 handleUpdate: (payload) => {
@@ -1231,6 +1268,8 @@ export const initMain = () => {
             onCursorSelectionChange: handleCursorPositionChange,
             openAiWithSelection: () => {
                 setActiveTab("ai");
+                // The selection chip in the composer reflects what was selected.
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshContextBar();
                 const input = document.getElementById("ai-input");
                 if (input instanceof HTMLTextAreaElement) {
                     input.focus();

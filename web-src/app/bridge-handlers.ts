@@ -21,6 +21,9 @@ import type {
   PlatformUpdateStatusSnapshot,
   AnnouncementSnapshot,
   BuildProfile,
+  AgentNextStep,
+  AgentQuestion,
+  AgentPlan,
 } from "./types.js";
 import { uiText } from "./i18n.js";
 import type { FilePreviewResultPayload } from "./file-preview.js";
@@ -176,8 +179,42 @@ type BridgeHandlersDeps = {
       message?: string,
       conversationId?: string
     ) => void;
-    handleMessage: (text: string, conversationId?: string) => void;
+    handleMessage: (
+      text: string,
+      conversationId?: string,
+      extras?: { proposals?: AgentNextStep[]; question?: AgentQuestion; plan?: AgentPlan },
+    ) => void;
     handleMessageDelta?: (text: string, conversationId?: string) => void;
+    handleTitle?: (payload: { conversationId?: string; title?: string }) => void;
+    handleMessageReset?: (payload: { conversationId?: string }) => void;
+    askFromPdf?: (payload: {
+      page: number;
+      x: number;
+      y: number;
+      text: string;
+      pdfPath: string | null;
+      source?: { file: string; line: number; column: number } | null;
+    }) => void;
+    handlePdfReverseResult?: (payload: { requestId?: string; ok?: boolean; path?: string; line?: number; error?: string }) => void;
+    handleFeedbackResult?: (payload: {
+      conversationId?: string;
+      assistantIndex?: number;
+      rating?: "up" | "down";
+      ok?: boolean;
+      error?: string;
+    }) => void;
+    handleBranchResult?: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
+    handleProposalScope?: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
+    handleTranscribeResult?: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string }) => void;
+    handleDocumentMap: (payload: {
+      requestId?: string;
+      mainFile?: string | null;
+      sections?: Array<{ path: string; id: number; type: string; number?: string; title: string; line: number; endLine: number }>;
+      labels?: Array<{ key: string; path: string; line: number }>;
+      bibKeys?: Array<{ key: string; path: string; line?: number; title?: string }>;
+      git?: { isRepo?: boolean; changed?: number };
+      rules?: { exists?: boolean };
+    }) => void;
     handleTool: (payload: {
       name: string;
       label?: string;
@@ -499,8 +536,26 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
       case "synctex:forwardResult":
         deps.build.handleSynctexForwardResult(message.payload as any);
         break;
-      case "synctex:reverseResult":
+      case "synctex:reverseResult": {
+        const reverse = message.payload as { requestId?: string };
+        if (typeof reverse?.requestId === "string" && reverse.requestId.startsWith("ask-axiom:")) {
+          deps.agent?.handlePdfReverseResult?.(message.payload as never);
+          break;
+        }
         deps.build.handleSynctexReverseResult(message.payload as any);
+        break;
+      }
+      case "pdf:askAxiom":
+        deps.agent?.askFromPdf?.(
+          message.payload as {
+            page: number;
+            x: number;
+            y: number;
+            text: string;
+            pdfPath: string | null;
+            source?: { file: string; line: number; column: number } | null;
+          },
+        );
         break;
       case "renameResult":
         bridgeWindow.tex64RenameResult?.(message.payload as {
@@ -631,12 +686,47 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           message.payload as { conversationId?: string; message?: string },
         );
         break;
-      case "agent:message":
+      case "agent:message": {
         if (isAiModeAgentPayload(message.payload)) break;
-        deps.agent?.handleMessage(
-          (message.payload as { text?: string; conversationId?: string }).text ?? "",
-          (message.payload as { text?: string; conversationId?: string }).conversationId
+        const reply = message.payload as {
+          text?: string;
+          conversationId?: string;
+          proposals?: unknown;
+          question?: unknown;
+          plan?: unknown;
+        };
+        deps.agent?.handleMessage(reply.text ?? "", reply.conversationId, {
+          proposals: Array.isArray(reply.proposals) ? (reply.proposals as never) : undefined,
+          question: reply.question && typeof reply.question === "object" ? (reply.question as never) : undefined,
+          plan: reply.plan && typeof reply.plan === "object" ? (reply.plan as never) : undefined,
+        });
+        break;
+      }
+      case "agent:messageReset":
+        if (isAiModeAgentPayload(message.payload)) break;
+        deps.agent?.handleMessageReset?.(message.payload as { conversationId?: string });
+        break;
+      case "agent:title":
+        if (isAiModeAgentPayload(message.payload)) break;
+        deps.agent?.handleTitle?.(message.payload as { conversationId?: string; title?: string });
+        break;
+      case "agent:feedbackResult":
+        deps.agent?.handleFeedbackResult?.(
+          message.payload as { conversationId?: string; assistantIndex?: number; rating?: "up" | "down"; ok?: boolean; error?: string },
         );
+        break;
+      case "agent:branchResult":
+        deps.agent?.handleBranchResult?.(message.payload as { ok?: boolean; conversationId?: string; error?: string });
+        break;
+      case "agent:proposalScope":
+        if (isAiModeAgentPayload(message.payload)) break;
+        deps.agent?.handleProposalScope?.(message.payload as { conversationId?: string; proposalId?: string; page?: number });
+        break;
+      case "agent:transcribeResult":
+        deps.agent?.handleTranscribeResult?.(message.payload as { requestId?: string; ok?: boolean; text?: string; error?: string });
+        break;
+      case "agent:documentMap":
+        deps.agent?.handleDocumentMap?.(message.payload as Parameters<NonNullable<typeof deps.agent>["handleDocumentMap"]>[0]);
         break;
       case "agent:messageDelta":
         if (isAiModeAgentPayload(message.payload)) break;

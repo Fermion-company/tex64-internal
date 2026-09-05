@@ -1,5 +1,15 @@
 import type { TexEnvReport } from "../tex-env-report.js";
-import type { AppSettingsSnapshot, BuildProfile, EditorFormatSettings, FormatSettingsPayload, PlatformAuthSnapshot, PlatformUpdateSnapshot, PlatformUpdateStatusSnapshot } from "../types.js";
+import type {
+  AppSettingsSnapshot,
+  BuildProfile,
+  EditorFormatSettings,
+  FormatSettingsPayload,
+  PlatformAuthSnapshot,
+  PlatformUpdateSnapshot,
+  PlatformUpdateStatusSnapshot,
+  PlatformAiAccessSnapshot,
+  PlatformUsageSnapshot,
+} from "../types.js";
 import type { AppearanceTheme } from "../appearance.js";
 import type { EnvRegistryApi } from "../env-registry-ui.js";
 import type { EnvStatusSummary } from "../settings-env.js";
@@ -73,6 +83,8 @@ export type SettingsUiApi = {
     listener: (status: { message: string; tone: "neutral" | "success" | "error" }) => void
   ) => () => void;
   handlePlatformAuth: (payload: { auth: PlatformAuthSnapshot; error?: { code?: string; message?: string } }) => void;
+  handlePlatformAiAccess: (payload: { source?: string; access: PlatformAiAccessSnapshot }) => void;
+  handlePlatformUsage: (payload: { source?: string; usage: PlatformUsageSnapshot }) => void;
   handlePlatformUpdate: (payload: {
     source?: string;
     update: PlatformUpdateSnapshot | null;

@@ -681,55 +681,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         const ids = editor.deltaDecorations([], decorations);
         aiDiffDecorations.set(group.key, ids);
 
-        // Review bar for an edit that has ALREADY been written to disk (both
-        // the Axiom and Codex paths apply directly, and a build may have run
-        // on it). So this is an after-the-fact review, not an approval gate:
-        // "Done" just dismisses the diff, and "Undo" has to put the reverted
-        // text back on disk too — otherwise the buffer and the file silently
-        // disagree until the next save.
-        const editorDom = editor.getDomNode?.();
-        const editorContainer = editorDom?.parentElement;
-        if (editorContainer) {
-          const existing = document.getElementById("ai-undo-keep-bar");
-          if (existing) existing.remove();
-
-          const bar = document.createElement("div");
-          bar.id = "ai-undo-keep-bar";
-          bar.className = "ai-undo-keep-bar";
-
-          const undoBtn = document.createElement("button");
-          undoBtn.className = "ai-undo-keep-btn is-undo";
-          undoBtn.textContent = uiText("Undo", "元に戻す");
-          undoBtn.title = uiText(
-            "Revert the change and save the file.",
-            "変更を取り消してファイルを保存します。"
-          );
-          undoBtn.addEventListener("click", () => {
-            // Use Monaco's undo — the AI edit is on the undo stack
-            const editorTrigger = group.editor as { trigger?: (source: string, handlerId: string, payload: unknown) => void };
-            editorTrigger?.trigger?.("ai-undo-bar", "undo", null);
-            clearAiDiffDecorations(group);
-            if (isActiveGroup(group) && group.currentFilePath === path) {
-              void saveCurrentFile().catch(() => {
-                /* the save error is surfaced by the save path itself */
-              });
-            }
-          });
-
-          const keepBtn = document.createElement("button");
-          keepBtn.className = "ai-undo-keep-btn is-keep";
-          keepBtn.textContent = uiText("Done", "完了");
-          keepBtn.title = uiText(
-            "Close the diff. The change is already saved.",
-            "差分表示を閉じます。変更はすでに保存済みです。"
-          );
-          keepBtn.addEventListener("click", () => {
-            clearAiDiffDecorations(group);
-          });
-
-          bar.append(undoBtn, keepBtn);
-          editorContainer.appendChild(bar);
-        }
+        // The edit is already on disk and the chat card carries "元に戻す";
+        // the editor only marks the changed lines until the next edit.
 
         // Auto-clear on next content change (user edit, undo, redo)
         if (editor.onDidChangeModelContent) {

@@ -6,6 +6,7 @@ const {
   globalShortcut,
   ipcMain,
   Menu,
+  protocol,
   safeStorage,
   screen,
   shell,
@@ -354,6 +355,15 @@ const getTerminalService = () => {
 let allowMainWindowClose = false;
 let mainWindowClosePromise = null;
 
+// AI mode is held back from the general release: a packaged build shows only
+// Code unless TEX64_AI_MODE_ENABLED=1; development shows both unless it is 0.
+const isAiModeEnabled = () => {
+  const override = String(process.env.TEX64_AI_MODE_ENABLED ?? "").trim();
+  if (override === "1") return true;
+  if (override === "0") return false;
+  return app.isPackaged !== true;
+};
+
 const createMainWindow = () => {
   allowMainWindowClose = false;
   const preloadPath = path.join(__dirname, "preload.cjs");
@@ -374,6 +384,7 @@ const createMainWindow = () => {
       contextIsolation: true,
       nodeIntegration: false,
       preload: preloadPath,
+      additionalArguments: [`--tex64-ai-mode=${isAiModeEnabled() ? "on" : "off"}`],
       // AI mode hosts the tex64-ai web app in a <webview> guest.
       webviewTag: true,
     },
@@ -710,6 +721,7 @@ const agentService = new AgentService({
   sessionsService: getAgentSessionsService(),
   platformAccess: getPlatformAccessService(),
   envService,
+  synctexService,
   isRendererWorkspaceMutationActive: (rootPath) =>
     externalWriterCoordinator.hasRendererMutation(rootPath),
 });
@@ -1014,10 +1026,83 @@ app.on("open-url", (event, url) => {
   }
 });
 
+// The AI mode's webview fetches the workspace PDF through this scheme: a
+// streamed file read scoped to the open workspace, instead of base64 bytes
+// copied through the message bridge. Registered before the app is ready so
+// fetch() from the page may use it.
+const WORKSPACE_PDF_SCHEME = "tex64-pdf";
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: WORKSPACE_PDF_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+]);
+
+const handleWorkspacePdfRequest = async (request) => {
+  const deny = (status, message) =>
+    new Response(message, { status, headers: { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" } });
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return deny(400, "Bad request.");
+  }
+  if (url.host !== "workspace") return deny(404, "Not found.");
+  const rootPath = workspace.getRootPath();
+  if (!rootPath) return deny(409, "No workspace is open.");
+  const requestedWorkspaceId = url.searchParams.get("workspaceId");
+  if (!requestedWorkspaceId || requestedWorkspaceId !== state.workspaceId) {
+    return deny(409, "The workspace changed.");
+  }
+  const generation = Number.parseInt(url.searchParams.get("workspaceGeneration") ?? "", 10);
+  if (!Number.isSafeInteger(generation) || generation !== state.workspaceGeneration) {
+    return deny(409, "The workspace changed.");
+  }
+  let relativePath;
+  try {
+    relativePath = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+  } catch {
+    return deny(400, "Bad path.");
+  }
+  if (!relativePath || !relativePath.toLowerCase().endsWith(".pdf") || relativePath.includes("\0")) {
+    return deny(403, "Only a workspace PDF can be read here.");
+  }
+  let realPath;
+  try {
+    const rootReal = fs.realpathSync(rootPath);
+    realPath = fs.realpathSync(workspace.resolvePath(relativePath));
+    const relative = path.relative(rootReal, realPath);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
+      return deny(403, "The file is outside the workspace.");
+    }
+  } catch {
+    return deny(404, "Not found.");
+  }
+  let stats;
+  try {
+    stats = fs.statSync(realPath);
+  } catch {
+    return deny(404, "Not found.");
+  }
+  if (!stats.isFile()) return deny(404, "Not found.");
+  const { Readable } = require("stream");
+  const stream = Readable.toWeb(fs.createReadStream(realPath));
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Length": String(stats.size),
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+};
+
 app.whenReady().then(() => {
   if (!hasSingleInstanceLock) {
     return;
   }
+  protocol.handle(WORKSPACE_PDF_SCHEME, handleWorkspacePdfRequest);
   runStartupWebBuildIfNeeded();
   createMainWindow();
   installApplicationMenu();
@@ -1769,6 +1854,10 @@ const validateAiModeTurn = (message) => {
       workspaceId,
       workspaceGeneration: state.workspaceGeneration,
       documentMainFile,
+      // The AI mode speaks the app's language; status copy follows it.
+      ...(typeof state.uiLocale === "string" && state.uiLocale
+        ? { uiLocale: state.uiLocale }
+        : {}),
     },
   };
 };
@@ -1863,6 +1952,10 @@ ipcMain.on("tex64", (event, message) => {
     buildHandlers.handleSynctexForward(message);
     return;
   }
+  if (type === "synctex:forwardBatch") {
+    buildHandlers.handleSynctexForwardBatch(message);
+    return;
+  }
   if (type === "synctex:reverse") {
     buildHandlers.handleSynctexReverse(message);
     return;
@@ -1910,6 +2003,16 @@ ipcMain.on("tex64", (event, message) => {
       line: message.line,
       radius: message.radius,
       maxLines: message.maxLines,
+      workspaceGeneration: message.workspaceGeneration,
+      workspaceId: message.workspaceId,
+      documentMainFile: message.documentMainFile,
+    });
+    return;
+  }
+  if (type === "file:importAttachment") {
+    workspaceHandlers.handleImportAttachment(message.requestId, {
+      name: message.name,
+      data: message.data,
       workspaceGeneration: message.workspaceGeneration,
       workspaceId: message.workspaceId,
       documentMainFile: message.documentMainFile,
@@ -2222,6 +2325,26 @@ ipcMain.on("tex64", (event, message) => {
     agentHandlers.handleAgentClear(message.conversationId);
     return;
   }
+  if (type === "agent:feedback") {
+    agentHandlers.handleAgentFeedback(message);
+    return;
+  }
+  if (type === "agent:branch") {
+    agentHandlers.handleAgentBranch(message);
+    return;
+  }
+  if (type === "agent:transcribe") {
+    agentHandlers.handleAgentTranscribe(message);
+    return;
+  }
+  if (type === "agent:documentMap:get") {
+    agentHandlers.handleAgentDocumentMapGet(message);
+    return;
+  }
+  if (type === "agent:rules:open") {
+    agentHandlers.handleAgentRulesOpen();
+    return;
+  }
 
   if (type === "settings:response") {
     agentHandlers.handleSettingsResponse(message);
@@ -2263,6 +2386,22 @@ ipcMain.on("tex64:pdf", (_event, message) => {
       x: payload.x,
       y: payload.y,
       pdfPath: payload.path,
+    });
+    return;
+  }
+  if (type === "ask-axiom") {
+    const payload = message.payload ?? {};
+    const source =
+      payload.source && typeof payload.source.file === "string" && Number.isFinite(payload.source.line)
+        ? { file: payload.source.file, line: payload.source.line, column: Number.isFinite(payload.source.column) ? payload.source.column : 1 }
+        : null;
+    sendToRenderer("pdf:askAxiom", {
+      page: payload.page,
+      x: payload.x,
+      y: payload.y,
+      text: typeof payload.text === "string" ? payload.text.slice(0, 2000) : "",
+      pdfPath: typeof payload.path === "string" ? payload.path : null,
+      ...(source ? { source } : {}),
     });
     return;
   }

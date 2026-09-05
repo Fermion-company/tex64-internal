@@ -38,16 +38,12 @@
   // "include": []
   // "files: []   // If you want to include only specific files (paths relative to the tsconfig.json file)
   "exclude": [
-    "coverage",
-    "test",
     "node_modules",
-    "**/*.spec.ts",
     "dist",
     "build",
     "examples",
     "docs",
     "tutorials",
-    "**/*.config.js",
-    "playwright.config.ts"
+    "**/*.config.js"
   ]
 }

@@ -4,23 +4,9 @@ Codex app-server 経路は既存ユーザー設定との互換と開発検証の
 **製品 UI には出さない**。ユーザーが選べるモデルは Code / AI とも
 `Axiom1.0` と Pro 限定の `Axiom1.0-pro` の2つで、認証・利用枠・課金も共通である。
 
-## 対象ブランチ
+## 開発環境
 
-Codex バックエンドは `main` にあります。`dev` は追従していないことがあるので、
-手元が `dev` のままだと `git pull` しても機能が入りません（`Already up to date.` と出ます）。
-
-```bash
-git switch main && git pull --ff-only
-```
-
-ブランチの役割は [branching.md](branching.md) を参照。
-
-## 準備（初回だけ・2分）
-
-```bash
-npm i -g @openai/codex
-codex login   # ブラウザで ChatGPT にログイン（有料プラン必須）
-```
+ローカルのCodex CLIとその認証を使う。導入済みなら再インストールせず利用する。認証がない場合は `codex login`。
 
 ## 開発時の使い方
 
@@ -34,7 +20,7 @@ codex login   # ブラウザで ChatGPT にログイン（有料プラン必須�
 ### トップバーの「AI」モードとは別物
 
 トップバーの **AI** は別サーフェス（`services/tex64-ai` の UI を webview で埋め込む文書エージェント）で、
-Codex 経路は使わず必ずプラットフォーム Axiom を使う。パッケージ版は Next standalone を同梱して
+現在はプラットフォーム Axiom を使う。パッケージ版は Next standalone を同梱して
 Electron が動的 loopback port で起動するため、別プロセスを手で立ち上げる必要はない。
 
 開発版で AI UI だけを単独起動するときは:

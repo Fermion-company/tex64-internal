@@ -1,11 +1,64 @@
 const {
+  DEFAULT_BASE_URL,
   isOfficialPlatformProxyUrl,
   migrateLegacyAxiomModel,
   normalizeChatEndpoint,
   resolveLLMConfig,
   resolveOwnApiKey,
 } = require("../services/openprism/llm-config.cjs");
+const {
+  buildMentionIndex,
+  resolveMainTexFile,
+  scanDocument,
+} = require("../services/agent-document-map.cjs");
 const crypto = require("crypto");
+const { buildUsageFromAccess } = require("../services/platform-usage-payload.cjs");
+const { runGit } = require("../services/openprism/tools.cjs");
+const fs = require("fs");
+const fsp = require("fs/promises");
+const path = require("path");
+
+const RULES_RELATIVE_PATH = ".tex64/rules.md";
+const RULES_TEMPLATE = `# この文書の書き方
+
+Axiom は毎ターンこのファイルを読みます。文体・記法・引用の形式など、守ってほしいことを短く書いてください。
+
+- 文体: （例）である調。一文は短く。
+- 記法: （例）数式は amsmath、ベクトルは太字。
+- 引用: （例）\\cite は natbib の形式。
+- 書かないこと: （例）結論を先取りしない。
+`;
+
+const MAX_TRANSCRIBE_BYTES = 12 * 1024 * 1024;
+const TRANSCRIBE_ENDPOINT = `${DEFAULT_BASE_URL}/audio/transcriptions`;
+
+const clipForFeedback = (value, max) => {
+  const text = typeof value === "string" ? value.replace(/\s+$/g, "") : "";
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+};
+
+/** The nth assistant reply of a conversation with the user turn before it. */
+const locateAssistantTurn = (conversation, assistantIndex) => {
+  const entries = Array.isArray(conversation) ? conversation : [];
+  let seen = -1;
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry || entry.role !== "assistant" || typeof entry.content !== "string" || !entry.content.trim()) {
+      continue;
+    }
+    seen += 1;
+    if (seen !== assistantIndex) continue;
+    let userText = "";
+    for (let back = index - 1; back >= 0; back -= 1) {
+      if (entries[back]?.role === "user" && typeof entries[back].content === "string") {
+        userText = entries[back].content;
+        break;
+      }
+    }
+    return { index, entry, userText };
+  }
+  return null;
+};
 
 const CANONICAL_AGENT_MODELS = new Set([
   "Axiom1.0",
@@ -46,78 +99,6 @@ const createAgentHandlers = (deps) => {
   const { agentService, ensureUserSettings, sendToRenderer, platformService } = deps;
   const normalizeRequestId = (value) =>
     typeof value === "string" && value.trim() ? value.trim().slice(0, 256) : null;
-  const parseNumber = (value, fallback = 0) => {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Number.parseFloat(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-    return fallback;
-  };
-  const normalizeQuotaSummary = (quota, periodOverrides = {}) => {
-    if (!quota || typeof quota !== "object") {
-      return null;
-    }
-    const limitTokens = Math.max(0, Math.round(parseNumber(quota.limitTokens, 0)));
-    const usedTokens = Math.max(0, Math.round(parseNumber(quota.usedTokens, 0)));
-    const maxRemainingTokens = Math.max(0, limitTokens - usedTokens);
-    const rawRemainingTokens = parseNumber(quota.remainingTokens, Number.NaN);
-    const normalizedRemainingTokens = Number.isFinite(rawRemainingTokens)
-      ? Math.max(0, Math.round(rawRemainingTokens))
-      : maxRemainingTokens;
-    return {
-      limitTokens,
-      usedTokens,
-      remainingTokens: Math.min(normalizedRemainingTokens, maxRemainingTokens),
-      usedRequests: Math.max(0, Math.round(parseNumber(quota.usedRequests, 0))),
-      remainingRequests: Math.max(
-        0,
-        Math.round(parseNumber(quota.remainingRequests, 0))
-      ),
-      periodStart:
-        typeof periodOverrides.periodStart === "string"
-          ? periodOverrides.periodStart
-          : typeof quota.periodStart === "string"
-          ? quota.periodStart
-          : null,
-      periodEnd:
-        typeof periodOverrides.periodEnd === "string"
-          ? periodOverrides.periodEnd
-          : typeof quota.periodEnd === "string"
-          ? quota.periodEnd
-          : null,
-    };
-  };
-
-  const buildUsageFromAccess = (access) => {
-    if (!access || typeof access !== "object") {
-      return null;
-    }
-    const quota = access.quota && typeof access.quota === "object" ? access.quota : null;
-    return {
-      authenticated: Boolean(access.authenticated),
-      plan: typeof access.plan === "string" ? access.plan : null,
-      period: null,
-      summary: normalizeQuotaSummary(quota, {
-        periodStart:
-          typeof access.periodStart === "string" ? access.periodStart : null,
-        periodEnd:
-          typeof access.periodEnd === "string" ? access.periodEnd : null,
-      }),
-      byFeature: null,
-      errorCode: access.allowed ? null : access.reason ?? "FEATURE_NOT_ENABLED",
-      message: typeof access.message === "string" ? access.message : null,
-      fetchedAt:
-        typeof access.fetchedAt === "number" && Number.isFinite(access.fetchedAt)
-          ? access.fetchedAt
-          : Date.now(),
-    };
-  };
-
   const buildAiBlockedMessage = (access) => {
     const reason = typeof access?.reason === "string" ? access.reason : "";
     const pricingUrl =
@@ -655,6 +636,246 @@ const createAgentHandlers = (deps) => {
     agentService.handleSettingsResponse(payload);
   };
 
+  // ---- A reply rated by the reader ----
+  // The rating goes to the same feedback endpoint as the settings form, with
+  // the request and the reply attached, so the team can see what worked.
+  const handleAgentFeedback = async (message) => {
+    const conversationId =
+      typeof message?.conversationId === "string" && message.conversationId.trim()
+        ? message.conversationId.trim()
+        : "";
+    const assistantIndex = Number.isInteger(message?.assistantIndex) ? message.assistantIndex : -1;
+    const rating = message?.rating === "up" ? "up" : message?.rating === "down" ? "down" : "";
+    const comment = clipForFeedback(message?.comment, 2_000);
+    const reply = (ok, error) =>
+      sendToRenderer("agent:feedbackResult", {
+        conversationId,
+        assistantIndex,
+        rating,
+        ok,
+        ...(error ? { error } : {}),
+      });
+    if (!conversationId || assistantIndex < 0 || !rating) {
+      reply(false, "Invalid rating request.");
+      return;
+    }
+    await agentService.ensureSessionsRestored();
+    const located = locateAssistantTurn(agentService.conversations.get(conversationId), assistantIndex);
+    if (!located) {
+      reply(false, "The reply is no longer available.");
+      return;
+    }
+    located.entry.rating = rating;
+    agentService.markSessionDirty(conversationId);
+    if (!platformService || typeof platformService.submitFeedback !== "function") {
+      reply(true);
+      return;
+    }
+    let model = "";
+    try {
+      model = (await ensureUserSettings().getAgentSettings())?.model ?? "";
+    } catch {
+      model = "";
+    }
+    let appVersion = "";
+    let appPlatform = "";
+    try {
+      const { app } = require("electron");
+      appVersion = app.getVersion();
+      appPlatform = `${process.platform}-${process.arch}`;
+    } catch {
+      // not in Electron
+    }
+    try {
+      await platformService.submitFeedback({
+        category: "axiom-rating",
+        message: `[Axiom ${rating === "up" ? "+1" : "-1"}] ${comment || (rating === "up" ? "Helpful reply" : "Unhelpful reply")}`,
+        app: { version: appVersion, platform: appPlatform },
+        diagnostics: {
+          kind: "axiom-rating",
+          rating,
+          model,
+          conversationId,
+          assistantIndex,
+          userPrompt: clipForFeedback(located.userText, 2_000),
+          assistantReply: clipForFeedback(located.entry.content, 4_000),
+        },
+      });
+      reply(true);
+    } catch (error) {
+      reply(false, error?.message || "The rating could not be sent.");
+    }
+  };
+
+  // ---- Branch: a new chat that starts from an earlier reply ----
+  const handleAgentBranch = async (message) => {
+    const sourceId =
+      typeof message?.conversationId === "string" && message.conversationId.trim()
+        ? message.conversationId.trim()
+        : "";
+    const assistantIndex = Number.isInteger(message?.assistantIndex) ? message.assistantIndex : -1;
+    const fail = (error) =>
+      sendToRenderer("agent:branchResult", { ok: false, sourceConversationId: sourceId, error });
+    if (!sourceId || assistantIndex < 0 || sourceId.startsWith(AI_MODE_CONVERSATION_PREFIX)) {
+      fail("Invalid branch request.");
+      return;
+    }
+    await agentService.ensureSessionsRestored();
+    const source = agentService.conversations.get(sourceId);
+    const located = locateAssistantTurn(source, assistantIndex);
+    if (!located) {
+      fail("The reply is no longer available.");
+      return;
+    }
+    const newId = `chat-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+    const copied = source.slice(0, located.index + 1).map((entry) => JSON.parse(JSON.stringify(entry)));
+    const target = agentService.buildConversation(newId);
+    target.push(...copied);
+    const sourceRoot = agentService.workspaceRootByConversation.get(sourceId) ?? agentService.workspace.getRootPath?.();
+    if (sourceRoot) agentService.workspaceRootByConversation.set(newId, sourceRoot);
+    const sourceContext = agentService.contextByConversation.get(sourceId);
+    if (sourceContext) agentService.contextByConversation.set(newId, { ...sourceContext });
+    const sourceMeta = agentService.sessionMetaByConversation.get(sourceId);
+    const now = Date.now();
+    agentService.sessionMetaByConversation.set(newId, {
+      createdAt: now,
+      updatedAt: now,
+      ...(sourceMeta?.title ? { title: sourceMeta.title } : {}),
+      branchedFrom: sourceId,
+    });
+    agentService.markSessionDirty(newId);
+    sendToRenderer("agent:branchResult", { ok: true, conversationId: newId, sourceConversationId: sourceId });
+    await handleAgentStateGet();
+  };
+
+  // ---- Voice: audio from the composer to text ----
+  const handleAgentTranscribe = async (message) => {
+    const requestId = normalizeRequestId(message?.requestId);
+    const reply = (payload) => sendToRenderer("agent:transcribeResult", { requestId, ...payload });
+    const data = typeof message?.data === "string" ? message.data.replace(/\s+/g, "") : "";
+    const mimeType =
+      typeof message?.mimeType === "string" && /^audio\/[a-z0-9.+-]+(?:;.*)?$/i.test(message.mimeType)
+        ? message.mimeType
+        : "audio/webm";
+    if (!requestId || !data) {
+      reply({ ok: false, error: "No audio was recorded." });
+      return;
+    }
+    let buffer;
+    try {
+      buffer = Buffer.from(data, "base64");
+    } catch {
+      reply({ ok: false, error: "The recording could not be read." });
+      return;
+    }
+    if (buffer.byteLength < 200 || buffer.byteLength > MAX_TRANSCRIBE_BYTES) {
+      reply({ ok: false, error: buffer.byteLength > MAX_TRANSCRIBE_BYTES ? "The recording is too long." : "The recording is too short." });
+      return;
+    }
+    const allowed = await guardAiAccess("voice", "voice", true);
+    if (!allowed) {
+      reply({ ok: false, error: "Axiom is not available right now." });
+      return;
+    }
+    try {
+      // The platform identity, as the chat proxy gets it: the JWT when signed
+      // in, else the device id for the anonymous allowance.
+      let accessToken = null;
+      let deviceId = null;
+      if (agentService.platformAccess) {
+        accessToken = await agentService.platformAccess.refreshAccessToken(false).catch(() => null);
+        deviceId = await agentService.platformAccess.ensureDeviceId().catch(() => null);
+      }
+      if (!accessToken && !deviceId) {
+        reply({ ok: false, error: "Axiom requires login or a local app identity." });
+        return;
+      }
+      const extension = /ogg/i.test(mimeType) ? "ogg" : /mp4|m4a/i.test(mimeType) ? "m4a" : /wav/i.test(mimeType) ? "wav" : "webm";
+      const form = new FormData();
+      form.append("file", new Blob([buffer], { type: mimeType.split(";")[0] }), `voice.${extension}`);
+      form.append("model", "axiom-voice");
+      if (Number.isFinite(message?.durationMs) && message.durationMs > 0) {
+        form.append("duration_seconds", String(Math.min(180, message.durationMs / 1000)));
+      }
+      if (typeof message?.language === "string" && /^[a-z]{2}$/i.test(message.language)) {
+        form.append("language", message.language.toLowerCase());
+      }
+      const response = await fetch(TRANSCRIBE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
+        },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        let detail = "";
+        try {
+          detail = JSON.parse(text)?.error?.message || "";
+        } catch {
+          detail = "";
+        }
+        reply({ ok: false, error: detail || `Transcription failed (${response.status}).` });
+        return;
+      }
+      const result = await response.json().catch(() => null);
+      const text = typeof result?.text === "string" ? result.text.trim() : "";
+      reply(text ? { ok: true, text } : { ok: false, error: "Nothing was heard." });
+    } catch (error) {
+      reply({ ok: false, error: error?.name === "TimeoutError" ? "Transcription timed out." : error?.message || "Transcription failed." });
+    }
+  };
+
+  // ---- The @ picker's index: sections, labels, bib keys of the document ----
+  // Also what the empty chat needs to know: whether the workspace is a git
+  // repository with changes, and whether it has writing rules.
+  const handleAgentDocumentMapGet = async (message) => {
+    const requestId = normalizeRequestId(message?.requestId);
+    const rootPath = agentService.workspace.getRootPath?.();
+    const empty = { requestId, mainFile: null, sections: [], labels: [], bibKeys: [], git: { isRepo: false, changed: 0 }, rules: { exists: false } };
+    if (!rootPath) {
+      sendToRenderer("agent:documentMap", empty);
+      return;
+    }
+    try {
+      const mainFile = await resolveMainTexFile(agentService, {
+        activeFilePath: typeof message?.activeFilePath === "string" ? message.activeFilePath : undefined,
+      });
+      const map = mainFile ? await scanDocument(agentService, mainFile) : null;
+      const isRepo = fs.existsSync(path.join(rootPath, ".git"));
+      const status = isRepo ? await runGit(rootPath, ["status", "--porcelain"]) : null;
+      const changed = typeof status === "string" ? status.split(/\r?\n/).filter(Boolean).length : 0;
+      sendToRenderer("agent:documentMap", {
+        requestId,
+        mainFile: map?.mainFile ?? null,
+        ...buildMentionIndex(map),
+        git: { isRepo, changed },
+        rules: { exists: fs.existsSync(path.join(rootPath, RULES_RELATIVE_PATH)) },
+      });
+    } catch {
+      sendToRenderer("agent:documentMap", empty);
+    }
+  };
+
+  // ---- The project's writing rules: create with a template, open in the editor ----
+  const handleAgentRulesOpen = async () => {
+    const rootPath = agentService.workspace.getRootPath?.();
+    if (!rootPath) return;
+    const absolute = path.join(rootPath, RULES_RELATIVE_PATH);
+    let content = "";
+    try {
+      content = await fsp.readFile(absolute, "utf8");
+    } catch {
+      await fsp.mkdir(path.dirname(absolute), { recursive: true });
+      content = RULES_TEMPLATE;
+      await fsp.writeFile(absolute, content, "utf8");
+      await agentService.updateWorkspaceIfNeeded?.(rootPath, true);
+    }
+    sendToRenderer("openFileResult", { path: RULES_RELATIVE_PATH, content });
+  };
+
   return {
     handleAgentSettingsGet,
     handleAgentSettingsSet,
@@ -675,6 +896,11 @@ const createAgentHandlers = (deps) => {
     handleSearchRename,
     handleSettingsResponse,
     handleStashComplete,
+    handleAgentFeedback,
+    handleAgentBranch,
+    handleAgentTranscribe,
+    handleAgentDocumentMapGet,
+    handleAgentRulesOpen,
   };
 };
 
