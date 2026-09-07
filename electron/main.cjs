@@ -15,6 +15,11 @@ const {
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
+if (process.env.TEX64_EDITION === "education") {
+  app.setName("TeX64 Education");
+  app.setPath("userData", path.join(app.getPath("appData"), "TeX64 Education"));
+  app.setAppUserModelId("com.fermion.tex64.education");
+}
 const { spawn, spawnSync } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
 const FormatterService = require("./services/formatter.cjs");
@@ -361,7 +366,7 @@ const createMainWindow = () => {
     minHeight: 600,
     show: !e2eHeadless,
     backgroundColor: "#1c2129",
-    title: "TeX64",
+    title: process.env.TEX64_EDITION === "education" ? "TeX64 Education" : "TeX64",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 12, y: 8 },
     webPreferences: {
@@ -378,6 +383,9 @@ const createMainWindow = () => {
   }
 
   state.mainWindow = new BrowserWindow(windowOptions);
+  if (process.env.TEX64_EDITION === "education") {
+    state.mainWindow.on("page-title-updated", (event) => event.preventDefault());
+  }
 
   // Persist window position and size on move/resize.
   const trackWindowBounds = () => {
@@ -501,6 +509,10 @@ const handleLivePreviewEdit = (payload) => {
   });
 };
 
+const educationService = process.env.TEX64_EDITION === "education"
+  ? require("./education/service.cjs").createEducationService({app, BrowserWindow, dialog,
+      getMainWindow:()=>state.mainWindow, getRoot:()=>workspace.getRootPath(),
+      openProject:(root)=>workspaceHandlers.handleOpenRecentProject(root)}) : null;
 const installApplicationMenu = () => {
   const template = createApplicationMenuTemplate({
     appName: app.name || "TeX64",
@@ -511,6 +523,7 @@ const installApplicationMenu = () => {
     },
     locale: state.uiLocale,
   });
+  if (educationService) template.push(educationService.menu());
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };
 
@@ -904,7 +917,8 @@ app.whenReady().then(() => {
   runStartupWebBuildIfNeeded();
   createMainWindow();
   installApplicationMenu();
-  if (distributionRuntime.registerCustomProtocol) {
+  if (educationService) educationService.startup();
+  if (distributionRuntime.registerCustomProtocol && !educationService) {
     registerProtocolClient();
   }
   while (pendingOAuthCallbackUrls.length > 0) {
