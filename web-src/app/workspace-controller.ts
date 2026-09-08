@@ -13,13 +13,15 @@ import type {
 
 type WorkspaceUpdatePayload = {
   rootName: string;
-  rootPath: string;
+  rootPath: string | null;
   files: string[];
   folders?: string[];
   rootFile?: string;
   rootSource?: RootSource;
   buildProfiles?: BuildProfile[];
   buildProfileId?: string;
+  workspaceId?: string | null;
+  workspaceGeneration?: number;
 };
 
 type IndexUpdatePayload = {
@@ -65,6 +67,8 @@ type WorkspaceControllerDeps = {
   };
 
   diffModal: {
+    getDiffContext: () => DiffContext;
+    closeDiffModal: () => void;
     setDiffContext: (context: DiffContext) => void;
   };
   envRegistry: {
@@ -276,9 +280,10 @@ export const initWorkspaceController = (
     deps.issuesUi.render(sorted);
     deps.editorSession.syncIssueMarkers(sorted);
 
+    // A failed build is not announced: the Issues panel holds the details and
+    // the missing PDF update says enough. The tab keeps its normal look.
     if (issuesTab instanceof HTMLElement) {
-      const hasAlert = sorted.length > 0 && status === "error";
-      issuesTab.classList.toggle("is-alert", hasAlert);
+      issuesTab.classList.remove("is-alert");
     }
     if (sorted.length === 0) {
       deps.editorSession.clearIssueHighlight();
@@ -326,14 +331,20 @@ export const initWorkspaceController = (
     deps.buildOps.updateSynctexButtonState();
     const rootChanged = Boolean(previousRoot && previousRoot !== payload.rootPath);
     if (rootChanged) {
-      // Fire-and-forget save of dirty files before the workspace is replaced.
-      deps.editorSession.saveDirtyFiles().catch(() => {});
+      // Every workspace-changing command flushes Monaco before main changes
+      // the root. Saving here is already too late: the native write would land
+      // in the newly selected workspace and can overwrite an unrelated file.
       deps.setLastBuildMainFile(null);
     }
     deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });
     deps.searchUi.reset();
 
-    deps.diffModal.setDiffContext(null);
+    // A custom apply may be awaiting this same-root synchronization. Keep its
+    // context until its completion handler closes the modal.
+    if (rootChanged) deps.diffModal.closeDiffModal();
+    else if (deps.diffModal.getDiffContext()?.type !== "customApply") {
+      deps.diffModal.setDiffContext(null);
+    }
     deps.settingsUi.loadWorkspaceSettings();
     deps.envRegistry.reload(false);
     deps.rootSelectorUi.render();

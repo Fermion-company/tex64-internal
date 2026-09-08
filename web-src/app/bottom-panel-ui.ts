@@ -24,6 +24,8 @@ export type BottomPanelDeps = {
   onTerminalShow?: () => void;
   onTerminalHide?: () => void;
   onTerminalRestart?: () => void;
+  onTerminalCreate?: () => void;
+  onTerminalSplit?: () => void;
 };
 
 export const initBottomPanelUi = (
@@ -54,6 +56,7 @@ export const initBottomPanelUi = (
   let blockComposeOriginalParent: HTMLElement | null = sidebarBlocksBody;
 
   const tabButtons = bottomPanelTabs ?? [];
+  const terminalActions = document.querySelectorAll<HTMLElement>("[data-terminal-action]");
 
   // --- Persistence ---
 
@@ -108,6 +111,7 @@ export const initBottomPanelUi = (
     if (bottomPanelTerminalRestart) {
       bottomPanelTerminalRestart.classList.toggle("is-hidden", activeBottomTab !== "terminal");
     }
+    terminalActions.forEach((button) => button.classList.toggle("is-hidden", activeBottomTab !== "terminal"));
   };
 
   const setActiveBottomTab = (tab: BottomTab) => {
@@ -147,6 +151,8 @@ export const initBottomPanelUi = (
 
     if (bottomPanelOpen && activeBottomTab === "terminal") {
       deps.onTerminalShow?.();
+    } else {
+      deps.onTerminalHide?.();
     }
   };
 
@@ -274,6 +280,12 @@ export const initBottomPanelUi = (
       deps.onTerminalRestart?.();
     });
   }
+  document.getElementById("bottom-panel-terminal-window")?.addEventListener("click", async () => {
+    const result = await (window as any).tex64Terminal?.openWindow();
+    if (result?.error) window.alert(result.error);
+  });
+  document.getElementById("bottom-panel-terminal-new")?.addEventListener("click", () => deps.onTerminalCreate?.());
+  document.getElementById("bottom-panel-terminal-split")?.addEventListener("click", () => deps.onTerminalSplit?.());
   tabButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const tab: BottomTab =

@@ -8,19 +8,23 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
-  // blob: is how the page hands the desktop build's PDF to the viewer:
-  // the bytes arrive over the host bridge, not the network, and pdf.js
-  // reads them back through a blob URL of our own making.
-  "connect-src 'self' blob:",
+  // blob: is how the page hands the PDF to the viewer; tex64-pdf: is the
+  // desktop host's own scheme that streams the workspace PDF straight to
+  // the page, with no bytes copied through the message bridge.
+  "connect-src 'self' blob: tex64-pdf:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  ...(isProduction ? ["upgrade-insecure-requests"] : []),
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // The desktop app ships this server beside the Electron bundle. Standalone
+  // output contains the production server and only the runtime dependencies it
+  // actually needs; the packaging preparation script adds public/static files.
+  output: "standalone",
+  outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
   poweredByHeader: false,
   // The dev overlay renders a floating "N" badge over the app. Inside the
   // TeX64 desktop AI mode it reads as a product control that leads nowhere,

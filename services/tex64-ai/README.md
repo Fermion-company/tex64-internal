@@ -1,13 +1,17 @@
-# TeX64 文書作成サービス
+# TeX64 AI UIとWebサービス
 
-自然文の依頼から、構成・本文・検査・PDFまでを一続きで作るサービスです。
-**利用者の既定の視界は紙面（PDF）** で、ソースを読まずに書き進められることを目指します。
-ソースを見せないこと自体が目的ではありません（見たい人には見せてよい）。
+デスクトップのAIモードへ同梱する紙面中心のUI。現在の製品仕様は [app-modes.md](../../docs/app-modes.md)、開発方針は [AGENTS.md](../../AGENTS.md) を参照する。
 
-> **移行中**: 正本をこのサービスの構造化文書から、ワークスペースの `.tex` へ移します。
-> [docs/ai-mode-local-files.md](../../docs/ai-mode-local-files.md) を参照。以下は移行前の説明です。
+## デスクトップでの実行
 
-体験の骨格:
+- Codeと同じワークスペースの `.tex` と組版ルートを使う。`src/lib/client/native-agent.ts` がbridgeでElectronのAxiomを呼び、ファイル・組版・SyncTeX・会話・undoを共有する。
+- `electron/ai-web-preload.cjs` が `window.tex64Native` を注入する。ネイティブ表示のCSSは `[data-platform="native"]` にまとめる。
+- パッケージ版は同梱したNext.js standalone serverを `127.0.0.1` の動的ポートで起動し、外部UIへフォールバックしない。デスクトップのAI実行に、下記Web単体用の文書DB・モデルキーは使わない。
+- 開発時はこのディレクトリで `npm install`、`npm run dev` を実行し、別のターミナルでリポジトリルートの `npm run dev` を起動する。AI UIは `http://localhost:3100`。
+
+## Web単体での実行
+
+ネイティブホストがない場合に使うHTTP APIと文書サービスもコード内に残っている。以下はその経路の説明。
 
 - **会話 1 ターン = エージェントループ 1 回**: 送信すると `POST /documents/:id/messages` が
   1 回だけエージェントを回します。書くか、直すか、ただ答えるかは**モデルが決めます**。
@@ -22,7 +26,7 @@
 - **常に生きている紙面**: 手動編集や版の復元後は現在の版を自動で再コンパイル（`POST /compile`）。失敗しても直前の紙面を保持し、ワンクリックでAIに修復を依頼できる。
 - **巻き戻し**: 変更履歴パネルから任意の版を新しい版として復元（`POST /restore`）。
 
-## ローカル起動
+### Web単体のローカル起動
 
 必要なもの:
 
@@ -38,16 +42,7 @@ npm run dev
 `http://localhost:3100` で起動します。モデルの認証情報（`AI_GATEWAY_API_KEY` または `OPENAI_API_KEY`）と
 `TEX64_AI_MODEL` が無い場合、ターンは代替処理へ退避せずその場で失敗します。
 
-## ネイティブ埋め込み（TeX64 デスクトップの AI モード）
-
-このアプリは独立した Web サービスであると同時に、TeX64 デスクトップアプリの **AI モード**（トップバーの Code | AI | Pro 切り替え）に `<webview>` として埋め込まれます。単一のコードベースが両方の顔を持ちます。
-
-- デスクトップ側は `electron/ai-web-preload.cjs` が `window.tex64Native` を注入し、`<html data-platform="native">` が立ちます。
-- ネイティブ判定は `src/app/layout.tsx` のインラインスクリプトが `window.tex64Native` を見て `data-platform="native"` を立てる方式です。ネイティブ分岐は必ず `[data-platform="native"]` CSS に集約してください。それ以外の場所に散らさないこと。
-- 接続先 URL は デスクトップ側の設定 `aiWeb.url`（`tex64-user-settings.json`）→ 環境変数 `TEX64_AI_WEB_URL` → 既定値（開発: `http://localhost:3100`、パッケージ版: `https://ai.tex64.com`）の順で解決されます。本番 URL が決まったら `electron/services/ai-web.cjs` の `DEFAULT_HOSTED_URL` を更新してください。
-- 開発時は `npm run dev` でこのサーバーを起動しておけば、デスクトップの AI モードがそのまま接続します。
-
-## 構成
+### Web単体の構成
 
 - `src/domain/document`: 生成ソースを含まない文書モデル、検証、意味的な差分、決定的レンダラー
   （レンダラーは各ノードを `%%T64B:/%%T64E:` コメントで挟み、SyncTeX と突き合わせて
@@ -61,7 +56,7 @@ npm run dev
   （配信は release 済みPDFに加え、所有者本人の current revision の draft も
   `/preview`・`/regions` で見える。release 境界そのものは不変）
 
-## 本番設定
+### Web単体の本番設定
 
 本番では次の値を必須にします。
 
@@ -100,7 +95,6 @@ docker buildx build \
 ```bash
 npm run typecheck
 npm run lint
-npm test
 npm run build
 npm audit --omit=dev --audit-level=high
 ```

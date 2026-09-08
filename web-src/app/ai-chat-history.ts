@@ -1,4 +1,6 @@
 import type { ChatState } from "./ai-chat-state.js";
+import { aiText } from "./ai-i18n.js";
+import { formatRelativeTime } from "./ai-chat-message.js";
 
 type CreateHistoryControllerParams = {
   aiHistory: Element | null | undefined;
@@ -39,6 +41,7 @@ export const createHistoryController = (params: CreateHistoryControllerParams) =
   let pendingDeleteChatId: string | null = null;
 
   const openChatDeleteModal = (chatId: string, title: string) => {
+    if (runningConversations.has(chatId)) return;
     pendingDeleteChatId = chatId;
     if (chatDeleteTarget) chatDeleteTarget.textContent = title;
     if (chatDeleteModal) chatDeleteModal.classList.add("is-visible");
@@ -53,6 +56,7 @@ export const createHistoryController = (params: CreateHistoryControllerParams) =
     const chatId = pendingDeleteChatId;
     closeChatDeleteModal();
     if (!chatId) return;
+    if (runningConversations.has(chatId)) return;
     const chat = chatIndex.get(chatId);
     if (!chat) return;
     // Remove from data
@@ -96,15 +100,20 @@ export const createHistoryController = (params: CreateHistoryControllerParams) =
       item.className = "ai-history-item-wrap";
       if (chat.id === getActiveChatId()) item.classList.add("is-active");
       if (runningConversations.has(chat.id)) item.classList.add("is-running");
-      const suffixParts: string[] = [];
-      if (runningConversations.has(chat.id)) suffixParts.push("Running");
-      if (chat.proposals.size > 0) suffixParts.push(`Proposals ${chat.proposals.size}`);
-      const suffix = suffixParts.length > 0 ? ` (${suffixParts.join(" / ")})` : "";
-
       const label = document.createElement("button");
       label.className = "ai-history-item";
       label.type = "button";
-      label.textContent = `${chat.title}${suffix}`;
+      const title = document.createElement("span");
+      title.className = "ai-history-title";
+      title.textContent = chat.title;
+      label.appendChild(title);
+      const meta = document.createElement("span");
+      meta.className = "ai-history-meta";
+      const when = chat.updatedAt ? formatRelativeTime(chat.updatedAt) : "";
+      const parts = [when];
+      if (chat.branchedFrom) parts.push(aiText("branched"));
+      meta.textContent = parts.filter(Boolean).join(" · ");
+      if (meta.textContent) label.appendChild(meta);
       label.addEventListener("click", () => {
         switchActiveChat(chat.id);
         closeHistory();
@@ -113,6 +122,8 @@ export const createHistoryController = (params: CreateHistoryControllerParams) =
       const delBtn = document.createElement("button");
       delBtn.className = "ai-history-delete";
       delBtn.type = "button";
+      delBtn.disabled = runningConversations.has(chat.id);
+      delBtn.setAttribute("aria-label", `Delete ${chat.title}`);
       delBtn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();

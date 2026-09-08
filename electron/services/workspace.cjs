@@ -3,8 +3,6 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
 
-const { isStandaloneDocument, parseTexIncludes } = require("./tex-build-target.cjs");
-
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".tex64",
@@ -1959,6 +1957,41 @@ const normalizeRelativePath = (relativePath) => {
   return relativePath.split(path.sep).join("/");
 };
 
+const realpathSync = (targetPath) =>
+  typeof fs.realpathSync.native === "function"
+    ? fs.realpathSync.native(targetPath)
+    : fs.realpathSync(targetPath);
+
+const isWithinPath = (rootPath, targetPath) => {
+  const relative = path.relative(rootPath, targetPath);
+  return (
+    relative === "" ||
+    (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
+  );
+};
+
+/**
+ * Resolve the nearest existing ancestor. This covers both existing reads and
+ * not-yet-created write targets: a symlink in any parent component is resolved
+ * before the caller is allowed to touch the path.
+ */
+const nearestExistingRealPath = (targetPath) => {
+  let current = targetPath;
+  while (true) {
+    try {
+      fs.lstatSync(current);
+      return realpathSync(current);
+    } catch (error) {
+      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") {
+        throw error;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      current = parent;
+    }
+  }
+};
+
 const generateId = () => {
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -2040,11 +2073,16 @@ const extractTexMagicRoot = (content) => {
 };
 
 class WorkspaceManager {
+  async resolveBuildTarget(relativePath) {
+    return require("./tex-build-target.cjs").resolveBuildTarget(this, relativePath);
+  }
+
   constructor() {
     this.rootPath = null;
     this.rootFileInfo = null;
     this.rootInfoRootPath = null;
     this.undoStack = [];
+    this.fileMutationTails = new Map();
   }
 
   setRootPath(rootPath) {
@@ -2058,6 +2096,34 @@ class WorkspaceManager {
     return this.rootPath;
   }
 
+  async withFileMutation(relativePath, operation) {
+    if (typeof operation !== "function") {
+      throw new Error("A file mutation callback is required.");
+    }
+    const rootPath = this.rootPath;
+    if (!rootPath) throw new Error(WorkspaceError.invalidPath);
+    const normalized = normalizeRelativePath(relativePath ?? "");
+    // Resolve before acquiring the queue so invalid/symlink-escaping paths never
+    // create arbitrary lock keys.
+    this.resolvePath(normalized);
+    const key = `${rootPath}\0${normalized}`;
+    const previous = this.fileMutationTails.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(() => {
+      if (this.rootPath !== rootPath) throw new Error(WorkspaceError.invalidPath);
+      return operation();
+    });
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.fileMutationTails.set(key, tail);
+    try {
+      return await run;
+    } finally {
+      if (this.fileMutationTails.get(key) === tail) this.fileMutationTails.delete(key);
+    }
+  }
+
   resolvePath(relativePath) {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
@@ -2066,6 +2132,15 @@ class WorkspaceManager {
     const resolved = path.resolve(this.rootPath, trimmed);
     const rootResolved = path.resolve(this.rootPath);
     if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
+      throw new Error(WorkspaceError.invalidPath);
+    }
+    try {
+      const realRoot = realpathSync(rootResolved);
+      const realBoundary = nearestExistingRealPath(resolved);
+      if (!isWithinPath(realRoot, realBoundary)) {
+        throw new Error(WorkspaceError.invalidPath);
+      }
+    } catch {
       throw new Error(WorkspaceError.invalidPath);
     }
     return resolved;
@@ -2407,13 +2482,14 @@ class WorkspaceManager {
       if (!operation.trashedPath) {
         throw new Error(WorkspaceError.invalidMove);
       }
+      const source = this.resolvePath(operation.trashedPath);
       const target = this.resolvePath(operation.fromPath);
       const exists = await fsp.stat(target).then(() => true).catch(() => false);
       if (exists) {
         throw new Error(WorkspaceError.alreadyExists);
       }
       await ensureDirectory(path.dirname(target));
-      await fsp.rename(operation.trashedPath, target);
+      await fsp.rename(source, target);
       if (operation.restoreRootPath) {
         this.rootInfoRootPath = this.rootPath;
         this.rootFileInfo = { path: operation.restoreRootPath, source: "manual" };
@@ -2465,11 +2541,19 @@ class WorkspaceManager {
     if (!this.rootPath) {
       return null;
     }
-    const mainCandidate = path.join(this.rootPath, "main.tex");
-    const mainExists = await fsp
-      .stat(mainCandidate)
-      .then((stat) => stat.isFile())
-      .catch(() => false);
+    const mainCandidate = (() => {
+      try {
+        return this.resolvePath("main.tex");
+      } catch {
+        return null;
+      }
+    })();
+    const mainExists = mainCandidate
+      ? await fsp
+          .stat(mainCandidate)
+          .then((stat) => stat.isFile())
+          .catch(() => false)
+      : false;
     if (mainExists) {
       return "main.tex";
     }
@@ -2589,196 +2673,13 @@ class WorkspaceManager {
     return resolvedAtLeastOnce ? current : null;
   }
 
-  // Which .tex should the build button compile while `relativePath` is open?
-  //
-  // The old answer was "always the workspace root", which produced the wrong
-  // PDF for any project holding more than one document (issue #38: main.tex at
-  // the top and a second main.tex in a subfolder). The order below is the one a
-  // writer expects, most explicit first:
-  //
-  //   1. "% !TEX root" in the open file — an explicit per-file declaration.
-  //   2. The workspace root itself, or any file the root pulls in: editing a
-  //      chapter still builds the book.
-  //   3. The open file, when it carries its own \documentclass and document
-  //      body — a self-contained document is its own build target.
-  //   4. Any other .tex in the workspace that includes the open file.
-  //   5. The workspace root (or the open file when there is none).
-  async resolveBuildTarget(relativePath) {
-    const rootInfo = await this.rootInfo().catch(() => null);
-    const rootTarget = rootInfo?.path ?? null;
-    const requested = normalizeRelativePath(relativePath ?? "");
-    if (!requested || path.extname(requested).toLowerCase() !== ".tex") {
-      return { target: rootTarget, reason: rootTarget ? "workspace-root" : "none" };
-    }
-    const exists = await fsp
-      .stat(this.resolvePath(requested))
-      .then((stat) => stat.isFile())
-      .catch(() => false);
-    if (!exists) {
-      return { target: rootTarget, reason: rootTarget ? "workspace-root" : "none" };
-    }
-
-    const magic = await this.resolveTexRootFromMagic(requested).catch(() => null);
-    if (magic) {
-      return { target: magic, reason: "magic-comment" };
-    }
-
-    if (rootTarget) {
-      if (rootTarget === requested) {
-        return { target: rootTarget, reason: "workspace-root" };
-      }
-      const reachable = await this.texIncludesFile(rootTarget, requested).catch(() => false);
-      if (reachable) {
-        return { target: rootTarget, reason: "included-by-root" };
-      }
-    }
-
-    const content = await readUtf8File(this.resolvePath(requested)).catch(() => null);
-    if (content !== null && isStandaloneDocument(content)) {
-      return { target: requested, reason: "standalone-document" };
-    }
-
-    const including = await this.findTexIncludingFile(requested).catch(() => null);
-    if (including) {
-      return { target: including, reason: "included-by-sibling" };
-    }
-
-    return { target: rootTarget ?? requested, reason: rootTarget ? "workspace-root" : "self" };
-  }
-
-  // Does `fromPath` reach `targetPath` through \input / \include / \subfile /
-  // \import, directly or through intermediate files?
-  async texIncludesFile(fromPath, targetPath, options = {}) {
-    const maxDepth = Number.isFinite(options?.maxDepth) ? Math.max(1, Math.floor(options.maxDepth)) : 8;
-    const target = normalizeRelativePath(targetPath ?? "");
-    const start = normalizeRelativePath(fromPath ?? "");
-    if (!target || !start) {
-      return false;
-    }
-    const visited = new Set();
-    const queue = [{ file: start, depth: 0 }];
-    while (queue.length > 0) {
-      const { file, depth } = queue.shift();
-      const key = file.toLowerCase();
-      if (visited.has(key) || depth > maxDepth) {
-        continue;
-      }
-      visited.add(key);
-      const children = await this.resolveTexIncludeTargets(file);
-      for (const child of children) {
-        if (child === target) {
-          return true;
-        }
-        queue.push({ file: child, depth: depth + 1 });
-      }
-    }
-    return false;
-  }
-
-  // Every workspace .tex is scanned for one that pulls `targetPath` in. Shallow
-  // candidates win so a chapter shared by a book and a standalone excerpt
-  // builds the nearer document.
-  async findTexIncludingFile(targetPath) {
-    const target = normalizeRelativePath(targetPath ?? "");
-    if (!target) {
-      return null;
-    }
-    const candidates = [];
-    await this.walkEntries({
-      onFile: async (relativePath, absolutePath) => {
-        if (path.extname(absolutePath).toLowerCase() !== ".tex") {
-          return;
-        }
-        const normalized = normalizeRelativePath(relativePath);
-        if (normalized === target) {
-          return;
-        }
-        candidates.push(normalized);
-      },
-    });
-    const matches = [];
-    for (const candidate of candidates) {
-      const includes = await this.resolveTexIncludeTargets(candidate);
-      if (includes.includes(target)) {
-        matches.push(candidate);
-      }
-    }
-    if (matches.length === 0) {
-      // A grandparent still counts: chapter -> part -> book.
-      for (const candidate of candidates) {
-        if (await this.texIncludesFile(candidate, target).catch(() => false)) {
-          matches.push(candidate);
-        }
-      }
-    }
-    if (matches.length === 0) {
-      return null;
-    }
-    matches.sort((a, b) => {
-      const depthA = a.split("/").length;
-      const depthB = b.split("/").length;
-      if (depthA !== depthB) {
-        return depthA - depthB;
-      }
-      return a.localeCompare(b, "ja");
-    });
-    return matches[0];
-  }
-
-  // Include arguments as written turned into workspace-relative .tex paths that
-  // actually exist. Anything escaping the workspace is dropped.
-  async resolveTexIncludeTargets(relativePath) {
-    const normalized = normalizeRelativePath(relativePath ?? "");
-    if (!normalized || !this.rootPath) {
-      return [];
-    }
-    let absPath;
-    try {
-      absPath = this.resolvePath(normalized);
-    } catch {
-      return [];
-    }
-    const content = await readUtf8File(absPath).catch(() => null);
-    if (content === null) {
-      return [];
-    }
-    const baseDir = path.dirname(absPath);
-    const rootResolved = path.resolve(this.rootPath);
-    const results = [];
-    for (const raw of parseTexIncludes(content)) {
-      const forms = path.extname(raw) ? [raw] : [`${raw}.tex`, raw];
-      for (const form of forms) {
-        const candidates = [path.resolve(baseDir, form), path.resolve(rootResolved, form)];
-        let matched = null;
-        for (const candidate of candidates) {
-          if (candidate !== rootResolved && !candidate.startsWith(rootResolved + path.sep)) {
-            continue;
-          }
-          const stat = await fsp.stat(candidate).catch(() => null);
-          if (stat && stat.isFile()) {
-            matched = candidate;
-            break;
-          }
-        }
-        if (matched) {
-          const rel = normalizeRelativePath(path.relative(rootResolved, matched));
-          if (!results.includes(rel)) {
-            results.push(rel);
-          }
-          break;
-        }
-      }
-    }
-    return results;
-  }
-
   async updateSettings(mutator) {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    const directory = path.join(this.rootPath, ".tex64");
+    const directory = this.resolvePath(".tex64");
     await ensureDirectory(directory);
-    const settingsPath = path.join(directory, "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
 
     const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
     let settings = {};
@@ -2814,7 +2715,7 @@ class WorkspaceManager {
     if (!this.rootPath) {
       return null;
     }
-    const settingsPath = path.join(this.rootPath, ".tex64", "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
     const exists = await fsp.stat(settingsPath).then(() => true).catch(() => false);
     if (!exists) {
       return null;
@@ -2827,9 +2728,9 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    const directory = path.join(this.rootPath, ".tex64");
+    const directory = this.resolvePath(".tex64");
     await ensureDirectory(directory);
-    const settingsPath = path.join(directory, "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
     const payload = JSON.stringify(settings, null, 2);
     await writeUtf8File(settingsPath, payload);
   }
@@ -2838,7 +2739,7 @@ class WorkspaceManager {
     if (!this.rootPath) {
       return;
     }
-    const settingsPath = path.join(this.rootPath, ".tex64", "settings.json");
+    const settingsPath = this.resolvePath(".tex64/settings.json");
     await fsp.unlink(settingsPath).catch(() => null);
   }
 
@@ -2900,18 +2801,22 @@ class WorkspaceManager {
     if (!this.rootPath) {
       throw new Error(WorkspaceError.invalidPath);
     }
-    const trashDir = path.join(this.rootPath, ".tex64", ".trash");
+    const trashDir = this.resolvePath(".tex64/.trash");
     await ensureDirectory(trashDir);
     const baseName = path.basename(itemPath);
     let attempt = 0;
-    let candidate = path.join(trashDir, `${generateId()}-${baseName}`);
+    let candidate = this.resolvePath(
+      normalizeRelativePath(path.join(".tex64", ".trash", `${generateId()}-${baseName}`)),
+    );
     while (attempt < 5) {
       const exists = await fsp.stat(candidate).then(() => true).catch(() => false);
       if (!exists) {
         break;
       }
       attempt += 1;
-      candidate = path.join(trashDir, `${generateId()}-${baseName}`);
+      candidate = this.resolvePath(
+        normalizeRelativePath(path.join(".tex64", ".trash", `${generateId()}-${baseName}`)),
+      );
     }
     const finalExists = await fsp.stat(candidate).then(() => true).catch(() => false);
     if (finalExists) {

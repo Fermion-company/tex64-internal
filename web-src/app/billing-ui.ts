@@ -12,13 +12,12 @@ type BillingBridge = {
     code?: string;
   }>;
   openPortal: () => Promise<{ ok?: boolean; error?: string }>;
-  onCheckoutClosed?: (
-    handler: (payload: {
-      plan?: string;
-      outcome?: "success" | "cancel" | "closed" | "error";
-    }) => void
-  ) => () => void;
   onPortalClosed?: (handler: () => void) => () => void;
+};
+
+export type BillingCheckoutClosedPayload = {
+  plan?: string;
+  outcome?: "success" | "cancel" | "closed" | "error";
 };
 
 const getBilling = (): BillingBridge | null => {
@@ -474,8 +473,9 @@ const PLANS: Array<{ key: PlanKey; name: string; price: string; highlight: boole
 const PLAN_RANK: Record<string, number> = { free: 0, basic: 1, pro: 2 };
 
 export type BillingUiApi = {
-  open: () => void;
+  open: (preferredPlan?: PlanKey) => void;
   close: () => void;
+  handleCheckoutClosed: (payload: BillingCheckoutClosedPayload) => void;
   handlePlanUpdated: () => void;
   handleUsageUpdated: () => void;
 };
@@ -505,6 +505,58 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
   let activationTargetRank: number | null = null;
   let activationTicks = 0;
   let checkoutPending = false;
+  let preferredPlan: PlanKey | null = null;
+  let focusReturnTarget: HTMLElement | null = null;
+  let obscuredAiSurface: {
+    element: HTMLElement;
+    hidden: HTMLElement["hidden"];
+    ariaHidden: string | null;
+    inert: boolean;
+  } | null = null;
+
+  const focusWithoutScroll = (element: HTMLElement | null | undefined) => {
+    if (!element || element.isConnected === false) return false;
+    if (element instanceof HTMLButtonElement && element.disabled) return false;
+    try {
+      element.focus({ preventScroll: true });
+      return document.activeElement === element;
+    } catch {
+      return false;
+    }
+  };
+
+  const activeModeTab = () =>
+    document.querySelector<HTMLElement>(
+      '[data-app-mode-tab].is-active, [data-app-mode-tab][aria-selected="true"]'
+    );
+
+  const obscureAiNativeSurface = () => {
+    if (document.documentElement.dataset.appMode !== "ai" || obscuredAiSurface) return;
+    const element = document.getElementById("ai-mode-webview-host");
+    if (!(element instanceof HTMLElement)) return;
+    obscuredAiSurface = {
+      element,
+      hidden: element.hidden,
+      ariaHidden: element.getAttribute("aria-hidden"),
+      inert: element.hasAttribute("inert"),
+    };
+    // Focus has already moved into the parent modal. Hiding only after that
+    // avoids Chromium's "aria-hidden descendant retained focus" warning.
+    element.hidden = true;
+    element.setAttribute("inert", "");
+    element.setAttribute("aria-hidden", "true");
+  };
+
+  const restoreAiNativeSurface = () => {
+    const saved = obscuredAiSurface;
+    obscuredAiSurface = null;
+    if (!saved) return;
+    saved.element.hidden = saved.hidden;
+    if (saved.inert) saved.element.setAttribute("inert", "");
+    else saved.element.removeAttribute("inert");
+    if (saved.ariaHidden === null) saved.element.removeAttribute("aria-hidden");
+    else saved.element.setAttribute("aria-hidden", saved.ariaHidden);
+  };
 
   const setStatus = (message: string) => {
     if (plansStatus) {
@@ -561,14 +613,24 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     }, 1500);
   };
 
-  getBilling()?.onCheckoutClosed?.(({ plan, outcome }) => {
+  const handleCheckoutClosed = ({ plan, outcome }: BillingCheckoutClosedPayload) => {
+    // Closing or cancelling hosted Checkout is terminal for the current
+    // attempt. Clear the progress copy immediately; only a confirmed success
+    // starts webhook/entitlement polling.
     deps.refreshUsage?.();
     if (outcome === "success") {
       beginActivationPoll(plan || "basic");
       return;
     }
-    setStatus(outcome === "error" ? msg().checkoutUnavailable : "");
-  });
+    if (outcome === "error") {
+      setStatus(msg().checkoutUnavailable);
+      return;
+    }
+    setStatus("");
+    // A user-closed/cancelled Checkout attempt returns to the surface that
+    // opened Plans. This also guarantees the hidden native webview is restored.
+    close();
+  };
 
   getBilling()?.onPortalClosed?.(() => {
     setStatus("");
@@ -642,7 +704,8 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     plan: (typeof PLANS)[number],
     copy: LocaleCopy,
     current: string,
-    currentRank: number
+    currentRank: number,
+    preferred: PlanKey | null,
   ): HTMLElement => {
     const planCopy = copy[plan.key];
     const isCurrent = plan.key === current;
@@ -650,7 +713,9 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
 
     const card = document.createElement("div");
     card.className = "plan-card";
-    if (plan.highlight) card.classList.add("is-recommended");
+    card.dataset.plan = plan.key;
+    if (plan.highlight && preferred === null) card.classList.add("is-recommended");
+    if (plan.key === preferred) card.classList.add("is-targeted");
     if (isCurrent) card.classList.add("is-current");
 
     const head = document.createElement("div");
@@ -659,7 +724,7 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     name.className = "plan-card-name";
     name.textContent = plan.name;
     head.appendChild(name);
-    if (isCurrent || plan.highlight) {
+    if (isCurrent || (plan.highlight && preferred === null)) {
       const chip = document.createElement("span");
       chip.className = "plan-chip";
       chip.textContent = isCurrent ? copy.currentPlan : copy.recommended;
@@ -713,7 +778,11 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     } else if (rank > currentRank) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "plan-cta" + (plan.highlight ? " primary" : "");
+      btn.className =
+        "plan-cta" +
+        (plan.key === preferred || (plan.highlight && preferred === null)
+          ? " primary"
+          : "");
       btn.textContent = plan.key === "basic" ? copy.startBasic : copy.startPro;
       if (current === "free") {
         btn.addEventListener("click", () => startCheckout(plan.key));
@@ -800,7 +869,7 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     const grid = document.createElement("div");
     grid.className = "plans-grid-inner";
     for (const plan of PLANS) {
-      grid.appendChild(buildCard(plan, copy, current, currentRank));
+      grid.appendChild(buildCard(plan, copy, current, currentRank, preferredPlan));
     }
     plansList.appendChild(grid);
 
@@ -834,10 +903,18 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     if (isVisible()) renderPlans();
   };
 
-  const open = () => {
+  const open = (nextPreferredPlan?: PlanKey) => {
     if (!plansModal) {
       return;
     }
+    preferredPlan = nextPreferredPlan ?? null;
+    if (isVisible()) {
+      renderPlans();
+      focusWithoutScroll(plansModalClose ?? undefined);
+      return;
+    }
+    focusReturnTarget =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // Ask for fresh plan + usage. Their completed native responses call the
     // state handlers above, which repaint with the stored snapshots.
     deps.onPlanRefresh();
@@ -846,6 +923,12 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     setStatus("");
     plansModal.classList.add("is-open");
     plansModal.setAttribute("aria-hidden", "false");
+    // Move focus out of a native <webview> before making that surface inert.
+    if (!focusWithoutScroll(plansModalClose ?? undefined)) {
+      const current = document.activeElement;
+      if (current instanceof HTMLElement) current.blur();
+    }
+    obscureAiNativeSurface();
   };
 
   const close = () => {
@@ -853,8 +936,21 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
       return;
     }
     stopActivationPoll();
+    const surface = obscuredAiSurface?.element ?? null;
+    const returnWasInsideSurface = Boolean(
+      surface && focusReturnTarget && surface.contains(focusReturnTarget)
+    );
+    const safeReturn = returnWasInsideSurface ? activeModeTab() : focusReturnTarget;
+    if (!focusWithoutScroll(safeReturn)) {
+      const current = document.activeElement;
+      if (current instanceof HTMLElement) current.blur();
+    }
     plansModal.classList.remove("is-open");
     plansModal.setAttribute("aria-hidden", "true");
+    preferredPlan = null;
+    restoreAiNativeSurface();
+    if (returnWasInsideSurface) focusWithoutScroll(focusReturnTarget);
+    focusReturnTarget = null;
   };
 
   plansModalClose?.addEventListener("click", close);
@@ -874,7 +970,10 @@ export const initBillingUi = (context: AppContext, deps: BillingUiDeps): Billing
     },
     true
   );
-  window.addEventListener("tex64:open-plans", open);
+  window.addEventListener("tex64:open-plans", (event) => {
+    const detail = (event as CustomEvent<{ plan?: unknown }>).detail;
+    open(detail?.plan === "basic" || detail?.plan === "pro" ? detail.plan : undefined);
+  });
 
-  return { open, close, handlePlanUpdated, handleUsageUpdated };
+  return { open, close, handleCheckoutClosed, handlePlanUpdated, handleUsageUpdated };
 };

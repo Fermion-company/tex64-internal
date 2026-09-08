@@ -8,8 +8,8 @@ export const initSidebarVisibility = (context, deps) => {
         "blocks",
         "ai",
         "issues",
+        "history",
         "git",
-        "snippets",
         "project",
     ];
     let sidebarVisibleTabs = new Set(primarySidebarTabs);

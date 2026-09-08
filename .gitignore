@@ -9,7 +9,7 @@ xcuserdata/
 *.xcresult/
 .swiftpm/
 .build/
-/node_modules/
+/node_modules
 /dist/
 /release/
 /update/
@@ -45,13 +45,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 /.vercel
-test-results/
-playwright-report/
 /web-src/math/fork/node_modules/
 /web-src/math/fork/dist/
 /web-src/math/fork/build/
 /web-src/math/fork/declarations/
-/web-src/math/fork/coverage/
 /services/tex64-ai/node_modules/
 /services/tex64-ai/.next/
 /services/tex64-ai/.data/
@@ -89,3 +86,7 @@ playwright-report/
 /test-sample-hover/**/*.pdf
 !/test-sample-hover/assets/pdfs/sample.pdf
 .worktrees/
+.vercel
+
+# Verified build-time Git / GCM runtime and corresponding source archives
+/Resources/git-runtime/

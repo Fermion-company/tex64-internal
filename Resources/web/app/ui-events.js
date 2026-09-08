@@ -1,23 +1,3 @@
-export const isBuildShortcutEvent = (event) => {
-    if (event.defaultPrevented ||
-        event.key !== "Enter" ||
-        (!event.metaKey && !event.ctrlKey) ||
-        event.altKey ||
-        event.shiftKey) {
-        return false;
-    }
-    const target = event.target;
-    if (!target) {
-        return true;
-    }
-    const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
-    const isEditable = tagName === "input" ||
-        tagName === "textarea" ||
-        tagName === "select" ||
-        target.isContentEditable === true;
-    const isMonacoEditor = typeof target.closest === "function" && target.closest(".monaco-editor") !== null;
-    return !isEditable || isMonacoEditor;
-};
 export const initUiEvents = (context, deps) => {
     const { tabs, editorHost, editorHostSecondary, diffModalSubmit, diffModalCancel, saveButton, } = context.dom;
     const setup = () => {
@@ -39,9 +19,11 @@ export const initUiEvents = (context, deps) => {
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.addEventListener("click", () => {
                 var _a, _b;
+                if (diffModalSubmit.disabled)
+                    return;
                 const diffContext = deps.diffModal.getDiffContext();
-                if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "view") {
-                    deps.diffModal.closeDiffModal();
+                if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "customApply") {
+                    void diffContext.apply();
                     return;
                 }
                 if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "aiApply") {
@@ -55,10 +37,13 @@ export const initUiEvents = (context, deps) => {
         }
         if (diffModalCancel instanceof HTMLButtonElement) {
             diffModalCancel.addEventListener("click", () => {
-                var _a, _b;
+                var _a, _b, _c;
+                const custom = ((_a = deps.diffModal.getDiffContext()) === null || _a === void 0 ? void 0 : _a.type) === "customApply";
                 deps.diffModal.closeDiffModal();
-                (_a = deps.blockInsert) === null || _a === void 0 ? void 0 : _a.clearPending();
-                (_b = deps.aiOps) === null || _b === void 0 ? void 0 : _b.clearPending();
+                if (custom)
+                    return;
+                (_b = deps.blockInsert) === null || _b === void 0 ? void 0 : _b.clearPending();
+                (_c = deps.aiOps) === null || _c === void 0 ? void 0 : _c.clearPending();
             });
         }
         deps.buildOps.setupActionButtons();
@@ -72,11 +57,6 @@ export const initUiEvents = (context, deps) => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
                 event.preventDefault();
                 deps.saveCurrentFile();
-                return;
-            }
-            if (isBuildShortcutEvent(event)) {
-                event.preventDefault();
-                deps.buildOps.startBuild();
             }
         });
     };

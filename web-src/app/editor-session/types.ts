@@ -29,9 +29,16 @@ export type EditorGroupState = {
   pendingCompositionAction: (() => void) | null;
 };
 
+export type MonacoModelContentChange = { rangeOffset: number; rangeLength: number; text: string };
 export type MonacoModel = {
   getValue: () => string;
+  getEOL?: () => string;
   setValue: (value: string) => void;
+  onDidChangeContent?: (listener: (event: {
+    changes: MonacoModelContentChange[];
+    isFlush?: boolean;
+  }) => void) => { dispose: () => void };
+  onWillDispose?: (listener: () => void) => { dispose: () => void };
   getFullModelRange?: () => unknown;
   pushStackElement?: () => void;
   pushEditOperations?: (
@@ -55,6 +62,17 @@ export type LivePreviewEditPayload = {
   cancel?: boolean;
   finish?: boolean;
   sourceRev?: number;
+  sourceText?: string;
+};
+
+export type LivePreviewAnchorPayload = Pick<LivePreviewEditPayload,
+  "sessionId" | "path" | "start" | "end" | "baseValue"> & { sourceText: string; previousSessionId?: string };
+
+export type LivePreviewSourceAnchor = {
+  sourceText: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
 };
 
 export type EditorSessionDeps = {
@@ -113,6 +131,7 @@ export type EditorSessionDeps = {
     }) => void;
   };
   getMonacoApi: () => Record<string, unknown> | null;
+  onLivePreviewSourceChanged?: () => void;
 };
 
 export type EditorSessionApi = {
@@ -156,6 +175,8 @@ export type EditorSessionApi = {
   getSplitViewEnabled: () => boolean;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
   addOpenTab: (group: EditorGroupState, path: string) => void;
+  getHistoryBuffers: () => Array<{ path: string; content: string; savedContent: string }>;
+  applyHistoryFiles: (files: Array<{ path: string; content: string | null }>) => void;
   closeTab: (group: EditorGroupState, path: string) => void;
   scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
   handleCompositionEnd: (group: EditorGroupState) => void;
@@ -174,10 +195,30 @@ export type EditorSessionApi = {
     group: EditorGroupState,
     path: string,
     content: string,
-    options?: { updateSaved?: boolean; showAiDiff?: boolean }
-  ) => void;
-  applyContentToOpenFile: (path: string, content: string, options?: { updateSaved?: boolean; showAiDiff?: boolean }) => boolean;
+    options?: {
+      updateSaved?: boolean;
+      showAiDiff?: boolean;
+      expectedContent?: string;
+      expectedFileMissing?: boolean;
+      fileDeleted?: boolean;
+      conversationId?: string;
+    }
+  ) => boolean;
+  applyContentToOpenFile: (
+    path: string,
+    content: string,
+    options?: {
+      updateSaved?: boolean;
+      showAiDiff?: boolean;
+      expectedContent?: string;
+      expectedFileMissing?: boolean;
+      fileDeleted?: boolean;
+      conversationId?: string;
+    }
+  ) => { handled: boolean; conflict: boolean };
   applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+  getLivePreviewSourceAnchor: (payload: LivePreviewAnchorPayload) => Promise<LivePreviewSourceAnchor | null>;
+  handleExternalFileChange: (payload: { path: string; content: string | null; fileDeleted?: boolean }) => void;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;
   requestInitialOpen: () => void;
@@ -198,6 +239,7 @@ export type EditorSessionApi = {
     kind?: "text" | "image" | "pdf" | "unsupported";
     data?: string;
     mimeType?: string;
+    livePreview?: { generation: number; documentEpoch: number };
   }) => void;
   handleSaveResult: (payload: {
     path: string;
@@ -206,8 +248,6 @@ export type EditorSessionApi = {
     content?: string;
     formatError?: string;
   }) => void;
-  handleExternalChanges: (changes: Array<{ path?: string; kind?: string }>) => void;
-  handleFileReloaded: (payload: { path?: string; content?: string; error?: string }) => void;
   handleRenameResult: (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => void;
   syncWorkspaceFiles: (payload: { workspaceFiles: string[]; rootChanged: boolean }) => void;
   getDirtyPaths: () => Set<string>;

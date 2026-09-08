@@ -74,30 +74,40 @@ export type BuildProfile = {
   extraArgs?: string | null;
 };
 
-export type AgentStatusState = "idle" | "running" | "error" | "resumable";
+export type AgentStatusState =
+  | "idle"
+  | "running"
+  | "stopping"
+  | "error"
+  | "resumable";
+/** The only stored Axiom choice; everything else about the agent is fixed in code. */
 export type AgentSettings = {
-  apiKey?: string;
-  endpoint?: string;
   model?: string;
+};
 
-  temperature: number;
-  maxIterations?: number;
-  stream?: boolean;
-  autoApply?: boolean;
-  autoBuild?: boolean;
-  allowRunCommand?: boolean;
-  maxFileBytes?: number;
-  maxReadFiles?: number;
-  openFileMaxBytes?: number;
-  openFileMaxChars?: number;
-  maxConversationMessages?: number;
-  maxConversationChars?: number;
-  allowedTopLevel?: string[];
-  blockedTopLevel?: string[];
-  textExtensions?: string[];
-  extraTextExtensions?: string[];
-  costInputPerMillion?: number;
-  costOutputPerMillion?: number;
+/** A next step the agent recorded with propose_next_steps. */
+export type AgentNextStep = {
+  id: string;
+  title: string;
+  request: string;
+  /** "writing" starts with the brief when taken; "mechanical" is done at once. */
+  kind?: "mechanical" | "writing";
+  scope?: string;
+  line?: number;
+  asks?: AgentQuestion;
+};
+
+/** The plan Plan mode records: the steps the reader reviews before anything is written. */
+export type AgentPlan = {
+  title: string;
+  steps: Array<{ id: string; title: string; where?: string; what: string; asks?: AgentQuestion }>;
+};
+
+/** One question the agent needs answered before it can go on. */
+export type AgentQuestion = {
+  question: string;
+  fields?: Array<{ key: string; label: string; placeholder?: string }>;
+  options?: string[];
 };
 
 export type ApiUsageSnapshot = {
@@ -258,6 +268,8 @@ export type AgentProposal = {
   baseExists?: boolean;
   baseSource?: "disk" | "snapshot";
   createdAt?: number;
+  /** Where the change sits: first changed line and its section; the page follows the build. */
+  scope?: { line: number; section?: string; sectionType?: string; sectionLine?: number; page?: number };
 };
 
 export type AgentUiSession = {
@@ -266,13 +278,29 @@ export type AgentUiSession = {
   workspaceRootPath?: string | null;
   createdAt?: number | null;
   updatedAt?: number | null;
-  status?: { state: AgentStatusState; message?: string; undoAvailable?: boolean; undoCount?: number };
-  messages: Array<{ role: "user" | "assistant"; text: string }>;
+  status?: {
+    state: AgentStatusState;
+    message?: string;
+    undoAvailable?: boolean;
+    undoCount?: number;
+    undoUnavailableReason?: string;
+  };
+  branchedFrom?: string | null;
+  messages: Array<{
+    role: "user" | "assistant";
+    text: string;
+    proposals?: AgentNextStep[];
+    question?: AgentQuestion;
+    rating?: "up" | "down";
+    plan?: AgentPlan;
+  }>;
   proposals: AgentProposal[];
 };
 
 export type AgentUiState = {
   sessions: AgentUiSession[];
+  requestId?: string;
+  conversationId?: string;
 };
 
 export type EditorFormatIndentStyle = "spaces-2" | "spaces-4" | "tab";
@@ -298,6 +326,8 @@ export type FormatSettingsPayload = EditorFormatSettings & {
 export type WebkitHandler = { postMessage: (message: unknown) => void };
 export type WebkitBridge = { messageHandlers?: { tex64?: WebkitHandler } };
 export type ElectronBridge = {
+  /** false when the host holds AI mode out of this build (Code only). */
+  aiModeEnabled?: boolean;
   postMessage: (message: unknown) => void;
   onMessage?: (handler: (message: { type: string; payload?: unknown }) => void) => void;
 };
@@ -359,10 +389,23 @@ export type TdomBridge = {
     clientEditAtEpochMs?: number;
   }) => Promise<{ ok: boolean; url?: string; error?: string }>;
   focus?: (payload: { offset: number }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
-  windowLive?: (payload: { url: string | null; generation?: number; show?: boolean; hide?: boolean; error?: string | null }) => Promise<{ ok: boolean; error?: string }>;
+  snapshot?: (payload: { afterDocumentEpoch?: number; afterGeneration?: number }) => Promise<{
+    ok: boolean;
+    unchanged?: boolean;
+    pending?: boolean;
+    documentEpoch?: number;
+    generation?: number;
+    path?: string | null;
+    mainFile?: string | null;
+    mimeType?: string;
+    byteSize?: number;
+    data?: string;
+    error?: string | null;
+  }>;
 };
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
+  quiesce?: () => Promise<{ ok: boolean; error?: string }>;
 };
 export type FilesBridge = {
   readText?: (payload: { path: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
@@ -374,7 +417,6 @@ export type AiWebBridge = {
     url?: string;
     preloadFileUrl?: string;
     packaged?: boolean;
-    localAppDir?: string | null;
     error?: string;
   }>;
   openExternal?: (url: string) => Promise<{ ok: boolean; error?: string }>;
@@ -395,7 +437,7 @@ export type BridgeWindow = Window &
     __tex64TestCaptureApi?: CaptureBridge;
     __tex64TestMathOcr?: MathOcrBridge;
     __tex64TestRecognizeMath?: (imageDataUrl: string) => Promise<string>;
-    tex64SetBuildState?: (payload: { state: BuildState; message?: string }) => void;
+    tex64SetBuildState?: (payload: { state: BuildState; message?: string; targetFile?: string; requestId?: string }) => void;
     tex64UpdateIssues?: (payload: {
       count: number;
       summary: string;
@@ -404,11 +446,13 @@ export type BridgeWindow = Window &
     }) => void;
     tex64UpdateWorkspace?: (payload: {
       rootName: string;
-      rootPath: string;
+      rootPath: string | null;
       files: string[];
       folders?: string[];
       rootFile?: string;
       rootSource?: RootSource;
+      workspaceId?: string | null;
+      workspaceGeneration?: number;
     }) => void;
     tex64UpdateIndex?: (payload: {
       labels: IndexEntry[];
@@ -429,6 +473,7 @@ export type BridgeWindow = Window &
     tex64SaveResult?: (payload: {
       path: string;
       ok: boolean;
+      busy?: boolean;
       error?: string;
       content?: string;
       formatError?: string;
@@ -439,6 +484,7 @@ export type BridgeWindow = Window &
       content?: string;
       error?: string;
       source?: string;
+      stale?: boolean;
     }) => void;
     tex64SynctexForwardResult?: (payload: {
       ok?: boolean;

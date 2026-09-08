@@ -4,10 +4,10 @@ import type { StopCondition, ToolSet } from "ai";
 // regularly runs past 16k tokens of JSON; a mid-call cut truncates the tool
 // call and kills the run, so the cap leaves real headroom.
 export const MAX_AGENT_OUTPUT_TOKENS_PER_STEP = 32_000;
-// A runaway-loop safety valve, not a billing control (billing quotas are
-// enforced server-side). Writing a full multi-section paper in one run —
-// each tool step re-reading the document model — legitimately passes 120k.
-export const MAX_AGENT_TOTAL_TOKENS_PER_RUN = 400_000;
+// One user turn can contain many paid model steps. Keep a hard turn boundary
+// in addition to account billing so an agent loop cannot consume a monthly
+// allowance in one request.
+export const MAX_AGENT_TOTAL_TOKENS_PER_RUN = 100_000;
 
 /**
  * Token counts arrive either as plain numbers or as a detail object
@@ -37,17 +37,6 @@ export function tokenCount(value: AgentTokenCount): number | undefined {
   return undefined;
 }
 
-function cachedTokenCount(usage: AgentTokenUsage): number {
-  const detail = usage.inputTokenDetails?.cacheReadTokens;
-  const fromDetail = tokenCount(detail);
-  if (fromDetail !== undefined) return fromDetail;
-  const inputs = usage.inputTokens;
-  if (inputs && typeof inputs === "object" && typeof inputs.cacheRead === "number") {
-    return inputs.cacheRead;
-  }
-  return tokenCount(usage.cachedInputTokens) ?? 0;
-}
-
 export type AgentTokenUsageStep = {
   usage?: AgentTokenUsage;
 };
@@ -65,15 +54,12 @@ function validTokenCount(value: number | undefined): value is number {
 
 function measuredStepTokens(step: AgentTokenUsageStep): number | null {
   if (!step.usage) return null;
-  // Cached prompt reads re-bill the whole shared prefix on every step; the
-  // safety valve measures fresh work, so they do not count against it.
-  const discount = cachedTokenCount(step.usage);
   const total = tokenCount(step.usage.totalTokens);
-  if (validTokenCount(total)) return Math.max(0, total - discount);
+  if (validTokenCount(total)) return total;
   const inputTokens = tokenCount(step.usage.inputTokens);
   const outputTokens = tokenCount(step.usage.outputTokens);
   if (validTokenCount(inputTokens) && validTokenCount(outputTokens)) {
-    return Math.max(0, inputTokens + outputTokens - discount);
+    return inputTokens + outputTokens;
   }
   return null;
 }
@@ -115,15 +101,14 @@ export function summarizeAgentTokenUsage(
 /**
  * Stops the tool loop once its measured usage reaches the assigned budget.
  *
- * Unmeasurable usage does NOT stop the turn: the step count is the primary
- * bound, and a provider that reports usage in a shape this code cannot read
- * must not silently reduce every turn to a single step.
+ * Unmeasurable usage stops after the current step. Continuing without knowing
+ * what was billed would make the cost boundary optional.
  */
 export function isAgentTokenBudget(
   maximumTokens: number,
 ): StopCondition<ToolSet> {
   return ({ steps }) => {
     const usage = summarizeAgentTokenUsage(steps, maximumTokens);
-    return usage.measurable && usage.budgetReached;
+    return !usage.measurable || usage.budgetReached;
   };
 }

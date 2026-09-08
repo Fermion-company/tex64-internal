@@ -20,6 +20,7 @@ const { PRODUCTION_PLATFORM_API_BASE_URL } = require("../platform-access-shared.
  * The run-loop uses this as the base for fetch calls.
  */
 const DEFAULT_BASE_URL = `${PRODUCTION_PLATFORM_API_BASE_URL}/ai/openai`;
+const OFFICIAL_PLATFORM_CHAT_ENDPOINT = `${DEFAULT_BASE_URL}/chat/completions`;
 
 const LEGACY_AXIOM_MODELS = Object.freeze({
   "axiom0.9.1": "Axiom1.0",
@@ -41,14 +42,36 @@ const migrateLegacyAxiomModel = (model) => {
  * Mirrors OpenPrism's `normalizeChatEndpoint()`.
  */
 const normalizeChatEndpoint = (endpoint) => {
-  if (!endpoint) return `${DEFAULT_BASE_URL}/chat/completions`;
+  if (!endpoint) return OFFICIAL_PLATFORM_CHAT_ENDPOINT;
   let url = endpoint.trim();
-  if (!url) return `${DEFAULT_BASE_URL}/chat/completions`;
+  if (!url) return OFFICIAL_PLATFORM_CHAT_ENDPOINT;
   url = url.replace(/\/+$/, "");
   if (/\/chat\/completions$/i.test(url)) return url;
   if (/\/v1$/i.test(url)) return `${url}/chat/completions`;
   if (/\/v1\//i.test(url)) return url;
   return `${url}/v1/chat/completions`;
+};
+
+/**
+ * Platform credentials are valid for exactly one production endpoint.  Keep
+ * this as a strict post-normalization string comparison: host suffix checks or
+ * path-only checks would let a custom server receive the TeX64 JWT/device id.
+ */
+const isOfficialPlatformProxyUrl = (endpoint) =>
+  normalizeChatEndpoint(endpoint) === OFFICIAL_PLATFORM_CHAT_ENDPOINT;
+
+/**
+ * A custom OpenAI-compatible endpoint must use credentials supplied by the
+ * user/developer.  Never fall back to the TeX64 platform identity here.
+ */
+const resolveOwnApiKey = (_settings) => {
+  // Only a developer's environment can point Axiom elsewhere; the settings
+  // file carries no endpoint or key.
+  const envKey =
+    typeof process.env.TEX64_LLM_API_KEY === "string"
+      ? process.env.TEX64_LLM_API_KEY.trim()
+      : "";
+  return envKey || null;
 };
 
 /**
@@ -63,30 +86,34 @@ const resolveLLMConfig = (settings) => {
     settings && typeof settings === "object" ? settings : {};
 
   const endpoint = (
-    (typeof agentSettings.endpoint === "string" && agentSettings.endpoint.trim()) ||
     (typeof process.env.TEX64_LLM_ENDPOINT === "string" && process.env.TEX64_LLM_ENDPOINT.trim()) ||
     `${DEFAULT_BASE_URL}/chat/completions`
   ).trim();
 
+  const envModel =
+    typeof process.env.TEX64_LLM_MODEL === "string" ? process.env.TEX64_LLM_MODEL.trim() : "";
   const configuredModel = (
     (typeof agentSettings.model === "string" && agentSettings.model.trim()) ||
-    (typeof process.env.TEX64_LLM_MODEL === "string" && process.env.TEX64_LLM_MODEL.trim()) ||
+    envModel ||
     "Axiom1.0"
   ).trim();
-  const model = migrateLegacyAxiomModel(configuredModel);
+  let model = migrateLegacyAxiomModel(configuredModel);
+  // An Axiom alias only means something to the TeX64 proxy. A developer
+  // pointing the app straight at a provider names the upstream model.
+  if (envModel && !isOfficialPlatformProxyUrl(endpoint) && /^Axiom/i.test(model)) {
+    model = envModel;
+  }
 
-  const rawTemp = agentSettings.temperature;
-  const parsedTemp = typeof rawTemp === "number" ? rawTemp : Number(rawTemp);
-  const temperature = Number.isFinite(parsedTemp)
-    ? Math.min(2, Math.max(0, parsedTemp))
-    : undefined; // omit → use model default
-
-  return { endpoint, model, temperature };
+  // No temperature: the model's own default applies.
+  return { endpoint, model, temperature: undefined };
 };
 
 module.exports = {
   DEFAULT_BASE_URL,
+  OFFICIAL_PLATFORM_CHAT_ENDPOINT,
+  isOfficialPlatformProxyUrl,
   migrateLegacyAxiomModel,
   normalizeChatEndpoint,
+  resolveOwnApiKey,
   resolveLLMConfig,
 };

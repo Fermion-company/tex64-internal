@@ -1,8 +1,9 @@
+const { historyBoundary } = require("./agent-history-boundary.cjs");
 /**
  * Tool executor — stripped down to only the tools used outside the
  * OpenPrism AgentExecutor run-loop:
  *
- *   1. run_build   — called by maybeAutoBuild (agent-proposal-runtime.cjs)
+ *   1. run_build   — called by maybeAutoBuild and compile_document
  *   2. rename_latex_symbol — called by handleSearchRename (handlers/agent.cjs)
  *
  * All other tools (30+) have been removed.  The 7-tool OpenPrism agent
@@ -19,7 +20,6 @@ const {
   isBlockedPath,
   isTextExtension,
   normalizeExtensionList,
-  normalizePath,
   normalizeStringList,
 } = require("./agent-policy.cjs");
 const {
@@ -28,7 +28,70 @@ const {
   renameLatexInText,
 } = require("./agent-latex.cjs");
 const { readFileFromDisk } = require("./agent-tools-file.cjs");
-const { TOOL_STATUS_LABELS, clipText } = require("./agent-core-utils.cjs");
+const { clipText } = require("./agent-core-utils.cjs");
+
+const WORKSPACE_CHANGED_ERROR =
+  "The workspace changed during this Axiom turn. The compile result was discarded; retry in the current workspace.";
+const POST_BUILD_REFRESH_TIMEOUT_MS = 5000;
+
+const normalizeBuildTarget = (rootPath, value) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    return null;
+  }
+  const resolved = path.isAbsolute(raw)
+    ? path.resolve(raw)
+    : path.resolve(rootPath, raw.replace(/\\/g, path.sep));
+  const resolvedRoot = path.resolve(rootPath);
+  if (resolved !== resolvedRoot && !resolved.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error("The document to compile must be inside the current workspace.");
+  }
+  if (path.extname(resolved).toLowerCase() !== ".tex") {
+    throw new Error("compile_document requires a .tex document.");
+  }
+  return path.relative(resolvedRoot, resolved).split(path.sep).join("/");
+};
+
+const compileLogExcerpt = (value, maxChars = 12_000) => {
+  const log = typeof value === "string" ? value.trim() : "";
+  if (!log) {
+    return null;
+  }
+  if (log.length <= maxChars) {
+    return log;
+  }
+  return `[earlier output omitted]\n${log.slice(log.length - maxChars)}`;
+};
+
+const refreshWorkspaceAfterBuild = async (service, rootPath, signal) => {
+  if (typeof service.updateWorkspaceIfNeeded !== "function") {
+    return false;
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener?.("abort", onAbort);
+      resolve(value);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(false), POST_BUILD_REFRESH_TIMEOUT_MS);
+    timer.unref?.();
+    if (signal?.aborted) {
+      finish(false);
+      return;
+    }
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+    Promise.resolve()
+      .then(() => service.updateWorkspaceIfNeeded(rootPath, true))
+      .then(
+        (value) => finish(value !== false),
+        () => finish(false),
+      );
+  });
+};
 
 const executeToolCall = async (service, toolCall, conversationId) => {
   try {
@@ -45,6 +108,8 @@ const executeToolCall = async (service, toolCall, conversationId) => {
     if (!args || typeof args !== "object") {
       args = {};
     }
+    const turnSignal = service.runningControllers?.get?.(conversationId)?.controller?.signal;
+    const buildWasAlreadyAbortedAtToolStart = turnSignal?.aborted === true;
     const policy = service.agentPolicy ?? buildAgentPolicy();
     const clip = (value, max = 60) => {
       const text = typeof value === "string" ? value.trim() : "";
@@ -52,22 +117,11 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       return text.length > max ? `${text.slice(0, max)}…` : text;
     };
 
-    // ---- Status label for IPC ----
-    const statusLabel = TOOL_STATUS_LABELS[name];
-    if (statusLabel) {
-      let detail = statusLabel;
-      if (name === "rename_latex_symbol") {
-        const from = clip(args.from, 24);
-        const to = clip(args.to, 24);
-        if (from && to) detail = `${statusLabel}: ${from} → ${to}`;
-      } else if (name === "run_build") {
-        const mainFile = clip(args.mainFile, 64);
-        const engine = clip(args.engine, 16);
-        if (mainFile || engine) {
-          detail = `${statusLabel}: ${[mainFile, engine].filter(Boolean).join(" ")}`;
-        }
-      }
-      service.sendStatus("running", detail, conversationId);
+    // ---- Status for IPC ----
+    // The tool event (name + target) carries the specifics; the status line
+    // only says that work is going on, in words each UI localizes.
+    if (name === "run_build" || name === "rename_latex_symbol") {
+      service.sendStatus("running", "Working...", conversationId);
     }
 
     // ---- run_build ----
@@ -75,30 +129,84 @@ const executeToolCall = async (service, toolCall, conversationId) => {
       if (!service.buildService) {
         return { error: "Build feature is not available." };
       }
-      const rootPath = service.workspace.getRootPath();
-      if (!rootPath) {
+      const currentRootPath = service.workspace.getRootPath();
+      if (!currentRootPath) {
         return { error: "No workspace is selected." };
       }
-      const requestedMain = typeof args.mainFile === "string" ? args.mainFile.trim() : "";
+      const storedRootPath = service.workspaceRootByConversation?.get?.(conversationId);
+      const capturedRootPath =
+        typeof storedRootPath === "string" && storedRootPath.trim()
+          ? storedRootPath.trim()
+          : currentRootPath;
+      const assertCapturedWorkspace = () => {
+        if (service.workspace.getRootPath() !== capturedRootPath) {
+          const error = new Error(WORKSPACE_CHANGED_ERROR);
+          error.code = "AGENT_WORKSPACE_CHANGED";
+          throw error;
+        }
+      };
+      assertCapturedWorkspace();
+
+      const context = service.contextByConversation?.get?.(conversationId) ?? {};
+      const explicitMain =
+        typeof args.mainFile === "string" && args.mainFile.trim()
+          ? args.mainFile.trim()
+          : "";
+      const implicitTexCandidate = [context.activeFilePath, context.documentMainFile]
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .find((value) => path.extname(value).toLowerCase() === ".tex") ?? "";
       const requestedEngine = typeof args.engine === "string" ? args.engine.trim() : "";
-      const rootInfo = await service.workspace.rootInfo().catch(() => null);
-      const requestedFile = requestedMain && requestedMain.trim() ? requestedMain.trim() : null;
-      let targetFile = rootInfo?.path || "main.tex";
-      if (requestedFile && requestedFile.endsWith(".tex")) {
+      // An explicit tool argument is user/model intent and must fail closed when
+      // it is not a TeX document. The renderer's active file is only a hint:
+      // editing a .bib/.sty/config file must still compile the current document.
+      const requestedFile = normalizeBuildTarget(
+        capturedRootPath,
+        explicitMain || implicitTexCandidate,
+      );
+      let targetFile = requestedFile;
+      if (requestedFile) {
         const magicRoot = await service.workspace
           .resolveTexRootFromMagic(requestedFile)
           .catch(() => null);
-        if (magicRoot) {
-          targetFile = magicRoot;
-        } else if (!rootInfo?.path) {
-          targetFile = requestedFile;
-        }
-      } else if (requestedFile && !rootInfo?.path) {
-        targetFile = requestedFile;
+        assertCapturedWorkspace();
+        // A per-file % !TEX root directive is explicit user intent and wins.
+        // Otherwise the requested/active nested document is the exact target;
+        // the workspace-wide root file must not override it.
+        targetFile = normalizeBuildTarget(capturedRootPath, magicRoot || requestedFile);
+      } else {
+        const rootInfo = await service.workspace.rootInfo().catch(() => null);
+        assertCapturedWorkspace();
+        targetFile = normalizeBuildTarget(capturedRootPath, rootInfo?.path || "main.tex");
       }
-      service.sendBuildState?.("building", "Building...");
+      if (!targetFile) {
+        return { error: "No LaTeX document is available to compile." };
+      }
+      try {
+        // A lexical `root/…` target may still traverse a symlink to a TeX file
+        // outside the workspace. Compile through the same canonical boundary
+        // used by every file edit before handing the target to BuildService.
+        const resolvedTarget = service.workspace.resolvePath(targetFile);
+        targetFile = normalizeBuildTarget(capturedRootPath, resolvedTarget);
+      } catch {
+        return {
+          error: "The document to compile must stay inside the current workspace.",
+        };
+      }
+      const buildEventContext = {
+        workspaceRoot: capturedRootPath,
+        targetFile,
+        documentMainFile: targetFile,
+        ...(typeof context.workspaceId === "string" && context.workspaceId.trim()
+          ? { workspaceId: context.workspaceId.trim() }
+          : {}),
+        ...(Number.isSafeInteger(context.workspaceGeneration)
+          ? { workspaceGeneration: context.workspaceGeneration }
+          : {}),
+      };
+      service.sendBuildState?.("building", "Building...", buildEventContext);
       service.sendIssues?.(0, "Building...", "info", []);
       const settings = await service.workspace.loadSettings().catch(() => null);
+      assertCapturedWorkspace();
       const activeId =
         typeof settings?.buildProfileId === "string" ? settings.buildProfileId.trim() : "";
       const profiles = Array.isArray(settings?.buildProfiles) ? settings.buildProfiles : [];
@@ -119,26 +227,140 @@ const executeToolCall = async (service, toolCall, conversationId) => {
                 : null,
           }
         : null;
-      const result = await service.buildService.build(
-        rootPath,
+      const markBuildStarted = () => {
+        service.activeAgentBuildConversationId = conversationId;
+      };
+      const markBuildFinished = () => {
+        if (service.activeAgentBuildConversationId === conversationId) {
+          service.activeAgentBuildConversationId = null;
+        }
+      };
+      const runBuild = async (...buildArgs) => {
+        if (typeof service.buildService.buildQueued === "function") {
+          return service.buildService.buildQueued(...buildArgs, {
+            onStart: markBuildStarted,
+            onFinish: markBuildFinished,
+            signal: turnSignal,
+            allowInitiallyAborted: buildWasAlreadyAbortedAtToolStart,
+          });
+        }
+        markBuildStarted();
+        try {
+          return await service.buildService.build(...buildArgs);
+        } finally {
+          markBuildFinished();
+        }
+      };
+      let result = await runBuild(
+        capturedRootPath,
         targetFile,
         requestedEngine || "lualatex",
         buildProfile
       );
+      assertCapturedWorkspace();
+
+      // Match the normal Build button: managed TeX installs missing packages
+      // from the real compiler log, then retries the same exact document.
+      const installedPackages = new Set();
+      const recoveryNotes = [];
+      for (let attempt = 0; attempt < 4 && result.kind === "failure"; attempt += 1) {
+        if (!service.envService || typeof service.envService.installMissingPackagesFromLog !== "function") {
+          break;
+        }
+        let recovery;
+        try {
+          recovery = await service.envService.installMissingPackagesFromLog(result.log, {
+            excludePackages: [...installedPackages],
+            signal: turnSignal,
+            onPackagesResolved: () => {
+              if (service.workspace.getRootPath() !== capturedRootPath) {
+                return;
+              }
+              service.sendBuildState?.(
+                "building",
+                "Installing missing TeX packages...",
+                buildEventContext
+              );
+              service.sendIssues?.(0, "Installing missing TeX packages...", "info", []);
+            },
+          });
+        } catch (error) {
+          // The real build above already happened. Preserve that failure as the
+          // compile_document result so terminal settlement does not build the
+          // exact same edit a second time after Stop or package-recovery errors.
+          recoveryNotes.push(
+            error?.name === "AbortError"
+              ? "Missing-package recovery was stopped."
+              : `Missing-package recovery failed: ${error?.message ?? "unknown error"}`,
+          );
+          break;
+        }
+        assertCapturedWorkspace();
+        if (!recovery?.success || !Array.isArray(recovery.packages) || recovery.packages.length === 0) {
+          break;
+        }
+        recovery.packages.forEach((packageName) => installedPackages.add(packageName));
+        recoveryNotes.push(recovery.message || `Installed ${recovery.packages.join(", ")}.`);
+        result = await runBuild(
+          capturedRootPath,
+          targetFile,
+          requestedEngine || "lualatex",
+          buildProfile
+        );
+        assertCapturedWorkspace();
+      }
+      if (recoveryNotes.length > 0 && typeof result.log === "string") {
+        result.log = [
+          ...recoveryNotes.map((note) => `[tex64] ${note}`),
+          "",
+          result.log,
+        ].join("\n");
+      }
       if (result.kind === "busy") {
-        service.sendBuildState?.("building", "Build is already running.");
+        service.sendBuildState?.("building", "Build is already running.", buildEventContext);
         service.sendIssues?.(0, "Build is already running.", "info", []);
-        return { status: "busy", summary: "Build is already running." };
+        return { status: "busy", targetFile, summary: "Build is already running." };
       }
       if (result.log) {
         service.sendBuildLog?.(result.log);
       }
+      // Workspace refresh is presentation-side bookkeeping. A stuck renderer
+      // snapshot must never hold the completed compiler result or Stop forever.
+      await refreshWorkspaceAfterBuild(service, capturedRootPath, turnSignal);
+      assertCapturedWorkspace();
       if (result.kind === "cancelled") {
-        service.sendBuildState?.("idle", result.summary ?? "Build cancelled.");
+        service.sendBuildState?.(
+          "idle",
+          result.summary ?? "Build cancelled.",
+          buildEventContext
+        );
         service.sendIssues?.(0, result.summary ?? "Build cancelled.", "info", []);
-        return { status: "cancelled", summary: result.summary ?? "Build cancelled." };
+        return {
+          status: "cancelled",
+          targetFile,
+          summary: result.summary ?? "Build cancelled.",
+          logExcerpt: compileLogExcerpt(result.log),
+        };
       }
       if (result.kind === "success") {
+        // A PDF that came out with error-level issues (missing glyphs: the
+        // text is simply absent from the page) is not a success for the
+        // agent. Report it as a failure with the fix in the message, so the
+        // repair round changes the setup instead of moving on.
+        const errorIssues = result.issues.filter((issue) => issue.severity === "error");
+        if (errorIssues.length > 0) {
+          const summaryText = errorIssues[0]?.message ?? result.summary;
+          service.sendBuildState?.("failed", summaryText, buildEventContext);
+          service.sendIssues?.(errorIssues.length, summaryText, "error", errorIssues);
+          return {
+            status: "failure",
+            targetFile,
+            summary: `The PDF was produced but has ${errorIssues.length} error(s): ${summaryText}`,
+            issues: errorIssues,
+            pdfPath: result.pdfPath ?? null,
+            logExcerpt: compileLogExcerpt(result.log),
+          };
+        }
         const warningIssues = result.issues.filter(
           (issue) => issue.severity === "warning"
         );
@@ -148,20 +370,47 @@ const executeToolCall = async (service, toolCall, conversationId) => {
         } else {
           service.sendIssues?.(0, result.summary, "success", []);
         }
-        service.sendBuildState?.("success", result.summary);
+        let relativePdfPath = null;
+        if (typeof result.pdfPath === "string" && result.pdfPath.trim()) {
+          const resolvedPdfPath = path.resolve(result.pdfPath);
+          const resolvedRoot = path.resolve(capturedRootPath);
+          if (
+            resolvedPdfPath !== resolvedRoot &&
+            resolvedPdfPath.startsWith(`${resolvedRoot}${path.sep}`)
+          ) {
+            relativePdfPath = path
+              .relative(resolvedRoot, resolvedPdfPath)
+              .split(path.sep)
+              .join("/");
+          }
+        }
+        service.sendBuildState?.("success", result.summary, {
+          ...buildEventContext,
+          pdfPath: relativePdfPath,
+        });
         return {
           status: "success",
+          targetFile,
           summary: result.summary,
           issues: result.issues,
           pdfPath: result.pdfPath ?? null,
+          ...(result.issues.length > 0
+            ? { logExcerpt: compileLogExcerpt(result.log) }
+            : {}),
         };
       }
       if (result.kind === "failure") {
         const count = Math.max(result.issues.length, 1);
         const summaryText = result.issues[0]?.message ?? result.summary;
-        service.sendBuildState?.("failed", result.summary);
+        service.sendBuildState?.("failed", result.summary, buildEventContext);
         service.sendIssues?.(count, summaryText, "error", result.issues);
-        return { status: "failure", summary: result.summary, issues: result.issues };
+        return {
+          status: "failure",
+          targetFile,
+          summary: result.summary,
+          issues: result.issues,
+          logExcerpt: compileLogExcerpt(result.log),
+        };
       }
       return { status: "unknown", summary: "Build result unknown." };
     }
@@ -320,16 +569,21 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           path: prepared.path,
           content: prepared.updatedContent,
           originalContent: prepared.originalContent,
+          // The workspace-wide scan and a later manual Apply can be separated
+          // by arbitrary user edits. CAS the exact bytes that were scanned.
+          baseContentHash: service.hashUtf8(prepared.originalContent),
           summary: `${summaryBase}: ${from} → ${to} (${prepared.appliedCount}places)`,
           isNewFile: false,
           conversationId,
           workspaceRootPath: service.workspace.getRootPath() || undefined,
         };
         if (autoApply) {
+          proposal.historyBoundary = historyBoundary(service);
           service.proposals.set(id, proposal);
           const apply = await service.applyProposal(id, {
             discardOnFailure: true,
             skipAutoBuild: true,
+            _workspaceRunToken: service.runningControllers?.get?.(conversationId)?.token,
           });
           proposals.push({
             proposalId: id,
@@ -339,6 +593,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
             error: apply?.ok ? undefined : apply?.error ?? "Apply failed.",
           });
         } else {
+          proposal.historyBoundary = historyBoundary(service);
           service.proposals.set(id, proposal);
           service.sendToRenderer("agent:proposal", { proposal });
           proposals.push({

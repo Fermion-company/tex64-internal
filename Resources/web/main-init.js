@@ -1,3 +1,6 @@
+import { openSnippets } from "./app/snippets-ui.js";
+import { initGitUi } from "./app/git-ui.js";
+import { initHistoryUi } from "./app/history-ui.js";
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
@@ -40,10 +43,6 @@ import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
-import { initGitUi } from "./app/git-ui.js";
-import { initSnippetsUi } from "./app/snippets-ui.js";
-import { insertAtEditorCursor } from "./app/pro-editor-insert.js";
-import { registerSnippetCompletion } from "./app/snippets-completion.js";
 import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
@@ -51,11 +50,15 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
+import { APP_MODE_STORAGE_KEY, initAppModeUi, prepareCodeWorkspaceHandoff, prepareAppModeTransition, resolveInitialAppMode, } from "./app/app-mode.js";
+import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
+import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
+import { prepareRendererForQuit } from "./app/quit-preparation.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
-        var _a, _b;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         initAppearanceTheme();
         initI18n();
         requestAnimationFrame(() => {
@@ -65,7 +68,24 @@ export const initMain = () => {
         const { tabs, settingsTab, editorHost, editorViewer, editorViewerImage, editorViewerPdf, editorHostSecondary, editorViewerSecondary, editorViewerImageSecondary, editorViewerPdfSecondary, editorFallbackSecondary, } = dom;
         let postToNative = () => false;
         let requestLiveSource = (_payload) => { };
+        // A place marked in the live preview names its source file the engine's
+        // way; the chat needs the workspace path.
+        const withResolvedPdfSource = (payload) => {
+            var _a;
+            const source = (_a = payload.source) !== null && _a !== void 0 ? _a : null;
+            if (!source)
+                return payload;
+            const path = resolveLivePreviewWorkspacePath(source.file, getWorkspaceRootKey());
+            return { ...payload, sourcePath: path !== null && path !== void 0 ? path : null };
+        };
         let requestLiveEdit = (_payload) => { };
+        let requestLiveAnchor = (payload, reply) => {
+            reply({ sessionId: payload.sessionId, requestId: payload.requestId,
+                activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+                file: payload.file, sourceRev: payload.sourceRev, ok: false });
+        };
+        let refreshCodeLivePreview = () => { };
+        let openIntegratedTerminal = (_directory) => { };
         let isReverseSynctexEnabled = () => true;
         let blockAutoDetect = null;
         let blockEditSession = null;
@@ -101,6 +121,11 @@ export const initMain = () => {
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
+            onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
+            onPdfAskAxiom: (payload) => {
+                setActiveTab("ai");
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
+            },
         });
         const secondaryViewer = createViewer({
             editorViewer: editorViewerSecondary,
@@ -121,6 +146,11 @@ export const initMain = () => {
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
+            onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
+            onPdfAskAxiom: (payload) => {
+                setActiveTab("ai");
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
+            },
         });
         const bridgeWindow = window;
         bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl) => recognizeMath(imageDataUrl);
@@ -140,8 +170,34 @@ export const initMain = () => {
             bridgeWindow,
             updateIssues: updateIssuesProxy,
         });
-        requestLiveSource = (payload) => {
-            postToNative({ type: "live-preview:source", ...payload }, true);
+        let workspaceSwitchInFlight = false;
+        const requestWorkspaceChange = (payload) => {
+            if (workspaceSwitchInFlight)
+                return false;
+            workspaceSwitchInFlight = true;
+            void (async () => {
+                var _a;
+                try {
+                    // A root switch changes what every relative path means. Save Code's
+                    // buffers only after every old-root writer has really stopped.
+                    const handoff = await prepareCodeWorkspaceHandoff({
+                        quiesce: async () => { var _a, _b, _c; return (_c = (await ((_b = (_a = bridgeWindow.tex64Ai) === null || _a === void 0 ? void 0 : _a.quiesce) === null || _b === void 0 ? void 0 : _b.call(_a)))) !== null && _c !== void 0 ? _c : { ok: false }; },
+                        saveCode: () => editorSession.saveDirtyFiles(),
+                    });
+                    if (!handoff.ok) {
+                        const message = (_a = handoff.error) !== null && _a !== void 0 ? _a : (handoff.phase === "save"
+                            ? uiText("Save the current files before changing projects.", "現在のファイルを保存してからプロジェクトを切り替えてください。")
+                            : uiText("The current operation has not stopped yet. Try changing projects again.", "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。"));
+                        updateIssues(1, message, "error", [{ severity: "error", message }]);
+                        return;
+                    }
+                    postToNative(payload);
+                }
+                finally {
+                    workspaceSwitchInFlight = false;
+                }
+            })();
+            return true;
         };
         const filePreviewBroker = createFilePreviewBroker((payload, silent) => postToNative(payload, silent));
         const fileExcerptBroker = createFileExcerptBroker((payload, silent) => postToNative(payload, silent));
@@ -165,11 +221,9 @@ export const initMain = () => {
         let setSettingsTabAlert = (_hasAlert) => { };
         let updateEditorWordWrap = (_enabled) => { };
         let pendingEditorWordWrapEnabled = null;
-        let onSidebarTabActive = () => { };
         const tabController = initTabController(appContext, {
             onFilesTabActive: () => onFilesTabActive(),
             onSettingsTabActive: () => onSettingsTabActive(),
-            onTabActive: (tabKey) => onSidebarTabActive(tabKey),
         });
         const setActiveTab = (tabKey) => {
             tabController.setActiveTab(tabKey);
@@ -285,13 +339,13 @@ export const initMain = () => {
         const contextMenu = initContextMenu(appContext);
         const launcherUi = initLauncherUi(appContext, {
             onCreate: () => {
-                postToNative({ type: "createProject", locale: getUiLocale() });
+                requestWorkspaceChange({ type: "createProject", locale: getUiLocale() });
             },
             onOpen: () => {
-                postToNative({ type: "openWorkspace", locale: getUiLocale() });
+                requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
             },
             onOpenRecent: (path) => {
-                postToNative({ type: "openRecentProject", path });
+                requestWorkspaceChange({ type: "openRecentProject", path });
             },
             onRemoveRecent: (path) => {
                 postToNative({ type: "removeRecentProject", path });
@@ -315,7 +369,6 @@ export const initMain = () => {
         });
         // Request recent projects on startup
         postToNative({ type: "getRecentProjects" });
-        let openIntegratedTerminalAt = () => { };
         const fileTreeUi = initFileTreeUi(appContext, {
             contextMenu,
             getWorkspaceRootKey,
@@ -329,9 +382,7 @@ export const initMain = () => {
             isAnyGroupComposing: () => editorSession.isAnyGroupComposing(),
             postToNative: (payload) => postToNative(payload),
             getDirtyPaths: () => editorSession.getDirtyPaths(),
-            // The terminal UI is built further down; the file tree only ever calls this
-            // in response to a click, long after both exist.
-            openIntegratedTerminal: (folderPath) => openIntegratedTerminalAt(folderPath),
+            openTerminal: (directory) => openIntegratedTerminal(directory),
         });
         const detectedBlockUi = initDetectedBlockUi(dom);
         let activeBlockContext = null;
@@ -393,24 +444,28 @@ export const initMain = () => {
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             getMonacoApi: appActions.getMonacoApi,
+            onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
         });
-        requestLiveEdit = (payload) => {
-            var _a, _b;
-            const workspaceRoot = (_b = (_a = getWorkspaceRootKey()) === null || _a === void 0 ? void 0 : _a.replace(/\\/g, "/").replace(/\/$/, "")) !== null && _b !== void 0 ? _b : "";
-            const sourcePath = payload.file.replace(/\\/g, "/").replace(/^\.\//, "");
-            const absolute = sourcePath.startsWith("/") || /^[A-Za-z]:\//.test(sourcePath);
-            const candidate = absolute && workspaceRoot && sourcePath.startsWith(`${workspaceRoot}/`)
-                ? sourcePath.slice(workspaceRoot.length + 1)
-                : absolute
-                    ? ""
-                    : sourcePath;
-            const parts = candidate.split("/").filter((part) => part && part !== ".");
-            const path = parts.includes("..") || parts.some((part) => part.includes("\0"))
-                ? ""
-                : parts.join("/");
+        const reportInvalidLivePreviewPath = () => {
+            const message = uiText("The PDF edit is outside this workspace.", "PDF編集対象がワークスペース外です。");
+            updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+        };
+        requestLiveSource = (payload) => {
+            const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
             if (!path) {
-                const message = uiText("The PDF edit is outside this workspace.", "PDF編集対象がワークスペース外です。");
-                updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+                reportInvalidLivePreviewPath();
+                return;
+            }
+            editorSession.jumpToFileLine(path, payload.line, "primary", {
+                force: true,
+                focus: true,
+                column: payload.column,
+            });
+        };
+        requestLiveEdit = (payload) => {
+            const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
+            if (!path) {
+                reportInvalidLivePreviewPath();
                 return;
             }
             const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
@@ -419,14 +474,123 @@ export const initMain = () => {
                 updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
             }
         };
+        requestLiveAnchor = (payload, reply) => {
+            const root = getWorkspaceRootKey();
+            const path = resolveLivePreviewWorkspacePath(payload.file, root);
+            const correlation = { sessionId: payload.sessionId, requestId: payload.requestId,
+                activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+                file: payload.file, sourceRev: payload.sourceRev };
+            if (!path) {
+                reply({ ...correlation, ok: false });
+                return;
+            }
+            void editorSession.getLivePreviewSourceAnchor({ ...payload, path }).then((anchor) => {
+                reply(anchor && root === getWorkspaceRootKey()
+                    ? { ...correlation, ...anchor, ok: true }
+                    : { ...correlation, ok: false });
+            }, () => reply({ ...correlation, ok: false }));
+        };
         initProCanvasUi({
             getActiveGroup: editorSession.getActiveGroup,
         });
-        initCodeLivePreview({
+        const aiModeApi = initAiModeUi({
+            postToNative: (payload, silent) => {
+                if (payload.type === "openWorkspace" ||
+                    payload.type === "openRecentProject" ||
+                    payload.type === "createProject") {
+                    return requestWorkspaceChange(payload);
+                }
+                return postToNative(payload, silent);
+            },
+            openPlans: (plan) => window.dispatchEvent(new CustomEvent("tex64:open-plans", {
+                detail: plan ? { plan } : undefined,
+            })),
+        });
+        // The embedded app receives the same host events as Code, then applies its
+        // own narrow allowlist. A second listener leaves the existing dispatcher
+        // and Code workspace behavior untouched.
+        (_b = (_a = bridgeWindow.tex64Bridge) === null || _a === void 0 ? void 0 : _a.onMessage) === null || _b === void 0 ? void 0 : _b.call(_a, (message) => aiModeApi.deliver(message));
+        let quitPreparation = null;
+        (_d = (_c = bridgeWindow.tex64Bridge) === null || _c === void 0 ? void 0 : _c.onMessage) === null || _d === void 0 ? void 0 : _d.call(_c, (message) => {
+            if (message.type !== "prepareQuit")
+                return;
+            const payload = message.payload && typeof message.payload === "object"
+                ? message.payload
+                : {};
+            const requestId = typeof payload.requestId === "string" ? payload.requestId : "";
+            if (!requestId)
+                return;
+            if (!quitPreparation) {
+                quitPreparation = prepareRendererForQuit({
+                    quiesce: async () => {
+                        var _a, _b, _c;
+                        return (_c = (await ((_b = (_a = bridgeWindow.tex64Ai) === null || _a === void 0 ? void 0 : _a.quiesce) === null || _b === void 0 ? void 0 : _b.call(_a)))) !== null && _c !== void 0 ? _c : {
+                            ok: false,
+                            error: "Native integration is not available.",
+                        };
+                    },
+                    saveDirtyFiles: () => editorSession.saveDirtyFiles(),
+                    getDirtyFileCount: () => editorSession.getDirtyPaths().size,
+                    freeze: () => {
+                        document.documentElement.dataset.quitPrepared = "true";
+                        document.body.inert = true;
+                    },
+                });
+            }
+            void quitPreparation.then((result) => {
+                if (!result.ok) {
+                    const fallback = result.phase === "save"
+                        ? uiText("Some files could not be saved. Quit was canceled.", "保存できなかったファイルがあるため、終了を中止しました。")
+                        : uiText("The current operation could not be stopped. Quit was canceled.", "実行中の処理を停止できなかったため、終了を中止しました。");
+                    const error = result.error || fallback;
+                    updateIssues(1, error, "error", [{ severity: "error", message: error }]);
+                    quitPreparation = null;
+                }
+                postToNative({
+                    type: "prepareQuit:result",
+                    requestId,
+                    ok: result.ok,
+                    error: result.error,
+                }, true);
+            });
+        });
+        // The host decides whether this build offers AI mode; without it the
+        // switcher stays hidden and the app stays in Code.
+        const aiModeEnabled = ((_e = bridgeWindow.tex64Bridge) === null || _e === void 0 ? void 0 : _e.aiModeEnabled) !== false;
+        (_f = document.getElementById("mode-switcher")) === null || _f === void 0 ? void 0 : _f.toggleAttribute("hidden", !aiModeEnabled);
+        let appModeApi;
+        appModeApi = initAppModeUi({
+            initialMode: aiModeEnabled ? resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)) : "code",
+            beforeModeChange: (mode, previous) => {
+                if (mode === "ai" && !aiModeEnabled)
+                    return false;
+                if (previous === null)
+                    return true;
+                return (async () => {
+                    var _a;
+                    const result = await prepareAppModeTransition({
+                        next: mode,
+                        previous,
+                        saveCode: () => editorSession.saveDirtyFiles(),
+                    });
+                    if ((result === null || result === void 0 ? void 0 : result.ok) === true)
+                        return true;
+                    if (result.phase === "save")
+                        return false;
+                    const message = (_a = result === null || result === void 0 ? void 0 : result.error) !== null && _a !== void 0 ? _a : uiText("The current operation has not stopped yet. Try switching modes again.", "実行中の処理がまだ停止していません。もう一度モードを切り替えてください。");
+                    updateIssues(1, message, "error", [{ severity: "error", message }]);
+                    return false;
+                })();
+            },
+            onModeChange: (mode) => {
+                if (mode === "ai")
+                    aiModeApi.activate();
+            },
+        });
+        const codeLivePreview = initCodeLivePreview({
             getActiveGroup: editorSession.getActiveGroup,
             getEditorGroups: editorSession.getEditorGroups,
-            getAppMode: () => "code",
-            getPdfViewerMode: settingsUi.getPdfViewerMode,
+            getAppMode: () => appModeApi.getMode(),
             getWorkspaceRoot: getWorkspaceRootKey,
             getRootFile: getRootFilePath,
             getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
@@ -435,6 +599,7 @@ export const initMain = () => {
                 onlyDirty: true,
             }).snapshots,
         });
+        refreshCodeLivePreview = codeLivePreview.refreshSource;
         onFilesTabActive = () => editorSession.updateMiniOutline();
         const openInCodeEditor = (path, line) => {
             if (typeof line === "number") {
@@ -458,6 +623,8 @@ export const initMain = () => {
             getMonacoApi: appActions.getMonacoApi,
             getActiveFilePath: () => editorSession.getActiveFilePath(),
         });
+        initHistoryUi(editorSession, diffModalApi);
+        initGitUi(editorSession, diffModalApi);
         const setPendingBlockApply = (payload) => {
             pendingBlockApply = payload;
         };
@@ -488,6 +655,7 @@ export const initMain = () => {
             getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
             getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
             getWorkspaceFiles,
+            getWorkspaceRoot: getWorkspaceRootKey,
             showDiffModal: diffModalApi.showDiffModal,
             showMultiFileDiff: diffModalApi.showMultiFileDiff,
             setDiffContext: diffModalApi.setDiffContext,
@@ -647,74 +815,12 @@ export const initMain = () => {
             onTerminalShow: () => terminalUi.show(),
             onTerminalHide: () => terminalUi.hide(),
             onTerminalRestart: () => terminalUi.restart(),
+            onTerminalCreate: () => terminalUi.create(),
+            onTerminalSplit: () => terminalUi.split(),
         });
-        openIntegratedTerminalAt = (folderPath) => {
+        openIntegratedTerminal = (directory) => {
+            terminalUi.create(directory);
             bottomPanelUi.openTerminal();
-            terminalUi.newSession({ cwd: folderPath, focus: true });
-        };
-        const gitUi = initGitUi(appContext, {
-            contextMenu,
-            getWorkspaceRootKey: appActions.getWorkspaceRootKey,
-            requestOpenFile: (path) => editorSession.requestOpenFile(path, editorSession.getActiveEditorGroupKey()),
-            showDiff: (original, modified, options) => {
-                // Read-only: the modal's confirm button just dismisses it.
-                diffModalApi.setDiffContext({ type: "view" });
-                diffModalApi.showDiffModal(original, modified, 0, {
-                    title: options.title,
-                    fileName: options.fileName,
-                    submitLabel: uiText("Close", "閉じる"),
-                });
-            },
-        });
-        const snippetsUi = initSnippetsUi(appContext, {
-            hasWorkspace: () => Boolean(appActions.getWorkspaceRootKey()),
-            getSelectedText: () => {
-                var _a, _b, _c;
-                const group = editorSession.getActiveGroup();
-                const editor = group.editor;
-                const model = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor);
-                const selection = (_b = editor === null || editor === void 0 ? void 0 : editor.getSelection) === null || _b === void 0 ? void 0 : _b.call(editor);
-                if (!(model === null || model === void 0 ? void 0 : model.getValueInRange) || !selection) {
-                    return "";
-                }
-                return (_c = model.getValueInRange(selection)) !== null && _c !== void 0 ? _c : "";
-            },
-            insertSnippet: (body) => {
-                var _a, _b;
-                const group = editorSession.getActiveGroup();
-                const editor = group.editor;
-                if (!editor || !group.currentFilePath) {
-                    return false;
-                }
-                // snippetController2 is what makes ${1:...} become real tab stops; a
-                // plain insert is the fallback if Monaco ever stops exposing it.
-                const controller = (_a = editor.getContribution) === null || _a === void 0 ? void 0 : _a.call(editor, "snippetController2");
-                (_b = editor.focus) === null || _b === void 0 ? void 0 : _b.call(editor);
-                if (controller === null || controller === void 0 ? void 0 : controller.insert) {
-                    controller.insert(body);
-                    return true;
-                }
-                try {
-                    insertAtEditorCursor(editor, body, "snippet");
-                    return true;
-                }
-                catch {
-                    return false;
-                }
-            },
-        });
-        // Both panels read live state (the working tree, the snippet files), so they
-        // refresh when their tab is shown rather than polling.
-        onSidebarTabActive = (tabKey) => {
-            if (tabKey === "git") {
-                gitUi.activate();
-            }
-            else {
-                gitUi.deactivate();
-            }
-            if (tabKey === "snippets") {
-                snippetsUi.activate();
-            }
         };
         // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
         // by the AI upsell CTAs and the Settings > Account entry; it reads/refreshes
@@ -730,7 +836,7 @@ export const initMain = () => {
         });
         // Settings > Account > Plans & Usage: close the full-screen settings first,
         // then open the same in-app Plans modal used everywhere else.
-        (_a = document.getElementById("settings-plan-open")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => {
+        (_g = document.getElementById("settings-plan-open")) === null || _g === void 0 ? void 0 : _g.addEventListener("click", () => {
             var _a;
             (_a = document.getElementById("settings-close")) === null || _a === void 0 ? void 0 : _a.click();
             window.dispatchEvent(new CustomEvent("tex64:open-plans"));
@@ -758,12 +864,14 @@ export const initMain = () => {
             getActiveFilePath: () => editorSession.getActiveFilePath(),
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
+            getWorkspaceRootKey,
             setLastBuildMainFile: (path) => {
                 lastBuildMainFile = path;
             },
             getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
             cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
             saveCurrentFile: () => editorSession.saveCurrentFile(),
+            saveDirtyFiles: () => editorSession.saveDirtyFiles(),
             postToNative: (payload, silent) => postToNative(payload, silent),
             updateIssues: updateIssuesProxy,
             setPendingBuildIssuesFocus: (value) => setPendingBuildIssuesFocus(value),
@@ -855,6 +963,8 @@ export const initMain = () => {
             launcherUi,
             searchUi,
             diffModal: {
+                getDiffContext: diffModalApi.getDiffContext,
+                closeDiffModal: diffModalApi.closeDiffModal,
                 setDiffContext: diffModalApi.setDiffContext,
             },
             envRegistry,
@@ -874,7 +984,7 @@ export const initMain = () => {
                 return undefined;
             }
         })();
-        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_b = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _b === void 0 ? void 0 : _b.dataset.tab);
+        const initialTab = tabController.normalizeTabKey(storedActiveTab !== null && storedActiveTab !== void 0 ? storedActiveTab : (_h = tabs.find((tab) => tab.classList.contains("is-active"))) === null || _h === void 0 ? void 0 : _h.dataset.tab);
         setActiveTab(initialTab);
         sidebarUi.loadVisibility();
         sidebarUi.applyVisibility();
@@ -934,7 +1044,6 @@ export const initMain = () => {
             blockInsert: blockInsertApi,
             buildOps: {
                 setupActionButtons: () => buildOps.setupActionButtons(),
-                startBuild: () => buildOps.startBuild(),
             },
             rootSelectorUi: {
                 setupActions: () => rootSelectorUi.setupActions(),
@@ -943,10 +1052,8 @@ export const initMain = () => {
         });
         uiEvents.setup();
         window.addEventListener("beforeunload", () => {
-            // For an auto-save editor, flush any pending saves immediately rather
-            // than blocking the close with a confusing "Leave site?" dialog.
-            // The IPC messages are enqueued synchronously and will be processed by
-            // the main process even after the renderer is torn down.
+            // Native Quit uses the acknowledged prepareQuit batch above. Keep this as
+            // a best-effort fallback for an isolated renderer reload/window close.
             if (editorSession.getDirtyPaths().size > 0) {
                 editorSession.saveDirtyFiles().catch(() => { });
             }
@@ -1019,31 +1126,40 @@ export const initMain = () => {
             bridgeWindow,
             postToNative: (payload, silent) => postToNative(payload, silent),
             updateIssues: updateIssuesProxy,
-            handleWorkspaceUpdate: workspaceController.handleWorkspaceUpdate,
+            handleWorkspaceUpdate: (payload) => {
+                // The chat list belongs to the workspace root: it is fetched when the
+                // root changes, not on every file-tree refresh (writes during a turn
+                // produce many of those). Everything else about a chat arrives as
+                // events while it happens.
+                const rootChanged = (aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleWorkspaceChanged(payload.rootPath)) === true;
+                workspaceController.handleWorkspaceUpdate(payload);
+                if (rootChanged)
+                    postToNative({ type: "agent:state:get" }, true);
+            },
             handleIndexUpdate: workspaceController.handleIndexUpdate,
             handleLauncherStatus,
             handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
             app: {
                 handleCommand: (command) => {
+                    if (command === "snippets:open") {
+                        openSnippets();
+                        return;
+                    }
                     if (command === "file:new") {
                         setActiveTab("files");
                         fileTreeUi.requestCreate("file");
                         return;
                     }
                     if (command === "project:new") {
-                        postToNative({ type: "createProject", locale: getUiLocale() });
+                        requestWorkspaceChange({ type: "createProject", locale: getUiLocale() });
                         return;
                     }
                     if (command === "project:open") {
-                        postToNative({ type: "openWorkspace", locale: getUiLocale() });
+                        requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
                         return;
                     }
                     if (command === "file:save") {
                         editorSession.saveCurrentFile();
-                        return;
-                    }
-                    if (command === "document:build") {
-                        buildOps.startBuild();
                         return;
                     }
                     if (command === "settings:open") {
@@ -1051,15 +1167,18 @@ export const initMain = () => {
                     }
                 },
             },
+            billing: {
+                handleCheckoutClosed: (payload) => billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleCheckoutClosed(payload),
+            },
             search: {
                 handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             build: {
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
+                setBuildTarget: (path) => { lastBuildMainFile = path; },
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
                 handleBuildLog: (log) => buildOps.handleBuildLog(log),
-                handleBuildTarget: (payload) => buildOps.handleBuildTarget(payload),
                 handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),
                 handleSynctexReverseResult: (payload) => {
                     var _a;
@@ -1095,7 +1214,19 @@ export const initMain = () => {
                 handleSettings: (settings) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleSettings(settings),
                 handleState: (state) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleState(state),
                 handleStatus: (state, message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleStatus(state, message, conversationId),
-                handleMessage: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessage(text, conversationId),
+                handleMessage: (text, conversationId, extras) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessage(text, conversationId, extras),
+                handleTitle: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTitle(payload),
+                handleMessageReset: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageReset(payload),
+                askFromPdf: (payload) => {
+                    setActiveTab("ai");
+                    aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
+                },
+                handlePdfReverseResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePdfReverseResult(payload),
+                handleFeedbackResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleFeedbackResult(payload),
+                handleBranchResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleBranchResult(payload),
+                handleProposalScope: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposalScope(payload),
+                handleTranscribeResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTranscribeResult(payload),
+                handleDocumentMap: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleDocumentMap(payload),
                 handleMessageDelta: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageDelta(text, conversationId),
                 handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),
                 handleProposal: (proposal) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposal(proposal),
@@ -1104,6 +1235,7 @@ export const initMain = () => {
                 handleScratchpad: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleScratchpad(payload),
                 handleThought: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleThought(payload),
                 handleError: (message, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleError(message, conversationId),
+                handleRequestRejected: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleRequestRejected(payload),
             },
             api: {
                 handleUsage: () => { },
@@ -1115,10 +1247,12 @@ export const initMain = () => {
                 },
                 handleAiAccess: (payload) => {
                     aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformAiAccess(payload);
+                    settingsUi.handlePlatformAiAccess(payload);
                     billingUi === null || billingUi === void 0 ? void 0 : billingUi.handlePlanUpdated();
                 },
                 handleUsage: (payload) => {
                     aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handlePlatformUsage(payload);
+                    settingsUi.handlePlatformUsage(payload);
                     billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleUsageUpdated();
                 },
                 handleUpdate: (payload) => {
@@ -1130,9 +1264,11 @@ export const initMain = () => {
             },
             filePreview: {
                 handlePreviewResult: (payload) => filePreviewBroker.handlePreviewResult(payload),
+                setWorkspaceScope: (scope) => filePreviewBroker.setWorkspaceScope(scope),
             },
             fileExcerpt: {
                 handleExcerptResult: (payload) => fileExcerptBroker.handleExcerptResult(payload),
+                setWorkspaceScope: (scope) => fileExcerptBroker.setWorkspaceScope(scope),
             },
             editorSession: {
                 handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),
@@ -1141,14 +1277,7 @@ export const initMain = () => {
                 },
                 handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
                 applyContentToOpenFile: (path, content, options) => editorSession.applyContentToOpenFile(path, content, options),
-                applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
-                handleExternalChanges: (changes) => {
-                    editorSession.handleExternalChanges(changes);
-                    // A checkout or a script touching the tree also changes what Source
-                    // Control should be showing.
-                    gitUi.refresh();
-                },
-                handleFileReloaded: (payload) => editorSession.handleFileReloaded(payload),
+                handleExternalFileChange: editorSession.handleExternalFileChange,
             },
         });
         postToNative({ type: "agent:settings:get" }, true);
@@ -1164,11 +1293,7 @@ export const initMain = () => {
                 setTreeFocus: (focus) => fileTreeUi.setTreeFocus(focus),
             },
             updateFallback,
-            setMonacoApi: (api) => {
-                appActions.setMonacoApi(api);
-                // Saved snippets complete by prefix in .tex/.bib buffers.
-                registerSnippetCompletion(api);
-            },
+            setMonacoApi: (api) => appActions.setMonacoApi(api),
             getIndexLabels,
             getIndexCitations,
             getWorkspaceFiles,
@@ -1177,6 +1302,8 @@ export const initMain = () => {
             onCursorSelectionChange: handleCursorPositionChange,
             openAiWithSelection: () => {
                 setActiveTab("ai");
+                // The selection chip in the composer reflects what was selected.
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.refreshContextBar();
                 const input = document.getElementById("ai-input");
                 if (input instanceof HTMLTextAreaElement) {
                     input.focus();

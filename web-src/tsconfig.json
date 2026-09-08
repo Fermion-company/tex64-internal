@@ -9,6 +9,6 @@
     "strict": false,
     "skipLibCheck": true
   },
-  "include": ["main.ts", "terminal-window.ts", "app/**/*.ts", "math/wysiwyg/**/*.ts"],
+  "include": ["main.ts", "app/**/*.ts", "math/wysiwyg/**/*.ts"],
   "exclude": ["math/fork/**"]
 }

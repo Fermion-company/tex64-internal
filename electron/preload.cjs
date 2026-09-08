@@ -1,7 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+let historyIdentity = {};
+let historyToken = null;
+let gitToken = null;
 let postMessageHandler = (payload) => {
-  ipcRenderer.send("tex64", payload);
+  ipcRenderer.send("tex64", payload?.type === "saveFile" ? {
+    ...historyIdentity, ...payload, ...(historyToken ? { historyToken } : {}), ...(gitToken ? { gitToken } : {}),
+  } : payload);
 };
 
 const messageHandlers = new Set();
@@ -9,6 +14,10 @@ const pendingMessages = [];
 const MAX_PENDING_MESSAGES = 500;
 
 const dispatchMessage = (message) => {
+  if (["updateWorkspace", "history:state", "git:state", "workspace:operation"].includes(message?.type)) {
+    const payload = message.payload || message;
+    historyIdentity = { workspaceId: payload.workspaceId, workspaceGeneration: payload.workspaceGeneration };
+  }
   if (messageHandlers.size === 0) {
     if (pendingMessages.length < MAX_PENDING_MESSAGES) {
       pendingMessages.push(message);
@@ -28,7 +37,11 @@ ipcRenderer.on("tex64:message", (_event, message) => {
   dispatchMessage(message);
 });
 
+// Set by the main process per window; "off" holds AI mode out of the UI.
+const aiModeEnabled = !process.argv.includes("--tex64-ai-mode=off");
+
 const bridgeApi = {
+  aiModeEnabled,
   onMessage: (handler) => {
     if (typeof handler !== "function") {
       return () => {};
@@ -104,10 +117,11 @@ const tdomApi = {
   stop: async () => ipcRenderer.invoke("tex64:tdom:stop"),
   push: async (payload) => ipcRenderer.invoke("tex64:tdom:push", payload),
   focus: async (payload) => ipcRenderer.invoke("tex64:tdom:focus", payload),
-  windowLive: async (payload) => ipcRenderer.invoke("tex64:tdom:window-live", payload),
+  snapshot: async (payload) => ipcRenderer.invoke("tex64:tdom:snapshot", payload),
 };
 const aiApi = {
   complete: async (payload) => ipcRenderer.invoke("tex64:ai:complete", payload),
+  quiesce: async () => ipcRenderer.invoke("tex64:agent:quiesce"),
 };
 
 const filesApi = {
@@ -226,13 +240,7 @@ ipcRenderer.on("tex64:terminal:exit", (_event, message) => {
 });
 
 const terminalApi = {
-  openWindow: async (options = {}) => {
-    try {
-      return await ipcRenderer.invoke("tex64:terminal:openWindow", options);
-    } catch (error) {
-      return { error: error && error.message ? error.message : "terminal window failed" };
-    }
-  },
+  openWindow: () => ipcRenderer.invoke("tex64:terminal:window"),
   create: async (options = {}) => {
     try {
       return await ipcRenderer.invoke("tex64:terminal:create", options);
@@ -243,6 +251,7 @@ const terminalApi = {
   write: (id, data) => ipcRenderer.send("tex64:terminal:write", { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send("tex64:terminal:resize", { id, cols, rows }),
   kill: (id) => ipcRenderer.send("tex64:terminal:kill", { id }),
+  setFocused: (focused) => ipcRenderer.send("tex64:terminal:focus", focused === true),
   onData: (handler) => {
     if (typeof handler !== "function") {
       return () => {};
@@ -279,22 +288,6 @@ const billingApi = {
       return { error: error && error.message ? error.message : "portal failed" };
     }
   },
-  onCheckoutClosed: (handler) => {
-    if (typeof handler !== "function") {
-      return () => {};
-    }
-    const listener = (_event, payload) => {
-      try {
-        handler(payload);
-      } catch (error) {
-        console.error("tex64Billing checkout handler error:", error);
-      }
-    };
-    ipcRenderer.on("tex64:billing:checkout-closed", listener);
-    return () => {
-      ipcRenderer.removeListener("tex64:billing:checkout-closed", listener);
-    };
-  },
   onPortalClosed: (handler) => {
     if (typeof handler !== "function") {
       return () => {};
@@ -323,45 +316,7 @@ Object.defineProperty(bridgeApi, "postMessage", {
   enumerable: true,
 });
 
-// Source control and snippets: plain request/response, no event channels — the
-// renderer refetches after every action rather than holding cached state.
-const gitApi = {
-  invoke: async (op, payload = {}) => {
-    try {
-      return await ipcRenderer.invoke("tex64:git:invoke", { op, payload });
-    } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "git failed" };
-    }
-  },
-};
-
-const snippetsApi = {
-  list: async () => {
-    try {
-      return await ipcRenderer.invoke("tex64:snippets:list");
-    } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "snippets failed" };
-    }
-  },
-  save: async (snippet) => {
-    try {
-      return await ipcRenderer.invoke("tex64:snippets:save", snippet);
-    } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "snippets failed" };
-    }
-  },
-  remove: async (id, scope) => {
-    try {
-      return await ipcRenderer.invoke("tex64:snippets:remove", { id, scope });
-    } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "snippets failed" };
-    }
-  },
-};
-
 contextBridge.exposeInMainWorld("tex64Bridge", bridgeApi);
-contextBridge.exposeInMainWorld("tex64Git", gitApi);
-contextBridge.exposeInMainWorld("tex64Snippets", snippetsApi);
 contextBridge.exposeInMainWorld("tex64Capture", captureApi);
 contextBridge.exposeInMainWorld("tex64MathOcr", mathOcrApi);
 contextBridge.exposeInMainWorld("tex64Texize", texizeApi);
@@ -373,3 +328,41 @@ contextBridge.exposeInMainWorld("tex64Lsp", lspApi);
 contextBridge.exposeInMainWorld("tex64Spell", spellApi);
 contextBridge.exposeInMainWorld("tex64Terminal", terminalApi);
 contextBridge.exposeInMainWorld("tex64Billing", billingApi);
+
+contextBridge.exposeInMainWorld("tex64History", {
+  getIdentity: () => ({ ...historyIdentity }),
+  call: async (action, payload = {}) => {
+    const result = await ipcRenderer.invoke("tex64:history", action, { ...payload, ...historyIdentity, token: historyToken });
+    if (result.ok && result.token) historyToken = result.token;
+    if (result.ok && ["release", "ack"].includes(action)) historyToken = null;
+    return result;
+  },
+  onChange: (handler) => {
+    const listener = (_event, message) => {
+      if (["updateWorkspace", "history:state", "git:state", "workspace:operation"].includes(message?.type)) handler(message);
+    };
+    ipcRenderer.on("tex64:message", listener);
+    return () => ipcRenderer.removeListener("tex64:message", listener);
+  },
+});
+
+contextBridge.exposeInMainWorld("tex64Snippets", {
+  call: (action, payload = {}) => ipcRenderer.invoke("tex64:snippets", action, payload),
+});
+
+contextBridge.exposeInMainWorld("tex64Git", {
+  getIdentity: () => ({ ...historyIdentity }),
+  call: async (action, payload = {}) => {
+    const result = await ipcRenderer.invoke("tex64:git", action, { ...payload, ...historyIdentity, token: gitToken });
+    if (result.ok && result.token) gitToken = result.token;
+    if (result.ok && ["release", "ack"].includes(action)) gitToken = null;
+    return result;
+  },
+  onChange: (handler) => {
+    const listener = (_event, message) => {
+      if (["updateWorkspace", "git:state", "workspace:operation", "saveResult", "file:externalChange"].includes(message?.type)) handler(message);
+    };
+    ipcRenderer.on("tex64:message", listener);
+    return () => ipcRenderer.removeListener("tex64:message", listener);
+  },
+});

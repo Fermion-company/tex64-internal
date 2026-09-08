@@ -3,9 +3,7 @@
 ## 方針
 
 TeX 未導入ユーザーには、公式 TinyTeX-1 配布物を TeX64 の managed root
-（macOS: `/Users/Shared/TeX64/texlive/<year>`）へ展開する。現在の配布物は
-macOS 約 67 MB、Windows 約 74 MB で、通常 1〜3 分を初回 UI の目安にする。
-展開直後の使用容量は約 300 MB と案内する（パッケージの自動追加後は増加する）。
+（macOS: `/Users/Shared/TeX64/texlive/<year>`、Windows: `%LOCALAPPDATA%\\TeX64\\texlive\\<year>`）へ展開する。実際の導入先は `electron/services/texlive-paths.cjs` に従う。
 
 軽量環境にない `.sty` / `.cls` 等がビルドログに現れた場合、managed `tlmgr` で
 ファイルを提供するパッケージを検索・導入し、同じ文書を自動で再ビルドする。
@@ -52,11 +50,3 @@ managed root の `tex64-install.json` には `variant: "light"` を記録する�
 
 パスを含む検索語、許可していない拡張子、不正なパッケージ名は拒否する。検索・導入に
 失敗した場合は元のビルドエラーをそのまま表示する。
-
-## 検証
-
-- `tests/tex-env-detect.test.cjs`: 検出・所有者・網羅度・推奨アクション
-- `tests/tex-install-variants.test.cjs`: variant、profile、marker、ログ解析、tlmgr 検索/導入
-- `tests/build-auto-package-install.test.cjs`: 不足パッケージ導入後の自動再ビルド
-- `tests/onboarding-eta.test.mjs`: light / full の時間曲線と残り時間
-- `tests/e2e/onboarding-flow.test.cjs`: 軽量導入アクション、進捗、完了/失敗遷移

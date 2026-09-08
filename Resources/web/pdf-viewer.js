@@ -39,6 +39,15 @@ const UI_STRINGS = {
     de: "Keine Gliederung.",
     es: "No hay índice.",
   },
+  askAxiom: {
+    en: "Ask Axiom",
+    ja: "Axiom に聞く",
+    zh: "问 Axiom",
+    ko: "Axiom에게 묻기",
+    fr: "Demander à Axiom",
+    de: "Axiom fragen",
+    es: "Preguntar a Axiom",
+  },
   jumpToSource: {
     en: "Jump to source",
     ja: "ソースへ移動",
@@ -58,17 +67,19 @@ const UI_STRINGS = {
     es: "Cargando…",
   },
   ready: {
-    en: "Ready",
-    ja: "準備完了",
-    zh: "准备就绪",
-    ko: "준비 완료",
-    fr: "Prêt",
-    de: "Bereit",
-    es: "Listo",
+    en: "PDF loaded",
+    ja: "PDF読込済み",
+    zh: "PDF已加载",
+    ko: "PDF 로드됨",
+    fr: "PDF chargé",
+    de: "PDF geladen",
+    es: "PDF cargado",
   },
+  rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
+  liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
   liveError: { en: "TeX error · last good preview", ja: "TeXエラー・直前の表示を保持", zh: "TeX 错误 · 保留上次预览", ko: "TeX 오류 · 이전 미리보기 유지", fr: "Erreur TeX · dernier aperçu conservé", de: "TeX-Fehler · letzte Vorschau bleibt", es: "Error de TeX · se conserva la vista anterior" },
   liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
@@ -312,6 +323,17 @@ const initPdfViewer = () => {
   window.__tex64PdfViewer = {
     pdfViewer,
     state,
+  };
+
+  const staticSourceStates = new Map();
+  const staticNeedsRebuild = () => staticSourceStates.get(state.path) === true;
+  const refreshStaticStatus = () => {
+    const stale = staticNeedsRebuild();
+    document.body.classList.toggle("pdf-needs-rebuild", stale);
+    if (!isLive() && !isLivePending()) {
+      setStatus(uiString(!state.doc ? "waiting" : stale ? "rebuildNeeded" : "ready"));
+      if (statusEl) statusEl.title = "";
+    }
   };
 
   const setStatus = (text, tone = "idle") => {
@@ -681,6 +703,125 @@ const initPdfViewer = () => {
     });
   };
 
+  // The place the reader marks on the page becomes the chat's context: the
+  // selection (or the clicked spot) goes to the host with its page position,
+  // which SyncTeX turns into a source line.
+  const postAskAxiom = (point, text, source) => {
+    if (!bridge || typeof bridge.postMessage !== "function" || !point) {
+      return;
+    }
+    bridge.postMessage({
+      type: "ask-axiom",
+      payload: {
+        page: point.page,
+        x: point.x,
+        y: point.y,
+        text: typeof text === "string" ? text.slice(0, 2000) : "",
+        path: state.path || null,
+        // The live preview already knows the source position; the static
+        // viewer leaves this out and the host asks SyncTeX.
+        ...(source && typeof source.file === "string" && Number.isFinite(source.line)
+          ? { source: { file: source.file, line: source.line, column: Number.isFinite(source.column) ? source.column : 1 } }
+          : {}),
+      },
+    });
+  };
+
+  const askButtonState = { el: null, point: null, text: "", source: null };
+  const hideAskButton = () => {
+    if (askButtonState.el) {
+      askButtonState.el.remove();
+      askButtonState.el = null;
+    }
+    askButtonState.point = null;
+    askButtonState.text = "";
+    askButtonState.source = null;
+  };
+  const ensureAskButton = () => {
+    if (askButtonState.el) return askButtonState.el;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pdf-ask-axiom";
+    button.textContent = uiString("askAxiom");
+    button.addEventListener("mousedown", (event) => {
+      // Keep the selection: it is what the chat receives.
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      postAskAxiom(askButtonState.point, askButtonState.text, askButtonState.source);
+      hideAskButton();
+    });
+    document.body.appendChild(button);
+    askButtonState.el = button;
+    return button;
+  };
+  const placeAskButton = (right, bottom) => {
+    const button = ensureAskButton();
+    const width = button.offsetWidth || 110;
+    const left = Math.max(8, Math.min(right + 6, window.innerWidth - width - 8));
+    const top = Math.max(8, Math.min(bottom + 4, window.innerHeight - 34));
+    button.style.left = `${left}px`;
+    button.style.top = `${top}px`;
+  };
+  // The live preview reports the place the reader marked (a selection or a
+  // right-click) with its rectangle in the engine frame and its source line.
+  const showAskButtonForLivePlace = (data) => {
+    const frame = document.getElementById("pdf-live-frame");
+    const rect = data?.rect;
+    if (!frame || !rect || !Number.isFinite(rect.right) || !Number.isFinite(rect.bottom)) {
+      hideAskButton();
+      return;
+    }
+    const frameRect = frame.getBoundingClientRect();
+    askButtonState.point = { page: Number.isFinite(data.pageNumber) ? data.pageNumber : 0, x: null, y: null };
+    askButtonState.text = typeof data.text === "string" ? data.text : "";
+    askButtonState.source =
+      typeof data.file === "string" && Number.isFinite(data.line)
+        ? { file: data.file, line: data.line, column: Number.isFinite(data.column) ? data.column : 1 }
+        : null;
+    placeAskButton(frameRect.left + rect.right, frameRect.top + rect.bottom);
+  };
+  const currentTextSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const text = selection.toString().replace(/\s+/g, " ").trim();
+    if (!text) return null;
+    const range = selection.getRangeAt(0);
+    const startNode = range.startContainer instanceof Element ? range.startContainer : range.startContainer?.parentElement;
+    if (!(startNode instanceof Element) || !startNode.closest(".textLayer")) return null;
+    const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 || rect.height > 0);
+    if (rects.length === 0) return null;
+    return { text, first: rects[0], last: rects[rects.length - 1], startNode };
+  };
+  const showAskButtonForSelection = () => {
+    const found = currentTextSelection();
+    if (!found) {
+      hideAskButton();
+      return;
+    }
+    const point = resolveClickPoint({
+      target: found.startNode,
+      clientX: found.first.left + Math.min(4, found.first.width / 2),
+      clientY: found.first.top + found.first.height / 2,
+    });
+    if (!point) {
+      hideAskButton();
+      return;
+    }
+    askButtonState.point = point;
+    askButtonState.text = found.text;
+    askButtonState.source = null;
+    placeAskButton(found.last.right, found.last.bottom);
+  };
+  document.addEventListener("selectionchange", () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) hideAskButton();
+  });
+  document.addEventListener("scroll", () => hideAskButton(), true);
+
   const reverseSynctexKey = "tex64.editor.reverseSynctex";
   const isReverseSynctexEnabled = () => {
     try {
@@ -747,6 +888,18 @@ const initPdfViewer = () => {
       postReverseRequest(point);
     });
     menu.appendChild(button);
+    const askItem = document.createElement("button");
+    askItem.type = "button";
+    askItem.className = "pdf-context-menu-item";
+    askItem.textContent = uiString("askAxiom");
+    const selectedText = currentTextSelection()?.text ?? "";
+    askItem.addEventListener("click", (clickEvent) => {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      hideContextMenu();
+      postAskAxiom(point, selectedText);
+    });
+    menu.appendChild(askItem);
     if (document.body) {
       document.body.appendChild(menu);
     }
@@ -1172,7 +1325,7 @@ const initPdfViewer = () => {
       if (!embedded) {
         renderThumbnails();
       }
-      setStatus(uiString("ready"));
+      refreshStaticStatus();
     } catch (error) {
       if (loadSequence !== staticLoadSequence) return;
       if (liveSurfaceOwned) {
@@ -1188,6 +1341,9 @@ const initPdfViewer = () => {
   };
 
   const requestStaticDocument = (url, path) => {
+    // A newer PDF open also supersedes a deferred post-Live fallback. Its
+    // blob may already have been revoked when the viewer changed tabs.
+    deferredStaticFlushToken += 1;
     if (liveSurfaceOwned) {
       deferredStaticOpen = { url, path };
       return;
@@ -1600,7 +1756,7 @@ const initPdfViewer = () => {
       if (statusEl) statusEl.title = search.query;
       return;
     }
-    const view = resolvePdfLiveStatus(data?.status);
+    const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
     setStatus(uiString(view.key), view.tone);
     if (statusEl) statusEl.title = view.detail;
@@ -1635,7 +1791,7 @@ const initPdfViewer = () => {
     }
     liveToolbar = normalizeLiveToolbarSnapshot();
     restoreStaticToolbar();
-    setStatus(uiString("ready"));
+    refreshStaticStatus();
     const deferredSync = pendingLiveSync;
     pendingLiveSync = null;
     if (deferredSync) requestAnimationFrame(() => applySync(deferredSync));
@@ -1796,7 +1952,7 @@ const initPdfViewer = () => {
       if (statusEl) statusEl.title = "";
       if (isLive()) setStatus(uiString("live"));
       else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
-      else setStatus(uiString("ready"));
+      else refreshStaticStatus();
       return;
     }
 
@@ -1837,6 +1993,11 @@ const initPdfViewer = () => {
       holdStaticForDocumentReset(data);
       return;
     }
+    if (data.action === "place") {
+      if (data.kind === "clear") hideAskButton();
+      else showAskButtonForLivePlace(data);
+      return;
+    }
 
     // Status snapshots may arrive while the frame is preloading.  Keep them
     // offscreen until the same activation explicitly declares its first
@@ -1852,6 +2013,27 @@ const initPdfViewer = () => {
       bridge?.postMessage?.({
         type: "live-source",
         payload: { file: data.file, line: data.line, column: data.column },
+      });
+      return;
+    }
+    if (data.action === "edit-anchor") {
+      if (!Number.isInteger(liveActivation.documentEpoch) ||
+          data.documentEpoch !== liveActivation.documentEpoch) return;
+      bridge?.postMessage?.({
+        type: "live-edit-anchor",
+        payload: {
+          sessionId: data.sessionId,
+          requestId: data.requestId,
+          previousSessionId: data.previousSessionId,
+          activationId: data.activationId,
+          documentEpoch: data.documentEpoch,
+          file: data.file,
+          start: data.start,
+          end: data.end,
+          baseValue: data.baseValue,
+          sourceText: data.sourceText,
+          sourceRev: data.sourceRev,
+        },
       });
       return;
     }
@@ -1871,6 +2053,7 @@ const initPdfViewer = () => {
           cancel: data.cancel === true,
           finish: data.finish === true,
           sourceRev: data.sourceRev,
+          sourceText: typeof data.sourceText === "string" ? data.sourceText : undefined,
         },
       });
       return;
@@ -1924,8 +2107,14 @@ const initPdfViewer = () => {
       if (message.type === "open") {
         const payload = message.payload || {};
         if (payload.url) {
+          staticSourceStates.set(payload.path || null, payload.needsRebuild === true);
+          document.body.classList.toggle("pdf-needs-rebuild", payload.needsRebuild === true);
           requestStaticDocument(payload.url, payload.path || null);
         }
+      }
+      if (message.type === "source-state" && message.payload) {
+        staticSourceStates.set(message.payload.path || null, message.payload.needsRebuild === true);
+        if ((message.payload.path || null) === state.path && !reloadInFlight) refreshStaticStatus();
       }
       if (message.type === "sync" && message.payload) {
         if (!applyLiveSync(message.payload)) applySync(message.payload);
@@ -1935,6 +2124,14 @@ const initPdfViewer = () => {
       }
       if (message.type === "live-error") {
         setLiveError(message.payload || null);
+      }
+      if (message.type === "live-edit-anchor-result") {
+        const payload = message.payload;
+        if (!payload || !hasLiveSession() || !liveActivation ||
+            payload.activationId !== liveActivation.id ||
+            !Number.isInteger(payload.documentEpoch) ||
+            payload.documentEpoch !== liveActivation.documentEpoch) return;
+        postLive("edit-anchor-result", payload);
       }
     });
     if (typeof bridge.postMessage === "function") {
@@ -1959,6 +2156,11 @@ const initPdfViewer = () => {
       }
       event.preventDefault();
       applyScaleMode("fit-width");
+    });
+
+    pagesEl.addEventListener("mouseup", () => {
+      // After the selection settles.
+      window.setTimeout(showAskButtonForSelection, 0);
     });
 
     pagesEl.addEventListener("contextmenu", (event) => {

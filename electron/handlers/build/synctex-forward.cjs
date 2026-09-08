@@ -518,7 +518,50 @@ const createSynctexForwardHandler = (deps, resolvers) => {
   };
 
 
-  return { handleSynctexForward };
+  /**
+   * Many lines of one file against one PDF in a single reply, answered from
+   * the in-process SyncTeX index: no process per line, so the AI mode can pin
+   * every proposed step to the page the moment the PDF is shown.
+   */
+  const handleSynctexForwardBatch = (message) => {
+    const requestId =
+      typeof message?.requestId === "string" && message.requestId.trim() ? message.requestId : null;
+    if (!requestId) return;
+    const reply = (payload) => sendToRenderer("synctex:forwardBatchResult", { requestId, ...payload });
+    const rootPath = ensureWorkspace();
+    if (!rootPath) {
+      reply({ ok: false, error: "No workspace is selected." });
+      return;
+    }
+    const sourcePath = resolveWorkspacePathFromRoot(rootPath, message.path);
+    const pdfPath = resolveWorkspacePathFromRoot(rootPath, message.pdfPath) || state.lastBuildPdfPath;
+    if (!sourcePath || !sourcePath.toLowerCase().endsWith(".tex")) {
+      reply({ ok: false, error: "No TeX file selected." });
+      return;
+    }
+    if (!pdfPath || !fs.existsSync(pdfPath)) {
+      reply({ ok: false, error: "PDF has not been generated yet." });
+      return;
+    }
+    const lines = Array.isArray(message.lines)
+      ? message.lines
+          .map((value) => Number.parseInt(value, 10))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .slice(0, 64)
+      : [];
+    if (lines.length === 0) {
+      reply({ ok: true, results: [] });
+      return;
+    }
+    try {
+      const result = synctexService.forwardLinesQuick({ sourcePath, pdfPath, lines });
+      reply({ ...result, path: message.path, pdfPath: message.pdfPath });
+    } catch (_error) {
+      reply({ ok: false, error: "SyncTeX parsing failed." });
+    }
+  };
+
+  return { handleSynctexForward, handleSynctexForwardBatch };
 };
 
 module.exports = { createSynctexForwardHandler };

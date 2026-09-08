@@ -168,52 +168,6 @@ export const createFileTreeRenderer = ({ fileTree, deps, actions, }) => {
             }
         });
     };
-    // A filler row under the last entry that stretches to the bottom of the
-    // panel. It lights up on hover and answers a right-click with the
-    // workspace-root menu, which is how people expect to create a top-level file
-    // or folder without first hunting for an unrelated sibling to right-click.
-    const createRootDropZone = () => {
-        const zone = document.createElement("div");
-        zone.className = "file-tree-blank";
-        zone.title = uiText("Right-click for workspace actions", "右クリックでワークスペース直下の操作");
-        zone.addEventListener("mousedown", () => {
-            actions.clearTreeSelection();
-            actions.setTreeFocus(true);
-        });
-        zone.addEventListener("contextmenu", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            actions.clearTreeSelection();
-            actions.setTreeFocus(true);
-            deps.contextMenu.open(event.clientX, event.clientY, actions.buildRootContextMenu());
-        });
-        zone.addEventListener("dragover", (event) => {
-            var _a;
-            const dragEvent = event;
-            const payload = (_a = actions.getDragPayload()) !== null && _a !== void 0 ? _a : getDragData(dragEvent);
-            if (!payload || !canDropOnFolder(payload, "")) {
-                return;
-            }
-            dragEvent.preventDefault();
-            clearDropTargets();
-            zone.classList.add("is-drop-target");
-        });
-        zone.addEventListener("dragleave", () => {
-            zone.classList.remove("is-drop-target");
-        });
-        zone.addEventListener("drop", (event) => {
-            var _a;
-            const dragEvent = event;
-            const payload = (_a = actions.getDragPayload()) !== null && _a !== void 0 ? _a : getDragData(dragEvent);
-            dragEvent.preventDefault();
-            dragEvent.stopPropagation();
-            zone.classList.remove("is-drop-target");
-            if (payload) {
-                actions.requestMoveItem(payload, "");
-            }
-        });
-        return zone;
-    };
     const render = () => {
         if (!(fileTree instanceof HTMLElement)) {
             return;
@@ -234,7 +188,6 @@ export const createFileTreeRenderer = ({ fileTree, deps, actions, }) => {
         }
         const tree = buildFileTree(workspaceFiles, workspaceFolders);
         renderFileNodes(tree, fileTree, 0);
-        fileTree.appendChild(createRootDropZone());
     };
     return { render };
 };

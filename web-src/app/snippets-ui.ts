@@ -1,249 +1,136 @@
-import type { AppContext } from "./context.js";
+import { createActionsMenu } from "./actions-menu.js";
 import { uiText } from "./i18n.js";
-import {
-  deleteSnippet,
-  getSnippets,
-  onSnippetsChange,
-  reloadSnippets,
-  saveSnippet,
-  type Snippet,
-  type SnippetScope,
-} from "./snippets.js";
 
-// The Snippets panel: a searchable list of reusable macros, an editor for them,
-// and one-click insertion. Issue #38 asked for somewhere to keep frequently
-// used macros; the same store feeds editor completion, so a snippet can be
-// pulled in either by clicking it here or by typing its prefix.
-
-type SnippetsUiDeps = {
-  insertSnippet: (body: string) => boolean;
-  getSelectedText: () => string;
-  hasWorkspace: () => boolean;
+type Snippet = { id: string; name: string; prefix: string; body: string };
+let items: Snippet[] = [];
+let revision = 0;
+let activeEditor: any;
+let registered = false;
+let modalOpen = false;
+const bridge = () => (window as any).tex64Snippets;
+const call = async (action: string, payload: any = {}) => {
+  const result = await bridge().call(action, payload);
+  if (!result.ok) throw new Error(result.error);
+  items = result.items; revision = result.revision;
+  return result;
 };
 
-export type SnippetsUiApi = {
-  activate: () => void;
-  refresh: () => void;
-};
-
-export const initSnippetsUi = (context: AppContext, deps: SnippetsUiDeps): SnippetsUiApi => {
-  const {
-    snippetsFilter,
-    snippetsNew,
-    snippetsList,
-    snippetsEditor,
-    snippetName,
-    snippetPrefix,
-    snippetDescription,
-    snippetScope,
-    snippetBody,
-    snippetCancel,
-    snippetDelete,
-    snippetsError,
-  } = context.dom;
-
-  let editing: Snippet | null = null;
-  let editorOpen = false;
-
-  const setError = (message: string) => {
-    if (snippetsError instanceof HTMLElement) {
-      snippetsError.textContent = message;
-      snippetsError.classList.toggle("is-hidden", !message);
-    }
-  };
-
-  const setEditorOpen = (open: boolean) => {
-    editorOpen = open;
-    snippetsEditor?.classList.toggle("is-hidden", !open);
-    if (!open) {
-      editing = null;
-      setError("");
-    }
-  };
-
-  const openEditor = (snippet: Snippet | null, seed?: { body?: string }) => {
-    // Built-ins are read-only; editing one starts a private copy instead, which
-    // is what people expect from a "customise this" gesture.
-    const isBuiltin = snippet?.scope === "builtin";
-    editing = snippet && !isBuiltin ? snippet : null;
-    if (snippetName instanceof HTMLInputElement) {
-      snippetName.value = snippet ? (isBuiltin ? `${snippet.name} (copy)` : snippet.name) : "";
-    }
-    if (snippetPrefix instanceof HTMLInputElement) {
-      snippetPrefix.value = snippet?.prefix ?? "";
-    }
-    if (snippetDescription instanceof HTMLInputElement) {
-      snippetDescription.value = snippet?.description ?? "";
-    }
-    if (snippetScope instanceof HTMLSelectElement) {
-      const preferred = snippet && !isBuiltin ? snippet.scope : "global";
-      snippetScope.value = preferred === "workspace" && deps.hasWorkspace() ? "workspace" : preferred;
-      const workspaceOption = snippetScope.querySelector<HTMLOptionElement>('option[value="workspace"]');
-      if (workspaceOption) {
-        workspaceOption.disabled = !deps.hasWorkspace();
-      }
-    }
-    if (snippetBody instanceof HTMLTextAreaElement) {
-      snippetBody.value = seed?.body ?? snippet?.body ?? "";
-    }
-    if (snippetDelete instanceof HTMLElement) {
-      snippetDelete.classList.toggle("is-hidden", !editing);
-    }
-    setError("");
-    setEditorOpen(true);
-    if (snippetPrefix instanceof HTMLInputElement && !snippetPrefix.value) {
-      snippetPrefix.focus();
-    } else if (snippetBody instanceof HTMLTextAreaElement) {
-      snippetBody.focus();
-    }
-  };
-
-  const render = () => {
-    if (!(snippetsList instanceof HTMLElement)) {
-      return;
-    }
-    const query =
-      snippetsFilter instanceof HTMLInputElement ? snippetsFilter.value.trim().toLowerCase() : "";
-    const items = getSnippets().filter((snippet) => {
-      if (!query) {
-        return true;
-      }
-      return (
-        snippet.name.toLowerCase().includes(query) ||
-        snippet.prefix.toLowerCase().includes(query) ||
-        snippet.description.toLowerCase().includes(query)
-      );
-    });
-    snippetsList.innerHTML = "";
-    if (items.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "panel-placeholder";
-      empty.textContent = query
-        ? uiText("No snippet matches.", "一致するスニペットがありません。")
-        : uiText("No snippets yet.", "スニペットはまだありません。");
-      snippetsList.appendChild(empty);
-      return;
-    }
-    items.forEach((snippet) => {
-      const row = document.createElement("div");
-      row.className = "snippet-row";
-
-      const insert = document.createElement("button");
-      insert.type = "button";
-      insert.className = "snippet-row-main";
-      const title = document.createElement("span");
-      title.className = "snippet-row-title";
-      title.textContent = snippet.name;
-      const prefix = document.createElement("span");
-      prefix.className = "snippet-row-prefix";
-      prefix.textContent = snippet.prefix;
-      const scope = document.createElement("span");
-      scope.className = `snippet-row-scope is-${snippet.scope}`;
-      scope.textContent =
-        snippet.scope === "workspace"
-          ? uiText("workspace", "ワークスペース")
-          : snippet.scope === "builtin"
-          ? uiText("built-in", "組み込み")
-          : uiText("global", "共通");
-      insert.append(title, prefix, scope);
-      if (snippet.description) {
-        const description = document.createElement("span");
-        description.className = "snippet-row-desc";
-        description.textContent = snippet.description;
-        insert.appendChild(description);
-      }
-      insert.title = snippet.body;
-      insert.addEventListener("click", () => {
-        if (!deps.insertSnippet(snippet.body)) {
-          setError(uiText("Open a file to insert into.", "挿入先のファイルを開いてください。"));
-        }
-      });
-
-      const edit = document.createElement("button");
-      edit.type = "button";
-      edit.className = "snippet-row-action";
-      edit.textContent = "✎";
-      edit.title =
-        snippet.scope === "builtin"
-          ? uiText("Duplicate and edit", "複製して編集")
-          : uiText("Edit snippet", "スニペットを編集");
-      edit.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openEditor(snippet);
-      });
-
-      row.append(insert, edit);
-      snippetsList.appendChild(row);
-    });
-  };
-
-  const submit = async (event: Event) => {
-    event.preventDefault();
-    const prefix = snippetPrefix instanceof HTMLInputElement ? snippetPrefix.value.trim() : "";
-    const body = snippetBody instanceof HTMLTextAreaElement ? snippetBody.value : "";
-    if (!prefix || !body.trim()) {
-      setError(uiText("A prefix and a body are required.", "プレフィックスと本文が必要です。"));
-      return;
-    }
-    const scope: SnippetScope =
-      snippetScope instanceof HTMLSelectElement && snippetScope.value === "workspace"
-        ? "workspace"
-        : "global";
-    const result = await saveSnippet({
-      id: editing?.id,
-      name: snippetName instanceof HTMLInputElement ? snippetName.value.trim() : prefix,
-      prefix,
-      description:
-        snippetDescription instanceof HTMLInputElement ? snippetDescription.value.trim() : "",
-      body,
-      scope,
-    });
-    if (result?.ok === false) {
-      setError(String(result.error ?? "Save failed."));
-      return;
-    }
-    setEditorOpen(false);
-    render();
-  };
-
-  const removeCurrent = async () => {
-    if (!editing) {
-      return;
-    }
-    const confirmed = window.confirm(
-      uiText(`Delete snippet "${editing.name}"?`, `スニペット「${editing.name}」を削除しますか？`)
-    );
-    if (!confirmed) {
-      return;
-    }
-    const result = await deleteSnippet(editing.id, editing.scope);
-    if (result?.ok === false) {
-      setError(String(result.error ?? "Delete failed."));
-      return;
-    }
-    setEditorOpen(false);
-    render();
-  };
-
-  snippetsFilter?.addEventListener("input", render);
-  // "+" with text selected in the editor starts the snippet from that text —
-  // turning something you just wrote into a reusable macro is the common case.
-  snippetsNew?.addEventListener("click", () => {
-    const selection = deps.getSelectedText();
-    openEditor(null, selection ? { body: selection } : undefined);
-  });
-  snippetCancel?.addEventListener("click", () => setEditorOpen(false));
-  snippetDelete?.addEventListener("click", () => void removeCurrent());
-  snippetsEditor?.addEventListener("submit", (event) => void submit(event));
-  onSnippetsChange(() => render());
-
-  return {
-    activate: () => {
-      void reloadSnippets().then(() => render());
-      if (!editorOpen) {
-        setEditorOpen(false);
-      }
+export const attachSnippetEditor = (editor: any, monaco: any) => {
+  if (!bridge()) return;
+  activeEditor ||= editor;
+  editor.onDidFocusEditorText(() => { activeEditor = editor; });
+  editor.addAction({ id: "tex64.snippets", label: uiText("Snippets…", "スニペット…"), contextMenuGroupId: "9_snippets", contextMenuOrder: 1, run: () => openSnippets(editor) });
+  if (registered) return;
+  registered = true;
+  void call("list").catch(() => {});
+  for (const language of ["latex", "bibtex"]) monaco.languages.registerCompletionItemProvider(language, {
+    provideCompletionItems: (model: any, position: any) => {
+      const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+      const prefix = before.match(/\\?[A-Za-z0-9_-]+$/)?.[0] || "";
+      if (!prefix) return { suggestions: [] };
+      return { suggestions: items.filter((item) => item.prefix.startsWith(prefix)).map((item) => ({
+        label: item.prefix, detail: item.name, kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: item.body, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        range: { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: position.column - prefix.length, endColumn: position.column },
+      })) };
     },
-    refresh: () => render(),
+  });
+};
+
+export const openSnippets = (editor = activeEditor) => {
+  if (modalOpen || !bridge()) return;
+  modalOpen = true;
+  const model = editor?.getModel();
+  const selection = editor?.getSelection();
+  const modelVersion = model?.getVersionId();
+  const node = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "") => { const value = document.createElement(tag); value.textContent = text; return value; };
+  const dialog = node("dialog"); dialog.className = "snippets-dialog";
+  const lifecycle = new AbortController();
+  const heading = node("h2", uiText("Snippets", "スニペット")); heading.id = "snippets-title"; dialog.setAttribute("aria-labelledby", heading.id);
+  const error = node("p"); error.className = "snippets-error"; error.setAttribute("role", "status");
+  const search = node("input"); search.type = "search"; search.placeholder = uiText("Search snippets", "スニペットを検索"); search.setAttribute("aria-label", search.placeholder);
+  const list = node("div"); list.className = "snippets-list";
+  const name = node("input"); name.maxLength = 120;
+  const prefix = node("input"); prefix.maxLength = 65;
+  const body = node("textarea"); body.rows = 10; body.spellcheck = false; body.maxLength = 65536;
+  const form = node("div"); form.className = "snippets-form";
+  for (const [text, input] of [[uiText("Name", "名前"), name], [uiText("Trigger text", "呼び出し文字"), prefix], [uiText("LaTeX code", "LaTeXコード"), body]] as const) {
+    const label = node("label", text); label.append(input); form.append(label);
+    if (input === prefix) form.append(node("p", uiText("Type this in your document and choose a suggestion.", "本文に入力して、補完候補から選択します。")));
+  }
+  form.append(node("p", uiText("Use ${1:placeholder}, ${2} and $0. After insertion, Tab moves between placeholders.", "${1:初期値}、${2}、$0 を使用。挿入後、Tabで入力箇所を移動します。")));
+  const saveState = node("p"); saveState.setAttribute("role", "status"); form.prepend(saveState);
+  let selected = "";
+  let baseline = "";
+  let busy = false;
+  const draft = () => JSON.stringify([name.value, prefix.value, body.value]);
+  const mayLeave = () => draft() === baseline || window.confirm(uiText("Discard the unsaved snippet changes?", "保存していないスニペットの変更を破棄しますか？"));
+  const button = (text: string, fn: () => void) => { const el = node("button", text); el.type = "button"; el.addEventListener("click", fn); return el; };
+  const render = () => {
+    list.replaceChildren();
+    for (const item of items.filter((item) => `${item.name} ${item.prefix} ${item.body}`.toLowerCase().includes(search.value.toLowerCase()))) {
+      const row = button(`${item.name} · ${item.prefix}`, () => { if (!busy && mayLeave()) load(item); });
+      row.setAttribute("aria-pressed", String(item.id === selected)); list.append(row);
+    }
+    if (!list.childElementCount) list.append(node("p", uiText("No snippets", "スニペットはありません")));
+    const dirty = draft() !== baseline;
+    saveState.textContent = dirty ? uiText("Unsaved changes", "未保存の変更") : selected ? uiText("Saved", "保存済み") : "";
+    remove.disabled = !selected || busy; save.disabled = busy || !dirty; save.hidden = !dirty;
+    for (const input of [name, prefix, body]) input.disabled = busy;
+    insert.textContent = dirty ? uiText("Save & insert", "保存して挿入") : uiText("Insert", "挿入");
+    insert.disabled = busy || !model || !body.value.trim();
   };
+  const load = (item?: Snippet) => {
+    selected = item?.id || ""; name.value = item?.name || ""; prefix.value = item?.prefix || ""; body.value = item?.body || "";
+    baseline = draft(); render();
+  };
+  const run = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    busy = true; error.textContent = ""; render();
+    try { await fn(); } catch (reason) { error.textContent = reason instanceof Error ? reason.message : String(reason); }
+    finally { busy = false; render(); }
+  };
+  const saveDraft = async () => {
+    const item = { id: selected || undefined, name: name.value, prefix: prefix.value, body: body.value };
+    await call("save", { revision, item });
+    const saved = items.find((entry) => entry.prefix === item.prefix.trim());
+    if (!saved) throw new Error(uiText("The saved snippet could not be loaded.", "保存したスニペットを読み込めませんでした。"));
+    load(saved);
+    return saved;
+  };
+  const save = button(uiText("Save", "保存"), () => void run(async () => { await saveDraft(); }));
+  const remove = button(uiText("Delete snippet…", "スニペットを削除…"), () => {
+    if (!window.confirm(uiText(`Delete “${items.find((item) => item.id === selected)?.name}”? This removes the snippet from all projects on this computer.`, `「${items.find((item) => item.id === selected)?.name}」を削除しますか？このPCの全プロジェクトで使うスニペットが削除されます。`))) return;
+    void run(async () => { await call("delete", { revision, id: selected }); load(); });
+  });
+  const insert = button(uiText("Insert", "挿入"), () => void run(async () => {
+    const needsSave = draft() !== baseline;
+    const text = needsSave ? (await saveDraft()).body : body.value;
+    if (!editor || editor.getModel() !== model || model.isDisposed() || model.getVersionId() !== modelVersion || editor.getRawOptions().readOnly) {
+      throw new Error(needsSave
+        ? uiText("Snippet saved. The document changed, so nothing was inserted. Close snippets and select the insertion point again.", "スニペットは保存済みです。文書が変更されたため挿入しませんでした。閉じて挿入位置を選び直してください。")
+        : uiText("The document changed. Close snippets and select the insertion point again.", "文書が変更されました。閉じて挿入位置を選び直してください。"));
+    }
+    const controller = editor.getContribution("snippetController2");
+    if (!controller?.insert) throw new Error(uiText("Snippet insertion is unavailable.", "スニペット挿入を利用できません。"));
+    dialog.close(); editor.focus(); editor.setSelection(selection);
+    controller.insert(text);
+  }));
+  insert.classList.add("is-primary");
+  const close = button(uiText("Close", "閉じる"), () => { if (!busy && mayLeave()) dialog.close(); });
+  const actions = node("div"); actions.className = "snippets-actions"; actions.append(save, insert, close);
+  const library = node("div"); library.className = "snippets-library";
+  library.append(search, button(uiText("New snippet", "新規作成"), () => { if (!busy && mayLeave()) { load(); name.focus(); } }), list);
+  const reload = button(uiText("Reload snippets", "スニペットを再読み込み"), () => { if (!busy && mayLeave()) void run(async () => { await call("list"); load(); }); });
+  const header = node("div"); header.className = "snippets-heading";
+  header.append(heading, createActionsMenu([remove, reload], lifecycle.signal));
+  const scope = node("p", uiText("Available in all projects on this computer", "このPCの全プロジェクトで使用")); scope.className = "snippets-scope";
+  const columns = node("div"); columns.className = "snippets-columns"; columns.append(library, form);
+  dialog.append(header, scope, columns, error, actions);
+  search.addEventListener("input", render);
+  for (const input of [name, prefix, body]) input.addEventListener("input", render);
+  dialog.addEventListener("cancel", (event) => { if (busy || !mayLeave()) event.preventDefault(); });
+  dialog.addEventListener("close", () => { modalOpen = false; lifecycle.abort(); dialog.remove(); });
+  document.body.append(dialog); load(); dialog.showModal();
+  void run(async () => { await call("list"); render(); });
 };

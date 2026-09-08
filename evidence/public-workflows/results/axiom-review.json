@@ -1,0 +1,66 @@
+{
+  "fixtureId": "axiom-review-v1",
+  "implementationCommit": "163a7ca12d0bed2f5bb7db6261057c5153fb90e8",
+  "selectedRoot": "documents/paper/main.tex",
+  "workspaceRootSentinel": "main.tex contains an undefined command and was not selected",
+  "initialBuild": {
+    "status": "success",
+    "targetFile": "documents/paper/main.tex",
+    "summary": "Build succeeded",
+    "issues": []
+  },
+  "write": {
+    "tool": "replace_lines",
+    "status": "applied",
+    "verified": true,
+    "change": {
+      "linesBefore": 11,
+      "linesAfter": 11,
+      "linesAdded": 0,
+      "linesRemoved": 0,
+      "linesDelta": 0,
+      "shaBefore": "eb981af1706acaad17163fe05b645c486348d052c6ef453c4f8fdaf2a7358057",
+      "shaAfter": "b9b9aeb0b5643c998e4c5d5e3ad92328ccfa7abbc4605df73644315b3d002db7"
+    }
+  },
+  "appliedDiff": {
+    "path": "axiom-review.diff",
+    "sha256": "2e4ec1e376bfce72389d030be63aa82b47fd4c9d9316da1638d4711bbd948a4b",
+    "rendererReceivedSavedBytes": true,
+    "rendererProposalWasAlreadyApplied": true
+  },
+  "done": {
+    "effect": "dismiss applied-diff decorations; do not write or revert bytes",
+    "proof": "production handler source assertion",
+    "implementationPath": "web-src/app/editor-session-file-ops.ts",
+    "implementationSha256": "e48ea40201ed40d8a92593f70557acc939bda4389d95c6fcb53ac6386b49820f",
+    "sourceSha256AfterDone": "b9b9aeb0b5643c998e4c5d5e3ad92328ccfa7abbc4605df73644315b3d002db7",
+    "build": {
+      "status": "success",
+      "targetFile": "documents/paper/main.tex",
+      "summary": "Build succeeded",
+      "issues": []
+    },
+    "pdf": {
+      "path": "artifacts/axiom-review-done.pdf",
+      "bytes": 41040,
+      "sha256": "2ddbfe95bc3491d1d2b0d0f3294f1ddf4597c94b44fd0bc6a8c21d21905788b9"
+    }
+  },
+  "undo": {
+    "action": "AgentService.undoLastRunApply",
+    "restoredSourceSha256": "eb981af1706acaad17163fe05b645c486348d052c6ef453c4f8fdaf2a7358057",
+    "equalsOriginal": true,
+    "build": {
+      "status": "success",
+      "targetFile": "documents/paper/main.tex",
+      "summary": "Build succeeded",
+      "issues": []
+    },
+    "pdf": {
+      "path": "artifacts/axiom-review-undo.pdf",
+      "bytes": 28642,
+      "sha256": "1b82480be847e98133c8cdfb890e980cdeedbe7bc5608ed117549b83e8f76f26"
+    }
+  }
+}

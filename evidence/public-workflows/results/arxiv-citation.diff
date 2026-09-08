@@ -1,0 +1,13 @@
+Index: documents/citation/main.tex
+===================================================================
+--- documents/citation/main.tex	before
++++ documents/citation/main.tex	after
+@@ -6,7 +6,7 @@
+ \ifdefined\pdfvariable\pdfvariable suppressoptionalinfo 767\relax\fi
+ \begin{document}
+ \section*{Citation fixture}
+-Citation pending.
++The production metadata fixture is cited as \cite{arxiv:1706.03762}.
+ \bibliographystyle{plain}
+ \bibliography{refs}
+ \end{document}

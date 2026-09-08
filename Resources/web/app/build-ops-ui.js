@@ -24,6 +24,8 @@ export const initBuildOpsUi = (context, deps) => {
     let formatInFlightSnapshot = null;
     let currentBuildLog = null;
     let currentBuildState = "idle";
+    let preparingBuild = false;
+    let preparationGeneration = 0;
     let buildProgressPhase = "building";
     let buildStartedAt = 0;
     let buildCancelRequested = false;
@@ -39,7 +41,7 @@ export const initBuildOpsUi = (context, deps) => {
         let counter = 0;
         return () => `synctex-forward-${Date.now().toString(36)}-${counter++}`;
     })();
-    const getBuildButtonIdleTitle = () => uiText("Build (Cmd+Enter). Cmd+B inserts \\textbf{}.", "ビルド（Cmd+Enter）。Cmd+B は \\textbf{} を入力します。");
+    const getBuildButtonIdleTitle = () => uiText("Build", "ビルド");
     const buildProgressText = () => {
         if (buildProgressPhase === "cancelling") {
             return uiText("Canceling…", "キャンセル中…");
@@ -305,7 +307,7 @@ export const initBuildOpsUi = (context, deps) => {
             buildButton.setAttribute("aria-busy", isBusy ? "true" : "false");
             buildButton.setAttribute("aria-label", isBusy
                 ? uiText("Build in progress; click to cancel", "ビルド実行中。クリックでキャンセル")
-                : uiText("Build (Cmd+Enter)", "ビルド（Cmd+Enter）"));
+                : uiText("Build", "ビルド"));
             const label = buildButton.querySelector(".build-button-label");
             if (label && !isBusy)
                 label.textContent = uiText("Build", "ビルド");
@@ -349,8 +351,14 @@ export const initBuildOpsUi = (context, deps) => {
             deps.updateIssues(0, message, "info", []);
         }
     };
-    const startBuild = () => {
-        var _a, _b;
+    const startBuild = async () => {
+        var _a, _b, _c, _d, _e, _f, _g;
+        if (preparingBuild) {
+            preparingBuild = false;
+            preparationGeneration += 1;
+            setBuildState("idle");
+            return;
+        }
         if (currentBuildState === "building") {
             const ok = deps.postToNative({ type: "build:cancel" });
             if (ok) {
@@ -393,20 +401,30 @@ export const initBuildOpsUi = (context, deps) => {
             return;
         }
         deps.cacheCurrentBuffer(deps.getActiveGroup());
-        // Send the .tex the writer is looking at, not the workspace root. The main
-        // process decides which document that file belongs to (its own root when it
-        // is self-contained, the including document otherwise) — sending the root
-        // here made every build compile the top-level document, so a project with a
-        // second document in a subfolder always showed the wrong PDF.
-        const isTexPath = (value) => typeof value === "string" && value.toLowerCase().endsWith(".tex");
+        const buildWorkspace = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
         const activePath = deps.getActiveFilePath();
-        const openTexPath = isTexPath(activePath)
-            ? activePath
-            : (_a = deps
-                .getEditorGroups()
-                .map((group) => group.currentFilePath)
-                .find((path) => isTexPath(path))) !== null && _a !== void 0 ? _a : null;
-        const mainFile = (_b = openTexPath !== null && openTexPath !== void 0 ? openTexPath : deps.getRootFilePath()) !== null && _b !== void 0 ? _b : undefined;
+        const mainFile = (_f = (_e = (_d = (_b = (activePath && /\.tex$/i.test(activePath) ? activePath : null)) !== null && _b !== void 0 ? _b : (_c = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _c === void 0 ? void 0 : _c.currentFilePath) !== null && _d !== void 0 ? _d : deps.getLastBuildMainFile()) !== null && _e !== void 0 ? _e : deps.getRootFilePath()) !== null && _f !== void 0 ? _f : undefined;
+        if (deps.saveDirtyFiles) {
+            const generation = ++preparationGeneration;
+            preparingBuild = true;
+            setBuildState("building");
+            let saved = false;
+            try {
+                saved = await deps.saveDirtyFiles();
+            }
+            catch { /* save path reports the error */ }
+            if (generation !== preparationGeneration)
+                return;
+            preparingBuild = false;
+            if (!saved) {
+                setBuildState("failed");
+                return;
+            }
+            if (buildWorkspace !== ((_g = deps.getWorkspaceRootKey) === null || _g === void 0 ? void 0 : _g.call(deps))) {
+                setBuildState("idle");
+                return;
+            }
+        }
         deps.setLastBuildMainFile(mainFile !== null && mainFile !== void 0 ? mainFile : null);
         const engine = localStorage.getItem("tex64.compileEngine") || "lualatex";
         const payload = { type: "build" };
@@ -479,6 +497,10 @@ export const initBuildOpsUi = (context, deps) => {
         const inFlightSnapshot = formatInFlightSnapshot;
         formatInFlight = false;
         formatInFlightSnapshot = null;
+        if (payload.stale === true) {
+            formatPending = false;
+            return;
+        }
         if (!payload.ok) {
             if (!formatWarningShown) {
                 formatWarningShown = true;
@@ -648,27 +670,10 @@ export const initBuildOpsUi = (context, deps) => {
             });
         }
     };
-    // The main process decides which document a build compiles (the open file's
-    // own root, not necessarily the workspace root), and reports it back here so
-    // SyncTeX targets the same document and the button says what was built.
-    const handleBuildTarget = (payload) => {
-        const target = typeof (payload === null || payload === void 0 ? void 0 : payload.target) === "string" ? payload.target.trim() : "";
-        if (!target) {
-            return;
-        }
-        deps.setLastBuildMainFile(target);
-        if (buildButton instanceof HTMLButtonElement) {
-            buildButton.dataset.buildTarget = target;
-            if (currentBuildState === "building") {
-                buildButton.title = uiText(`Building ${target}`, `${target} をビルド中`);
-            }
-        }
-    };
     return {
         updateSynctexButtonState,
         setBuildState,
         startBuild,
-        handleBuildTarget,
         requestFormatCurrentFile,
         handleFormatResult,
         handleSaveFormatError,

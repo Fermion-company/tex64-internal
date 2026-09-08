@@ -6,6 +6,329 @@ const {
   sanitizeConversationForPersistence,
 } = require("./agent-core-utils.cjs");
 
+const PERSIST_MAX_UNDO_ENTRIES = 20;
+const PERSIST_MAX_UNDO_BUFFER_BYTES = 1024 * 1024;
+const PERSIST_MAX_UNDO_TOTAL_BYTES = 3 * 1024 * 1024;
+const MAX_RESTORED_UNDO_ENTRIES = 200;
+const UNDO_PERSISTENCE_UNAVAILABLE_REASON = "persistence_limit";
+
+const normalizeUndoBarrier = (value, workspaceRootPath = null) => {
+  if (!value || typeof value !== "object") return null;
+  const entryCount = Number.isSafeInteger(value.entryCount)
+    ? Math.max(1, value.entryCount)
+    : 1;
+  return {
+    reason: UNDO_PERSISTENCE_UNAVAILABLE_REASON,
+    runId:
+      typeof value.runId === "string" && value.runId.trim()
+        ? value.runId.trim().slice(0, 512)
+        : null,
+    entryCount,
+    workspaceRootPath:
+      typeof value.workspaceRootPath === "string" && value.workspaceRootPath.trim()
+        ? value.workspaceRootPath.trim()
+        : typeof workspaceRootPath === "string" && workspaceRootPath.trim()
+          ? workspaceRootPath.trim()
+          : null,
+  };
+};
+
+const createUndoBarrier = (group, workspaceRootPath = null) =>
+  normalizeUndoBarrier(
+    {
+      runId: group?.runId ?? null,
+      entryCount: Array.isArray(group?.entries) ? group.entries.length : 1,
+      workspaceRootPath:
+        group?.entries?.[group.entries.length - 1]?.workspaceRootPath ?? workspaceRootPath,
+    },
+    workspaceRootPath,
+  );
+
+const isSafeRelativePath = (value) => {
+  if (typeof value !== "string" || !value || value.length > 4_096 || value.includes("\0")) {
+    return false;
+  }
+  const normalized = value.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) {
+    return false;
+  }
+  return !normalized.split("/").some((part) => part === "..");
+};
+
+const normalizePersistedDocumentMainFile = (value) => {
+  if (!isSafeRelativePath(value)) return null;
+  const normalized = value.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  return normalized.toLowerCase().endsWith(".tex") ? normalized : null;
+};
+
+const serializeUndoEntry = (entry) => {
+  if (!entry || typeof entry !== "object") return null;
+  const type = entry.type;
+  if (!new Set(["write", "delete", "rename", "mkdir"]).has(type)) return null;
+  if (!isSafeRelativePath(entry.path)) return null;
+  const serialized = {
+    type,
+    historyBoundary: typeof entry.historyBoundary === "string" ? entry.historyBoundary : null,
+    conversationId:
+      typeof entry.conversationId === "string" ? entry.conversationId : "default",
+    runId:
+      typeof entry.runId === "string" && entry.runId.trim()
+        ? entry.runId.trim()
+        : null,
+    path: entry.path,
+    workspaceRootPath:
+      typeof entry.workspaceRootPath === "string" ? entry.workspaceRootPath : null,
+  };
+  if (type === "rename") {
+    if (!isSafeRelativePath(entry.oldPath) || !isSafeRelativePath(entry.newPath)) return null;
+    serialized.oldPath = entry.oldPath;
+    serialized.newPath = entry.newPath;
+  }
+  if (type === "write") {
+    serialized.existed = entry.existed === true;
+    serialized.wasBinary = entry.wasBinary === true;
+    if (typeof entry.appliedHash !== "string" || !/^[a-f0-9]{64}$/i.test(entry.appliedHash)) {
+      return null;
+    }
+    serialized.appliedHash = entry.appliedHash.toLowerCase();
+  }
+  if (type === "rename") {
+    if (typeof entry.appliedHash !== "string" || !/^[a-f0-9]{64}$/i.test(entry.appliedHash)) {
+      return null;
+    }
+    serialized.appliedHash = entry.appliedHash.toLowerCase();
+  }
+  if (type === "write" || type === "delete") {
+    if (Buffer.isBuffer(entry.previousBuffer)) {
+      if (entry.previousBuffer.byteLength > PERSIST_MAX_UNDO_BUFFER_BYTES) return null;
+      serialized.previousBase64 = entry.previousBuffer.toString("base64");
+    } else if (type === "delete" || serialized.existed) {
+      return null;
+    }
+  }
+  return serialized;
+};
+
+const deserializeUndoEntry = (entry, conversationId, workspaceRootPath) => {
+  if (!entry || typeof entry !== "object") return null;
+  const serialized = serializeUndoEntry({
+    ...entry,
+    conversationId,
+    workspaceRootPath:
+      typeof entry.workspaceRootPath === "string"
+        ? entry.workspaceRootPath
+        : workspaceRootPath,
+    previousBuffer:
+      typeof entry.previousBase64 === "string"
+        ? Buffer.from(entry.previousBase64, "base64")
+        : null,
+  });
+  if (!serialized) return null;
+  const restored = {
+    ...serialized,
+    conversationId,
+    workspaceRootPath:
+      typeof serialized.workspaceRootPath === "string"
+        ? serialized.workspaceRootPath
+        : workspaceRootPath || null,
+  };
+  delete restored.previousBase64;
+  if (typeof entry.previousBase64 === "string") {
+    const encoded = entry.previousBase64;
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+      return null;
+    }
+    const previousBuffer = Buffer.from(encoded, "base64");
+    if (previousBuffer.byteLength > PERSIST_MAX_UNDO_BUFFER_BYTES) return null;
+    restored.previousBuffer = previousBuffer;
+  } else {
+    restored.previousBuffer = null;
+  }
+  return restored;
+};
+
+/**
+ * Build newest-contiguous, run-atomic undo groups. If one complete run cannot
+ * fit, it becomes a barrier and no older run is persisted past it. This makes
+ * "undo last AI run" fail closed after restart instead of reverting a tail and
+ * reporting success while earlier edits from the same run remain.
+ */
+const buildPersistedUndoState = (service, conversationId, workspaceRootPath) => {
+  const indexedEntries = service.applyUndoStack
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => entry?.conversationId === conversationId);
+  const groupsByKey = new Map();
+  indexedEntries.forEach(({ entry, index }) => {
+    const runId =
+      typeof entry.runId === "string" && entry.runId.trim() ? entry.runId.trim() : null;
+    const key = runId ? `run:${runId}` : `entry:${index}`;
+    let group = groupsByKey.get(key);
+    if (!group) {
+      group = { runId, entries: [], newestIndex: index };
+      groupsByKey.set(key, group);
+    }
+    group.entries.push({ entry, index });
+    group.newestIndex = Math.max(group.newestIndex, index);
+  });
+
+  const newestFirst = [...groupsByKey.values()].sort(
+    (left, right) => right.newestIndex - left.newestIndex,
+  );
+  const retainedNewestFirst = [];
+  let retainedEntryCount = 0;
+  let retainedBytes = 0;
+  let undoBarrier = normalizeUndoBarrier(
+    service.undoPersistenceBarriersByConversation?.get(conversationId),
+    workspaceRootPath,
+  );
+
+  for (const group of newestFirst) {
+    const orderedEntries = group.entries
+      .slice()
+      .sort((left, right) => left.index - right.index)
+      .map(({ entry }) => entry);
+    const atomicGroup = { runId: group.runId, entries: orderedEntries };
+    if (retainedEntryCount + orderedEntries.length > PERSIST_MAX_UNDO_ENTRIES) {
+      undoBarrier = createUndoBarrier(atomicGroup, workspaceRootPath);
+      break;
+    }
+    const serializedEntries = orderedEntries.map(serializeUndoEntry);
+    if (serializedEntries.some((entry) => entry === null)) {
+      undoBarrier = createUndoBarrier(atomicGroup, workspaceRootPath);
+      break;
+    }
+    const serializedGroup = {
+      runId: group.runId,
+      entryCount: serializedEntries.length,
+      entries: serializedEntries,
+    };
+    const groupBytes = Buffer.byteLength(JSON.stringify(serializedGroup), "utf8");
+    if (retainedBytes + groupBytes > PERSIST_MAX_UNDO_TOTAL_BYTES) {
+      undoBarrier = createUndoBarrier(atomicGroup, workspaceRootPath);
+      break;
+    }
+    retainedNewestFirst.push(serializedGroup);
+    retainedEntryCount += serializedEntries.length;
+    retainedBytes += groupBytes;
+  }
+
+  return {
+    undoGroups: retainedNewestFirst.reverse(),
+    undoBarrier,
+  };
+};
+
+const restoreAtomicUndoState = (
+  service,
+  session,
+  conversationId,
+  workspaceRootPath,
+) => {
+  const sessionVersion = Number.isSafeInteger(session.version) ? session.version : 0;
+  if (sessionVersion < PERSIST_SESSION_VERSION) {
+    const legacyEntryCount = Array.isArray(session.undoGroups)
+      ? session.undoGroups.reduce(
+          (sum, group) => sum + (Array.isArray(group?.entries) ? group.entries.length : 0),
+          0,
+        )
+      : Array.isArray(session.undoEntries)
+        ? session.undoEntries.length
+        : 0;
+    if (legacyEntryCount > 0) {
+      service.undoPersistenceBarriersByConversation.set(
+        conversationId,
+        normalizeUndoBarrier(
+          {
+            entryCount: legacyEntryCount,
+            workspaceRootPath,
+          },
+          workspaceRootPath,
+        ),
+      );
+    }
+    return;
+  }
+
+  const storedGroups = Array.isArray(session.undoGroups) ? session.undoGroups : [];
+  const restoredNewestFirst = [];
+  let barrier = normalizeUndoBarrier(session.undoBarrier, workspaceRootPath);
+  for (let index = storedGroups.length - 1; index >= 0; index -= 1) {
+    const group = storedGroups[index];
+    const storedEntries = Array.isArray(group?.entries) ? group.entries : [];
+    const expectedCount = Number.isSafeInteger(group?.entryCount) ? group.entryCount : -1;
+    const runId =
+      typeof group?.runId === "string" && group.runId.trim() ? group.runId.trim() : null;
+    const restoredEntries = storedEntries.map((entry) =>
+      deserializeUndoEntry(entry, conversationId, workspaceRootPath),
+    );
+    const complete =
+      expectedCount > 0 &&
+      expectedCount === storedEntries.length &&
+      restoredEntries.every(
+        (entry) =>
+          entry !== null &&
+          ((runId === null && entry.runId === null) || entry.runId === runId),
+      );
+    if (!complete) {
+      barrier = normalizeUndoBarrier(
+        {
+          runId,
+          entryCount: Math.max(expectedCount, storedEntries.length, 1),
+          workspaceRootPath,
+        },
+        workspaceRootPath,
+      );
+      break;
+    }
+    restoredNewestFirst.push(restoredEntries);
+  }
+  restoredNewestFirst
+    .reverse()
+    .flat()
+    .forEach((entry) => service.applyUndoStack.push(entry));
+  if (barrier) {
+    service.undoPersistenceBarriersByConversation.set(conversationId, barrier);
+  }
+};
+
+/**
+ * The process-wide restored stack also has a cap. Remove its oldest complete
+ * run(s), never an arbitrary entry count, or the surviving tail could later be
+ * reported as a successful whole-run undo.
+ */
+const trimRestoredUndoStackAtomic = (service) => {
+  while (service.applyUndoStack.length > MAX_RESTORED_UNDO_ENTRIES) {
+    const oldest = service.applyUndoStack[0];
+    const conversationId =
+      typeof oldest?.conversationId === "string" && oldest.conversationId.trim()
+        ? oldest.conversationId.trim()
+        : "default";
+    const runId =
+      typeof oldest?.runId === "string" && oldest.runId.trim()
+        ? oldest.runId.trim()
+        : null;
+    const removed = [];
+    service.applyUndoStack = service.applyUndoStack.filter((candidate, index) => {
+      const belongsToOldestRun = runId
+        ? candidate?.conversationId === conversationId && candidate?.runId === runId
+        : index === 0;
+      if (belongsToOldestRun) removed.push(candidate);
+      return !belongsToOldestRun;
+    });
+    service.undoPersistenceBarriersByConversation.set(
+      conversationId,
+      normalizeUndoBarrier({
+        runId,
+        entryCount: Math.max(1, removed.length),
+        workspaceRootPath:
+          typeof oldest?.workspaceRootPath === "string"
+            ? oldest.workspaceRootPath
+            : null,
+      }),
+    );
+  }
+};
+
 /**
  * Migrate a conversation array from legacy format ({ role, parts })
  * to OpenAI format ({ role, content }) if needed.
@@ -68,6 +391,9 @@ const ensureSessionsRestored = async (service) => {
       if (!conversationId) {
         return;
       }
+      if (service.deletedConversations?.has(conversationId)) {
+        return;
+      }
 
       const storedConversation = Array.isArray(session.conversation) ? session.conversation : null;
       if (
@@ -102,6 +428,19 @@ const ensureSessionsRestored = async (service) => {
       if (workspaceRootPath && !service.workspaceRootByConversation.has(conversationId)) {
         service.workspaceRootByConversation.set(conversationId, workspaceRootPath);
       }
+      const documentMainFile = normalizePersistedDocumentMainFile(
+        session.context?.documentMainFile,
+      );
+      if (documentMainFile && !service.contextByConversation.has(conversationId)) {
+        service.contextByConversation.set(conversationId, { documentMainFile });
+      }
+
+      restoreAtomicUndoState(
+        service,
+        session,
+        conversationId,
+        workspaceRootPath,
+      );
 
       const createdAt =
         typeof session.createdAt === "number" && Number.isFinite(session.createdAt)
@@ -111,10 +450,13 @@ const ensureSessionsRestored = async (service) => {
         typeof session.updatedAt === "number" && Number.isFinite(session.updatedAt)
           ? session.updatedAt
           : null;
-      if ((createdAt || updatedAt) && !service.sessionMetaByConversation.has(conversationId)) {
+      const storedTitle =
+        typeof session.title === "string" && session.title.trim() ? session.title.trim().slice(0, 80) : "";
+      if ((createdAt || updatedAt || storedTitle) && !service.sessionMetaByConversation.has(conversationId)) {
         service.sessionMetaByConversation.set(conversationId, {
           createdAt: createdAt ?? updatedAt ?? Date.now(),
           updatedAt: updatedAt ?? createdAt ?? Date.now(),
+          ...(storedTitle ? { title: storedTitle } : {}),
         });
       }
 
@@ -134,6 +476,7 @@ const ensureSessionsRestored = async (service) => {
         service.scratchpadByConversation.set(conversationId, scratchpad);
       }
     });
+    trimRestoredUndoStackAtomic(service);
     service.sessionsRestored = true;
   })();
   await service.restorePromise;
@@ -147,15 +490,62 @@ const markSessionDirty = (service, conversationId) => {
     typeof conversationId === "string" && conversationId.trim()
       ? conversationId.trim()
       : "default";
+  if (service.deletedConversations?.has(normalized)) return;
   const existingTimer = service.persistTimers.get(normalized);
   if (existingTimer) {
     clearTimeout(existingTimer);
   }
   const timer = setTimeout(() => {
     service.persistTimers.delete(normalized);
-    persistSession(service, normalized).catch(() => {});
+    queueSessionPersist(service, normalized).catch(() => {});
   }, PERSIST_DEBOUNCE_MS);
   service.persistTimers.set(normalized, timer);
+};
+
+const queueSessionPersist = (service, conversationId) => {
+  const promise = persistSession(service, conversationId);
+  if (!(service.sessionPersistPromises instanceof Set)) {
+    service.sessionPersistPromises = new Set();
+  }
+  service.sessionPersistPromises.add(promise);
+  promise.then(
+    () => service.sessionPersistPromises.delete(promise),
+    () => service.sessionPersistPromises.delete(promise),
+  );
+  return promise;
+};
+
+/** Flush every debounced or already-running snapshot before process exit. */
+const flushPendingSessions = async (service) => {
+  if (!service.sessionsService) return;
+  // A completed/aborted run can mark itself dirty while an earlier snapshot is
+  // being written. Drain repeatedly until no timer or write remains. The quit
+  // coordinator wraps this in a hard wall-clock timeout.
+  for (let pass = 0; pass < 8; pass += 1) {
+    const pendingIds = [...service.persistTimers.keys()];
+    pendingIds.forEach((conversationId) => {
+      const timer = service.persistTimers.get(conversationId);
+      if (timer) clearTimeout(timer);
+      service.persistTimers.delete(conversationId);
+    });
+    const writes = pendingIds.map((conversationId) =>
+      queueSessionPersist(service, conversationId),
+    );
+    const inFlight = service.sessionPersistPromises instanceof Set
+      ? [...service.sessionPersistPromises]
+      : [];
+    await Promise.allSettled([...new Set([...writes, ...inFlight])]);
+    const inFlightCount =
+      service.sessionPersistPromises instanceof Set
+        ? service.sessionPersistPromises.size
+        : 0;
+    if (service.persistTimers.size === 0 && inFlightCount === 0) {
+      break;
+    }
+  }
+  if (typeof service.sessionsService.flush === "function") {
+    await service.sessionsService.flush();
+  }
 };
 
 const persistSession = async (service, conversationId) => {
@@ -166,7 +556,9 @@ const persistSession = async (service, conversationId) => {
     typeof conversationId === "string" && conversationId.trim()
       ? conversationId.trim()
       : "default";
+  if (service.deletedConversations?.has(normalized)) return;
   await ensureSessionsRestored(service);
+  if (service.deletedConversations?.has(normalized)) return;
 
   const conversation = service.conversations.get(normalized) ?? [];
   const proposals = [];
@@ -191,7 +583,8 @@ const persistSession = async (service, conversationId) => {
   const currentRoot = service.workspace.getRootPath();
   const storedRoot = service.workspaceRootByConversation.get(normalized);
   const workspaceRootPath =
-    currentRoot || (typeof storedRoot === "string" && storedRoot.trim() ? storedRoot.trim() : null);
+    (typeof storedRoot === "string" && storedRoot.trim() ? storedRoot.trim() : null) ||
+    currentRoot;
   if (workspaceRootPath) {
     service.workspaceRootByConversation.set(normalized, workspaceRootPath);
   }
@@ -201,6 +594,14 @@ const persistSession = async (service, conversationId) => {
     service.scratchpadByConversation.get(normalized) ?? "",
     120_000,
   );
+  const { undoGroups, undoBarrier } = buildPersistedUndoState(
+    service,
+    normalized,
+    workspaceRootPath,
+  );
+  const documentMainFile = normalizePersistedDocumentMainFile(
+    service.contextByConversation.get(normalized)?.documentMainFile,
+  );
 
   const snapshotBase = {
     version: PERSIST_SESSION_VERSION,
@@ -208,9 +609,13 @@ const persistSession = async (service, conversationId) => {
     workspaceRootPath: workspaceRootPath || null,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
+    ...(typeof meta.title === "string" && meta.title ? { title: meta.title } : {}),
     lastStatus,
     scratchpad,
     proposals,
+    undoGroups,
+    undoBarrier,
+    ...(documentMainFile ? { context: { documentMainFile } } : {}),
   };
 
   const byteLimit =
@@ -248,6 +653,7 @@ const persistSession = async (service, conversationId) => {
     snapshot = { ...snapshotBase, conversation: [], proposals: [] };
   }
 
+  if (service.deletedConversations?.has(normalized)) return;
   await service.sessionsService.saveSession(snapshot);
 };
 
@@ -309,11 +715,27 @@ const getUiState = async (service) => {
           if (match) display = match[1].trim();
         }
         if (display.trim()) {
-          messages.push({ role: "user", text: clipLongString(display, 20_000) });
+          messages.push({
+            role: "user",
+            text: clipLongString(display, 20_000),
+            // An app-started turn (the opening read) stays out of the transcript view.
+            ...(entry.hidden === true ? { hidden: true } : {}),
+          });
         }
       } else if (role === "assistant") {
         if (content.trim()) {
-          messages.push({ role: "assistant", text: clipLongString(content, 30_000) });
+          messages.push({
+            role: "assistant",
+            text: clipLongString(content, 30_000),
+            ...(Array.isArray(entry.proposals) && entry.proposals.length > 0
+              ? { proposals: entry.proposals }
+              : {}),
+            ...(entry.question && typeof entry.question === "object"
+              ? { question: entry.question }
+              : {}),
+            ...(entry.rating === "up" || entry.rating === "down" ? { rating: entry.rating } : {}),
+            ...(entry.plan && typeof entry.plan === "object" ? { plan: entry.plan } : {}),
+          });
         }
       }
     });
@@ -341,12 +763,22 @@ const getUiState = async (service) => {
           return sum + 1;
         }, 0)
       : 0;
+    const undoBarrier = service.undoPersistenceBarriersByConversation?.get(
+      normalizedConversationId,
+    );
     const state = service.runningControllers.has(normalizedConversationId)
-      ? "running"
+      ? lastStatus?.state === "stopping"
+        ? "stopping"
+        : "running"
       : lastStatus?.state === "error"
-      ? "error"
-      : "idle";
-    const title = buildTitle(messages, normalizedConversationId);
+        ? "error"
+        : lastStatus?.state === "resumable"
+          ? "resumable"
+          : "idle";
+    const title =
+      typeof meta?.title === "string" && meta.title.trim()
+        ? meta.title.trim()
+        : buildTitle(messages, normalizedConversationId);
     sessions.push({
       conversationId: normalizedConversationId,
       title,
@@ -358,6 +790,9 @@ const getUiState = async (service) => {
         message: lastStatus?.message ?? "",
         undoAvailable: undoCount > 0,
         undoCount,
+        ...(undoCount === 0 && undoBarrier
+          ? { undoUnavailableReason: UNDO_PERSISTENCE_UNAVAILABLE_REASON }
+          : {}),
       },
       messages,
       proposals,
@@ -374,6 +809,7 @@ const getUiState = async (service) => {
 
 module.exports = {
   ensureSessionsRestored,
+  flushPendingSessions,
   markSessionDirty,
   persistSession,
   getUiState,

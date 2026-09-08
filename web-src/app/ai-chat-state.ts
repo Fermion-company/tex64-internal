@@ -1,11 +1,32 @@
 import { uiText } from "./i18n.js";
-import type { AgentProposal } from "./types.js";
-
-export const AUTONOMOUS_LOOP_LIMIT = 100;
+import type { AgentNextStep, AgentPlan, AgentProposal, AgentQuestion } from "./types.js";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
   text: string;
+  /** When the message was added, for the relative time under a reply. */
+  createdAt?: number;
+  /** Next steps the agent offered with this reply. */
+  proposals?: AgentNextStep[];
+  /** A question the agent needs answered before going on. */
+  question?: AgentQuestion;
+  /** The plan recorded in Plan mode, reviewed here before it runs. */
+  plan?: AgentPlan;
+  /** The reader's rating of this reply, once given. */
+  rating?: "up" | "down";
+  /** A request waiting for the running turn to finish. */
+  queued?: boolean;
+  queueId?: string;
+  /** The file changes the turn that produced this reply wrote. */
+  changes?: AgentProposal[];
+};
+
+/** A request typed while a turn was running; sent when the turn ends. */
+export type QueuedTurn = {
+  id: string;
+  text: string;
+  parts?: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
+  contextPayload?: Record<string, unknown>;
 };
 
 export type ChatState = {
@@ -16,15 +37,15 @@ export type ChatState = {
   appliedProposalIds: Set<string>;
   statusMessage: string;
   hasUndo: boolean;
-  autonomous: boolean;
-  autoLoopBudget: number;
+  /** Requests waiting behind the running turn, in order. */
+  queue: QueuedTurn[];
+  updatedAt?: number | null;
+  branchedFrom?: string | null;
 };
 
 export const createChatState = (
   id: string,
-  title: string,
-  autonomous: boolean,
-  autoLoopBudget: number
+  title: string
 ): ChatState => ({
   id,
   title,
@@ -33,8 +54,9 @@ export const createChatState = (
   appliedProposalIds: new Set(),
   statusMessage: uiText("Waiting", "待機中"),
   hasUndo: false,
-  autonomous,
-  autoLoopBudget,
+  queue: [],
+  updatedAt: null,
+  branchedFrom: null,
 });
 
 export const getChat = (
@@ -53,8 +75,6 @@ export const ensureChat = (options: {
   activeChatId: string | null;
   chats: ChatState[];
   chatIndex: Map<string, ChatState>;
-  defaultAutonomous: boolean;
-  defaultAutoLoopBudget: number;
   resolveChatTitle: (chatId: string) => string;
   onChatCreated?: () => void;
 }) => {
@@ -63,17 +83,13 @@ export const ensureChat = (options: {
     activeChatId,
     chats,
     chatIndex,
-    defaultAutonomous,
-    defaultAutoLoopBudget,
     resolveChatTitle,
     onChatCreated,
   } = options;
   if (chatId && !chatIndex.has(chatId)) {
     const chat = createChatState(
       chatId,
-      resolveChatTitle(chatId),
-      defaultAutonomous,
-      defaultAutoLoopBudget
+      resolveChatTitle(chatId)
     );
     chats.push(chat);
     chatIndex.set(chatId, chat);
@@ -87,23 +103,17 @@ export const createChat = (options: {
   chatIndex: Map<string, ChatState>;
   makeChatId: () => string;
   resolveChatTitle: (chatId: string) => string;
-  defaultAutonomous: boolean;
-  defaultAutoLoopBudget: number;
 }) => {
   const {
     chats,
     chatIndex,
     makeChatId,
     resolveChatTitle,
-    defaultAutonomous,
-    defaultAutoLoopBudget,
   } = options;
   const id = makeChatId();
   const chat = createChatState(
     id,
-    resolveChatTitle(id),
-    defaultAutonomous,
-    defaultAutoLoopBudget
+    resolveChatTitle(id)
   );
   chats.push(chat);
   chatIndex.set(id, chat);

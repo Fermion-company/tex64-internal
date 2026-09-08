@@ -1,6 +1,6 @@
 {
   "name": "tex64",
-  "version": "0.1.21",
+  "version": "0.1.24",
   "description": "AI搭載のデスクトップLaTeXエディタ。",
   "author": "株式会社Fermion",
   "private": true,
@@ -11,7 +11,8 @@
     "electron:dev": "npm run -s web:build && electron .",
     "electron:dev:fast": "electron .",
     "dist:bootstrap": "node scripts/bootstrap-electron-assets.cjs",
-    "dist:prep": "npm run -s dist:bootstrap && npm run -s legal:notice",
+    "ai-native:prepare": "node scripts/prepare-ai-native-bundle.cjs",
+    "dist:prep": "npm run -s dist:bootstrap && npm run -s ai-native:prepare && npm run -s legal:notice",
     "electron:pack": "npm run -s dist:prep && npm run -s web:build && electron-builder --dir",
     "electron:dist": "npm run -s electron:dist:mac",
     "electron:dist:mac": "npm run -s dist:prep && npm run -s web:build && electron-builder --mac --publish never",
@@ -27,14 +28,13 @@
     "dmg:background": "node scripts/generate-dmg-background.cjs",
     "math:check": "node scripts/check-math-stack.cjs",
     "texlab:fetch": "node scripts/fetch-texlab.cjs",
+    "git:fetch": "node scripts/fetch-git-runtime.cjs",
     "tdom:sync": "node scripts/sync-tdom-engine.cjs",
     "mathlive:clean": "node scripts/clean-mathlive-fork.cjs",
     "mathlive:build": "node scripts/build-mathlive-fork.cjs",
     "mathlive:rebuild": "npm run -s mathlive:clean && npm run -s mathlive:build",
     "web:build": "npm run -s math:check && npm run -s mathlive:build && tsc -p web-src/tsconfig.json",
     "web:watch": "tsc -p web-src/tsconfig.json -w",
-    "bench:synctex:forward": "node scripts/synctex-forward-bench.cjs",
-    "bench:synctex:forward:gate": "node scripts/synctex-forward-bench.cjs --strict",
     "release:artifact-hash": "node scripts/release-artifact-hash.cjs",
     "release:checksums": "node scripts/release-checksums.cjs",
     "release:update-feed": "node scripts/release-update-feed.cjs",
@@ -42,7 +42,7 @@
     "release:mac": "node scripts/release-macos.cjs",
     "release:upload-downloads": "node scripts/release-upload-downloads.cjs",
     "release:go-no-go": "node scripts/release-go-no-go.cjs",
-    "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --out NOTICE.md --project tex64"
+    "legal:notice": "node scripts/generate-third-party-notices.cjs --lock package-lock.json --lock services/tex64-ai/package-lock.json --out NOTICE.md --project tex64"
   },
   "build": {
     "appId": "com.wedd.tex64",
@@ -62,8 +62,10 @@
       "**/*.dylib",
       "**/*.so",
       "**/*.so.*",
+      "electron/services/windows-job.ps1",
       "Resources/math-ocr/**",
       "Resources/texlab/**",
+      "Resources/git-runtime/**",
       "Resources/tdom-engine/**",
       "Resources/web/mathlive/**",
       "Resources/web/math/**",
@@ -76,6 +78,7 @@
       "files": [
         "electron/**",
         "Resources/**",
+        "!Resources/git-runtime/.download-*/**",
         "package.json",
         "LICENSE",
         "NOTICE.md",
@@ -112,6 +115,13 @@
         {
           "from": "Resources/mac/ja.lproj/InfoPlist.strings",
           "to": "ja.lproj/InfoPlist.strings"
+        },
+        {
+          "from": "build",
+          "to": ".",
+          "filter": [
+            "tex64-ai-native/**/*"
+          ]
         }
       ]
     },
@@ -119,6 +129,7 @@
       "files": [
         "electron/**",
         "Resources/**",
+        "!Resources/git-runtime/.download-*/**",
         "package.json",
         "LICENSE",
         "NOTICE.md",
@@ -135,6 +146,7 @@
         "!**/docs/**",
         "!LICENSE",
         "!Resources/texlab/darwin-*/**",
+        "!Resources/git-runtime/darwin-*/**",
         "!node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
         "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
         "!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**",
@@ -162,7 +174,16 @@
         }
       ],
       "artifactName": "${productName}-${version}-win-${arch}.${ext}",
-      "icon": "Resources/icons/tex64.ico"
+      "icon": "Resources/icons/tex64.ico",
+      "extraResources": [
+        {
+          "from": "build",
+          "to": ".",
+          "filter": [
+            "tex64-ai-native/**/*"
+          ]
+        }
+      ]
     },
     "appx": {
       "applicationId": "TeX64",

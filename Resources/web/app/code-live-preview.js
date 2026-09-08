@@ -1,8 +1,8 @@
 // Real-time preview for Code mode (beta, settings > Build > Preview).
 //
-// The preview REPLACES the display inside the surfaces that already show the
-// built PDF — the in-tab pdf viewer (viewer.ts → pdf-viewer.html) and the
-// separate PDF window — it adds no pane of its own. While the
+// The preview replaces only the page canvas inside the ordinary in-tab PDF
+// viewer. The existing PDF toolbar and split-view path stay in place; no
+// separate window or second preview surface is created. While the
 // `preview.realtime` flag is on and the app is in Code mode, this module
 // starts the local TDOM engine, streams the active .tex buffer to it as the
 // user types, and flips those viewers into live mode; each viewer swaps only
@@ -28,17 +28,17 @@ const createDebouncedTask = (task, delayMs) => {
     return schedule;
 };
 const PROJECT_SOURCE_RE = /\.(?:tex|bib|sty|cls|bst|bbx|cbx|cfg|def|lbx|ltx|dtx|ins)$/i;
-export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getPdfViewerMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, }) => {
+export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMode, getWorkspaceRoot, getRootFile, getDirtyFileSnapshots, }) => {
     const bridge = window.tex64Tdom;
     let active = false;
     let starting = false;
     let engineStarted = false;
     let engineUrl = null;
-    let distributedWindowKey;
     let liveGeneration = 0;
     let lifecycleVersion = 0;
     let latestPushVersion = 0;
     let liveSessionKey = null;
+    let liveTarget = null;
     let boundEditor = null;
     let boundPath = null;
     let disposable = null;
@@ -71,53 +71,15 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         void bridge.focus({ offset }).catch(() => { });
     };
     const debouncedFocus = createDebouncedTask(focusCurrent, 160);
-    // Flip every PDF surface (both editor groups' viewers + the separate PDF
-    // window) into or out of live mode. Idempotent; the surfaces themselves
-    // re-apply the state when they (re)open.
+    // Flip the existing in-tab PDF surfaces into or out of live mode. The PDF
+    // frame keeps its ordinary toolbar and swaps only the page canvas for the
+    // embedded incremental renderer.
     const distributeLive = (url, generation = liveGeneration) => {
-        var _a;
-        // Groups can be created while the URL stays unchanged. Each viewer is
-        // idempotent, so always give every current surface the active generation.
         for (const group of getEditorGroups()) {
-            group.viewer.setLivePreview(url, generation);
-        }
-        // "Build in Separate Window" owns the destination for Live as well.
-        // In tab mode, never create a detached viewer and remove Live from an
-        // already-open detached PDF window while leaving the in-tab viewer live.
-        const viewerMode = getPdfViewerMode();
-        const windowUrl = viewerMode === "window" ? url : null;
-        // Destination is part of the identity even while Live is off. Otherwise
-        // `window/null` and `tab/null` collapse to the same key and a detached
-        // static window can survive a later switch to tab mode.
-        const windowKey = `${viewerMode}\0${windowUrl ? `${windowUrl}\0${generation}` : "static"}`;
-        if (distributedWindowKey !== windowKey) {
-            distributedWindowKey = windowKey;
-            void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.windowLive) === null || _a === void 0 ? void 0 : _a.call(bridge, {
-                url: windowUrl,
-                generation,
-                show: Boolean(windowUrl),
-                // Turning Live off while the separate-window mode remains selected
-                // restores that window's static PDF. Switching the destination to a
-                // tab is different: the detached surface must disappear altogether.
-                hide: viewerMode !== "window",
-                error: null,
-            }));
+            group.viewer.setLivePreview(url, generation, liveTarget);
         }
     };
-    const showLiveError = (message) => {
-        var _a;
-        if (getPdfViewerMode() !== "window")
-            return;
-        // The next healthy distribution must clear this transient error even
-        // when the recovered engine reuses the same localhost URL/generation.
-        distributedWindowKey = undefined;
-        void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.windowLive) === null || _a === void 0 ? void 0 : _a.call(bridge, {
-            url: engineUrl,
-            generation: liveGeneration,
-            show: true,
-            error: `リアルタイムプレビュー: ${message}`,
-        }));
-    };
+    const showLiveError = (message) => console.warn("[live-preview]", message);
     const currentProjectSource = () => {
         const group = getActiveGroup();
         const path = group.currentFilePath;
@@ -166,6 +128,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return {
                 sessionKey,
                 buffers,
+                target: /\.tex$/i.test(rootFile)
+                    ? { workspaceRoot, pdfPath: rootFile.replace(/\.tex$/i, ".pdf") } : null,
                 payload: {
                     workspaceRoot,
                     rootFile,
@@ -181,6 +145,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return {
             sessionKey: `legacy\0${current.path}`,
             buffers: new Map([[current.path, source]]),
+            target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
             payload: {
                 source,
                 path: current.path,
@@ -233,6 +198,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                         liveGeneration += 1;
                     engineUrl = result.url;
                     liveSessionKey = snapshot.sessionKey;
+                    liveTarget = snapshot.target;
                     distributeLive(engineUrl, liveGeneration);
                 }
                 if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs)
@@ -256,7 +222,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             const message = error instanceof Error ? error.message : String(error);
             // A push can reject after Live was switched off, after a newer edit, or
             // after the editor changed projects. Never let that obsolete failure
-            // discard the new pending snapshot or reopen a detached error surface.
+            // discard the new pending snapshot.
             if (failureIsCurrent)
                 showLiveError(message);
             console.warn("[live-preview]", message);
@@ -380,8 +346,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.stop) === null || _a === void 0 ? void 0 : _a.call(bridge));
         }
     };
+    let historyBlocked = false;
     const refresh = () => {
-        applyActive(editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
+        applyActive(!historyBlocked && editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
         if (active) {
             if (!engineStarted && !starting)
                 void start();
@@ -400,15 +367,31 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             if (engineUrl)
                 distributeLive(engineUrl);
         }
-        else {
-            // Keep the detached surface consistent with the current destination
-            // even when Live itself is off.
+        else
             distributeLive(null);
-        }
+    };
+    const refreshSource = () => {
+        if (!active)
+            return;
+        latestInputAtEpochMs = Date.now();
+        debouncedPush();
     };
     editorSettings.subscribe((change) => {
         if (change.kind !== "flag" || change.id !== "preview.realtime")
             return;
+        refresh();
+    });
+    // History owns the writer barrier and main-process shutdown. Retire the
+    // renderer generation immediately so a late push cannot expose pre-restore
+    // pages while files and editor models are being synchronized.
+    const history = window.tex64History;
+    const unsubscribeHistory = history === null || history === void 0 ? void 0 : history.onChange((message) => {
+        var _a, _b, _c;
+        const phase = message.type === "workspace:operation" ? (_a = message.payload) === null || _a === void 0 ? void 0 : _a.phase
+            : message.type === "updateWorkspace" ? (_c = (_b = message.payload) === null || _b === void 0 ? void 0 : _b.workspaceOperation) === null || _c === void 0 ? void 0 : _c.phase : undefined;
+        if (typeof phase !== "string")
+            return;
+        historyBlocked = phase !== "idle";
         refresh();
     });
     // Same lightweight poll as pro-live-preview: notices tab switches, editor
@@ -432,7 +415,6 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 liveSessionKey = null;
                 // Force the recovered URL through even when the OS gives the new
                 // process the same port as the dead one.
-                distributedWindowKey = undefined;
                 liveGeneration += 1;
                 distributeLive(null, liveGeneration);
                 queuedSessionKey = null;
@@ -449,13 +431,13 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
     }, 2000);
     window.addEventListener("beforeunload", () => {
+        unsubscribeHistory === null || unsubscribeHistory === void 0 ? void 0 : unsubscribeHistory();
         window.clearInterval(poll);
         window.clearInterval(healthPoll);
     }, { once: true });
-    // Clear main-process state left by a renderer reload before restoring the
-    // current setting. Without this handshake, a stale detached Live frame can
-    // survive Cmd+R even when the viewer mode is now "tab".
+    // Clear renderer state left by a reload before restoring the current
+    // setting.
     distributeLive(null);
     refresh();
-    return { isActive: () => active };
+    return { isActive: () => active, refreshSource };
 };

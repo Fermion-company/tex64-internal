@@ -3,8 +3,12 @@ const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const { Readable } = require("stream");
-const { spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
+const {
+  getOwnedProcessCompletion,
+  spawnOwnedProcess,
+  terminateWindowsProcessTree,
+} = require("./process-tree.cjs");
 
 const {
   extendTexlivePath,
@@ -129,6 +133,10 @@ const fetch = async (...args) => {
 
 const runCommand = (command, args = [], options = {}) =>
   new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      resolve({ code: 1, signal: "aborted", output: "", ok: false, aborted: true });
+      return;
+    }
     const timeoutMs =
       Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
         ? options.timeoutMs
@@ -139,14 +147,86 @@ const runCommand = (command, args = [], options = {}) =>
     }
     const useShell =
       process.platform === "win32" && /\.(?:bat|cmd)$/i.test(String(command || ""));
-    const child = spawn(command, args, {
+    const child = spawnOwnedProcess(command, args, {
       cwd: options.cwd,
       env,
       windowsHide: true,
       shell: useShell,
+      detached: process.platform !== "win32",
     });
     let output = "";
     let lineBuffer = "";
+    let settled = false;
+    let killReason = null;
+    let cleanupFailed = false;
+    let terminationPromise = null;
+    let forceKillTimer = null;
+    let forceFinishTimer = null;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (forceKillTimer !== null) clearTimeout(forceKillTimer);
+      if (forceFinishTimer !== null) clearTimeout(forceFinishTimer);
+      options.signal?.removeEventListener("abort", onAbort);
+      callback(value);
+    };
+    const killTree = (reason) => {
+      if (killReason !== null) return;
+      killReason = reason;
+      try {
+        if (process.platform === "win32" && Number.isInteger(child.pid)) {
+          terminationPromise = terminateWindowsProcessTree(child);
+        } else if (Number.isInteger(child.pid)) {
+          process.kill(-child.pid, "SIGTERM");
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        if (process.platform === "win32") {
+          terminationPromise = Promise.resolve(false);
+        }
+        try { child.kill("SIGTERM"); } catch { /* already gone */ }
+      }
+      forceKillTimer = setTimeout(() => {
+        try {
+          if (process.platform !== "win32" && Number.isInteger(child.pid)) {
+            process.kill(-child.pid, "SIGKILL");
+          } else if (process.platform !== "win32") {
+            child.kill("SIGKILL");
+          }
+        } catch { /* already gone */ }
+      }, 2_000);
+      forceKillTimer.unref?.();
+      // Some process wrappers never deliver close after termination. Release
+      // the caller deterministically once the whole tree has had time to die.
+      forceFinishTimer = setTimeout(() => {
+        const settle = (verified = true) => {
+          if (!verified && !cleanupFailed) {
+            cleanupFailed = true;
+            output += "\n[tex64] Windows process-tree cleanup could not be verified.\n";
+          }
+          finish(resolve, {
+            code: 1,
+            signal: reason,
+            output,
+            ok: false,
+            aborted: reason === "aborted",
+            cleanupFailed,
+          });
+        };
+        if (process.platform === "win32" && terminationPromise) {
+          void Promise.resolve(terminationPromise).then(
+            settle,
+            () => settle(false),
+          );
+          return;
+        }
+        settle();
+      }, 5_000);
+      forceFinishTimer.unref?.();
+    };
+    const onAbort = () => killTree("aborted");
     const onLine = typeof options.onLine === "function" ? options.onLine : null;
     const appendOutput = (chunk) => {
       const text = chunk.toString();
@@ -169,23 +249,40 @@ const runCommand = (command, args = [], options = {}) =>
         }
       }
     };
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-    }, timeoutMs);
+    const timer = setTimeout(() => killTree("timeout"), timeoutMs);
+    options.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout?.on("data", appendOutput);
     child.stderr?.on("data", appendOutput);
     child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+      finish(reject, error);
     });
     child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({
-        code: code ?? 1,
-        signal,
-        output,
-        ok: code === 0,
-      });
+      const settle = (verified = true) => {
+        if (!verified && !cleanupFailed) {
+          cleanupFailed = true;
+          output += "\n[tex64] Windows process-tree cleanup could not be verified.\n";
+        }
+        finish(resolve, {
+          code: code ?? 1,
+          signal: killReason || signal,
+          output,
+          ok: code === 0 && killReason === null && !cleanupFailed,
+          aborted: killReason === "aborted" || options.signal?.aborted === true,
+          cleanupFailed,
+        });
+      };
+      if (process.platform === "win32" && terminationPromise) {
+        void Promise.resolve(terminationPromise).then(
+          settle,
+          () => settle(false),
+        );
+        return;
+      }
+      if (process.platform === "win32") {
+        settle(getOwnedProcessCompletion(child)?.cleanupOk === true);
+        return;
+      }
+      settle();
     });
   });
 
@@ -822,6 +919,7 @@ class EnvService {
     const result = await runCommand(tlmgr, args, {
       timeoutMs: options.timeoutMs || this.installTimeoutMs(),
       extendPath: true,
+      signal: options.signal,
       env: {
         TEXLIVE_INSTALL_ENV_NOCHECK: "1",
       },
@@ -845,14 +943,19 @@ class EnvService {
     );
   }
 
-  async findManagedPackageForFile(fileName) {
+  async findManagedPackageForFile(fileName, options = {}) {
     if (!SAFE_TEX_FILE.test(String(fileName || ""))) {
       return null;
     }
     const result = await this.runTlmgr(
       ["search", "--global", "--file", `/${fileName}`],
-      { allowFailure: true, timeoutMs: 2 * 60 * 1000 }
+      { allowFailure: true, timeoutMs: 2 * 60 * 1000, signal: options.signal }
     );
+    if (result.aborted) {
+      const error = new Error("TeX package recovery was aborted.");
+      error.name = "AbortError";
+      throw error;
+    }
     if (!result.ok) {
       return null;
     }
@@ -872,7 +975,14 @@ class EnvService {
         : []
     );
     for (const fileName of files) {
-      const packageName = await this.findManagedPackageForFile(fileName);
+      if (options.signal?.aborted) {
+        const error = new Error("TeX package recovery was aborted.");
+        error.name = "AbortError";
+        throw error;
+      }
+      const packageName = await this.findManagedPackageForFile(fileName, {
+        signal: options.signal,
+      });
       const key = String(packageName || "").toLowerCase();
       if (!packageName || seen.has(key) || excluded.has(key)) {
         continue;
@@ -889,7 +999,13 @@ class EnvService {
     const result = await this.runTlmgr(["install", ...packages], {
       allowFailure: true,
       timeoutMs: this.installTimeoutMs(),
+      signal: options.signal,
     });
+    if (result.aborted) {
+      const error = new Error("TeX package recovery was aborted.");
+      error.name = "AbortError";
+      throw error;
+    }
     this.detectCache = null;
     return {
       attempted: true,

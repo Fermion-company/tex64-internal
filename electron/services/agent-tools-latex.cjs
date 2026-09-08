@@ -53,6 +53,8 @@ const HEADING_PATTERN = (() => {
 
 const ABSTRACT_BEGIN_PATTERN = /^\s*\\begin\{abstract\}/;
 const ABSTRACT_END_PATTERN = /^\s*\\end\{abstract\}/;
+const TRAILER_PATTERN =
+  /^\s*\\(?:bibliographystyle|bibliography|printbibliography|appendix|backmatter)\b/;
 const DOC_BEGIN_PATTERN = /^\s*\\begin\{document\}/;
 const DOC_END_PATTERN = /^\s*\\end\{document\}/;
 
@@ -148,7 +150,13 @@ const parseLatexStructure = (content) => {
 
   // Compute endLine for each heading: it's the line before the next heading
   // at equal or higher rank (lower numeric level), or \end{document}, or EOF.
+  // The bibliography commands and \appendix that follow the last section
+  // are not part of its body either: a body replacement keeps them.
   const hardEnd = docEndLine !== null ? docEndLine - 1 : total;
+  const trailerLines = [];
+  for (let i = 0; i < total; i += 1) {
+    if (TRAILER_PATTERN.test(lines[i])) trailerLines.push(i + 1);
+  }
   for (let idx = 0; idx < headingHits.length; idx += 1) {
     const cur = headingHits[idx];
     let end = hardEnd;
@@ -158,6 +166,8 @@ const parseLatexStructure = (content) => {
         break;
       }
     }
+    const trailer = trailerLines.find((line) => line > cur.headerLine && line <= end);
+    if (trailer) end = trailer - 1;
     nodes.push({
       id: 0,
       type: cur.type,
@@ -326,6 +336,7 @@ const handleReplaceSection = async (service, args, policy, conversationId) => {
         ? args.summary
         : `Replace ${node.type} "${node.title}"`,
     allowFullRewrite: args?.allowFullRewrite === true,
+    allowStructuralRemoval: args?.allowStructuralRemoval === true,
     proposalType: "patch",
   });
 };
@@ -392,20 +403,21 @@ const handleAppendToSection = async (service, args, policy, conversationId) => {
   if (!appendText) return { error: "content is empty — nothing to append." };
   const newline = read.content.includes("\r\n") ? "\r\n" : "\n";
   const originalLines = read.content.replace(/\r\n/g, "\n").split("\n");
-  // Insert right after the current endLine of the section body
-  const afterLine = Math.max(node.headerLine, node.endLine);
+  // Insert after the last line of the body that has text, so the blank
+  // lines that separate the section from what follows stay where they are.
+  let afterLine = Math.max(node.headerLine, node.endLine);
+  while (afterLine > node.headerLine && originalLines[afterLine - 1].trim() === "") afterLine -= 1;
   const normalizedAppend = appendText.replace(/\r\n/g, "\n");
   const appendLines = normalizedAppend.split("\n");
-  if (
-    appendLines.length > 0 &&
-    appendLines[appendLines.length - 1] === "" &&
-    normalizedAppend.endsWith("\n")
-  ) {
-    appendLines.pop();
-  }
+  while (appendLines.length > 0 && appendLines[0].trim() === "") appendLines.shift();
+  while (appendLines.length > 0 && appendLines[appendLines.length - 1].trim() === "") appendLines.pop();
+  if (appendLines.length === 0) return { error: "content is empty — nothing to append." };
+  // A paragraph break before the new text, unless it continues a line.
+  const previousLine = originalLines[afterLine - 1] ?? "";
+  const insertLines = previousLine.trim() !== "" && afterLine > node.headerLine ? ["", ...appendLines] : appendLines;
   const updatedLines = [
     ...originalLines.slice(0, afterLine),
-    ...appendLines,
+    ...insertLines,
     ...originalLines.slice(afterLine),
   ];
   let updatedContent = updatedLines.join("\n");

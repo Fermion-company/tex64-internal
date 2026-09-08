@@ -1,19 +1,93 @@
 import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isTextFilePath, } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
+import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
+    const contentConflicts = new Map();
+    let reopenNextContentConflict = () => { };
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
     const reportSaveError = (message) => {
         lastSaveErrorMessage = message;
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    };
+    const clearOwnSaveError = () => {
+        var _a;
+        if (lastSaveErrorMessage === null)
+            return;
+        const snapshot = (_a = deps.getRecentIssuesSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps);
+        const stillOurs = !snapshot ||
+            (snapshot.status === "error" &&
+                snapshot.issues.length === 1 &&
+                snapshot.issues[0].message === lastSaveErrorMessage);
+        if (stillOurs)
+            deps.updateIssues(0, "", "info", []);
+        lastSaveErrorMessage = null;
+    };
+    const clearContentConflicts = () => {
+        var _a;
+        contentConflicts.clear();
+        (_a = document.getElementById("ai-content-conflict-bar")) === null || _a === void 0 ? void 0 : _a.remove();
+        clearOwnSaveError();
+    };
+    const savePathContent = (path, value, timeoutMs, expectedContent) => {
+        var _a;
+        if (timeoutMs === void 0) { timeoutMs = 8000; }
+        if (expectedContent === void 0) { expectedContent = (_a = monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.savedContent; }
+        return new Promise((resolve, reject) => {
+            var _a, _b;
+            const identity = ((_b = (_a = window.tex64History) === null || _a === void 0 ? void 0 : _a.getIdentity) === null || _b === void 0 ? void 0 : _b.call(_a)) || {};
+            const startedAt = Date.now();
+            const enqueue = () => {
+                if (state.pendingSave) {
+                    if (Date.now() - startedAt >= timeoutMs) {
+                        reject("Waiting for save timed out.");
+                        return;
+                    }
+                    window.setTimeout(enqueue, 25);
+                    return;
+                }
+                state.pendingSave = { path, content: value, resolve, reject };
+                const safetyTimer = window.setTimeout(() => {
+                    if (state.pendingSave && state.pendingSave.path === path) {
+                        console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
+                        state.pendingSave.reject("Timed out waiting for a save response.");
+                        state.pendingSave = null;
+                    }
+                }, 30000);
+                const origResolve = resolve;
+                const origReject = reject;
+                state.pendingSave.resolve = (result) => {
+                    clearTimeout(safetyTimer);
+                    origResolve(result);
+                };
+                state.pendingSave.reject = (error) => {
+                    clearTimeout(safetyTimer);
+                    origReject(error);
+                };
+                const ok = deps.postToNative({
+                    ...identity,
+                    type: "saveFile",
+                    path,
+                    content: value,
+                    ...(typeof expectedContent === "string" ? { expectedContent } : {}),
+                    format: false,
+                });
+                if (!ok) {
+                    clearTimeout(safetyTimer);
+                    state.pendingSave = null;
+                    reject("Native integration is not available.");
+                }
+            };
+            enqueue();
+        });
     };
     /**
      * Replace model content via executeEdits (preserves undo stack) when available,
      * falling back to setValue (clears undo stack) otherwise.
      */
     const replaceContentViaEdits = (editor, model, newContent, source) => {
-        var _a, _b;
+        var _a, _b, _c, _d;
         if ((editor === null || editor === void 0 ? void 0 : editor.executeEdits) && (model === null || model === void 0 ? void 0 : model.getFullModelRange)) {
             const fullRange = model.getFullModelRange();
             if (fullRange) {
@@ -22,6 +96,15 @@ export const createEditorSessionFileOps = (ctx) => {
                     { range: fullRange, text: newContent, forceMoveMarkers: true },
                 ]);
                 (_b = model.pushStackElement) === null || _b === void 0 ? void 0 : _b.call(model);
+                return;
+            }
+        }
+        if ((model === null || model === void 0 ? void 0 : model.pushEditOperations) && model.getFullModelRange) {
+            const fullRange = model.getFullModelRange();
+            if (fullRange) {
+                (_c = model.pushStackElement) === null || _c === void 0 ? void 0 : _c.call(model);
+                model.pushEditOperations([], [{ range: fullRange, text: newContent, forceMoveMarkers: true }], () => null);
+                (_d = model.pushStackElement) === null || _d === void 0 ? void 0 : _d.call(model);
                 return;
             }
         }
@@ -105,6 +188,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const entry = monacoModels.get(path);
         if (entry) {
+            trackLiveEditModel(entry.model);
             const isEntryDirty = dirtyFiles.has(path);
             if (!isEntryDirty && savedContent !== undefined && entry.savedContent !== savedContent) {
                 entry.model.setValue(content);
@@ -122,6 +206,7 @@ export const createEditorSessionFileOps = (ctx) => {
         const uri = ((_b = monacoApiAny.Uri) === null || _b === void 0 ? void 0 : _b.file) ? monacoApiAny.Uri.file(path) : undefined;
         const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
         const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri));
+        trackLiveEditModel(model);
         const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content };
         monacoModels.set(path, nextEntry);
         updateDirtyState(path, content, nextEntry.savedContent);
@@ -190,9 +275,6 @@ export const createEditorSessionFileOps = (ctx) => {
         if (isActiveGroup(group)) {
             deps.buildOps.updateSynctexButtonState();
         }
-        // Switching to a tab whose file changed on disk while it held unsaved
-        // edits must bring its notice along.
-        renderExternalChangeBar();
     };
     // Track active AI diff decorations per editor group
     const aiDiffDecorations = new Map();
@@ -210,15 +292,162 @@ export const createEditorSessionFileOps = (ctx) => {
             bar.remove();
     };
     const applyFormattedContent = (group, path, content, options) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         if (!group.editor) {
-            return;
+            return false;
         }
         const editor = group.editor;
         const entry = monacoModels.get(path);
         const currentValue = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : "";
-        const viewState = (_d = editor.saveViewState) === null || _d === void 0 ? void 0 : _d.call(editor);
-        if (currentValue !== content) {
+        const targetIsVisible = group.currentFilePath === path;
+        const viewState = targetIsVisible ? (_d = editor.saveViewState) === null || _d === void 0 ? void 0 : _d.call(editor) : undefined;
+        const fileDeleted = (options === null || options === void 0 ? void 0 : options.fileDeleted) === true;
+        // Codex edits the workspace on disk. If the user typed in the same open
+        // buffer after the agent's source snapshot, never overwrite that newer
+        // unsaved work. Updating savedContent below still records the new disk
+        // baseline, so the retained buffer stays visibly dirty and can be saved or
+        // reviewed by the user.
+        const hasConcurrentEdit = (options === null || options === void 0 ? void 0 : options.forceConflict) === true ||
+            (fileDeleted
+                ? typeof (options === null || options === void 0 ? void 0 : options.expectedContent) === "string" &&
+                    currentValue !== options.expectedContent
+                : currentValue !== content &&
+                    ((typeof (options === null || options === void 0 ? void 0 : options.expectedContent) === "string" &&
+                        currentValue !== options.expectedContent) ||
+                        (options === null || options === void 0 ? void 0 : options.expectedFileMissing) === true));
+        if (hasConcurrentEdit) {
+            const conversationId = typeof (options === null || options === void 0 ? void 0 : options.conversationId) === "string" && options.conversationId.trim()
+                ? options.conversationId.trim()
+                : null;
+            contentConflicts.set(path, {
+                diskContent: fileDeleted ? null : content,
+                conversationId,
+                externalChange: options === null || options === void 0 ? void 0 : options.externalChange,
+            });
+            const message = (options === null || options === void 0 ? void 0 : options.externalChange) ? uiText(`${path} changed outside TeX64. Your unsaved edits were kept.`, `${path} が外部で変更されました。未保存の編集は保持しています。`) : uiText(fileDeleted
+                ? `Axiom deleted ${path} while it had unsaved edits. Choose which version to keep.`
+                : `Axiom changed ${path} on disk while it had unsaved edits. Choose which version to keep.`, fileDeleted
+                ? `未保存の編集中にAxiomが ${path} を削除しました。残す内容を選んでください。`
+                : `未保存の編集中にAxiomが ${path} を変更しました。残す内容を選んでください。`);
+            reportSaveError(message);
+            if (!targetIsVisible && !fileDeleted) {
+                // Move the affected background tab into view so the two explicit
+                // resolution buttons operate in the file the user is reviewing.
+                requestOpenFile(path, group.key, true);
+            }
+            const editorDom = (_e = editor.getDomNode) === null || _e === void 0 ? void 0 : _e.call(editor);
+            const editorContainer = editorDom === null || editorDom === void 0 ? void 0 : editorDom.parentElement;
+            if (editorContainer) {
+                (_f = document.getElementById("ai-content-conflict-bar")) === null || _f === void 0 ? void 0 : _f.remove();
+                const bar = document.createElement("div");
+                bar.id = "ai-content-conflict-bar";
+                bar.className = "ai-undo-keep-bar";
+                const keepMine = document.createElement("button");
+                keepMine.className = "ai-undo-keep-btn is-undo";
+                keepMine.textContent = uiText("Keep mine", "自分の編集を残す");
+                keepMine.addEventListener("click", () => {
+                    var _a, _b, _c, _d;
+                    const conflict = contentConflicts.get(path);
+                    if (!conflict)
+                        return;
+                    const mine = (_c = (_a = entry === null || entry === void 0 ? void 0 : entry.model.getValue()) !== null && _a !== void 0 ? _a : (_b = editor.getValue) === null || _b === void 0 ? void 0 : _b.call(editor)) !== null && _c !== void 0 ? _c : currentValue;
+                    keepMine.disabled = true;
+                    useAxiom.disabled = true;
+                    void savePathContent(path, mine, 8000, conflict.diskContent === null ? null : (_d = monacoModels.get(path)) === null || _d === void 0 ? void 0 : _d.savedContent)
+                        .then((saved) => {
+                        if (!saved)
+                            throw new Error("Saving failed.");
+                        contentConflicts.delete(path);
+                        bar.remove();
+                        clearOwnSaveError();
+                        if (conflict.conversationId) {
+                            deps.postToNative({
+                                type: "agent:contentConflictResolved",
+                                conversationId: conflict.conversationId,
+                                path,
+                            });
+                        }
+                        reopenNextContentConflict();
+                    })
+                        .catch((error) => {
+                        keepMine.disabled = false;
+                        useAxiom.disabled = false;
+                        reportSaveError(error instanceof Error ? error.message : String(error));
+                    });
+                });
+                const useAxiom = document.createElement("button");
+                useAxiom.className = "ai-undo-keep-btn is-keep";
+                useAxiom.textContent =
+                    ((_g = contentConflicts.get(path)) === null || _g === void 0 ? void 0 : _g.diskContent) === null
+                        ? uiText("Keep deleted", "削除したまま")
+                        : (options === null || options === void 0 ? void 0 : options.externalChange) ? uiText("Use disk version", "ディスクの内容を使う") : uiText("Use Axiom", "Axiomを使う");
+                useAxiom.addEventListener("click", () => {
+                    const conflict = contentConflicts.get(path);
+                    if (!conflict)
+                        return;
+                    if (conflict.diskContent === null) {
+                        contentConflicts.delete(path);
+                        dirtyFiles.delete(path);
+                        bar.remove();
+                        clearOwnSaveError();
+                        deps.postToNative({ type: "requestWorkspace" });
+                        if (conflict.conversationId) {
+                            deps.postToNative({
+                                type: "agent:contentConflictResolved",
+                                conversationId: conflict.conversationId,
+                                path,
+                            });
+                        }
+                        reopenNextContentConflict();
+                        return;
+                    }
+                    keepMine.disabled = true;
+                    useAxiom.disabled = true;
+                    void savePathContent(path, conflict.diskContent)
+                        .then((saved) => {
+                        var _a;
+                        if (!saved)
+                            throw new Error("Saving failed.");
+                        contentConflicts.delete(path);
+                        group.isApplyingFile = true;
+                        replaceContentViaEdits(group.currentFilePath === path ? editor : null, (_a = entry === null || entry === void 0 ? void 0 : entry.model) !== null && _a !== void 0 ? _a : null, conflict.diskContent, "ai-conflict");
+                        group.isApplyingFile = false;
+                        if (entry)
+                            entry.savedContent = conflict.diskContent;
+                        if (group.currentFilePath === path) {
+                            group.currentFileSavedContent = conflict.diskContent;
+                        }
+                        updateDirtyState(path, conflict.diskContent, conflict.diskContent);
+                        bar.remove();
+                        clearOwnSaveError();
+                        if (conflict.conversationId) {
+                            deps.postToNative({
+                                type: "agent:contentConflictResolved",
+                                conversationId: conflict.conversationId,
+                                path,
+                            });
+                        }
+                        reopenNextContentConflict();
+                        if (isActiveGroup(group)) {
+                            updateBreadcrumbs();
+                            deps.fileTree.render();
+                        }
+                    })
+                        .catch((error) => {
+                        keepMine.disabled = false;
+                        useAxiom.disabled = false;
+                        reportSaveError(error instanceof Error ? error.message : String(error));
+                    });
+                });
+                bar.append(keepMine, useAxiom);
+                editorContainer.appendChild(bar);
+            }
+        }
+        if (fileDeleted) {
+            updateDirtyState(path, currentValue, (_h = entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _h !== void 0 ? _h : currentValue);
+            return hasConcurrentEdit;
+        }
+        if (!hasConcurrentEdit && currentValue !== content) {
             // Compute changed line numbers BEFORE replacing (for diff decorations).
             // Use LCS-based diff so that only truly added/modified lines are marked,
             // not lines that merely shifted position due to an insertion above.
@@ -238,13 +467,16 @@ export const createEditorSessionFileOps = (ctx) => {
                 }
             }
             group.isApplyingFile = true;
-            replaceContentViaEdits(editor, (_e = entry === null || entry === void 0 ? void 0 : entry.model) !== null && _e !== void 0 ? _e : null, content, (options === null || options === void 0 ? void 0 : options.showAiDiff) ? "ai-apply" : "format-on-save");
+            replaceContentViaEdits(targetIsVisible ? editor : null, (_j = entry === null || entry === void 0 ? void 0 : entry.model) !== null && _j !== void 0 ? _j : null, content, (options === null || options === void 0 ? void 0 : options.showAiDiff) ? "ai-apply" : "format-on-save");
             group.isApplyingFile = false;
-            if (viewState && editor.restoreViewState) {
+            if (targetIsVisible && viewState && editor.restoreViewState) {
                 editor.restoreViewState(viewState);
             }
             // Add AI diff decorations
-            if ((options === null || options === void 0 ? void 0 : options.showAiDiff) && changedLineNumbers.length > 0 && editor.deltaDecorations) {
+            if (targetIsVisible &&
+                (options === null || options === void 0 ? void 0 : options.showAiDiff) &&
+                changedLineNumbers.length > 0 &&
+                editor.deltaDecorations) {
                 clearAiDiffDecorations(group);
                 const decorations = changedLineNumbers.map((lineNumber) => ({
                     range: { startLineNumber: lineNumber, startColumn: 1, endLineNumber: lineNumber, endColumn: 1 },
@@ -256,47 +488,8 @@ export const createEditorSessionFileOps = (ctx) => {
                 }));
                 const ids = editor.deltaDecorations([], decorations);
                 aiDiffDecorations.set(group.key, ids);
-                // Review bar for an edit that has ALREADY been written to disk (both
-                // the Axiom and Codex paths apply directly, and a build may have run
-                // on it). So this is an after-the-fact review, not an approval gate:
-                // "Done" just dismisses the diff, and "Undo" has to put the reverted
-                // text back on disk too — otherwise the buffer and the file silently
-                // disagree until the next save.
-                const editorDom = (_f = editor.getDomNode) === null || _f === void 0 ? void 0 : _f.call(editor);
-                const editorContainer = editorDom === null || editorDom === void 0 ? void 0 : editorDom.parentElement;
-                if (editorContainer) {
-                    const existing = document.getElementById("ai-undo-keep-bar");
-                    if (existing)
-                        existing.remove();
-                    const bar = document.createElement("div");
-                    bar.id = "ai-undo-keep-bar";
-                    bar.className = "ai-undo-keep-bar";
-                    const undoBtn = document.createElement("button");
-                    undoBtn.className = "ai-undo-keep-btn is-undo";
-                    undoBtn.textContent = uiText("Undo", "元に戻す");
-                    undoBtn.title = uiText("Revert the change and save the file.", "変更を取り消してファイルを保存します。");
-                    undoBtn.addEventListener("click", () => {
-                        var _a;
-                        // Use Monaco's undo — the AI edit is on the undo stack
-                        const editorTrigger = group.editor;
-                        (_a = editorTrigger === null || editorTrigger === void 0 ? void 0 : editorTrigger.trigger) === null || _a === void 0 ? void 0 : _a.call(editorTrigger, "ai-undo-bar", "undo", null);
-                        clearAiDiffDecorations(group);
-                        if (isActiveGroup(group) && group.currentFilePath === path) {
-                            void saveCurrentFile().catch(() => {
-                                /* the save error is surfaced by the save path itself */
-                            });
-                        }
-                    });
-                    const keepBtn = document.createElement("button");
-                    keepBtn.className = "ai-undo-keep-btn is-keep";
-                    keepBtn.textContent = uiText("Done", "完了");
-                    keepBtn.title = uiText("Close the diff. The change is already saved.", "差分表示を閉じます。変更はすでに保存済みです。");
-                    keepBtn.addEventListener("click", () => {
-                        clearAiDiffDecorations(group);
-                    });
-                    bar.append(undoBtn, keepBtn);
-                    editorContainer.appendChild(bar);
-                }
+                // The edit is already on disk and the chat card carries "元に戻す";
+                // the editor only marks the changed lines until the next edit.
                 // Auto-clear on next content change (user edit, undo, redo)
                 if (editor.onDidChangeModelContent) {
                     const disposable = editor.onDidChangeModelContent(() => {
@@ -314,14 +507,32 @@ export const createEditorSessionFileOps = (ctx) => {
                 group.currentFileSavedContent = content;
             }
         }
-        const savedContent = (_h = (_g = (group.currentFilePath === path
+        const savedContent = (_l = (_k = (group.currentFilePath === path
             ? group.currentFileSavedContent
-            : entry === null || entry === void 0 ? void 0 : entry.savedContent)) !== null && _g !== void 0 ? _g : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _h !== void 0 ? _h : content;
-        updateDirtyState(path, content, savedContent);
+            : entry === null || entry === void 0 ? void 0 : entry.savedContent)) !== null && _k !== void 0 ? _k : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _l !== void 0 ? _l : content;
+        updateDirtyState(path, hasConcurrentEdit ? currentValue : content, savedContent);
         if (isActiveGroup(group)) {
             updateBreadcrumbs();
             deps.fileTree.render();
         }
+        return hasConcurrentEdit;
+    };
+    reopenNextContentConflict = () => {
+        var _a, _b;
+        const next = contentConflicts.entries().next();
+        if (next.done)
+            return;
+        const [nextPath, conflict] = next.value;
+        const groupKey = findGroupKeyByPath(nextPath);
+        if (!groupKey)
+            return;
+        applyFormattedContent(getEditorGroup(groupKey), nextPath, (_a = conflict.diskContent) !== null && _a !== void 0 ? _a : "", {
+            updateSaved: conflict.diskContent !== null,
+            fileDeleted: conflict.diskContent === null,
+            conversationId: (_b = conflict.conversationId) !== null && _b !== void 0 ? _b : undefined,
+            forceConflict: true,
+            externalChange: conflict.externalChange,
+        });
     };
     const requestOpenFile = (path, groupKey, force = false) => {
         const preferredGroupHasPath = !force
@@ -359,6 +570,24 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         return ok;
     };
+    const requestOpenFileInBackground = (path, groupKey) => {
+        if (monacoModels.has(path))
+            return false;
+        if (state.pendingOpenRequests.some((entry) => entry.path === path))
+            return true;
+        const requestEntry = { path, group: groupKey, background: true };
+        state.pendingOpenRequests.push(requestEntry);
+        const ok = deps.postToNative({ type: "openFile", path });
+        if (!ok) {
+            const index = state.pendingOpenRequests.indexOf(requestEntry);
+            if (index >= 0)
+                state.pendingOpenRequests.splice(index, 1);
+            deps.updateIssues(1, "Unable to open file.", "error", [
+                { severity: "error", message: "Unable to open file." },
+            ]);
+        }
+        return ok;
+    };
     const saveCurrentFileInternal = () => {
         const activeGroup = getActiveGroup();
         const activePath = activeGroup.currentFilePath;
@@ -371,47 +600,10 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const editor = activeGroup.editor;
         const content = editor.getValue();
-        const savePathContent = (path, value, timeoutMs = 8000) => new Promise((resolve, reject) => {
-            const startedAt = Date.now();
-            const enqueue = () => {
-                if (state.pendingSave) {
-                    if (Date.now() - startedAt >= timeoutMs) {
-                        reject("Waiting for save timed out.");
-                        return;
-                    }
-                    window.setTimeout(enqueue, 25);
-                    return;
-                }
-                state.pendingSave = { path, content: value, resolve, reject };
-                // Safety timeout: if the native side never responds, release the lock so
-                // subsequent saves are not blocked indefinitely.
-                const safetyTimer = window.setTimeout(() => {
-                    if (state.pendingSave && state.pendingSave.path === path) {
-                        console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
-                        state.pendingSave.reject("Timed out waiting for a save response.");
-                        state.pendingSave = null;
-                    }
-                }, 30000);
-                const origResolve = resolve;
-                const origReject = reject;
-                const wrappedResolve = (v) => { clearTimeout(safetyTimer); origResolve(v); };
-                const wrappedReject = (e) => { clearTimeout(safetyTimer); origReject(e); };
-                state.pendingSave.resolve = wrappedResolve;
-                state.pendingSave.reject = wrappedReject;
-                const ok = deps.postToNative({
-                    type: "saveFile",
-                    path,
-                    content: value,
-                    format: false,
-                });
-                if (!ok) {
-                    clearTimeout(safetyTimer);
-                    state.pendingSave = null;
-                    reject("Native integration is not available.");
-                }
-            };
-            enqueue();
-        });
+        if (contentConflicts.has(activePath)) {
+            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
+            return Promise.resolve(false);
+        }
         return savePathContent(activePath, content);
     };
     const saveCurrentFile = () => {
@@ -429,6 +621,10 @@ export const createEditorSessionFileOps = (ctx) => {
         const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
         if (dirtyPaths.length === 0) {
             return true;
+        }
+        if (dirtyPaths.some((path) => contentConflicts.has(path))) {
+            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
+            return false;
         }
         const activePath = getActiveGroup().currentFilePath;
         const ordered = dirtyPaths.slice().sort((a, b) => {
@@ -472,43 +668,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 return false;
             }
             try {
-                await new Promise((resolve, reject) => {
-                    const startedAt = Date.now();
-                    const enqueue = () => {
-                        if (state.pendingSave) {
-                            if (Date.now() - startedAt >= 8000) {
-                                reject("Waiting for save timed out.");
-                                return;
-                            }
-                            window.setTimeout(enqueue, 25);
-                            return;
-                        }
-                        state.pendingSave = { path, content, resolve, reject };
-                        const safetyTimer = window.setTimeout(() => {
-                            if (state.pendingSave && state.pendingSave.path === path) {
-                                console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
-                                state.pendingSave.reject("Timed out waiting for a save response.");
-                                state.pendingSave = null;
-                            }
-                        }, 30000);
-                        const origResolve2 = resolve;
-                        const origReject2 = reject;
-                        state.pendingSave.resolve = (v) => { clearTimeout(safetyTimer); origResolve2(v); };
-                        state.pendingSave.reject = (e) => { clearTimeout(safetyTimer); origReject2(e); };
-                        const ok = deps.postToNative({
-                            type: "saveFile",
-                            path,
-                            content,
-                            format: false,
-                        });
-                        if (!ok) {
-                            clearTimeout(safetyTimer);
-                            state.pendingSave = null;
-                            reject("Native integration is not available.");
-                        }
-                    };
-                    enqueue();
-                });
+                await savePathContent(path, content);
             }
             catch (error) {
                 const message = error instanceof Error ? error.message : "Saving failed.";
@@ -548,7 +708,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }, 400);
     };
     const handleOpenFileResult = (payload) => {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         // Handle non-file-open message types before consuming pending requests.
         const type = payload.type;
         if (type === "searchResult") {
@@ -568,16 +728,17 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         const pendingIndex = state.pendingOpenRequests.findIndex((entry) => entry.path === payload.path);
-        let targetGroupKey = pendingIndex >= 0
-            ? state.pendingOpenRequests.splice(pendingIndex, 1)[0].group
-            : getActiveEditorGroupKey();
+        const pendingEntry = pendingIndex >= 0
+            ? state.pendingOpenRequests.splice(pendingIndex, 1)[0]
+            : null;
+        let targetGroupKey = (_a = pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.group) !== null && _a !== void 0 ? _a : getActiveEditorGroupKey();
         if (!payload.path) {
             return;
         }
         const path = payload.path;
         const kind = payload.kind === "text" && !isTextFilePath(path)
             ? "unsupported"
-            : (_a = payload.kind) !== null && _a !== void 0 ? _a : (isPdfFilePath(path)
+            : (_b = payload.kind) !== null && _b !== void 0 ? _b : (isPdfFilePath(path)
                 ? "pdf"
                 : isImageFilePath(path)
                     ? "image"
@@ -611,6 +772,22 @@ export const createEditorSessionFileOps = (ctx) => {
             ]);
             return;
         }
+        if (pendingEntry === null || pendingEntry === void 0 ? void 0 : pendingEntry.background) {
+            if (kind !== "text") {
+                deps.updateIssues(1, "The live preview source is not editable.", "error", [
+                    { severity: "error", message: "The live preview source is not editable." },
+                ]);
+                return;
+            }
+            const entry = ensureModelEntry(path, (_c = payload.content) !== null && _c !== void 0 ? _c : "", (_d = payload.content) !== null && _d !== void 0 ? _d : "");
+            if (!entry) {
+                deps.updateFallback("Editor is not ready.");
+                return;
+            }
+            addOpenTab(targetGroup, path);
+            deps.editorTabs.render(targetGroup);
+            return;
+        }
         if (kind === "image" || kind === "pdf") {
             applyViewerFile(targetGroup, path, kind, payload.data, payload.mimeType);
             return;
@@ -619,7 +796,7 @@ export const createEditorSessionFileOps = (ctx) => {
             applyUnsupportedFile(targetGroup, path);
             return;
         }
-        const content = (_b = payload.content) !== null && _b !== void 0 ? _b : "";
+        const content = (_e = payload.content) !== null && _e !== void 0 ? _e : "";
         applyFileContent(targetGroup, path, content, content);
     };
     const handleSaveResult = (payload) => {
@@ -628,7 +805,10 @@ export const createEditorSessionFileOps = (ctx) => {
         const saveErrorMessage = (_a = payload.error) !== null && _a !== void 0 ? _a : "Saving failed.";
         if (state.pendingSave) {
             if (state.pendingSave.path === payload.path) {
-                if (payload.ok) {
+                if (payload.busy) {
+                    state.pendingSave.resolve(false);
+                }
+                else if (payload.ok) {
                     if (payload.content) {
                         state.pendingSave.content = payload.content;
                     }
@@ -645,6 +825,10 @@ export const createEditorSessionFileOps = (ctx) => {
                 // Log and leave pendingSave intact so the correct result can still arrive.
                 console.warn(`[file-ops] handleSaveResult path mismatch: expected "${state.pendingSave.path}", got "${payload.path}"`);
             }
+        }
+        if (payload.busy) {
+            scheduleAutoSave();
+            return;
         }
         if (!payload.ok) {
             reportSaveError(saveErrorMessage);
@@ -719,156 +903,15 @@ export const createEditorSessionFileOps = (ctx) => {
             }
         });
     };
-    // --- External changes -------------------------------------------------
-    //
-    // The main process watches the workspace and reports files that changed on
-    // disk. A buffer with no unsaved edits is refreshed in place — cursor,
-    // selection and scroll survive, because the new text is applied as an edit
-    // rather than a setValue. A buffer with unsaved edits is never overwritten;
-    // it gets a bar offering the choice.
-    const EXTERNAL_BAR_ID = "external-change-bar";
-    const externallyChangedDirtyPaths = new Set();
-    const isPathOpen = (path) => {
-        let open = false;
-        forEachEditorGroup((group) => {
-            if (group.currentFilePath === path || group.openTabs.includes(path)) {
-                open = true;
-            }
-        });
-        return open;
-    };
-    const removeExternalChangeBar = () => {
-        var _a;
-        (_a = document.getElementById(EXTERNAL_BAR_ID)) === null || _a === void 0 ? void 0 : _a.remove();
-    };
-    const renderExternalChangeBar = () => {
-        removeExternalChangeBar();
-        const activePath = getActiveGroup().currentFilePath;
-        if (!activePath || !externallyChangedDirtyPaths.has(activePath)) {
-            return;
-        }
-        const host = getActiveGroup().editor
-            ? document.querySelector(`[data-editor-group="${getActiveGroup().key}"]`)
-            : null;
-        if (!host) {
-            return;
-        }
-        const bar = document.createElement("div");
-        bar.id = EXTERNAL_BAR_ID;
-        bar.className = "external-change-bar";
-        const text = document.createElement("span");
-        text.className = "external-change-bar-text";
-        text.textContent = uiText(`${activePath} changed on disk, and this tab has unsaved edits.`, `${activePath} がディスク上で変更されました。このタブには未保存の編集があります。`);
-        const reload = document.createElement("button");
-        reload.type = "button";
-        reload.className = "external-change-bar-action";
-        reload.textContent = uiText("Reload from disk", "ディスクから読み込む");
-        reload.addEventListener("click", () => {
-            externallyChangedDirtyPaths.delete(activePath);
-            dirtyFiles.delete(activePath);
-            requestExternalReload(activePath);
-            renderExternalChangeBar();
-        });
-        const keep = document.createElement("button");
-        keep.type = "button";
-        keep.className = "external-change-bar-action is-secondary";
-        keep.textContent = uiText("Keep my version", "自分の編集を残す");
-        keep.addEventListener("click", () => {
-            externallyChangedDirtyPaths.delete(activePath);
-            renderExternalChangeBar();
-        });
-        bar.append(text, reload, keep);
-        host.appendChild(bar);
-    };
-    const requestExternalReload = (path) => {
-        deps.postToNative({ type: "reloadFile", path }, true);
-    };
-    const handleExternalChanges = (changes) => {
-        if (!Array.isArray(changes)) {
-            return;
-        }
-        let barNeedsUpdate = false;
-        for (const change of changes) {
-            const path = typeof (change === null || change === void 0 ? void 0 : change.path) === "string" ? change.path : "";
-            if (!path || !isPathOpen(path)) {
-                continue;
-            }
-            if (change.kind === "removed") {
-                // The file is gone but its buffer still holds the text; treating it as
-                // unsaved work keeps it recoverable with a save.
-                dirtyFiles.add(path);
-                forEachEditorGroup((group) => {
-                    if (group.currentFilePath === path) {
-                        group.isDirty = true;
-                    }
-                    if (group.openTabs.includes(path)) {
-                        deps.editorTabs.render(group);
-                    }
-                });
-                continue;
-            }
-            if (change.kind !== "changed") {
-                continue;
-            }
-            if (dirtyFiles.has(path)) {
-                externallyChangedDirtyPaths.add(path);
-                barNeedsUpdate = true;
-                continue;
-            }
-            requestExternalReload(path);
-        }
-        if (barNeedsUpdate) {
-            renderExternalChangeBar();
-        }
-    };
-    // The reply to requestExternalReload. Applying the text as a model edit (not
-    // setValue) is what keeps the caret where the writer left it.
-    const handleFileReloaded = (payload) => {
-        var _a;
-        const path = typeof (payload === null || payload === void 0 ? void 0 : payload.path) === "string" ? payload.path : "";
-        if (!path || typeof (payload === null || payload === void 0 ? void 0 : payload.content) !== "string" || payload.error) {
-            return;
-        }
-        const entry = monacoModels.get(path);
-        if (!entry) {
-            return;
-        }
-        const model = entry.model;
-        if (model.getValue() === payload.content) {
-            entry.savedContent = payload.content;
-            return;
-        }
-        const range = (_a = model.getFullModelRange) === null || _a === void 0 ? void 0 : _a.call(model);
-        if (range && model.pushEditOperations) {
-            model.pushEditOperations([], [{ range, text: payload.content }], () => null);
-        }
-        else {
-            model.setValue(payload.content);
-        }
-        entry.savedContent = payload.content;
-        externallyChangedDirtyPaths.delete(path);
-        updateDirtyState(path, payload.content, payload.content);
-        forEachEditorGroup((group) => {
-            if (group.currentFilePath === path) {
-                group.currentFileSavedContent = payload.content;
-                group.isDirty = false;
-            }
-            if (group.openTabs.includes(path)) {
-                deps.editorTabs.render(group);
-            }
-        });
-        renderExternalChangeBar();
-    };
     return {
         applyFormattedContent,
         requestOpenFile,
+        requestOpenFileInBackground,
         saveCurrentFile,
         saveDirtyFiles,
         scheduleAutoSave,
         handleOpenFileResult,
         handleSaveResult,
-        handleExternalChanges,
-        handleFileReloaded,
-        renderExternalChangeBar,
+        clearContentConflicts,
     };
 };

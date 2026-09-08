@@ -32,8 +32,7 @@ type FileTreeDeps = {
   isAnyGroupComposing: () => boolean;
   postToNative: (payload: { type: string; [key: string]: unknown }) => boolean;
   getDirtyPaths: () => Set<string>;
-  /** Opens the built-in terminal in a workspace folder ("" = workspace root). */
-  openIntegratedTerminal: (folderPath: string) => void;
+  openTerminal?: (directory: string) => void;
 };
 
 export type FileTreeUiApi = {
@@ -85,6 +84,7 @@ export const initFileTreeUi = (
   let selectedTreeType: "file" | "dir" | null = null;
   let treeHasFocus = false;
   let createModalKind: CreateKind | null = null;
+  let createBasePath = "";
   let renameTargetPath: string | null = null;
   let renameTargetType: "file" | "dir" | null = null;
   let deleteTargetPath: string | null = null;
@@ -156,15 +156,6 @@ export const initFileTreeUi = (
       .forEach((summary) => summary.classList.remove("is-selected"));
   };
 
-  // Right-clicking the empty space below the tree targets the workspace root,
-  // so the previous file/folder selection must stop steering "New file..." and
-  // "Paste".
-  const clearTreeSelection = () => {
-    clearFolderSelection();
-    selectedTreePath = null;
-    selectedTreeType = null;
-  };
-
   const setTreeFocus = (value: boolean) => {
     treeHasFocus = value;
     if (fileTree instanceof HTMLElement) {
@@ -186,8 +177,8 @@ export const initFileTreeUi = (
   };
 
   const resolveCreateBasePath = () => {
-    if (selectedTreeType === "dir" && selectedTreePath) {
-      return selectedTreePath;
+    if (selectedTreeType === "dir") {
+      return selectedTreePath ?? "";
     }
     if (selectedTreeType === "file" && selectedTreePath) {
       return getParentPath(selectedTreePath);
@@ -200,8 +191,8 @@ export const initFileTreeUi = (
   };
 
   const resolvePasteTarget = () => {
-    if (selectedTreeType === "dir" && selectedTreePath) {
-      return selectedTreePath;
+    if (selectedTreeType === "dir") {
+      return selectedTreePath ?? "";
     }
     if (selectedTreeType === "file" && selectedTreePath) {
       return getParentPath(selectedTreePath);
@@ -235,6 +226,7 @@ export const initFileTreeUi = (
     }
     createModalKind = kind;
     const basePath = resolveCreateBasePath();
+    createBasePath = basePath;
     setText(createModalTitle, kind === "file" ? uiText("Create New File", "create new file") : uiText("Create New Folder", "Create new folder"));
     setText(createModalSubtitle, "");
     setText(createModalParent, basePath ? basePath : uiText("Workspace root", "Directly below the workspace"));
@@ -284,8 +276,7 @@ export const initFileTreeUi = (
     if (createModalKind === "folder") {
       value = value.replace(/\/+$/, "");
     }
-    const basePath = resolveCreateBasePath();
-    const fullPath = basePath ? `${basePath}/${value}` : value;
+    const fullPath = createBasePath ? `${createBasePath}/${value}` : value;
     const error = validatePath(fullPath, createModalKind === "file" ? "file" : "folder");
     if (error) {
       setCreateModalHelp(error, true);
@@ -411,18 +402,14 @@ export const initFileTreeUi = (
     closeRenameModal();
   };
 
-  // The system Terminal.app stays available, but the built-in one is what most
-  // people want when they are already in the editor.
-  const requestIntegratedTerminal = (path: string) => {
-    deps.openIntegratedTerminal(path);
-  };
-
   const requestRevealInFinder = (path: string) => {
     deps.postToNative({ type: "revealInFinder", path });
   };
 
   const requestOpenInTerminal = (path: string) => {
-    deps.postToNative({ type: "openInTerminal", path });
+    if (deps.openTerminal) {
+      deps.openTerminal(!path || deps.getWorkspaceFolders().includes(path) ? path : getParentPath(path));
+    } else deps.postToNative({ type: "openInTerminal", path });
   };
 
   const setDeleteModalOpen = (open: boolean) => {
@@ -588,12 +575,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("Open in built-in terminal", "内蔵ターミナルで開く"),
-      action: () => requestIntegratedTerminal(path),
-    },
-    {
-      type: "action",
-      label: uiText("Open in system terminal", "システムのターミナルで開く"),
+      label: uiText("Open in terminal", "open in terminal"),
       action: () => requestOpenInTerminal(path),
     },
     { type: "separator" },
@@ -654,12 +636,7 @@ export const initFileTreeUi = (
     },
     {
       type: "action",
-      label: uiText("Open in built-in terminal", "内蔵ターミナルで開く"),
-      action: () => requestIntegratedTerminal(path),
-    },
-    {
-      type: "action",
-      label: uiText("Open in system terminal", "システムのターミナルで開く"),
+      label: uiText("Open in terminal", "open in terminal"),
       action: () => requestOpenInTerminal(path),
     },
     { type: "separator" },
@@ -691,68 +668,6 @@ export const initFileTreeUi = (
       label: uiText("Delete", "削除"),
       danger: true,
       action: () => requestDeleteItem(path, "dir"),
-    },
-  ];
-
-  // The blank area under the last row is the natural place to ask for something
-  // at the top level of the project: before this, right-clicking there did
-  // nothing and the only way to create a top-level folder was to right-click an
-  // unrelated sibling.
-  const buildRootContextMenu = (): ContextMenuItem[] => [
-    {
-      type: "action",
-      label: uiText("New file...", "新しいファイル..."),
-      action: () => {
-        clearTreeSelection();
-        requestCreate("file");
-      },
-    },
-    {
-      type: "action",
-      label: uiText("New folder...", "新しいフォルダー..."),
-      action: () => {
-        clearTreeSelection();
-        requestCreate("folder");
-      },
-    },
-    { type: "separator" },
-    {
-      type: "action",
-      label: uiText("Paste", "貼り付け"),
-      enabled: Boolean(fileClipboard),
-      action: () => {
-        clearTreeSelection();
-        pasteClipboard();
-      },
-    },
-    { type: "separator" },
-    {
-      type: "action",
-      label: uiText("Show in Finder", "Finderで表示"),
-      enabled: Boolean(deps.getWorkspaceRootKey()),
-      action: () => requestRevealInFinder(""),
-    },
-    {
-      type: "action",
-      label: uiText("Open in built-in terminal", "内蔵ターミナルで開く"),
-      enabled: Boolean(deps.getWorkspaceRootKey()),
-      action: () => requestIntegratedTerminal(""),
-    },
-    {
-      type: "action",
-      label: uiText("Open in system terminal", "システムのターミナルで開く"),
-      enabled: Boolean(deps.getWorkspaceRootKey()),
-      action: () => requestOpenInTerminal(""),
-    },
-    {
-      type: "action",
-      label: uiText("Copy workspace path", "ワークスペースのパスをコピー"),
-      enabled: Boolean(deps.getWorkspaceRootKey()),
-      action: () => {
-        const root = deps.getWorkspaceRootKey();
-        if (!root) return;
-        navigator.clipboard.writeText(root).then(() => {}, () => {});
-      },
     },
   ];
 
@@ -799,8 +714,6 @@ export const initFileTreeUi = (
       toggleFolderOpen,
       buildFileContextMenu,
       buildFolderContextMenu,
-      buildRootContextMenu,
-      clearTreeSelection,
       requestMoveItem,
       getDragPayload,
       setDragPayload,
@@ -928,16 +841,21 @@ export const initFileTreeUi = (
   if (fileTree instanceof HTMLElement) {
     fileTree.addEventListener("contextmenu", (event) => {
       event.preventDefault();
-      const target = event.target as HTMLElement | null;
-      // Rows carry their own menus and stop here via their own handlers; this
-      // only fires for the background around and below them.
-      if (target && target.closest(".file-item, summary")) {
-        return;
-      }
-      clearTreeSelection();
+      if ((event.target as HTMLElement)?.closest(".file-item, summary")) return;
+      if (!deps.getWorkspaceRootKey()) return;
+      clearFolderSelection();
+      setSelection("", "dir");
       setTreeFocus(true);
-      deps.contextMenu.open(event.clientX, event.clientY, buildRootContextMenu());
+      deps.contextMenu.open(event.clientX, event.clientY, [
+        ...buildFolderContextMenu("").slice(0, 4),
+        { type: "separator" },
+        { type: "action", label: uiText("Paste", "貼り付け"), enabled: Boolean(fileClipboard), action: () => pasteClipboard() },
+      ]);
     });
+    fileTree.addEventListener("mousemove", (event) => {
+      fileTree.classList.toggle("is-root-hover", !(event.target as HTMLElement)?.closest(".file-item, summary"));
+    });
+    fileTree.addEventListener("mouseleave", () => fileTree.classList.remove("is-root-hover"));
     fileTree.addEventListener("mousedown", () => {
       setTreeFocus(true);
     });

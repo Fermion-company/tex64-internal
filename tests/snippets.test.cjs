@@ -1,0 +1,24 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { SnippetStore } = require("../electron/services/snippets.cjs");
+test("snippet CRUD preserves tabstops, persists and rejects stale or duplicate updates", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "tex64-snippets-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new SnippetStore(directory);
+  const item = { name: "Equation", prefix: "eqn", body: "\\begin{equation}\n${1:x} = ${2:y}\n\\end{equation}$0" };
+  const first = await store.change("save", { revision: 0, item });
+  assert.equal(first.items[0].body, item.body);
+  assert.deepEqual(await new SnippetStore(directory).read(), first);
+  await assert.rejects(store.change("save", { revision: 0, item }), { code: "SNIPPETS_STALE" });
+  await assert.rejects(store.change("save", { revision: 1, item }), { code: "SNIPPETS_DUPLICATE" });
+  const second = await store.change("save", { revision: 1, item: { ...first.items[0], name: "Equation edited" } });
+  assert.equal(second.items[0].name, "Equation edited");
+  const deleted = await store.change("delete", { revision: 2, id: first.items[0].id });
+  assert.deepEqual(deleted.items, []);
+  await assert.rejects(store.change("save", { revision: 3, item: { ...item, prefix: "bad prefix" } }), { code: "SNIPPETS_INVALID" });
+  await assert.rejects(store.change("save", { revision: 3, item: { ...item, body: "x".repeat(65537) } }), { code: "SNIPPETS_INVALID" });
+  assert.equal((await store.read()).revision, 3);
+});

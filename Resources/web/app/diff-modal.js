@@ -1,11 +1,57 @@
 import { buildLineDiff } from "./diff.js";
 export const initDiffModal = (context, deps) => {
-    var _a;
-    const { diffModal, diffTitle, diffModalSubmit, blockDiffContainer, diffSummary, diffFileName } = context.dom;
+    var _a, _b;
+    const { diffModal, diffTitle, diffModalSubmit, diffModalCancel, blockDiffContainer, diffSummary, diffFileName } = context.dom;
+    let returnFocus = null;
+    if (diffModal instanceof HTMLElement && !diffModal.classList.contains("is-open"))
+        diffModal.inert = true;
+    const openModal = () => {
+        if (!(diffModal instanceof HTMLElement))
+            return;
+        if (!diffModal.classList.contains("is-open")) {
+            returnFocus = document.activeElement instanceof HTMLElement && !diffModal.contains(document.activeElement)
+                ? document.activeElement : null;
+        }
+        diffModal.inert = false;
+        diffModal.setAttribute("aria-hidden", "false");
+        diffModal.classList.add("is-open");
+    };
+    const restoreFocus = () => {
+        const target = returnFocus;
+        returnFocus = null;
+        if ((target === null || target === void 0 ? void 0 : target.isConnected) && target.getClientRects().length &&
+            !target.closest('[inert], [hidden], [aria-hidden="true"]') && !target.matches(":disabled")) {
+            target.focus({ preventScroll: true });
+            if (document.activeElement === target)
+                return;
+        }
+        // History can rerender the button that opened the comparison. Give the
+        // document a valid focus destination without adding a permanent Tab stop.
+        const previousTabIndex = document.body.getAttribute("tabindex");
+        document.body.tabIndex = -1;
+        document.body.focus({ preventScroll: true });
+        if (previousTabIndex === null)
+            document.body.removeAttribute("tabindex");
+        else
+            document.body.setAttribute("tabindex", previousTabIndex);
+    };
     const defaultDiffSubmitLabel = diffModalSubmit instanceof HTMLButtonElement
         ? (_a = diffModalSubmit.textContent) !== null && _a !== void 0 ? _a : "Confirm"
         : "Confirm";
+    const defaultDiffCancelLabel = diffModalCancel instanceof HTMLButtonElement ? (_b = diffModalCancel.textContent) !== null && _b !== void 0 ? _b : "cancel" : "cancel";
+    // A read-only view hides the confirm button; Enter does nothing there.
+    const setViewOnly = (viewOnly, closeLabel) => {
+        if (diffModalSubmit instanceof HTMLButtonElement) {
+            // The button class sets display, so the hidden attribute alone would lose.
+            diffModalSubmit.style.display = viewOnly ? "none" : "";
+            diffModalSubmit.disabled = viewOnly;
+        }
+        if (diffModalCancel instanceof HTMLButtonElement) {
+            diffModalCancel.textContent = viewOnly && closeLabel ? closeLabel : defaultDiffCancelLabel;
+        }
+    };
     let diffEditor = null;
+    let diffRevealGeneration = 0;
     let diffOriginalModel = null;
     let diffModifiedModel = null;
     let diffContext = null;
@@ -151,37 +197,65 @@ export const initDiffModal = (context, deps) => {
     };
     const resetDiffEditor = () => {
         var _a, _b, _c, _d;
+        diffRevealGeneration += 1;
         disposeMultiDiffEditors();
-        (_a = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _a === void 0 ? void 0 : _a.call(diffOriginalModel);
-        (_b = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _b === void 0 ? void 0 : _b.call(diffModifiedModel);
-        diffOriginalModel = null;
-        diffModifiedModel = null;
+        // Detach the models from the widget before disposing them; Monaco logs
+        // an error when a model dies while a diff editor still shows it.
         if (diffEditor) {
             const diffEditorAny = diffEditor;
-            (_c = diffEditorAny.setModel) === null || _c === void 0 ? void 0 : _c.call(diffEditorAny, null);
-            (_d = diffEditorAny.dispose) === null || _d === void 0 ? void 0 : _d.call(diffEditorAny);
+            (_a = diffEditorAny.setModel) === null || _a === void 0 ? void 0 : _a.call(diffEditorAny, null);
+            (_b = diffEditorAny.dispose) === null || _b === void 0 ? void 0 : _b.call(diffEditorAny);
             diffEditor = null;
         }
+        (_c = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _c === void 0 ? void 0 : _c.call(diffOriginalModel);
+        (_d = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _d === void 0 ? void 0 : _d.call(diffModifiedModel);
+        diffOriginalModel = null;
+        diffModifiedModel = null;
         if (blockDiffContainer instanceof HTMLElement) {
             blockDiffContainer.innerHTML = "";
         }
     };
     const showDiffModal = (original, modified, lineOffset = 0, options) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         const monacoApi = deps.getMonacoApi();
         if (!monacoApi)
             return;
+        setViewOnly((options === null || options === void 0 ? void 0 : options.viewOnly) === true, options === null || options === void 0 ? void 0 : options.closeLabel);
         const monacoApiAny = monacoApi;
         const container = blockDiffContainer;
         if (!container)
             return;
-        if (!diffContext) {
+        if ((options === null || options === void 0 ? void 0 : options.onApply) && !options.viewOnly) {
+            let pending = false;
+            const custom = { type: "customApply", apply: async () => {
+                    var _a, _b;
+                    if (pending || diffContext !== custom)
+                        return;
+                    pending = true;
+                    if (diffModalSubmit instanceof HTMLButtonElement)
+                        diffModalSubmit.disabled = true;
+                    try {
+                        await options.onApply((_b = (_a = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.getValue) === null || _a === void 0 ? void 0 : _a.call(diffModifiedModel)) !== null && _b !== void 0 ? _b : modified);
+                        if (diffContext === custom)
+                            closeDiffModal();
+                    }
+                    catch (error) {
+                        if (diffContext === custom && diffSummary instanceof HTMLElement) {
+                            diffSummary.textContent = error instanceof Error ? error.message : "変更を保存できませんでした。";
+                        }
+                    }
+                    finally {
+                        pending = false;
+                        if (diffContext === custom && diffModalSubmit instanceof HTMLButtonElement)
+                            diffModalSubmit.disabled = false;
+                    }
+                } };
+            diffContext = custom;
+        }
+        else if (!diffContext || diffContext.type === "customApply") {
             diffContext = { type: "block" };
         }
-        if (diffModal) {
-            diffModal.classList.add("is-open");
-            diffModal.setAttribute("aria-hidden", "false");
-        }
+        openModal();
         if (!diffEditor) {
             container.innerHTML = "";
             diffEditor = monacoApiAny.editor.createDiffEditor(container, {
@@ -215,6 +289,7 @@ export const initDiffModal = (context, deps) => {
             }
             (_e = diffEditorAny.layout) === null || _e === void 0 ? void 0 : _e.call(diffEditorAny);
         }
+        (_g = (_f = diffEditor).updateOptions) === null || _g === void 0 ? void 0 : _g.call(_f, { readOnly: !((options === null || options === void 0 ? void 0 : options.onApply) && !options.viewOnly) });
         renderDiffHeader();
         if (diffModalSubmit instanceof HTMLButtonElement) {
             const submitLabel = options === null || options === void 0 ? void 0 : options.submitLabel;
@@ -228,12 +303,12 @@ export const initDiffModal = (context, deps) => {
         }
         renderDiffSummary(original, modified);
         const diffEditorAny = diffEditor;
-        (_f = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _f === void 0 ? void 0 : _f.call(diffOriginalModel);
-        (_g = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _g === void 0 ? void 0 : _g.call(diffModifiedModel);
-        const lang = detectLanguage((_h = options === null || options === void 0 ? void 0 : options.fileName) !== null && _h !== void 0 ? _h : deps.getActiveFilePath());
+        (_h = diffOriginalModel === null || diffOriginalModel === void 0 ? void 0 : diffOriginalModel.dispose) === null || _h === void 0 ? void 0 : _h.call(diffOriginalModel);
+        (_j = diffModifiedModel === null || diffModifiedModel === void 0 ? void 0 : diffModifiedModel.dispose) === null || _j === void 0 ? void 0 : _j.call(diffModifiedModel);
+        const lang = detectLanguage((_k = options === null || options === void 0 ? void 0 : options.fileName) !== null && _k !== void 0 ? _k : deps.getActiveFilePath());
         diffOriginalModel = monacoApiAny.editor.createModel(original, lang);
         diffModifiedModel = monacoApiAny.editor.createModel(modified, lang);
-        (_j = diffEditorAny.setModel) === null || _j === void 0 ? void 0 : _j.call(diffEditorAny, {
+        (_l = diffEditorAny.setModel) === null || _l === void 0 ? void 0 : _l.call(diffEditorAny, {
             original: diffOriginalModel,
             modified: diffModifiedModel,
         });
@@ -241,9 +316,12 @@ export const initDiffModal = (context, deps) => {
         if (typeof diffEditor.layout === "function") {
             diffEditor.layout();
         }
-        // Scroll to first change
+        // A close or a newer comparison can replace the editor before this frame.
+        const revealGeneration = ++diffRevealGeneration;
         requestAnimationFrame(() => {
             var _a;
+            if (!diffEditor || revealGeneration !== diffRevealGeneration)
+                return;
             const editorAny = diffEditor;
             const modEditor = (_a = editorAny.getModifiedEditor) === null || _a === void 0 ? void 0 : _a.call(editorAny);
             if (!(modEditor === null || modEditor === void 0 ? void 0 : modEditor.revealLine))
@@ -276,13 +354,11 @@ export const initDiffModal = (context, deps) => {
         const container = blockDiffContainer;
         if (!monacoApi || !container)
             return;
+        setViewOnly((options === null || options === void 0 ? void 0 : options.viewOnly) === true, options === null || options === void 0 ? void 0 : options.closeLabel);
         const monacoApiAny = monacoApi;
-        if (!diffContext)
+        if (!diffContext || diffContext.type === "customApply")
             diffContext = { type: "aiApply", proposalIds: [] };
-        if (diffModal) {
-            diffModal.classList.add("is-open");
-            diffModal.setAttribute("aria-hidden", "false");
-        }
+        openModal();
         // Dispose any existing editors (single + multi) and clear the container.
         resetDiffEditor();
         if (diffTitle instanceof HTMLElement) {
@@ -402,7 +478,12 @@ export const initDiffModal = (context, deps) => {
         }
     };
     const closeDiffModal = () => {
-        if (diffModal) {
+        const focused = document.activeElement;
+        const moveFocus = diffModal instanceof HTMLElement && diffModal.classList.contains("is-open") && diffModal.contains(focused);
+        if (diffModal instanceof HTMLElement) {
+            if (moveFocus && focused instanceof HTMLElement)
+                focused.blur();
+            diffModal.inert = true;
             diffModal.classList.remove("is-open");
             diffModal.setAttribute("aria-hidden", "true");
         }
@@ -418,8 +499,13 @@ export const initDiffModal = (context, deps) => {
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.textContent = defaultDiffSubmitLabel;
         }
+        setViewOnly(false);
         diffContext = null;
         resetDiffEditor();
+        if (moveFocus)
+            restoreFocus();
+        else
+            returnFocus = null;
     };
     // Plain Enter confirms (inserts) while the diff modal is open. Captured at the
     // document level so the keystroke never reaches the editor behind the modal;
@@ -428,6 +514,8 @@ export const initDiffModal = (context, deps) => {
         if (!(diffModal instanceof HTMLElement) || !diffModal.classList.contains("is-open")) {
             return;
         }
+        if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "customApply")
+            return;
         if (event.key !== "Enter" ||
             event.shiftKey ||
             event.metaKey ||

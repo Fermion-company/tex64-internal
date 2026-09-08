@@ -134,6 +134,21 @@
               <rect class="topbar-layout-fill" x="3" y="5" width="6" height="14" rx="2" fill="currentColor" opacity="0.35"></rect>
             </svg>
           </button>
+          <nav class="mode-switcher" id="mode-switcher" role="tablist" aria-label="App mode" hidden>
+            <button id="mode-tab-code" class="mode-tab is-active" type="button" role="tab" data-app-mode-tab="code" aria-selected="true" tabindex="0" title="Code">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m8 8-4 4 4 4"></path>
+                <path d="m16 8 4 4-4 4"></path>
+              </svg>
+              <span>Code</span>
+            </button>
+            <button id="mode-tab-ai" class="mode-tab" type="button" role="tab" data-app-mode-tab="ai" aria-selected="false" tabindex="-1" title="AI">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l2.1 6.9L21 12l-6.9 2.1L12 21l-2.1-6.9L3 12l6.9-2.1z"></path>
+              </svg>
+              <span>AI</span>
+            </button>
+          </nav>
         </div>
         <div class="topbar-drag"></div>
         <div class="top-actions">
@@ -215,8 +230,8 @@
           <button
             id="build-button"
             type="button"
-            aria-label="Build (Cmd+Enter)"
-            title="Build (Cmd+Enter). Cmd+B inserts \textbf{}."
+            aria-label="Build"
+            title="Build"
           >
             <span class="build-button-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="20" height="20">
@@ -331,42 +346,9 @@
                 </svg>
               </span>
             </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
-              data-tab="git"
-              aria-selected="false"
-              aria-label="Source Control"
-              title="Source Control"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <circle cx="7" cy="6" r="2.4"></circle>
-                  <circle cx="7" cy="18" r="2.4"></circle>
-                  <circle cx="17" cy="12" r="2.4"></circle>
-                  <path d="M7 8.4v7.2"></path>
-                  <path d="M14.6 12H12a5 5 0 0 1-5-5"></path>
-                </svg>
-              </span>
-            </button>
-            <button
-              class="tab"
-              type="button"
-              role="tab"
-              data-tab="snippets"
-              aria-selected="false"
-              aria-label="Snippets"
-              title="Snippets"
-            >
-              <span class="tab-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M9 4h9a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9"></path>
-                  <path d="M13 9H6"></path>
-                  <path d="M13 15H6"></path>
-                  <path d="M4 9l-1.5 3L4 15"></path>
-                </svg>
-              </span>
+            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
+            <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false" aria-label="History" title="History">
+              <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.6 7M3 5v6h6M12 7v5l3 2"/></svg></span>
             </button>
             <button
               class="tab"
@@ -545,55 +527,12 @@
               <span class="panel-title">Axiom</span>
             </div>
             <div class="panel-body ai-panel" id="ai-panel">
-              <div class="ai-login-overlay" id="ai-login-overlay">
-                <div class="ai-login-overlay-glow"></div>
-                <div class="ai-login-overlay-card">
-                  <div class="ai-login-overlay-icon-wrap">
-                    <svg class="ai-login-overlay-icon" viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 4L20 12L12 20L4 12Z"/>
-                      <ellipse cx="12" cy="12" rx="6" ry="2.5" transform="rotate(-30 12 12)" stroke-width="1" opacity="0.4"/>
-                      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-                    </svg>
-                  </div>
-                  <div class="ai-login-overlay-title">Accelerate TeX writing with Axiom</div>
-                  <div class="ai-login-overlay-subtitle">Log in to use Axiom</div>
-                  <button class="ai-login-overlay-btn" id="ai-login-overlay-btn" type="button">
-                    <span>Log in with Google</span>
-                    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 10h14M12 5l5 5-5 5"/></svg>
-                  </button>
-                </div>
-              </div>
               <div class="ai-topbar">
                 <button class="ai-icon-btn" id="ai-history-toggle" type="button" aria-label="History">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
                 </button>
                 <span class="ai-topbar-title" id="ai-topbar-title">Axiom</span>
-                <div class="ai-model-picker" id="ai-model-picker">
-                  <button class="ai-model-trigger" id="ai-model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select Axiom model">
-                    <span class="ai-model-trigger-label" id="ai-model-trigger-label">Axiom 1.0</span>
-                    <svg class="ai-model-trigger-caret" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-                  </button>
-                  <div class="ai-model-menu" id="ai-model-menu" role="listbox" aria-label="Axiom model">
-                    <div class="ai-model-menu-list"></div>
-                    <div class="ai-model-upsell">
-                      <div class="ai-model-upsell-row">
-                        <svg class="ai-model-upsell-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-                        <div class="ai-model-upsell-text">
-                          <span class="ai-model-upsell-title">Axiom 1.0 Pro is a Pro feature</span>
-                          <span class="ai-model-upsell-sub">Upgrade to the Pro plan to use the most capable model.</span>
-                        </div>
-                      </div>
-                      <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
-                    </div>
-                  </div>
-                </div>
                 <span class="ai-topbar-status" id="ai-topbar-status" aria-live="polite"></span>
-                <div class="ai-usage-meter is-hidden" id="ai-usage-meter" role="img" aria-label="Axiom usage">
-                  <span class="ai-usage-meter-text" id="ai-usage-meter-text">-</span>
-                </div>
-                <button class="panel-button ghost ai-topbar-auth is-hidden" id="ai-auth-topbar" type="button" title="Signs in to your TeX64 account — unrelated to ChatGPT.">
-                  TeX64 Login
-                </button>
                 <button class="ai-icon-btn" id="ai-chat-new" type="button" aria-label="New Chat">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
@@ -617,35 +556,72 @@
                 </div>
               </div>
               <div class="ai-input-area">
-                <div class="ai-context-bar" id="ai-context-bar"></div>
-                <div class="ai-attachments is-empty" id="ai-attachments"></div>
-                <div class="ai-chat-input">
-                  <input
-                    class="ai-attach-input"
-                    id="ai-attach-input"
-                    type="file"
-                    accept="image/*,application/pdf,.pdf"
-                    multiple
-                    hidden
-                  />
-                  <button class="ai-btn-icon ai-btn-attach" id="ai-attach" type="button" aria-label="Attach image">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M21.44 11.05l-8.49 8.49a5 5 0 0 1-7.07-7.07l8.49-8.49a3.5 3.5 0 1 1 4.95 4.95l-8.49 8.49a2 2 0 1 1-2.83-2.83l7.78-7.78"/>
-                    </svg>
-                  </button>
-                  <textarea class="ai-chat-textarea" id="ai-input" rows="1" placeholder=""></textarea>
-                  <button class="ai-btn-icon ai-btn-stop" id="ai-stop" type="button" disabled aria-label="Stop">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  </button>
-
-                  <button class="ai-btn-icon ai-btn-send" id="ai-send" type="button" aria-label="Send">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-                  </button>
+                <div class="ai-chat-input" id="ai-composer">
+                  <div class="ai-attachments is-empty" id="ai-attachments"></div>
+                  <textarea class="ai-chat-textarea" id="ai-input" rows="2" placeholder="Ask anything about this document. @ adds a file"></textarea>
+                  <div class="ai-composer-row">
+                    <div class="ai-composer-left">
+                      <input
+                        class="ai-attach-input"
+                        id="ai-attach-input"
+                        type="file"
+                        accept="image/*,application/pdf,.pdf"
+                        multiple
+                        hidden
+                      />
+                      <button class="ai-btn-icon ai-btn-attach" id="ai-attach" type="button" aria-label="Attach image" title="Attach an image or PDF">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21.44 11.05l-8.49 8.49a5 5 0 0 1-7.07-7.07l8.49-8.49a3.5 3.5 0 1 1 4.95 4.95l-8.49 8.49a2 2 0 1 1-2.83-2.83l7.78-7.78"/>
+                        </svg>
+                      </button>
+                      <button class="ai-btn-icon ai-btn-mic" id="ai-mic" type="button" aria-label="Dictate" title="Dictate">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <rect x="9" y="3" width="6" height="11" rx="3"/>
+                          <path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+                        </svg>
+                        <span class="ai-mic-timer" id="ai-mic-timer" aria-hidden="true"></span>
+                      </button>
+                      <div class="ai-context-bar" id="ai-context-bar"></div>
+                    </div>
+                    <div class="ai-composer-right">
+                      <div class="ai-mode-toggle" id="ai-mode-toggle" role="radiogroup" aria-label="Axiom mode">
+                        <button class="ai-mode-option is-active" type="button" role="radio" aria-checked="true" data-ai-mode="agent" title="Edits and typesets the document"><span data-no-i18n>Agent</span></button>
+                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="ask" title="Answers without changing anything"><span data-no-i18n>Ask</span></button>
+                        <button class="ai-mode-option" type="button" role="radio" aria-checked="false" data-ai-mode="plan" title="Plans first, then writes on your go"><span data-no-i18n>Plan</span></button>
+                      </div>
+                      <div class="ai-model-picker" id="ai-model-picker">
+                        <button class="ai-model-trigger" id="ai-model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select Axiom model">
+                          <span class="ai-model-trigger-label" id="ai-model-trigger-label">Axiom 1.0</span>
+                          <svg class="ai-model-trigger-caret" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                        </button>
+                        <div class="ai-model-menu" id="ai-model-menu" role="listbox" aria-label="Axiom model">
+                          <div class="ai-model-menu-list"></div>
+                          <div class="ai-model-upsell">
+                            <div class="ai-model-upsell-row">
+                              <svg class="ai-model-upsell-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                              <div class="ai-model-upsell-text">
+                                <span class="ai-model-upsell-title">Available on the Pro plan</span>
+                              </div>
+                            </div>
+                            <button class="ai-model-upsell-btn" type="button">See Pro plans</button>
+                          </div>
+                        </div>
+                      </div>
+                      <button class="ai-btn-icon ai-btn-stop" id="ai-stop" type="button" disabled aria-label="Stop">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                      </button>
+                      <button class="ai-btn-icon ai-btn-send" id="ai-send" type="button" aria-label="Send">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <div class="ai-status" id="ai-status" aria-live="polite"></div>
               </div>
             </div>
           </div>
+          <div class="panel no-header" data-panel="git"><div id="git-panel"></div></div>
+          <div class="panel no-header" data-panel="history"><div id="history-panel"></div></div>
           <div class="panel no-header" data-panel="project">
             <div class="panel-header">
               <span class="panel-title">Project</span>
@@ -743,94 +719,6 @@
                 <summary class="issues-log-summary">Detailed log</summary>
                 <pre class="issues-log-content" id="issues-log-content"></pre>
               </details>
-            </div>
-          </div>
-          <div class="panel no-header" data-panel="git">
-            <div class="panel-header">
-              <span class="panel-title">Source Control</span>
-            </div>
-            <div class="panel-body git-panel-body">
-              <div class="git-status-line" id="git-status-line"></div>
-              <div class="git-empty" id="git-empty">Open a folder to use source control.</div>
-              <div class="git-main is-hidden" id="git-main">
-                <div class="git-branch-bar">
-                  <button class="git-branch" id="git-branch" type="button" title="Switch branch">
-                    <span id="git-branch-name">—</span>
-                  </button>
-                  <span class="git-tracking" id="git-tracking"></span>
-                  <div class="git-branch-actions">
-                    <button class="git-icon-button" id="git-fetch" type="button" title="Fetch">⟳</button>
-                    <button class="git-icon-button" id="git-pull" type="button" title="Pull (fast-forward only)">↓</button>
-                    <button class="git-icon-button" id="git-push" type="button" title="Push">↑</button>
-                  </div>
-                </div>
-                <textarea
-                  class="git-commit-message"
-                  id="git-commit-message"
-                  rows="2"
-                  placeholder="Commit message"
-                ></textarea>
-                <div class="git-commit-row">
-                  <button class="git-primary-button" id="git-commit" type="button">Commit</button>
-                  <button class="git-secondary-button" id="git-stage-all" type="button">Stage all</button>
-                </div>
-                <div class="git-sections" id="git-sections"></div>
-              </div>
-              <div class="git-init is-hidden" id="git-init">
-                <p class="panel-placeholder" id="git-init-text">This folder is not a Git repository.</p>
-                <button class="git-secondary-button" id="git-init-button" type="button">
-                  Initialize repository
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="panel no-header" data-panel="snippets">
-            <div class="panel-header">
-              <span class="panel-title">Snippets</span>
-            </div>
-            <div class="panel-body snippets-panel-body">
-              <div class="snippets-toolbar">
-                <input
-                  class="snippets-filter"
-                  id="snippets-filter"
-                  type="search"
-                  placeholder="Filter snippets"
-                  autocomplete="off"
-                >
-                <button class="git-icon-button" id="snippets-new" type="button" title="New snippet">+</button>
-              </div>
-              <div class="snippets-list" id="snippets-list"></div>
-              <form class="snippets-editor is-hidden" id="snippets-editor">
-                <label class="snippets-field">
-                  <span>Name</span>
-                  <input id="snippet-name" type="text" autocomplete="off">
-                </label>
-                <label class="snippets-field">
-                  <span>Prefix</span>
-                  <input id="snippet-prefix" type="text" autocomplete="off" placeholder="fig">
-                </label>
-                <label class="snippets-field">
-                  <span>Description</span>
-                  <input id="snippet-description" type="text" autocomplete="off">
-                </label>
-                <label class="snippets-field">
-                  <span>Scope</span>
-                  <select id="snippet-scope">
-                    <option value="global">All projects</option>
-                    <option value="workspace">This workspace</option>
-                  </select>
-                </label>
-                <label class="snippets-field snippets-field-grow">
-                  <span>Body — $1, $2 are tab stops</span>
-                  <textarea id="snippet-body" rows="7" spellcheck="false"></textarea>
-                </label>
-                <div class="snippets-editor-actions">
-                  <button class="git-primary-button" id="snippet-save" type="submit">Save</button>
-                  <button class="git-secondary-button" id="snippet-cancel" type="button">Cancel</button>
-                  <button class="git-danger-button is-hidden" id="snippet-delete" type="button">Delete</button>
-                </div>
-                <div class="snippets-error" id="snippets-error"></div>
-              </form>
             </div>
           </div>
           <div class="panel no-header" data-panel="settings">
@@ -1321,17 +1209,25 @@
                     </div>
                   </div>
                   <div class="settings-group">
-                    <div class="settings-group-title">Plan</div>
-                    <div class="settings-item">
-                      <div class="settings-label">
-                        <span class="settings-title">Plans &amp; Usage</span>
-                        <span class="settings-desc">View plans and manage your subscription.</span>
+                    <div class="settings-group-title">Axiom</div>
+                    <div class="settings-usage" id="settings-usage">
+                      <div class="settings-usage-head">
+                        <span class="settings-usage-plan" id="settings-usage-plan">Free</span>
+                        <span class="settings-usage-reset" id="settings-usage-reset"></span>
                       </div>
-                      <div class="settings-control">
-                        <button class="panel-button" id="settings-plan-open" type="button">
-                          Open Plans
-                        </button>
+                      <div class="settings-usage-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="settings-usage-bar">
+                        <div class="settings-usage-fill" id="settings-usage-fill"></div>
                       </div>
+                      <div class="settings-usage-row">
+                        <span class="settings-usage-used" id="settings-usage-used"></span>
+                        <span class="settings-usage-pct" id="settings-usage-pct"></span>
+                      </div>
+                      <div class="settings-help-text" id="settings-usage-note"></div>
+                    </div>
+                    <div class="settings-inline settings-inline-wrap">
+                      <button class="panel-button" id="settings-plan-open" type="button">
+                        Open Plans
+                      </button>
                     </div>
                   </div>
                   <div class="settings-group">
@@ -1532,12 +1428,19 @@
                 <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
                 <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
+              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
+              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-split" data-terminal-action type="button" aria-label="Split terminal" title="Split terminal (Ctrl/Cmd+Shift+T)">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+              </button>
               <button
                 class="bottom-panel-close is-hidden"
                 id="bottom-panel-terminal-restart"
                 type="button"
-                aria-label="New Terminal Session"
-                title="New Terminal Session"
+                aria-label="Restart terminal"
+                title="Restart terminal (stops current shell)"
               >
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v5h-5"/>
@@ -1550,14 +1453,28 @@
               </button>
             </div>
             <div class="bottom-panel-body" id="bottom-panel-body" data-pane="blocks">
-              <div class="terminal-area" id="terminal-area">
-                <div class="terminal-tabs" id="terminal-tabs" role="tablist" aria-label="Terminal sessions"></div>
-                <div class="terminal-panes" id="terminal-panes" data-pane-count="1"></div>
-              </div>
+              <div class="terminal-host" id="terminal-host"></div>
             </div>
           </div>
         </section>
       </div>
+
+      <section class="ai-mode-view" id="ai-mode-view" aria-label="AI workspace">
+        <div class="ai-mode-webview-host" id="ai-mode-webview-host"></div>
+        <div class="ai-mode-fallback is-hidden" id="ai-mode-fallback">
+          <div class="ai-mode-fallback-card">
+            <h2>TeX64 AI</h2>
+            <p id="ai-mode-fallback-status">Connecting to the AI workspace…</p>
+            <div class="ai-mode-fallback-actions">
+              <button id="ai-mode-retry" type="button">Reconnect</button>
+            </div>
+            <p class="ai-mode-dev-hint" id="ai-mode-dev-hint" hidden>
+              Start the AI workspace for development with
+              <code>cd services/tex64-ai &amp;&amp; npm run dev</code>.
+            </p>
+          </div>
+        </div>
+      </section>
 
       <div class="modal" id="create-modal" aria-hidden="true">
         <div

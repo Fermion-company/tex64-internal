@@ -10,6 +10,7 @@ require("./hints.cjs")(SynctexService);
 require("./source-cache.cjs")(SynctexService);
 require("./runtime.cjs")(SynctexService);
 require("./forward.cjs")(SynctexService);
+require("./forward-index.cjs")(SynctexService);
 require("./reverse-parse.cjs")(SynctexService);
 require("./reverse-heuristics.cjs")(SynctexService);
 require("./reverse-core.cjs")(SynctexService);

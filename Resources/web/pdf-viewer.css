@@ -365,7 +365,7 @@ body.is-embedded .pdf-toolbar-status {
   display: none;
 }
 
-body.is-embedded:is(.is-live, .is-live-pending) .pdf-toolbar-status {
+body.is-embedded:is(.is-live, .is-live-pending, .pdf-needs-rebuild) .pdf-toolbar-status {
   display: inline-flex;
   flex: 0 0 auto;
   margin-left: auto;
@@ -529,4 +529,26 @@ body.is-live #pdf-reload { display: none; }
   border-color: rgba(92, 156, 255, 0.5);
   background: rgba(92, 156, 255, 0.16);
   outline: none;
+}
+
+/* "Ask Axiom" floating at the end of a text selection on the page. */
+.pdf-ask-axiom {
+  position: fixed;
+  z-index: 50;
+  padding: 4px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  user-select: none;
+}
+.pdf-ask-axiom:hover {
+  border-color: rgba(92, 156, 255, 0.5);
+  background: rgba(92, 156, 255, 0.16);
 }

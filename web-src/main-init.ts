@@ -1,3 +1,6 @@
+import { openSnippets } from "./app/snippets-ui.js";
+import { initGitUi } from "./app/git-ui.js";
+import { initHistoryUi } from "./app/history-ui.js";
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
@@ -24,7 +27,8 @@ import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
-import { createViewer, type LivePreviewEditRequest } from "./app/viewer.js";
+import { createViewer, type LivePreviewEditRequest, type LivePreviewAnchorRequest,
+  type LivePreviewAnchorResult } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
 import { initBlockEditSession } from "./app/blocks/edit-session.js";
 import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
@@ -43,10 +47,6 @@ import { initSearchUi } from "./app/search-ui.js";
 import { initSidebarVisibility } from "./app/sidebar-ui.js";
 import { initBottomPanelUi } from "./app/bottom-panel-ui.js";
 import { initTerminalUi } from "./app/terminal-ui.js";
-import { initGitUi } from "./app/git-ui.js";
-import { initSnippetsUi } from "./app/snippets-ui.js";
-import { insertAtEditorCursor } from "./app/pro-editor-insert.js";
-import { registerSnippetCompletion } from "./app/snippets-completion.js";
 import { initBillingUi } from "./app/billing-ui.js";
 import { initSettingsUi } from "./app/settings-ui.js";
 import { initAnnouncementsUi } from "./app/announcements-ui.js";
@@ -54,8 +54,18 @@ import { initWorkspaceController } from "./app/workspace-controller.js";
 import { getUiLocale, initI18n, onUiLocaleChange, uiText } from "./app/i18n.js";
 import { initAppearanceTheme } from "./app/appearance.js";
 import { createIssuesProxy } from "./app/issues-proxy.js";
+import {
+  APP_MODE_STORAGE_KEY,
+  initAppModeUi,
+  prepareCodeWorkspaceHandoff,
+  prepareAppModeTransition,
+  resolveInitialAppMode,
+} from "./app/app-mode.js";
+import { initAiModeUi } from "./app/ai-mode-ui.js";
 import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
+import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
+import { prepareRendererForQuit } from "./app/quit-preparation.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -93,7 +103,22 @@ export const initMain = () => {
 
   let postToNative: PostToNative = () => false;
   let requestLiveSource = (_payload: { file: string; line: number; column: number }) => {};
+  // A place marked in the live preview names its source file the engine's
+  // way; the chat needs the workspace path.
+  const withResolvedPdfSource = <T extends { source?: { file: string; line: number; column: number } | null }>(payload: T) => {
+    const source = payload.source ?? null;
+    if (!source) return payload;
+    const path = resolveLivePreviewWorkspacePath(source.file, getWorkspaceRootKey());
+    return { ...payload, sourcePath: path ?? null };
+  };
   let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
+  let requestLiveAnchor = (payload: LivePreviewAnchorRequest, reply: (result: LivePreviewAnchorResult) => void) => {
+    reply({ sessionId: payload.sessionId, requestId: payload.requestId,
+      activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+      file: payload.file, sourceRev: payload.sourceRev, ok: false });
+  };
+  let refreshCodeLivePreview = () => {};
+  let openIntegratedTerminal = (_directory: string) => {};
   let isReverseSynctexEnabled = () => true;
   let blockAutoDetect: ReturnType<typeof initBlockAutoDetection> | null = null;
   let blockEditSession: ReturnType<typeof initBlockEditSession> | null = null;
@@ -133,6 +158,11 @@ export const initMain = () => {
     },
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
+    onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
+    onPdfAskAxiom: (payload) => {
+      setActiveTab("ai");
+      aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
+    },
   });
   const secondaryViewer = createViewer({
     editorViewer: editorViewerSecondary,
@@ -156,6 +186,11 @@ export const initMain = () => {
     },
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
+    onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
+    onPdfAskAxiom: (payload) => {
+      setActiveTab("ai");
+      aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
+    },
   });
   const bridgeWindow = window as BridgeWindow;
   bridgeWindow.__tex64TestRecognizeMath = (imageDataUrl: string) => recognizeMath(imageDataUrl);
@@ -180,8 +215,42 @@ export const initMain = () => {
     bridgeWindow,
     updateIssues: updateIssuesProxy,
   });
-  requestLiveSource = (payload) => {
-    postToNative({ type: "live-preview:source", ...payload }, true);
+  let workspaceSwitchInFlight = false;
+  const requestWorkspaceChange = (
+    payload: { type: "openWorkspace" | "openRecentProject" | "createProject"; [key: string]: unknown },
+  ): boolean => {
+    if (workspaceSwitchInFlight) return false;
+    workspaceSwitchInFlight = true;
+    void (async () => {
+      try {
+        // A root switch changes what every relative path means. Save Code's
+        // buffers only after every old-root writer has really stopped.
+        const handoff = await prepareCodeWorkspaceHandoff({
+          quiesce: async () =>
+            (await bridgeWindow.tex64Ai?.quiesce?.()) ?? { ok: false },
+          saveCode: () => editorSession.saveDirtyFiles(),
+        });
+        if (!handoff.ok) {
+          const message =
+            handoff.error ??
+            (handoff.phase === "save"
+              ? uiText(
+                  "Save the current files before changing projects.",
+                  "現在のファイルを保存してからプロジェクトを切り替えてください。",
+                )
+              : uiText(
+                  "The current operation has not stopped yet. Try changing projects again.",
+                  "実行中の処理がまだ停止していません。もう一度プロジェクトを切り替えてください。",
+                ));
+          updateIssues(1, message, "error", [{ severity: "error", message }]);
+          return;
+        }
+        postToNative(payload);
+      } finally {
+        workspaceSwitchInFlight = false;
+      }
+    })();
+    return true;
   };
   const filePreviewBroker = createFilePreviewBroker((payload, silent) =>
     postToNative(payload, silent)
@@ -211,11 +280,9 @@ export const initMain = () => {
   let setSettingsTabAlert = (_hasAlert: boolean) => {};
   let updateEditorWordWrap = (_enabled: boolean) => {};
   let pendingEditorWordWrapEnabled: boolean | null = null;
-  let onSidebarTabActive: (tabKey: TabKey) => void = () => {};
   const tabController = initTabController(appContext, {
     onFilesTabActive: () => onFilesTabActive(),
     onSettingsTabActive: () => onSettingsTabActive(),
-    onTabActive: (tabKey) => onSidebarTabActive(tabKey),
   });
   const setActiveTab = (tabKey: TabKey) => {
     tabController.setActiveTab(tabKey);
@@ -331,13 +398,13 @@ export const initMain = () => {
   const contextMenu = initContextMenu(appContext);
   const launcherUi = initLauncherUi(appContext, {
     onCreate: () => {
-      postToNative({ type: "createProject", locale: getUiLocale() });
+      requestWorkspaceChange({ type: "createProject", locale: getUiLocale() });
     },
     onOpen: () => {
-      postToNative({ type: "openWorkspace", locale: getUiLocale() });
+      requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
     },
     onOpenRecent: (path) => {
-      postToNative({ type: "openRecentProject", path });
+      requestWorkspaceChange({ type: "openRecentProject", path });
     },
     onRemoveRecent: (path) => {
       postToNative({ type: "removeRecentProject", path });
@@ -363,8 +430,6 @@ export const initMain = () => {
 
   // Request recent projects on startup
   postToNative({ type: "getRecentProjects" });
-  let openIntegratedTerminalAt: (folderPath: string) => void = () => {};
-
   const fileTreeUi = initFileTreeUi(appContext, {
     contextMenu,
     getWorkspaceRootKey,
@@ -379,9 +444,7 @@ export const initMain = () => {
     isAnyGroupComposing: () => editorSession.isAnyGroupComposing(),
     postToNative: (payload) => postToNative(payload),
     getDirtyPaths: () => editorSession.getDirtyPaths(),
-    // The terminal UI is built further down; the file tree only ever calls this
-    // in response to a click, long after both exist.
-    openIntegratedTerminal: (folderPath) => openIntegratedTerminalAt(folderPath),
+    openTerminal: (directory) => openIntegratedTerminal(directory),
   });
 
   const detectedBlockUi = initDetectedBlockUi(dom);
@@ -448,26 +511,31 @@ export const initMain = () => {
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     getMonacoApi: appActions.getMonacoApi,
+    onLivePreviewSourceChanged: () => refreshCodeLivePreview(),
   });
-  requestLiveEdit = (payload) => {
-    const workspaceRoot = getWorkspaceRootKey()?.replace(/\\/g, "/").replace(/\/$/, "") ?? "";
-    const sourcePath = payload.file.replace(/\\/g, "/").replace(/^\.\//, "");
-    const absolute = sourcePath.startsWith("/") || /^[A-Za-z]:\//.test(sourcePath);
-    const candidate = absolute && workspaceRoot && sourcePath.startsWith(`${workspaceRoot}/`)
-      ? sourcePath.slice(workspaceRoot.length + 1)
-      : absolute
-        ? ""
-        : sourcePath;
-    const parts = candidate.split("/").filter((part) => part && part !== ".");
-    const path = parts.includes("..") || parts.some((part) => part.includes("\0"))
-      ? ""
-      : parts.join("/");
+  const reportInvalidLivePreviewPath = () => {
+    const message = uiText(
+      "The PDF edit is outside this workspace.",
+      "PDF編集対象がワークスペース外です。"
+    );
+    updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+  };
+  requestLiveSource = (payload) => {
+    const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
     if (!path) {
-      const message = uiText(
-        "The PDF edit is outside this workspace.",
-        "PDF編集対象がワークスペース外です。"
-      );
-      updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
+      reportInvalidLivePreviewPath();
+      return;
+    }
+    editorSession.jumpToFileLine(path, payload.line, "primary", {
+      force: true,
+      focus: true,
+      column: payload.column,
+    });
+  };
+  requestLiveEdit = (payload) => {
+    const path = resolveLivePreviewWorkspacePath(payload.file, getWorkspaceRootKey());
+    if (!path) {
+      reportInvalidLivePreviewPath();
       return;
     }
     const ok = editorSession.applyLivePreviewEdit({ ...payload, path });
@@ -479,14 +547,142 @@ export const initMain = () => {
       updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
     }
   };
+  requestLiveAnchor = (payload, reply) => {
+    const root = getWorkspaceRootKey();
+    const path = resolveLivePreviewWorkspacePath(payload.file, root);
+    const correlation = { sessionId: payload.sessionId, requestId: payload.requestId,
+      activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+      file: payload.file, sourceRev: payload.sourceRev };
+    if (!path) {
+      reply({ ...correlation, ok: false });
+      return;
+    }
+    void editorSession.getLivePreviewSourceAnchor({ ...payload, path }).then((anchor) => {
+      reply(anchor && root === getWorkspaceRootKey()
+        ? { ...correlation, ...anchor, ok: true }
+        : { ...correlation, ok: false });
+    }, () => reply({ ...correlation, ok: false }));
+  };
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,
   });
-  initCodeLivePreview({
+  const aiModeApi = initAiModeUi({
+    postToNative: (payload, silent) => {
+      if (
+        payload.type === "openWorkspace" ||
+        payload.type === "openRecentProject" ||
+        payload.type === "createProject"
+      ) {
+        return requestWorkspaceChange(payload as {
+          type: "openWorkspace" | "openRecentProject" | "createProject";
+          [key: string]: unknown;
+        });
+      }
+      return postToNative(payload, silent);
+    },
+    openPlans: (plan) =>
+      window.dispatchEvent(
+        new CustomEvent("tex64:open-plans", {
+          detail: plan ? { plan } : undefined,
+        }),
+      ),
+  });
+  // The embedded app receives the same host events as Code, then applies its
+  // own narrow allowlist. A second listener leaves the existing dispatcher
+  // and Code workspace behavior untouched.
+  bridgeWindow.tex64Bridge?.onMessage?.((message) => aiModeApi.deliver(message));
+  let quitPreparation: Promise<{
+    ok: boolean;
+    phase?: "quiesce" | "save";
+    error?: string;
+  }> | null = null;
+  bridgeWindow.tex64Bridge?.onMessage?.((message) => {
+    if (message.type !== "prepareQuit") return;
+    const payload =
+      message.payload && typeof message.payload === "object"
+        ? (message.payload as Record<string, unknown>)
+        : {};
+    const requestId =
+      typeof payload.requestId === "string" ? payload.requestId : "";
+    if (!requestId) return;
+    if (!quitPreparation) {
+      quitPreparation = prepareRendererForQuit({
+        quiesce: async () =>
+          (await bridgeWindow.tex64Ai?.quiesce?.()) ?? {
+            ok: false,
+            error: "Native integration is not available.",
+          },
+        saveDirtyFiles: () => editorSession.saveDirtyFiles(),
+        getDirtyFileCount: () => editorSession.getDirtyPaths().size,
+        freeze: () => {
+          document.documentElement.dataset.quitPrepared = "true";
+          document.body.inert = true;
+        },
+      });
+    }
+    void quitPreparation.then((result) => {
+      if (!result.ok) {
+        const fallback =
+          result.phase === "save"
+            ? uiText(
+                "Some files could not be saved. Quit was canceled.",
+                "保存できなかったファイルがあるため、終了を中止しました。",
+              )
+            : uiText(
+                "The current operation could not be stopped. Quit was canceled.",
+                "実行中の処理を停止できなかったため、終了を中止しました。",
+              );
+        const error = result.error || fallback;
+        updateIssues(1, error, "error", [{ severity: "error", message: error }]);
+        quitPreparation = null;
+      }
+      postToNative(
+        {
+          type: "prepareQuit:result",
+          requestId,
+          ok: result.ok,
+          error: result.error,
+        },
+        true,
+      );
+    });
+  });
+  // The host decides whether this build offers AI mode; without it the
+  // switcher stays hidden and the app stays in Code.
+  const aiModeEnabled = bridgeWindow.tex64Bridge?.aiModeEnabled !== false;
+  document.getElementById("mode-switcher")?.toggleAttribute("hidden", !aiModeEnabled);
+  let appModeApi: ReturnType<typeof initAppModeUi>;
+  appModeApi = initAppModeUi({
+    initialMode: aiModeEnabled ? resolveInitialAppMode(localStorage.getItem(APP_MODE_STORAGE_KEY)) : "code",
+    beforeModeChange: (mode, previous) => {
+      if (mode === "ai" && !aiModeEnabled) return false;
+      if (previous === null) return true;
+      return (async () => {
+        const result = await prepareAppModeTransition({
+          next: mode,
+          previous,
+          saveCode: () => editorSession.saveDirtyFiles(),
+        });
+        if (result?.ok === true) return true;
+        if (result.phase === "save") return false;
+        const message =
+          result?.error ??
+          uiText(
+            "The current operation has not stopped yet. Try switching modes again.",
+            "実行中の処理がまだ停止していません。もう一度モードを切り替えてください。",
+          );
+        updateIssues(1, message, "error", [{ severity: "error", message }]);
+        return false;
+      })();
+    },
+    onModeChange: (mode) => {
+      if (mode === "ai") aiModeApi.activate();
+    },
+  });
+  const codeLivePreview = initCodeLivePreview({
     getActiveGroup: editorSession.getActiveGroup,
     getEditorGroups: editorSession.getEditorGroups,
-    getAppMode: () => "code",
-    getPdfViewerMode: settingsUi.getPdfViewerMode,
+    getAppMode: () => appModeApi.getMode(),
     getWorkspaceRoot: getWorkspaceRootKey,
     getRootFile: getRootFilePath,
     getDirtyFileSnapshots: () => editorSession.getOpenFileSnapshots({
@@ -495,6 +691,7 @@ export const initMain = () => {
       onlyDirty: true,
     }).snapshots,
   });
+  refreshCodeLivePreview = codeLivePreview.refreshSource;
   onFilesTabActive = () => editorSession.updateMiniOutline();
 
   const openInCodeEditor = (path: string, line?: number) => {
@@ -521,6 +718,9 @@ export const initMain = () => {
     getMonacoApi: appActions.getMonacoApi,
     getActiveFilePath: () => editorSession.getActiveFilePath(),
   });
+
+  initHistoryUi(editorSession, diffModalApi);
+  initGitUi(editorSession, diffModalApi);
 
   const setPendingBlockApply = (payload: PendingBlockApply | null) => {
     pendingBlockApply = payload;
@@ -551,6 +751,7 @@ export const initMain = () => {
     getOpenFileSnapshots: (options) => editorSession.getOpenFileSnapshots(options),
     getRecentIssuesSnapshot: () => issuesProxy.getLastIssueSnapshot(),
     getWorkspaceFiles,
+    getWorkspaceRoot: getWorkspaceRootKey,
     showDiffModal: diffModalApi.showDiffModal,
     showMultiFileDiff: diffModalApi.showMultiFileDiff,
     setDiffContext: diffModalApi.setDiffContext,
@@ -727,80 +928,12 @@ export const initMain = () => {
     onTerminalShow: () => terminalUi.show(),
     onTerminalHide: () => terminalUi.hide(),
     onTerminalRestart: () => terminalUi.restart(),
+    onTerminalCreate: () => terminalUi.create(),
+    onTerminalSplit: () => terminalUi.split(),
   });
-  openIntegratedTerminalAt = (folderPath: string) => {
+  openIntegratedTerminal = (directory) => {
+    terminalUi.create(directory);
     bottomPanelUi.openTerminal();
-    terminalUi.newSession({ cwd: folderPath, focus: true });
-  };
-
-  const gitUi = initGitUi(appContext, {
-    contextMenu,
-    getWorkspaceRootKey: appActions.getWorkspaceRootKey,
-    requestOpenFile: (path) =>
-      editorSession.requestOpenFile(path, editorSession.getActiveEditorGroupKey()),
-    showDiff: (original, modified, options) => {
-      // Read-only: the modal's confirm button just dismisses it.
-      diffModalApi.setDiffContext({ type: "view" });
-      diffModalApi.showDiffModal(original, modified, 0, {
-        title: options.title,
-        fileName: options.fileName,
-        submitLabel: uiText("Close", "閉じる"),
-      });
-    },
-  });
-
-  const snippetsUi = initSnippetsUi(appContext, {
-    hasWorkspace: () => Boolean(appActions.getWorkspaceRootKey()),
-    getSelectedText: () => {
-      const group = editorSession.getActiveGroup();
-      const editor = group.editor as {
-        getModel?: () => { getValueInRange?: (range: unknown) => string } | null;
-        getSelection?: () => unknown;
-      } | null;
-      const model = editor?.getModel?.();
-      const selection = editor?.getSelection?.();
-      if (!model?.getValueInRange || !selection) {
-        return "";
-      }
-      return model.getValueInRange(selection) ?? "";
-    },
-    insertSnippet: (body) => {
-      const group = editorSession.getActiveGroup();
-      const editor = group.editor as {
-        getContribution?: (id: string) => { insert?: (text: string) => void } | null;
-        focus?: () => void;
-      } | null;
-      if (!editor || !group.currentFilePath) {
-        return false;
-      }
-      // snippetController2 is what makes ${1:...} become real tab stops; a
-      // plain insert is the fallback if Monaco ever stops exposing it.
-      const controller = editor.getContribution?.("snippetController2");
-      editor.focus?.();
-      if (controller?.insert) {
-        controller.insert(body);
-        return true;
-      }
-      try {
-        insertAtEditorCursor(editor as never, body, "snippet");
-        return true;
-      } catch {
-        return false;
-      }
-    },
-  });
-
-  // Both panels read live state (the working tree, the snippet files), so they
-  // refresh when their tab is shown rather than polling.
-  onSidebarTabActive = (tabKey) => {
-    if (tabKey === "git") {
-      gitUi.activate();
-    } else {
-      gitUi.deactivate();
-    }
-    if (tabKey === "snippets") {
-      snippetsUi.activate();
-    }
   };
 
   // In-app billing: the Plans modal opens on the "tex64:open-plans" event fired
@@ -844,12 +977,14 @@ export const initMain = () => {
     getActiveFilePath: () => editorSession.getActiveFilePath(),
     getRootFilePath,
     getLastBuildMainFile: () => lastBuildMainFile,
+    getWorkspaceRootKey,
     setLastBuildMainFile: (path) => {
       lastBuildMainFile = path;
     },
     getStoredCursorPosition: (path) => editorSession.getStoredCursorPosition(path),
     cacheCurrentBuffer: editorSession.cacheCurrentBuffer,
     saveCurrentFile: () => editorSession.saveCurrentFile(),
+    saveDirtyFiles: () => editorSession.saveDirtyFiles(),
     postToNative: (payload, silent) => postToNative(payload, silent),
     updateIssues: updateIssuesProxy,
     setPendingBuildIssuesFocus: (value) => setPendingBuildIssuesFocus(value),
@@ -941,6 +1076,8 @@ export const initMain = () => {
     searchUi,
 
     diffModal: {
+      getDiffContext: diffModalApi.getDiffContext,
+      closeDiffModal: diffModalApi.closeDiffModal,
       setDiffContext: diffModalApi.setDiffContext,
     },
     envRegistry,
@@ -1018,7 +1155,6 @@ export const initMain = () => {
     blockInsert: blockInsertApi,
     buildOps: {
       setupActionButtons: () => buildOps.setupActionButtons(),
-      startBuild: () => buildOps.startBuild(),
     },
     rootSelectorUi: {
       setupActions: () => rootSelectorUi.setupActions(),
@@ -1028,10 +1164,8 @@ export const initMain = () => {
   uiEvents.setup();
 
   window.addEventListener("beforeunload", () => {
-    // For an auto-save editor, flush any pending saves immediately rather
-    // than blocking the close with a confusing "Leave site?" dialog.
-    // The IPC messages are enqueued synchronously and will be processed by
-    // the main process even after the renderer is torn down.
+    // Native Quit uses the acknowledged prepareQuit batch above. Keep this as
+    // a best-effort fallback for an isolated renderer reload/window close.
     if (editorSession.getDirtyPaths().size > 0) {
       editorSession.saveDirtyFiles().catch(() => {});
     }
@@ -1112,31 +1246,36 @@ export const initMain = () => {
     bridgeWindow,
     postToNative: (payload, silent) => postToNative(payload, silent),
     updateIssues: updateIssuesProxy,
-    handleWorkspaceUpdate: workspaceController.handleWorkspaceUpdate,
+    handleWorkspaceUpdate: (payload) => {
+      // The chat list belongs to the workspace root: it is fetched when the
+      // root changes, not on every file-tree refresh (writes during a turn
+      // produce many of those). Everything else about a chat arrives as
+      // events while it happens.
+      const rootChanged = aiChatUi?.handleWorkspaceChanged(payload.rootPath) === true;
+      workspaceController.handleWorkspaceUpdate(payload);
+      if (rootChanged) postToNative({ type: "agent:state:get" }, true);
+    },
     handleIndexUpdate: workspaceController.handleIndexUpdate,
     handleLauncherStatus,
     handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
     app: {
       handleCommand: (command) => {
+        if (command === "snippets:open") { openSnippets(); return; }
         if (command === "file:new") {
           setActiveTab("files");
           fileTreeUi.requestCreate("file");
           return;
         }
         if (command === "project:new") {
-          postToNative({ type: "createProject", locale: getUiLocale() });
+          requestWorkspaceChange({ type: "createProject", locale: getUiLocale() });
           return;
         }
         if (command === "project:open") {
-          postToNative({ type: "openWorkspace", locale: getUiLocale() });
+          requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
           return;
         }
         if (command === "file:save") {
           editorSession.saveCurrentFile();
-          return;
-        }
-        if (command === "document:build") {
-          buildOps.startBuild();
           return;
         }
         if (command === "settings:open") {
@@ -1144,15 +1283,18 @@ export const initMain = () => {
         }
       },
     },
+    billing: {
+      handleCheckoutClosed: (payload) => billingUi?.handleCheckoutClosed(payload),
+    },
     search: {
       handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     build: {
       setBuildState: (state, message) => buildOps.setBuildState(state, message),
+      setBuildTarget: (path) => { lastBuildMainFile = path; },
       handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
       handleBuildLog: (log) => buildOps.handleBuildLog(log),
-      handleBuildTarget: (payload) => buildOps.handleBuildTarget(payload),
       handleSynctexForwardResult: (payload) => buildOps.handleSynctexForwardResult(payload),
       handleSynctexReverseResult: (payload) => {
         if (payload?.ok && payload.path && typeof payload.line === "number") {
@@ -1189,7 +1331,19 @@ export const initMain = () => {
       handleState: (state) => aiChatUi?.handleState(state),
       handleStatus: (state, message, conversationId) =>
         aiChatUi?.handleStatus(state, message, conversationId),
-      handleMessage: (text, conversationId) => aiChatUi?.handleMessage(text, conversationId),
+      handleMessage: (text, conversationId, extras) => aiChatUi?.handleMessage(text, conversationId, extras),
+      handleTitle: (payload) => aiChatUi?.handleTitle(payload),
+      handleMessageReset: (payload) => aiChatUi?.handleMessageReset(payload),
+      askFromPdf: (payload) => {
+        setActiveTab("ai");
+        aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
+      },
+      handlePdfReverseResult: (payload) => aiChatUi?.handlePdfReverseResult(payload),
+      handleFeedbackResult: (payload) => aiChatUi?.handleFeedbackResult(payload),
+      handleBranchResult: (payload) => aiChatUi?.handleBranchResult(payload),
+      handleProposalScope: (payload) => aiChatUi?.handleProposalScope(payload),
+      handleTranscribeResult: (payload) => aiChatUi?.handleTranscribeResult(payload),
+      handleDocumentMap: (payload) => aiChatUi?.handleDocumentMap(payload),
       handleMessageDelta: (text, conversationId) =>
         aiChatUi?.handleMessageDelta(text, conversationId),
       handleTool: (payload) => aiChatUi?.handleTool(payload),
@@ -1200,6 +1354,8 @@ export const initMain = () => {
       handleThought: (payload) => aiChatUi?.handleThought(payload),
       handleError: (message, conversationId) =>
         aiChatUi?.handleError(message, conversationId),
+      handleRequestRejected: (payload) =>
+        aiChatUi?.handleRequestRejected(payload),
     },
     api: {
       handleUsage: () => {},
@@ -1211,10 +1367,12 @@ export const initMain = () => {
       },
       handleAiAccess: (payload) => {
         aiChatUi?.handlePlatformAiAccess(payload);
+        settingsUi.handlePlatformAiAccess(payload);
         billingUi?.handlePlanUpdated();
       },
       handleUsage: (payload) => {
         aiChatUi?.handlePlatformUsage(payload);
+        settingsUi.handlePlatformUsage(payload);
         billingUi?.handleUsageUpdated();
       },
       handleUpdate: (payload) => {
@@ -1226,9 +1384,11 @@ export const initMain = () => {
     },
     filePreview: {
       handlePreviewResult: (payload) => filePreviewBroker.handlePreviewResult(payload),
+      setWorkspaceScope: (scope) => filePreviewBroker.setWorkspaceScope(scope),
     },
     fileExcerpt: {
       handleExcerptResult: (payload) => fileExcerptBroker.handleExcerptResult(payload),
+      setWorkspaceScope: (scope) => fileExcerptBroker.setWorkspaceScope(scope),
     },
     editorSession: {
       handleOpenFileResult: (payload) => editorSession.handleOpenFileResult(payload),
@@ -1238,14 +1398,7 @@ export const initMain = () => {
       handleRenameResult: (payload) => editorSession.handleRenameResult(payload),
       applyContentToOpenFile: (path, content, options) =>
         editorSession.applyContentToOpenFile(path, content, options),
-      applyLivePreviewEdit: (payload) => editorSession.applyLivePreviewEdit(payload),
-      handleExternalChanges: (changes) => {
-        editorSession.handleExternalChanges(changes);
-        // A checkout or a script touching the tree also changes what Source
-        // Control should be showing.
-        gitUi.refresh();
-      },
-      handleFileReloaded: (payload) => editorSession.handleFileReloaded(payload),
+      handleExternalFileChange: editorSession.handleExternalFileChange,
     },
   });
 
@@ -1263,11 +1416,7 @@ export const initMain = () => {
       setTreeFocus: (focus) => fileTreeUi.setTreeFocus(focus),
     },
     updateFallback,
-    setMonacoApi: (api) => {
-      appActions.setMonacoApi(api);
-      // Saved snippets complete by prefix in .tex/.bib buffers.
-      registerSnippetCompletion(api);
-    },
+    setMonacoApi: (api) => appActions.setMonacoApi(api),
     getIndexLabels,
     getIndexCitations,
     getWorkspaceFiles,
@@ -1276,6 +1425,8 @@ export const initMain = () => {
     onCursorSelectionChange: handleCursorPositionChange,
     openAiWithSelection: () => {
       setActiveTab("ai");
+      // The selection chip in the composer reflects what was selected.
+      aiChatUi?.refreshContextBar();
       const input = document.getElementById("ai-input");
       if (input instanceof HTMLTextAreaElement) {
         input.focus();

@@ -1,4 +1,5 @@
 import { buildLineDiff } from "./diff.js";
+import { aiText } from "./ai-i18n.js";
 /* ── Diff summary helpers ───────────────────────────────── */
 const computeDiffCounts = (original, modified) => {
     const beforeText = original.trimEnd();
@@ -33,6 +34,7 @@ const createDiffSummaryEl = (adds, dels) => {
     }
     return row;
 };
+const fileName = (path) => path.split("/").pop() || path;
 const getProposalType = (proposal) => {
     const rawType = proposal.type || "write";
     return rawType === "write" && proposal.isNewFile ? "new" : rawType;
@@ -48,7 +50,7 @@ const getProposalBadgeText = (proposal) => {
 };
 /* ── Unified card builder ──────────────────────────────────── */
 export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     const card = document.createElement("div");
     card.className = "ai-proposal";
     const proposalIds = proposals.map((p) => p.id);
@@ -63,21 +65,33 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
     icon.className = "ai-proposal-icon";
     icon.innerHTML =
         '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>';
+    // Several edits to one file are one change to the reader: group by path,
+    // and show each file's net difference (first original -> last content).
+    const byPath = new Map();
+    for (const proposal of proposals) {
+        const list = byPath.get(proposal.path);
+        if (list)
+            list.push(proposal);
+        else
+            byPath.set(proposal.path, [proposal]);
+    }
+    const fileGroups = [...byPath.entries()].map(([filePath, edits]) => ({
+        path: filePath,
+        first: edits[0],
+        last: edits[edits.length - 1],
+        ids: edits.map((edit) => edit.id),
+    }));
     const titleEl = document.createElement("div");
     titleEl.className = "ai-proposal-path";
     titleEl.textContent =
-        proposals.length === 1
-            ? proposals[0].path
-            : `${proposals.length} file changes`;
+        fileGroups.length === 1
+            ? fileGroups[0].path
+            : `${fileGroups.length} file changes`;
     header.append(icon, titleEl);
     const badge = document.createElement("span");
     badge.className = "ai-proposal-badge";
     if (allApplied) {
-        badge.textContent = "Applied";
-        badge.style.background = "rgba(99, 102, 241, 0.1)";
-        badge.style.color = "#818cf8";
-        badge.style.borderColor = "rgba(99, 102, 241, 0.2)";
-        header.appendChild(badge);
+        // Written already: the card itself says so, no badge needed.
     }
     else {
         const badgeText = proposals.length === 1
@@ -89,13 +103,14 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
         }
     }
     /* ── File list (multi-file only) ───────────────── */
-    if (proposals.length > 1) {
+    if (fileGroups.length > 1) {
         const fileList = document.createElement("div");
         fileList.className = "ai-proposal-file-list";
-        for (const proposal of proposals) {
+        for (const group of fileGroups) {
+            const proposal = group.last;
             const fileItem = document.createElement("div");
             fileItem.className = "ai-proposal-file-item";
-            if (appliedIds.has(proposal.id))
+            if (group.ids.every((id) => appliedIds.has(id)) || isAutoApplied)
                 fileItem.classList.add("is-applied");
             const fileName = document.createElement("span");
             fileName.className = "ai-proposal-file-name";
@@ -113,7 +128,7 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
             const isBinary = proposal.isBinary === true;
             const proposalType = getProposalType(proposal);
             if (!isBinary && proposalType !== "mkdir" && proposalType !== "rename") {
-                const original = (_a = proposal.originalContent) !== null && _a !== void 0 ? _a : "";
+                const original = (_a = group.first.originalContent) !== null && _a !== void 0 ? _a : "";
                 const modified = (_b = proposal.content) !== null && _b !== void 0 ? _b : "";
                 const { adds, dels } = computeDiffCounts(original, modified);
                 if (adds > 0) {
@@ -134,27 +149,50 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
         card.append(header, fileList);
     }
     else {
-        // Single file: summary row with diff counts
-        const summary = document.createElement("div");
-        summary.className = "ai-proposal-summary";
-        const p = proposals[0];
+        // Single file: the net counts sit on the header line, after the name.
+        const p = fileGroups[0].last;
         const isBinary = p.isBinary === true;
         const proposalType = getProposalType(p);
         if (!isBinary && proposalType !== "mkdir" && proposalType !== "rename") {
-            const original = (_c = p.originalContent) !== null && _c !== void 0 ? _c : "";
+            const original = (_c = fileGroups[0].first.originalContent) !== null && _c !== void 0 ? _c : "";
             const modified = (_d = p.content) !== null && _d !== void 0 ? _d : "";
             const { adds, dels } = computeDiffCounts(original, modified);
             if (adds > 0 || dels > 0) {
-                summary.appendChild(createDiffSummaryEl(adds, dels));
+                const counts = createDiffSummaryEl(adds, dels);
+                counts.classList.add("ai-proposal-counts");
+                header.appendChild(counts);
             }
-            else {
-                summary.textContent = "No change";
-            }
+            card.append(header);
         }
         else {
+            const summary = document.createElement("div");
+            summary.className = "ai-proposal-summary";
             summary.textContent = p.summary || "Proposed file changes";
+            card.append(header, summary);
         }
-        card.append(header, summary);
+    }
+    /* ── Where it landed: section and page ───────── */
+    const scopeParts = [];
+    const seenScopes = new Set();
+    for (const group of fileGroups) {
+        const scoped = (_e = group.last.scope) !== null && _e !== void 0 ? _e : group.first.scope;
+        if (!scoped)
+            continue;
+        const place = scoped.section
+            ? `§ ${scoped.section}`
+            : aiText("scope_line").replace("{n}", String(scoped.line));
+        const page = Number.isFinite(scoped.page) ? aiText("scope_page").replace("{n}", String(scoped.page)) : "";
+        const text = [fileGroups.length > 1 ? fileName(group.path) : "", place, page].filter(Boolean).join(" · ");
+        if (!seenScopes.has(text)) {
+            seenScopes.add(text);
+            scopeParts.push(text);
+        }
+    }
+    if (scopeParts.length > 0) {
+        const scopeEl = document.createElement("div");
+        scopeEl.className = "ai-proposal-scope";
+        scopeEl.textContent = scopeParts.slice(0, 3).join("　");
+        card.appendChild(scopeEl);
     }
     /* ── Actions ─────────────────────────────── */
     const actions = document.createElement("div");
@@ -165,12 +203,13 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
         const reviewButton = document.createElement("button");
         reviewButton.type = "button";
         reviewButton.className = "panel-button ghost";
-        reviewButton.textContent = "View diff";
+        reviewButton.textContent = aiText("view_diff");
         reviewButton.addEventListener("click", (event) => {
             var _a, _b, _c;
             event.stopPropagation();
-            deps.setPendingProposalIds(proposalIds);
-            deps.setDiffContext({ type: "aiApply", proposalIds });
+            // The edit is already on disk: the diff is a view, not an approval.
+            deps.setPendingProposalIds([]);
+            deps.setDiffContext({ type: "aiApply", proposalIds: [] });
             const diffable = proposals.filter((p) => !p.isBinary && getProposalType(p) !== "mkdir" && getProposalType(p) !== "rename");
             // Group edits by file: each file's net diff (first edit's original ->
             // last edit's result). One file -> single Monaco diff; multiple files ->
@@ -192,21 +231,39 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
             const files = [...byPath.values()];
             if (files.length === 1) {
                 deps.showDiffModal(files[0].original, files[0].modified, 0, {
-                    title: "Confirm changes",
+                    title: aiText("changes_title"),
                     fileName: files[0].fileName,
-                    submitLabel: allApplied ? "Confirm" : "Apply",
+                    viewOnly: true,
+                    closeLabel: aiText("close"),
                 });
             }
             else {
                 deps.showMultiFileDiff(files, {
-                    title: "Confirm changes",
-                    submitLabel: allApplied ? "Confirm" : "Apply all",
+                    title: aiText("changes_title"),
+                    viewOnly: true,
+                    closeLabel: aiText("close"),
                 });
             }
         });
         actions.appendChild(reviewButton);
     }
+    // A change the reader does not want goes back from here, not from the editor.
+    if (allApplied && deps.canUndo && deps.undoRun) {
+        const undoButton = document.createElement("button");
+        undoButton.type = "button";
+        undoButton.className = "panel-button ghost";
+        undoButton.textContent = aiText("undo_run");
+        undoButton.addEventListener("click", (event) => {
+            var _a;
+            event.stopPropagation();
+            undoButton.disabled = true;
+            (_a = deps.undoRun) === null || _a === void 0 ? void 0 : _a.call(deps);
+        });
+        actions.appendChild(undoButton);
+    }
     if (!allApplied) {
+        // Edits the host could not write straight away (an unsaved buffer was in
+        // the way) are applied from here.
         const applyButton = document.createElement("button");
         applyButton.type = "button";
         applyButton.className = "panel-button";
@@ -223,9 +280,10 @@ export const createUnifiedProposalCard = (proposals, appliedIds, deps) => {
         applyButton.addEventListener("click", (event) => {
             event.stopPropagation();
             const unapplied = proposals.filter((p) => !appliedIds.has(p.id));
-            for (const p of unapplied) {
-                deps.postToNative({ type: "agent:apply", proposalId: p.id });
-            }
+            deps.postToNative({
+                type: "agent:applyBatch",
+                proposalIds: unapplied.map((proposal) => proposal.id),
+            });
         });
         actions.appendChild(applyButton);
     }

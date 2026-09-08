@@ -7,11 +7,19 @@ export type FilePreviewResultPayload = {
   data?: string;
   mimeType?: string;
   error?: string;
+  stale?: boolean;
+};
+
+export type WorkspaceFileCacheScope = {
+  workspaceId?: string | null;
+  rootPath?: string | null;
+  workspaceGeneration?: number;
 };
 
 type FilePreviewBroker = {
   requestPreview: (path: string) => Promise<{ ok: boolean; dataUrl?: string | null; error?: string }>;
   handlePreviewResult: (payload: FilePreviewResultPayload) => void;
+  setWorkspaceScope: (scope: WorkspaceFileCacheScope) => void;
 };
 
 const buildRequestId = (() => {
@@ -24,10 +32,31 @@ export const createFilePreviewBroker = (
 ): FilePreviewBroker => {
   const pending = new Map<
     string,
-    { resolve: (value: { ok: boolean; dataUrl?: string | null; error?: string }) => void; timeoutId: number }
+    {
+      resolve: (value: { ok: boolean; dataUrl?: string | null; error?: string }) => void;
+      timeoutId: number;
+      cacheKey: string;
+    }
   >();
   const cache = new Map<string, { dataUrl: string; updatedAt: number }>();
   const cacheTtlMs = 60_000;
+  let workspaceScopeKey = "none:0";
+
+  const setWorkspaceScope = (scope: WorkspaceFileCacheScope) => {
+    const workspace = scope.workspaceId || scope.rootPath || "none";
+    const generation = Number.isSafeInteger(scope.workspaceGeneration)
+      ? scope.workspaceGeneration
+      : 0;
+    const nextScopeKey = `${workspace}:${generation}`;
+    if (nextScopeKey === workspaceScopeKey) return;
+    workspaceScopeKey = nextScopeKey;
+    cache.clear();
+    for (const entry of pending.values()) {
+      window.clearTimeout(entry.timeoutId);
+      entry.resolve({ ok: false, error: "Workspace changed." });
+    }
+    pending.clear();
+  };
 
   const requestPreview = (
     path: string
@@ -36,7 +65,8 @@ export const createFilePreviewBroker = (
     if (!trimmed) {
       return Promise.resolve({ ok: false, error: uiText("path is empty.", "path が空です。") });
     }
-    const cached = cache.get(trimmed);
+    const cacheKey = `${workspaceScopeKey}\0${trimmed}`;
+    const cached = cache.get(cacheKey);
     if (cached && Date.now() - cached.updatedAt < cacheTtlMs) {
       return Promise.resolve({ ok: true, dataUrl: cached.dataUrl });
     }
@@ -48,7 +78,7 @@ export const createFilePreviewBroker = (
         pending.delete(requestId);
         resolve({ ok: false, error: uiText("Preview timed out.", "プレビューがタイムアウトしました。") });
       }, 4000);
-      pending.set(requestId, { resolve, timeoutId });
+      pending.set(requestId, { resolve, timeoutId, cacheKey });
       postToNative(
         {
           type: "file:preview",
@@ -81,11 +111,9 @@ export const createFilePreviewBroker = (
       return;
     }
     const dataUrl = `data:${mimeType};base64,${data}`;
-    if (typeof payload.path === "string" && payload.path.trim()) {
-      cache.set(payload.path.trim(), { dataUrl, updatedAt: Date.now() });
-    }
+    cache.set(entry.cacheKey, { dataUrl, updatedAt: Date.now() });
     entry.resolve({ ok: true, dataUrl });
   };
 
-  return { requestPreview, handlePreviewResult };
+  return { requestPreview, handlePreviewResult, setWorkspaceScope };
 };

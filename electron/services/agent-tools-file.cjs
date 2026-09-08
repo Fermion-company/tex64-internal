@@ -1,3 +1,4 @@
+const { historyBoundary } = require("./agent-history-boundary.cjs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 const {
@@ -156,9 +157,24 @@ const handleReadFiles = async (service, args, policy, conversationId) => {
 };
 
 const autoApplyProposal = async (service, proposal, options = {}) => {
+  // Where the change sits (section and first changed line) is decided from
+  // the written content itself; the page follows after the build.
+  try {
+    const { describeProposalScope } = require("./agent-proposal-scope.cjs");
+    const scope = describeProposalScope(proposal);
+    if (scope) proposal.scope = scope;
+  } catch {
+    // The card simply shows no place.
+  }
+  proposal.historyBoundary = historyBoundary(service);
   service.proposals.set(proposal.id, proposal);
+  const conversationId =
+    typeof proposal.conversationId === "string" && proposal.conversationId.trim()
+      ? proposal.conversationId.trim()
+      : "default";
   const applyResult = await service.applyProposal(proposal.id, {
     discardOnFailure: true,
+    _workspaceRunToken: service.runningControllers?.get?.(conversationId)?.token,
     ...options,
   });
   const result =
@@ -167,6 +183,12 @@ const autoApplyProposal = async (service, proposal, options = {}) => {
       : { ok: false, proposalId: proposal.id, error: "Operation failed." };
   // Send proposal to renderer so the chat shows a summary card (already in applied state)
   if (result.ok) {
+    try {
+      const { rememberProposalForPages } = require("./agent-proposal-scope.cjs");
+      rememberProposalForPages(service, proposal);
+    } catch {
+      // Page lookup is a nicety.
+    }
     service.sendToRenderer("agent:proposal", {
       proposal: { ...proposal, autoApplied: true },
     });
@@ -183,8 +205,11 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   // Safety flags passed through from the tool layer:
   //   args.mode           — "create" (new file only) | "overwrite" (existing only) | "any"
   //   args.allowFullRewrite — explicit acknowledgement for destructive shrinks
+  //   args.allowStructuralRemoval — trusted-caller acknowledgement for a future
+  //     explicit UI approval flow; model-facing tools force this to false
   const mode = typeof args.mode === "string" ? args.mode : "any";
   const allowFullRewrite = args.allowFullRewrite === true;
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   if (!targetPath) {
     return { error: "path is empty." };
   }
@@ -271,8 +296,8 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
 
   // ---- Destructive shrink guard ----
   // Skip for new files (nothing to shrink) and for binary writes.
-  if (!isNewFile && !binaryWrite && !allowFullRewrite) {
-    if (isDestructiveShrink(originalContent, content)) {
+  if (!isNewFile && !binaryWrite) {
+    if (!allowFullRewrite && isDestructiveShrink(originalContent, content)) {
       const oldLines = originalContent.split(/\r?\n/).length;
       const newLines = content.split(/\r?\n/).length;
       return {
@@ -290,15 +315,17 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
         conflict: true,
       };
     }
-    const brokenInvariants = checkLatexInvariants(targetPath, originalContent, content);
+    const brokenInvariants = allowStructuralRemoval
+      ? []
+      : checkLatexInvariants(targetPath, originalContent, content);
     if (brokenInvariants.length > 0) {
       return {
         error:
           "STRUCTURAL INVARIANT VIOLATION: this write would remove critical LaTeX " +
           "elements that were present in the original file: " +
           brokenInvariants.join(", ") +
-          ". These elements are protected. If you truly intend to restructure the " +
-          "document, pass allowFullRewrite=true. Otherwise, use targeted edit tools " +
+          ". These elements are protected even during a full-file rewrite and " +
+          "cannot be removed by Axiom editing tools. Use targeted edit tools " +
           "(replace_lines, replace_section) so the listed elements remain intact.",
         conflict: true,
         brokenInvariants,
@@ -331,6 +358,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
   if (!apply.ok) {
     return {
       status: "apply_failed",
+      writeApplied: false,
       proposalId: id,
       path: targetPath,
       apply,
@@ -349,6 +377,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     if (!verify.ok) {
       return {
         status: "apply_failed",
+        writeApplied: true,
         proposalId: id,
         path: targetPath,
         error: verify.error,
@@ -357,6 +386,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
     const change = describeChange(originalContent, content);
     return {
       status: "applied",
+      writeApplied: true,
       proposalId: id,
       path: targetPath,
       apply,
@@ -369,6 +399,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
 
   return {
     status: "applied",
+    writeApplied: true,
     proposalId: id,
     path: targetPath,
     apply,
@@ -377,6 +408,7 @@ const handleProposeWrite = async (service, args, policy, conversationId) => {
 
 const handleProposePatch = async (service, args, policy, conversationId) => {
   const summaryPrefix = typeof args.summary === "string" ? args.summary.trim() : "";
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   const editsArg = Array.isArray(args.edits) ? args.edits : null;
   const normalizedEdits = [];
 
@@ -497,6 +529,24 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
     if (updatedContent.length > policy.maxFileBytes) {
       return { error: "Content is too large." };
     }
+    if (!allowStructuralRemoval) {
+      const brokenInvariants = checkLatexInvariants(
+        targetPath,
+        originalContent,
+        updatedContent,
+      );
+      if (brokenInvariants.length > 0) {
+        return {
+          error:
+            "STRUCTURAL INVARIANT VIOLATION: this edit would remove critical LaTeX " +
+            "elements that were present in the original file: " +
+            brokenInvariants.join(", ") +
+            ". These elements cannot be removed by Axiom editing tools.",
+          conflict: true,
+          brokenInvariants,
+        };
+      }
+    }
     preparedProposals.push({
       path: targetPath,
       edits,
@@ -544,6 +594,7 @@ const handleProposePatch = async (service, args, policy, conversationId) => {
   const hasFailure = proposals.length > successCount;
   return {
     status: hasFailure ? (successCount > 0 ? "partially_applied" : "apply_failed") : "applied",
+    writeApplied: successCount > 0,
     proposalIds: proposals.map((proposal) => proposal.proposalId),
     files: proposals,
   };
@@ -615,6 +666,7 @@ const submitEditedContent = async ({
   baseSource,
   summary,
   allowFullRewrite,
+  allowStructuralRemoval,
   proposalType = "patch",
 }) => {
   if (isBlockedPath(targetPath, policy)) {
@@ -675,7 +727,14 @@ const submitEditedContent = async ({
       return { error: adjacentDuplicateError({ side: "above", line: duplicatedLine }) };
     }
   }
-  if (!allowFullRewrite) {
+  // Text after \end{document} is never typeset, and a second \begin{document}
+  // is a second document. Both are silent failures: the page would not show
+  // what was "written". Refuse them with the fix in the message.
+  const misplaced = findMisplacedDocumentContent(targetPath, originalContent, updatedContent);
+  if (misplaced) {
+    return { error: misplaced, conflict: true };
+  }
+  if (!allowStructuralRemoval) {
     const brokenInvariants = checkLatexInvariants(
       targetPath,
       originalContent,
@@ -687,9 +746,8 @@ const submitEditedContent = async ({
           "STRUCTURAL INVARIANT VIOLATION: this edit would remove critical LaTeX " +
           "elements that were present in the original file: " +
           brokenInvariants.join(", ") +
-          ". These elements are protected. If you truly intend to restructure the " +
-          "document (e.g. convert to a different class or remove \\maketitle), pass " +
-          "allowFullRewrite=true. Otherwise, narrow your edit so the listed " +
+          ". These elements are protected even when allowFullRewrite=true and " +
+          "cannot be removed by Axiom editing tools. Narrow your edit so the listed " +
           "elements remain intact.",
         conflict: true,
         brokenInvariants,
@@ -720,6 +778,7 @@ const submitEditedContent = async ({
   if (!apply.ok) {
     return {
       status: "apply_failed",
+      writeApplied: false,
       proposalId: id,
       path: targetPath,
       error: apply.error,
@@ -731,6 +790,7 @@ const submitEditedContent = async ({
   if (!verify.ok) {
     return {
       status: "apply_failed",
+      writeApplied: true,
       proposalId: id,
       path: targetPath,
       error: verify.error,
@@ -739,6 +799,7 @@ const submitEditedContent = async ({
   const change = describeChange(originalContent, updatedContent);
   return {
     status: "applied",
+    writeApplied: true,
     proposalId: id,
     path: targetPath,
     change,
@@ -754,6 +815,47 @@ const submitEditedContent = async ({
 // Only substantive lines (>= 24 trimmed chars) are flagged, so short tokens
 // like "}", "\\", or "\end{...}" never trip it.
 const ADJACENT_DUP_MIN_LEN = 24;
+const stripTexComments = (text) =>
+  text.replace(/(^|[^\\])%.*$/gm, "$1");
+
+/**
+ * Content that LaTeX will never typeset: anything after \end{document}, or a
+ * second \begin{document} / \documentclass. Only reported when the edit
+ * introduces it, so a file that already had the problem stays editable.
+ */
+const findMisplacedDocumentContent = (targetPath, originalContent, updatedContent) => {
+  if (!/\.tex$/i.test(String(targetPath))) return null;
+  const countAll = (text, re) => (stripTexComments(text).match(re) || []).length;
+  const beginRe = /\\begin\{document\}/g;
+  const classRe = /\\documentclass\b/g;
+  if (countAll(updatedContent, beginRe) > Math.max(1, countAll(originalContent, beginRe))) {
+    return (
+      "SECOND \\begin{document} REJECTED: the file would contain \\begin{document} more than once. " +
+      "There is exactly one document body; put the new content inside the existing " +
+      "\\begin{document} ... \\end{document} instead of starting another."
+    );
+  }
+  if (countAll(updatedContent, classRe) > Math.max(1, countAll(originalContent, classRe))) {
+    return (
+      "SECOND \\documentclass REJECTED: a file has one \\documentclass. Edit the existing " +
+      "preamble instead of adding a second one."
+    );
+  }
+  const trailing = (text) => {
+    const stripped = stripTexComments(text);
+    const index = stripped.lastIndexOf("\\end{document}");
+    if (index < 0) return "";
+    return stripped.slice(index + "\\end{document}".length).trim();
+  };
+  if (trailing(updatedContent) && !trailing(originalContent)) {
+    return (
+      "CONTENT AFTER \\end{document} REJECTED: LaTeX stops at \\end{document}, so text after it " +
+      "never reaches the page. Insert the new content before \\end{document}, inside the document body."
+    );
+  }
+  return null;
+};
+
 const findIntroducedAdjacentDuplicate = (lines, blockStartIndex, blockLength) => {
   if (!Array.isArray(lines) || blockLength <= 0) return null;
   const substantive = (s) => typeof s === "string" && s.trim().length >= ADJACENT_DUP_MIN_LEN;
@@ -776,6 +878,7 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
   const startLineRaw = Number(args.startLine);
   const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
   const allowFullRewrite = args.allowFullRewrite === true;
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   if (!targetPath) {
     return { error: "path is empty." };
   }
@@ -840,6 +943,7 @@ const handleReplaceLines = async (service, args, policy, conversationId) => {
     baseSource: read.baseSource,
     summary: summary.trim() ? summary : `Replace lines ${lineRangeLabel} in ${targetPath}`,
     allowFullRewrite,
+    allowStructuralRemoval,
     proposalType: "patch",
   });
 };
@@ -928,6 +1032,7 @@ const handleDeleteLines = async (service, args, policy, conversationId) => {
   const startLineRaw = Number(args.startLine);
   const endLineRaw = args.endLine === undefined ? startLineRaw : Number(args.endLine);
   const allowFullRewrite = args.allowFullRewrite === true;
+  const allowStructuralRemoval = args.allowStructuralRemoval === true;
   if (!targetPath) {
     return { error: "path is empty." };
   }
@@ -974,6 +1079,7 @@ const handleDeleteLines = async (service, args, policy, conversationId) => {
     baseSource: read.baseSource,
     summary: summary.trim() || `Delete lines ${lineRangeLabel} from ${targetPath}`,
     allowFullRewrite,
+    allowStructuralRemoval,
     proposalType: "patch",
   });
 };
@@ -1055,6 +1161,7 @@ const handleProposeDelete = async (service, args, policy, conversationId) => {
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
   return {
     status: apply.ok ? "applied" : "apply_failed",
+    writeApplied: apply.ok,
     proposalId: id,
     path: targetPath,
     apply,
@@ -1082,6 +1189,9 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   let baseContentHash = null;
   let baseSource = null;
   const snapshot = service.getContextSnapshot(conversationId, oldPath);
+  if (snapshot?.isDirty) {
+    return { error: "Cannot rename a file with unsaved editor changes. Save it and try again." };
+  }
   if (snapshot && snapshot.content) {
     if (snapshot.contentLength > policy.maxFileBytes) {
       return { error: "File is too large." };
@@ -1126,6 +1236,7 @@ const handleProposeRename = async (service, args, policy, conversationId) => {
   const apply = await autoApplyProposal(service, proposal, { skipAutoBuild: true });
   return {
     status: apply.ok ? "applied" : "apply_failed",
+    writeApplied: apply.ok,
     proposalId: id,
     path: newPath,
     apply,
@@ -1162,6 +1273,7 @@ const handleProposeCreateDirectory = async (service, args, policy, conversationI
   const apply = await autoApplyProposal(service, proposal);
   return {
     status: apply.ok ? "applied" : "apply_failed",
+    writeApplied: apply.ok,
     proposalId: id,
     path: targetPath,
     apply,

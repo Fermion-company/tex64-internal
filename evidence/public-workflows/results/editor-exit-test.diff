@@ -1,0 +1,12 @@
+diff --git a/documents/paper/main.tex b/documents/paper/main.tex
+index 9017bba..d8a576e 100644
+--- a/documents/paper/main.tex
++++ b/documents/paper/main.tex
+@@ -6,6 +6,6 @@
+ \ifdefined\pdfvariable\pdfvariable suppressoptionalinfo 767\relax\fi
+ \begin{document}
+ \section*{Portable fixture}
+-Status: baseline.
++Status: reviewed.
+ The standard source contains the equation $a^2+b^2=c^2$.
+ \end{document}

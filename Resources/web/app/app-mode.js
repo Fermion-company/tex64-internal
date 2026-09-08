@@ -1,18 +1,48 @@
-// Desktop currently ships the Code workspace only. Keep this compatibility
-// module so older callers and stored mode values deterministically fall back
-// to Code while the separate AI workspace remains disabled.
+// The desktop product exposes the Code editor and the paper-first AI workspace.
+// Both surfaces share the same project files, build pipeline, and billing state.
 export const APP_MODE_STORAGE_KEY = "tex64.appMode.v1";
 export const parseAppMode = (raw) => {
-    if (raw === "code")
+    if (raw === "code" || raw === "ai")
         return raw;
     return null;
 };
-// Old AI and Pro selections both migrate to the only shipped workspace.
-export const resolveInitialAppMode = (_storedMode) => "code";
+export const resolveInitialAppMode = (storedMode) => { var _a; return (_a = parseAppMode(storedMode)) !== null && _a !== void 0 ? _a : "code"; };
+/**
+ * Persist Code's buffers before another surface or another root takes over
+ * the files. A project switch also stops every writer first (`quiesce`); a
+ * mode switch passes none and lets work continue.
+ */
+export const prepareCodeWorkspaceHandoff = async (input) => {
+    if (input.quiesce) {
+        const quiet = await input.quiesce();
+        if (!quiet.ok)
+            return { ok: false, phase: "quiesce", error: quiet.error };
+    }
+    if (!(await input.saveCode()))
+        return { ok: false, phase: "save" };
+    return { ok: true };
+};
+/**
+ * Hands one workspace between the two surfaces. Work in flight keeps running
+ * in the host: an agent turn or a build started in either mode continues in
+ * the background and each surface picks up its result. Only Code's unsaved
+ * buffers are persisted first, so the paper never shows stale text. Stopping
+ * work is reserved for leaving the workspace or closing the window.
+ */
+export const prepareAppModeTransition = async (input) => {
+    if (input.previous === null)
+        return { ok: true };
+    if (input.next === "ai") {
+        return prepareCodeWorkspaceHandoff(input);
+    }
+    return { ok: true };
+};
 export const initAppModeUi = (deps) => {
     const switcher = document.getElementById("mode-switcher");
     let mode = null;
-    const applyMode = (next) => {
+    let transitionVersion = 0;
+    let pendingMode = null;
+    const commitMode = (next) => {
         if (mode === next)
             return;
         const previous = mode;
@@ -32,6 +62,49 @@ export const initAppModeUi = (deps) => {
         });
         deps.onModeChange(next, previous);
         requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    };
+    const applyMode = (next) => {
+        var _a, _b;
+        // Do not run quiesce/save twice for a double click. These operations own
+        // filesystem handoff and must stay serialized even if the visual switch
+        // has subsequently been cancelled.
+        if (pendingMode === next)
+            return;
+        transitionVersion += 1;
+        const version = transitionVersion;
+        // Clicking the still-selected tab cancels an in-flight transition to the
+        // other mode. Without advancing the version here, a late approval could
+        // switch the UI after the user had explicitly chosen to stay put.
+        if (mode === next) {
+            switcher === null || switcher === void 0 ? void 0 : switcher.removeAttribute("aria-busy");
+            return;
+        }
+        let approval;
+        try {
+            approval = (_b = (_a = deps.beforeModeChange) === null || _a === void 0 ? void 0 : _a.call(deps, next, mode)) !== null && _b !== void 0 ? _b : true;
+        }
+        catch {
+            return;
+        }
+        if (typeof approval === "boolean") {
+            if (approval)
+                commitMode(next);
+            return;
+        }
+        pendingMode = next;
+        switcher === null || switcher === void 0 ? void 0 : switcher.setAttribute("aria-busy", "true");
+        void approval
+            .then((allowed) => {
+            if (allowed && version === transitionVersion)
+                commitMode(next);
+        })
+            .catch(() => { })
+            .finally(() => {
+            if (pendingMode === next)
+                pendingMode = null;
+            if (version === transitionVersion)
+                switcher === null || switcher === void 0 ? void 0 : switcher.removeAttribute("aria-busy");
+        });
     };
     switcher === null || switcher === void 0 ? void 0 : switcher.querySelectorAll("[data-app-mode-tab]").forEach((tab) => {
         tab.addEventListener("click", () => {

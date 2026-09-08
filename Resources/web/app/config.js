@@ -4,11 +4,11 @@ export const TAB_KEYS = [
     "outline",
     "blocks",
     "ai",
+    "history",
+    "git",
     "project",
     "search",
     "issues",
-    "git",
-    "snippets",
     "settings",
 ];
 const EN_TAB_CONFIG = {
@@ -40,6 +40,8 @@ const EN_TAB_CONFIG = {
         desc: "Use chat to propose file changes and create templates.",
         hint: "Review diffs before applying.",
     },
+    git: { label: "Git", outline: "Git", title: "Git", desc: "", hint: "" },
+    history: { label: "History", outline: "History", title: "History", desc: "", hint: "" },
     project: {
         label: "Project",
         outline: "Project settings",
@@ -60,20 +62,6 @@ const EN_TAB_CONFIG = {
         title: "Issues",
         desc: "List build and operation issues.",
         hint: "Click to jump to the relevant location.",
-    },
-    git: {
-        label: "Source Control",
-        outline: "Working tree",
-        title: "Source Control",
-        desc: "Stage, commit and sync this project with Git.",
-        hint: "Click a file to see its diff.",
-    },
-    snippets: {
-        label: "Snippets",
-        outline: "Saved snippets",
-        title: "Snippets",
-        desc: "Keep the macros you reuse and insert them by prefix.",
-        hint: "Type the prefix in the editor to complete it.",
     },
     settings: {
         label: "Settings",
@@ -114,6 +102,8 @@ const JA_TAB_CONFIG = {
         desc: "チャットでファイルの提案やテンプレート作成を行います。",
         hint: "差分を確認して適用します。",
     },
+    git: { label: "Git", outline: "Git", title: "Git", desc: "", hint: "" },
+    history: { label: "履歴", outline: "履歴", title: "履歴", desc: "", hint: "" },
     project: {
         label: "プロジェクト",
         outline: "プロジェクト設定",
@@ -134,20 +124,6 @@ const JA_TAB_CONFIG = {
         title: "Issues",
         desc: "ビルドや操作のエラーを一覧表示します。",
         hint: "クリックで該当箇所へ移動します。",
-    },
-    git: {
-        label: "ソース管理",
-        outline: "作業ツリー",
-        title: "ソース管理",
-        desc: "Git でステージ・コミット・同期を行います。",
-        hint: "ファイルをクリックすると差分を表示します。",
-    },
-    snippets: {
-        label: "スニペット",
-        outline: "保存済みスニペット",
-        title: "スニペット",
-        desc: "よく使うマクロを登録して、プレフィックスで挿入します。",
-        hint: "エディタでプレフィックスを入力すると補完されます。",
     },
     settings: {
         label: "設定",

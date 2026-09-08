@@ -2,9 +2,9 @@
 
 // Real-time preview engine host (beta). Spawns the TDOM engine's server.js
 // (a resident, incremental LuaLaTeX runtime — sibling repo `tdom-core`) as a
-// child Node process and proxies document pushes to it over local HTTP. The
-// renderer embeds the engine's own preview client (`/?embed=1`) in an iframe;
-// this service only owns the process lifecycle and the edit stream.
+// child Node process and proxies document pushes to it over local HTTP. TDOM
+// owns compilation only; TeX64 reads canonical PDF bytes back into its normal
+// PDF viewers instead of embedding the engine's preview UI.
 //
 // Engine directory resolution mirrors fermion-engine.cjs: a developer
 // checkout wins (so editing ~/tdom-core is picked up on the next preview
@@ -73,6 +73,30 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
     req.end();
   });
 
+const requestBuffer = (url, { timeoutMs = 5_000, maxBytes = 32 * 1024 * 1024 } = {}) =>
+  new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      if ((res.statusCode || 500) >= 400) {
+        res.resume();
+        reject(new Error(`tdom request failed (${res.statusCode})`));
+        return;
+      }
+      const chunks = [];
+      let size = 0;
+      res.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > maxBytes) {
+          req.destroy(new Error("tdom PDF exceeds the preview size limit"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error("tdom request timed out")));
+    req.on("error", reject);
+  });
+
 // Minimal range edit between two sources (common prefix/suffix trim), so the
 // engine's checkpoint reuse sees a tight dirty range instead of a full-file
 // replacement on every keystroke.
@@ -114,17 +138,22 @@ class TdomEngineService {
     this.fileAccess = options.fileAccess || NO_FILE_ACCESS;
     this.envEngineDir = envDir;
     this.explicitEngineDir = options.engineDir;
+    const unpackedVendoredDir = options.resourcesPath
+      ? path.join(options.resourcesPath, "app.asar.unpacked", "Resources", "tdom-engine")
+      : null;
     this.vendoredDir = options.vendoredDir
-      || (options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
+      || (unpackedVendoredDir && pathExists(path.join(unpackedVendoredDir, MARKER))
+        ? unpackedVendoredDir
+        : options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
     const directHostWebRoot = options.resourcesPath
       ? path.join(options.resourcesPath, "web")
       : null;
     const unpackedHostWebRoot = options.resourcesPath
       ? path.join(options.resourcesPath, "app.asar.unpacked", "Resources", "web")
       : null;
-    // The engine is an external process, so it cannot serve renderer files
-    // from Electron's virtual app.asar path. Packaged builds unpack the small
-    // MathLive/WYSIWYG subset; development continues to use Resources/web.
+    // The engine is an external process and cannot read Electron's virtual
+    // app.asar. Packaged builds expose only the MathLive/WYSIWYG files needed
+    // by the formula editor; development uses Resources/web directly.
     this.hostWebRoot = options.hostWebRoot ||
       (unpackedHostWebRoot && pathExists(unpackedHostWebRoot)
         ? unpackedHostWebRoot
@@ -142,12 +171,14 @@ class TdomEngineService {
     this.needsAccess = resolved.needsAccess;
     this.proc = null;
     this.startPromise = null;
+    this.lifecycleGeneration = 0;
     this.port = null;
     this.state = "stopped";
     this.lastError = null;
     this.stderrTail = [];
     this.lastSource = null;
     this.lastPath = null;
+    this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays = new Map();
     this.lastRootMtimeMs = null;
@@ -196,29 +227,40 @@ class TdomEngineService {
       error: this.lastError };
   }
 
+  assertLifecycle(generation) {
+    if (generation !== this.lifecycleGeneration) {
+      throw Object.assign(new Error("Live preview startup was cancelled."), { code: "TDOM_CANCELLED" });
+    }
+  }
+
   async start() {
     if (this.isRunning() && this.state === "ready") return { ok: true, url: this.url };
     if (this.startPromise) return this.startPromise;
-    const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "tdom" });
-    if (!allowed) {
-      const root = this.fileAccess.classify(this.engineDir)?.root || this.engineDir;
-      const error = new Error(`TeX64 cannot start the real-time preview engine because it has no permission to access ${root}.`);
-      this.state = "unavailable";
-      this.lastError = error.message;
-      throw error;
-    }
-    this.refreshDirectory();
-    if (this.startPromise) return this.startPromise;
-    if (!this.isAvailable()) {
-      const error = new Error(`tdom-core engine was not found at ${this.engineDir}. Set TEX64_TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
-      this.state = "unavailable";
-      this.lastError = error.message;
-      throw error;
-    }
-    this.state = "starting";
-    this.lastError = null;
-    this.startPromise = this.startProcess();
-    try { return await this.startPromise; } finally { this.startPromise = null; }
+    const generation = this.lifecycleGeneration;
+    const pending = (async () => {
+      const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "tdom" });
+      this.assertLifecycle(generation);
+      if (!allowed) {
+        const root = this.fileAccess.classify(this.engineDir)?.root || this.engineDir;
+        const error = new Error(`TeX64 cannot start the real-time preview engine because it has no permission to access ${root}.`);
+        this.state = "unavailable";
+        this.lastError = error.message;
+        throw error;
+      }
+      this.refreshDirectory();
+      if (!this.isAvailable()) {
+        const error = new Error(`tdom-core engine was not found at ${this.engineDir}. Set TEX64_TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
+        this.state = "unavailable";
+        this.lastError = error.message;
+        throw error;
+      }
+      this.state = "starting";
+      this.lastError = null;
+      return this.startProcess(generation);
+    })();
+    this.startPromise = pending;
+    try { return await pending; }
+    finally { if (this.startPromise === pending) this.startPromise = null; }
   }
 
   // The engine refuses to boot when TDOM_SAMPLE names a file that is not in
@@ -284,15 +326,14 @@ class TdomEngineService {
       // canonical LuaLaTeX rendering remains fully functional.
     }
     if (this.workDir) env.TDOM_WORKDIR = this.workDir;
-    // The engine frame remains an isolated localhost origin, but it may
-    // serve TeX64's already-vendored MathLive assets for the single active
-    // formula editor.  Only /mathlive below this root is exposed server-side.
     if (this.hostWebRoot) env.TDOM_HOST_WEB_ROOT = this.hostWebRoot;
     return env;
   }
 
-  async startProcess() {
-    this.port = await findAvailablePort(this.preferredPort);
+  async startProcess(generation = this.lifecycleGeneration) {
+    const port = await findAvailablePort(this.preferredPort);
+    this.assertLifecycle(generation);
+    this.port = port;
     this.stderrTail = [];
     let proc;
     try {
@@ -321,16 +362,23 @@ class TdomEngineService {
     while (this.proc === proc && Date.now() < deadline) {
       try {
         await requestJson(`${this.url}/status`, { timeoutMs: 1_000 });
+        this.assertLifecycle(generation);
+        if (this.proc !== proc) throw new Error("Live preview process changed during startup.");
         this.state = "ready";
         this.lastSource = null;
         this.lastPath = null;
+        this.lastProjectRoot = null;
         this.lastSessionKey = null;
         this.lastOverlays.clear();
         this.lastRootMtimeMs = null;
         return { ok: true, url: this.url };
-      } catch (error) { lastError = error; }
+      } catch (error) {
+        this.assertLifecycle(generation);
+        lastError = error;
+      }
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
     }
+    this.assertLifecycle(generation);
     const detail = this.stderrTail.length ? ` — ${this.stderrTail.join(" / ")}` : "";
     const error = this.proc === proc
       ? new Error(`tdom engine did not become ready within ${this.startTimeoutMs}ms${lastError ? `: ${lastError.message}` : ""}${detail}`)
@@ -347,6 +395,7 @@ class TdomEngineService {
     this.state = "stopped";
     this.lastSource = null;
     this.lastPath = null;
+    this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;
@@ -427,6 +476,7 @@ class TdomEngineService {
         });
         this.lastSource = snapshot.source;
         this.lastPath = normalizedPath;
+        this.lastProjectRoot = snapshot.projectRoot;
         this.lastSessionKey = snapshot.sessionKey;
         this.lastOverlays = new Map(snapshot.overlays);
         this.lastRootMtimeMs = snapshot.rootMtimeMs;
@@ -473,6 +523,7 @@ class TdomEngineService {
           });
           this.lastSource = snapshot.source;
           this.lastPath = normalizedPath;
+          this.lastProjectRoot = snapshot.projectRoot;
           this.lastSessionKey = snapshot.sessionKey;
           this.lastOverlays = new Map(snapshot.overlays);
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
@@ -499,13 +550,63 @@ class TdomEngineService {
     return { ok: true, ...response };
   }
 
+  async snapshot(payload = {}) {
+    if (!this.isRunning() || this.state !== "ready" || !this.url) {
+      return { ok: false, error: "live preview engine is not ready" };
+    }
+    const status = await requestJson(`${this.url}/status`, { timeoutMs: 2_000 });
+    const documentEpoch = Number(status?.documentEpoch) || 0;
+    const generation = Number(status?.canonical?.id) || 0;
+    const afterGeneration = Number(payload.afterGeneration) || 0;
+    // documentEpoch advances as soon as a source edit lands, while the
+    // canonical PDF may still be the last-good generation. Only transfer
+    // bytes when the PDF generation itself advances.
+    const unchanged = generation === afterGeneration;
+    if (!generation || unchanged) {
+      return {
+        ok: true,
+        unchanged: true,
+        pending: Boolean(status?.canonical?.inFlight),
+        documentEpoch,
+        generation,
+        error: status?.canonical?.error || null,
+      };
+    }
+    const pdf = await requestBuffer(`${this.url}/canonical.pdf`, { timeoutMs: 10_000 });
+    if (!pdf.length || !pdf.subarray(0, 1024).includes(Buffer.from("%PDF-"))) {
+      throw new Error("tdom returned an invalid PDF snapshot");
+    }
+    let pdfPath = null;
+    if (this.lastPath && this.lastProjectRoot && isWithin(this.lastProjectRoot, this.lastPath)) {
+      pdfPath = path.relative(this.lastProjectRoot, this.lastPath)
+        .split(path.sep)
+        .join("/")
+        .replace(/\.tex$/i, ".pdf");
+    }
+    return {
+      ok: true,
+      unchanged: false,
+      documentEpoch,
+      generation,
+      path: pdfPath,
+      mainFile: pdfPath ? pdfPath.replace(/\.pdf$/i, ".tex") : null,
+      mimeType: "application/pdf",
+      byteSize: pdf.length,
+      data: pdf.toString("base64"),
+    };
+  }
+
   stop() {
+    // Invalidate startup even before a child exists (permission / port awaits).
+    this.lifecycleGeneration += 1;
+    this.startPromise = null;
     const proc = this.proc;
     this.proc = null;
     this.port = null;
     this.state = "stopped";
     this.lastSource = null;
     this.lastPath = null;
+    this.lastProjectRoot = null;
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;

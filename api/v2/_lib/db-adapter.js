@@ -26,6 +26,11 @@ const parseInteger = (value, fallback = 0) => {
   return fallback;
 };
 
+const parseNonNegativeNumber = (value, fallback = 0) => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
 const toIsoDate = (value) => {
   if (typeof value === "string" && value.trim()) {
     const date = new Date(value);
@@ -117,14 +122,36 @@ const normalizeUsageRow = (row) => {
     limitRequests: Math.max(0, parseInteger(row.limit_requests, 0)),
     usedTokens: Math.max(0, parseInteger(row.used_tokens, 0)),
     usedRequests: Math.max(0, parseInteger(row.used_requests, 0)),
+    costAccountingVersion: Math.max(
+      0,
+      parseInteger(row.cost_accounting_version, 0),
+    ),
+    legacyUsedTokens: Math.max(
+      0,
+      parseInteger(row.legacy_used_tokens, 0),
+    ),
+    usedCostUsd: parseNonNegativeNumber(row.used_cost_usd, 0),
     byFeature: {
       chat: {
         usedTokens: Math.max(0, parseInteger(row.chat_used_tokens, 0)),
         usedRequests: Math.max(0, parseInteger(row.chat_used_requests, 0)),
+        legacyUsedTokens: Math.max(
+          0,
+          parseInteger(row.chat_legacy_used_tokens, 0),
+        ),
+        usedCostUsd: parseNonNegativeNumber(row.chat_used_cost_usd, 0),
       },
       completion: {
         usedTokens: Math.max(0, parseInteger(row.completion_used_tokens, 0)),
         usedRequests: Math.max(0, parseInteger(row.completion_used_requests, 0)),
+        legacyUsedTokens: Math.max(
+          0,
+          parseInteger(row.completion_legacy_used_tokens, 0),
+        ),
+        usedCostUsd: parseNonNegativeNumber(
+          row.completion_used_cost_usd,
+          0,
+        ),
       },
     },
     createdAt: toIsoDate(row.created_at),
@@ -249,14 +276,79 @@ export const ensurePlatformSchema = async (config) => {
         limit_requests BIGINT NOT NULL DEFAULT 0,
         used_tokens BIGINT NOT NULL DEFAULT 0,
         used_requests BIGINT NOT NULL DEFAULT 0,
+        cost_accounting_version SMALLINT NOT NULL DEFAULT 0,
+        legacy_used_tokens BIGINT NOT NULL DEFAULT 0,
+        used_cost_usd NUMERIC(30, 18) NOT NULL DEFAULT 0,
         chat_used_tokens BIGINT NOT NULL DEFAULT 0,
         chat_used_requests BIGINT NOT NULL DEFAULT 0,
+        chat_legacy_used_tokens BIGINT NOT NULL DEFAULT 0,
+        chat_used_cost_usd NUMERIC(30, 18) NOT NULL DEFAULT 0,
         completion_used_tokens BIGINT NOT NULL DEFAULT 0,
         completion_used_requests BIGINT NOT NULL DEFAULT 0,
+        completion_legacy_used_tokens BIGINT NOT NULL DEFAULT 0,
+        completion_used_cost_usd NUMERIC(30, 18) NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (user_id, period_start, period_end)
       );
+    `);
+    await pool.query(`
+      ALTER TABLE tex64_usage
+        ADD COLUMN IF NOT EXISTS cost_accounting_version SMALLINT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS legacy_used_tokens BIGINT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS used_cost_usd NUMERIC(30, 18) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS chat_legacy_used_tokens BIGINT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS chat_used_cost_usd NUMERIC(30, 18) NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS completion_legacy_used_tokens BIGINT NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS completion_used_cost_usd NUMERIC(30, 18) NOT NULL DEFAULT 0;
+    `);
+    await pool.query(
+      `
+        UPDATE tex64_usage
+        SET
+          legacy_used_tokens = GREATEST(
+            legacy_used_tokens,
+            used_tokens - CEIL(used_cost_usd / NULLIF($1::numeric, 0))::bigint,
+            0
+          ),
+          chat_legacy_used_tokens = GREATEST(
+            chat_legacy_used_tokens,
+            chat_used_tokens - CEIL(chat_used_cost_usd / NULLIF($1::numeric, 0))::bigint,
+            0
+          ),
+          completion_legacy_used_tokens = GREATEST(
+            completion_legacy_used_tokens,
+            completion_used_tokens - CEIL(completion_used_cost_usd / NULLIF($1::numeric, 0))::bigint,
+            0
+          ),
+          cost_accounting_version = 1
+        WHERE cost_accounting_version < 1;
+      `,
+      [Math.max(0.000000001, Number(config.blendedCostPerTokenUsd) || 0.000005)],
+    );
+    await pool.query(`
+      ALTER TABLE tex64_usage
+        ALTER COLUMN cost_accounting_version SET DEFAULT 1;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tex64_anonymous_abuse_windows (
+        network_hash TEXT NOT NULL CHECK (network_hash ~ '^[0-9a-f]{64}$'),
+        window_kind TEXT NOT NULL CHECK (window_kind IN ('devices', 'ai')),
+        window_start TIMESTAMPTZ NOT NULL,
+        window_end TIMESTAMPTZ NOT NULL,
+        device_hashes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reserved_tokens BIGINT NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+        used_requests BIGINT NOT NULL DEFAULT 0 CHECK (used_requests >= 0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (network_hash, window_kind, window_start),
+        CHECK (window_end > window_start),
+        CHECK (jsonb_typeof(device_hashes) = 'array')
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tex64_anonymous_abuse_windows_expiry_idx
+      ON tex64_anonymous_abuse_windows (window_end);
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tex64_auth_requests (
@@ -332,6 +424,187 @@ const requireDb = async (config) => {
     throw new ApiError("STATE_BACKEND_UNAVAILABLE", "Database pool is unavailable.", 503);
   }
   return pool;
+};
+
+const normalizeAnonymousAbuseRow = (row) => {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  return {
+    windowStart: toIsoDate(row.window_start),
+    windowEnd: toIsoDate(row.window_end),
+    deviceCount: Math.max(0, parseInteger(row.device_count, 0)),
+    reservedTokens: Math.max(0, parseInteger(row.reserved_tokens, 0)),
+    usedRequests: Math.max(0, parseInteger(row.used_requests, 0)),
+  };
+};
+
+const pruneAnonymousAbuseWindows = async (pool) => {
+  await pool.query(`
+    WITH expired AS (
+      SELECT ctid
+      FROM tex64_anonymous_abuse_windows
+      WHERE window_end <= clock_timestamp()
+      LIMIT 100
+    )
+    DELETE FROM tex64_anonymous_abuse_windows
+    WHERE ctid IN (SELECT ctid FROM expired);
+  `);
+};
+
+export const admitAnonymousDeviceForNetwork = async (config, payload) => {
+  const networkHash =
+    typeof payload?.networkHash === "string" ? payload.networkHash.trim() : "";
+  const deviceHash =
+    typeof payload?.deviceHash === "string" ? payload.deviceHash.trim() : "";
+  const windowSec = Math.max(60, parseInteger(payload?.windowSec, 0));
+  const maxDevices = Math.max(1, parseInteger(payload?.maxDevices, 1));
+  if (!/^[0-9a-f]{64}$/.test(networkHash) || !/^[0-9a-f]{64}$/.test(deviceHash)) {
+    return null;
+  }
+  const pool = await requireDb(config);
+  const result = await pool.query(
+    `
+      WITH bucket_clock AS (
+        SELECT
+          floor(extract(epoch FROM clock_timestamp()) / $3) * $3 AS start_epoch
+      )
+      INSERT INTO tex64_anonymous_abuse_windows (
+        network_hash,
+        window_kind,
+        window_start,
+        window_end,
+        device_hashes,
+        updated_at
+      )
+      SELECT
+        $1,
+        'devices',
+        to_timestamp(start_epoch),
+        to_timestamp(start_epoch + $3),
+        jsonb_build_array($2::text),
+        NOW()
+      FROM bucket_clock
+      ON CONFLICT (network_hash, window_kind, window_start)
+      DO UPDATE SET
+        device_hashes = CASE
+          WHEN tex64_anonymous_abuse_windows.device_hashes
+            @> jsonb_build_array($2::text)
+            THEN tex64_anonymous_abuse_windows.device_hashes
+          ELSE tex64_anonymous_abuse_windows.device_hashes
+            || jsonb_build_array($2::text)
+        END,
+        updated_at = NOW()
+      WHERE
+        tex64_anonymous_abuse_windows.device_hashes
+          @> jsonb_build_array($2::text)
+        OR jsonb_array_length(tex64_anonymous_abuse_windows.device_hashes) < $4
+      RETURNING
+        window_start,
+        window_end,
+        jsonb_array_length(device_hashes) AS device_count,
+        reserved_tokens,
+        used_requests;
+    `,
+    [networkHash, deviceHash, windowSec, maxDevices]
+  );
+  await pruneAnonymousAbuseWindows(pool);
+  return normalizeAnonymousAbuseRow(result.rows[0] ?? null);
+};
+
+export const reserveAnonymousNetworkUsage = async (config, payload) => {
+  const networkHash =
+    typeof payload?.networkHash === "string" ? payload.networkHash.trim() : "";
+  const windowSec = Math.max(60, parseInteger(payload?.windowSec, 0));
+  const reservedTokens = Math.max(0, parseInteger(payload?.reservedTokens, 0));
+  const reservedRequests = Math.max(1, parseInteger(payload?.reservedRequests, 1));
+  const maxTokens = Math.max(1, parseInteger(payload?.maxTokens, 1));
+  const maxRequests = Math.max(1, parseInteger(payload?.maxRequests, 1));
+  if (!/^[0-9a-f]{64}$/.test(networkHash)) {
+    return null;
+  }
+  const pool = await requireDb(config);
+  const result = await pool.query(
+    `
+      WITH bucket_clock AS (
+        SELECT
+          floor(extract(epoch FROM clock_timestamp()) / $2) * $2 AS start_epoch
+      )
+      INSERT INTO tex64_anonymous_abuse_windows (
+        network_hash,
+        window_kind,
+        window_start,
+        window_end,
+        reserved_tokens,
+        used_requests,
+        updated_at
+      )
+      SELECT
+        $1,
+        'ai',
+        to_timestamp(start_epoch),
+        to_timestamp(start_epoch + $2),
+        $3,
+        $4,
+        NOW()
+      FROM bucket_clock
+      WHERE $3 <= $5 AND $4 <= $6
+      ON CONFLICT (network_hash, window_kind, window_start)
+      DO UPDATE SET
+        reserved_tokens = tex64_anonymous_abuse_windows.reserved_tokens + $3,
+        used_requests = tex64_anonymous_abuse_windows.used_requests + $4,
+        updated_at = NOW()
+      WHERE
+        tex64_anonymous_abuse_windows.reserved_tokens + $3 <= $5
+        AND tex64_anonymous_abuse_windows.used_requests + $4 <= $6
+      RETURNING
+        window_start,
+        window_end,
+        jsonb_array_length(device_hashes) AS device_count,
+        reserved_tokens,
+        used_requests;
+    `,
+    [
+      networkHash,
+      windowSec,
+      reservedTokens,
+      reservedRequests,
+      maxTokens,
+      maxRequests,
+    ]
+  );
+  return normalizeAnonymousAbuseRow(result.rows[0] ?? null);
+};
+
+export const reconcileAnonymousNetworkUsage = async (config, payload) => {
+  const networkHash =
+    typeof payload?.networkHash === "string" ? payload.networkHash.trim() : "";
+  const windowStart = toIsoDate(payload?.windowStart);
+  if (!/^[0-9a-f]{64}$/.test(networkHash) || !windowStart) {
+    return null;
+  }
+  const reservedTokens = Math.max(0, parseInteger(payload?.reservedTokens, 0));
+  const actualTokens = Math.max(0, parseInteger(payload?.actualTokens, 0));
+  const pool = await requireDb(config);
+  const result = await pool.query(
+    `
+      UPDATE tex64_anonymous_abuse_windows
+      SET
+        reserved_tokens = GREATEST(0, reserved_tokens + $3),
+        updated_at = NOW()
+      WHERE network_hash = $1
+        AND window_kind = 'ai'
+        AND window_start = $2
+      RETURNING
+        window_start,
+        window_end,
+        jsonb_array_length(device_hashes) AS device_count,
+        reserved_tokens,
+        used_requests;
+    `,
+    [networkHash, windowStart, actualTokens - reservedTokens]
+  );
+  return normalizeAnonymousAbuseRow(result.rows[0] ?? null);
 };
 
 export const upsertUserRecord = async (config, user) => {
@@ -719,23 +992,28 @@ export const upsertUsageRecordForUserPeriod = async (config, payload) => {
         limit_requests,
         used_tokens,
         used_requests,
+        cost_accounting_version,
+        legacy_used_tokens,
+        used_cost_usd,
         chat_used_tokens,
         chat_used_requests,
+        chat_legacy_used_tokens,
+        chat_used_cost_usd,
         completion_used_tokens,
         completion_used_requests,
+        completion_legacy_used_tokens,
+        completion_used_cost_usd,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+        NOW()
+      )
       ON CONFLICT (user_id, period_start, period_end)
       DO UPDATE SET
         limit_tokens = EXCLUDED.limit_tokens,
         limit_requests = EXCLUDED.limit_requests,
-        used_tokens = EXCLUDED.used_tokens,
-        used_requests = EXCLUDED.used_requests,
-        chat_used_tokens = EXCLUDED.chat_used_tokens,
-        chat_used_requests = EXCLUDED.chat_used_requests,
-        completion_used_tokens = EXCLUDED.completion_used_tokens,
-        completion_used_requests = EXCLUDED.completion_used_requests,
         updated_at = NOW()
       RETURNING *;
     `,
@@ -747,12 +1025,308 @@ export const upsertUsageRecordForUserPeriod = async (config, payload) => {
       Math.max(0, parseInteger(payload?.limitRequests, 0)),
       Math.max(0, parseInteger(payload?.usedTokens, 0)),
       Math.max(0, parseInteger(payload?.usedRequests, 0)),
+      Math.max(1, parseInteger(payload?.costAccountingVersion, 1)),
+      Math.max(0, parseInteger(payload?.legacyUsedTokens, 0)),
+      parseNonNegativeNumber(payload?.usedCostUsd, 0),
       Math.max(0, parseInteger(byFeature.chat?.usedTokens, 0)),
       Math.max(0, parseInteger(byFeature.chat?.usedRequests, 0)),
+      Math.max(0, parseInteger(byFeature.chat?.legacyUsedTokens, 0)),
+      parseNonNegativeNumber(byFeature.chat?.usedCostUsd, 0),
       Math.max(0, parseInteger(byFeature.completion?.usedTokens, 0)),
       Math.max(0, parseInteger(byFeature.completion?.usedRequests, 0)),
+      Math.max(0, parseInteger(byFeature.completion?.legacyUsedTokens, 0)),
+      parseNonNegativeNumber(byFeature.completion?.usedCostUsd, 0),
     ]
   );
+  return normalizeUsageRow(result.rows[0] ?? null);
+};
+
+export const incrementUsageRecordForUserPeriod = async (config, payload) => {
+  const userId = typeof payload?.userId === "string" ? payload.userId.trim() : "";
+  const periodStart = toIsoDate(payload?.periodStart);
+  const periodEnd = toIsoDate(payload?.periodEnd);
+  if (!userId || !periodStart || !periodEnd) {
+    return null;
+  }
+  const consumedTokens = Math.max(0, parseInteger(payload?.consumedTokens, 0));
+  const consumedRequests = Math.max(1, parseInteger(payload?.consumedRequests, 1));
+  const featureKey = payload?.featureName === "completion" ? "completion" : "chat";
+  const chatTokens = featureKey === "chat" ? consumedTokens : 0;
+  const chatRequests = featureKey === "chat" ? consumedRequests : 0;
+  const completionTokens = featureKey === "completion" ? consumedTokens : 0;
+  const completionRequests = featureKey === "completion" ? consumedRequests : 0;
+  const pool = await requireDb(config);
+  const result = await pool.query(
+    `
+      INSERT INTO tex64_usage (
+        user_id,
+        period_start,
+        period_end,
+        limit_tokens,
+        limit_requests,
+        used_tokens,
+        used_requests,
+        cost_accounting_version,
+        legacy_used_tokens,
+        chat_used_tokens,
+        chat_used_requests,
+        chat_legacy_used_tokens,
+        completion_used_tokens,
+        completion_used_requests,
+        completion_legacy_used_tokens,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $6, $8, $9, $8, $10, $11, $10, NOW())
+      ON CONFLICT (user_id, period_start, period_end)
+      DO UPDATE SET
+        used_tokens = tex64_usage.used_tokens + EXCLUDED.used_tokens,
+        used_requests = tex64_usage.used_requests + EXCLUDED.used_requests,
+        legacy_used_tokens =
+          tex64_usage.legacy_used_tokens + EXCLUDED.legacy_used_tokens,
+        chat_used_tokens = tex64_usage.chat_used_tokens + EXCLUDED.chat_used_tokens,
+        chat_used_requests = tex64_usage.chat_used_requests + EXCLUDED.chat_used_requests,
+        chat_legacy_used_tokens =
+          tex64_usage.chat_legacy_used_tokens + EXCLUDED.chat_legacy_used_tokens,
+        completion_used_tokens =
+          tex64_usage.completion_used_tokens + EXCLUDED.completion_used_tokens,
+        completion_used_requests =
+          tex64_usage.completion_used_requests + EXCLUDED.completion_used_requests,
+        completion_legacy_used_tokens =
+          tex64_usage.completion_legacy_used_tokens + EXCLUDED.completion_legacy_used_tokens,
+        updated_at = NOW()
+      RETURNING *;
+    `,
+    [
+      userId,
+      periodStart,
+      periodEnd,
+      Math.max(0, parseInteger(payload?.limitTokens, 0)),
+      Math.max(0, parseInteger(payload?.limitRequests, 0)),
+      consumedTokens,
+      consumedRequests,
+      chatTokens,
+      chatRequests,
+      completionTokens,
+      completionRequests,
+    ]
+  );
+  return normalizeUsageRow(result.rows[0] ?? null);
+};
+
+export const reserveUsageRecordForUserPeriod = async (config, payload) => {
+  const userId = typeof payload?.userId === "string" ? payload.userId.trim() : "";
+  const periodStart = toIsoDate(payload?.periodStart);
+  const periodEnd = toIsoDate(payload?.periodEnd);
+  if (!userId || !periodStart || !periodEnd) return null;
+  const reservedTokens = Math.max(0, parseInteger(payload?.reservedTokens, 0));
+  const reservedRequests = Math.max(1, parseInteger(payload?.reservedRequests, 1));
+  const featureKey = payload?.featureName === "completion" ? "completion" : "chat";
+  const chatTokens = featureKey === "chat" ? reservedTokens : 0;
+  const chatRequests = featureKey === "chat" ? reservedRequests : 0;
+  const completionTokens = featureKey === "completion" ? reservedTokens : 0;
+  const completionRequests = featureKey === "completion" ? reservedRequests : 0;
+  const pool = await requireDb(config);
+  const result = await pool.query(
+    `
+      UPDATE tex64_usage
+      SET
+        used_tokens = GREATEST(
+          used_tokens,
+          legacy_used_tokens + CEIL(
+            used_cost_usd / NULLIF($10::numeric, 0)
+          )::bigint
+        ) + $4,
+        used_requests = used_requests + $5,
+        chat_used_tokens = GREATEST(
+          chat_used_tokens,
+          chat_legacy_used_tokens + CEIL(
+            chat_used_cost_usd / NULLIF($10::numeric, 0)
+          )::bigint
+        ) + $6,
+        chat_used_requests = chat_used_requests + $7,
+        completion_used_tokens = GREATEST(
+          completion_used_tokens,
+          completion_legacy_used_tokens + CEIL(
+            completion_used_cost_usd / NULLIF($10::numeric, 0)
+          )::bigint
+        ) + $8,
+        completion_used_requests = completion_used_requests + $9,
+        updated_at = NOW()
+      WHERE user_id = $1
+        AND period_start = $2
+        AND period_end = $3
+        AND GREATEST(
+          used_tokens,
+          legacy_used_tokens + CEIL(
+            used_cost_usd / NULLIF($10::numeric, 0)
+          )::bigint
+        ) + $4 <= limit_tokens
+        AND used_requests + $5 <= limit_requests
+      RETURNING *;
+    `,
+    [
+      userId,
+      periodStart,
+      periodEnd,
+      reservedTokens,
+      reservedRequests,
+      chatTokens,
+      chatRequests,
+      completionTokens,
+      completionRequests,
+      Math.max(
+        0.000000001,
+        Number(payload?.blendedCostPerTokenUsd) ||
+          Number(config.blendedCostPerTokenUsd) ||
+          0.000005,
+      ),
+    ],
+  );
+  return normalizeUsageRow(result.rows[0] ?? null);
+};
+
+export const reconcileUsageReservationForUserPeriod = async (config, payload) => {
+  const userId = typeof payload?.userId === "string" ? payload.userId.trim() : "";
+  const periodStart = toIsoDate(payload?.periodStart);
+  const periodEnd = toIsoDate(payload?.periodEnd);
+  if (!userId || !periodStart || !periodEnd) return null;
+  const reservedTokens = Math.max(0, parseInteger(payload?.reservedTokens, 0));
+  const actualTokens = Math.max(0, parseInteger(payload?.actualTokens, 0));
+  const featureKey = payload?.featureName === "completion" ? "completion" : "chat";
+  const hasMeasuredCost = Object.hasOwn(payload || {}, "actualCostUsd");
+  const actualCostUsd = parseNonNegativeNumber(payload?.actualCostUsd, 0);
+  const chatCostUsd = featureKey === "chat" ? actualCostUsd : 0;
+  const chatReservedTokens = featureKey === "chat" ? reservedTokens : 0;
+  const chatActualTokens = featureKey === "chat" ? actualTokens : 0;
+  const completionCostUsd = featureKey === "completion" ? actualCostUsd : 0;
+  const completionReservedTokens =
+    featureKey === "completion" ? reservedTokens : 0;
+  const completionActualTokens = featureKey === "completion" ? actualTokens : 0;
+  const blendedCostPerTokenUsd = Math.max(
+    0.000000001,
+    Number(payload?.blendedCostPerTokenUsd) ||
+      Number(config.blendedCostPerTokenUsd) ||
+      0.000005,
+  );
+  const pool = await requireDb(config);
+  const result = hasMeasuredCost
+    ? await pool.query(
+        `
+          WITH current AS (
+            SELECT
+              tex64_usage.*,
+              CEIL(used_cost_usd / NULLIF($10::numeric, 0))::bigint
+                AS old_cost_tokens,
+              CEIL((used_cost_usd + $4::numeric) /
+                NULLIF($10::numeric, 0))::bigint AS new_cost_tokens,
+              CEIL(chat_used_cost_usd / NULLIF($10::numeric, 0))::bigint
+                AS old_chat_cost_tokens,
+              CEIL((chat_used_cost_usd + $6::numeric) /
+                NULLIF($10::numeric, 0))::bigint AS new_chat_cost_tokens,
+              CEIL(completion_used_cost_usd /
+                NULLIF($10::numeric, 0))::bigint AS old_completion_cost_tokens,
+              CEIL((completion_used_cost_usd + $8::numeric) /
+                NULLIF($10::numeric, 0))::bigint AS new_completion_cost_tokens
+            FROM tex64_usage
+            WHERE user_id = $1
+              AND period_start = $2
+              AND period_end = $3
+            FOR UPDATE
+          )
+          UPDATE tex64_usage AS target
+          SET
+            used_cost_usd = current.used_cost_usd + $4::numeric,
+            used_tokens = GREATEST(
+              current.legacy_used_tokens + current.new_cost_tokens,
+              current.used_tokens - $5 +
+                current.new_cost_tokens - current.old_cost_tokens,
+              0
+            ),
+            chat_used_cost_usd = current.chat_used_cost_usd + $6::numeric,
+            chat_used_tokens = GREATEST(
+              current.chat_legacy_used_tokens + current.new_chat_cost_tokens,
+              current.chat_used_tokens - $7 +
+                current.new_chat_cost_tokens - current.old_chat_cost_tokens,
+              0
+            ),
+            completion_used_cost_usd =
+              current.completion_used_cost_usd + $8::numeric,
+            completion_used_tokens = GREATEST(
+              current.completion_legacy_used_tokens +
+                current.new_completion_cost_tokens,
+              current.completion_used_tokens - $9 +
+                current.new_completion_cost_tokens -
+                current.old_completion_cost_tokens,
+              0
+            ),
+            updated_at = NOW()
+          FROM current
+          WHERE target.user_id = current.user_id
+            AND target.period_start = current.period_start
+            AND target.period_end = current.period_end
+          RETURNING target.*;
+        `,
+        [
+          userId,
+          periodStart,
+          periodEnd,
+          actualCostUsd,
+          reservedTokens,
+          chatCostUsd,
+          chatReservedTokens,
+          completionCostUsd,
+          completionReservedTokens,
+          blendedCostPerTokenUsd,
+        ],
+      )
+    : await pool.query(
+        `
+          UPDATE tex64_usage
+          SET
+            legacy_used_tokens = legacy_used_tokens + $5,
+            used_tokens = GREATEST(
+              legacy_used_tokens + $5 + CEIL(
+                used_cost_usd / NULLIF($10::numeric, 0)
+              )::bigint,
+              used_tokens - $4 + $5,
+              0
+            ),
+            chat_legacy_used_tokens = chat_legacy_used_tokens + $7,
+            chat_used_tokens = GREATEST(
+              chat_legacy_used_tokens + $7 + CEIL(
+                chat_used_cost_usd / NULLIF($10::numeric, 0)
+              )::bigint,
+              chat_used_tokens - $6 + $7,
+              0
+            ),
+            completion_legacy_used_tokens =
+              completion_legacy_used_tokens + $9,
+            completion_used_tokens = GREATEST(
+              completion_legacy_used_tokens + $9 + CEIL(
+                completion_used_cost_usd / NULLIF($10::numeric, 0)
+              )::bigint,
+              completion_used_tokens - $8 + $9,
+              0
+            ),
+            updated_at = NOW()
+          WHERE user_id = $1
+            AND period_start = $2
+            AND period_end = $3
+          RETURNING *;
+        `,
+        [
+          userId,
+          periodStart,
+          periodEnd,
+          reservedTokens,
+          actualTokens,
+          chatReservedTokens,
+          chatActualTokens,
+          completionReservedTokens,
+          completionActualTokens,
+          blendedCostPerTokenUsd,
+        ],
+      );
   return normalizeUsageRow(result.rows[0] ?? null);
 };
 

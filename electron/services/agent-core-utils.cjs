@@ -2,27 +2,6 @@ const path = require("path");
 const crypto = require("crypto");
 const { normalizePath } = require("./agent-policy.cjs");
 
-const TOOL_STATUS_LABELS = {
-  read_file: "Reading file",
-  list_files: "Checking folder structure",
-  list_sections: "Reading document outline",
-  read_section: "Reading section",
-  replace_section: "Rewriting section",
-  append_to_section: "Extending section",
-  find_math_region: "Locating equation",
-  replace_lines: "Replacing lines",
-  insert_lines: "Inserting lines",
-  delete_lines: "Deleting lines",
-  create_file: "Creating file",
-  write_file: "Writing file",
-  apply_patch: "Applying changes",
-  get_compile_log: "Checking build log",
-  arxiv_search: "Searching arXiv",
-  arxiv_bibtex: "Fetching BibTeX",
-  run_command: "Running command",
-  check_environment: "Checking environment",
-  install_environment: "Installing environment",
-};
 const MAX_USER_INLINE_DATA_BYTES = 5 * 1024 * 1024;
 const MAX_USER_INLINE_DATA_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_APPLY_UNDO_ENTRIES = 200;
@@ -59,7 +38,9 @@ const PROOFREAD_REQUEST_PATTERN =
 // Keep this strict: generic words like "文書/プロジェクト" alone should NOT trigger workspace mode.
 const EXPLICIT_WORKSPACE_REFERENCE_PATTERN =
   /(?:\b[\w./-]+\.(?:tex|bib|sty|cls|ltx|md|txt|json|ya?ml|toml)\b|main\.tex|\\(?:input|include)\{|(?:この|今の|現在の|開いている|編集中の|対象の)\s*ファイル|(?:this|current)\s+file)/i;
-const PERSIST_SESSION_VERSION = 1;
+// Version 4 also records the exact content produced by each AI write. Undo is
+// refused if the file changed afterwards, so it can never erase later user work.
+const PERSIST_SESSION_VERSION = 4;
 const PERSIST_MAX_MESSAGES = 140;
 const PERSIST_DEBOUNCE_MS = 450;
 const PERSIST_MAX_TEXT_CHARS = 50_000;
@@ -185,9 +166,50 @@ const sanitizeConversationForPersistence = (conversation) => {
     if (!content.trim()) {
       return;
     }
+    const proposals = Array.isArray(message.proposals)
+      ? message.proposals
+          .filter(
+            (step) =>
+              step &&
+              typeof step === "object" &&
+              typeof step.title === "string" &&
+              typeof step.request === "string",
+          )
+          .slice(0, 5)
+          .map((step, index) => ({
+            id: typeof step.id === "string" && step.id ? step.id : `p${index + 1}`,
+            title: clipText(step.title, 80),
+            request: clipText(step.request, 600),
+            ...(typeof step.scope === "string" && step.scope.trim()
+              ? { scope: clipText(step.scope, 40) }
+              : {}),
+            ...(step.asks && typeof step.asks === "object" && typeof step.asks.question === "string"
+              ? { asks: step.asks }
+              : typeof step.asks === "string" && step.asks.trim()
+                ? { asks: { question: clipText(step.asks, 200) } }
+                : {}),
+            ...(Number.isInteger(step.line) && step.line > 0 ? { line: step.line } : {}),
+          }))
+      : [];
     sanitized.push({
       role,
       content: clipLongString(content, PERSIST_MAX_TEXT_CHARS),
+      // An app-started turn stays hidden after restart; recorded next steps
+      // keep their rows.
+      ...(role === "user" && message.hidden === true ? { hidden: true } : {}),
+      ...(role === "assistant" && proposals.length > 0 ? { proposals } : {}),
+      ...(role === "assistant" && (message.rating === "up" || message.rating === "down")
+        ? { rating: message.rating }
+        : {}),
+      ...(role === "assistant" && message.plan && typeof message.plan === "object" && Array.isArray(message.plan.steps)
+        ? { plan: { title: clipText(message.plan.title, 120), steps: message.plan.steps.slice(0, 8) } }
+        : {}),
+      ...(role === "assistant" &&
+      message.question &&
+      typeof message.question === "object" &&
+      typeof message.question.question === "string"
+        ? { question: message.question }
+        : {}),
     });
   });
   return sanitized;
@@ -498,16 +520,7 @@ const summarizeToolResult = (toolName, resultLike) => {
   return base;
 };
 
-const resolvePrefetchMaxChars = (settings) => {
-  const raw = settings?.openFileMaxChars;
-  if (typeof raw !== "number" || !Number.isFinite(raw)) {
-    return 12_000;
-  }
-  if (raw <= 0) {
-    return 50_000;
-  }
-  return Math.min(50_000, Math.max(2_000, Math.round(raw)));
-};
+const resolvePrefetchMaxChars = () => 12_000;
 
 const extractMentionedPaths = (text) => {
   if (typeof text !== "string" || !text.trim()) {
@@ -634,7 +647,6 @@ const deriveTurnRouting = (userText, conversation) => {
 };
 
 module.exports = {
-  TOOL_STATUS_LABELS,
   MAX_USER_INLINE_DATA_BYTES,
   MAX_USER_INLINE_DATA_TOTAL_BYTES,
   MAX_APPLY_UNDO_ENTRIES,
