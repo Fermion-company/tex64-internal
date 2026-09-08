@@ -16,11 +16,13 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 | renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・既存 PDF ビューアへのライブ URL 配信 |
 | renderer | `Resources/web/pdf-viewer.js` | 通常 PDF の last-good を保持しつつページ面を TDOM iframe に切替、ツールバー操作と直接編集イベントを中継。エンジンの `action: 'place'`（選択または右クリックの場所・文・ソース行）を受けて「Axiom に聞く」を浮かせ、`ask-axiom`（`source` 付き）をホストへ送る |
 | renderer | `web-src/app/viewer.ts` | PDF iframe と Code 側のソース移動・直接編集を接続 |
-| renderer | `web-src/app/editor-session/init.ts` | 直接編集を Monaco の単一 Undo セッションとして適用し、競合時は安全に拒否 |
+| renderer | `web-src/app/editor-session/init.ts`・`live-edit-history.ts` | 表示時の原文範囲を Monaco の実変更履歴で追従し、直接編集を単一 Undo セッションとして適用 |
 
 紙面の文字を選ぶか右クリックすると、エンジン（`web/app.js`、embedded のときだけ）が `srcOf` → `/dom` の `block.source`、無ければ `/synctex` でソース行を引き、`action: 'place'`（`kind: selection | point | clear`、`pageNumber`、`text`、`rect`、`file` / `line` / `column`）を親へ postMessage する。選択が消えるかスクロールすると `clear`。この変更は tdom-core 側（`web/app.js`）にあり、配布前に `npm run tdom:sync` で同梱コピーへ反映する。
 
 エディタ全文を main に送り、main 側が前回ソースとの共通 prefix/suffix を削った**最小レンジ編集**にして `POST /edit` する。ファイル切替時は `POST /open` で開き直す。編集が食い違ったら `/open` で再同期。
+
+直接編集の `sourceText`・`sourceRev`・範囲は、編集開始時に表示していた該当ファイルの原文へ固定する。ホストは Monaco モデル取得時から変更イベントの `rangeOffset`・`rangeLength`・`text` を保持し、対象より前の変更分だけ範囲を移動する。対象内の変更、原文の不一致、履歴切れ、原文のない旧送信形式は拒否する。原文と完全一致する最新のモデル状態から追跡するため、Undo で本文が戻った後も同じ範囲を再編集できる。継続中の編集は直前のモデル状態と範囲を更新して追従し、同じ数式の文字列検索で別の出現箇所へ移さない。履歴はモデルごとの弱参照で管理し、全文1個と最大4096イベント・差分約8MBを保持し、モデル破棄時に解放する。
 
 通常時は TDOM の canonical 面を表示する。編集中も数式を欠いた provisional 面は表示せず、直前の完成した紙面を保持する。未取得の数式・画像・脚注・float と初回rescueはエンジンが `pending-exact` で通知する。影響するページ群の全 chunk・フォント・文字座標・ソース対応を画面外で準備してから、まとめて切り替える。ページ数の減少は確定PDFの提示まで保留する。増分描画の座標とソース範囲はその紙面と一緒に保持し、canonical / shipping PDF へ切り替わったら対応する世代へ更新する。別文書の座標を混ぜないよう `documentEpoch` も照合する。
 

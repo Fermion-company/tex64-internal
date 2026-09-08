@@ -11,6 +11,8 @@ import { createEditorSessionInitialOpenOps } from "./initial-open-ops.js";
 import { createEditorSessionWorkspaceOps } from "./workspace-ops.js";
 import { createEditorSessionCursorOps } from "./cursor-ops.js";
 import { createEditorSessionIssueFocusOps } from "./issue-focus.js";
+import { uiText } from "../i18n.js";
+import { anchorFromLiveEditSnapshot, captureLiveEditAnchor, rebaseLiveEditAnchor, } from "./live-edit-history.js";
 export const initEditorSession = (context, deps) => {
     const runtime = createEditorSessionRuntime(context, deps);
     const coreOps = createEditorSessionCoreOps(runtime);
@@ -66,19 +68,25 @@ export const initEditorSession = (context, deps) => {
     const pendingLiveEdits = new Map();
     const openingLivePaths = new Set();
     const offsetAt = (text, position) => {
-        const targetLine = Math.max(1, Math.floor(Number(position.line) || 1));
-        const targetColumn = Math.max(1, Math.floor(Number(position.column) || 1));
+        const targetLine = Number(position.line);
+        const targetColumn = Number(position.column);
+        if (!Number.isInteger(targetLine) || !Number.isInteger(targetColumn) || targetLine < 1 || targetColumn < 1)
+            return null;
         let line = 1;
         let offset = 0;
         while (line < targetLine && offset < text.length) {
             const newline = text.indexOf("\n", offset);
             if (newline < 0)
-                return text.length;
+                return null;
             offset = newline + 1;
             line += 1;
         }
-        const lineEnd = text.indexOf("\n", offset);
-        return Math.min(lineEnd < 0 ? text.length : lineEnd, offset + targetColumn - 1);
+        if (line !== targetLine)
+            return null;
+        const newline = text.indexOf("\n", offset);
+        const lineEnd = newline < 0 ? text.length : newline - (text[newline - 1] === "\r" ? 1 : 0);
+        const result = offset + targetColumn - 1;
+        return result <= lineEnd ? result : null;
     };
     const positionAt = (text, rawOffset) => {
         var _a, _b;
@@ -129,41 +137,40 @@ export const initEditorSession = (context, deps) => {
         const existing = liveEditSessions.get(payload.sessionId);
         if (existing && existing.path !== payload.path)
             return false;
-        if (payload.finish &&
-            !payload.cancel &&
-            existing &&
-            payload.replacement === existing.lastReplacement) {
-            (_b = (_a = entry.model).pushStackElement) === null || _b === void 0 ? void 0 : _b.call(_a);
-            liveEditSessions.delete(payload.sessionId);
-            return true;
-        }
         const current = entry.model.getValue();
-        let startOffset = (_c = existing === null || existing === void 0 ? void 0 : existing.startOffset) !== null && _c !== void 0 ? _c : offsetAt(current, payload.start);
-        const expected = (_d = existing === null || existing === void 0 ? void 0 : existing.lastReplacement) !== null && _d !== void 0 ? _d : payload.baseValue;
-        if (current.slice(startOffset, startOffset + expected.length) !== expected) {
-            // A source edit can race the preview click. Relocate only when the old
-            // span is unique near the mapped line; never guess across the document.
-            const lo = Math.max(0, startOffset - 800);
-            const hi = Math.min(current.length, startOffset + expected.length + 800);
-            const windowText = current.slice(lo, hi);
-            const first = windowText.indexOf(expected);
-            const second = first < 0
-                ? -1
-                : windowText.indexOf(expected, first + Math.max(1, expected.length));
-            if (first < 0 || second >= 0)
-                return false;
-            startOffset = lo + first;
+        const expected = (_a = existing === null || existing === void 0 ? void 0 : existing.lastReplacement) !== null && _a !== void 0 ? _a : payload.baseValue;
+        let anchor;
+        if (existing) {
+            anchor = rebaseLiveEditAnchor(entry.model, existing.anchor);
         }
+        else {
+            // Offsets and even a unique nearby string cannot prove which occurrence
+            // the displayed PDF refers to. Older senders without a snapshot must wait
+            // for a compatible preview instead of guessing against the latest model.
+            if (typeof payload.sourceText !== "string")
+                return false;
+            const start = offsetAt(payload.sourceText, payload.start);
+            const end = offsetAt(payload.sourceText, payload.end);
+            if (start === null || end === null || end < start || payload.sourceText.slice(start, end) !== expected)
+                return false;
+            anchor = anchorFromLiveEditSnapshot(entry.model, payload.sourceText, start, end);
+        }
+        if (!anchor || current.slice(anchor.startOffset, anchor.endOffset) !== expected)
+            return false;
+        const startOffset = anchor.startOffset;
         if (!existing) {
-            (_f = (_e = entry.model).pushStackElement) === null || _f === void 0 ? void 0 : _f.call(_e);
+            (_c = (_b = entry.model).pushStackElement) === null || _c === void 0 ? void 0 : _c.call(_b);
             liveEditSessions.set(payload.sessionId, {
                 path: payload.path,
-                startOffset,
+                anchor,
+                baseValue: payload.baseValue,
                 lastReplacement: expected,
             });
         }
-        const replacement = payload.cancel ? payload.baseValue : payload.replacement;
-        if (!replaceModelRange(payload.path, startOffset, startOffset + expected.length, replacement)) {
+        const requestedReplacement = payload.cancel ? ((_d = existing === null || existing === void 0 ? void 0 : existing.baseValue) !== null && _d !== void 0 ? _d : payload.baseValue) : payload.replacement;
+        const eol = (_f = (_e = entry.model).getEOL) === null || _f === void 0 ? void 0 : _f.call(_e);
+        const replacement = eol ? requestedReplacement.replace(/\r\n|\r|\n/g, eol) : requestedReplacement;
+        if (replacement !== expected && !replaceModelRange(payload.path, startOffset, anchor.endOffset, replacement)) {
             return false;
         }
         const session = liveEditSessions.get(payload.sessionId);
@@ -172,6 +179,10 @@ export const initEditorSession = (context, deps) => {
             liveEditSessions.delete(payload.sessionId);
         }
         else if (session) {
+            const updatedAnchor = captureLiveEditAnchor(entry.model, startOffset, startOffset + replacement.length);
+            if (!updatedAnchor)
+                return false;
+            session.anchor = updatedAnchor;
             session.lastReplacement = replacement;
         }
         return true;
@@ -181,8 +192,11 @@ export const initEditorSession = (context, deps) => {
         for (const [sessionId, payload] of [...pendingLiveEdits]) {
             if (payload.path !== path)
                 continue;
-            if (applyLoadedLiveEdit(payload))
-                pendingLiveEdits.delete(sessionId);
+            pendingLiveEdits.delete(sessionId);
+            if (!applyLoadedLiveEdit(payload)) {
+                const message = uiText("The source changed. Click the text again to edit it.", "ソースが更新されています。文字をもう一度クリックしてください。");
+                deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+            }
         }
     };
     const applyLivePreviewEdit = (payload) => {
@@ -192,7 +206,7 @@ export const initEditorSession = (context, deps) => {
             pendingLiveEdits.delete(payload.sessionId);
             return true;
         }
-        if (payload.cancel) {
+        if (payload.cancel || runtime.monacoModels.has(payload.path)) {
             pendingLiveEdits.delete(payload.sessionId);
             return false;
         }

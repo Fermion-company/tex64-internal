@@ -2016,6 +2016,7 @@ const initPdfViewer = () => {
           cancel: data.cancel === true,
           finish: data.finish === true,
           sourceRev: data.sourceRev,
+          sourceText: typeof data.sourceText === "string" ? data.sourceText : undefined,
         },
       });
       return;

@@ -129,6 +129,7 @@ export const createViewer = (deps) => {
                 Number.isFinite(endColumn) && endColumn >= 1) {
                 (_h = deps.onLiveEditRequest) === null || _h === void 0 ? void 0 : _h.call(deps, {
                     ...detail,
+                    sourceText: typeof detail.sourceText === "string" ? detail.sourceText : undefined,
                     start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
                     end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
                 });

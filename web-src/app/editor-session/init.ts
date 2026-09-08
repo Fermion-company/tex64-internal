@@ -13,6 +13,13 @@ import { createEditorSessionInitialOpenOps } from "./initial-open-ops.js";
 import { createEditorSessionWorkspaceOps } from "./workspace-ops.js";
 import { createEditorSessionCursorOps } from "./cursor-ops.js";
 import { createEditorSessionIssueFocusOps } from "./issue-focus.js";
+import { uiText } from "../i18n.js";
+import {
+  anchorFromLiveEditSnapshot,
+  captureLiveEditAnchor,
+  rebaseLiveEditAnchor,
+  type LiveEditAnchor,
+} from "./live-edit-history.js";
 
 export const initEditorSession = (context: AppContext, deps: EditorSessionDeps): EditorSessionApi => {
   const runtime = createEditorSessionRuntime(context, deps);
@@ -90,25 +97,30 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
   // document. The first and last edits form one Monaco undo step.
   const liveEditSessions = new Map<string, {
     path: string;
-    startOffset: number;
+    anchor: LiveEditAnchor;
+    baseValue: string;
     lastReplacement: string;
   }>();
   const pendingLiveEdits = new Map<string, LivePreviewEditPayload>();
   const openingLivePaths = new Set<string>();
 
   const offsetAt = (text: string, position: { line: number; column: number }) => {
-    const targetLine = Math.max(1, Math.floor(Number(position.line) || 1));
-    const targetColumn = Math.max(1, Math.floor(Number(position.column) || 1));
+    const targetLine = Number(position.line);
+    const targetColumn = Number(position.column);
+    if (!Number.isInteger(targetLine) || !Number.isInteger(targetColumn) || targetLine < 1 || targetColumn < 1) return null;
     let line = 1;
     let offset = 0;
     while (line < targetLine && offset < text.length) {
       const newline = text.indexOf("\n", offset);
-      if (newline < 0) return text.length;
+      if (newline < 0) return null;
       offset = newline + 1;
       line += 1;
     }
-    const lineEnd = text.indexOf("\n", offset);
-    return Math.min(lineEnd < 0 ? text.length : lineEnd, offset + targetColumn - 1);
+    if (line !== targetLine) return null;
+    const newline = text.indexOf("\n", offset);
+    const lineEnd = newline < 0 ? text.length : newline - (text[newline - 1] === "\r" ? 1 : 0);
+    const result = offset + targetColumn - 1;
+    return result <= lineEnd ? result : null;
   };
 
   const positionAt = (text: string, rawOffset: number) => {
@@ -170,42 +182,36 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     if (!entry) return false;
     const existing = liveEditSessions.get(payload.sessionId);
     if (existing && existing.path !== payload.path) return false;
-    if (
-      payload.finish &&
-      !payload.cancel &&
-      existing &&
-      payload.replacement === existing.lastReplacement
-    ) {
-      entry.model.pushStackElement?.();
-      liveEditSessions.delete(payload.sessionId);
-      return true;
-    }
     const current = entry.model.getValue();
-    let startOffset = existing?.startOffset ?? offsetAt(current, payload.start);
     const expected = existing?.lastReplacement ?? payload.baseValue;
-    if (current.slice(startOffset, startOffset + expected.length) !== expected) {
-      // A source edit can race the preview click. Relocate only when the old
-      // span is unique near the mapped line; never guess across the document.
-      const lo = Math.max(0, startOffset - 800);
-      const hi = Math.min(current.length, startOffset + expected.length + 800);
-      const windowText = current.slice(lo, hi);
-      const first = windowText.indexOf(expected);
-      const second = first < 0
-        ? -1
-        : windowText.indexOf(expected, first + Math.max(1, expected.length));
-      if (first < 0 || second >= 0) return false;
-      startOffset = lo + first;
+    let anchor: LiveEditAnchor | null;
+    if (existing) {
+      anchor = rebaseLiveEditAnchor(entry.model, existing.anchor);
+    } else {
+      // Offsets and even a unique nearby string cannot prove which occurrence
+      // the displayed PDF refers to. Older senders without a snapshot must wait
+      // for a compatible preview instead of guessing against the latest model.
+      if (typeof payload.sourceText !== "string") return false;
+      const start = offsetAt(payload.sourceText, payload.start);
+      const end = offsetAt(payload.sourceText, payload.end);
+      if (start === null || end === null || end < start || payload.sourceText.slice(start, end) !== expected) return false;
+      anchor = anchorFromLiveEditSnapshot(entry.model, payload.sourceText, start, end);
     }
+    if (!anchor || current.slice(anchor.startOffset, anchor.endOffset) !== expected) return false;
+    const startOffset = anchor.startOffset;
     if (!existing) {
       entry.model.pushStackElement?.();
       liveEditSessions.set(payload.sessionId, {
         path: payload.path,
-        startOffset,
+        anchor,
+        baseValue: payload.baseValue,
         lastReplacement: expected,
       });
     }
-    const replacement = payload.cancel ? payload.baseValue : payload.replacement;
-    if (!replaceModelRange(payload.path, startOffset, startOffset + expected.length, replacement)) {
+    const requestedReplacement = payload.cancel ? (existing?.baseValue ?? payload.baseValue) : payload.replacement;
+    const eol = entry.model.getEOL?.();
+    const replacement = eol ? requestedReplacement.replace(/\r\n|\r|\n/g, eol) : requestedReplacement;
+    if (replacement !== expected && !replaceModelRange(payload.path, startOffset, anchor.endOffset, replacement)) {
       return false;
     }
     const session = liveEditSessions.get(payload.sessionId);
@@ -213,6 +219,9 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
       entry.model.pushStackElement?.();
       liveEditSessions.delete(payload.sessionId);
     } else if (session) {
+      const updatedAnchor = captureLiveEditAnchor(entry.model, startOffset, startOffset + replacement.length);
+      if (!updatedAnchor) return false;
+      session.anchor = updatedAnchor;
       session.lastReplacement = replacement;
     }
     return true;
@@ -222,7 +231,14 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
     openingLivePaths.delete(path);
     for (const [sessionId, payload] of [...pendingLiveEdits]) {
       if (payload.path !== path) continue;
-      if (applyLoadedLiveEdit(payload)) pendingLiveEdits.delete(sessionId);
+      pendingLiveEdits.delete(sessionId);
+      if (!applyLoadedLiveEdit(payload)) {
+        const message = uiText(
+          "The source changed. Click the text again to edit it.",
+          "ソースが更新されています。文字をもう一度クリックしてください。"
+        );
+        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+      }
     }
   };
 
@@ -232,7 +248,7 @@ export const initEditorSession = (context: AppContext, deps: EditorSessionDeps):
       pendingLiveEdits.delete(payload.sessionId);
       return true;
     }
-    if (payload.cancel) {
+    if (payload.cancel || runtime.monacoModels.has(payload.path)) {
       pendingLiveEdits.delete(payload.sessionId);
       return false;
     }

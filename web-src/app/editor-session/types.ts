@@ -29,9 +29,16 @@ export type EditorGroupState = {
   pendingCompositionAction: (() => void) | null;
 };
 
+export type MonacoModelContentChange = { rangeOffset: number; rangeLength: number; text: string };
 export type MonacoModel = {
   getValue: () => string;
+  getEOL?: () => string;
   setValue: (value: string) => void;
+  onDidChangeContent?: (listener: (event: {
+    changes: MonacoModelContentChange[];
+    isFlush?: boolean;
+  }) => void) => { dispose: () => void };
+  onWillDispose?: (listener: () => void) => { dispose: () => void };
   getFullModelRange?: () => unknown;
   pushStackElement?: () => void;
   pushEditOperations?: (
@@ -55,6 +62,7 @@ export type LivePreviewEditPayload = {
   cancel?: boolean;
   finish?: boolean;
   sourceRev?: number;
+  sourceText?: string;
 };
 
 export type EditorSessionDeps = {

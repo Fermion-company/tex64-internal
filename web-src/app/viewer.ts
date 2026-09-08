@@ -29,6 +29,7 @@ export type LivePreviewEditRequest = {
   cancel?: boolean;
   finish?: boolean;
   sourceRev?: number;
+  sourceText?: string;
 };
 
 export type ViewerDeps = {
@@ -206,6 +207,7 @@ export const createViewer = (deps: ViewerDeps) => {
       ) {
         deps.onLiveEditRequest?.({
           ...detail,
+          sourceText: typeof detail.sourceText === "string" ? detail.sourceText : undefined,
           start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
           end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
         } as LivePreviewEditRequest);
