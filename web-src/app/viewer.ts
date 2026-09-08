@@ -2,6 +2,23 @@ import { IMAGE_MIME_TYPES, getFileExtension } from "./files.js";
 
 export type ViewerMode = "hidden" | "image" | "pdf" | "unsupported";
 
+export type LivePreviewTarget = { workspaceRoot: string | null; pdfPath: string };
+
+const livePdfPath = (path: string, workspaceRoot: string | null) => {
+  let value = path.replace(/\\/g, "/");
+  if (!/^(?:\/|[A-Za-z]:\/)/.test(value) && workspaceRoot) {
+    value = `${workspaceRoot.replace(/\\/g, "/").replace(/\/+$/, "")}/${value}`;
+  }
+  const parts: string[] = [];
+  for (const part of value.split("/")) {
+    if (part === ".") continue;
+    if (part === ".." && parts.length && parts[parts.length - 1] !== "..") {
+      if (parts[parts.length - 1] !== "") parts.pop();
+    } else parts.push(part);
+  }
+  return parts.join("/");
+};
+
 export type PdfSyncPayload = {
   page: number;
   x: number;
@@ -32,6 +49,29 @@ export type LivePreviewEditRequest = {
   sourceText?: string;
 };
 
+export type LivePreviewAnchorRequest = Pick<
+  LivePreviewEditRequest,
+  "sessionId" | "file" | "start" | "end" | "baseValue"
+> & {
+  requestId: string;
+  activationId: string;
+  documentEpoch: number;
+  sourceText: string;
+  sourceRev: number;
+  previousSessionId?: string;
+};
+
+export type LivePreviewAnchorResult = Pick<
+  LivePreviewAnchorRequest,
+  "sessionId" | "requestId" | "activationId" | "documentEpoch" | "file" | "sourceRev"
+> & {
+  ok: boolean;
+  sourceText?: string;
+  start?: LivePreviewEditRequest["start"];
+  end?: LivePreviewEditRequest["end"];
+  baseValue?: string;
+};
+
 export type ViewerDeps = {
   editorViewer: HTMLElement | null;
   editorViewerImage: HTMLImageElement | null;
@@ -49,6 +89,10 @@ export type ViewerDeps = {
     column: number;
   }) => void;
   onLiveEditRequest?: (payload: LivePreviewEditRequest) => void;
+  onLiveEditAnchorRequest?: (
+    request: LivePreviewAnchorRequest,
+    reply: (result: LivePreviewAnchorResult) => void
+  ) => void;
   /** The reader marked a place on the page and wants to talk to Axiom about it. */
   onPdfAskAxiom?: (payload: {
     page: number;
@@ -71,8 +115,13 @@ export const createViewer = (deps: ViewerDeps) => {
   // Real-time preview: when set, the pdf viewer swaps its page canvas for the
   // live engine frame (same chrome). Re-sent on every viewer "ready" so it
   // survives the pdf iframe being torn down and recreated.
-  let livePreview: { url: string; generation: number } | null = null;
+  let livePreview: { url: string; generation: number; target: LivePreviewTarget } | null = null;
   const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
+
+  const matchingLivePreview = () => livePreview && pdfViewerPath &&
+    livePdfPath(pdfViewerPath, livePreview.target.workspaceRoot) ===
+      livePdfPath(livePreview.target.pdfPath, livePreview.target.workspaceRoot)
+    ? livePreview : null;
 
   const postPdfMessage = (payload: { type: string; payload?: unknown }) => {
     if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
@@ -118,9 +167,7 @@ export const createViewer = (deps: ViewerDeps) => {
         postPdfMessage({ type: "open", payload: pendingPdfOpen });
         pendingPdfOpen = null;
       }
-      if (livePreview) {
-        postPdfMessage({ type: "live", payload: livePreview });
-      }
+      postPdfMessage({ type: "live", payload: matchingLivePreview() });
       if (pendingPdfSync) {
         postPdfMessage({ type: "sync", payload: pendingPdfSync });
         pendingPdfSync = null;
@@ -167,6 +214,7 @@ export const createViewer = (deps: ViewerDeps) => {
       return;
     }
     if (payload.type === "live-source") {
+      if (!matchingLivePreview()) return;
       const detail = (payload as { payload?: unknown }).payload as
         | { file?: unknown; line?: unknown; column?: unknown }
         | null
@@ -183,7 +231,41 @@ export const createViewer = (deps: ViewerDeps) => {
       }
       return;
     }
+    if (payload.type === "live-edit-anchor") {
+      const requestedPreview = matchingLivePreview();
+      if (!requestedPreview) return;
+      const detail = (payload as { payload?: unknown }).payload as
+        | Partial<LivePreviewAnchorRequest>
+        | null
+        | undefined;
+      if (!detail || typeof detail.sessionId !== "string" || !detail.sessionId ||
+          typeof detail.requestId !== "string" || !detail.requestId ||
+          typeof detail.activationId !== "string" || !detail.activationId ||
+          !Number.isInteger(detail.documentEpoch) ||
+          typeof detail.file !== "string" || !detail.file ||
+          typeof detail.baseValue !== "string" || typeof detail.sourceText !== "string" ||
+          !Number.isInteger(detail.sourceRev) ||
+          ![detail.start?.line, detail.start?.column, detail.end?.line, detail.end?.column]
+            .every((value) => typeof value === "number" && Number.isInteger(value) && value >= 1)) return;
+      const request = detail as LivePreviewAnchorRequest;
+      const reply = (result: LivePreviewAnchorResult) => {
+        if (matchingLivePreview() !== requestedPreview) return;
+        postPdfMessage({ type: "live-edit-anchor-result", payload: result });
+      };
+      if (deps.onLiveEditAnchorRequest) deps.onLiveEditAnchorRequest(request, reply);
+      else reply({
+        sessionId: request.sessionId,
+        requestId: request.requestId,
+        activationId: request.activationId,
+        documentEpoch: request.documentEpoch,
+        sourceRev: request.sourceRev,
+        file: request.file,
+        ok: false,
+      });
+      return;
+    }
     if (payload.type === "live-edit") {
+      if (!matchingLivePreview()) return;
       const detail = (payload as { payload?: unknown }).payload as
         | Partial<LivePreviewEditRequest>
         | null
@@ -327,10 +409,10 @@ export const createViewer = (deps: ViewerDeps) => {
       ensurePdfFrame();
       const payload = { url, path };
       if (pdfViewerReady) {
+        // A different PDF tab cannot inherit this project's root paper or
+        // send direct edits through it, even before the next preview poll.
+        postPdfMessage({ type: "live", payload: matchingLivePreview() });
         postPdfMessage({ type: "open", payload });
-        if (livePreview) {
-          postPdfMessage({ type: "live", payload: livePreview });
-        }
         if (!pendingPdfSync?.pdfPath || pendingPdfSync.pdfPath === path) {
           if (pendingPdfSync) {
             postPdfMessage({ type: "sync", payload: pendingPdfSync });
@@ -359,21 +441,24 @@ export const createViewer = (deps: ViewerDeps) => {
       ensurePdfFrame();
       return;
     }
-    if (livePreview) {
+    const preview = matchingLivePreview();
+    if (preview) {
       // The PDF frame may have been recreated while the tab was hidden.
       // Establish Live ownership synchronously before SyncTeX so the jump is
       // queued for the visible TDOM surface instead of the static fallback.
-      postPdfMessage({ type: "live", payload: livePreview });
+      postPdfMessage({ type: "live", payload: preview });
     }
     postPdfMessage({ type: "sync", payload });
   };
 
-  const setLivePreview = (url: string | null, generation = 0) => {
-    const next = url ? { url, generation } : null;
-    if (livePreview?.url === next?.url && livePreview?.generation === next?.generation) return;
+  const setLivePreview = (url: string | null, generation = 0, target: LivePreviewTarget | null = null) => {
+    const next = url && target ? { url, generation, target } : null;
+    if (livePreview?.url === next?.url && livePreview?.generation === next?.generation &&
+        livePreview?.target.workspaceRoot === next?.target.workspaceRoot &&
+        livePreview?.target.pdfPath === next?.target.pdfPath) return;
     livePreview = next;
     if (pdfViewerReady) {
-      postPdfMessage({ type: "live", payload: next });
+      postPdfMessage({ type: "live", payload: matchingLivePreview() });
     }
   };
 

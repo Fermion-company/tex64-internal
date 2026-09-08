@@ -102,7 +102,23 @@ export function perform(
       return false;
     }
 
-    if (/^(delete|add)/.test(selector)) {
+    const arrayEdit = /^(add(Row|Column)(After|Before)|remove(Row|Column))$/.test(
+      selector
+    );
+    const arrayRoot = arrayEdit ? mathfield.model.root : undefined;
+    const arrayChangeCounter = arrayRoot?.changeCounter;
+    const arraySelection = arrayEdit
+      ? {
+          ...mathfield.model.selection,
+          ranges: mathfield.model.selection.ranges.map(
+            (r) => [...r] as [number, number]
+          ),
+        }
+      : undefined;
+    if (arrayEdit) {
+      mathfield.flushInlineShortcutBuffer();
+      mathfield.stopCoalescingUndo();
+    } else if (/^(delete|add)/.test(selector)) {
       if (selector !== 'deleteBackward') mathfield.flushInlineShortcutBuffer();
       mathfield.snapshot(selector);
     }
@@ -110,6 +126,18 @@ export function perform(
     if (!/^complete/.test(selector)) removeSuggestion(mathfield);
 
     COMMANDS[selector]!.fn(mathfield.model, ...args);
+
+    if (arrayEdit) {
+      // Selecting a newly added cell also stops coalescing. That selection
+      // belongs to the new content, so restore the old state's selection
+      // before recording the completed command as one undoable change.
+      mathfield.undoManager.stopCoalescing(arraySelection);
+      if (
+        mathfield.model.root !== arrayRoot ||
+        mathfield.model.root.changeCounter !== arrayChangeCounter
+      )
+        mathfield.snapshot();
+    }
 
     updateAutocomplete(mathfield);
 

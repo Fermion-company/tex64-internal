@@ -65,6 +65,16 @@ export type LivePreviewEditPayload = {
   sourceText?: string;
 };
 
+export type LivePreviewAnchorPayload = Pick<LivePreviewEditPayload,
+  "sessionId" | "path" | "start" | "end" | "baseValue"> & { sourceText: string; previousSessionId?: string };
+
+export type LivePreviewSourceAnchor = {
+  sourceText: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
+};
+
 export type EditorSessionDeps = {
   getWorkspaceFiles: () => string[];
   getRootFilePath: () => string | null;
@@ -205,6 +215,7 @@ export type EditorSessionApi = {
     }
   ) => { handled: boolean; conflict: boolean };
   applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+  getLivePreviewSourceAnchor: (payload: LivePreviewAnchorPayload) => Promise<LivePreviewSourceAnchor | null>;
   handleExternalFileChange: (payload: { path: string; content: string | null; fileDeleted?: boolean }) => void;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;

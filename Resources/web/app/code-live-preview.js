@@ -38,6 +38,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let lifecycleVersion = 0;
     let latestPushVersion = 0;
     let liveSessionKey = null;
+    let liveTarget = null;
     let boundEditor = null;
     let boundPath = null;
     let disposable = null;
@@ -75,7 +76,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // embedded incremental renderer.
     const distributeLive = (url, generation = liveGeneration) => {
         for (const group of getEditorGroups()) {
-            group.viewer.setLivePreview(url, generation);
+            group.viewer.setLivePreview(url, generation, liveTarget);
         }
     };
     const showLiveError = (message) => console.warn("[live-preview]", message);
@@ -127,6 +128,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return {
                 sessionKey,
                 buffers,
+                target: /\.tex$/i.test(rootFile)
+                    ? { workspaceRoot, pdfPath: rootFile.replace(/\.tex$/i, ".pdf") } : null,
                 payload: {
                     workspaceRoot,
                     rootFile,
@@ -142,6 +145,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return {
             sessionKey: `legacy\0${current.path}`,
             buffers: new Map([[current.path, source]]),
+            target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
             payload: {
                 source,
                 path: current.path,
@@ -194,6 +198,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                         liveGeneration += 1;
                     engineUrl = result.url;
                     liveSessionKey = snapshot.sessionKey;
+                    liveTarget = snapshot.target;
                     distributeLive(engineUrl, liveGeneration);
                 }
                 if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs)

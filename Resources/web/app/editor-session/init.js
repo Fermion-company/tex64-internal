@@ -60,12 +60,24 @@ export const initEditorSession = (context, deps) => {
     const workspaceOps = createEditorSessionWorkspaceOps(runtime, coreOps, splitViewOps, bufferOps);
     const cursorOps = createEditorSessionCursorOps(runtime);
     const issueFocusOps = createEditorSessionIssueFocusOps(runtime, coreOps, issueOps, navigationOps, { requestOpenFile });
-    // A direct edit from the live PDF changes the same Monaco model as the
-    // source editor. Keep one stable source anchor per overlay session so each
-    // keystroke replaces the previous value instead of drifting through the
-    // document. The first and last edits form one Monaco undo step.
     const liveEditSessions = new Map();
+    // Old PDF pixels may still show a region the user already edited and left.
+    // Retain its exact, accepted source lineage without keeping an undo step open.
+    const completedLiveEditSessions = new Map();
+    const rememberCompletedLiveEdit = (id, session) => {
+        completedLiveEditSessions.delete(id);
+        completedLiveEditSessions.set(id, session);
+        let cost = [...completedLiveEditSessions.values()].reduce((sum, item) => sum + item.sourceText.length, 0);
+        while (completedLiveEditSessions.size > 32 || cost > 4 * 1024 * 1024) {
+            const oldest = completedLiveEditSessions.keys().next().value;
+            if (oldest === undefined)
+                break;
+            cost -= completedLiveEditSessions.get(oldest).sourceText.length;
+            completedLiveEditSessions.delete(oldest);
+        }
+    };
     const pendingLiveEdits = new Map();
+    const pendingLiveAnchors = new Map();
     const openingLivePaths = new Set();
     const offsetAt = (text, position) => {
         const targetLine = Number(position.line);
@@ -165,6 +177,9 @@ export const initEditorSession = (context, deps) => {
                 anchor,
                 baseValue: payload.baseValue,
                 lastReplacement: expected,
+                sourceText: payload.sourceText,
+                start: { ...payload.start },
+                end: { ...payload.end },
             });
         }
         const requestedReplacement = payload.cancel ? ((_d = existing === null || existing === void 0 ? void 0 : existing.baseValue) !== null && _d !== void 0 ? _d : payload.baseValue) : payload.replacement;
@@ -176,6 +191,9 @@ export const initEditorSession = (context, deps) => {
         const session = liveEditSessions.get(payload.sessionId);
         if (payload.cancel || payload.finish) {
             (_h = (_g = entry.model).pushStackElement) === null || _h === void 0 ? void 0 : _h.call(_g);
+            const updatedAnchor = captureLiveEditAnchor(entry.model, startOffset, startOffset + replacement.length);
+            if (session && updatedAnchor)
+                rememberCompletedLiveEdit(payload.sessionId, { ...session, anchor: updatedAnchor, lastReplacement: replacement });
             liveEditSessions.delete(payload.sessionId);
         }
         else if (session) {
@@ -186,6 +204,47 @@ export const initEditorSession = (context, deps) => {
             session.lastReplacement = replacement;
         }
         return true;
+    };
+    const loadedLivePreviewSourceAnchor = (payload) => {
+        var _a, _b;
+        const entry = runtime.monacoModels.get(payload.path);
+        if (!entry)
+            return null;
+        const previous = payload.previousSessionId
+            ? completedLiveEditSessions.get(payload.previousSessionId) : undefined;
+        if (payload.previousSessionId && (!previous || previous.path !== payload.path ||
+            previous.sourceText !== payload.sourceText || previous.baseValue !== payload.baseValue ||
+            previous.start.line !== payload.start.line || previous.start.column !== payload.start.column ||
+            previous.end.line !== payload.end.line || previous.end.column !== payload.end.column))
+            return null;
+        const existing = (_a = liveEditSessions.get(payload.sessionId)) !== null && _a !== void 0 ? _a : previous;
+        if (existing && existing.path !== payload.path)
+            return null;
+        const current = entry.model.getValue();
+        const expected = (_b = existing === null || existing === void 0 ? void 0 : existing.lastReplacement) !== null && _b !== void 0 ? _b : payload.baseValue;
+        let anchor;
+        if (existing) {
+            // The first keystroke may overtake a child-file load or this query.
+            // Its tracked anchor already names the accepted replacement.
+            anchor = rebaseLiveEditAnchor(entry.model, existing.anchor);
+        }
+        else {
+            const start = offsetAt(payload.sourceText, payload.start);
+            const end = offsetAt(payload.sourceText, payload.end);
+            if (start === null || end === null || end < start ||
+                payload.sourceText.slice(start, end) !== expected)
+                return null;
+            anchor = anchorFromLiveEditSnapshot(entry.model, payload.sourceText, start, end);
+        }
+        if (!anchor || current.slice(anchor.startOffset, anchor.endOffset) !== expected)
+            return null;
+        const start = positionAt(current, anchor.startOffset);
+        const end = positionAt(current, anchor.endOffset);
+        // Read-only: returning this immutable pair neither creates an edit
+        // session nor alters the model or its undo boundaries.
+        return { sourceText: current, baseValue: expected,
+            start: { line: start.lineNumber, column: start.column },
+            end: { line: end.lineNumber, column: end.column } };
     };
     const flushPendingLiveEdits = (path) => {
         openingLivePaths.delete(path);
@@ -198,6 +257,33 @@ export const initEditorSession = (context, deps) => {
                 deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
             }
         }
+        for (const [sessionId, pending] of [...pendingLiveAnchors]) {
+            if (pending.payload.path !== path)
+                continue;
+            pendingLiveAnchors.delete(sessionId);
+            pending.resolve(loadedLivePreviewSourceAnchor(pending.payload));
+        }
+    };
+    const getLivePreviewSourceAnchor = (payload) => {
+        if (!(payload === null || payload === void 0 ? void 0 : payload.sessionId) || !payload.path || typeof payload.sourceText !== "string" ||
+            !payload.start || !payload.end)
+            return Promise.resolve(null);
+        if (runtime.monacoModels.has(payload.path)) {
+            return Promise.resolve(loadedLivePreviewSourceAnchor(payload));
+        }
+        return new Promise((resolve) => {
+            var _a;
+            (_a = pendingLiveAnchors.get(payload.sessionId)) === null || _a === void 0 ? void 0 : _a.resolve(null);
+            pendingLiveAnchors.set(payload.sessionId, { payload, resolve });
+            if (!openingLivePaths.has(payload.path)) {
+                openingLivePaths.add(payload.path);
+                const requested = requestOpenFileInBackground(payload.path, "primary");
+                if (!requested) {
+                    openingLivePaths.delete(payload.path);
+                    window.setTimeout(() => flushPendingLiveEdits(payload.path), 0);
+                }
+            }
+        });
     };
     const applyLivePreviewEdit = (payload) => {
         if (!(payload === null || payload === void 0 ? void 0 : payload.sessionId) || !payload.path || !payload.start || !payload.end)
@@ -234,6 +320,12 @@ export const initEditorSession = (context, deps) => {
                 if (pending.path === payload.path)
                     pendingLiveEdits.delete(sessionId);
             }
+            for (const [sessionId, pending] of pendingLiveAnchors) {
+                if (pending.payload.path !== payload.path)
+                    continue;
+                pendingLiveAnchors.delete(sessionId);
+                pending.resolve(null);
+            }
             return;
         }
         queueMicrotask(() => flushPendingLiveEdits(payload.path));
@@ -244,7 +336,11 @@ export const initEditorSession = (context, deps) => {
             (_c = (_a = runtime.monacoModels.get(session.path)) === null || _a === void 0 ? void 0 : (_b = _a.model).pushStackElement) === null || _c === void 0 ? void 0 : _c.call(_b);
         }
         liveEditSessions.clear();
+        completedLiveEditSessions.clear();
         pendingLiveEdits.clear();
+        for (const pending of pendingLiveAnchors.values())
+            pending.resolve(null);
+        pendingLiveAnchors.clear();
         openingLivePaths.clear();
     };
     const pendingExternalChanges = new Map();
@@ -316,6 +412,7 @@ export const initEditorSession = (context, deps) => {
         applyFormattedContent,
         applyContentToOpenFile: navigationOps.applyContentToOpenFile,
         applyLivePreviewEdit,
+        getLivePreviewSourceAnchor,
         handleExternalFileChange,
         saveCurrentFile,
         saveDirtyFiles,

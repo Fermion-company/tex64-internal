@@ -707,8 +707,25 @@ export type ElementInfo = {
   beforeOffset?: Offset;
   glyphBounds?: DOMRect;
 
+  /** Structural identity for caret stops that have no printed glyph. */
+  type?: string;
+  /** Identity of this live model atom, independent of rendered HTML ids. */
+  modelId?: number;
+  parentOffset?: Offset;
+  parentBranch?: string | [number, number];
+  array?: { rows: number; columns: number; alignments: string[] };
+
   /** The style (color, weight, variant, etc...) of this element. */
   style?: Style;
+};
+
+/** Logical atom data for one model revision, without DOM measurement. */
+export type ModelAtomMetadata = Pick<ElementInfo,
+  'type' | 'mode' | 'symbol' | 'parentOffset' | 'parentBranch' | 'beforeOffset' | 'array'> & {
+  offset: Offset;
+  modelId: number;
+  depth: number;
+  command?: string;
 };
 
 /**

@@ -17,6 +17,7 @@ export type AnnounceVerb =
 
 export type ModelState = {
   content: AtomJson;
+  atomIdentities?: import('./atom-identity').ModelAtomIdentity[];
   selection: Selection;
   mode: ParseMode;
 };

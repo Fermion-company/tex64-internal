@@ -26,19 +26,47 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 
 通常時は TDOM の canonical 面を表示する。編集中も数式を欠いた provisional 面は表示せず、直前の完成した紙面を保持する。未取得の数式・画像・脚注・float と初回rescueはエンジンが `pending-exact` で通知する。影響するページ群の全 chunk・フォント・文字座標・ソース対応を画面外で準備してから、まとめて切り替える。ページ数の減少は確定PDFの提示まで保留する。増分描画の座標とソース範囲はその紙面と一緒に保持し、canonical / shipping PDF へ切り替わったら対応する世代へ更新する。別文書の座標を混ぜないよう `documentEpoch` も照合する。
 
-直接編集のカーソルと選択範囲は、表示している PDF の文字送り・行列から取得する。TDOM の `pdf-edit-geometry.js` と `/canonical/glyphs`・`/chunk-glyphs`・`/ship-glyphs` が世代別の座標を渡し、`web/direct-edit-geometry.js` が文字位置や MathLive の要素位置へ対応させる。MathLive fork の `getElementInfo()` は `symbol`・`beforeOffset`・`glyphBounds` を公開する。MathLive 自体の透明な入力面の座標は紙面のクリック位置に使わない。
+確定PDFとresidentのページ構成が違う場合は、residentに削除通知がなくても増分ページ群を保持する。編集中のページの更新には、原文範囲と全文の文字座標が同じページに一意に残る証明も必要。改ページやUndo途中で一致しない配置は、確定PDFと入力面をまとめて移すまで提示しない。
+
+表示を保留して確定PDFが必要になった場合は、その文書epoch・原文revisionに限って短いdisplay cadenceを要求する。通常の30秒のauthority待機を外し、既存の短いdebounceと組版コストに応じた間隔は維持する。完成したresidentページ群を実際に提示できたら表示側の需要IDを解消し、すべての需要がなくなった未開始予約だけを通常のauthority cadenceへ戻す。同じ版の再保留やiframeの再生成は新しい需要IDで受け付け、別の表示側や遅延した解消通知を混ぜない。開始済みの組版を中断せず、同じrevisionの要求で追加組版やエラーの再試行を発生させない。
+
+現在の編集のresident描画が使える場合だけ、変換・crop完了後200msの表示通知猶予を置き、原文予約から計1200msで打ち切る。改ページなど確定PDFが必須の需要・失敗・isolated fallback・export/settle/opaqueは待機しない。
+
+ツールバーの状態はresidentの処理中、実際の組版中、画面内の旧紙面の保持を分ける。完成した増分紙面が提示済みで、裏でauthority確認の予約を待つだけの間は通常のライブ表示にする。画面内の紙面が保留されている場合は描画待ちを維持する。可視ページの判定は既存のページ・スクロールsnapshotの走査を共有する。
+
+直接編集のカーソルと選択範囲は、表示している PDF の文字送り・行列から取得する。TDOM の `pdf-edit-geometry.js` と `/canonical/glyphs`・`/chunk-glyphs`・`/ship-glyphs` が世代別の座標を渡し、`web/direct-edit-geometry.js` が文字位置や MathLive の要素位置へ対応させる。MathLive fork の `getElementInfo()` は記号・印字範囲と親要素・分子分母の枝・行列の行列位置を公開する。空セルは実glyphと照合したSyncTeXの行基線・列位置、空分子・分母は `/canonical/source-boxes` が同じPDF世代から返す兄弟hboxを使い、対応を証明できた場合だけカーソルを置く。取得には文書epochも照合する。MathLive 自体の透明な入力面の座標は紙面のクリック位置に使わない。
 
 数式入力では元ソースの改行・空白を保ち、MathLive の初期正規化だけで式全体を置換しない。入力中の値と表示世代が一致しない間は、直前のカーソル位置を保持する。IME の未確定文字だけは紙面の入力位置に下線付きで表示し、候補の選択・確定・取消キーは IME に渡す。文字のドラッグ選択・Shift 選択も紙面の座標を使う。直接編集中の選択では「Axiom に聞く」を重ねず、右クリックの既存経路を維持する。入力に伴うブラウザの自動スクロールは抑える。クリック位置の照合中に届いた打鍵は、対応するカーソルが確定してから適用する。隔離組版された段落にも編集範囲を渡し、増分描画の式は chunk の文字配置から照合する。同じ式・文字列が繰り返される場合は、ソースの順序と紙面の全出現箇所をまとめて照合する。
+
+行列・分数の後ろのカーソルは、各行や分子分母の実boxとSyncTeXの祖先IDから外側hboxを証明し、括弧やkernを含む右端と基線へ置く。証明できない構造境界を最後のセルや分母の文字位置へ置き換えない。空セル・空分子分母のクリックも同じ実boxの空境界へ対応させる。
+
+各直接編集セッションの開始時に一度 `edit-anchor` を往復し、Monaco の履歴で補正した現在の範囲と、その時点の原文を表示用の基準として返す。前の編集が未反映の旧PDFから別箇所を選んでも、この基準とそのセッションの置換によって canonical 上の位置を証明できる。初回の打鍵が先着した場合は既存の編集アンカーを使い、未読込の子ファイルはバックグラウンドで読み込んでから返信する。全文の返信は開始時の一度だけ。activation・文書epoch・session・request・開始sourceRevを照合し、別文書や閉じたセッションへの遅延返信を破棄する。
+
+同じ旧PDF上の編集済み領域へ戻る場合は、終了済みセッションを最大32件保持し、`previousSessionId`・開始原文・範囲・最終置換の一致をホストが確認する。追跡できた現在の本文を入力面へ復元し、その原文範囲を新セッションの送信基準へ固定してから待機中の入力を適用する。本文の位置は実 `beforeinput` 選択範囲、数式の位置は MathLive atom の `modelId` で追跡し、同じ文字の反復を文字列の前後一致だけで推測しない。内部 Undo snapshot は構造を照合して atom identity も復元し、通常の挿入・削除で同じ全文へ戻った状態とは区別する。通常の LaTeX / JSON 入力にはこの内部 identity を引き継がない。受信待ちの打鍵・貼付けは既存の入力キューで保持する。原文や境界を証明できない外部変更を別の同値文字列で補わない。
+
+再訪の記録は `getModelMetadata()` で一度に取得する論理atom情報を使う。offset・親/前兄弟の境界・深さ・identityは線形の一括走査で求め、DOM座標の測定や部分式のLaTeX直列化は行わない。返値は呼出し時点のmodel snapshotで、編集を跨いで使い回さない。PDF glyphとの対応に実表示寸法が必要な場合だけ、別の `getElementInfo()` の描画情報を読む。
+
+canonical 更新で入力面の親ページが変わらなければDOMを挿し直さない。改ページは `moveBefore` とMathLiveの `connectedMoveCallback` でフォーカス・選択・IMEを保持し、旧ページの削除より先に入力面を移す。未対応ブラウザでは変換中の移動を待ち、通常入力のフォーカスと選択を復元する。
+
+紙面から適用する数式の選択位置は、MathLiveの現在のUndo状態にも反映する。内容の履歴は増やさず、最初の編集まで戻した後もクリックしたセルや分子・分母から入力を続けられるようにする。行列の行・列追加/削除コマンドは変更後の内容と選択を1回記録し、Undo/Redoの各段階でその内容に対応するセルへ戻す。モデル状態の復元時は空の最終行も保持し、TeX解析時の末尾空行除去を再適用しない。
+
+元の数式の改行・空白を保つ差分は、適用後にも保存値と照合する。環境名やtext引数の空白は有意として扱い、構造変更で別のbrace内へ余白が移る場合は、その回の正しいMathLive直列化を使う。
+
+クリックの照合中は、canonical・増分chunk・shippingを含む表示更新を保留する。連続クリックの入力を順に渡してから、保留したソース通知を順序どおり処理し、最新の表示へ進む。文書切替時は旧文書の保留入力・表示更新を破棄する。
+
+ライブ表示と直接編集は、送信に成功したルートTeXと同じディレクトリ・同じ名前のPDFだけを対象にする。別のPDFタブでは直ちに静的PDF表示へ戻し、そのタブへ届いた旧ライブ編集・位置照合の通知を受け付けない。独自の出力先やjobnameは、Code側がビルド結果の原文とPDFの対応を保持するまでは静的表示を使う。
+
+編集中の入力面が別ページへ移った場合だけ、旧caretの画面内Yをできる限り保ってスクロールを追従する。新glyphのcaretで補正し、途中の手動スクロールや選択変更は優先する。同じページの更新ではスクロールを動かさない。本文のクリックとcanonical後の再配置は、forward SyncTeXと実際のword boxで絞った全出現と原文範囲の同じ対応を使う。逆位置は整合するときに更に限定し、段落後の空行を指してもforwardの証明を失わない。同じ行の複数出現は全数が一致するときだけソース列順とPDF順を対応させ、改ページ前の近い同値本文へ移さない。
 
 ## エンジンの解決順序（tdom-engine.cjs）
 
 1. `TEX64_TDOM_ENGINE_DIR`（env）
 2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-core` → `~/Developer/tdom-core` → `~/tdom-core` → `~/Desktop/tdom-core`
-3. vendored copy: `Resources/tdom-engine/`（パッケージ版フォールバック）
+3. vendored copy: パッケージ版の `resources/app.asar.unpacked/Resources/tdom-engine/`、開発配置の `Resources/tdom-engine/` の順（`server.js` の存在で判定）。
 
 **開発フロー**: checkout が vendored より優先されるので、`~/tdom-core` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
 
-**配布**: `npm run tdom:sync` が checkout の最小構成（engine/・server.js・web/（pdfjs 除く）・templates/・samples/、約 900KB）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。gitignore 済み。パッケージ前に実行する（`files` は `Resources/**` を含み、`asarUnpack` に `Resources/tdom-engine/**` を追加済み）。
+**配布**: `npm run tdom:sync` が checkout の最小構成（engine/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
 
 ## 実行時の前提と保護
 

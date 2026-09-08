@@ -138,8 +138,13 @@ class TdomEngineService {
     this.fileAccess = options.fileAccess || NO_FILE_ACCESS;
     this.envEngineDir = envDir;
     this.explicitEngineDir = options.engineDir;
+    const unpackedVendoredDir = options.resourcesPath
+      ? path.join(options.resourcesPath, "app.asar.unpacked", "Resources", "tdom-engine")
+      : null;
     this.vendoredDir = options.vendoredDir
-      || (options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
+      || (unpackedVendoredDir && pathExists(path.join(unpackedVendoredDir, MARKER))
+        ? unpackedVendoredDir
+        : options.resourcesPath ? path.join(options.resourcesPath, "tdom-engine") : null);
     const directHostWebRoot = options.resourcesPath
       ? path.join(options.resourcesPath, "web")
       : null;
