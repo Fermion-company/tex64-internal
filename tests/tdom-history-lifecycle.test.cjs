@@ -8,6 +8,23 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
 const options = (ensureAccess) => ({ engineDir: "/tmp/tex64-tdom-lifecycle-fixture", existsSync: () => true, port: 49739,
   fileAccess: { ensureAccess, probeIfAllowed: () => true }, pollIntervalMs: 1, startTimeoutMs: 2000 });
 
+test("tdom-engine checkout wins while the old tdom-core name remains a fallback", () => {
+  const modern = "/fake/home/tdom-engine";
+  const legacy = "/fake/home/tdom-core";
+  const marker = (directory) => `${directory}/server.js`;
+  const service = new TdomEngineService({
+    homeDir: "/fake/home",
+    existsSync: (candidate) => candidate === marker(modern) || candidate === marker(legacy),
+  });
+  assert.equal(service.engineDir, modern);
+
+  const fallback = new TdomEngineService({
+    homeDir: "/fake/home",
+    existsSync: (candidate) => candidate === marker(legacy),
+  });
+  assert.equal(fallback.engineDir, legacy);
+});
+
 test("history stop invalidates a start still waiting for access and allows a new start", async () => {
   const access = deferred(); let spawns = 0;
   const service = new TdomEngineService({ ...options(() => access.promise), spawnImpl: () => { spawns++; throw Error("unexpected spawn"); } });
