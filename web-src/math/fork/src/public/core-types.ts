@@ -702,6 +702,11 @@ export type ElementInfo = {
   /** A LaTeX representation of the element */
   latex?: string;
 
+  /** Printed symbol and sibling boundary for external document hit testing. */
+  symbol?: string;
+  beforeOffset?: Offset;
+  glyphBounds?: DOMRect;
+
   /** The style (color, weight, variant, etc...) of this element. */
   style?: Style;
 };

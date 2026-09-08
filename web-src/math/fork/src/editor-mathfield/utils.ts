@@ -325,6 +325,23 @@ export function getElementInfo(
 
   result.depth = atom.treeDepth - 2;
 
+  if (atom.value && atom.type !== 'first') {
+    result.symbol = atom.value;
+    result.beforeOffset = mf.model.offsetOf(atom.leftSibling);
+    // Measure only this atom's printed text, excluding its scripts and
+    // enclosing fraction/array boxes. Consumers map identity to PDF ink;
+    // these bounds describe structure, never the final page coordinates.
+    for (const node of mf.field.querySelectorAll(`[data-atom-id="${atom.id}"]`)) {
+      for (const child of node.childNodes) {
+        if (child.nodeType !== Node.TEXT_NODE || !child.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(child);
+        const rect = range.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) result.glyphBounds = rect;
+      }
+    }
+  }
+
   result.style = atom.style;
 
   // Look for some 'htmlData' in the atom or its ancestors
