@@ -38,6 +38,7 @@ export const initTerminalUi = (context) => {
     let activeGroup = null;
     let activeSession = null;
     let nextNumber = 1;
+    let nextPaneNumber = 1;
     let visible = false;
     let disposed = false;
     let startingCount = 0;
@@ -54,7 +55,7 @@ export const initTerminalUi = (context) => {
     const setState = (session, state) => {
         session.state = state;
         session.element.dataset.state = state;
-        session.label.textContent = session.title;
+        session.label.textContent = `${session.number} · ${session.title}${session === activeSession ? uiText(" · Active", " · 選択中") : ""}`;
     };
     const fitNow = () => {
         var _a;
@@ -101,7 +102,7 @@ export const initTerminalUi = (context) => {
             close.type = "button";
             close.className = "terminal-tab-close";
             close.textContent = "×";
-            close.title = uiText("Close terminal (stops shell)", "ターミナルを終了");
+            close.title = group.panes.length > 1 ? uiText("Close both panes in this tab", "このタブの2ペインを終了") : uiText("Close this tab and its shell", "このタブとシェルを終了");
             close.setAttribute("aria-label", close.title);
             close.addEventListener("click", () => {
                 for (const session of [...group.panes])
@@ -112,6 +113,7 @@ export const initTerminalUi = (context) => {
             for (const session of group.panes) {
                 session.element.hidden = group !== activeGroup;
                 session.element.classList.toggle("is-active", session === activeSession);
+                setState(session, session.state);
                 session.element.classList.toggle("is-split", group.panes.length > 1);
             }
         }
@@ -213,7 +215,7 @@ export const initTerminalUi = (context) => {
         const close = document.createElement("button");
         close.type = "button";
         close.textContent = "×";
-        close.title = uiText("Close terminal (stops shell)", "ターミナルを終了");
+        close.title = uiText("Close this pane and its shell", "このペインとシェルを終了");
         close.setAttribute("aria-label", close.title);
         const screen = document.createElement("div");
         screen.className = "terminal-screen";
@@ -231,14 +233,16 @@ export const initTerminalUi = (context) => {
         term.attachCustomKeyEventHandler((event) => !((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "t")
             && !(event.ctrlKey && event.code === "Backquote"));
         const session = {
-            term, fit, element, screen, label, id: null, title: "Shell", cwd,
+            term, fit, element, screen, label, id: null, title: "Shell", number: nextPaneNumber++, cwd,
             state: "starting", pendingInput: "", generation: 0, disposed: false, disposers: [],
         };
         close.addEventListener("click", () => closeSession(session));
         screen.addEventListener("focusin", () => {
             activeSession = session;
-            for (const pane of allSessions())
+            for (const pane of allSessions()) {
                 pane.element.classList.toggle("is-active", pane === session);
+                setState(pane, pane.state);
+            }
         });
         const input = term.onData((data) => {
             if (session.disposed)
@@ -329,13 +333,15 @@ export const initTerminalUi = (context) => {
         void start(session);
         focus();
     };
-    const restart = () => {
+    const restart = (confirm = false) => {
         const session = activeSession;
         if (!session) {
             create();
             return;
         }
         if (session.state === "starting")
+            return;
+        if (confirm && !window.confirm(uiText(`Restart pane ${session.number} · ${session.title}? Running commands in this pane will stop.`, `端末 ${session.number}・${session.title} を再起動しますか？この端末で実行中のコマンドは終了します。`)))
             return;
         if (session.id) {
             sessionsById.delete(session.id);

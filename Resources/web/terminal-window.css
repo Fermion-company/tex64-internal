@@ -1,0 +1,6 @@
+body.terminal-window { display: flex; flex-direction: column; height: 100vh; width: 100vw; margin: 0; overflow: hidden; background: #0e1116; color: #cdd3de; }
+.terminal-window header { display: flex; gap: 8px; align-items: center; padding: 8px 12px; flex-shrink: 0; border-bottom: 1px solid #8884; }
+.terminal-window header { justify-content: flex-end; }
+.terminal-window header button { border: 1px solid #8884; border-radius: 5px; padding: 5px 9px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.terminal-window #terminal-host { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.terminal-window[data-theme="light"], html[data-theme="light"] body.terminal-window { background: #f8fafc; color: #263244; }

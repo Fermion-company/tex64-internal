@@ -1,9 +1,30 @@
 import { IMAGE_MIME_TYPES, getFileExtension } from "./files.js";
+const pdfSourceStates = new Map();
+const pdfSourceListeners = new Set();
+let activePdfWorkspace = null;
+const normalizedPdfPath = (value) => value.replace(/\\/g, "/").replace(/\/$/, "");
+export const updatePdfSourceState = (value, activeWorkspace = false) => {
+    const payload = value;
+    if (!payload || (payload.rootPath !== null && typeof payload.rootPath !== "string"))
+        return;
+    const root = payload.rootPath ? normalizedPdfPath(payload.rootPath) : null;
+    if (activeWorkspace)
+        activePdfWorkspace = root;
+    if (root)
+        pdfSourceStates.set(root, {
+            rootPath: root,
+            requiresRebuild: payload.requiresRebuild === true,
+            rebuiltPaths: Array.isArray(payload.rebuiltPaths) ? payload.rebuiltPaths.filter((p) => typeof p === "string").map(normalizedPdfPath) : [],
+        });
+    for (const listener of pdfSourceListeners)
+        listener();
+};
 export const createViewer = (deps) => {
     let viewerBlobUrl = null;
     let viewerMode = "hidden";
     let pdfViewerReady = false;
     let pdfViewerPath = null;
+    let pdfWorkspaceRoot = null;
     let pendingPdfOpen = null;
     let pendingPdfSync = null;
     // Real-time preview: when set, the pdf viewer swaps its page canvas for the
@@ -11,6 +32,19 @@ export const createViewer = (deps) => {
     // survives the pdf iframe being torn down and recreated.
     let livePreview = null;
     const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
+    const needsPdfRebuild = () => {
+        if (!pdfWorkspaceRoot || !pdfViewerPath)
+            return false;
+        const status = pdfSourceStates.get(pdfWorkspaceRoot);
+        if (!(status === null || status === void 0 ? void 0 : status.requiresRebuild))
+            return false;
+        const name = normalizedPdfPath(pdfViewerPath);
+        const absolute = name.startsWith("/") || /^[A-Za-z]:\//.test(name)
+            ? name : `${pdfWorkspaceRoot}/${name.replace(/^\.\//, "")}`;
+        if (!absolute.startsWith(`${pdfWorkspaceRoot}/`) || absolute.split("/").includes(".."))
+            return false;
+        return !status.rebuiltPaths.includes(absolute);
+    };
     const postPdfMessage = (payload) => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return false;
@@ -19,9 +53,15 @@ export const createViewer = (deps) => {
         if (!target) {
             return false;
         }
+        if (payload.type === "open")
+            payload = { ...payload, payload: { ...payload.payload, needsRebuild: needsPdfRebuild() } };
         target.postMessage({ source: "tex64-pdf", payload }, "*");
         return true;
     };
+    pdfSourceListeners.add(() => {
+        if (pdfViewerReady && pdfViewerPath)
+            postPdfMessage({ type: "source-state", payload: { path: pdfViewerPath, needsRebuild: needsPdfRebuild() } });
+    });
     const ensurePdfFrame = () => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
@@ -239,6 +279,7 @@ export const createViewer = (deps) => {
         try {
             const url = buildViewerBlobUrl(data, mimeType !== null && mimeType !== void 0 ? mimeType : "application/pdf");
             pdfViewerPath = path;
+            pdfWorkspaceRoot = activePdfWorkspace;
             ensurePdfFrame();
             const payload = { url, path };
             if (pdfViewerReady) {

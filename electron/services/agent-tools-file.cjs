@@ -1,3 +1,4 @@
+const { historyBoundary } = require("./agent-history-boundary.cjs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
 const {
@@ -165,6 +166,7 @@ const autoApplyProposal = async (service, proposal, options = {}) => {
   } catch {
     // The card simply shows no place.
   }
+  proposal.historyBoundary = historyBoundary(service);
   service.proposals.set(proposal.id, proposal);
   const conversationId =
     typeof proposal.conversationId === "string" && proposal.conversationId.trim()

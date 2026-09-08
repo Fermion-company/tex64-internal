@@ -1,3 +1,4 @@
+import { updatePdfSourceState } from "./viewer.js";
 import { uiText } from "./i18n.js";
 const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
 const isAiModeAgentPayload = (payload) => {
@@ -22,6 +23,7 @@ export const initBridgeHandlers = (deps) => {
     let externalWorkspaceGeneration;
     bridgeWindow.tex64SetBuildState = (payload) => {
         var _a, _b;
+        updatePdfSourceState(payload.pdfSourceState);
         if (payload.targetFile && !payload.requestId)
             (_b = (_a = deps.build).setBuildTarget) === null || _b === void 0 ? void 0 : _b.call(_a, payload.targetFile);
         deps.build.setBuildState(payload.state, payload.message);
@@ -33,6 +35,7 @@ export const initBridgeHandlers = (deps) => {
     };
     bridgeWindow.tex64UpdateWorkspace = (payload) => {
         var _a, _b;
+        updatePdfSourceState(payload.pdfSourceState, true);
         externalWorkspaceRoot = payload.rootPath;
         externalWorkspaceGeneration = payload.workspaceGeneration;
         (_a = deps.filePreview) === null || _a === void 0 ? void 0 : _a.setWorkspaceScope(payload);

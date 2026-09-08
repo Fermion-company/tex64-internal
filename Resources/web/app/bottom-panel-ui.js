@@ -5,7 +5,7 @@ const MIN_PANEL_HEIGHT = 120;
 const MAX_PANEL_HEIGHT = 600;
 const DEFAULT_PANEL_HEIGHT = 220;
 export const initBottomPanelUi = (context, deps = {}) => {
-    var _a, _b;
+    var _a, _b, _c;
     const { bottomPanel, bottomPanelResizer, bottomPanelClose, bottomPanelTerminalRestart, bottomPanelBody, bottomPanelTabs, toggleSidebarButton, toggleBottomPanelButton, } = context.dom;
     const editorSection = document.querySelector("section.editor");
     const mainEl = document.querySelector(".main");
@@ -223,8 +223,14 @@ export const initBottomPanelUi = (context, deps = {}) => {
             (_a = deps.onTerminalRestart) === null || _a === void 0 ? void 0 : _a.call(deps);
         });
     }
-    (_a = document.getElementById("bottom-panel-terminal-new")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", () => { var _a; return (_a = deps.onTerminalCreate) === null || _a === void 0 ? void 0 : _a.call(deps); });
-    (_b = document.getElementById("bottom-panel-terminal-split")) === null || _b === void 0 ? void 0 : _b.addEventListener("click", () => { var _a; return (_a = deps.onTerminalSplit) === null || _a === void 0 ? void 0 : _a.call(deps); });
+    (_a = document.getElementById("bottom-panel-terminal-window")) === null || _a === void 0 ? void 0 : _a.addEventListener("click", async () => {
+        var _a;
+        const result = await ((_a = window.tex64Terminal) === null || _a === void 0 ? void 0 : _a.openWindow());
+        if (result === null || result === void 0 ? void 0 : result.error)
+            window.alert(result.error);
+    });
+    (_b = document.getElementById("bottom-panel-terminal-new")) === null || _b === void 0 ? void 0 : _b.addEventListener("click", () => { var _a; return (_a = deps.onTerminalCreate) === null || _a === void 0 ? void 0 : _a.call(deps); });
+    (_c = document.getElementById("bottom-panel-terminal-split")) === null || _c === void 0 ? void 0 : _c.addEventListener("click", () => { var _a; return (_a = deps.onTerminalSplit) === null || _a === void 0 ? void 0 : _a.call(deps); });
     tabButtons.forEach((button) => {
         button.addEventListener("click", () => {
             const tab = button.getAttribute("data-bottom-tab") === "terminal" ? "terminal" : "blocks";

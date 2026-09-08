@@ -18,6 +18,8 @@ const createApplicationMenuTemplate = ({
   isMac = process.platform === "darwin",
   sendCommand = () => {},
   locale = "en",
+  terminalActive = false,
+  sendTerminalCommand = () => {},
 } = {}) => {
   const labels = MENU_LABELS[locale] || MENU_LABELS.en;
   const commandItem = (label, command, accelerator) => ({
@@ -61,8 +63,16 @@ const createApplicationMenuTemplate = ({
         { role: isMac ? "close" : "quit" },
       ],
     },
-    { role: "editMenu" },
+    { role: "editMenu", submenu: [
+      { role: "undo" }, { role: "redo" }, { type: "separator" },
+      { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "pasteAndMatchStyle" }, { role: "delete" }, { role: "selectAll" },
+      { type: "separator" }, commandItem(locale === "ja" ? "スニペット…" : "Snippets…", "snippets:open"),
+    ] },
     { role: "viewMenu" },
+    { label: locale === "ja" ? "ターミナル" : "Terminal", submenu: [
+      { label: locale === "ja" ? "シェルを再起動…" : "Restart shell…", enabled: terminalActive, click: () => sendTerminalCommand("restart") },
+      { label: locale === "ja" ? "ウインドウを隠す（実行は継続）" : "Hide window (keep running)", enabled: terminalActive, click: () => sendTerminalCommand("hide") },
+    ] },
     { role: "windowMenu" }
   );
 

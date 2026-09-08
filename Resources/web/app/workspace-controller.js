@@ -172,7 +172,7 @@ export const initWorkspaceController = (context, deps) => {
         mergeIssues();
     };
     const handleWorkspaceUpdate = (payload) => {
-        var _a;
+        var _a, _b;
         const previousRoot = workspaceRootKey;
         workspaceFiles = payload.files;
         workspaceFolders = Array.isArray(payload.folders) ? payload.folders : [];
@@ -205,7 +205,13 @@ export const initWorkspaceController = (context, deps) => {
         }
         deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });
         deps.searchUi.reset();
-        deps.diffModal.setDiffContext(null);
+        // A custom apply may be awaiting this same-root synchronization. Keep its
+        // context until its completion handler closes the modal.
+        if (rootChanged)
+            deps.diffModal.closeDiffModal();
+        else if (((_b = deps.diffModal.getDiffContext()) === null || _b === void 0 ? void 0 : _b.type) !== "customApply") {
+            deps.diffModal.setDiffContext(null);
+        }
         deps.settingsUi.loadWorkspaceSettings();
         deps.envRegistry.reload(false);
         deps.rootSelectorUi.render();

@@ -65,7 +65,12 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
 
     if (diffModalSubmit instanceof HTMLButtonElement) {
       diffModalSubmit.addEventListener("click", () => {
+        if (diffModalSubmit.disabled) return;
         const diffContext = deps.diffModal.getDiffContext();
+        if (diffContext?.type === "customApply") {
+          void diffContext.apply();
+          return;
+        }
         if (diffContext?.type === "aiApply") {
           deps.aiOps?.applyPendingFromDiffModal();
           deps.diffModal.closeDiffModal();
@@ -78,7 +83,9 @@ export const initUiEvents = (context: AppContext, deps: UiEventsDeps): UiEventsA
 
     if (diffModalCancel instanceof HTMLButtonElement) {
       diffModalCancel.addEventListener("click", () => {
+        const custom = deps.diffModal.getDiffContext()?.type === "customApply";
         deps.diffModal.closeDiffModal();
+        if (custom) return;
         deps.blockInsert?.clearPending();
         deps.aiOps?.clearPending();
       });

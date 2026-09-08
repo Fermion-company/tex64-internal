@@ -280,6 +280,10 @@ export const initBottomPanelUi = (
       deps.onTerminalRestart?.();
     });
   }
+  document.getElementById("bottom-panel-terminal-window")?.addEventListener("click", async () => {
+    const result = await (window as any).tex64Terminal?.openWindow();
+    if (result?.error) window.alert(result.error);
+  });
   document.getElementById("bottom-panel-terminal-new")?.addEventListener("click", () => deps.onTerminalCreate?.());
   document.getElementById("bottom-panel-terminal-split")?.addEventListener("click", () => deps.onTerminalSplit?.());
   tabButtons.forEach((button) => {

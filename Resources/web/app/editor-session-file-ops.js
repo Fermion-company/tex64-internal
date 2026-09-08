@@ -34,6 +34,8 @@ export const createEditorSessionFileOps = (ctx) => {
         if (timeoutMs === void 0) { timeoutMs = 8000; }
         if (expectedContent === void 0) { expectedContent = (_a = monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.savedContent; }
         return new Promise((resolve, reject) => {
+            var _a, _b;
+            const identity = ((_b = (_a = window.tex64History) === null || _a === void 0 ? void 0 : _a.getIdentity) === null || _b === void 0 ? void 0 : _b.call(_a)) || {};
             const startedAt = Date.now();
             const enqueue = () => {
                 if (state.pendingSave) {
@@ -63,6 +65,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     origReject(error);
                 };
                 const ok = deps.postToNative({
+                    ...identity,
                     type: "saveFile",
                     path,
                     content: value,

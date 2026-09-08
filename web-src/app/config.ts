@@ -5,6 +5,8 @@ export const TAB_KEYS = [
   "outline",
   "blocks",
   "ai",
+  "history",
+  "git",
   "project",
   "search",
   "issues",
@@ -50,6 +52,8 @@ const EN_TAB_CONFIG: Record<TabKey, TabConfigEntry> = {
     desc: "Use chat to propose file changes and create templates.",
     hint: "Review diffs before applying.",
   },
+  git: { label: "Git", outline: "Git", title: "Git", desc: "", hint: "" },
+  history: { label: "History", outline: "History", title: "History", desc: "", hint: "" },
   project: {
     label: "Project",
     outline: "Project settings",
@@ -111,6 +115,8 @@ const JA_TAB_CONFIG: Record<TabKey, TabConfigEntry> = {
     desc: "チャットでファイルの提案やテンプレート作成を行います。",
     hint: "差分を確認して適用します。",
   },
+  git: { label: "Git", outline: "Git", title: "Git", desc: "", hint: "" },
+  history: { label: "履歴", outline: "履歴", title: "履歴", desc: "", hint: "" },
   project: {
     label: "プロジェクト",
     outline: "プロジェクト設定",

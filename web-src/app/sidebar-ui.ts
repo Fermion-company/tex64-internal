@@ -32,6 +32,8 @@ export const initSidebarVisibility = (
     "blocks",
     "ai",
     "issues",
+    "history",
+    "git",
     "project",
   ];
   let sidebarVisibleTabs = new Set<TabKey>(primarySidebarTabs);

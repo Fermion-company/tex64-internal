@@ -1,5 +1,24 @@
 import { IMAGE_MIME_TYPES, getFileExtension } from "./files.js";
 
+type PdfSourceStatus = { rootPath: string | null; requiresRebuild: boolean; rebuiltPaths: string[] };
+const pdfSourceStates = new Map<string, PdfSourceStatus>();
+const pdfSourceListeners = new Set<() => void>();
+let activePdfWorkspace: string | null = null;
+const normalizedPdfPath = (value: string) => value.replace(/\\/g, "/").replace(/\/$/, "");
+
+export const updatePdfSourceState = (value: unknown, activeWorkspace = false) => {
+  const payload = value as Partial<PdfSourceStatus> | null;
+  if (!payload || (payload.rootPath !== null && typeof payload.rootPath !== "string")) return;
+  const root = payload.rootPath ? normalizedPdfPath(payload.rootPath) : null;
+  if (activeWorkspace) activePdfWorkspace = root;
+  if (root) pdfSourceStates.set(root, {
+    rootPath: root,
+    requiresRebuild: payload.requiresRebuild === true,
+    rebuiltPaths: Array.isArray(payload.rebuiltPaths) ? payload.rebuiltPaths.filter((p): p is string => typeof p === "string").map(normalizedPdfPath) : [],
+  });
+  for (const listener of pdfSourceListeners) listener();
+};
+
 export type ViewerMode = "hidden" | "image" | "pdf" | "unsupported";
 
 export type PdfSyncPayload = {
@@ -65,6 +84,7 @@ export const createViewer = (deps: ViewerDeps) => {
   let viewerMode: ViewerMode = "hidden";
   let pdfViewerReady = false;
   let pdfViewerPath: string | null = null;
+  let pdfWorkspaceRoot: string | null = null;
   let pendingPdfOpen: { url: string; path: string | null } | null = null;
   let pendingPdfSync: PdfSyncPayload | null = null;
   // Real-time preview: when set, the pdf viewer swaps its page canvas for the
@@ -72,6 +92,17 @@ export const createViewer = (deps: ViewerDeps) => {
   // survives the pdf iframe being torn down and recreated.
   let livePreview: { url: string; generation: number } | null = null;
   const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
+
+  const needsPdfRebuild = () => {
+    if (!pdfWorkspaceRoot || !pdfViewerPath) return false;
+    const status = pdfSourceStates.get(pdfWorkspaceRoot);
+    if (!status?.requiresRebuild) return false;
+    const name = normalizedPdfPath(pdfViewerPath);
+    const absolute = name.startsWith("/") || /^[A-Za-z]:\//.test(name)
+      ? name : `${pdfWorkspaceRoot}/${name.replace(/^\.\//, "")}`;
+    if (!absolute.startsWith(`${pdfWorkspaceRoot}/`) || absolute.split("/").includes("..")) return false;
+    return !status.rebuiltPaths.includes(absolute);
+  };
 
   const postPdfMessage = (payload: { type: string; payload?: unknown }) => {
     if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
@@ -81,9 +112,14 @@ export const createViewer = (deps: ViewerDeps) => {
     if (!target) {
       return false;
     }
+    if (payload.type === "open") payload = { ...payload, payload: { ...(payload.payload as object), needsRebuild: needsPdfRebuild() } };
     target.postMessage({ source: "tex64-pdf", payload }, "*");
     return true;
   };
+
+  pdfSourceListeners.add(() => {
+    if (pdfViewerReady && pdfViewerPath) postPdfMessage({ type: "source-state", payload: { path: pdfViewerPath, needsRebuild: needsPdfRebuild() } });
+  });
 
   const ensurePdfFrame = () => {
     if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
@@ -322,6 +358,7 @@ export const createViewer = (deps: ViewerDeps) => {
     try {
       const url = buildViewerBlobUrl(data, mimeType ?? "application/pdf");
       pdfViewerPath = path;
+      pdfWorkspaceRoot = activePdfWorkspace;
       ensurePdfFrame();
       const payload = { url, path };
       if (pdfViewerReady) {

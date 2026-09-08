@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "release": "v2.53.0-4",
+  "repository": "desktop/dugite-native",
+  "gitVersion": "2.53.0",
+  "gitCommit": "67ad42147a7acc2af6074753ebd03d904476118f",
+  "gcmVersion": "2.9.0",
+  "dotnetVersion": "10.0.9",
+  "targets": {
+    "darwin-arm64": {
+      "asset": "dugite-native-v2.53.0-4098283-macOS-arm64.tar.gz",
+      "sha256": "f9dc64635a5b62fbd7ad95db73268bbb8912255ac516d65d37bf7af22fcb8ffe"
+    },
+    "darwin-x64": {
+      "asset": "dugite-native-v2.53.0-4098283-macOS-x64.tar.gz",
+      "sha256": "ae6686718aa34f4140424db16b92a47dcffd6d1f312eb8b5f3b267f7404e2680"
+    }
+  },
+  "legal": [
+    {
+      "name": "git-source.tar.gz",
+      "url": "https://codeload.github.com/git/git/tar.gz/refs/tags/v2.53.0",
+      "sha256": "0492bcd8a9fc99bedca75dbec7c8c15b24dd1501c82d4518294ee0850f91f219"
+    },
+    {
+      "name": "dugite-source.tar.gz",
+      "url": "https://codeload.github.com/desktop/dugite-native/tar.gz/refs/tags/v2.53.0-4",
+      "sha256": "6600bdf3c7e2cbb127ac63d9d38da3a91267610c6034ecb8ff73e94f89508f33"
+    },
+    {
+      "name": "git-COPYING.txt",
+      "url": "https://raw.githubusercontent.com/git/git/v2.53.0/COPYING",
+      "sha256": "5b2198d1645f767585e8a88ac0499b04472164c0d2da22e75ecf97ef443ab32e"
+    },
+    {
+      "name": "gcm-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/git-ecosystem/git-credential-manager/v2.9.0/LICENSE",
+      "sha256": "b47f1a8a744ecdc7a3da35804f88552805d33f51a726b87a2105acdfae406b07"
+    },
+    {
+      "name": "dotnet-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/dotnet/runtime/v10.0.9/LICENSE.TXT",
+      "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310"
+    },
+    {
+      "name": "git-lfs-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/git-lfs/git-lfs/v3.7.1/LICENSE.md",
+      "sha256": "4fae9062ab5cdd5fb15486b728534d8aded8b4ae9d84b6d66a956f5162c366b6"
+    },
+    {
+      "name": "dotnet-THIRD-PARTY-NOTICES.txt",
+      "url": "https://raw.githubusercontent.com/dotnet/runtime/v10.0.9/THIRD-PARTY-NOTICES.TXT",
+      "sha256": "66f1d4e44973185519bb4aa8a9718eb22fc7af2cc532e3ae9cfc4c127ee7fc54"
+    }
+  ]
+}

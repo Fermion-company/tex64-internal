@@ -1,3 +1,4 @@
+const { historyBoundary } = require("./agent-history-boundary.cjs");
 /**
  * Tool executor — stripped down to only the tools used outside the
  * OpenPrism AgentExecutor run-loop:
@@ -577,6 +578,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
           workspaceRootPath: service.workspace.getRootPath() || undefined,
         };
         if (autoApply) {
+          proposal.historyBoundary = historyBoundary(service);
           service.proposals.set(id, proposal);
           const apply = await service.applyProposal(id, {
             discardOnFailure: true,
@@ -591,6 +593,7 @@ const executeToolCall = async (service, toolCall, conversationId) => {
             error: apply?.ok ? undefined : apply?.error ?? "Apply failed.",
           });
         } else {
+          proposal.historyBoundary = historyBoundary(service);
           service.proposals.set(id, proposal);
           service.sendToRenderer("agent:proposal", { proposal });
           proposals.push({
