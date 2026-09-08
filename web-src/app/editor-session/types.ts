@@ -29,9 +29,16 @@ export type EditorGroupState = {
   pendingCompositionAction: (() => void) | null;
 };
 
+export type MonacoModelContentChange = { rangeOffset: number; rangeLength: number; text: string };
 export type MonacoModel = {
   getValue: () => string;
+  getEOL?: () => string;
   setValue: (value: string) => void;
+  onDidChangeContent?: (listener: (event: {
+    changes: MonacoModelContentChange[];
+    isFlush?: boolean;
+  }) => void) => { dispose: () => void };
+  onWillDispose?: (listener: () => void) => { dispose: () => void };
   getFullModelRange?: () => unknown;
   pushStackElement?: () => void;
   pushEditOperations?: (
@@ -55,6 +62,17 @@ export type LivePreviewEditPayload = {
   cancel?: boolean;
   finish?: boolean;
   sourceRev?: number;
+  sourceText?: string;
+};
+
+export type LivePreviewAnchorPayload = Pick<LivePreviewEditPayload,
+  "sessionId" | "path" | "start" | "end" | "baseValue"> & { sourceText: string; previousSessionId?: string };
+
+export type LivePreviewSourceAnchor = {
+  sourceText: string;
+  start: { line: number; column: number };
+  end: { line: number; column: number };
+  baseValue: string;
 };
 
 export type EditorSessionDeps = {
@@ -199,6 +217,7 @@ export type EditorSessionApi = {
     }
   ) => { handled: boolean; conflict: boolean };
   applyLivePreviewEdit: (payload: LivePreviewEditPayload) => boolean;
+  getLivePreviewSourceAnchor: (payload: LivePreviewAnchorPayload) => Promise<LivePreviewSourceAnchor | null>;
   handleExternalFileChange: (payload: { path: string; content: string | null; fileDeleted?: boolean }) => void;
   saveCurrentFile: () => Promise<boolean>;
   saveDirtyFiles: () => Promise<boolean>;

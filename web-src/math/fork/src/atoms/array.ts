@@ -60,6 +60,8 @@ export type ArrayAtomConstructorOptions = {
   maxColumns?: number;
   minRows?: number;
   maxRows?: number;
+  /** @internal Restore model state without applying TeX's trailing-row rule. */
+  preserveTrailingEmptyRow?: boolean;
 
   displayEquationNumber?: boolean;
 
@@ -91,6 +93,7 @@ function normalizeCells(
     minColumns: number;
     minRows: number;
     maxRows: number;
+    preserveTrailingEmptyRow?: boolean;
   }
 ): (readonly Atom[])[][] {
   //
@@ -136,6 +139,7 @@ function normalizeCells(
   // (unless there's only one row)
   //
   if (
+    !options.preserveTrailingEmptyRow &&
     !atom.isMultiline &&
     rows.length > 0 &&
     rows[rows.length - 1].length === 1 &&
@@ -324,6 +328,7 @@ export class ArrayAtom extends Atom {
       minColumns: this.minColumns,
       minRows: this.minRows,
       maxRows: this.maxRows,
+      preserveTrailingEmptyRow: options.preserveTrailingEmptyRow,
     });
 
     this.rowGaps = rowGaps;
@@ -349,7 +354,7 @@ export class ArrayAtom extends Atom {
       json.environmentName,
       json.array,
       json.rowGaps,
-      json as any
+      { ...json, preserveTrailingEmptyRow: true } as any
     );
   }
 

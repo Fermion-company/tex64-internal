@@ -79,6 +79,11 @@ export const initMain = () => {
             return { ...payload, sourcePath: path !== null && path !== void 0 ? path : null };
         };
         let requestLiveEdit = (_payload) => { };
+        let requestLiveAnchor = (payload, reply) => {
+            reply({ sessionId: payload.sessionId, requestId: payload.requestId,
+                activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+                file: payload.file, sourceRev: payload.sourceRev, ok: false });
+        };
         let refreshCodeLivePreview = () => { };
         let openIntegratedTerminal = (_directory) => { };
         let isReverseSynctexEnabled = () => true;
@@ -116,6 +121,7 @@ export const initMain = () => {
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
+            onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
             onPdfAskAxiom: (payload) => {
                 setActiveTab("ai");
                 aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
@@ -140,6 +146,7 @@ export const initMain = () => {
             },
             onLiveSourceRequest: (payload) => requestLiveSource(payload),
             onLiveEditRequest: (payload) => requestLiveEdit(payload),
+            onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
             onPdfAskAxiom: (payload) => {
                 setActiveTab("ai");
                 aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.askFromPdf(withResolvedPdfSource(payload));
@@ -466,6 +473,22 @@ export const initMain = () => {
                 const message = uiText("The source changed. Click the text again to edit it.", "ソースが更新されています。文字をもう一度クリックしてください。");
                 updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
             }
+        };
+        requestLiveAnchor = (payload, reply) => {
+            const root = getWorkspaceRootKey();
+            const path = resolveLivePreviewWorkspacePath(payload.file, root);
+            const correlation = { sessionId: payload.sessionId, requestId: payload.requestId,
+                activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+                file: payload.file, sourceRev: payload.sourceRev };
+            if (!path) {
+                reply({ ...correlation, ok: false });
+                return;
+            }
+            void editorSession.getLivePreviewSourceAnchor({ ...payload, path }).then((anchor) => {
+                reply(anchor && root === getWorkspaceRootKey()
+                    ? { ...correlation, ...anchor, ok: true }
+                    : { ...correlation, ok: false });
+            }, () => reply({ ...correlation, ok: false }));
         };
         initProCanvasUi({
             getActiveGroup: editorSession.getActiveGroup,

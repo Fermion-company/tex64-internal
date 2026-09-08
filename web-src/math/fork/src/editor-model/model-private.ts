@@ -15,6 +15,7 @@ import type { _Mathfield } from '../editor-mathfield/mathfield-private';
 import { Atom } from '../core/atom-class';
 import { joinLatex } from '../core/tokenizer';
 import { fromJson } from '../core/atom';
+import { captureModelAtomIdentities, restoreModelAtomIdentities } from './atom-identity';
 
 import { toMathML } from '../formats/atom-to-math-ml';
 
@@ -80,6 +81,7 @@ export class _Model implements Model {
 
     return {
       content: this.root.toJson(),
+      atomIdentities: captureModelAtomIdentities(this.atoms),
       selection,
       mode: this.mode,
     };
@@ -103,6 +105,7 @@ export class _Model implements Model {
       this.silenceNotifications = true;
       this.mode = state.mode;
       this.root = fromJson(state.content);
+      restoreModelAtomIdentities(this.atoms, state.atomIdentities);
       this.selection = state.selection;
       this.silenceNotifications = didSuppress;
       this.contentDidChange(changeOption);

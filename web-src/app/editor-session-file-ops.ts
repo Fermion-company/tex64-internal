@@ -13,6 +13,7 @@ import {
 } from "./files.js";
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
+import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
 
 type PendingSave = {
   path: string;
@@ -311,6 +312,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }
     const entry = monacoModels.get(path);
     if (entry) {
+      trackLiveEditModel(entry.model);
       const isEntryDirty = dirtyFiles.has(path);
       if (!isEntryDirty && savedContent !== undefined && entry.savedContent !== savedContent) {
         entry.model.setValue(content);
@@ -335,6 +337,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
     const model = (existing ??
       monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri)) as MonacoModel;
+    trackLiveEditModel(model);
     const nextEntry = { model, savedContent: savedContent ?? content };
     monacoModels.set(path, nextEntry);
     updateDirtyState(path, content, nextEntry.savedContent);

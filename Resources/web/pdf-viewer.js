@@ -79,6 +79,7 @@ const UI_STRINGS = {
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
+  liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
   liveError: { en: "TeX error · last good preview", ja: "TeXエラー・直前の表示を保持", zh: "TeX 错误 · 保留上次预览", ko: "TeX 오류 · 이전 미리보기 유지", fr: "Erreur TeX · dernier aperçu conservé", de: "TeX-Fehler · letzte Vorschau bleibt", es: "Error de TeX · se conserva la vista anterior" },
   liveUnavailable: { en: "Preview unavailable", ja: "プレビュー応答なし", zh: "预览无响应", ko: "미리보기 응답 없음", fr: "Aperçu indisponible", de: "Vorschau nicht erreichbar", es: "Vista previa no disponible" },
@@ -1340,6 +1341,9 @@ const initPdfViewer = () => {
   };
 
   const requestStaticDocument = (url, path) => {
+    // A newer PDF open also supersedes a deferred post-Live fallback. Its
+    // blob may already have been revoked when the viewer changed tabs.
+    deferredStaticFlushToken += 1;
     if (liveSurfaceOwned) {
       deferredStaticOpen = { url, path };
       return;
@@ -1752,7 +1756,7 @@ const initPdfViewer = () => {
       if (statusEl) statusEl.title = search.query;
       return;
     }
-    const view = resolvePdfLiveStatus(data?.status);
+    const view = resolvePdfLiveStatus(data?.status, data?.presentationPending);
     if (!view) return;
     setStatus(uiString(view.key), view.tone);
     if (statusEl) statusEl.title = view.detail;
@@ -2012,6 +2016,27 @@ const initPdfViewer = () => {
       });
       return;
     }
+    if (data.action === "edit-anchor") {
+      if (!Number.isInteger(liveActivation.documentEpoch) ||
+          data.documentEpoch !== liveActivation.documentEpoch) return;
+      bridge?.postMessage?.({
+        type: "live-edit-anchor",
+        payload: {
+          sessionId: data.sessionId,
+          requestId: data.requestId,
+          previousSessionId: data.previousSessionId,
+          activationId: data.activationId,
+          documentEpoch: data.documentEpoch,
+          file: data.file,
+          start: data.start,
+          end: data.end,
+          baseValue: data.baseValue,
+          sourceText: data.sourceText,
+          sourceRev: data.sourceRev,
+        },
+      });
+      return;
+    }
     if (data.action === "edit") {
       bridge?.postMessage?.({
         type: "live-edit",
@@ -2028,6 +2053,7 @@ const initPdfViewer = () => {
           cancel: data.cancel === true,
           finish: data.finish === true,
           sourceRev: data.sourceRev,
+          sourceText: typeof data.sourceText === "string" ? data.sourceText : undefined,
         },
       });
       return;
@@ -2098,6 +2124,14 @@ const initPdfViewer = () => {
       }
       if (message.type === "live-error") {
         setLiveError(message.payload || null);
+      }
+      if (message.type === "live-edit-anchor-result") {
+        const payload = message.payload;
+        if (!payload || !hasLiveSession() || !liveActivation ||
+            payload.activationId !== liveActivation.id ||
+            !Number.isInteger(payload.documentEpoch) ||
+            payload.documentEpoch !== liveActivation.documentEpoch) return;
+        postLive("edit-anchor-result", payload);
       }
     });
     if (typeof bridge.postMessage === "function") {

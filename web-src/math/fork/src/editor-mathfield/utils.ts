@@ -1,7 +1,9 @@
 import { Atom } from '../core/atom-class';
+import type { ArrayAtom } from '../atoms/array';
 import type { ElementInfo, Offset, Range } from '../public/core-types';
 import { OriginValidator } from '../public/options';
 import { _Mathfield } from './mathfield-private';
+import { modelAtomId } from '../editor-model/atom-identity';
 
 export type Rect = {
   top: number;
@@ -312,6 +314,7 @@ export function getElementInfo(
   if (!atom) return undefined;
 
   const result: ElementInfo = {};
+  result.modelId = modelAtomId(atom);
 
   const bounds = getAtomBounds(mf, atom);
   if (bounds) {
@@ -324,6 +327,37 @@ export function getElementInfo(
   }
 
   result.depth = atom.treeDepth - 2;
+  result.type = atom.type;
+  if (atom.parent) {
+    result.parentOffset = mf.model.offsetOf(atom.parent);
+    result.parentBranch = Array.isArray(atom.parentBranch)
+      ? [...atom.parentBranch] : atom.parentBranch;
+  }
+  if (atom.type === 'array') {
+    const array = atom as ArrayAtom;
+    result.array = {
+      rows: array.rowCount,
+      columns: array.colCount,
+      alignments: array.colFormat.flatMap((column) => 'align' in column ? [column.align] : []),
+    };
+  }
+
+  if (atom.value && atom.type !== 'first') {
+    result.symbol = atom.value;
+    result.beforeOffset = mf.model.offsetOf(atom.leftSibling);
+    // Measure only this atom's printed text, excluding its scripts and
+    // enclosing fraction/array boxes. Consumers map identity to PDF ink;
+    // these bounds describe structure, never the final page coordinates.
+    for (const node of mf.field.querySelectorAll(`[data-atom-id="${atom.id}"]`)) {
+      for (const child of node.childNodes) {
+        if (child.nodeType !== Node.TEXT_NODE || !child.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(child);
+        const rect = range.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) result.glyphBounds = rect;
+      }
+    }
+  }
 
   result.style = atom.style;
 

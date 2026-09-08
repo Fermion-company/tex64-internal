@@ -12,6 +12,7 @@ import type {
   Range,
   OutputFormat,
   ElementInfo,
+  ModelAtomMetadata,
   InsertOptions,
   MathfieldEnvironmentContext,
 } from './core-types';
@@ -31,6 +32,7 @@ import {
 import { _Mathfield } from '../editor-mathfield/mathfield-private';
 import { offsetFromPoint } from '../editor-mathfield/pointer-input';
 import { getElementInfo, getHref } from '../editor-mathfield/utils';
+import { modelAtomMetadata } from '../editor-model/atom-metadata';
 import {
   isBrowser,
   isInIframe,
@@ -1919,6 +1921,11 @@ import "https://esm.run/@cortex-js/compute-engine";
     return getElementInfo(this._mathfield, offset);
   }
 
+  /** Logical atom snapshot for document editing; does not measure rendered ink. */
+  getModelMetadata(): ModelAtomMetadata[] {
+    return this._mathfield ? modelAtomMetadata(this._mathfield.model.atoms) : [];
+  }
+
   getEnvironmentContext(offset?: Offset): MathfieldEnvironmentContext {
     if (!this._mathfield) {
       return {
@@ -2121,6 +2128,15 @@ import "https://esm.run/@cortex-js/compute-engine";
 
     // Load the fonts
     void loadFonts();
+  }
+
+  /**
+   * Custom elements lifecycle hooks
+   * @internal
+   */
+  connectedMoveCallback(): void {
+    // A state-preserving DOM move changes only the field's ancestor/position.
+    // Keep its model, native keyboard sink, selection, and IME composition.
   }
 
   /**
@@ -2868,6 +2884,10 @@ mf.macros = {
 
     if (this._mathfield) {
       this._mathfield.model.selection = sel;
+      // External caret placement (including PDF hit testing) is a selection
+      // change just like a native click. Preserve it in the current undo
+      // state so undoing the next edit returns to this insertion point.
+      this._mathfield.stopCoalescingUndo();
       requestUpdate(this._mathfield);
       return;
     }
@@ -2921,6 +2941,7 @@ mf.macros = {
   set position(offset: Offset) {
     if (this._mathfield) {
       this._mathfield.model.position = offset;
+      this._mathfield.stopCoalescingUndo();
       requestUpdate(this._mathfield);
     }
 

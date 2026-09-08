@@ -27,7 +27,8 @@ import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
 import { createAppState } from "./app/state.js";
-import { createViewer, type LivePreviewEditRequest } from "./app/viewer.js";
+import { createViewer, type LivePreviewEditRequest, type LivePreviewAnchorRequest,
+  type LivePreviewAnchorResult } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
 import { initBlockEditSession } from "./app/blocks/edit-session.js";
 import { initDetectedBlockUi } from "./app/blocks/detected-ui.js";
@@ -111,6 +112,11 @@ export const initMain = () => {
     return { ...payload, sourcePath: path ?? null };
   };
   let requestLiveEdit = (_payload: LivePreviewEditRequest) => {};
+  let requestLiveAnchor = (payload: LivePreviewAnchorRequest, reply: (result: LivePreviewAnchorResult) => void) => {
+    reply({ sessionId: payload.sessionId, requestId: payload.requestId,
+      activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+      file: payload.file, sourceRev: payload.sourceRev, ok: false });
+  };
   let refreshCodeLivePreview = () => {};
   let openIntegratedTerminal = (_directory: string) => {};
   let isReverseSynctexEnabled = () => true;
@@ -152,6 +158,7 @@ export const initMain = () => {
     },
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
+    onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
     onPdfAskAxiom: (payload) => {
       setActiveTab("ai");
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
@@ -179,6 +186,7 @@ export const initMain = () => {
     },
     onLiveSourceRequest: (payload) => requestLiveSource(payload),
     onLiveEditRequest: (payload) => requestLiveEdit(payload),
+    onLiveEditAnchorRequest: (payload, reply) => requestLiveAnchor(payload, reply),
     onPdfAskAxiom: (payload) => {
       setActiveTab("ai");
       aiChatUi?.askFromPdf(withResolvedPdfSource(payload));
@@ -538,6 +546,22 @@ export const initMain = () => {
       );
       updateIssuesProxy(1, message, "error", [{ severity: "error", message }]);
     }
+  };
+  requestLiveAnchor = (payload, reply) => {
+    const root = getWorkspaceRootKey();
+    const path = resolveLivePreviewWorkspacePath(payload.file, root);
+    const correlation = { sessionId: payload.sessionId, requestId: payload.requestId,
+      activationId: payload.activationId, documentEpoch: payload.documentEpoch,
+      file: payload.file, sourceRev: payload.sourceRev };
+    if (!path) {
+      reply({ ...correlation, ok: false });
+      return;
+    }
+    void editorSession.getLivePreviewSourceAnchor({ ...payload, path }).then((anchor) => {
+      reply(anchor && root === getWorkspaceRootKey()
+        ? { ...correlation, ...anchor, ok: true }
+        : { ...correlation, ok: false });
+    }, () => reply({ ...correlation, ok: false }));
   };
   initProCanvasUi({
     getActiveGroup: editorSession.getActiveGroup,

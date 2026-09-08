@@ -12,6 +12,7 @@
 
 import type { EditorGroupState } from "./editor-session/types.js";
 import type { BridgeWindow } from "./types.js";
+import type { LivePreviewTarget } from "./viewer.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
 
 const createDebouncedTask = (task: () => void, delayMs: number) => {
@@ -67,6 +68,7 @@ export const initCodeLivePreview = ({
   let lifecycleVersion = 0;
   let latestPushVersion = 0;
   let liveSessionKey: string | null = null;
+  let liveTarget: LivePreviewTarget | null = null;
   let boundEditor: LiveEditor | null = null;
   let boundPath: string | null = null;
   let disposable: { dispose: () => void } | null = null;
@@ -106,7 +108,7 @@ export const initCodeLivePreview = ({
   // embedded incremental renderer.
   const distributeLive = (url: string | null, generation = liveGeneration) => {
     for (const group of getEditorGroups()) {
-      group.viewer.setLivePreview(url, generation);
+      group.viewer.setLivePreview(url, generation, liveTarget);
     }
   };
 
@@ -157,6 +159,8 @@ export const initCodeLivePreview = ({
       return {
         sessionKey,
         buffers,
+        target: /\.tex$/i.test(rootFile)
+          ? { workspaceRoot, pdfPath: rootFile.replace(/\.tex$/i, ".pdf") } : null,
         payload: {
           workspaceRoot,
           rootFile,
@@ -171,6 +175,7 @@ export const initCodeLivePreview = ({
     return {
       sessionKey: `legacy\0${current.path}`,
       buffers: new Map([[current.path, source]]),
+      target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
       payload: {
         source,
         path: current.path,
@@ -223,6 +228,7 @@ export const initCodeLivePreview = ({
           if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl) liveGeneration += 1;
           engineUrl = result.url;
           liveSessionKey = snapshot.sessionKey;
+          liveTarget = snapshot.target;
           distributeLive(engineUrl, liveGeneration);
         }
         if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs) latestInputAtEpochMs = 0;
