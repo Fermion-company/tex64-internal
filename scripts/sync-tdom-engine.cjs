@@ -1,13 +1,14 @@
 "use strict";
 
 // Vendors the TDOM real-time preview engine (sibling repo, default
-// ~/tdom-core) into Resources/tdom-engine so packaged builds are
+// ~/tdom-engine) into Resources/tdom-engine so packaged builds are
 // self-contained. Development never needs this: tdom-engine.cjs resolves a
 // live checkout first, so engine changes are picked up simply by restarting
 // the preview. Run `npm run tdom:sync` before packaging a build that should
 // ship the engine, or after engine changes you want in the next .dmg.
 //
-// Source dir override: TEX64_TDOM_ENGINE_DIR (same env the app itself uses).
+// Source dir override: TDOM_ENGINE_DIR. TEX64_TDOM_ENGINE_DIR remains a
+// compatibility alias for older development environments.
 
 const fs = require("node:fs");
 const os = require("node:os");
@@ -17,10 +18,13 @@ const { execFileSync } = require("node:child_process");
 const repoRoot = path.resolve(__dirname, "..");
 const destination = path.join(repoRoot, "Resources", "tdom-engine");
 
-const envDir = (process.env.TEX64_TDOM_ENGINE_DIR || "").trim();
+const envDir = (process.env.TDOM_ENGINE_DIR || process.env.TEX64_TDOM_ENGINE_DIR || "").trim();
 const candidates = envDir
   ? [envDir]
   : [
+      path.join(os.homedir(), "Developer", "tdom-engine"),
+      path.join(os.homedir(), "tdom-engine"),
+      path.join(os.homedir(), "Desktop", "tdom-engine"),
       path.join(os.homedir(), "Developer", "tdom-core"),
       path.join(os.homedir(), "tdom-core"),
       path.join(os.homedir(), "Desktop", "tdom-core"),
@@ -28,8 +32,8 @@ const candidates = envDir
 const source = candidates.find((dir) => fs.existsSync(path.join(dir, "server.js")));
 if (!source) {
   console.error(
-    `tdom-core checkout not found (tried: ${candidates.join(", ")}). ` +
-      "Set TEX64_TDOM_ENGINE_DIR to the checkout."
+    `tdom-engine checkout not found (tried: ${candidates.join(", ")}). ` +
+      "Set TDOM_ENGINE_DIR to the checkout."
   );
   process.exit(1);
 }
@@ -41,6 +45,7 @@ const INCLUDE = [
   "server.js",
   "LICENSE",
   "engine",
+  "host",
   "templates",
   "samples",
   "web",

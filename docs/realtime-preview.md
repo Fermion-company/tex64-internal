@@ -1,6 +1,6 @@
 # リアルタイムプレビュー（ベータ）
 
-Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、開発checkoutまたは同梱したコピーを別プロセスとして起動する。
+Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-engine**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、開発checkoutまたは同梱したコピーを別プロセスとして起動する。
 
 - 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
 - **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。既存の PDF タブを使い、別ウィンドウは起動しない。
@@ -18,7 +18,7 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 | renderer | `web-src/app/viewer.ts` | PDF iframe と Code 側のソース移動・直接編集を接続 |
 | renderer | `web-src/app/editor-session/init.ts`・`live-edit-history.ts` | 表示時の原文範囲を Monaco の実変更履歴で追従し、直接編集を単一 Undo セッションとして適用 |
 
-紙面の文字を選ぶか右クリックすると、エンジン（`web/app.js`、embedded のときだけ）が `srcOf` → `/dom` の `block.source`、無ければ `/synctex` でソース行を引き、`action: 'place'`（`kind: selection | point | clear`、`pageNumber`、`text`、`rect`、`file` / `line` / `column`）を親へ postMessage する。選択が消えるかスクロールすると `clear`。この変更は tdom-core 側（`web/app.js`）にあり、配布前に `npm run tdom:sync` で同梱コピーへ反映する。
+紙面の文字を選ぶか右クリックすると、エンジン（`web/app.js`、embedded のときだけ）が `srcOf` → `/dom` の `block.source`、無ければ `/synctex` でソース行を引き、`action: 'place'`（`kind: selection | point | clear`、`pageNumber`、`text`、`rect`、`file` / `line` / `column`）を親へ postMessage する。選択が消えるかスクロールすると `clear`。この変更は tdom-engine 側（`web/app.js`）にあり、配布前に `npm run tdom:sync` で同梱コピーへ反映する。
 
 エディタ全文を main に送り、main 側が前回ソースとの共通 prefix/suffix を削った**最小レンジ編集**にして `POST /edit` する。ファイル切替時は `POST /open` で開き直す。編集が食い違ったら `/open` で再同期。
 
@@ -62,19 +62,19 @@ canonical 更新で入力面の親ページが変わらなければDOMを挿し�
 
 ## エンジンの解決順序（tdom-engine.cjs）
 
-1. `TEX64_TDOM_ENGINE_DIR`（env）
-2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-core` → `~/Developer/tdom-core` → `~/tdom-core` → `~/Desktop/tdom-core`
+1. `TDOM_ENGINE_DIR`（env。旧 `TEX64_TDOM_ENGINE_DIR` も互換対応）
+2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-engine` → `~/Developer/tdom-engine` → `~/tdom-engine` → `~/Desktop/tdom-engine`。旧 `tdom-core` checkout はその後の互換フォールバック
 3. vendored copy: パッケージ版の `resources/app.asar.unpacked/Resources/tdom-engine/`、開発配置の `Resources/tdom-engine/` の順（`server.js` の存在で判定）。
 
-**開発フロー**: checkout が vendored より優先されるので、`~/tdom-core` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
+**開発フロー**: checkout が vendored より優先されるので、`~/tdom-engine` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
 
-**配布**: `npm run tdom:sync` が checkout の最小構成（engine/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
+**配布**: `npm run tdom:sync` が checkout の実行用構成（engine/・host/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。`host/` は upstream の正式なホスト統合 API で、TeX64 の配布物にもエンジンと同じ版を保持する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
 
 ## 実行時の前提と保護
 
 - 必須バイナリ: `lualatex`（managed TeX / システム texbin を PATH に前置）、poppler の `pdftocairo` / `pdftotext` / `pdfinfo`、fork shim 初回ビルド用の `cc`（PATH に `/opt/homebrew/bin` `/usr/local/bin` を追加して spawn）。欠けるとエンジンが起動せず console にエラーが出る（ビューアは静的表示のまま）。従来ビルドには影響しない。
 - `TDOM_MAX_CHECKPOINTS=8`（checkpoint 1 個 ≒ 常駐 lualatex fork 1 個 ≒ 100–300MB。エンジン既定の 64 は踏まない）。
-- `TDOM_WORKDIR` は userData 配下の絶対パス（tdom-core 側に絶対パス対応を追加済み）。
+- `TDOM_WORKDIR` は userData 配下の絶対パス（tdom-engine 側に絶対パス対応済み）。
 - 数式の直接編集に使う MathLive / WYSIWYG 資産だけを `app.asar.unpacked` に展開し、`TDOM_HOST_WEB_ROOT` で外部 TDOM プロセスへ渡す。renderer 全体は公開しない。
 - boot サンプルは `samples/` の実在ファイルから選ぶ（`demo-lua.tex` 優先）。既定の stress-test-ja は起動に数分かかるため使わない。
 - トグル OFF・アプリ終了で SIGTERM → エンジン側の shutdown が常駐 lualatex ツリーを回収する。

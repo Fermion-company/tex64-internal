@@ -1,13 +1,13 @@
 "use strict";
 
 // Real-time preview engine host (beta). Spawns the TDOM engine's server.js
-// (a resident, incremental LuaLaTeX runtime — sibling repo `tdom-core`) as a
+// (a resident, incremental LuaLaTeX runtime — sibling repo `tdom-engine`) as a
 // child Node process and proxies document pushes to it over local HTTP. TDOM
 // owns compilation only; TeX64 reads canonical PDF bytes back into its normal
 // PDF viewers instead of embedding the engine's preview UI.
 //
 // Engine directory resolution mirrors fermion-engine.cjs: a developer
-// checkout wins (so editing ~/tdom-core is picked up on the next preview
+// checkout wins (so editing ~/tdom-engine is picked up on the next preview
 // start), with a vendored copy (Resources/tdom-engine, `npm run tdom:sync`)
 // as the packaged-app fallback.
 
@@ -26,7 +26,8 @@ const DEFAULT_PORT = 4646;
 // First boot compiles the fork shim with cc and boots a resident lualatex —
 // noticeably slower than a plain HTTP server coming up.
 const DEFAULT_START_TIMEOUT_MS = 90_000;
-const ENGINE_NAME = "tdom-core";
+const ENGINE_NAME = "tdom-engine";
+const LEGACY_ENGINE_NAME = "tdom-core";
 const MARKER = "server.js";
 
 const isPortAvailable = (port) => new Promise((resolve) => {
@@ -132,8 +133,11 @@ const isWithin = (root, candidate) => {
 
 class TdomEngineService {
   constructor(options = {}) {
-    const envDir = typeof process.env.TEX64_TDOM_ENGINE_DIR === "string"
-      ? process.env.TEX64_TDOM_ENGINE_DIR.trim() : "";
+    const envDir = typeof process.env.TDOM_ENGINE_DIR === "string" && process.env.TDOM_ENGINE_DIR.trim()
+      ? process.env.TDOM_ENGINE_DIR.trim()
+      : typeof process.env.TEX64_TDOM_ENGINE_DIR === "string"
+        ? process.env.TEX64_TDOM_ENGINE_DIR.trim()
+        : "";
     const pathExists = options.existsSync || fs.existsSync;
     this.fileAccess = options.fileAccess || NO_FILE_ACCESS;
     this.envEngineDir = envDir;
@@ -188,12 +192,12 @@ class TdomEngineService {
   resolveDirectory() {
     const selected = this.envEngineDir || this.explicitEngineDir;
     if (selected) return { dir: selected, needsAccess: null };
-    const candidates = [
-      path.join(this.homeDir, "Library", "Application Support", "TeX64", "engines", ENGINE_NAME),
-      path.join(this.homeDir, "Developer", ENGINE_NAME),
-      path.join(this.homeDir, ENGINE_NAME),
-      path.join(this.homeDir, "Desktop", ENGINE_NAME),
-    ];
+    const candidates = [ENGINE_NAME, LEGACY_ENGINE_NAME].flatMap((name) => [
+      path.join(this.homeDir, "Library", "Application Support", "TeX64", "engines", name),
+      path.join(this.homeDir, "Developer", name),
+      path.join(this.homeDir, name),
+      path.join(this.homeDir, "Desktop", name),
+    ]);
     let needsAccess = null;
     for (const candidate of candidates) {
       const result = this.fileAccess.probeIfAllowed(candidate,
@@ -249,7 +253,7 @@ class TdomEngineService {
       }
       this.refreshDirectory();
       if (!this.isAvailable()) {
-        const error = new Error(`tdom-core engine was not found at ${this.engineDir}. Set TEX64_TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
+        const error = new Error(`tdom-engine was not found at ${this.engineDir}. Set TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
         this.state = "unavailable";
         this.lastError = error.message;
         throw error;
