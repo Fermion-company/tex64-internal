@@ -365,7 +365,7 @@ body.is-embedded .pdf-toolbar-status {
   display: none;
 }
 
-body.is-embedded:is(.is-live, .is-live-pending) .pdf-toolbar-status {
+body.is-embedded:is(.is-live, .is-live-pending, .pdf-needs-rebuild) .pdf-toolbar-status {
   display: inline-flex;
   flex: 0 0 auto;
   margin-left: auto;

@@ -171,6 +171,7 @@ class TdomEngineService {
     this.needsAccess = resolved.needsAccess;
     this.proc = null;
     this.startPromise = null;
+    this.lifecycleGeneration = 0;
     this.port = null;
     this.state = "stopped";
     this.lastError = null;
@@ -226,29 +227,40 @@ class TdomEngineService {
       error: this.lastError };
   }
 
+  assertLifecycle(generation) {
+    if (generation !== this.lifecycleGeneration) {
+      throw Object.assign(new Error("Live preview startup was cancelled."), { code: "TDOM_CANCELLED" });
+    }
+  }
+
   async start() {
     if (this.isRunning() && this.state === "ready") return { ok: true, url: this.url };
     if (this.startPromise) return this.startPromise;
-    const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "tdom" });
-    if (!allowed) {
-      const root = this.fileAccess.classify(this.engineDir)?.root || this.engineDir;
-      const error = new Error(`TeX64 cannot start the real-time preview engine because it has no permission to access ${root}.`);
-      this.state = "unavailable";
-      this.lastError = error.message;
-      throw error;
-    }
-    this.refreshDirectory();
-    if (this.startPromise) return this.startPromise;
-    if (!this.isAvailable()) {
-      const error = new Error(`tdom-core engine was not found at ${this.engineDir}. Set TEX64_TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
-      this.state = "unavailable";
-      this.lastError = error.message;
-      throw error;
-    }
-    this.state = "starting";
-    this.lastError = null;
-    this.startPromise = this.startProcess();
-    try { return await this.startPromise; } finally { this.startPromise = null; }
+    const generation = this.lifecycleGeneration;
+    const pending = (async () => {
+      const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "tdom" });
+      this.assertLifecycle(generation);
+      if (!allowed) {
+        const root = this.fileAccess.classify(this.engineDir)?.root || this.engineDir;
+        const error = new Error(`TeX64 cannot start the real-time preview engine because it has no permission to access ${root}.`);
+        this.state = "unavailable";
+        this.lastError = error.message;
+        throw error;
+      }
+      this.refreshDirectory();
+      if (!this.isAvailable()) {
+        const error = new Error(`tdom-core engine was not found at ${this.engineDir}. Set TEX64_TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
+        this.state = "unavailable";
+        this.lastError = error.message;
+        throw error;
+      }
+      this.state = "starting";
+      this.lastError = null;
+      return this.startProcess(generation);
+    })();
+    this.startPromise = pending;
+    try { return await pending; }
+    finally { if (this.startPromise === pending) this.startPromise = null; }
   }
 
   // The engine refuses to boot when TDOM_SAMPLE names a file that is not in
@@ -318,8 +330,10 @@ class TdomEngineService {
     return env;
   }
 
-  async startProcess() {
-    this.port = await findAvailablePort(this.preferredPort);
+  async startProcess(generation = this.lifecycleGeneration) {
+    const port = await findAvailablePort(this.preferredPort);
+    this.assertLifecycle(generation);
+    this.port = port;
     this.stderrTail = [];
     let proc;
     try {
@@ -348,6 +362,8 @@ class TdomEngineService {
     while (this.proc === proc && Date.now() < deadline) {
       try {
         await requestJson(`${this.url}/status`, { timeoutMs: 1_000 });
+        this.assertLifecycle(generation);
+        if (this.proc !== proc) throw new Error("Live preview process changed during startup.");
         this.state = "ready";
         this.lastSource = null;
         this.lastPath = null;
@@ -356,9 +372,13 @@ class TdomEngineService {
         this.lastOverlays.clear();
         this.lastRootMtimeMs = null;
         return { ok: true, url: this.url };
-      } catch (error) { lastError = error; }
+      } catch (error) {
+        this.assertLifecycle(generation);
+        lastError = error;
+      }
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
     }
+    this.assertLifecycle(generation);
     const detail = this.stderrTail.length ? ` — ${this.stderrTail.join(" / ")}` : "";
     const error = this.proc === proc
       ? new Error(`tdom engine did not become ready within ${this.startTimeoutMs}ms${lastError ? `: ${lastError.message}` : ""}${detail}`)
@@ -577,6 +597,9 @@ class TdomEngineService {
   }
 
   stop() {
+    // Invalidate startup even before a child exists (permission / port awaits).
+    this.lifecycleGeneration += 1;
+    this.startPromise = null;
     const proc = this.proc;
     this.proc = null;
     this.port = null;

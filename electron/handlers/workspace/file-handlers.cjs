@@ -552,6 +552,7 @@ const createWorkspaceFileHandlers = (ctx) => {
   };
 
   const handleSaveFile = async (relativePath, content, options = {}) => {
+    const identity = requestIdentity(options);
     const rootPath = ensureWorkspace();
     if (!rootPath) {
       sendToRenderer("saveResult", {
@@ -611,7 +612,7 @@ const createWorkspaceFileHandlers = (ctx) => {
         // writeFile is called. Re-check inside the per-file queue immediately
         // before that call so formatting/queue waits cannot retarget this save
         // into a newly selected workspace.
-        if (ensureWorkspace() !== rootPath) {
+        if (!workspaceRequestIsCurrent(rootPath, identity)) {
           const error = new Error("The workspace changed before the file was saved.");
           error.code = "STALE_WORKSPACE";
           throw error;

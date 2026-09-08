@@ -140,6 +140,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     expectedContent: string | null | undefined = monacoModels.get(path)?.savedContent,
   ): Promise<boolean> =>
     new Promise<boolean>((resolve, reject) => {
+      const identity = (window as any).tex64History?.getIdentity?.() || {};
       const startedAt = Date.now();
       const enqueue = () => {
         if (state.pendingSave) {
@@ -169,6 +170,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           origReject(error);
         };
         const ok = deps.postToNative({
+          ...identity,
           type: "saveFile",
           path,
           content: value,

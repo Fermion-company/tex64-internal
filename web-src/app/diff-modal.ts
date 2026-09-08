@@ -2,6 +2,7 @@ import { buildLineDiff } from "./diff.js";
 import type { AppContext } from "./context.js";
 
 export type DiffContext =
+  | { type: "customApply"; apply: () => Promise<void> }
   | { type: "block" }
   | { type: "aiApply"; proposalIds: string[] }
   | null;
@@ -17,7 +18,7 @@ export type DiffModalApi = {
     original: string,
     modified: string,
     lineOffset?: number,
-    options?: { title?: string; fileName?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string }
+    options?: { title?: string; fileName?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string; onApply?: (content: string) => void | Promise<void> }
   ) => void;
   showMultiFileDiff: (
     files: FileDiff[],
@@ -38,6 +39,35 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
   const { diffModal, diffTitle, diffModalSubmit, diffModalCancel, blockDiffContainer, diffSummary, diffFileName } =
     context.dom;
 
+  let returnFocus: HTMLElement | null = null;
+  if (diffModal instanceof HTMLElement && !diffModal.classList.contains("is-open")) diffModal.inert = true;
+  const openModal = () => {
+    if (!(diffModal instanceof HTMLElement)) return;
+    if (!diffModal.classList.contains("is-open")) {
+      returnFocus = document.activeElement instanceof HTMLElement && !diffModal.contains(document.activeElement)
+        ? document.activeElement : null;
+    }
+    diffModal.inert = false;
+    diffModal.setAttribute("aria-hidden", "false");
+    diffModal.classList.add("is-open");
+  };
+  const restoreFocus = () => {
+    const target = returnFocus;
+    returnFocus = null;
+    if (target?.isConnected && target.getClientRects().length &&
+        !target.closest('[inert], [hidden], [aria-hidden="true"]') && !target.matches(":disabled")) {
+      target.focus({ preventScroll: true });
+      if (document.activeElement === target) return;
+    }
+    // History can rerender the button that opened the comparison. Give the
+    // document a valid focus destination without adding a permanent Tab stop.
+    const previousTabIndex = document.body.getAttribute("tabindex");
+    document.body.tabIndex = -1;
+    document.body.focus({ preventScroll: true });
+    if (previousTabIndex === null) document.body.removeAttribute("tabindex");
+    else document.body.setAttribute("tabindex", previousTabIndex);
+  };
+
   const defaultDiffSubmitLabel =
     diffModalSubmit instanceof HTMLButtonElement
       ? diffModalSubmit.textContent ?? "Confirm"
@@ -57,9 +87,10 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     }
   };
   let diffEditor: unknown = null;
+  let diffRevealGeneration = 0;
   let diffOriginalModel: { setValue?: (value: string) => void; dispose?: () => void } | null =
     null;
-  let diffModifiedModel: { setValue?: (value: string) => void; dispose?: () => void } | null =
+  let diffModifiedModel: { getValue?: () => string; setValue?: (value: string) => void; dispose?: () => void } | null =
     null;
   let diffContext: DiffContext = null;
   let multiDiffEditors: Array<{ editor: unknown; models: unknown[] }> = [];
@@ -222,6 +253,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
   };
 
   const resetDiffEditor = () => {
+    diffRevealGeneration += 1;
     disposeMultiDiffEditors();
     // Detach the models from the widget before disposing them; Monaco logs
     // an error when a model dies while a diff editor still shows it.
@@ -247,7 +279,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     original: string,
     modified: string,
     lineOffset = 0,
-    options?: { title?: string; fileName?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string }
+    options?: { title?: string; fileName?: string; submitLabel?: string; viewOnly?: boolean; closeLabel?: string; onApply?: (content: string) => void | Promise<void> }
   ) => {
     const monacoApi = deps.getMonacoApi();
     if (!monacoApi) return;
@@ -261,13 +293,29 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     const container = blockDiffContainer;
     if (!container) return;
 
-    if (!diffContext) {
+    if (options?.onApply && !options.viewOnly) {
+      let pending = false;
+      const custom: DiffContext = { type: "customApply", apply: async () => {
+        if (pending || diffContext !== custom) return;
+        pending = true;
+        if (diffModalSubmit instanceof HTMLButtonElement) diffModalSubmit.disabled = true;
+        try {
+          await options.onApply!(diffModifiedModel?.getValue?.() ?? modified);
+          if (diffContext === custom) closeDiffModal();
+        } catch (error) {
+          if (diffContext === custom && diffSummary instanceof HTMLElement) {
+            diffSummary.textContent = error instanceof Error ? error.message : "変更を保存できませんでした。";
+          }
+        } finally {
+          pending = false;
+          if (diffContext === custom && diffModalSubmit instanceof HTMLButtonElement) diffModalSubmit.disabled = false;
+        }
+      } };
+      diffContext = custom;
+    } else if (!diffContext || diffContext.type === "customApply") {
       diffContext = { type: "block" };
     }
-    if (diffModal) {
-      diffModal.classList.add("is-open");
-      diffModal.setAttribute("aria-hidden", "false");
-    }
+    openModal();
 
     if (!diffEditor) {
       container.innerHTML = "";
@@ -306,6 +354,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       diffEditorAny.layout?.();
     }
 
+    (diffEditor as { updateOptions?: (options: unknown) => void }).updateOptions?.({ readOnly: !(options?.onApply && !options.viewOnly) });
     renderDiffHeader();
     if (diffModalSubmit instanceof HTMLButtonElement) {
       const submitLabel = options?.submitLabel;
@@ -337,8 +386,10 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     if (typeof (diffEditor as any).layout === "function") {
       (diffEditor as any).layout();
     }
-    // Scroll to first change
+    // A close or a newer comparison can replace the editor before this frame.
+    const revealGeneration = ++diffRevealGeneration;
     requestAnimationFrame(() => {
+      if (!diffEditor || revealGeneration !== diffRevealGeneration) return;
       const editorAny = diffEditor as {
         getModifiedEditor?: () => { revealLine?: (line: number, scrollType?: number) => void };
       };
@@ -379,12 +430,9 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
         createModel: (val: string, lang: string) => unknown;
       };
     };
-    if (!diffContext) diffContext = { type: "aiApply", proposalIds: [] };
+    if (!diffContext || diffContext.type === "customApply") diffContext = { type: "aiApply", proposalIds: [] };
 
-    if (diffModal) {
-      diffModal.classList.add("is-open");
-      diffModal.setAttribute("aria-hidden", "false");
-    }
+    openModal();
     // Dispose any existing editors (single + multi) and clear the container.
     resetDiffEditor();
 
@@ -527,7 +575,11 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
   };
 
   const closeDiffModal = () => {
-    if (diffModal) {
+    const focused = document.activeElement;
+    const moveFocus = diffModal instanceof HTMLElement && diffModal.classList.contains("is-open") && diffModal.contains(focused);
+    if (diffModal instanceof HTMLElement) {
+      if (moveFocus && focused instanceof HTMLElement) focused.blur();
+      diffModal.inert = true;
       diffModal.classList.remove("is-open");
       diffModal.setAttribute("aria-hidden", "true");
     }
@@ -546,6 +598,8 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
     setViewOnly(false);
     diffContext = null;
     resetDiffEditor();
+    if (moveFocus) restoreFocus();
+    else returnFocus = null;
   };
 
   // Plain Enter confirms (inserts) while the diff modal is open. Captured at the
@@ -557,6 +611,7 @@ export const initDiffModal = (context: AppContext, deps: DiffModalDeps): DiffMod
       if (!(diffModal instanceof HTMLElement) || !diffModal.classList.contains("is-open")) {
         return;
       }
+      if (diffContext?.type === "customApply") return;
       if (
         event.key !== "Enter" ||
         event.shiftKey ||

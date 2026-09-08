@@ -346,6 +346,10 @@
                 </svg>
               </span>
             </button>
+            <button class="tab" type="button" role="tab" data-tab="git" aria-selected="false" aria-label="Git" title="Git"><span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><path d="M7 7v10M17 7v2a5 5 0 0 1-5 5H7"/></svg></span></button>
+            <button class="tab" type="button" role="tab" data-tab="history" aria-selected="false" aria-label="History" title="History">
+              <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.6 7M3 5v6h6M12 7v5l3 2"/></svg></span>
+            </button>
             <button
               class="tab"
               type="button"
@@ -616,6 +620,8 @@
               </div>
             </div>
           </div>
+          <div class="panel no-header" data-panel="git"><div id="git-panel"></div></div>
+          <div class="panel no-header" data-panel="history"><div id="history-panel"></div></div>
           <div class="panel no-header" data-panel="project">
             <div class="panel-header">
               <span class="panel-title">Project</span>
@@ -1422,6 +1428,7 @@
                 <button class="bottom-panel-tab is-active" type="button" data-bottom-tab="blocks">Blocks</button>
                 <button class="bottom-panel-tab" type="button" data-bottom-tab="terminal">Terminal</button>
               </div>
+              <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-window" data-terminal-action type="button" aria-label="Open terminal window" title="Open terminal window"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7M21 3l-9 9M10 5H4v15h15v-6"/></svg></button>
               <button class="bottom-panel-close is-hidden" id="bottom-panel-terminal-new" data-terminal-action type="button" aria-label="New terminal" title="New terminal (Ctrl/Cmd+T)">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
               </button>

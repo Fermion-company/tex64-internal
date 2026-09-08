@@ -116,6 +116,7 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
     };
     const updateDirtyState = (path, content, savedContent) => {
         var _a, _b;
+        const wasDirty = runtime.dirtyFiles.has(path);
         const entry = runtime.monacoModels.get(path);
         const groupSavedContent = (_a = Array.from(Object.values(runtime.editorGroups)).find((group) => group.currentFilePath === path && group.currentFileSavedContent)) === null || _a === void 0 ? void 0 : _a.currentFileSavedContent;
         const baseSaved = (_b = savedContent !== null && savedContent !== void 0 ? savedContent : entry === null || entry === void 0 ? void 0 : entry.savedContent) !== null && _b !== void 0 ? _b : groupSavedContent;
@@ -143,6 +144,8 @@ export const createEditorSessionBufferOps = (runtime, coreOps) => {
                 group.isDirty = runtime.dirtyFiles.has(path);
             }
         });
+        if (wasDirty !== runtime.dirtyFiles.has(path))
+            window.dispatchEvent(new Event("tex64:dirty-state-changed"));
     };
     const storeViewState = (group, path) => {
         if (!group.editor) {

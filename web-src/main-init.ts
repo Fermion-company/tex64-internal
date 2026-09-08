@@ -1,3 +1,6 @@
+import { openSnippets } from "./app/snippets-ui.js";
+import { initGitUi } from "./app/git-ui.js";
+import { initHistoryUi } from "./app/history-ui.js";
 import { getDomRefs } from "./app/dom.js";
 import { createAppActions } from "./app/actions.js";
 import { initEditorSettingsControls } from "./app/editor-settings/editor-settings-controls.js";
@@ -716,6 +719,9 @@ export const initMain = () => {
     getActiveFilePath: () => editorSession.getActiveFilePath(),
   });
 
+  initHistoryUi(editorSession, diffModalApi);
+  initGitUi(editorSession, diffModalApi);
+
   const setPendingBlockApply = (payload: PendingBlockApply | null) => {
     pendingBlockApply = payload;
   };
@@ -1070,6 +1076,8 @@ export const initMain = () => {
     searchUi,
 
     diffModal: {
+      getDiffContext: diffModalApi.getDiffContext,
+      closeDiffModal: diffModalApi.closeDiffModal,
       setDiffContext: diffModalApi.setDiffContext,
     },
     envRegistry,
@@ -1252,6 +1260,7 @@ export const initMain = () => {
     handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
     app: {
       handleCommand: (command) => {
+        if (command === "snippets:open") { openSnippets(); return; }
         if (command === "file:new") {
           setActiveTab("files");
           fileTreeUi.requestCreate("file");

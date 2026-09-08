@@ -19,7 +19,13 @@ export const initUiEvents = (context, deps) => {
         if (diffModalSubmit instanceof HTMLButtonElement) {
             diffModalSubmit.addEventListener("click", () => {
                 var _a, _b;
+                if (diffModalSubmit.disabled)
+                    return;
                 const diffContext = deps.diffModal.getDiffContext();
+                if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "customApply") {
+                    void diffContext.apply();
+                    return;
+                }
                 if ((diffContext === null || diffContext === void 0 ? void 0 : diffContext.type) === "aiApply") {
                     (_a = deps.aiOps) === null || _a === void 0 ? void 0 : _a.applyPendingFromDiffModal();
                     deps.diffModal.closeDiffModal();
@@ -31,10 +37,13 @@ export const initUiEvents = (context, deps) => {
         }
         if (diffModalCancel instanceof HTMLButtonElement) {
             diffModalCancel.addEventListener("click", () => {
-                var _a, _b;
+                var _a, _b, _c;
+                const custom = ((_a = deps.diffModal.getDiffContext()) === null || _a === void 0 ? void 0 : _a.type) === "customApply";
                 deps.diffModal.closeDiffModal();
-                (_a = deps.blockInsert) === null || _a === void 0 ? void 0 : _a.clearPending();
-                (_b = deps.aiOps) === null || _b === void 0 ? void 0 : _b.clearPending();
+                if (custom)
+                    return;
+                (_b = deps.blockInsert) === null || _b === void 0 ? void 0 : _b.clearPending();
+                (_c = deps.aiOps) === null || _c === void 0 ? void 0 : _c.clearPending();
             });
         }
         deps.buildOps.setupActionButtons();

@@ -6,8 +6,8 @@ const path = require("node:path");
 const IGNORED = new Set([".git", ".tex64", "node_modules", ".venv", "__pycache__"]);
 
 class WorkspaceFileWatcher {
-  constructor({ resolvePath, onChange, onTree, onError = () => {}, debounceMs = 180, pollMs = 1500 }) {
-    Object.assign(this, { resolvePath, onChange, onTree, onError, debounceMs, pollMs });
+  constructor({ resolvePath, onChange, onTree, onError = () => {}, debounceMs = 180, pollMs = 1500, isPaused = () => false }) {
+    Object.assign(this, { resolvePath, onChange, onTree, onError, debounceMs, pollMs, isPaused });
     this.root = null;
     this.generation = 0;
     this.tracked = new Map();
@@ -15,7 +15,9 @@ class WorkspaceFileWatcher {
 
   start(root, generation) {
     if (root === this.root && generation === this.generation) return;
+    const tracked = root === this.root ? new Map(this.tracked) : new Map();
     this.stop();
+    this.tracked = tracked;
     this.root = root;
     this.generation = generation;
     if (!root) return;
@@ -61,6 +63,7 @@ class WorkspaceFileWatcher {
   }
 
   async flush() {
+    if (this.isPaused()) return;
     if (this.flushing) { this.schedule(); return; }
     this.flushing = true;
     const root = this.root;
@@ -82,11 +85,13 @@ class WorkspaceFileWatcher {
           content = null;
         }
         if (!current()) return;
+        if (this.isPaused()) { this.treeDirty ||= treeDirty; return; }
         if (this.tracked.get(file) !== baseline || content === baseline.content) continue;
         if (content === null || baseline.content === null) treeDirty = true;
         this.tracked.set(file, { content });
         await this.onChange({ root, generation, path: file, content, expectedContent: baseline.content, fileDeleted: content === null });
       }
+      if (this.isPaused()) { this.treeDirty ||= treeDirty; return; }
       if (treeDirty && current()) await this.onTree({ root, generation });
     } catch (error) { if (current()) this.onError(error); }
     finally { this.flushing = false; }

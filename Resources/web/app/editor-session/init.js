@@ -389,6 +389,43 @@ export const initEditorSession = (context, deps) => {
         getActiveFileSnapshot: coreOps.getActiveFileSnapshot,
         getActiveSelectionSnapshot: coreOps.getActiveSelectionSnapshot,
         getOpenFileSnapshots: coreOps.getOpenFileSnapshots,
+        getHistoryBuffers: () => Array.from(runtime.monacoModels.entries()).map(([path, entry]) => ({ path, content: entry.model.getValue(), savedContent: entry.savedContent })),
+        applyHistoryFiles: (files) => {
+            var _a, _b;
+            for (const file of files) {
+                const entry = runtime.monacoModels.get(file.path);
+                if (!entry)
+                    continue;
+                if (entry.model.getValue() !== entry.savedContent)
+                    throw new Error("An editor changed during restoration. Its unsaved content has been retained.");
+                const groups = Object.values(runtime.editorGroups);
+                if (file.content === null) {
+                    for (const group of groups)
+                        if (group.openTabs.includes(file.path))
+                            tabOps.closeTab(group, file.path);
+                    (_b = (_a = entry.model).dispose) === null || _b === void 0 ? void 0 : _b.call(_a);
+                    runtime.monacoModels.delete(file.path);
+                    runtime.dirtyFiles.delete(file.path);
+                    continue;
+                }
+                for (const group of groups)
+                    group.isApplyingFile = true;
+                try {
+                    entry.model.setValue(file.content);
+                    entry.savedContent = file.content;
+                    bufferOps.updateDirtyState(file.path, file.content, file.content);
+                    for (const group of groups)
+                        if (group.currentFilePath === file.path)
+                            group.currentFileSavedContent = file.content;
+                }
+                finally {
+                    for (const group of groups)
+                        group.isApplyingFile = false;
+                }
+            }
+            splitViewOps.updateBreadcrumbs();
+            deps.fileTree.render();
+        },
         isActiveGroup: coreOps.isActiveGroup,
         forEachEditorGroup: coreOps.forEachEditorGroup,
         setEditorGroupEmptyState: splitViewOps.setEditorGroupEmptyState,

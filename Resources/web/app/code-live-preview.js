@@ -346,8 +346,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             void ((_a = bridge === null || bridge === void 0 ? void 0 : bridge.stop) === null || _a === void 0 ? void 0 : _a.call(bridge));
         }
     };
+    let historyBlocked = false;
     const refresh = () => {
-        applyActive(editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
+        applyActive(!historyBlocked && editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
         if (active) {
             if (!engineStarted && !starting)
                 void start();
@@ -378,6 +379,19 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     editorSettings.subscribe((change) => {
         if (change.kind !== "flag" || change.id !== "preview.realtime")
             return;
+        refresh();
+    });
+    // History owns the writer barrier and main-process shutdown. Retire the
+    // renderer generation immediately so a late push cannot expose pre-restore
+    // pages while files and editor models are being synchronized.
+    const history = window.tex64History;
+    const unsubscribeHistory = history === null || history === void 0 ? void 0 : history.onChange((message) => {
+        var _a, _b, _c;
+        const phase = message.type === "workspace:operation" ? (_a = message.payload) === null || _a === void 0 ? void 0 : _a.phase
+            : message.type === "updateWorkspace" ? (_c = (_b = message.payload) === null || _b === void 0 ? void 0 : _b.workspaceOperation) === null || _c === void 0 ? void 0 : _c.phase : undefined;
+        if (typeof phase !== "string")
+            return;
+        historyBlocked = phase !== "idle";
         refresh();
     });
     // Same lightweight poll as pro-live-preview: notices tab switches, editor
@@ -417,6 +431,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
     }, 2000);
     window.addEventListener("beforeunload", () => {
+        unsubscribeHistory === null || unsubscribeHistory === void 0 ? void 0 : unsubscribeHistory();
         window.clearInterval(poll);
         window.clearInterval(healthPoll);
     }, { once: true });

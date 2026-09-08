@@ -67,6 +67,8 @@ type WorkspaceControllerDeps = {
   };
 
   diffModal: {
+    getDiffContext: () => DiffContext;
+    closeDiffModal: () => void;
     setDiffContext: (context: DiffContext) => void;
   };
   envRegistry: {
@@ -337,7 +339,12 @@ export const initWorkspaceController = (
     deps.editorSession.syncWorkspaceFiles({ workspaceFiles, rootChanged });
     deps.searchUi.reset();
 
-    deps.diffModal.setDiffContext(null);
+    // A custom apply may be awaiting this same-root synchronization. Keep its
+    // context until its completion handler closes the modal.
+    if (rootChanged) deps.diffModal.closeDiffModal();
+    else if (deps.diffModal.getDiffContext()?.type !== "customApply") {
+      deps.diffModal.setDiffContext(null);
+    }
     deps.settingsUi.loadWorkspaceSettings();
     deps.envRegistry.reload(false);
     deps.rootSelectorUi.render();

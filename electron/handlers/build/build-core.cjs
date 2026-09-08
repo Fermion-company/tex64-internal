@@ -375,6 +375,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       if (result.kind === "success") {
         if (fs.existsSync(result.pdfPath)) {
           state.lastBuildPdfPath = result.pdfPath;
+          pdfWindowManager.markBuilt?.(rootPath, result.pdfPath);
           // "none" leaves every viewer untouched: the AI mode shows the page
           // itself and must not have the Code-mode PDF window pop over it.
           const viewerMode =
