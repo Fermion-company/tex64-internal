@@ -68,6 +68,7 @@ const serializeUndoEntry = (entry) => {
   if (!isSafeRelativePath(entry.path)) return null;
   const serialized = {
     type,
+    historyBoundary: typeof entry.historyBoundary === "string" ? entry.historyBoundary : null,
     conversationId:
       typeof entry.conversationId === "string" ? entry.conversationId : "default",
     runId:

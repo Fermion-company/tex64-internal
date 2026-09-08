@@ -361,8 +361,9 @@ export const initCodeLivePreview = ({
     }
   };
 
+  let historyBlocked = false;
   const refresh = () => {
-    applyActive(editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
+    applyActive(!historyBlocked && editorSettings.isEnabled("preview.realtime") && getAppMode() === "code");
     if (active) {
       if (!engineStarted && !starting) void start();
       bindActiveEditor();
@@ -387,6 +388,18 @@ export const initCodeLivePreview = ({
 
   editorSettings.subscribe((change) => {
     if (change.kind !== "flag" || change.id !== "preview.realtime") return;
+    refresh();
+  });
+
+  // History owns the writer barrier and main-process shutdown. Retire the
+  // renderer generation immediately so a late push cannot expose pre-restore
+  // pages while files and editor models are being synchronized.
+  const history = (window as unknown as { tex64History?: { onChange: (listener: (message: any) => void) => () => void } }).tex64History;
+  const unsubscribeHistory = history?.onChange((message) => {
+    const phase = message.type === "workspace:operation" ? message.payload?.phase
+      : message.type === "updateWorkspace" ? message.payload?.workspaceOperation?.phase : undefined;
+    if (typeof phase !== "string") return;
+    historyBlocked = phase !== "idle";
     refresh();
   });
 
@@ -424,6 +437,7 @@ export const initCodeLivePreview = ({
     }
   }, 2_000);
   window.addEventListener("beforeunload", () => {
+    unsubscribeHistory?.();
     window.clearInterval(poll);
     window.clearInterval(healthPoll);
   }, { once: true });

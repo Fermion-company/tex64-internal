@@ -77,8 +77,10 @@ class AgentService {
     envService,
     synctexService,
     isRendererWorkspaceMutationActive,
+    getHistoryBoundary,
   }) {
     this.workspace = workspace;
+    this.getHistoryBoundary = typeof getHistoryBoundary === "function" ? getHistoryBoundary : () => null;
     this.searchService = searchService;
     this.ensureUserSettings = ensureUserSettings;
     this.sendToRenderer = sendToRenderer;

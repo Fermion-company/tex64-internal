@@ -236,6 +236,9 @@ const main = async () => {
   await ensureAppxAssets();
   await ensureWindowsIcons();
   await ensureTexlab();
+  if (process.platform === "darwin") {
+    execInherit(process.execPath, [resolvePath("scripts", "fetch-git-runtime.cjs"), "--mac"]);
+  }
 };
 
 main().catch((error) => {

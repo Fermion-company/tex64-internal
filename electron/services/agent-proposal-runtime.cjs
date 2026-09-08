@@ -1,3 +1,4 @@
+const { historyBoundary, checkHistoryBoundary } = require("./agent-history-boundary.cjs");
 const path = require("path");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
@@ -211,6 +212,7 @@ const pushUndoEntry = (service, entry) => {
       : service.workspace.getRootPath();
   service.applyUndoStack.push({
     ...entry,
+    historyBoundary: historyBoundary(service, workspaceRootPath),
     workspaceRootPath: workspaceRootPath || null,
   });
   while (service.applyUndoStack.length > MAX_APPLY_UNDO_ENTRIES) {
@@ -315,6 +317,11 @@ const undoEntryAtIndex = async (
     };
   }
 
+  const boundary = checkHistoryBoundary(service, service.applyUndoStack[targetIndex]);
+  if (!boundary.ok) {
+    if (emitRenderer) service.sendToRenderer("agent:undoResult", { ok: false, message: boundary.error, conversationId: requestedConversationId || undefined });
+    return { ...boundary, message: boundary.error };
+  }
   const entry = service.applyUndoStack.splice(targetIndex, 1)[0];
   const reinstateEntry = () => {
     if (targetIndex >= 0 && targetIndex <= service.applyUndoStack.length) {
@@ -581,6 +588,8 @@ const undoLastApply = async (
 const preflightUndoRun = async (service, entries, rootPath) => {
   const paths = new Set();
   for (const entry of entries) {
+    const boundary = checkHistoryBoundary(service, entry, rootPath);
+    if (!boundary.ok) return boundary;
     if (
       typeof entry?.workspaceRootPath === "string" &&
       entry.workspaceRootPath &&
@@ -1027,6 +1036,11 @@ const applyProposal = async (service, proposalId, options = {}) => {
       error: "Proposal not found.",
     });
     return { ok: false, proposalId, error: "Proposal not found." };
+  }
+  const boundary = checkHistoryBoundary(service, proposal, rootPath);
+  if (!boundary.ok) {
+    service.sendToRenderer("agent:applyResult", { proposalId, ok: false, error: boundary.error });
+    return { ...boundary, proposalId };
   }
   if (!rootPath) {
     service.emitAuditEvent(

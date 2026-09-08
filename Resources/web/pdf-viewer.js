@@ -67,14 +67,15 @@ const UI_STRINGS = {
     es: "Cargando…",
   },
   ready: {
-    en: "Ready",
-    ja: "準備完了",
-    zh: "准备就绪",
-    ko: "준비 완료",
-    fr: "Prêt",
-    de: "Bereit",
-    es: "Listo",
+    en: "PDF loaded",
+    ja: "PDF読込済み",
+    zh: "PDF已加载",
+    ko: "PDF 로드됨",
+    fr: "PDF chargé",
+    de: "PDF geladen",
+    es: "PDF cargado",
   },
+  rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
@@ -321,6 +322,17 @@ const initPdfViewer = () => {
   window.__tex64PdfViewer = {
     pdfViewer,
     state,
+  };
+
+  const staticSourceStates = new Map();
+  const staticNeedsRebuild = () => staticSourceStates.get(state.path) === true;
+  const refreshStaticStatus = () => {
+    const stale = staticNeedsRebuild();
+    document.body.classList.toggle("pdf-needs-rebuild", stale);
+    if (!isLive() && !isLivePending()) {
+      setStatus(uiString(!state.doc ? "waiting" : stale ? "rebuildNeeded" : "ready"));
+      if (statusEl) statusEl.title = "";
+    }
   };
 
   const setStatus = (text, tone = "idle") => {
@@ -1312,7 +1324,7 @@ const initPdfViewer = () => {
       if (!embedded) {
         renderThumbnails();
       }
-      setStatus(uiString("ready"));
+      refreshStaticStatus();
     } catch (error) {
       if (loadSequence !== staticLoadSequence) return;
       if (liveSurfaceOwned) {
@@ -1775,7 +1787,7 @@ const initPdfViewer = () => {
     }
     liveToolbar = normalizeLiveToolbarSnapshot();
     restoreStaticToolbar();
-    setStatus(uiString("ready"));
+    refreshStaticStatus();
     const deferredSync = pendingLiveSync;
     pendingLiveSync = null;
     if (deferredSync) requestAnimationFrame(() => applySync(deferredSync));
@@ -1936,7 +1948,7 @@ const initPdfViewer = () => {
       if (statusEl) statusEl.title = "";
       if (isLive()) setStatus(uiString("live"));
       else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
-      else setStatus(uiString("ready"));
+      else refreshStaticStatus();
       return;
     }
 
@@ -2069,8 +2081,14 @@ const initPdfViewer = () => {
       if (message.type === "open") {
         const payload = message.payload || {};
         if (payload.url) {
+          staticSourceStates.set(payload.path || null, payload.needsRebuild === true);
+          document.body.classList.toggle("pdf-needs-rebuild", payload.needsRebuild === true);
           requestStaticDocument(payload.url, payload.path || null);
         }
+      }
+      if (message.type === "source-state" && message.payload) {
+        staticSourceStates.set(message.payload.path || null, message.payload.needsRebuild === true);
+        if ((message.payload.path || null) === state.path && !reloadInFlight) refreshStaticStatus();
       }
       if (message.type === "sync" && message.payload) {
         if (!applyLiveSync(message.payload)) applySync(message.payload);

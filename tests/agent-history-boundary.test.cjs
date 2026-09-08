@@ -1,0 +1,31 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { AgentService } = require("../electron/services/agent.cjs");
+const { pushUndoEntry, undoLastRunApply, undoLastApply, applyProposal } = require("../electron/services/agent-proposal-runtime.cjs");
+const { checkHistoryBoundary } = require("../electron/services/agent-history-boundary.cjs");
+
+test("Axiom undo/proposals keep their restore boundary across session persistence", async () => {
+  let boundary = null;
+  let saved;
+  const events = [];
+  const sessionsService = { loadSessions: async () => saved ? [saved] : [], saveSession: async (value) => { saved = JSON.parse(JSON.stringify(value)); } };
+  const create = () => new AgentService({ workspace: { getRootPath: () => "/project" }, sendToRenderer: (type, payload) => events.push({ type, payload }), sessionsService, getHistoryBoundary: () => boundary });
+  const first = create(); await first.ensureSessionsRestored();
+  pushUndoEntry(first, { conversationId: "chat", runId: "run", type: "write", path: "main.tex", existed: true, appliedHash: "a".repeat(64), previousBuffer: Buffer.from("before") });
+  first.proposals.set("proposal", { id: "proposal", conversationId: "chat", type: "write", path: "main.tex", content: "proposed", historyBoundary: null });
+  assert.equal(checkHistoryBoundary(first, first.applyUndoStack[0]).ok, true);
+  await first.flushPendingSessions();
+  boundary = "restored-version";
+  const reopened = create(); await reopened.ensureSessionsRestored();
+  assert.equal(reopened.applyUndoStack.length, 1);
+  assert.equal(reopened.applyUndoStack[0].historyBoundary, null);
+  assert.equal((await undoLastRunApply(reopened, "chat")).reason, "history_restored");
+  assert.equal((await undoLastApply(reopened, "chat")).reason, "history_restored");
+  assert.equal((await applyProposal(reopened, "proposal")).reason, "history_restored");
+  assert.equal(reopened.applyUndoStack.length, 1);
+  pushUndoEntry(reopened, { conversationId: "chat", runId: "new-run", type: "write", path: "main.tex", existed: true, appliedHash: "b".repeat(64), previousBuffer: Buffer.from("new-before") });
+  await reopened.flushPendingSessions();
+  const again = create(); await again.ensureSessionsRestored();
+  assert.equal(again.applyUndoStack.at(-1).historyBoundary, boundary);
+  assert.equal(checkHistoryBoundary(again, again.applyUndoStack.at(-1)).ok, true);
+});

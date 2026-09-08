@@ -859,10 +859,8 @@ body.has-onboarding .launcher {
   align-items: center;
   justify-content: flex-end;
   gap: 0;
-  /* Fixed height + centered content so the toolbar buttons sit on a known
-     baseline that we can line up with the macOS traffic lights
-     (trafficLightPosition y:10 → ~12px lights centered around y16). */
-  height: 33px;
+  /* Leave breathing room above and below the 30px controls. */
+  height: 39px;
   box-sizing: border-box;
   padding: 0;
   background: var(--panel);
@@ -888,7 +886,7 @@ body.has-onboarding .launcher {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 12px;
   -webkit-app-region: no-drag;
 }
 
@@ -1282,7 +1280,9 @@ body.has-onboarding .launcher {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 0;
-  border: 1px solid var(--control-border);
+  border: 0;
+  height: 26px;
+  box-shadow: inset 0 0 0 1px var(--control-border);
   border-radius: var(--radius-sm);
   background: var(--input-bg);
   padding: 0; /* Flush with border */
@@ -1299,6 +1299,7 @@ body.has-onboarding .launcher {
 
 .block-mode-toggle::before {
   content: "";
+  box-sizing: border-box;
   position: absolute;
   top: 0;
   left: 0;
@@ -10436,3 +10437,108 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .ai-empty-foot:hover .ai-start-title {
   color: var(--text);
 }
+
+/* Project versions share the existing sidebar and Monaco comparison surface. */
+#history-panel { display: flex; flex-direction: column; gap: 8px; padding: 16px 12px; min-width: 0; height: 100%; overflow: auto; box-sizing: border-box; color: var(--text); font-size: 13px; line-height: 20px; }
+#history-panel > * { flex-shrink: 0; }
+.history-heading, .history-confirm-actions { display: flex; align-items: center; gap: 8px; }
+.history-heading h2 { flex: 1; font-size: 14px; line-height: 20px; font-weight: 600; margin: 0; }
+.history-button { box-sizing: border-box; min-height: 32px; border: 1px solid var(--panel-border-strong); border-radius: 6px; background: transparent; color: var(--text); padding: 5px 10px; font: inherit; cursor: pointer; text-align: left; }
+.history-button:hover:not(:disabled) { background: var(--control-bg); }
+.history-button:disabled { opacity: .45; cursor: default; }
+.history-button.is-primary { border-color: var(--accent); color: var(--text); white-space: nowrap; }
+.history-heading .compact-actions > summary { box-sizing: border-box; min-height: 32px; padding: 5px 8px; line-height: 20px; border-color: var(--panel-border-strong); }
+.history-name, .history-limit { box-sizing: border-box; min-width: 0; width: 100%; height: 32px; border: 1px solid var(--panel-border-strong); border-radius: 6px; padding: 5px 8px; background: var(--bg); color: var(--text); font: inherit; }
+.history-date, .history-day, .history-local { font-size: 12px; line-height: 18px; color: var(--text-soft); opacity: 1; font-weight: 400; }
+.history-list { display: flex; flex-direction: column; gap: 0; }
+#history-panel > .history-list > .history-empty { padding-inline: 12px; }
+#history-panel > .history-list { flex-shrink: 1; min-height: 96px; max-height: 44vh; overflow-y: auto; margin: 0 -12px; }
+.history-day { padding: 8px 12px 4px; }
+.history-version { box-sizing: border-box; display: flex; flex-shrink: 0; align-items: center; gap: 8px; height: 32px; padding: 6px 12px 6px 10px; border: 0; border-left: 2px solid transparent; border-radius: 0; background: transparent; color: var(--text); font: inherit; font-weight: 400; text-align: left; cursor: pointer; min-width: 0; }
+.history-version-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-version .history-date { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.history-version:hover { background: var(--control-bg); }
+.history-version[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left-color: var(--accent); }
+.history-pinned { padding: 4px 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-selection { display: flex; flex-direction: column; gap: 16px; padding-top: 16px; border-top: 1px solid var(--panel-border); }
+.history-compare-row { display: flex; align-items: center; gap: 8px; }
+.history-compare-row > span { flex-shrink: 0; }
+.history-compare-row select { flex: 1; min-width: 0; }
+.history-comparison { display: flex; flex-direction: column; gap: 8px; }
+.history-comparison p { margin: 0; }
+.history-comparison .history-button { border-color: transparent; padding: 4px 0; min-height: 28px; overflow-wrap: anywhere; }
+.history-error { font-size: 13px; line-height: 20px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-error:empty { display: none; }
+.history-storage { font-size: 13px; line-height: 20px; }
+.history-storage .history-limit { width: 65px; margin-right: 8px; }
+.history-excluded, .history-full-name { overflow-wrap: anywhere; }
+.history-confirm { width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow-y: auto; box-sizing: border-box; padding: 24px; border: 1px solid var(--panel-border-strong); border-radius: 12px; color: var(--text); background: var(--panel-strong); box-shadow: 0 20px 70px #0006; font-size: 13px; line-height: 20px; }
+.history-confirm::backdrop { background: #0007; }
+.history-confirm h2 { margin-top: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+.history-confirm-actions { justify-content: flex-end; margin-top: 16px; }
+.history-restore-files { max-height: 35vh; overflow: auto; padding: 10px; border: 1px solid var(--panel-border); border-radius: 6px; overflow-wrap: anywhere; }
+.history-selection[hidden], .history-button[hidden], .history-name[hidden], .history-pinned[hidden] { display: none; }
+.snippets-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100vh - 48px); box-sizing: border-box; overflow: auto; background: var(--panel-strong); color: var(--text); padding: 24px; border: 1px solid #8885; border-radius: 12px; }
+.snippets-dialog::backdrop { background: #0007; }
+.snippets-dialog h2 { margin: 0 0 18px; font-size: 18px; }
+.snippets-columns { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(250px, 2fr); gap: 20px; }
+.snippets-library, .snippets-form, .snippets-form label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.snippets-form { gap: 12px; }
+.snippets-form p { font-size: 13px; line-height: 1.5; color: var(--text-soft); margin: 0; }
+.snippets-dialog input, .snippets-dialog textarea { box-sizing: border-box; width: 100%; border: 1px solid #8885; border-radius: 6px; padding: 8px; background: transparent; color: inherit; font: inherit; }
+.snippets-dialog textarea { font-family: monospace; resize: vertical; min-height: 160px; }
+.snippets-dialog button { background: transparent; color: inherit; border: 1px solid #8885; border-radius: 6px; padding: 8px 10px; font: inherit; cursor: pointer; }
+.snippets-dialog button:hover:not(:disabled), .snippets-list button[aria-pressed="true"] { background: #4689dd30; }
+.snippets-dialog button:disabled { opacity: .4; cursor: default; }
+.snippets-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }
+.snippets-list button { text-align: left; overflow-wrap: anywhere; }
+.snippets-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.snippets-error { color: #efaa80; font-size: 12px; }
+.snippets-error:empty { display: none; }
+@media (max-width: 620px) { .snippets-columns { grid-template-columns: 1fr; } .snippets-list { max-height: 110px; } }
+.history-image-compare { width: min(900px, calc(100vw - 48px)); }
+.history-image-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.history-image-columns > div { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.history-image-columns img { object-fit: contain; max-width: 100%; max-height: 50vh; background: #8882; border-radius: 5px; }
+.snippets-dialog textarea { font-size: 14px; line-height: 1.6; }
+
+
+
+.snippets-dialog button.is-primary { background: var(--accent); color: white; border-color: transparent; }
+
+/* Secondary management commands stay available without crowding the main actions. */
+.compact-actions { position: relative; flex-shrink: 0; font-size: 13px; }
+.compact-actions > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; padding: 7px 10px; border: 1px solid #8885; border-radius: 6px; }
+.compact-actions > summary::-webkit-details-marker { display: none; }
+.compact-actions > summary::after { content: "▾"; color: var(--text-soft); }
+.compact-actions-content { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; gap: 4px; width: max-content; max-width: 240px; padding: 6px; border: 1px solid #8885; border-radius: 8px; background: var(--bg); box-shadow: 0 8px 24px #0004; }
+.compact-actions:not([open]) > .compact-actions-content { display: none; }
+.compact-actions-content button { text-align: left; border-color: transparent; }
+.snippets-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.snippets-heading h2 { margin: 0; }
+.snippets-scope { font-size: 13px; color: var(--text-soft); margin: 8px 0 18px; }
+.snippets-dialog button[hidden] { display: none; }
+.snippets-actions { flex-wrap: wrap; }
+
+/* Git follows the history panel's compact type and control scale. */
+#git-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px; font-size: 13px; }
+#git-panel .history-heading { gap: 8px; }
+#git-panel .history-heading > .history-button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#git-panel .history-heading h2 { flex: 0 0 auto; }
+.git-files { display: flex; flex-direction: column; gap: 2px; }
+.git-file { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.git-file-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.git-secondary { font-size: 12px; color: var(--muted); }
+.git-dialog { font-size: 13px; }
+.git-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.git-field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+#git-panel [hidden] { display: none !important; }
+
+.git-file-open { padding: 4px 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.git-file-open:hover { text-decoration: underline; }
+.git-conflict-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+#git-panel .history-button.is-primary:disabled { border-color: var(--panel-border-strong); color: var(--muted); opacity: .55; }
+.git-empty { min-height: 30px; margin: 0; display: flex; align-items: center; }
+.git-settings { display: flex; flex-direction: column; gap: 8px; }
+.git-settings > p { margin: 8px 0 0; }

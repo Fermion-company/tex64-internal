@@ -1,3 +1,4 @@
+import { updatePdfSourceState } from "./viewer.js";
 import type { TexEnvReport } from "./tex-env-report.js";
 import type {
   BuildState,
@@ -341,6 +342,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   let externalWorkspaceGeneration: number | undefined;
 
   bridgeWindow.tex64SetBuildState = (payload) => {
+    updatePdfSourceState((payload as typeof payload & { pdfSourceState?: unknown }).pdfSourceState);
     if (payload.targetFile && !payload.requestId) deps.build.setBuildTarget?.(payload.targetFile);
     deps.build.setBuildState(payload.state, payload.message);
   };
@@ -351,6 +353,7 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   };
 
   bridgeWindow.tex64UpdateWorkspace = (payload) => {
+    updatePdfSourceState((payload as typeof payload & { pdfSourceState?: unknown }).pdfSourceState, true);
     externalWorkspaceRoot = payload.rootPath;
     externalWorkspaceGeneration = payload.workspaceGeneration;
     deps.filePreview?.setWorkspaceScope(payload);

@@ -9,7 +9,7 @@ xcuserdata/
 *.xcresult/
 .swiftpm/
 .build/
-/node_modules/
+/node_modules
 /dist/
 /release/
 /update/
@@ -87,3 +87,6 @@ yarn-error.log*
 !/test-sample-hover/assets/pdfs/sample.pdf
 .worktrees/
 .vercel
+
+# Verified build-time Git / GCM runtime and corresponding source archives
+/Resources/git-runtime/

@@ -2,6 +2,7 @@ const { BrowserWindow, app } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
+const { PdfSourceState } = require("./pdf-source-state.cjs");
 
 const isE2EContext =
   process.env.TEX64_E2E === "1" ||
@@ -43,10 +44,39 @@ const savePdfWindowState = (bounds) => {
 class PDFWindowManager {
   constructor() {
     this.window = null;
+    this.workspaceRoot = null;
+    this.currentRoot = null;
+    this.sourceState = null;
     this.currentPath = null;
     this.isReady = false;
     this.pendingOpen = null;
     this.pendingSync = null;
+  }
+
+  getSourceState() {
+    this.sourceState ||= new PdfSourceState(path.join(app.getPath("userData"), "pdf-source-state"));
+    return this.sourceState;
+  }
+
+  sourceStatus(rootPath) { return this.getSourceState().status(rootPath); }
+  setWorkspaceRoot(rootPath) { this.workspaceRoot = rootPath || null; }
+  notifySourceState() {
+    if (!this.isReady || !this.currentPath) return;
+    this.send("source-state", {
+      path: this.currentPath,
+      needsRebuild: this.getSourceState().needsRebuild(this.currentRoot, this.currentPath),
+    });
+  }
+  markRestored(rootPath, restoreBoundary = null) {
+    const unchanged = restoreBoundary && this.getSourceState().status(rootPath).restoreBoundary === restoreBoundary;
+    const value = this.getSourceState().restored(rootPath, restoreBoundary);
+    if (!unchanged) this.notifySourceState();
+    return value;
+  }
+  markBuilt(rootPath, pdfPath) {
+    const value = this.getSourceState().built(rootPath, pdfPath);
+    this.notifySourceState();
+    return value;
   }
 
   close() {
@@ -69,6 +99,7 @@ class PDFWindowManager {
     const reload = options?.reload !== false;
     const needsOpen = reload || !this.isReady || this.currentPath !== pdfPath;
     this.currentPath = pdfPath;
+    this.currentRoot = this.workspaceRoot;
     if (needsOpen) {
       this.pendingOpen = pdfPath;
       if (this.isReady) {
@@ -105,6 +136,7 @@ class PDFWindowManager {
   markReady() {
     this.isReady = true;
     this.flushOpen();
+    this.notifySourceState();
     if (this.pendingSync) {
       const payload = this.pendingSync;
       this.pendingSync = null;
@@ -128,7 +160,8 @@ class PDFWindowManager {
     this.pendingOpen = null;
     const fileUrl = pathToFileURL(pdfPath).toString();
     const cacheBust = `?t=${Date.now()}`;
-    this.send("open", { path: pdfPath, url: `${fileUrl}${cacheBust}` });
+    this.send("open", { path: pdfPath, url: `${fileUrl}${cacheBust}`,
+      needsRebuild: this.getSourceState().needsRebuild(this.currentRoot, pdfPath) });
   }
 
   ensureWindow() {

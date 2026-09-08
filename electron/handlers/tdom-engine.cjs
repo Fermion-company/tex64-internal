@@ -1,8 +1,11 @@
 "use strict";
 
-const registerTdomEngineHandlers = ({ ipcMain, getTdomEngineService }) => {
+const registerTdomEngineHandlers = ({ ipcMain, getTdomEngineService, isBlocked = () => false }) => {
   const result = async (operation) => {
-    try { return await operation(); }
+    try {
+      if (isBlocked()) return { ok: false, error: "Project history is busy." };
+      return await operation();
+    }
     catch (error) { return { ok: false, error: error?.message || String(error) }; }
   };
   ipcMain.handle("tex64:tdom:start", () => result(() => getTdomEngineService().start()));

@@ -174,6 +174,26 @@ for (const row of sorted) {
 // binary, so we provide its license and a pointer to the corresponding source.
 const BUNDLED_BINARIES = [
   {
+    name: "Git / dugite-native",
+    version: "Git 2.53.0; dugite-native v2.53.0-4",
+    license: "GPL-2.0-only (Git; see bundled COPYING for component exceptions)",
+    source: "https://github.com/desktop/dugite-native/releases/tag/v2.53.0-4",
+    note: "Executed as a separate program. Resources/git-runtime/legal contains " +
+      "Git COPYING, the corresponding Git v2.53.0 source archive (commit " +
+      "67ad42147a7acc2af6074753ebd03d904476118f), and dugite-native build scripts. " +
+      "The original archive is SHA-256 pinned; application packaging applies code signatures.",
+  },
+  {
+    name: "Git Credential Manager / .NET / Git LFS",
+    version: "GCM 2.9.0; .NET 10.0.9; Git LFS 3.7.1",
+    license: "MIT (plus bundled component notices)",
+    source: "https://github.com/git-ecosystem/git-credential-manager/tree/v2.9.0",
+    note: "Self-contained GCM is conveyed within the pinned dugite-native runtime. " +
+      "Its upstream NOTICE is retained at Resources/git-runtime/<platform>-<arch>/libexec/git-core/NOTICE. " +
+      "GCM, .NET, and Git LFS license texts ship in Resources/git-runtime/legal. " +
+      "Bundling Git LFS does not enable unsupported LFS workflows in TeX64.",
+  },
+  {
     name: "texlab",
     version: "v5.25.1",
     license: "GPL-3.0-only",

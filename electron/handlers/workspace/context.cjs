@@ -189,6 +189,7 @@ const createWorkspaceContext = (deps) => {
     });
 
   const sendWorkspace = async (rootPath, expectedGeneration = state.workspaceGeneration) => {
+    await deps.prepareHistoryWorkspace?.(rootPath);
     const requestSequence = ++latestWorkspaceSnapshotRequest;
     if (!workspaceSessionIsCurrent(rootPath, expectedGeneration)) {
       return false;

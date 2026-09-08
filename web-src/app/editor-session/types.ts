@@ -157,6 +157,8 @@ export type EditorSessionApi = {
   getSplitViewEnabled: () => boolean;
   cacheCurrentBuffer: (group: EditorGroupState) => void;
   addOpenTab: (group: EditorGroupState, path: string) => void;
+  getHistoryBuffers: () => Array<{ path: string; content: string; savedContent: string }>;
+  applyHistoryFiles: (files: Array<{ path: string; content: string | null }>) => void;
   closeTab: (group: EditorGroupState, path: string) => void;
   scheduleAfterComposition: (group: EditorGroupState, action: () => void) => void;
   handleCompositionEnd: (group: EditorGroupState) => void;

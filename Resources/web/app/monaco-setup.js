@@ -1,3 +1,4 @@
+import { attachSnippetEditor } from "./snippets-ui.js";
 import { uiText } from "./i18n.js";
 import { aiText } from "./ai-i18n.js";
 import { registerHoverProvider, } from "./monaco-hover.js";
@@ -254,6 +255,7 @@ export const initMonacoSetup = (context, deps) => {
                     });
                 }
             });
+            attachSnippetEditor(editor, monacoWindow.monaco);
             // Selection → Axiom: the context-menu entry (⌘K) and a small button
             // that floats at the end of a selection in a .tex file. Both open the
             // chat with the selection as its context.
@@ -307,25 +309,26 @@ export const initMonacoSetup = (context, deps) => {
                     }
                 };
                 const syncAsk = () => {
-                    var _a, _b, _c, _d, _e, _f;
+                    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
                     const selection = (_b = (_a = editor).getSelection) === null || _b === void 0 ? void 0 : _b.call(_a);
                     const isTex = Boolean(group.currentFilePath && group.currentFilePath.endsWith(".tex"));
                     const empty = !selection || (typeof selection.isEmpty === "function" ? selection.isEmpty() : true);
-                    if (!isTex || empty) {
+                    const snippetActive = (_f = (_e = (_d = (_c = editor).getContribution) === null || _d === void 0 ? void 0 : _d.call(_c, "snippetController2")) === null || _e === void 0 ? void 0 : _e.isInSnippet) === null || _f === void 0 ? void 0 : _f.call(_e);
+                    if (!isTex || empty || snippetActive) {
                         hideAsk();
                         return;
                     }
                     askNode.textContent = aiText("ask_axiom");
                     askPosition = { lineNumber: selection.endLineNumber, column: selection.endColumn };
                     if (!askShown) {
-                        (_d = (_c = editor).addContentWidget) === null || _d === void 0 ? void 0 : _d.call(_c, askWidget);
+                        (_h = (_g = editor).addContentWidget) === null || _h === void 0 ? void 0 : _h.call(_g, askWidget);
                         askShown = true;
                     }
                     else {
-                        (_f = (_e = editor).layoutContentWidget) === null || _f === void 0 ? void 0 : _f.call(_e, askWidget);
+                        (_k = (_j = editor).layoutContentWidget) === null || _k === void 0 ? void 0 : _k.call(_j, askWidget);
                     }
                 };
-                (_q = editor.onDidChangeCursorSelection) === null || _q === void 0 ? void 0 : _q.call(editor, () => syncAsk());
+                (_q = editor.onDidChangeCursorSelection) === null || _q === void 0 ? void 0 : _q.call(editor, () => queueMicrotask(syncAsk));
                 (_r = editor.onDidChangeModelContent) === null || _r === void 0 ? void 0 : _r.call(editor, () => hideAsk());
                 (_t = (_s = editor).onDidChangeModel) === null || _t === void 0 ? void 0 : _t.call(_s, () => hideAsk());
             }
