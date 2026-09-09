@@ -48,6 +48,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let pendingPush = null;
     let pushing = false;
     let latestInputAtEpochMs = 0;
+    let builtSnapshot = null;
+    let sourceEditVersion = 0;
+    let buildStartEditVersion = null;
     const cursorOffset = (editor) => {
         var _a, _b, _c, _d, _e, _f;
         if (editor === void 0) { editor = (_b = (_a = currentProjectSource()) === null || _a === void 0 ? void 0 : _a.editor) !== null && _b !== void 0 ? _b : null; }
@@ -56,7 +59,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return Number.isFinite(Number(offset)) ? Number(offset) : null;
     };
     const focusCurrent = () => {
-        if (!active || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
+        if (!active || builtSnapshot || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
             return;
         // A character insertion moves the Monaco caret too. Let its 80ms source
         // push finish first; otherwise a speculative warm against the old source
@@ -240,6 +243,12 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const snapshot = currentSnapshot();
         if (!snapshot)
             return;
+        if (builtSnapshot) {
+            if (snapshot.sessionKey === builtSnapshot.sessionKey && sameBuffers(snapshot.buffers, builtSnapshot.buffers))
+                return;
+            builtSnapshot = null;
+            snapshot.payload.fresh = true;
+        }
         retireObsoleteSession(snapshot.sessionKey);
         // Never push mid-IME-composition: the buffer is transient and a typeset
         // per composition keystroke is wasted work. Try again after the debounce.
@@ -279,6 +288,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         boundPath = nextPath;
         if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeModelContent) {
             disposable = boundEditor.onDidChangeModelContent(() => {
+                sourceEditVersion += 1;
                 latestInputAtEpochMs = Date.now();
                 debouncedPush();
             });
@@ -315,6 +325,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         }
     };
     const suspend = () => {
+        builtSnapshot = null;
+        buildStartEditVersion = null;
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
@@ -373,6 +385,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     const refreshSource = () => {
         if (!active)
             return;
+        sourceEditVersion += 1;
+        builtSnapshot = null;
         latestInputAtEpochMs = Date.now();
         debouncedPush();
     };
@@ -380,6 +394,47 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (change.kind !== "flag" || change.id !== "preview.realtime")
             return;
         refresh();
+    });
+    window.addEventListener("tex64:build-state", (event) => {
+        var _a, _b;
+        if (!active || !liveTarget)
+            return;
+        const detail = event.detail;
+        const normalize = (value) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+        const root = liveTarget.workspaceRoot;
+        if (detail.workspaceRoot && normalize(detail.workspaceRoot) !== normalize(root !== null && root !== void 0 ? root : ""))
+            return;
+        const absolute = (value) => /^(?:\/|[A-Za-z]:\/)/.test(value)
+            ? normalize(value) : `${normalize(root !== null && root !== void 0 ? root : "")}/${normalize(value)}`;
+        const pdfPath = (_a = detail.pdfPath) !== null && _a !== void 0 ? _a : (_b = detail.targetFile) === null || _b === void 0 ? void 0 : _b.replace(/\.tex$/i, ".pdf");
+        if (!pdfPath || absolute(pdfPath) !== absolute(liveTarget.pdfPath))
+            return;
+        if (detail.state === "building") {
+            buildStartEditVersion !== null && buildStartEditVersion !== void 0 ? buildStartEditVersion : (buildStartEditVersion = sourceEditVersion);
+            return;
+        }
+        const sourceChanged = buildStartEditVersion !== null && buildStartEditVersion !== sourceEditVersion ||
+            getDirtyFileSnapshots().some((snapshot) => snapshot.isDirty && PROJECT_SOURCE_RE.test(snapshot.path));
+        buildStartEditVersion = null;
+        if (detail.state !== "success")
+            return;
+        detail.sourceChanged = sourceChanged;
+        // A completed Build owns the paper. Retire late live responses and let
+        // the PDF frame load its deferred build output. The next source change
+        // opens a fresh engine generation, so old canonical ink cannot win back.
+        builtSnapshot = sourceChanged ? null : currentSnapshot();
+        latestPushVersion += 1;
+        pendingPush = null;
+        debouncedPush.cancel();
+        debouncedFocus.cancel();
+        queuedSessionKey = null;
+        queuedBuffers.clear();
+        engineUrl = null;
+        liveSessionKey = null;
+        liveGeneration += 1;
+        distributeLive(null);
+        if (sourceChanged)
+            debouncedPush();
     });
     // History owns the writer barrier and main-process shutdown. Retire the
     // renderer generation immediately so a late push cannot expose pre-restore

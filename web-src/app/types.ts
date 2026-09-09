@@ -437,7 +437,7 @@ export type BridgeWindow = Window &
     __tex64TestCaptureApi?: CaptureBridge;
     __tex64TestMathOcr?: MathOcrBridge;
     __tex64TestRecognizeMath?: (imageDataUrl: string) => Promise<string>;
-    tex64SetBuildState?: (payload: { state: BuildState; message?: string; targetFile?: string; requestId?: string }) => void;
+    tex64SetBuildState?: (payload: { state: BuildState; message?: string; targetFile?: string; requestId?: string; pdfPath?: string; pdfSourceState?: { rootPath?: string } }) => void;
     tex64UpdateIssues?: (payload: {
       count: number;
       summary: string;

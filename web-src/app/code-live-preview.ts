@@ -81,6 +81,9 @@ export const initCodeLivePreview = ({
   }) | null = null;
   let pushing = false;
   let latestInputAtEpochMs = 0;
+  let builtSnapshot: { sessionKey: string; buffers: Map<string, string> } | null = null;
+  let sourceEditVersion = 0;
+  let buildStartEditVersion: number | null = null;
 
   const cursorOffset = (editor: LiveEditor | null = currentProjectSource()?.editor ?? null) => {
     const position = editor?.getPosition?.();
@@ -89,7 +92,7 @@ export const initCodeLivePreview = ({
   };
 
   const focusCurrent = () => {
-    if (!active || !engineStarted || !bridge?.focus) return;
+    if (!active || builtSnapshot || !engineStarted || !bridge?.focus) return;
     // A character insertion moves the Monaco caret too. Let its 80ms source
     // push finish first; otherwise a speculative warm against the old source
     // can grab the resident chain just before the real edit arrives.
@@ -266,6 +269,11 @@ export const initCodeLivePreview = ({
     const current = currentProjectSource();
     const snapshot = currentSnapshot();
     if (!snapshot) return;
+    if (builtSnapshot) {
+      if (snapshot.sessionKey === builtSnapshot.sessionKey && sameBuffers(snapshot.buffers, builtSnapshot.buffers)) return;
+      builtSnapshot = null;
+      snapshot.payload.fresh = true;
+    }
     retireObsoleteSession(snapshot.sessionKey);
     // Never push mid-IME-composition: the buffer is transient and a typeset
     // per composition keystroke is wasted work. Try again after the debounce.
@@ -302,6 +310,7 @@ export const initCodeLivePreview = ({
     boundPath = nextPath;
     if (boundEditor?.onDidChangeModelContent) {
       disposable = boundEditor.onDidChangeModelContent(() => {
+        sourceEditVersion += 1;
         latestInputAtEpochMs = Date.now();
         debouncedPush();
       });
@@ -337,6 +346,8 @@ export const initCodeLivePreview = ({
   };
 
   const suspend = () => {
+    builtSnapshot = null;
+    buildStartEditVersion = null;
     lifecycleVersion += 1;
     latestPushVersion += 1;
     debouncedPush.cancel();
@@ -388,6 +399,8 @@ export const initCodeLivePreview = ({
 
   const refreshSource = () => {
     if (!active) return;
+    sourceEditVersion += 1;
+    builtSnapshot = null;
     latestInputAtEpochMs = Date.now();
     debouncedPush();
   };
@@ -395,6 +408,44 @@ export const initCodeLivePreview = ({
   editorSettings.subscribe((change) => {
     if (change.kind !== "flag" || change.id !== "preview.realtime") return;
     refresh();
+  });
+
+  window.addEventListener("tex64:build-state", (event) => {
+    if (!active || !liveTarget) return;
+    const detail = (event as CustomEvent<{
+      state: string; pdfPath?: string; targetFile?: string; workspaceRoot?: string; sourceChanged?: boolean;
+    }>).detail;
+    const normalize = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+    const root = liveTarget.workspaceRoot;
+    if (detail.workspaceRoot && normalize(detail.workspaceRoot) !== normalize(root ?? "")) return;
+    const absolute = (value: string) => /^(?:\/|[A-Za-z]:\/)/.test(value)
+      ? normalize(value) : `${normalize(root ?? "")}/${normalize(value)}`;
+    const pdfPath = detail.pdfPath ?? detail.targetFile?.replace(/\.tex$/i, ".pdf");
+    if (!pdfPath || absolute(pdfPath) !== absolute(liveTarget.pdfPath)) return;
+    if (detail.state === "building") {
+      buildStartEditVersion ??= sourceEditVersion;
+      return;
+    }
+    const sourceChanged = buildStartEditVersion !== null && buildStartEditVersion !== sourceEditVersion ||
+      getDirtyFileSnapshots().some((snapshot) => snapshot.isDirty && PROJECT_SOURCE_RE.test(snapshot.path));
+    buildStartEditVersion = null;
+    if (detail.state !== "success") return;
+    detail.sourceChanged = sourceChanged;
+    // A completed Build owns the paper. Retire late live responses and let
+    // the PDF frame load its deferred build output. The next source change
+    // opens a fresh engine generation, so old canonical ink cannot win back.
+    builtSnapshot = sourceChanged ? null : currentSnapshot();
+    latestPushVersion += 1;
+    pendingPush = null;
+    debouncedPush.cancel();
+    debouncedFocus.cancel();
+    queuedSessionKey = null;
+    queuedBuffers.clear();
+    engineUrl = null;
+    liveSessionKey = null;
+    liveGeneration += 1;
+    distributeLive(null);
+    if (sourceChanged) debouncedPush();
   });
 
   // History owns the writer barrier and main-process shutdown. Retire the

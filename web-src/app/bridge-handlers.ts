@@ -340,19 +340,39 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   const { bridgeWindow } = deps;
   let externalWorkspaceRoot: string | null = null;
   let externalWorkspaceGeneration: number | undefined;
+  let buildSourceWarning: string | null = null;
 
   bridgeWindow.tex64SetBuildState = (payload) => {
     updatePdfSourceState((payload as typeof payload & { pdfSourceState?: unknown }).pdfSourceState);
+    if (payload.state === "building") buildSourceWarning = null;
+    const detail = {
+      state: payload.state,
+      pdfPath: payload.pdfPath,
+      targetFile: payload.targetFile,
+      workspaceRoot: payload.pdfSourceState?.rootPath,
+      sourceChanged: false,
+    };
+    window.dispatchEvent(new CustomEvent("tex64:build-state", { detail }));
+    if (detail.sourceChanged) buildSourceWarning =
+      "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";
     if (payload.targetFile && !payload.requestId) deps.build.setBuildTarget?.(payload.targetFile);
     deps.build.setBuildState(payload.state, payload.message);
   };
 
   bridgeWindow.tex64UpdateIssues = (payload) => {
     const status = payload.status ?? (payload.count > 0 ? "error" : "success");
+    if (buildSourceWarning && status !== "error") {
+      const issues = [...(payload.issues ?? []), { severity: "warning" as const, message: buildSourceWarning, line: null }];
+      deps.updateIssues(Math.max(payload.count, issues.length), buildSourceWarning, "info", issues);
+      return;
+    }
     deps.updateIssues(payload.count, payload.summary, status, payload.issues ?? []);
   };
 
   bridgeWindow.tex64UpdateWorkspace = (payload) => {
+    if (payload.rootPath !== externalWorkspaceRoot || payload.workspaceGeneration !== externalWorkspaceGeneration) {
+      buildSourceWarning = null;
+    }
     updatePdfSourceState((payload as typeof payload & { pdfSourceState?: unknown }).pdfSourceState, true);
     externalWorkspaceRoot = payload.rootPath;
     externalWorkspaceGeneration = payload.workspaceGeneration;

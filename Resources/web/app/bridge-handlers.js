@@ -21,20 +21,42 @@ export const initBridgeHandlers = (deps) => {
     const { bridgeWindow } = deps;
     let externalWorkspaceRoot = null;
     let externalWorkspaceGeneration;
+    let buildSourceWarning = null;
     bridgeWindow.tex64SetBuildState = (payload) => {
-        var _a, _b;
+        var _a, _b, _c;
         updatePdfSourceState(payload.pdfSourceState);
+        if (payload.state === "building")
+            buildSourceWarning = null;
+        const detail = {
+            state: payload.state,
+            pdfPath: payload.pdfPath,
+            targetFile: payload.targetFile,
+            workspaceRoot: (_a = payload.pdfSourceState) === null || _a === void 0 ? void 0 : _a.rootPath,
+            sourceChanged: false,
+        };
+        window.dispatchEvent(new CustomEvent("tex64:build-state", { detail }));
+        if (detail.sourceChanged)
+            buildSourceWarning =
+                "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";
         if (payload.targetFile && !payload.requestId)
-            (_b = (_a = deps.build).setBuildTarget) === null || _b === void 0 ? void 0 : _b.call(_a, payload.targetFile);
+            (_c = (_b = deps.build).setBuildTarget) === null || _c === void 0 ? void 0 : _c.call(_b, payload.targetFile);
         deps.build.setBuildState(payload.state, payload.message);
     };
     bridgeWindow.tex64UpdateIssues = (payload) => {
-        var _a, _b;
+        var _a, _b, _c;
         const status = (_a = payload.status) !== null && _a !== void 0 ? _a : (payload.count > 0 ? "error" : "success");
-        deps.updateIssues(payload.count, payload.summary, status, (_b = payload.issues) !== null && _b !== void 0 ? _b : []);
+        if (buildSourceWarning && status !== "error") {
+            const issues = [...((_b = payload.issues) !== null && _b !== void 0 ? _b : []), { severity: "warning", message: buildSourceWarning, line: null }];
+            deps.updateIssues(Math.max(payload.count, issues.length), buildSourceWarning, "info", issues);
+            return;
+        }
+        deps.updateIssues(payload.count, payload.summary, status, (_c = payload.issues) !== null && _c !== void 0 ? _c : []);
     };
     bridgeWindow.tex64UpdateWorkspace = (payload) => {
         var _a, _b;
+        if (payload.rootPath !== externalWorkspaceRoot || payload.workspaceGeneration !== externalWorkspaceGeneration) {
+            buildSourceWarning = null;
+        }
         updatePdfSourceState(payload.pdfSourceState, true);
         externalWorkspaceRoot = payload.rootPath;
         externalWorkspaceGeneration = payload.workspaceGeneration;

@@ -4,6 +4,16 @@ const { terminateWindowsProcessTree } = require("../process-tree.cjs");
 
 const { isEnvMissingMessage, pickJobNameFromLatexmkArgs } = require("./utils.cjs");
 
+const timedOutBuildResult = (result) => {
+  const message = "Build timed out before completion. No new PDF was published. See the build log.";
+  return {
+    kind: "failure",
+    summary: message,
+    issues: [{ severity: "error", message, line: null }],
+    log: result.output,
+  };
+};
+
 module.exports = (BuildService) => {
   BuildService.prototype.buildQueued = function (
     rootPath,
@@ -223,6 +233,7 @@ module.exports = (BuildService) => {
         });
         output = result.output;
         status = result.status;
+        if (result.timedOut === true) return timedOutBuildResult(result);
         if (result.cancelled === true || this.cancelRequested) {
           return {
             kind: "cancelled",
@@ -267,6 +278,7 @@ module.exports = (BuildService) => {
             .filter(Boolean)
             .join("\n");
           status = fallback.status;
+          if (fallback.timedOut === true) return timedOutBuildResult({ ...fallback, output });
           if (fallback.cancelled === true || this.cancelRequested) {
             return {
               kind: "cancelled",

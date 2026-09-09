@@ -453,7 +453,7 @@ class TdomEngineService {
       projectRoot: workspaceRoot,
       sessionKey: `${workspaceRoot}\0${rootPath}`,
       overlays: buffers,
-      fresh: Boolean(payload.fresh) && this.lastSessionKey !== `${workspaceRoot}\0${rootPath}`,
+      fresh: Boolean(payload.fresh),
       rootMtimeMs,
     };
   }
