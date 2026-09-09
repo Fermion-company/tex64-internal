@@ -1302,11 +1302,11 @@ const initPdfViewer = () => {
     try {
       const task = pdfjs.getDocument(createPdfDocumentOptions(url));
       const nextDocument = await task.promise;
-      // Live may have taken ownership while this fetch was in flight. Never
-      // let a late pdf.js setDocument erase the stable fallback underneath
-      // the iframe; retain only the newest request for after Live is off.
-      if (loadSequence !== staticLoadSequence || liveSurfaceOwned) {
-        if (loadSequence === staticLoadSequence && liveSurfaceOwned) {
+      // Retain an existing fallback while Live owns the surface. The first
+      // static PDF must still load: activation can precede its fetch, and
+      // deferring it would leave the viewer empty until canonical arrives.
+      if (loadSequence !== staticLoadSequence || (liveSurfaceOwned && state.doc)) {
+        if (loadSequence === staticLoadSequence && liveSurfaceOwned && state.doc) {
           deferredStaticOpen = { url, path };
           reloadInFlight = false;
         }
@@ -1315,7 +1315,7 @@ const initPdfViewer = () => {
       }
       state.doc = nextDocument;
       state.pageCount = state.doc.numPages;
-      updatePageCount();
+      if (!isLive()) updatePageCount();
       if (titleEl) {
         titleEl.textContent = path ? path.split(/[\\/]/).slice(-1)[0] : "PDF";
       }
@@ -1344,7 +1344,7 @@ const initPdfViewer = () => {
     // A newer PDF open also supersedes a deferred post-Live fallback. Its
     // blob may already have been revoked when the viewer changed tabs.
     deferredStaticFlushToken += 1;
-    if (liveSurfaceOwned) {
+    if (liveSurfaceOwned && state.doc) {
       deferredStaticOpen = { url, path };
       return;
     }
