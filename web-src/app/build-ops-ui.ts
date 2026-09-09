@@ -9,6 +9,7 @@ import type {
 } from "./types.js";
 import type { EnvStatusSummary } from "./settings-env.js";
 import type { PdfSyncPayload } from "./viewer.js";
+import type { ContextMenuApi, ContextMenuItem } from "./context-menu.js";
 
 type EditorGroupKey = "primary" | "secondary";
 type SynctexForwardSource = "manual" | "auto-build" | "other";
@@ -68,6 +69,7 @@ type BuildOpsDeps = {
   getActiveGroup: () => EditorGroupState;
   getActiveEditorGroupKey: () => EditorGroupKey;
   getActiveFilePath: () => string | null;
+  getWorkspaceFiles: () => string[];
   getRootFilePath: () => string | null;
   getWorkspaceRootKey?: () => string | null;
   getLastBuildMainFile: () => string | null;
@@ -102,6 +104,7 @@ type BuildOpsDeps = {
   ) => boolean;
   getSplitViewEnabled: () => boolean;
   setSplitViewEnabled: (enabled: boolean) => void;
+  contextMenu: ContextMenuApi;
   settings: {
     getPdfViewerMode: () => "window" | "tab";
     getAutoSynctexOnBuildEnabled: () => boolean;
@@ -114,7 +117,7 @@ type BuildOpsDeps = {
 export type BuildOpsApi = {
   updateSynctexButtonState: () => void;
   setBuildState: (state: BuildState, message?: string) => void;
-  startBuild: () => void;
+  startBuild: (explicitTarget?: string) => void;
   requestFormatCurrentFile: (source: string) => void;
   handleFormatResult: (payload: {
     path: string;
@@ -532,7 +535,7 @@ export const initBuildOpsUi = (
     }
   };
 
-  const startBuild = async () => {
+  const cancelBuild = () => {
     if (preparingBuild) {
       preparingBuild = false;
       preparationGeneration += 1;
@@ -547,8 +550,13 @@ export const initBuildOpsUi = (
         renderBuildButtonProgress();
         deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
       }
-      return;
     }
+  };
+
+  const startBuild = async (explicitTarget?: string) => {
+    // File-selection actions may outlive the idle state in which their context
+    // menu opened. Only a normal button click is allowed to cancel a build.
+    if (preparingBuild || currentBuildState === "building") return;
 
     const runtimeSummary = deps.settings.getRuntimeStatusSummary();
     if (!runtimeSummary || !runtimeSummary.hasAnyResult) {
@@ -595,7 +603,9 @@ export const initBuildOpsUi = (
     const buildWorkspace = deps.getWorkspaceRootKey?.();
 
     const activePath = deps.getActiveFilePath();
-    const mainFile = (activePath && /\.tex$/i.test(activePath) ? activePath : null) ??
+    const exactTarget = explicitTarget ??
+      (activePath && /\.tex$/i.test(activePath) ? activePath : undefined);
+    const mainFile = exactTarget ??
       deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))?.currentFilePath ??
       deps.getLastBuildMainFile() ?? deps.getRootFilePath() ?? undefined;
 
@@ -618,12 +628,15 @@ export const initBuildOpsUi = (
     const payload: {
       type: string;
       mainFile?: string;
+      targetFile?: string;
       format?: boolean;
       formatSettings?: FormatSettingsPayload;
       engine?: string;
       pdfViewerMode?: "window" | "tab";
     } = { type: "build" };
-    if (mainFile) {
+    if (exactTarget) {
+      payload.targetFile = exactTarget;
+    } else if (mainFile) {
       payload.mainFile = mainFile;
     }
     if (engine) {
@@ -880,7 +893,35 @@ export const initBuildOpsUi = (
   const setupActionButtons = () => {
     if (buildButton instanceof HTMLButtonElement) {
       buildButton.addEventListener("click", () => {
-        startBuild();
+        if (preparingBuild || currentBuildState === "building") {
+          cancelBuild();
+          return;
+        }
+        void startBuild();
+      });
+      buildButton.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (preparingBuild || currentBuildState === "building") return;
+        const workspaceKey = deps.getWorkspaceRootKey?.() ?? null;
+        if (!workspaceKey) return;
+        const activePath = deps.getActiveFilePath();
+        const texFiles = [...new Set(
+          deps.getWorkspaceFiles().filter((path) => /\.tex$/i.test(path))
+        )].sort((left, right) => {
+          if (left === activePath) return -1;
+          if (right === activePath) return 1;
+          return left.localeCompare(right);
+        });
+        if (texFiles.length === 0) return;
+        const items: ContextMenuItem[] = texFiles.map((path) => ({
+          type: "action",
+          label: path,
+          action: () => {
+            if (deps.getWorkspaceRootKey?.() !== workspaceKey) return;
+            void startBuild(path);
+          },
+        }));
+        deps.contextMenu.open(event.clientX, event.clientY, items);
       });
     }
 

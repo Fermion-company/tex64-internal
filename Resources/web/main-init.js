@@ -862,6 +862,7 @@ export const initMain = () => {
             getActiveGroup: editorSession.getActiveGroup,
             getActiveEditorGroupKey: () => editorSession.getActiveEditorGroupKey(),
             getActiveFilePath: () => editorSession.getActiveFilePath(),
+            getWorkspaceFiles,
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
             getWorkspaceRootKey,
@@ -881,6 +882,7 @@ export const initMain = () => {
             requestOpenFile: editorSession.requestOpenFile,
             getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
             setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
+            contextMenu,
             settings: {
                 getPdfViewerMode: settingsUi.getPdfViewerMode,
                 getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,

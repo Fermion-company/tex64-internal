@@ -351,8 +351,7 @@ export const initBuildOpsUi = (context, deps) => {
             deps.updateIssues(0, message, "info", []);
         }
     };
-    const startBuild = async () => {
-        var _a, _b, _c, _d, _e, _f, _g;
+    const cancelBuild = () => {
         if (preparingBuild) {
             preparingBuild = false;
             preparationGeneration += 1;
@@ -367,8 +366,14 @@ export const initBuildOpsUi = (context, deps) => {
                 renderBuildButtonProgress();
                 deps.updateIssues(0, uiText("Canceling build...", "ビルドをキャンセルしています..."), "info", []);
             }
-            return;
         }
+    };
+    const startBuild = async (explicitTarget) => {
+        var _a, _b, _c, _d, _e, _f;
+        // File-selection actions may outlive the idle state in which their context
+        // menu opened. Only a normal button click is allowed to cancel a build.
+        if (preparingBuild || currentBuildState === "building")
+            return;
         const runtimeSummary = deps.settings.getRuntimeStatusSummary();
         if (!runtimeSummary || !runtimeSummary.hasAnyResult) {
             // Environment hasn't been checked yet — trigger an async check but
@@ -403,7 +408,8 @@ export const initBuildOpsUi = (context, deps) => {
         deps.cacheCurrentBuffer(deps.getActiveGroup());
         const buildWorkspace = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps);
         const activePath = deps.getActiveFilePath();
-        const mainFile = (_f = (_e = (_d = (_b = (activePath && /\.tex$/i.test(activePath) ? activePath : null)) !== null && _b !== void 0 ? _b : (_c = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _c === void 0 ? void 0 : _c.currentFilePath) !== null && _d !== void 0 ? _d : deps.getLastBuildMainFile()) !== null && _e !== void 0 ? _e : deps.getRootFilePath()) !== null && _f !== void 0 ? _f : undefined;
+        const exactTarget = explicitTarget !== null && explicitTarget !== void 0 ? explicitTarget : (activePath && /\.tex$/i.test(activePath) ? activePath : undefined);
+        const mainFile = (_e = (_d = (_c = exactTarget !== null && exactTarget !== void 0 ? exactTarget : (_b = deps.getEditorGroups().find((group) => group.currentFilePath && /\.tex$/i.test(group.currentFilePath))) === null || _b === void 0 ? void 0 : _b.currentFilePath) !== null && _c !== void 0 ? _c : deps.getLastBuildMainFile()) !== null && _d !== void 0 ? _d : deps.getRootFilePath()) !== null && _e !== void 0 ? _e : undefined;
         if (deps.saveDirtyFiles) {
             const generation = ++preparationGeneration;
             preparingBuild = true;
@@ -420,7 +426,7 @@ export const initBuildOpsUi = (context, deps) => {
                 setBuildState("failed");
                 return;
             }
-            if (buildWorkspace !== ((_g = deps.getWorkspaceRootKey) === null || _g === void 0 ? void 0 : _g.call(deps))) {
+            if (buildWorkspace !== ((_f = deps.getWorkspaceRootKey) === null || _f === void 0 ? void 0 : _f.call(deps))) {
                 setBuildState("idle");
                 return;
             }
@@ -428,7 +434,10 @@ export const initBuildOpsUi = (context, deps) => {
         deps.setLastBuildMainFile(mainFile !== null && mainFile !== void 0 ? mainFile : null);
         const engine = localStorage.getItem("tex64.compileEngine") || "lualatex";
         const payload = { type: "build" };
-        if (mainFile) {
+        if (exactTarget) {
+            payload.targetFile = exactTarget;
+        }
+        else if (mainFile) {
             payload.mainFile = mainFile;
         }
         if (engine) {
@@ -653,7 +662,41 @@ export const initBuildOpsUi = (context, deps) => {
     const setupActionButtons = () => {
         if (buildButton instanceof HTMLButtonElement) {
             buildButton.addEventListener("click", () => {
-                startBuild();
+                if (preparingBuild || currentBuildState === "building") {
+                    cancelBuild();
+                    return;
+                }
+                void startBuild();
+            });
+            buildButton.addEventListener("contextmenu", (event) => {
+                var _a, _b;
+                event.preventDefault();
+                if (preparingBuild || currentBuildState === "building")
+                    return;
+                const workspaceKey = (_b = (_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null;
+                if (!workspaceKey)
+                    return;
+                const activePath = deps.getActiveFilePath();
+                const texFiles = [...new Set(deps.getWorkspaceFiles().filter((path) => /\.tex$/i.test(path)))].sort((left, right) => {
+                    if (left === activePath)
+                        return -1;
+                    if (right === activePath)
+                        return 1;
+                    return left.localeCompare(right);
+                });
+                if (texFiles.length === 0)
+                    return;
+                const items = texFiles.map((path) => ({
+                    type: "action",
+                    label: path,
+                    action: () => {
+                        var _a;
+                        if (((_a = deps.getWorkspaceRootKey) === null || _a === void 0 ? void 0 : _a.call(deps)) !== workspaceKey)
+                            return;
+                        void startBuild(path);
+                    },
+                }));
+                deps.contextMenu.open(event.clientX, event.clientY, items);
             });
         }
         if (formatButton instanceof HTMLButtonElement) {
