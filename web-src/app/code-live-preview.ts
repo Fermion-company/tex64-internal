@@ -100,9 +100,10 @@ export const initCodeLivePreview = ({
       debouncedFocus();
       return;
     }
-    const offset = cursorOffset();
+    const source = currentProjectSource();
+    const offset = cursorOffset(source?.editor);
     if (offset == null) return;
-    void bridge.focus({ offset }).catch(() => {});
+    void bridge.focus({ offset, filePath: source?.path }).catch(() => {});
   };
   const debouncedFocus = createDebouncedTask(focusCurrent, 160);
 

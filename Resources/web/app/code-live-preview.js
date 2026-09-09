@@ -68,10 +68,11 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             debouncedFocus();
             return;
         }
-        const offset = cursorOffset();
+        const source = currentProjectSource();
+        const offset = cursorOffset(source === null || source === void 0 ? void 0 : source.editor);
         if (offset == null)
             return;
-        void bridge.focus({ offset }).catch(() => { });
+        void bridge.focus({ offset, filePath: source === null || source === void 0 ? void 0 : source.path }).catch(() => { });
     };
     const debouncedFocus = createDebouncedTask(focusCurrent, 160);
     // Flip the existing in-tab PDF surfaces into or out of live mode. The PDF
