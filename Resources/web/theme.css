@@ -4261,8 +4261,10 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   display: flex;
   align-items: stretch;
   gap: 0;
+  min-width: 0;
   padding: 0;
   min-height: 34px;
+  overflow: hidden;
   background: var(--panel);
   border-bottom: 1px solid var(--panel-border);
   position: relative;
