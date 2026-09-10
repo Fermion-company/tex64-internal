@@ -134,8 +134,18 @@ export const createViewer = (deps: ViewerDeps) => {
   let pendingPdfSync: PdfSyncPayload | null = null;
   // Real-time preview: when set, the pdf viewer swaps its page canvas for the
   // live engine frame (same chrome). Re-sent on every viewer "ready" so it
-  // survives the pdf iframe being torn down and recreated.
-  let livePreview: { url: string; generation: number; target: LivePreviewTarget } | null = null;
+  // survives the pdf iframe being torn down and recreated. `hold` keeps the
+  // same engine frame alive below a Build-owned static PDF; it is part of
+  // this state rather than a one-shot message so a viewer that becomes ready
+  // later still receives it. `expectedSrcRev` is the revision the engine
+  // accepted for the first change after that Build.
+  let livePreview: {
+    url: string;
+    generation: number;
+    target: LivePreviewTarget;
+    hold: boolean;
+    expectedSrcRev: number | null;
+  } | null = null;
   const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
 
   const matchingLivePreview = () => livePreview && pdfViewerPath &&
@@ -488,9 +498,16 @@ export const createViewer = (deps: ViewerDeps) => {
     postPdfMessage({ type: "sync", payload });
   };
 
-  const setLivePreview = (url: string | null, generation = 0, target: LivePreviewTarget | null = null) => {
-    const next = url && target ? { url, generation, target } : null;
+  const setLivePreview = (
+    url: string | null,
+    generation = 0,
+    target: LivePreviewTarget | null = null,
+    hold = false,
+    expectedSrcRev: number | null = null,
+  ) => {
+    const next = url && target ? { url, generation, target, hold, expectedSrcRev } : null;
     if (livePreview?.url === next?.url && livePreview?.generation === next?.generation &&
+        livePreview?.hold === next?.hold && livePreview?.expectedSrcRev === next?.expectedSrcRev &&
         livePreview?.target.workspaceRoot === next?.target.workspaceRoot &&
         livePreview?.target.pdfPath === next?.target.pdfPath) return;
     livePreview = next;

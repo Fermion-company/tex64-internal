@@ -48,9 +48,17 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let pendingPush = null;
     let pushing = false;
     let latestInputAtEpochMs = 0;
+    // Session and edit version a completed Build typeset. Dirty-only buffers
+    // cannot tell a saved edit from the Build's source, so edits are counted.
     let builtSnapshot = null;
     let sourceEditVersion = 0;
     let buildStartEditVersion = null;
+    let sourceRefreshPending = false;
+    let buildOwnsView = false;
+    let buildViewVersion = 0;
+    // Revision accepted for the first change after a Build; the viewer keeps the
+    // Build PDF until Live presents at least this revision.
+    let liveExpectedSrcRev = null;
     const cursorOffset = (editor) => {
         var _a, _b, _c, _d, _e, _f;
         if (editor === void 0) { editor = (_b = (_a = currentProjectSource()) === null || _a === void 0 ? void 0 : _a.editor) !== null && _b !== void 0 ? _b : null; }
@@ -59,7 +67,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         return Number.isFinite(Number(offset)) ? Number(offset) : null;
     };
     const focusCurrent = () => {
-        if (!active || builtSnapshot || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
+        if (!active || !engineStarted || !(bridge === null || bridge === void 0 ? void 0 : bridge.focus))
             return;
         // A character insertion moves the Monaco caret too. Let its 80ms source
         // push finish first; otherwise a speculative warm against the old source
@@ -77,10 +85,11 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     const debouncedFocus = createDebouncedTask(focusCurrent, 160);
     // Flip the existing in-tab PDF surfaces into or out of live mode. The PDF
     // frame keeps its ordinary toolbar and swaps only the page canvas for the
-    // embedded incremental renderer.
+    // embedded incremental renderer. While a completed Build owns the paper,
+    // the same frame is kept below that PDF instead of being recreated.
     const distributeLive = (url, generation = liveGeneration) => {
         for (const group of getEditorGroups()) {
-            group.viewer.setLivePreview(url, generation, liveTarget);
+            group.viewer.setLivePreview(url, generation, liveTarget, buildOwnsView, buildOwnsView ? null : liveExpectedSrcRev);
         }
     };
     const showLiveError = (message) => console.warn("[live-preview]", message);
@@ -113,19 +122,11 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                     buffers.set(snapshot.path, snapshot.content);
                 }
             }
-            const workspaceNormalized = workspaceRoot.replace(/\\/g, "/").replace(/\/$/, "");
-            const projectRelative = (value) => {
-                const normalized = value === null || value === void 0 ? void 0 : value.replace(/\\/g, "/").replace(/^\.\//, "");
-                return (normalized === null || normalized === void 0 ? void 0 : normalized.startsWith(`${workspaceNormalized}/`))
-                    ? normalized.slice(workspaceNormalized.length + 1)
-                    : normalized;
-            };
-            const rootInsideWorkspace = projectRelative(rootFile);
-            const currentRelative = projectRelative(current === null || current === void 0 ? void 0 : current.path);
-            // Keep the configured root exact even while it is clean. This also
-            // notices an external reload of main.tex; all non-root files remain
-            // dirty-only overlays and are never serialized just for a tab switch.
-            if (current && (current.group.isDirty || currentRelative === rootInsideWorkspace)) {
+            // Clean files come from the project snapshot on disk. Serializing the
+            // clean root only while its tab is active would turn a root/child tab
+            // switch into a source edit. External reloads explicitly call
+            // refreshSource below, which forces a same-session disk refresh.
+            if (current === null || current === void 0 ? void 0 : current.group.isDirty) {
                 buffers.set(current.path, (_c = (_b = (_a = current.editor).getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : "");
             }
             const sessionKey = `${workspaceRoot}\0${rootFile}`;
@@ -170,6 +171,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         pendingPush = null;
         queuedSessionKey = null;
         queuedBuffers.clear();
+        builtSnapshot = null;
+        buildOwnsView = false;
+        liveExpectedSrcRev = null;
         if (engineUrl || visibleSessionIsObsolete) {
             engineUrl = null;
             liveSessionKey = null;
@@ -197,12 +201,25 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 const isCurrent = active &&
                     snapshot.lifecycleVersion === lifecycleVersion &&
                     snapshot.pushVersion === latestPushVersion;
+                // The engine accepted a source that differs from the Build's. A newer
+                // queued push (such as the overlay removal after autosave) only moves
+                // it further, so an accepted release need not be the latest push.
+                const releasesBuild = active && snapshot.lifecycleVersion === lifecycleVersion &&
+                    buildOwnsView && snapshot.releaseBuildView === buildViewVersion;
+                if (releasesBuild) {
+                    builtSnapshot = null;
+                    buildOwnsView = false;
+                    liveExpectedSrcRev = Number.isInteger(result.srcRev) ? Number(result.srcRev) : null;
+                }
                 if (result.url && isCurrent) {
                     if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl)
                         liveGeneration += 1;
                     engineUrl = result.url;
                     liveSessionKey = snapshot.sessionKey;
                     liveTarget = snapshot.target;
+                    distributeLive(engineUrl, liveGeneration);
+                }
+                else if (releasesBuild && engineUrl) {
                     distributeLive(engineUrl, liveGeneration);
                 }
                 if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs)
@@ -244,12 +261,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         const snapshot = currentSnapshot();
         if (!snapshot)
             return;
-        if (builtSnapshot) {
-            if (snapshot.sessionKey === builtSnapshot.sessionKey && sameBuffers(snapshot.buffers, builtSnapshot.buffers))
-                return;
-            builtSnapshot = null;
-            snapshot.payload.fresh = true;
-        }
+        // A Build keeps the paper until the engine accepts a source that differs
+        // from the one it typeset; that push carries the release.
+        const changedSinceBuild = Boolean(builtSnapshot) && (sourceRefreshPending ||
+            snapshot.sessionKey !== (builtSnapshot === null || builtSnapshot === void 0 ? void 0 : builtSnapshot.sessionKey) || sourceEditVersion !== (builtSnapshot === null || builtSnapshot === void 0 ? void 0 : builtSnapshot.editVersion));
         retireObsoleteSession(snapshot.sessionKey);
         // Never push mid-IME-composition: the buffer is transient and a typeset
         // per composition keystroke is wasted work. Try again after the debounce.
@@ -257,14 +272,17 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             debouncedPush();
             return;
         }
-        if (snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers))
+        if (!sourceRefreshPending &&
+            snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers))
             return;
         queuedSessionKey = snapshot.sessionKey;
         queuedBuffers = new Map(snapshot.buffers);
+        sourceRefreshPending = false;
         pendingPush = {
             ...snapshot,
             pushVersion: ++latestPushVersion,
             lifecycleVersion,
+            releaseBuildView: changedSinceBuild ? buildViewVersion : null,
         };
         void drainPushes();
     };
@@ -340,10 +358,13 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         boundPath = null;
         queuedSessionKey = null;
         queuedBuffers.clear();
+        sourceRefreshPending = false;
         pendingPush = null;
         engineStarted = false;
         engineUrl = null;
         liveSessionKey = null;
+        buildOwnsView = false;
+        liveExpectedSrcRev = null;
         liveGeneration += 1;
         distributeLive(null);
     };
@@ -375,7 +396,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             const snapshot = currentSnapshot();
             if (snapshot)
                 retireObsoleteSession(snapshot.sessionKey);
-            if (snapshot && (snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers)))
+            if (snapshot && (sourceRefreshPending || snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers)))
                 debouncedPush();
             if (engineUrl)
                 distributeLive(engineUrl);
@@ -387,7 +408,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (!active)
             return;
         sourceEditVersion += 1;
-        builtSnapshot = null;
+        sourceRefreshPending = true;
         latestInputAtEpochMs = Date.now();
         debouncedPush();
     };
@@ -420,21 +441,20 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         if (detail.state !== "success")
             return;
         detail.sourceChanged = sourceChanged;
-        // A completed Build owns the paper. Retire late live responses and let
-        // the PDF frame load its deferred build output. The next source change
-        // opens a fresh engine generation, so old canonical ink cannot win back.
-        builtSnapshot = sourceChanged ? null : currentSnapshot();
-        latestPushVersion += 1;
-        pendingPush = null;
-        debouncedPush.cancel();
-        debouncedFocus.cancel();
-        queuedSessionKey = null;
-        queuedBuffers.clear();
-        engineUrl = null;
-        liveSessionKey = null;
-        liveGeneration += 1;
-        distributeLive(null);
-        if (sourceChanged)
+        // A completed Build owns the paper only while this exact source remains
+        // current. The engine keeps its accepted source, document generation and
+        // warm checkpoints, so the next edit stays on /edit. Ownership travels
+        // with the Live state: a PDF tab this Build has just opened applies it
+        // once its viewer is ready, and late responses redistribute it unchanged.
+        const built = sourceChanged ? null : currentSnapshot();
+        builtSnapshot = built ? { sessionKey: built.sessionKey, editVersion: sourceEditVersion } : null;
+        buildOwnsView = Boolean(builtSnapshot);
+        if (buildOwnsView)
+            buildViewVersion += 1;
+        liveExpectedSrcRev = null;
+        if (engineUrl)
+            distributeLive(engineUrl);
+        if (!buildOwnsView)
             debouncedPush();
     });
     // History owns the writer barrier and main-process shutdown. Retire the
@@ -469,6 +489,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 engineStarted = false;
                 engineUrl = null;
                 liveSessionKey = null;
+                buildOwnsView = false;
+                liveExpectedSrcRev = null;
                 // Force the recovered URL through even when the OS gives the new
                 // process the same port as the dead one.
                 liveGeneration += 1;

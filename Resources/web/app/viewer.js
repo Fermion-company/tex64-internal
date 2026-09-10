@@ -47,7 +47,11 @@ export const createViewer = (deps) => {
     let pendingPdfSync = null;
     // Real-time preview: when set, the pdf viewer swaps its page canvas for the
     // live engine frame (same chrome). Re-sent on every viewer "ready" so it
-    // survives the pdf iframe being torn down and recreated.
+    // survives the pdf iframe being torn down and recreated. `hold` keeps the
+    // same engine frame alive below a Build-owned static PDF; it is part of
+    // this state rather than a one-shot message so a viewer that becomes ready
+    // later still receives it. `expectedSrcRev` is the revision the engine
+    // accepted for the first change after that Build.
     let livePreview = null;
     const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
     const matchingLivePreview = () => livePreview && pdfViewerPath &&
@@ -383,9 +387,10 @@ export const createViewer = (deps) => {
         }
         postPdfMessage({ type: "sync", payload });
     };
-    const setLivePreview = (url, generation = 0, target = null) => {
-        const next = url && target ? { url, generation, target } : null;
+    const setLivePreview = (url, generation = 0, target = null, hold = false, expectedSrcRev = null) => {
+        const next = url && target ? { url, generation, target, hold, expectedSrcRev } : null;
         if ((livePreview === null || livePreview === void 0 ? void 0 : livePreview.url) === (next === null || next === void 0 ? void 0 : next.url) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.generation) === (next === null || next === void 0 ? void 0 : next.generation) &&
+            (livePreview === null || livePreview === void 0 ? void 0 : livePreview.hold) === (next === null || next === void 0 ? void 0 : next.hold) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.expectedSrcRev) === (next === null || next === void 0 ? void 0 : next.expectedSrcRev) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.workspaceRoot) === (next === null || next === void 0 ? void 0 : next.target.workspaceRoot) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.pdfPath) === (next === null || next === void 0 ? void 0 : next.target.pdfPath))
             return;

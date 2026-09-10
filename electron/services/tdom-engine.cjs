@@ -460,7 +460,7 @@ class TdomEngineService {
     }
     const fullOverlays = [...snapshot.overlays].map(([filePath, text]) => ({ filePath, text }));
     try {
-      await requestJson(`${this.url}/open`, {
+      const opened = await requestJson(`${this.url}/open`, {
         method: "POST",
         body: {
           text: snapshot.source,
@@ -472,6 +472,7 @@ class TdomEngineService {
         timeoutMs: this.documentOpenTimeoutMs,
       });
       if (this.pendingOpenRequest === pending) this.pendingOpenRequest = null;
+      return opened;
     } catch (error) {
       // A timeout/socket failure does not prove the server abandoned the
       // request. Keep its id so an identical retry joins that exact open.
@@ -540,6 +541,9 @@ class TdomEngineService {
     const run = async () => {
       await this.start();
       const snapshot = this.resolvePushSnapshot(payload);
+      // Source revision the engine accepted for this snapshot; the renderer
+      // keeps a Build-owned PDF until Live presents at least this revision.
+      let acceptedSrcRev = null;
       const editTimeout = this.startTimeoutMs;
       const normalizedPath = snapshot.filePath;
       const pathChanged = normalizedPath !== this.lastPath;
@@ -551,7 +555,7 @@ class TdomEngineService {
         this.lastSource === null ||
         this.pendingOpenRequest !== null
       ) {
-        await this.openDocument(snapshot);
+        acceptedSrcRev = (await this.openDocument(snapshot))?.report?.srcRev;
         this.lastSource = snapshot.source;
         this.lastPath = normalizedPath;
         this.lastProjectRoot = snapshot.projectRoot;
@@ -571,7 +575,7 @@ class TdomEngineService {
         }
         const edit = sourceChanged ? diffEdit(this.lastSource, snapshot.source) : { start: 0, end: 0, text: "" };
         try {
-          await requestJson(`${this.url}/edit`, {
+          acceptedSrcRev = (await requestJson(`${this.url}/edit`, {
             method: "POST",
             body: {
               ...edit,
@@ -582,7 +586,7 @@ class TdomEngineService {
               ...(removeOverlays.length ? { removeOverlays } : {}),
             },
             timeoutMs: editTimeout,
-          });
+          }))?.srcRev;
           this.lastSource = snapshot.source;
           this.lastOverlays = new Map(snapshot.overlays);
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
@@ -592,7 +596,7 @@ class TdomEngineService {
           // The edit outcome is not trusted, so this is a deliberate resync,
           // distinct from retrying any earlier timed-out open.
           this.pendingOpenRequest = null;
-          await this.openDocument(snapshot);
+          acceptedSrcRev = (await this.openDocument(snapshot))?.report?.srcRev;
           this.lastSource = snapshot.source;
           this.lastPath = normalizedPath;
           this.lastProjectRoot = snapshot.projectRoot;
@@ -601,7 +605,7 @@ class TdomEngineService {
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
         }
       }
-      return { ok: true, url: this.url };
+      return { ok: true, url: this.url, ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
     };
     const result = this.pushQueue.then(run, run);
     this.pushQueue = result.then(() => undefined, () => undefined);

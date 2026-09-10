@@ -387,7 +387,7 @@ export type TdomBridge = {
     rootFile?: string;
     buffers?: Array<{ path: string; text: string }>;
     clientEditAtEpochMs?: number;
-  }) => Promise<{ ok: boolean; url?: string; error?: string }>;
+  }) => Promise<{ ok: boolean; url?: string; srcRev?: number; error?: string }>;
   focus?: (payload: { offset: number; filePath?: string }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
   snapshot?: (payload: { afterDocumentEpoch?: number; afterGeneration?: number }) => Promise<{
     ok: boolean;
