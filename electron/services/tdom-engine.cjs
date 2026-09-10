@@ -12,6 +12,7 @@
 // as the packaged-app fallback.
 
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
@@ -26,6 +27,9 @@ const DEFAULT_PORT = 4646;
 // First boot compiles the fork shim with cc and boots a resident lualatex —
 // noticeably slower than a plain HTTP server coming up.
 const DEFAULT_START_TIMEOUT_MS = 90_000;
+// Opening a real document includes its first canonical LuaLaTeX build. Large
+// projects legitimately take several minutes, independently of process boot.
+const DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS = 10 * 60 * 1000;
 const ENGINE_NAME = "tdom-engine";
 const LEGACY_ENGINE_NAME = "tdom-core";
 const MARKER = "server.js";
@@ -59,16 +63,30 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
       headers: payload ? { "Content-Type": "application/json", "Content-Length": payload.length } : {},
     }, (res) => {
       const chunks = [];
+      // A peer can disappear after sending headers but before a complete JSON
+      // body. Surface that as an uncertain transport failure so an /open
+      // retry can reuse its logical request id.
+      res.on("error", reject);
       res.on("data", (chunk) => chunks.push(chunk));
       res.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         if ((res.statusCode || 500) >= 400) {
-          return reject(new Error(`tdom request failed (${res.statusCode}): ${text}`));
+          const error = new Error(`tdom request failed (${res.statusCode}): ${text}`);
+          error.code = "TDOM_HTTP_ERROR";
+          return reject(error);
         }
-        try { resolve(JSON.parse(text)); } catch { reject(new Error("tdom returned invalid JSON")); }
+        try { resolve(JSON.parse(text)); } catch {
+          const error = new Error("tdom returned invalid JSON");
+          error.code = "TDOM_INVALID_JSON";
+          reject(error);
+        }
       });
     });
-    req.setTimeout(timeoutMs, () => req.destroy(new Error("tdom request timed out")));
+    req.setTimeout(timeoutMs, () => {
+      const error = new Error("tdom request timed out");
+      error.code = "TDOM_REQUEST_TIMEOUT";
+      req.destroy(error);
+    });
     req.on("error", reject);
     if (payload) req.write(payload);
     req.end();
@@ -131,6 +149,30 @@ const isWithin = (root, candidate) => {
   return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
 };
 
+const openSnapshotSignature = (snapshot) => {
+  const hash = crypto.createHash("sha256");
+  const add = (value) => {
+    const text = value == null ? "" : String(value);
+    hash.update(String(Buffer.byteLength(text, "utf8")));
+    hash.update(":");
+    hash.update(text);
+    hash.update(";");
+  };
+  add(snapshot.source);
+  add(snapshot.filePath);
+  add(snapshot.projectRoot);
+  const overlays = [...snapshot.overlays].sort(([left], [right]) => left.localeCompare(right));
+  add(overlays.length);
+  for (const [filePath, text] of overlays) {
+    add(filePath);
+    add(text);
+  }
+  return hash.digest("hex");
+};
+
+const openFailureIsDefinitive = (error) =>
+  error?.code === "TDOM_HTTP_ERROR" || error?.code === "TDOM_INVALID_JSON";
+
 class TdomEngineService {
   constructor(options = {}) {
     const envDir = typeof process.env.TDOM_ENGINE_DIR === "string" && process.env.TDOM_ENGINE_DIR.trim()
@@ -167,6 +209,7 @@ class TdomEngineService {
     this.homeDir = options.homeDir || os.homedir();
     this.preferredPort = options.port ?? DEFAULT_PORT;
     this.startTimeoutMs = options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
+    this.documentOpenTimeoutMs = options.documentOpenTimeoutMs ?? DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? 150;
     this.spawnImpl = options.spawnImpl || spawn;
     this.existsSync = pathExists;
@@ -187,6 +230,7 @@ class TdomEngineService {
     this.lastOverlays = new Map();
     this.lastRootMtimeMs = null;
     this.pushQueue = Promise.resolve();
+    this.pendingOpenRequest = null;
   }
 
   resolveDirectory() {
@@ -403,7 +447,41 @@ class TdomEngineService {
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;
+    this.pendingOpenRequest = null;
     this.lastError = error?.message || null;
+  }
+
+  async openDocument(snapshot) {
+    const signature = openSnapshotSignature(snapshot);
+    let pending = this.pendingOpenRequest;
+    if (!pending || pending.signature !== signature) {
+      pending = { signature, requestId: crypto.randomUUID() };
+      this.pendingOpenRequest = pending;
+    }
+    const fullOverlays = [...snapshot.overlays].map(([filePath, text]) => ({ filePath, text }));
+    try {
+      await requestJson(`${this.url}/open`, {
+        method: "POST",
+        body: {
+          text: snapshot.source,
+          ...(snapshot.filePath ? { filePath: snapshot.filePath } : {}),
+          ...(snapshot.projectRoot ? { projectRoot: snapshot.projectRoot } : {}),
+          ...(fullOverlays.length ? { overlays: fullOverlays } : {}),
+          openRequestId: pending.requestId,
+        },
+        timeoutMs: this.documentOpenTimeoutMs,
+      });
+      if (this.pendingOpenRequest === pending) this.pendingOpenRequest = null;
+    } catch (error) {
+      // A timeout/socket failure does not prove the server abandoned the
+      // request. Keep its id so an identical retry joins that exact open.
+      // Completed HTTP errors and malformed responses are definitive; a later
+      // attempt is a new logical operation.
+      if (this.pendingOpenRequest === pending && openFailureIsDefinitive(error)) {
+        this.pendingOpenRequest = null;
+      }
+      throw error;
+    }
   }
 
   // Push the configured root plus dirty project buffers. The service turns
@@ -462,22 +540,18 @@ class TdomEngineService {
     const run = async () => {
       await this.start();
       const snapshot = this.resolvePushSnapshot(payload);
-      const openTimeout = this.startTimeoutMs;
+      const editTimeout = this.startTimeoutMs;
       const normalizedPath = snapshot.filePath;
       const pathChanged = normalizedPath !== this.lastPath;
       const sessionChanged = snapshot.sessionKey !== this.lastSessionKey;
-      const fullOverlays = [...snapshot.overlays].map(([filePath, text]) => ({ filePath, text }));
-      if (snapshot.fresh || pathChanged || sessionChanged || this.lastSource === null) {
-        await requestJson(`${this.url}/open`, {
-          method: "POST",
-          body: {
-            text: snapshot.source,
-            ...(normalizedPath ? { filePath: normalizedPath } : {}),
-            ...(snapshot.projectRoot ? { projectRoot: snapshot.projectRoot } : {}),
-            ...(fullOverlays.length ? { overlays: fullOverlays } : {}),
-          },
-          timeoutMs: openTimeout,
-        });
+      if (
+        snapshot.fresh ||
+        pathChanged ||
+        sessionChanged ||
+        this.lastSource === null ||
+        this.pendingOpenRequest !== null
+      ) {
+        await this.openDocument(snapshot);
         this.lastSource = snapshot.source;
         this.lastPath = normalizedPath;
         this.lastProjectRoot = snapshot.projectRoot;
@@ -507,7 +581,7 @@ class TdomEngineService {
               ...(overlays.length ? { overlays } : {}),
               ...(removeOverlays.length ? { removeOverlays } : {}),
             },
-            timeoutMs: openTimeout,
+            timeoutMs: editTimeout,
           });
           this.lastSource = snapshot.source;
           this.lastOverlays = new Map(snapshot.overlays);
@@ -515,16 +589,10 @@ class TdomEngineService {
         } catch (error) {
           // Engine and service disagree about the source (restart, external
           // change) — resync with a fresh open rather than compounding.
-          await requestJson(`${this.url}/open`, {
-            method: "POST",
-            body: {
-              text: snapshot.source,
-              ...(normalizedPath ? { filePath: normalizedPath } : {}),
-              ...(snapshot.projectRoot ? { projectRoot: snapshot.projectRoot } : {}),
-              ...(fullOverlays.length ? { overlays: fullOverlays } : {}),
-            },
-            timeoutMs: openTimeout,
-          });
+          // The edit outcome is not trusted, so this is a deliberate resync,
+          // distinct from retrying any earlier timed-out open.
+          this.pendingOpenRequest = null;
+          await this.openDocument(snapshot);
           this.lastSource = snapshot.source;
           this.lastPath = normalizedPath;
           this.lastProjectRoot = snapshot.projectRoot;
@@ -614,6 +682,7 @@ class TdomEngineService {
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;
+    this.pendingOpenRequest = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
     return { ok: true };
   }
@@ -621,4 +690,9 @@ class TdomEngineService {
   shutdown() { return this.stop(); }
 }
 
-module.exports = { TdomEngineService, DEFAULT_PORT, diffEdit };
+module.exports = {
+  TdomEngineService,
+  DEFAULT_PORT,
+  DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS,
+  diffEdit,
+};
