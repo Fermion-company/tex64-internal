@@ -489,7 +489,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 engineStarted = false;
                 engineUrl = null;
                 liveSessionKey = null;
-                buildOwnsView = false;
+                // A restart is not a source change: a Build that still matches the
+                // source keeps the paper, and the recovered frame arrives held. An
+                // edit made meanwhile releases it through the accepted push as usual.
                 liveExpectedSrcRev = null;
                 // Force the recovered URL through even when the OS gives the new
                 // process the same port as the dead one.
