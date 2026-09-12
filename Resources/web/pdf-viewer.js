@@ -1453,6 +1453,9 @@ const initPdfViewer = () => {
       state.pendingRestore = null;
       restoreScrollPosition(target);
     }
+    // Live can start before the first static fallback finishes loading. Seed
+    // its viewport handoff after pdf.js has real pages and a scroll position.
+    scheduleHeldMirror();
   });
 
   eventBus.on("pagerendered", () => {
@@ -1862,7 +1865,7 @@ const initPdfViewer = () => {
   const viewportHandoff = (sync) => ({
     sync: { ...sync, viewportToken: `${liveActivation?.id ?? "live"}:${++liveViewportTokenSequence}` },
   });
-  const followsStaticViewport = () => isLiveHeld() || (isLivePending() && Boolean(liveViewportHandoff));
+  const followsStaticViewport = () => isLiveHeld() || isLivePending();
   const mirrorStaticViewportToHeldLive = () => {
     clearTimeout(heldMirrorTimer);
     heldMirrorTimer = null;
@@ -1932,23 +1935,42 @@ const initPdfViewer = () => {
   // paper point on page N leaves N or a page or two above it at the top,
   // while an unmoved frame is still at its first page.
   const LIVE_HANDOFF_PAGE_SLACK = 2;
+  const livePaperHasAuthoritativePageCount = (data) => {
+    if (data?.presentationPending !== false) return false;
+    const expected = liveActivation?.expectedSrcRev;
+    return Number.isInteger(expected)
+      ? Number(data.srcRev) >= expected
+      : data?.ready === true;
+  };
+  const resolveLiveViewportTarget = (sync, data) => {
+    const desired = Math.max(1, Number(sync?.page) || 1);
+    const pageCount = Math.max(0, Number(data?.pageCount) || 0);
+    if (pageCount >= desired) return desired;
+    // A cold or rebuilding frame can temporarily expose only its first few
+    // pages. Keep the static viewport request intact until those pages exist.
+    // Only a complete paper may establish that the requested page was really
+    // removed and should therefore resolve to its new final page.
+    if (pageCount > 0 && livePaperHasAuthoritativePageCount(data)) return pageCount;
+    return null;
+  };
   const liveViewportPositioned = (data) => {
     const handoff = liveViewportHandoff;
     if (!handoff) return true;
-    const pageCount = Math.max(1, Number(data.pageCount) || 1);
-    const target = Math.max(1, Math.min(pageCount, Number(handoff.sync.page) || 1));
-    if (handoff.sync.page !== target) handoff.sync = { ...handoff.sync, page: target };
+    const target = resolveLiveViewportTarget(handoff.sync, data);
+    if (!target) return false;
     const page = Number(data.page);
-    const confirmed = "viewportToken" in data
+    const pageConfirmed = page <= target && page >= target - LIVE_HANDOFF_PAGE_SLACK;
+    const tokenConfirmed = "viewportToken" in data
       ? data.viewportToken === handoff.sync.viewportToken
-      : page <= target && page >= target - LIVE_HANDOFF_PAGE_SLACK;
+      : true;
+    const confirmed = livePaperPresentable(data) && tokenConfirmed && pageConfirmed;
     if (confirmed) {
       liveViewportHandoff = null;
       return true;
     }
-    // Until the frame confirms, the static PDF stays up; re-send on every
-    // snapshot in case the frame had no page to scroll to yet.
-    postLive("goto-sync", handoff.sync);
+    // Once the target exists, retry on snapshots until both its location and
+    // token are confirmed. An unavailable target is left quiet above.
+    postLive("goto-sync", { ...handoff.sync, page: target });
     return false;
   };
   // After a Build the frame may only replace its PDF once it has applied the
@@ -1969,8 +1991,8 @@ const initPdfViewer = () => {
     if (heldMirrorTimer) return;
     const sync = captureStaticViewportSync();
     if (!sync) return;
-    const pageCount = Math.max(1, Number(data.pageCount) || 1);
-    const target = Math.max(1, Math.min(pageCount, sync.page));
+    const target = resolveLiveViewportTarget(sync, data);
+    if (!target) return;
     const page = Number(data.page);
     if (page <= target && page >= target - LIVE_HANDOFF_PAGE_SLACK) return;
     postLive("goto-sync", { ...sync, page: target });
@@ -2105,7 +2127,7 @@ const initPdfViewer = () => {
       generation,
       documentEpoch: null,
       pendingDocumentEpoch: null,
-      expectedSrcRev: null,
+      expectedSrcRev: hold ? null : expectedSrcRev,
       reveal: null,
     };
     liveToolbar = normalizeLiveToolbarSnapshot();
