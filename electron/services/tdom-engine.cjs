@@ -31,6 +31,7 @@ const DEFAULT_START_TIMEOUT_MS = 90_000;
 // projects legitimately take several minutes, independently of process boot.
 const DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_BUILD_LEASE_TTL_MS = 11 * 60 * 1000;
+const CANONICAL_BUILD_ADOPTION_TTL_MS = 15 * 60 * 1000;
 const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 10 * 60 * 1000;
 const BUILD_LEASE_REQUEST_TIMEOUT_MS = 2_000;
 const ENGINE_NAME = "tdom-engine";
@@ -234,9 +235,15 @@ class TdomEngineService {
     this.lastSessionKey = null;
     this.lastOverlays = new Map();
     this.lastRootMtimeMs = null;
+    this.lastAcceptedSrcRev = null;
+    // Exact queued snapshot objects only. A source/hash key could outlive its
+    // original push and incorrectly acknowledge a later identical root after
+    // an unrecorded child input changed.
+    this.fulfilledBuildOpenAcks = new WeakMap();
     this.pushQueue = Promise.resolve();
     this.pendingOpenRequest = null;
     this.activeBuildLease = null;
+    this.pendingCanonicalBuilds = new Map();
   }
 
   resolveDirectory() {
@@ -427,12 +434,171 @@ class TdomEngineService {
     return {
       requestId: lease.requestId,
       bound: lease.response?.bound === true,
+      adopt: (candidate, snapshot = null) => {
+        if (snapshot) lease.pendingSnapshot = snapshot;
+        return this.adoptCanonicalBuild(lease, candidate);
+      },
       release: async () => {
         if (released) return;
         released = true;
         await this.releaseBuildLease(lease);
       },
     };
+  }
+
+  canonicalBuildKey(projectRoot, mainFile) {
+    if (typeof projectRoot !== "string" || !path.isAbsolute(projectRoot) ||
+        typeof mainFile !== "string" || !mainFile.trim()) return null;
+    return `${path.resolve(projectRoot)}\0${mainFile.trim().split(path.sep).join("/")}`;
+  }
+
+  rememberCanonicalBuild(lease, candidate) {
+    const key = this.canonicalBuildKey(lease?.projectRoot, lease?.mainFile);
+    if (key && candidate?.schemaVersion === 1) this.pendingCanonicalBuilds.set(key, candidate);
+    return key;
+  }
+
+  loadRememberedCanonicalBuild(projectRoot, mainFile) {
+    const key = this.canonicalBuildKey(projectRoot, mainFile);
+    if (!key) return null;
+    // The engine's system-input stability assumption is scoped to one app /
+    // engine lifetime. Disk generations remain static last-good across a
+    // restart until an engine/toolchain fingerprint is part of the contract.
+    return this.pendingCanonicalBuilds.get(key) ?? null;
+  }
+
+  async renewCanonicalBuildLease(lease) {
+    if (!lease?.token || !this.isRunning() || this.state !== "ready" || !this.url) {
+      return { ok: false, renewed: false, reason: "build-lease-unavailable" };
+    }
+    try {
+      return await requestJson(`${this.url}/canonical/build-lease/renew`, {
+        method: "POST",
+        body: { requestId: lease.requestId, token: lease.token, ttlMs: 900_000 },
+        timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        renewed: false,
+        reason: error?.response?.reason || error?.code || "build-lease-renew-failed",
+      };
+    }
+  }
+
+  extendLocalBuildLeaseForAdoption(lease) {
+    if (!lease || lease.released || this.activeBuildLease !== lease) return false;
+    clearTimeout(lease.expiryTimer);
+    lease.expiresAt = Date.now() + CANONICAL_BUILD_ADOPTION_TTL_MS;
+    lease.expiryTimer = setTimeout(() => {
+      void this.releaseBuildLease(lease);
+    }, CANONICAL_BUILD_ADOPTION_TTL_MS);
+    lease.expiryTimer.unref?.();
+    return true;
+  }
+
+  rememberOpenedSnapshot(snapshot, acceptedSrcRev = null) {
+    this.lastSource = snapshot.source;
+    this.lastPath = snapshot.filePath;
+    this.lastProjectRoot = snapshot.projectRoot;
+    this.lastSessionKey = snapshot.sessionKey;
+    this.lastOverlays = new Map(snapshot.overlays);
+    this.lastRootMtimeMs = snapshot.rootMtimeMs;
+    this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
+  }
+
+  consumeFulfilledBuildOpen(snapshot) {
+    if (!this.fulfilledBuildOpenAcks.has(snapshot)) return null;
+    const srcRev = this.fulfilledBuildOpenAcks.get(snapshot);
+    this.fulfilledBuildOpenAcks.delete(snapshot);
+    return { fulfilled: true, srcRev };
+  }
+
+  async openAfterBuildLease(snapshot) {
+    return this.runOutsideBuildLease(async () => {
+      // Waiting for the lease may itself have opened this exact snapshot with
+      // the successful Build candidate. Acknowledge that one operation rather
+      // than starting a second /open which would replace the adopted paper.
+      const fulfilled = this.consumeFulfilledBuildOpen(snapshot);
+      if (fulfilled) return fulfilled;
+      const opened = await this.openDocument(snapshot);
+      return { fulfilled: false, opened, srcRev: opened?.report?.srcRev };
+    });
+  }
+
+  async adoptCanonicalBuild(lease, candidate) {
+    const key = this.rememberCanonicalBuild(lease, candidate);
+    if (!key || lease?.released || this.activeBuildLease !== lease) {
+      return { adopted: false, reason: "build-lease-unavailable" };
+    }
+    // A successful Build can finish near the original 11-minute watchdog.
+    // Give a cold process enough local ownership to boot, acquire its remote
+    // lease and perform the required 15-minute renewal before /open.
+    this.extendLocalBuildLeaseForAdoption(lease);
+    const snapshot = lease.pendingSnapshot ?? null;
+    const sameActiveDocument = this.isRunning() && this.state === "ready" &&
+      lease.response?.bound === true && lease.response?.identity &&
+      this.lastProjectRoot === lease.projectRoot &&
+      this.lastPath === path.resolve(lease.projectRoot, lease.mainFile);
+    // Realtime is off when there is neither a resident document nor a queued
+    // cold open. Keep the immutable candidate for a later push without
+    // starting TeX merely because manual Build completed.
+    if (!sameActiveDocument && !snapshot) {
+      return { adopted: false, deferred: true, reason: "live-preview-not-requested" };
+    }
+    if (!this.isRunning() || this.state !== "ready") {
+      await this.start(lease);
+    }
+    await this.applyActiveBuildLease();
+    if (!lease.token) return { adopted: false, reason: "build-lease-not-supported" };
+    const renewed = await this.renewCanonicalBuildLease(lease);
+    if (renewed?.ok !== true || renewed?.renewed !== true) {
+      return { adopted: false, reason: renewed?.reason || "build-lease-renew-failed" };
+    }
+    const canonicalBuild = {
+      ...candidate,
+      requestId: lease.requestId,
+      token: lease.token,
+    };
+    let response;
+    if (sameActiveDocument) {
+      try {
+        response = await requestJson(`${this.url}/canonical/build-import`, {
+          method: "POST",
+          body: { identity: lease.response.identity, canonicalBuild },
+          timeoutMs: this.documentOpenTimeoutMs,
+        });
+      } catch (error) {
+        response = error?.response ?? {
+          ok: false,
+          adopted: false,
+          reason: error?.code || "build-import-failed",
+        };
+      }
+    } else {
+      try {
+        const opened = await this.openDocument(snapshot, { canonicalBuild });
+        const acceptedSrcRev = Number.isInteger(opened?.report?.srcRev)
+          ? opened.report.srcRev
+          : Number.isInteger(opened?.canonicalBuild?.rev) ? opened.canonicalBuild.rev : null;
+        this.rememberOpenedSnapshot(snapshot, acceptedSrcRev);
+        this.fulfilledBuildOpenAcks.set(snapshot, acceptedSrcRev);
+        response = { opened: true,
+          ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}),
+          ...(opened?.canonicalBuild ?? {
+          adopted: false,
+          reason: "build-import-status-missing",
+        }) };
+      } catch (error) {
+        response = error?.response ?? {
+          ok: false,
+          adopted: false,
+          reason: error?.code || "build-open-import-failed",
+        };
+      }
+    }
+    this.pendingCanonicalBuilds.delete(key);
+    return response;
   }
 
   async releaseBuildLease(lease) {
@@ -476,9 +642,10 @@ class TdomEngineService {
     }
   }
 
-  async start() {
+  async start(buildLeaseOwner = null) {
     if (this.isRunning() && this.state === "ready") return { ok: true, url: this.url };
-    if (this.activeBuildLease && !this.activeBuildLease.released) {
+    if (this.activeBuildLease && !this.activeBuildLease.released &&
+        this.activeBuildLease !== buildLeaseOwner) {
       return this.runOutsideBuildLease(() => this.start());
     }
     if (this.startPromise) return this.startPromise;
@@ -658,12 +825,17 @@ class TdomEngineService {
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;
+    this.lastAcceptedSrcRev = null;
+    this.fulfilledBuildOpenAcks = new WeakMap();
+    this.pendingCanonicalBuilds.clear();
     this.pendingOpenRequest = null;
     this.lastError = error?.message || null;
   }
 
-  async openDocument(snapshot) {
-    const signature = openSnapshotSignature(snapshot);
+  async openDocument(snapshot, { canonicalBuild = null } = {}) {
+    const signature = openSnapshotSignature(snapshot) + (canonicalBuild
+      ? `:${canonicalBuild.requestId}:${canonicalBuild.artifacts?.pdf?.sha256 ?? ""}`
+      : "");
     let pending = this.pendingOpenRequest;
     if (!pending || pending.signature !== signature) {
       pending = { signature, requestId: crypto.randomUUID() };
@@ -678,6 +850,7 @@ class TdomEngineService {
           ...(snapshot.filePath ? { filePath: snapshot.filePath } : {}),
           ...(snapshot.projectRoot ? { projectRoot: snapshot.projectRoot } : {}),
           ...(fullOverlays.length ? { overlays: fullOverlays } : {}),
+          ...(canonicalBuild ? { canonicalBuild } : {}),
           openRequestId: pending.requestId,
         },
         timeoutMs: this.documentOpenTimeoutMs,
@@ -749,7 +922,54 @@ class TdomEngineService {
   }
 
   push(payload = {}) {
+    const snapshot = this.resolvePushSnapshot(payload);
+    const normalizedPath = snapshot.filePath;
+    const pathChanged = normalizedPath !== this.lastPath;
+    const sessionChanged = snapshot.sessionKey !== this.lastSessionKey;
+    const requiresOpen = snapshot.fresh || pathChanged || sessionChanged ||
+      this.lastSource === null || this.pendingOpenRequest !== null;
+    const mainFile = snapshot.projectRoot && snapshot.filePath
+      ? path.relative(snapshot.projectRoot, snapshot.filePath).split(path.sep).join("/")
+      : null;
+    const candidateKey = this.canonicalBuildKey(snapshot.projectRoot, mainFile);
+    const activeLease = this.activeBuildLease;
+    if (requiresOpen && activeLease && !activeLease.released &&
+        this.canonicalBuildKey(activeLease.projectRoot, activeLease.mainFile) === candidateKey) {
+      // pushQueue preserves invocation order. Let Build satisfy the first
+      // blocked /open; later queued snapshots then advance from that exact
+      // state instead of leapfrogging and being overwritten by an older push.
+      activeLease.pendingSnapshot ??= snapshot;
+    }
     const run = async () => {
+      let pathChangedNow = normalizedPath !== this.lastPath;
+      let sessionChangedNow = snapshot.sessionKey !== this.lastSessionKey;
+      let requiresOpenNow = snapshot.fresh || pathChangedNow || sessionChangedNow ||
+        this.lastSource === null || this.pendingOpenRequest !== null;
+      // A Build completed while Realtime was off. On the first later open,
+      // reacquire the same resource lease and let the engine validate the
+      // persisted-in-process candidate. Rejection still performs a normal
+      // open and never claims the cached paper current.
+      const remembered = requiresOpenNow && candidateKey
+        ? this.loadRememberedCanonicalBuild(snapshot.projectRoot, mainFile)
+        : null;
+      if (remembered && (!this.activeBuildLease || this.activeBuildLease.released)) {
+        let importLease = null;
+        try {
+          importLease = await this.acquireBuildLease({
+            projectRoot: snapshot.projectRoot,
+            mainFile,
+          });
+          const imported = await importLease.adopt(remembered, snapshot);
+          if (imported?.opened) {
+            return { ok: true, url: this.url,
+              ...(Number.isInteger(imported?.srcRev) ? { srcRev: imported.srcRev } : {}) };
+          }
+        } catch (error) {
+          console.warn("[tdom] Deferred Build import was not used:", error?.message ?? error);
+        } finally {
+          await importLease?.release?.();
+        }
+      }
       // Cold start can create resident and canonical TeX work. Keep it behind
       // Build, while an already-ready resident remains available for fast,
       // same-document keystroke updates.
@@ -758,33 +978,34 @@ class TdomEngineService {
       } else {
         await this.start();
       }
-      const snapshot = this.resolvePushSnapshot(payload);
+      // start()/lease waiting can take long enough for Build adoption to
+      // update the resident bookkeeping. Re-evaluate every decision which
+      // controls /open only after that wait has finished.
+      pathChangedNow = normalizedPath !== this.lastPath;
+      sessionChangedNow = snapshot.sessionKey !== this.lastSessionKey;
+      requiresOpenNow = snapshot.fresh || pathChangedNow || sessionChangedNow ||
+        this.lastSource === null || this.pendingOpenRequest !== null;
       // Source revision the engine accepted for this snapshot; the renderer
       // keeps a Build-owned PDF until Live presents at least this revision.
       let acceptedSrcRev = null;
       const editTimeout = this.startTimeoutMs;
-      const normalizedPath = snapshot.filePath;
-      const pathChanged = normalizedPath !== this.lastPath;
-      const sessionChanged = snapshot.sessionKey !== this.lastSessionKey;
       if (
         snapshot.fresh ||
-        pathChanged ||
-        sessionChanged ||
+        pathChangedNow ||
+        sessionChangedNow ||
         this.lastSource === null ||
         this.pendingOpenRequest !== null
       ) {
         // /open may bootstrap a full document. Incremental /edit below stays
         // live during Build; the engine lease suppresses only its heavy
         // canonical fallback work.
-        acceptedSrcRev = (await this.runOutsideBuildLease(
-          () => this.openDocument(snapshot)
-        ))?.report?.srcRev;
-        this.lastSource = snapshot.source;
-        this.lastPath = normalizedPath;
-        this.lastProjectRoot = snapshot.projectRoot;
-        this.lastSessionKey = snapshot.sessionKey;
-        this.lastOverlays = new Map(snapshot.overlays);
-        this.lastRootMtimeMs = snapshot.rootMtimeMs;
+        const opened = await this.openAfterBuildLease(snapshot);
+        acceptedSrcRev = opened?.srcRev;
+        if (opened?.fulfilled) {
+          return { ok: true, url: this.url,
+            ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
+        }
+        this.rememberOpenedSnapshot(snapshot, acceptedSrcRev);
       } else {
         const overlays = [];
         for (const [filePath, text] of snapshot.overlays) {
@@ -813,21 +1034,20 @@ class TdomEngineService {
           this.lastSource = snapshot.source;
           this.lastOverlays = new Map(snapshot.overlays);
           this.lastRootMtimeMs = snapshot.rootMtimeMs;
+          this.lastAcceptedSrcRev = Number.isInteger(acceptedSrcRev) ? acceptedSrcRev : null;
         } catch (error) {
           // Engine and service disagree about the source (restart, external
           // change) — resync with a fresh open rather than compounding.
           // The edit outcome is not trusted, so this is a deliberate resync,
           // distinct from retrying any earlier timed-out open.
           this.pendingOpenRequest = null;
-          acceptedSrcRev = (await this.runOutsideBuildLease(
-            () => this.openDocument(snapshot)
-          ))?.report?.srcRev;
-          this.lastSource = snapshot.source;
-          this.lastPath = normalizedPath;
-          this.lastProjectRoot = snapshot.projectRoot;
-          this.lastSessionKey = snapshot.sessionKey;
-          this.lastOverlays = new Map(snapshot.overlays);
-          this.lastRootMtimeMs = snapshot.rootMtimeMs;
+          const opened = await this.openAfterBuildLease(snapshot);
+          acceptedSrcRev = opened?.srcRev;
+          if (opened?.fulfilled) {
+            return { ok: true, url: this.url,
+              ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
+          }
+          this.rememberOpenedSnapshot(snapshot, acceptedSrcRev);
         }
       }
       return { ok: true, url: this.url, ...(Number.isInteger(acceptedSrcRev) ? { srcRev: acceptedSrcRev } : {}) };
@@ -911,6 +1131,9 @@ class TdomEngineService {
     this.lastSessionKey = null;
     this.lastOverlays.clear();
     this.lastRootMtimeMs = null;
+    this.lastAcceptedSrcRev = null;
+    this.fulfilledBuildOpenAcks = new WeakMap();
+    this.pendingCanonicalBuilds.clear();
     this.pendingOpenRequest = null;
     if (proc) { try { proc.kill("SIGTERM"); } catch {} }
     return { ok: true };

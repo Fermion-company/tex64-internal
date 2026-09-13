@@ -53,13 +53,15 @@
  *     descriptor: {
  *       profileSignature, engineSignature,
  *       provenance: {
- *         inputProof: "immutable-snapshot",  // or "atomic-inputs-contract" / "none"
- *         snapshotId, dynamicInputs: false, unknownInputs: [], engine: { ... },
+ *         inputProof: "build-fls", // or immutable/atomic contract / none
+ *         snapshotId, dynamicInputs: false, unknownInputs: [],
+ *         systemInputsStable: true, engine: { ... },
  *       },
  *       inputs: [{ role: "project", path: "chapters/ch1.tex", sha256, bytes },
  *                { role: "external", path: "/usr/.../article.cls", realPath, sha256, bytes }],
  *       artifacts: { pdf: "/staging/main.pdf",
  *                    synctex: "/staging/main.synctex.gz",
+ *                    fls: "/staging/main.fls",
  *                    aux: [{ path: "/staging/main.aux", logicalName: "main.aux" }] },
  *       metrics: { pageCount, geometry, syncTexInputMap },
  *     },
@@ -130,9 +132,9 @@ const STALE_TEMPORARY_MS = 60 * 60 * 1000;
 const GENERATION_DIR_PATTERN = /^gen-[0-9a-f]{32}$/;
 const TEMPORARY_DIR_PATTERN = /^\.tmp-[0-9a-f]{32}$/;
 const POINTER_TEMPORARY_PATTERN = /^current\.json\.[0-9a-f]{16}\.tmp$/;
-const STORED_ARTIFACT_PATTERN = /^(?:pdf\.bin|synctex\.bin|aux\/[0-9a-f]{32}\.bin)$/;
+const STORED_ARTIFACT_PATTERN = /^(?:pdf\.bin|synctex\.bin|fls\.bin|aux\/[0-9a-f]{32}\.bin)$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
-const INPUT_PROOFS = new Set(["immutable-snapshot", "atomic-inputs-contract", "none"]);
+const INPUT_PROOFS = new Set(["immutable-snapshot", "atomic-inputs-contract", "build-fls", "none"]);
 
 // Auxiliaries TeX writes and reads back to converge. Deliberately excluded:
 // anything TeX would compile or resolve through a search path (.tex, .sty,
@@ -444,6 +446,9 @@ const normalizeArtifactRequest = (entry, kind) => {
   if (kind === "synctex" && !matchesSuffix(baseName, SYNCTEX_ARTIFACT_SUFFIXES)) {
     return { ok: false, detail: "The SyncTeX artifact must be .synctex or .synctex.gz." };
   }
+  if (kind === "fls" && !matchesSuffix(baseName, [".fls"])) {
+    return { ok: false, detail: "The recorder artifact must be a .fls file." };
+  }
   if (kind === "aux" && !matchesSuffix(baseName, AUX_ARTIFACT_SUFFIXES)) {
     return { ok: false, detail: `"${logicalName}" is not a cacheable auxiliary artifact.` };
   }
@@ -465,6 +470,11 @@ const normalizeArtifactRequests = (artifacts) => {
     const synctex = normalizeArtifactRequest(artifacts.synctex, "synctex");
     if (!synctex.ok) return synctex;
     requests.push(synctex.value);
+  }
+  if (artifacts.fls !== undefined && artifacts.fls !== null) {
+    const fls = normalizeArtifactRequest(artifacts.fls, "fls");
+    if (!fls.ok) return fls;
+    requests.push(fls.value);
   }
   const auxEntries = Array.isArray(artifacts.aux) ? artifacts.aux : [];
   const storedNames = new Set(requests.map((request) => request.storedName));
@@ -525,9 +535,11 @@ const normalizeDescriptor = (descriptor) => {
   const candidateClass =
     inputProof !== "none"
     && rawProvenance.dynamicInputs !== true
+    && rawProvenance.systemInputsStable === true
     && unknownInputs.length === 0
     && inputs.records.length > 0
     && artifacts.requests.some((request) => request.kind === "synctex")
+    && artifacts.requests.some((request) => request.kind === "fls")
       ? "reuse-candidate"
       : "static-last-good";
 
@@ -542,6 +554,7 @@ const normalizeDescriptor = (descriptor) => {
         snapshotId,
         dynamicInputs: rawProvenance.dynamicInputs === true,
         unknownInputs,
+        systemInputsStable: rawProvenance.systemInputsStable === true,
         engine: engineDetails.value,
       },
       metrics: metrics.value,
@@ -705,7 +718,7 @@ const verifyStoredArtifacts = async (generationDir, manifest) => {
   if (manifest.artifacts.length > MAX_ARTIFACTS_PER_GENERATION) {
     return { ok: false, reason: "manifest-invalid" };
   }
-  const verified = { pdf: null, synctex: null, aux: [] };
+  const verified = { pdf: null, synctex: null, fls: null, aux: [] };
   for (const record of manifest.artifacts) {
     const storedName = typeof record?.storedName === "string" ? record.storedName : "";
     const logicalName = normalizeRelativePosixPath(record?.logicalName);
@@ -730,6 +743,7 @@ const verifyStoredArtifacts = async (generationDir, manifest) => {
     const entry = { logicalName, filePath, sha256: read.sha256, bytes: read.bytes };
     if (record.kind === "pdf") verified.pdf = entry;
     else if (record.kind === "synctex") verified.synctex = entry;
+    else if (record.kind === "fls") verified.fls = entry;
     else if (record.kind === "aux") verified.aux.push(entry);
     else return { ok: false, reason: "manifest-invalid" };
   }
@@ -821,6 +835,7 @@ const buildCandidate = ({ entry, manifest, generationDir, artifacts, inputCheck,
   // so it never qualifies as a reuse candidate however well everything else
   // the caller recorded lines up.
   if (!artifacts.synctex) blockers.push("synctex-missing");
+  if (!artifacts.fls) blockers.push("fls-missing");
   if (!manifest.inputs.length) blockers.push("no-input-record");
   else if (!inputCheck.matched) blockers.push("input-mismatch");
   if (profileMatched === false) blockers.push("profile-mismatch");
@@ -842,12 +857,14 @@ const buildCandidate = ({ entry, manifest, generationDir, artifacts, inputCheck,
     directory: generationDir,
     candidateClass: blockers.length === 0 ? "reuse-candidate" : "static-last-good",
     artifacts,
+    inputs: manifest.inputs.map((record) => ({ ...record })),
     metrics: manifest.metrics ?? null,
     provenance: {
       inputProof,
       snapshotId: typeof provenance.snapshotId === "string" ? provenance.snapshotId : null,
       dynamicInputs: provenance.dynamicInputs === true,
       unknownInputs: [...unknownInputs],
+      systemInputsStable: provenance.systemInputsStable === true,
       engine: provenance.engine ?? null,
       profileSignature: manifest.profileSignature,
       engineSignature: manifest.engineSignature,
@@ -860,7 +877,7 @@ const buildCandidate = ({ entry, manifest, generationDir, artifacts, inputCheck,
       // Every stored artifact was re-hashed, and the paper also had to look
       // like a PDF rather than merely match its recorded digest.
       artifactsVerified: true,
-      artifactCount: 1 + (artifacts.synctex ? 1 : 0) + artifacts.aux.length,
+      artifactCount: 1 + (artifacts.synctex ? 1 : 0) + (artifacts.fls ? 1 : 0) + artifacts.aux.length,
       synctexPresent: Boolean(artifacts.synctex),
       inputsRecorded: manifest.inputs.length,
       inputsChecked: inputCheck.checked,

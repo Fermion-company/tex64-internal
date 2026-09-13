@@ -4,6 +4,7 @@ class BuildService {
     this.activeProcess = null;
     this.cancelRequested = false;
     this.queuedBuildTail = Promise.resolve();
+    this.pendingBuildAdoption = null;
     // Instance overrides keep the production bounds fixed while allowing the
     // pipe-hold failure mode to be covered without a multi-minute test.
     this.processTimeoutMs =

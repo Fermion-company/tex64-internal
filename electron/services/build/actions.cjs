@@ -3,7 +3,10 @@ const path = require("path");
 const crypto = require("crypto");
 const { terminateWindowsProcessTree } = require("../process-tree.cjs");
 
-const { savePreviewCacheGeneration } = require("./preview-cache.cjs");
+const {
+  savePreviewCacheGeneration,
+  loadPreviewCacheCandidate,
+} = require("./preview-cache.cjs");
 const { isEnvMissingMessage } = require("./utils.cjs");
 
 const PREVIEW_CACHE_AUX_SUFFIXES = [
@@ -14,8 +17,11 @@ const PREVIEW_CACHE_AUX_SUFFIXES = [
 const PREVIEW_CACHE_IGNORED_DIRECTORIES = new Set([
   ".git", ".tex64", "node_modules", "DerivedData", "build",
 ]);
-const MAX_PREVIEW_CACHE_AUX_FILES = 62;
+const MAX_PREVIEW_CACHE_AUX_FILES = 61;
 const MAX_PREVIEW_CACHE_DIRECTORIES = 10_000;
+const MAX_BUILD_RECORDER_BYTES = 8 * 1024 * 1024;
+const MAX_BUILD_INPUT_BYTES = 256 * 1024 * 1024;
+const CANONICAL_SEED_SUFFIXES = new Set([".aux", ".toc", ".lof", ".lot", ".out"]);
 
 const signatureFor = (value) =>
   crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -36,6 +42,113 @@ const regularFileAsync = async (filePath) => {
   } catch {
     return null;
   }
+};
+
+const sha256File = async (filePath) => {
+  const stats = await regularFileAsync(filePath);
+  if (!stats || stats.size > MAX_BUILD_INPUT_BYTES) return null;
+  const hash = crypto.createHash("sha256");
+  let bytes = 0;
+  try {
+    for await (const chunk of fs.createReadStream(filePath)) {
+      bytes += chunk.length;
+      if (bytes > stats.size) return null;
+      hash.update(chunk);
+    }
+  } catch {
+    return null;
+  }
+  const after = await regularFileAsync(filePath);
+  if (!after || bytes !== stats.size || after.size !== stats.size || after.mtimeMs !== stats.mtimeMs ||
+      (Number(stats.ino) > 0 && (stats.ino !== after.ino || stats.dev !== after.dev))) return null;
+  return { sha256: hash.digest("hex"), bytes };
+};
+
+const isWithin = (root, candidate) => {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+};
+
+const parseBuildRecorderInputs = async ({ rootPath, mainFileName, recorderPath }) => {
+  const stats = await regularFileAsync(recorderPath);
+  if (!stats || stats.size < 1 || stats.size > MAX_BUILD_RECORDER_BYTES) {
+    return { ok: false, reason: "build-recorder-unavailable", inputs: [] };
+  }
+  let text;
+  try { text = await fs.promises.readFile(recorderPath, "utf8"); }
+  catch { return { ok: false, reason: "build-recorder-unreadable", inputs: [] }; }
+  const rootRealPath = await fs.promises.realpath(rootPath).catch(() => null);
+  if (!rootRealPath) return { ok: false, reason: "project-unavailable", inputs: [] };
+  let compileDirectory = rootRealPath;
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith("PWD ")) continue;
+    const value = line.slice(4).trim();
+    if (value && path.isAbsolute(value)) compileDirectory = path.resolve(value);
+    break;
+  }
+  const compileRealPath = await fs.promises.realpath(compileDirectory).catch(() => null);
+  if (compileRealPath !== rootRealPath) {
+    return { ok: false, reason: "build-recorder-cwd-mismatch", inputs: [] };
+  }
+  const inputPaths = new Set();
+  const outputPaths = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    const prefix = line.startsWith("INPUT ") ? "INPUT " : line.startsWith("OUTPUT ") ? "OUTPUT " : null;
+    if (!prefix) continue;
+    const value = line.slice(prefix.length).trim();
+    if (!value || value.startsWith("|")) {
+      if (prefix === "INPUT ") return { ok: false, reason: "build-recorder-dynamic-input", inputs: [] };
+      continue;
+    }
+    const resolved = path.resolve(compileDirectory, value);
+    (prefix === "INPUT " ? inputPaths : outputPaths).add(resolved);
+  }
+  const outputIdentities = new Set();
+  for (const output of outputPaths) {
+    const identity = await fs.promises.realpath(output).catch(() => null);
+    if (identity) outputIdentities.add(identity);
+  }
+  const records = new Map();
+  for (const recordedPath of inputPaths) {
+    if (outputPaths.has(recordedPath)) continue;
+    const identity = await fs.promises.realpath(recordedPath).catch(() => null);
+    if (!identity) {
+      if (isWithin(rootRealPath, recordedPath) &&
+          !path.relative(rootRealPath, recordedPath).split(path.sep).some((part) =>
+            part === ".tex64" || part.startsWith(".tex64-build-"))) {
+        return { ok: false, reason: "build-recorder-project-input-unavailable", inputs: [] };
+      }
+      continue;
+    }
+    if (isWithin(rootRealPath, recordedPath) && !isWithin(rootRealPath, identity)) {
+      return { ok: false, reason: "build-recorder-project-input-escaped", inputs: [] };
+    }
+    const relative = path.relative(rootRealPath, identity);
+    if (!isWithin(rootRealPath, identity) || outputIdentities.has(identity) ||
+        relative.split(path.sep).some((part) => part === ".tex64" || part.startsWith(".tex64-build-"))) {
+      continue;
+    }
+    if (records.has(identity)) continue;
+    const digest = await sha256File(identity);
+    if (!digest) return { ok: false, reason: "build-recorder-project-input-changed", inputs: [] };
+    records.set(identity, {
+      role: "project",
+      path: relative.split(path.sep).join("/"),
+      sha256: digest.sha256,
+      bytes: digest.bytes,
+    });
+  }
+  const inputs = [...records.values()].sort((left, right) => left.path.localeCompare(right.path));
+  const mainPath = path.resolve(rootRealPath, mainFileName);
+  const mainIdentity = await fs.promises.realpath(mainPath).catch(() => null);
+  if (!mainIdentity || !records.has(mainIdentity)) {
+    return { ok: false, reason: "build-recorder-main-input-missing", inputs };
+  }
+  return { ok: true, reason: null, inputs };
 };
 
 const cacheableAuxiliaryName = (name) => {
@@ -89,12 +202,15 @@ const collectPreviewCacheAuxiliaries = async (directory, startedAt) => {
 const captureStaticPreviewCandidate = async ({
   rootPath,
   mainFileName,
-  engine,
+  requestedEngine,
+  effectiveEngine,
   outDir,
   extraArgs,
   finalPdfPath,
   auxiliaryDirectory,
+  recorderPath,
   startedAt,
+  durationMs,
 }) => {
   const synctexPath = [".synctex.gz", ".synctex"]
     .map((suffix) => finalPdfPath.replace(/\.pdf$/i, suffix))
@@ -102,28 +218,102 @@ const captureStaticPreviewCandidate = async ({
       const stats = regularFile(candidate);
       return stats && stats.mtimeMs + 1000 >= startedAt;
     });
-  return savePreviewCacheGeneration({
+  const profile = {
+    runner: "latexmk",
+    requestedEngine,
+    effectiveEngine,
+    synctex: true,
+    interaction: "nonstopmode",
+    haltOnError: true,
+    fileLineError: true,
+    extraArgs: [...extraArgs],
+    mainFile: mainFileName.split(path.sep).join("/"),
+  };
+  const recorder = await parseBuildRecorderInputs({ rootPath, mainFileName, recorderPath });
+  const provenance = {
+    inputProof: recorder.ok ? "build-fls" : "none",
+    dynamicInputs: false,
+    unknownInputs: recorder.ok ? [] : [recorder.reason],
+    systemInputsStable: true,
+  };
+  const profileSignature = signatureFor({ version: 2, profile, outDir: outDir ?? null });
+  const engineSignature = signatureFor({
+    version: 2,
+    requestedEngine,
+    effectiveEngine,
+  });
+  const auxiliaryArtifacts = await collectPreviewCacheAuxiliaries(auxiliaryDirectory, startedAt);
+  const boundedDurationMs = Math.max(1, Math.min(900_000, Math.round(durationMs)));
+  const saved = await savePreviewCacheGeneration({
     rootPath,
     mainFileName,
     descriptor: {
-      profileSignature: signatureFor({ version: 1, outDir: outDir ?? null, extraArgs }),
-      engineSignature: signatureFor({ version: 1, requestedCommand: engine }),
+      profileSignature,
+      engineSignature,
       provenance: {
-        inputProof: "none",
-        snapshotId: null,
-        dynamicInputs: false,
-        unknownInputs: ["Build inputs were not captured from an immutable snapshot."],
-        engine: { requestedCommand: engine },
+        ...provenance,
+        snapshotId: recorder.ok ? signatureFor(recorder.inputs) : null,
+        engine: { requestedEngine, effectiveEngine, profile },
       },
-      inputs: [],
+      inputs: recorder.inputs,
       artifacts: {
         pdf: finalPdfPath,
         ...(synctexPath ? { synctex: synctexPath } : {}),
-        aux: await collectPreviewCacheAuxiliaries(auxiliaryDirectory, startedAt),
+        ...(regularFile(recorderPath) ? { fls: recorderPath } : {}),
+        aux: auxiliaryArtifacts,
       },
-      metrics: null,
+      metrics: { durationMs: boundedDurationMs, profile, provenance },
     },
   });
+  if (!saved.saved || !recorder.ok || !synctexPath?.toLowerCase().endsWith(".synctex.gz") ||
+      requestedEngine !== "lualatex" || effectiveEngine !== "lualatex" || extraArgs.length !== 0) {
+    return { ...saved, canonicalBuild: null, recorder };
+  }
+  const loaded = await loadPreviewCacheCandidate({
+    rootPath,
+    mainFileName,
+    expected: { profileSignature, engineSignature },
+  });
+  if (!loaded.hit || loaded.candidateClass !== "reuse-candidate" ||
+      !loaded.artifacts?.pdf || !loaded.artifacts?.synctex || !loaded.artifacts?.fls) {
+    return { ...saved, canonicalBuild: null, recorder, loadReason: loaded.reason ?? loaded.blockers };
+  }
+  const mainStem = path.basename(mainFileName).replace(/\.tex$/i, "");
+  const allowedAux = loaded.artifacts.aux.flatMap((artifact) => {
+    const lower = artifact.logicalName.toLowerCase();
+    const extension = [...CANONICAL_SEED_SUFFIXES].find((suffix) => lower.endsWith(suffix));
+    if (!extension || lower !== `${mainStem.toLowerCase()}${extension}`) return [];
+    return [{
+      ext: extension.slice(1),
+      logicalName: artifact.logicalName,
+      path: artifact.filePath,
+      sha256: artifact.sha256,
+    }];
+  });
+  return {
+    ...saved,
+    recorder,
+    canonicalBuild: {
+      schemaVersion: 1,
+      profile,
+      provenance,
+      artifacts: {
+        pdf: { path: loaded.artifacts.pdf.filePath, sha256: loaded.artifacts.pdf.sha256 },
+        synctex: {
+          path: loaded.artifacts.synctex.filePath,
+          sha256: loaded.artifacts.synctex.sha256,
+          compression: "gzip",
+        },
+        fls: { path: loaded.artifacts.fls.filePath, sha256: loaded.artifacts.fls.sha256 },
+        aux: allowedAux,
+      },
+      inputs: loaded.inputs.map((record) => ({
+        path: path.resolve(rootPath, ...record.path.split("/")),
+        sha256: record.sha256,
+      })),
+      metrics: { durationMs: boundedDurationMs },
+    },
+  };
 };
 
 const timedOutBuildResult = (result) => {
@@ -188,9 +378,21 @@ module.exports = (BuildService) => {
     }
     this.isBuilding = true;
     this.cancelRequested = false;
+    const previousAdoption = this.pendingBuildAdoption;
     let heavyWorkLease = null;
     let result = null;
+    let adoptionOwnsLease = false;
     try {
+      if (previousAdoption) await previousAdoption;
+      if (this.cancelRequested) {
+        result = {
+          kind: "cancelled",
+          summary: "Build cancelled.",
+          issues: [],
+          log: "",
+        };
+        return result;
+      }
       if (this.acquireHeavyWorkLease) {
         try {
           heavyWorkLease = await this.acquireHeavyWorkLease({
@@ -219,17 +421,62 @@ module.exports = (BuildService) => {
         }
       }
       result = await this.runBuild(rootPath, mainFileName, engine, buildProfile);
+      if (result?.kind === "success" && result.canonicalBuild && heavyWorkLease?.adopt) {
+        const canonicalBuild = result.canonicalBuild;
+        // The PDF is already committed. Return Build success now so the
+        // handler can display it while a cold resident consumes the immutable
+        // candidate. This continuation owns the lease until import/open has
+        // either completed or safely fallen back.
+        let adoptionPromise = null;
+        try {
+          adoptionPromise = Promise.resolve(heavyWorkLease.adopt(canonicalBuild));
+        } catch (error) {
+          console.warn("[build] Could not begin successful Build import:", error?.message ?? error);
+        }
+        if (adoptionPromise) {
+          adoptionOwnsLease = true;
+          result.canonicalBuildImport = { pending: true };
+          const adoptionContinuation = adoptionPromise.then((imported) => {
+            if (imported?.adopted !== true && imported?.deferred !== true) {
+              console.warn(
+                "[build] Successful Build was not imported by Live preview:",
+                imported?.reason ?? "build-import-rejected"
+              );
+            }
+          }).catch((error) => {
+            // The Build output is already committed and cached. An engine which
+            // rejects or cannot consume the optional candidate falls back to its
+            // ordinary canonical path without changing Build success.
+            console.warn("[build] Could not import successful Build output:", error?.message ?? error);
+          }).finally(async () => {
+            try {
+              await heavyWorkLease.release({ outcome: "success" });
+            } catch (error) {
+              console.warn("[build] Could not release TDOM heavy work:", error?.message ?? error);
+            }
+          });
+          this.pendingBuildAdoption = adoptionContinuation;
+          void adoptionContinuation.finally(() => {
+            if (this.pendingBuildAdoption === adoptionContinuation) {
+              this.pendingBuildAdoption = null;
+            }
+          });
+        }
+      }
+      delete result?.canonicalBuild;
       return result;
     } finally {
-      try {
-        await heavyWorkLease?.release?.({
-          outcome: result?.kind ?? (this.cancelRequested ? "cancelled" : "failure"),
-        });
-      } catch (error) {
-        console.warn(
-          "[build] Could not release TDOM heavy work:",
-          error?.message ?? error
-        );
+      if (!adoptionOwnsLease) {
+        try {
+          await heavyWorkLease?.release?.({
+            outcome: result?.kind ?? (this.cancelRequested ? "cancelled" : "failure"),
+          });
+        } catch (error) {
+          console.warn(
+            "[build] Could not release TDOM heavy work:",
+            error?.message ?? error
+          );
+        }
       }
       this.isBuilding = false;
       this.cancelRequested = false;
@@ -242,6 +489,8 @@ module.exports = (BuildService) => {
     options = {},
     buildProfile = null
   ) {
+    const previousAdoption = this.pendingBuildAdoption;
+    if (previousAdoption) await previousAdoption;
     if (this.isBuilding) {
       return { kind: "busy" };
     }
@@ -377,6 +626,7 @@ module.exports = (BuildService) => {
       const startedAt = Date.now();
       let output = "";
       let status = 1;
+      let effectiveEngine = engine;
       try {
         const result = await this.runLatexmk(rootPath, mainFileName, engine, {
           outDir: runOutDir,
@@ -416,6 +666,7 @@ module.exports = (BuildService) => {
 
       if (status !== 0 && engine === "lualatex" && this.isXypdfPdftexRequirementError(output)) {
         try {
+          effectiveEngine = "pdflatex";
           const fallback = await this.runLatexmk(rootPath, mainFileName, "pdflatex", {
             outDir: runOutDir,
             extraArgs: runExtraArgs,
@@ -471,6 +722,7 @@ module.exports = (BuildService) => {
         };
       }
       if (status === 0) {
+        const buildDurationMs = Math.max(1, Date.now() - startedAt);
         const stagedExpectedPdfPath = pdfOutputTransaction
           ? path.join(pdfOutputTransaction.stagingDir, path.basename(pdfPath))
           : pdfPath;
@@ -492,6 +744,7 @@ module.exports = (BuildService) => {
               jobName,
             });
         if (resolvedPdfPath) {
+          const recorderPath = resolvedPdfPath.replace(/\.pdf$/i, ".fls");
           let finalPdfPath = resolvedPdfPath;
           try {
             finalPdfPath = this.promotePdfOutput(pdfOutputTransaction, resolvedPdfPath);
@@ -510,13 +763,16 @@ module.exports = (BuildService) => {
             const cached = await captureStaticPreviewCandidate({
               rootPath,
               mainFileName,
-              engine,
+              requestedEngine: engine,
+              effectiveEngine,
               outDir,
               extraArgs,
               finalPdfPath,
               auxiliaryDirectory:
                 pdfOutputTransaction?.stagingDir ?? path.dirname(resolvedPdfPath),
+              recorderPath,
               startedAt,
+              durationMs: buildDurationMs,
             });
             if (!cached.saved) {
               console.warn(
@@ -524,6 +780,16 @@ module.exports = (BuildService) => {
                 cached.reason,
                 cached.detail ?? ""
               );
+            }
+            if (cached.canonicalBuild) {
+              return {
+                kind: "success",
+                summary: "Build succeeded",
+                issues,
+                pdfPath: finalPdfPath,
+                log: transcript,
+                canonicalBuild: cached.canonicalBuild,
+              };
             }
           } catch (error) {
             // The PDF is already committed. Cache availability must not turn a

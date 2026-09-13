@@ -296,10 +296,11 @@ const recreateSourceDirectoryLayout = ({ sourceDir, stagingDir }) => {
 
 module.exports = (BuildService) => {
   /**
-   * Once a document has a good PDF, compile subsequent revisions into a
-   * sibling staging directory. latexmk (especially with -g) removes its old
-   * target before TeX has proved that the new source compiles, so allowing it
-   * to write the visible PDF directly loses the last-good paper on any error.
+   * Compile every Build into a sibling staging directory. Besides preserving
+   * a last-good PDF, this keeps the successful PDF, SyncTeX and recorder files
+   * together long enough to copy one immutable cache generation before the
+   * transaction is discarded. The first Build uses the same path even when
+   * there is no output to back up.
    */
   BuildService.prototype.beginPdfOutputTransaction = function (
     rootPath,
@@ -309,23 +310,22 @@ module.exports = (BuildService) => {
   ) {
     const rootRealPath = resolveRealPath(rootPath);
     const outputDir = path.dirname(expectedPdfPath);
+    if (!rootRealPath || !isPathWithinRoot(path.resolve(rootPath), outputDir)) {
+      throw new Error("The PDF output directory is outside the current workspace.");
+    }
+    // A valid custom outDir may not exist before its first Build. Its nearest
+    // existing ancestor was checked by profile normalization; create it, then
+    // prove the resulting real directory still belongs to this workspace.
+    fs.mkdirSync(outputDir, { recursive: true });
     const outputDirRealPath = resolveRealPath(outputDir);
+    if (!outputDirRealPath || !isPathWithinRoot(rootRealPath, outputDirRealPath)) {
+      throw new Error("The PDF output directory is outside the current workspace.");
+    }
     const existingPdf = assertRegularWorkspaceFile({
       filePath: expectedPdfPath,
       rootRealPath,
       label: "PDF",
     });
-    if (!existingPdf) {
-      return null;
-    }
-    if (
-      !rootRealPath ||
-      !outputDirRealPath ||
-      !isPathWithinRoot(rootRealPath, outputDirRealPath) ||
-      !existingPdf
-    ) {
-      throw new Error("The existing PDF output is not a regular workspace file.");
-    }
 
     const transactionDir = fs.mkdtempSync(path.join(outputDir, ".tex64-build-"));
     const stagingDir = path.join(transactionDir, "output");
