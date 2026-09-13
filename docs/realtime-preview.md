@@ -62,6 +62,12 @@ canonical 更新で入力面の親ページが変わらなければDOMを挿し�
 
 通常ビルドが成功し、ビルドが組版した入力がその時点でも最新なら、紙面の所有権をビルドへ移す。同じワークスペース・PDFのタブはビルドで更新されたPDFを表示し、ライブのiframe・activation・文書epochとエンジン入力・checkpointはその下に保持する。所有権（`hold`）はライブ状態の一部としてviewerへ配布し、ビルドが新しく開いたPDFタブではviewerのready後に適用する。ライブ表示中だった場合は、そのページでビルドのPDFを開く。保持中のiframeは静的PDFの表示位置を追う。遅れて届いたライブ応答も同じ所有権で再配布するため、旧紙面へ戻らない。
 
+通常BuildとTDOMの重い全体組版はBuild leaseで直列化する。Build開始前にローカルgateを取得するため、TDOMがまだ起動していない場合もBuild中にcold bootstrapを始めない。起動済みの同一文書へ送る軽いresident editは継続する。エンジン側leaseはcanonical・open・warmの重い処理を保留し、すでに走っているauthority childを停止してcheckpointと表示世代を保持する。Buildの成功・失敗・中止・timeoutとアプリ終了の全経路で同じtokenを解放し、watchdogも残す。
+
+LuaLaTeXの通常Buildが成功した場合は、staging中のPDF・SyncTeX・FLS・root auxと、FLSが記録したproject入力全件のhashをimmutable cache世代へ保存する。同じアプリ実行中に取得した候補だけを、現在のdocument/source/input epoch、lease identity、LuaLaTeX profile、PDF producer、全入力hash、SyncTeX input mapが一致する場合にTDOM canonicalへ採用する。既存residentが同じidentityなら `/canonical/build-import`、cold openなら候補付き `/open` を使い、応答まではleaseを保持する。採用の拒否や通信失敗は通常Buildの成功を取り消さず、新PDFを表示してTDOM自身のcanonicalへ戻る。ディスクcacheをアプリ再起動後のauthorityとして採用する処理は、TeX toolchain/config fingerprintが未実装のため行わない。
+
+canonical anchorが複数のソース行を照会するときは、同じ世代のSyncTeXをvendored MIT parserで一度だけ解析するbounded helperを使う。全行のJSON group、record数、有限座標、世代とlogical/recorded path対応が完全な場合だけ既存の座標変換へ渡す。compiler/zlibがない、process失敗、期限超過、JSON欠損、変換不能のいずれでも既存の`SyncTeX` CLIへ戻り、paint証明やpublish条件は変えない。
+
 ビルド後の最初のソース変更は `/edit` として送り、エンジンがそれを受理した時点で所有権をライブへ戻す。受理した source revision を期待値としてviewerへ配布する。静的PDFの表示中心の紙面位置を token 付きの `goto-sync` でiframeへ渡し、iframeがその token を返し（位置の確認）、期待値以上の revision を適用して完成した紙面（`ready`、または `presentationPending` が false）を持つまで静的PDFを上に残す。認証済みの局所描画は canonical の確認まで `presentationPending` のままなので、完成の判定にはどちらも使う。確認できない間は再送を続け、静的PDFを外さない。静的PDFをスクロールした場合は新しい位置を渡し直す。iframeを作り直さず、ほかの領域はcanonicalが追いつくまで直前の正しい紙面を使う。token を返さない旧エンジンでは報告された先頭ページで位置を判定する。新しいiframeを作る場合も静的PDFの表示位置から始める。ビルド中の編集を含め、その時点のエディタ本文は変更しない。通常ビルドのプロセス上限は10分で、時間切れは取消とは区別してエラー通知し、直前の正常なPDFを保持する。
 
 ビルド開始後にエディタ・外部同期によるソース変更があった場合や未保存ソースが残る場合は、保存済みPDFが旧版であることをProblemsへ通知し、追加の打鍵を待たずに最新ソースのライブ表示を再開する。成功通知より後着した旧編集応答は採用しない。
@@ -76,7 +82,7 @@ TDOM の `closure-deferred` は resident の紙面を保持しつつ最新ソー
 
 **開発フロー**: checkout が vendored より優先されるので、`~/tdom-engine` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
 
-**配布**: `npm run tdom:sync` が checkout の実行用構成（engine/・host/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。`host/` は upstream の正式なホスト統合 API で、TeX64 の配布物にもエンジンと同じ版を保持する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
+**配布**: `npm run tdom:sync` が checkout の実行用構成（engine/・host/・vendor/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。`vendor/` にはruntime helperが必要とする固定版ソースとライセンスを含む。`host/` は upstream の正式なホスト統合 API で、TeX64 の配布物にもエンジンと同じ版を保持する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
 
 ## 実行時の前提と保護
 
