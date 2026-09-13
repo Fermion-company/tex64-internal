@@ -21,7 +21,12 @@ const MAX_PREVIEW_CACHE_AUX_FILES = 61;
 const MAX_PREVIEW_CACHE_DIRECTORIES = 10_000;
 const MAX_BUILD_RECORDER_BYTES = 8 * 1024 * 1024;
 const MAX_BUILD_INPUT_BYTES = 256 * 1024 * 1024;
+const MAX_PREBUILD_SNAPSHOT_FILES = 8192;
+const MAX_PREBUILD_SNAPSHOT_DIRECTORIES = 2048;
+const MAX_PREBUILD_SNAPSHOT_BYTES = 256 * 1024 * 1024;
+const PREBUILD_SNAPSHOT_DEADLINE_MS = 250;
 const CANONICAL_SEED_SUFFIXES = new Set([".aux", ".toc", ".lof", ".lot", ".out"]);
+const DEADLINE_EXCEEDED = Symbol("deadline-exceeded");
 
 const signatureFor = (value) =>
   crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -44,22 +49,60 @@ const regularFileAsync = async (filePath) => {
   }
 };
 
-const sha256File = async (filePath) => {
-  const stats = await regularFileAsync(filePath);
-  if (!stats || stats.size > MAX_BUILD_INPUT_BYTES) return null;
+const beforeDeadline = async (work, deadline) => {
+  if (!Number.isFinite(deadline)) return work;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return DEADLINE_EXCEEDED;
+  let timer = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(DEADLINE_EXCEEDED), remaining);
+      }),
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+};
+
+const sha256File = async (filePath, options = {}) => {
+  const deadline = Number.isFinite(options.deadline) ? options.deadline : Infinity;
+  const maxBytes = Number.isFinite(options.maxBytes)
+    ? Math.min(MAX_BUILD_INPUT_BYTES, Math.max(0, options.maxBytes))
+    : MAX_BUILD_INPUT_BYTES;
+  const stats = await beforeDeadline(regularFileAsync(filePath), deadline);
+  if (!stats || stats === DEADLINE_EXCEEDED || stats.size > maxBytes) return null;
   const hash = crypto.createHash("sha256");
   let bytes = 0;
+  const stream = fs.createReadStream(filePath);
+  let deadlineTimer = null;
+  if (Number.isFinite(deadline)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      stream.destroy();
+      return null;
+    }
+    deadlineTimer = setTimeout(() => {
+      const error = new Error("prebuild snapshot deadline exceeded");
+      error.code = "PREBUILD_SNAPSHOT_DEADLINE";
+      stream.destroy(error);
+    }, remaining);
+  }
   try {
-    for await (const chunk of fs.createReadStream(filePath)) {
+    for await (const chunk of stream) {
       bytes += chunk.length;
-      if (bytes > stats.size) return null;
+      if (bytes > stats.size || bytes > maxBytes || Date.now() >= deadline) return null;
       hash.update(chunk);
     }
   } catch {
     return null;
+  } finally {
+    if (deadlineTimer !== null) clearTimeout(deadlineTimer);
   }
-  const after = await regularFileAsync(filePath);
-  if (!after || bytes !== stats.size || after.size !== stats.size || after.mtimeMs !== stats.mtimeMs ||
+  const after = await beforeDeadline(regularFileAsync(filePath), deadline);
+  if (!after || after === DEADLINE_EXCEEDED || bytes !== stats.size ||
+      after.size !== stats.size || after.mtimeMs !== stats.mtimeMs ||
       (Number(stats.ino) > 0 && (stats.ino !== after.ino || stats.dev !== after.dev))) return null;
   return { sha256: hash.digest("hex"), bytes };
 };
@@ -71,6 +114,107 @@ const isWithin = (root, candidate) => {
     !relative.startsWith(`..${path.sep}`) &&
     !path.isAbsolute(relative)
   );
+};
+
+const excludedPrebuildSnapshotPath = (relativePath) => relativePath
+  .split(path.sep)
+  .some((part) => PREVIEW_CACHE_IGNORED_DIRECTORIES.has(part) || part.startsWith(".tex64-build-"));
+
+const capturePrebuildProjectInputs = async (rootPath) => {
+  const startedAt = Date.now();
+  const deadline = startedAt + PREBUILD_SNAPSHOT_DEADLINE_MS;
+  const rootRealPath = await beforeDeadline(fs.promises.realpath(rootPath).catch(() => null), deadline);
+  if (!rootRealPath || rootRealPath === DEADLINE_EXCEEDED) {
+    return { ok: false, reason: "prebuild-snapshot-root-unavailable", records: new Map(),
+      files: 0, directories: 0, bytes: 0, durationMs: Date.now() - startedAt };
+  }
+  const records = new Map();
+  const pending = [rootRealPath];
+  let files = 0;
+  let directories = 0;
+  let bytes = 0;
+  const fail = (reason) => ({ ok: false, reason, rootRealPath, records,
+    files, directories, bytes, durationMs: Date.now() - startedAt });
+  while (pending.length > 0) {
+    if (Date.now() >= deadline) return fail("prebuild-snapshot-deadline");
+    const directory = pending.pop();
+    directories += 1;
+    if (directories > MAX_PREBUILD_SNAPSHOT_DIRECTORIES) {
+      return fail("prebuild-snapshot-directory-limit");
+    }
+    const entries = await beforeDeadline(
+      fs.promises.readdir(directory, { withFileTypes: true }).catch(() => null),
+      deadline
+    );
+    if (!entries || entries === DEADLINE_EXCEEDED) {
+      return fail(entries === DEADLINE_EXCEEDED
+        ? "prebuild-snapshot-deadline"
+        : "prebuild-snapshot-directory-unreadable");
+    }
+    for (const entry of entries) {
+      if (Date.now() >= deadline) return fail("prebuild-snapshot-deadline");
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = path.relative(rootRealPath, absolutePath);
+      if (!relativePath || excludedPrebuildSnapshotPath(relativePath)) continue;
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        pending.push(absolutePath);
+        continue;
+      }
+      if (!entry.isFile() || entry.isSymbolicLink()) continue;
+      files += 1;
+      if (files > MAX_PREBUILD_SNAPSHOT_FILES) return fail("prebuild-snapshot-file-limit");
+      const remainingBytes = MAX_PREBUILD_SNAPSHOT_BYTES - bytes;
+      if (remainingBytes <= 0) return fail("prebuild-snapshot-byte-limit");
+      const stats = await beforeDeadline(regularFileAsync(absolutePath), deadline);
+      if (stats === DEADLINE_EXCEEDED) return fail("prebuild-snapshot-deadline");
+      if (!stats) return fail("prebuild-snapshot-file-changed");
+      if (stats.size > remainingBytes) return fail("prebuild-snapshot-byte-limit");
+      const digest = await sha256File(absolutePath, { deadline, maxBytes: remainingBytes });
+      if (!digest) {
+        return fail(Date.now() >= deadline
+          ? "prebuild-snapshot-deadline"
+          : "prebuild-snapshot-file-changed");
+      }
+      bytes += digest.bytes;
+      records.set(relativePath.split(path.sep).join("/"), digest);
+    }
+  }
+  return { ok: true, reason: null, rootRealPath, records, files, directories, bytes,
+    durationMs: Date.now() - startedAt };
+};
+
+const comparePrebuildProjectInputs = (snapshot, inputs) => {
+  const summary = snapshot && {
+    ok: snapshot.ok === true,
+    reason: snapshot.reason ?? null,
+    files: snapshot.files ?? 0,
+    directories: snapshot.directories ?? 0,
+    bytes: snapshot.bytes ?? 0,
+    durationMs: snapshot.durationMs ?? null,
+  };
+  if (!snapshot?.ok) {
+    return { ok: false, reason: snapshot?.reason ?? "prebuild-snapshot-unavailable",
+      checked: 0, mismatches: [], snapshot: summary };
+  }
+  const mismatches = [];
+  let checked = 0;
+  for (const input of inputs) {
+    checked += 1;
+    const before = snapshot.records.get(input.path);
+    if (!before) {
+      mismatches.push({ path: input.path, reason: "not-observed-before-build" });
+    } else if (before.sha256 !== input.sha256) {
+      mismatches.push({ path: input.path, reason: "changed-during-build" });
+    }
+    if (mismatches.length >= 8) break;
+  }
+  return {
+    ok: mismatches.length === 0,
+    reason: mismatches.length === 0 ? null : "prebuild-input-mismatch",
+    checked,
+    mismatches,
+    snapshot: summary,
+  };
 };
 
 const parseBuildRecorderInputs = async ({ rootPath, mainFileName, recorderPath }) => {
@@ -209,6 +353,7 @@ const captureStaticPreviewCandidate = async ({
   finalPdfPath,
   auxiliaryDirectory,
   recorderPath,
+  prebuildProjectInputs,
   startedAt,
   durationMs,
 }) => {
@@ -230,10 +375,18 @@ const captureStaticPreviewCandidate = async ({
     mainFile: mainFileName.split(path.sep).join("/"),
   };
   const recorder = await parseBuildRecorderInputs({ rootPath, mainFileName, recorderPath });
+  const inputObservation = comparePrebuildProjectInputs(
+    prebuildProjectInputs,
+    recorder.ok ? recorder.inputs : []
+  );
+  const inputProofEstablished = recorder.ok && inputObservation.ok;
   const provenance = {
-    inputProof: recorder.ok ? "build-fls" : "none",
+    inputProof: inputProofEstablished ? "build-fls" : "none",
     dynamicInputs: false,
-    unknownInputs: recorder.ok ? [] : [recorder.reason],
+    unknownInputs: [
+      ...(recorder.ok ? [] : [recorder.reason]),
+      ...(inputObservation.ok ? [] : [inputObservation.reason]),
+    ].filter(Boolean),
     systemInputsStable: true,
   };
   const profileSignature = signatureFor({ version: 2, profile, outDir: outDir ?? null });
@@ -252,7 +405,7 @@ const captureStaticPreviewCandidate = async ({
       engineSignature,
       provenance: {
         ...provenance,
-        snapshotId: recorder.ok ? signatureFor(recorder.inputs) : null,
+        snapshotId: inputProofEstablished ? signatureFor(recorder.inputs) : null,
         engine: { requestedEngine, effectiveEngine, profile },
       },
       inputs: recorder.inputs,
@@ -265,9 +418,10 @@ const captureStaticPreviewCandidate = async ({
       metrics: { durationMs: boundedDurationMs, profile, provenance },
     },
   });
-  if (!saved.saved || !recorder.ok || !synctexPath?.toLowerCase().endsWith(".synctex.gz") ||
+  if (!saved.saved || !recorder.ok || !inputObservation.ok ||
+      !synctexPath?.toLowerCase().endsWith(".synctex.gz") ||
       requestedEngine !== "lualatex" || effectiveEngine !== "lualatex" || extraArgs.length !== 0) {
-    return { ...saved, canonicalBuild: null, recorder };
+    return { ...saved, canonicalBuild: null, recorder, inputObservation };
   }
   const loaded = await loadPreviewCacheCandidate({
     rootPath,
@@ -276,7 +430,8 @@ const captureStaticPreviewCandidate = async ({
   });
   if (!loaded.hit || loaded.candidateClass !== "reuse-candidate" ||
       !loaded.artifacts?.pdf || !loaded.artifacts?.synctex || !loaded.artifacts?.fls) {
-    return { ...saved, canonicalBuild: null, recorder, loadReason: loaded.reason ?? loaded.blockers };
+    return { ...saved, canonicalBuild: null, recorder, inputObservation,
+      loadReason: loaded.reason ?? loaded.blockers };
   }
   const mainStem = path.basename(mainFileName).replace(/\.tex$/i, "");
   const allowedAux = loaded.artifacts.aux.flatMap((artifact) => {
@@ -293,6 +448,7 @@ const captureStaticPreviewCandidate = async ({
   return {
     ...saved,
     recorder,
+    inputObservation,
     canonicalBuild: {
       schemaVersion: 1,
       profile,
@@ -623,6 +779,33 @@ module.exports = (BuildService) => {
       const runExtraArgs = pdfOutputTransaction?.extraArgs ?? extraArgs;
       const runHasExplicitOutDirArg = pdfOutputTransaction ? false : hasExplicitOutDirArg;
 
+      // Observe project bytes before TeX can read them. The post-Build FLS
+      // narrows this bounded snapshot to the files the successful run actually
+      // consumed. An incomplete observation only disables canonical adoption;
+      // it never blocks the Build or last-good PDF cache.
+      let prebuildProjectInputs = null;
+      try {
+        prebuildProjectInputs = await capturePrebuildProjectInputs(rootPath);
+      } catch (error) {
+        prebuildProjectInputs = {
+          ok: false,
+          reason: "prebuild-snapshot-failed",
+          records: new Map(),
+          files: 0,
+          directories: 0,
+          bytes: 0,
+          durationMs: null,
+          detail: error?.message ?? String(error),
+        };
+      }
+      if (this.cancelRequested) {
+        return {
+          kind: "cancelled",
+          summary: "Build cancelled.",
+          issues: [],
+          log: "",
+        };
+      }
       const startedAt = Date.now();
       let output = "";
       let status = 1;
@@ -771,6 +954,7 @@ module.exports = (BuildService) => {
               auxiliaryDirectory:
                 pdfOutputTransaction?.stagingDir ?? path.dirname(resolvedPdfPath),
               recorderPath,
+              prebuildProjectInputs,
               startedAt,
               durationMs: buildDurationMs,
             });
@@ -779,6 +963,13 @@ module.exports = (BuildService) => {
                 "[build] Could not cache the last-good preview:",
                 cached.reason,
                 cached.detail ?? ""
+              );
+            }
+            if (cached.saved && cached.inputObservation?.ok === false) {
+              console.warn(
+                "[build] Kept the preview cache static because Build inputs changed or were not fully observed:",
+                cached.inputObservation.reason,
+                cached.inputObservation.mismatches ?? []
               );
             }
             if (cached.canonicalBuild) {
