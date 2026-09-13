@@ -51,6 +51,7 @@ class PDFWindowManager {
     this.isReady = false;
     this.pendingOpen = null;
     this.pendingSync = null;
+    this.pendingBuildState = null;
   }
 
   getSourceState() {
@@ -89,6 +90,7 @@ class PDFWindowManager {
     this.isReady = false;
     this.pendingOpen = null;
     this.pendingSync = null;
+    this.pendingBuildState = null;
   }
 
   show(pdfPath, options = {}) {
@@ -133,10 +135,26 @@ class PDFWindowManager {
     }
   }
 
+  setBuildState(state, message, pdfPath) {
+    this.pendingBuildState = { state, message, pdfPath };
+    this.flushBuildState();
+  }
+
+  flushBuildState(clearMismatched = false) {
+    const pending = this.pendingBuildState;
+    if (!this.isReady || !this.currentPath) return;
+    if (!pending || pending.pdfPath !== this.currentPath) {
+      if (clearMismatched) this.send("build-state", { state: "idle" });
+      return;
+    }
+    this.send("build-state", { state: pending.state, message: pending.message });
+  }
+
   markReady() {
     this.isReady = true;
     this.flushOpen();
     this.notifySourceState();
+    this.flushBuildState();
     if (this.pendingSync) {
       const payload = this.pendingSync;
       this.pendingSync = null;
@@ -162,6 +180,7 @@ class PDFWindowManager {
     const cacheBust = `?t=${Date.now()}`;
     this.send("open", { path: pdfPath, url: `${fileUrl}${cacheBust}`,
       needsRebuild: this.getSourceState().needsRebuild(this.currentRoot, pdfPath) });
+    this.flushBuildState(true);
   }
 
   ensureWindow() {
@@ -215,6 +234,7 @@ class PDFWindowManager {
       this.isReady = false;
       this.pendingOpen = null;
       this.pendingSync = null;
+      this.pendingBuildState = null;
     });
   }
 }

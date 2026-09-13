@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { terminateWindowsProcessTree } = require("../process-tree.cjs");
 
-const { isEnvMissingMessage, pickJobNameFromLatexmkArgs } = require("./utils.cjs");
+const { isEnvMissingMessage } = require("./utils.cjs");
 
 const timedOutBuildResult = (result) => {
   const message = "Build timed out before completion. No new PDF was published. See the build log.";
@@ -175,7 +175,9 @@ module.exports = (BuildService) => {
       hasExplicitOutDirArg,
       outDirRequested,
       invalidDirectoryArgument,
-    } = this.resolveLatexmkProfile(rootPath, mainFileName, buildProfile);
+      jobName,
+      pdfPath,
+    } = this.resolveBuildOutputProfile(rootPath, mainFileName, buildProfile);
     if (invalidDirectoryArgument) {
       const issue = {
         severity: "error",
@@ -192,17 +194,6 @@ module.exports = (BuildService) => {
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
-    const jobName =
-      pickJobNameFromLatexmkArgs(extraArgs) ?? path.basename(mainFileName, path.extname(mainFileName));
-    const pdfBase = `${jobName}.pdf`;
-    const fallbackDir = path.dirname(mainFileName ?? "");
-    const pdfDir = outDir
-      ? path.join(rootPath, outDir)
-      : fallbackDir && fallbackDir !== "."
-      ? path.join(rootPath, fallbackDir)
-      : rootPath;
-    const pdfPath = path.join(pdfDir, pdfBase);
-
     let pdfOutputTransaction = null;
     try {
       pdfOutputTransaction = this.beginPdfOutputTransaction(
@@ -319,7 +310,7 @@ module.exports = (BuildService) => {
       }
       if (status === 0) {
         const stagedExpectedPdfPath = pdfOutputTransaction
-          ? path.join(pdfOutputTransaction.stagingDir, pdfBase)
+          ? path.join(pdfOutputTransaction.stagingDir, path.basename(pdfPath))
           : pdfPath;
         const resolvedPdfPath = pdfOutputTransaction
           ? this.resolvePdfPathAfterBuild(

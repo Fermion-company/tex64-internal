@@ -23,23 +23,26 @@ export const initBridgeHandlers = (deps) => {
     let externalWorkspaceGeneration;
     let buildSourceWarning = null;
     bridgeWindow.tex64SetBuildState = (payload) => {
-        var _a, _b, _c;
+        var _a, _b, _c, _d, _e, _f;
         updatePdfSourceState(payload.pdfSourceState);
         if (payload.state === "building")
             buildSourceWarning = null;
         const detail = {
             state: payload.state,
+            message: payload.message,
             pdfPath: payload.pdfPath,
             targetFile: payload.targetFile,
-            workspaceRoot: (_a = payload.pdfSourceState) === null || _a === void 0 ? void 0 : _a.rootPath,
+            workspaceRoot: (_a = payload.workspaceRoot) !== null && _a !== void 0 ? _a : (_b = payload.pdfSourceState) === null || _b === void 0 ? void 0 : _b.rootPath,
+            previousPdf: payload.previousPdf === true,
             sourceChanged: false,
         };
+        (_d = (_c = deps.build).handleBuildPreviewState) === null || _d === void 0 ? void 0 : _d.call(_c, detail);
         window.dispatchEvent(new CustomEvent("tex64:build-state", { detail }));
         if (detail.sourceChanged)
             buildSourceWarning =
                 "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";
         if (payload.targetFile && !payload.requestId)
-            (_c = (_b = deps.build).setBuildTarget) === null || _c === void 0 ? void 0 : _c.call(_b, payload.targetFile);
+            (_f = (_e = deps.build).setBuildTarget) === null || _f === void 0 ? void 0 : _f.call(_e, payload.targetFile);
         deps.build.setBuildState(payload.state, payload.message);
     };
     bridgeWindow.tex64UpdateIssues = (payload) => {

@@ -433,6 +433,23 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return;
         if (detail.state === "building") {
             buildStartEditVersion !== null && buildStartEditVersion !== void 0 ? buildStartEditVersion : (buildStartEditVersion = sourceEditVersion);
+            const targetPdf = absolute(pdfPath);
+            const targetIsVisible = getEditorGroups().some((group) => group.viewer.getViewerMode() === "pdf" &&
+                typeof group.currentFilePath === "string" &&
+                absolute(group.currentFilePath) === targetPdf);
+            if (detail.previousPdf === true && !targetIsVisible && !buildOwnsView) {
+                const snapshot = currentSnapshot();
+                builtSnapshot = snapshot
+                    ? { sessionKey: snapshot.sessionKey, editVersion: sourceEditVersion }
+                    : null;
+                buildOwnsView = Boolean(builtSnapshot);
+                if (buildOwnsView) {
+                    buildViewVersion += 1;
+                    liveExpectedSrcRev = null;
+                    if (engineUrl)
+                        distributeLive(engineUrl);
+                }
+            }
             return;
         }
         const sourceChanged = buildStartEditVersion !== null && buildStartEditVersion !== sourceEditVersion ||

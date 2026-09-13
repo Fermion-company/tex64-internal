@@ -102,6 +102,23 @@ export const initBuildOpsUi = (context, deps) => {
         }
         return ((_a = deps.getEditorGroups().find((group) => group.openTabs.includes(pdfPath))) !== null && _a !== void 0 ? _a : null);
     };
+    const handleBuildPreviewState = (payload) => {
+        var _a, _b;
+        if (payload.state !== "building" || payload.previousPdf !== true || !payload.pdfPath)
+            return;
+        if (deps.settings.getPdfViewerMode() !== "tab")
+            return;
+        const pdfPath = payload.pdfPath;
+        const visible = deps.getEditorGroups().some((group) => group.currentFilePath === pdfPath && group.viewer.getViewerMode() === "pdf");
+        if (visible)
+            return;
+        const openedGroup = (_b = (_a = resolvePdfSyncGroup(pdfPath)) !== null && _a !== void 0 ? _a : deps.getEditorGroups().find((group) => group.key === "secondary")) !== null && _b !== void 0 ? _b : deps.getActiveGroup();
+        if (openedGroup.key === "secondary" && !deps.getSplitViewEnabled()) {
+            deps.setSplitViewEnabled(true);
+        }
+        deps.cacheCurrentBuffer(openedGroup);
+        deps.requestOpenFile(pdfPath, openedGroup.key, true);
+    };
     const updateSynctexButtonState = () => {
         if (!(synctexButton instanceof HTMLButtonElement)) {
             return;
@@ -715,6 +732,7 @@ export const initBuildOpsUi = (context, deps) => {
     };
     return {
         updateSynctexButtonState,
+        handleBuildPreviewState,
         setBuildState,
         startBuild,
         requestFormatCurrentFile,

@@ -437,7 +437,8 @@ export const initCodeLivePreview = ({
   window.addEventListener("tex64:build-state", (event) => {
     if (!active || !liveTarget) return;
     const detail = (event as CustomEvent<{
-      state: string; pdfPath?: string; targetFile?: string; workspaceRoot?: string; sourceChanged?: boolean;
+      state: string; pdfPath?: string; targetFile?: string; workspaceRoot?: string;
+      previousPdf?: boolean; sourceChanged?: boolean;
     }>).detail;
     const normalize = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
     const root = liveTarget.workspaceRoot;
@@ -448,6 +449,24 @@ export const initCodeLivePreview = ({
     if (!pdfPath || absolute(pdfPath) !== absolute(liveTarget.pdfPath)) return;
     if (detail.state === "building") {
       buildStartEditVersion ??= sourceEditVersion;
+      const targetPdf = absolute(pdfPath);
+      const targetIsVisible = getEditorGroups().some((group) =>
+        group.viewer.getViewerMode() === "pdf" &&
+        typeof group.currentFilePath === "string" &&
+        absolute(group.currentFilePath) === targetPdf
+      );
+      if (detail.previousPdf === true && !targetIsVisible && !buildOwnsView) {
+        const snapshot = currentSnapshot();
+        builtSnapshot = snapshot
+          ? { sessionKey: snapshot.sessionKey, editVersion: sourceEditVersion }
+          : null;
+        buildOwnsView = Boolean(builtSnapshot);
+        if (buildOwnsView) {
+          buildViewVersion += 1;
+          liveExpectedSrcRev = null;
+          if (engineUrl) distributeLive(engineUrl);
+        }
+      }
       return;
     }
     const sourceChanged = buildStartEditVersion !== null && buildStartEditVersion !== sourceEditVersion ||

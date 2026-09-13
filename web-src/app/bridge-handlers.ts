@@ -117,6 +117,11 @@ type BridgeHandlersDeps = {
     }) => void;
   };
   build: {
+    handleBuildPreviewState?: (payload: {
+      state: BuildState;
+      pdfPath?: string;
+      previousPdf?: boolean;
+    }) => void;
     setBuildState: (state: BuildState, message?: string) => void;
     setBuildTarget?: (path: string) => void;
     handleFormatResult: (payload: {
@@ -347,11 +352,14 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
     if (payload.state === "building") buildSourceWarning = null;
     const detail = {
       state: payload.state,
+      message: payload.message,
       pdfPath: payload.pdfPath,
       targetFile: payload.targetFile,
-      workspaceRoot: payload.pdfSourceState?.rootPath,
+      workspaceRoot: payload.workspaceRoot ?? payload.pdfSourceState?.rootPath,
+      previousPdf: payload.previousPdf === true,
       sourceChanged: false,
     };
+    deps.build.handleBuildPreviewState?.(detail);
     window.dispatchEvent(new CustomEvent("tex64:build-state", { detail }));
     if (detail.sourceChanged) buildSourceWarning =
       "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";

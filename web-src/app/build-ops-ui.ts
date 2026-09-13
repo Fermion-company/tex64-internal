@@ -116,6 +116,11 @@ type BuildOpsDeps = {
 
 export type BuildOpsApi = {
   updateSynctexButtonState: () => void;
+  handleBuildPreviewState: (payload: {
+    state: BuildState;
+    pdfPath?: string;
+    previousPdf?: boolean;
+  }) => void;
   setBuildState: (state: BuildState, message?: string) => void;
   startBuild: (explicitTarget?: string) => void;
   requestFormatCurrentFile: (source: string) => void;
@@ -262,6 +267,28 @@ export const initBuildOpsUi = (
     return (
       deps.getEditorGroups().find((group) => group.openTabs.includes(pdfPath)) ?? null
     );
+  };
+
+  const handleBuildPreviewState = (payload: {
+    state: BuildState;
+    pdfPath?: string;
+    previousPdf?: boolean;
+  }) => {
+    if (payload.state !== "building" || payload.previousPdf !== true || !payload.pdfPath) return;
+    if (deps.settings.getPdfViewerMode() !== "tab") return;
+    const pdfPath = payload.pdfPath;
+    const visible = deps.getEditorGroups().some((group) =>
+      group.currentFilePath === pdfPath && group.viewer.getViewerMode() === "pdf"
+    );
+    if (visible) return;
+    const openedGroup = resolvePdfSyncGroup(pdfPath) ??
+      deps.getEditorGroups().find((group) => group.key === "secondary") ??
+      deps.getActiveGroup();
+    if (openedGroup.key === "secondary" && !deps.getSplitViewEnabled()) {
+      deps.setSplitViewEnabled(true);
+    }
+    deps.cacheCurrentBuffer(openedGroup);
+    deps.requestOpenFile(pdfPath, openedGroup.key, true);
   };
 
   const updateSynctexButtonState = () => {
@@ -944,6 +971,7 @@ export const initBuildOpsUi = (
 
   return {
     updateSynctexButtonState,
+    handleBuildPreviewState,
     setBuildState,
     startBuild,
     requestFormatCurrentFile,

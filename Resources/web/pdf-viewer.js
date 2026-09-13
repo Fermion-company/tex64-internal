@@ -78,6 +78,7 @@ const UI_STRINGS = {
   rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
+  buildFailedLastGood: { en: "Build failed · previous PDF retained", ja: "ビルド失敗・前のPDFを保持", zh: "编译失败 · 已保留先前的 PDF", ko: "빌드 실패 · 이전 PDF 유지", fr: "Échec de la compilation · PDF précédent conservé", de: "Build fehlgeschlagen · vorherige PDF bleibt", es: "Error de compilación · se conserva el PDF anterior" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
   liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
@@ -301,6 +302,7 @@ const initPdfViewer = () => {
   // document — setDocument would then reset us to the top and lose the jump.
   // Defer it instead and let pagesinit apply it to the freshly loaded pages.
   let reloadInFlight = false;
+  let buildPreviewState = "idle";
   let liveSurfaceOwned = false;
   let deferredStaticOpen = null;
   let deferredStaticFlushToken = 0;
@@ -325,6 +327,24 @@ const initPdfViewer = () => {
     state,
   };
 
+  const setStatusDirect = (text, tone = "idle") => {
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-busy", tone === "busy");
+    statusEl.classList.toggle("is-error", tone === "error");
+  };
+  const setStatus = (text, tone = "idle") => {
+    if (buildPreviewState === "building") {
+      setStatusDirect(uiString("liveUpdating"), "busy");
+      return;
+    }
+    if (buildPreviewState === "failed") {
+      setStatusDirect(uiString("buildFailedLastGood"), "error");
+      return;
+    }
+    setStatusDirect(text, tone);
+  };
+
   const staticSourceStates = new Map();
   const staticNeedsRebuild = () => staticSourceStates.get(state.path) === true;
   const refreshStaticStatus = () => {
@@ -332,15 +352,8 @@ const initPdfViewer = () => {
     document.body.classList.toggle("pdf-needs-rebuild", stale);
     if (!isLive() && !isLivePending()) {
       setStatus(uiString(!state.doc ? "waiting" : stale ? "rebuildNeeded" : "ready"));
-      if (statusEl) statusEl.title = "";
+      if (statusEl && buildPreviewState === "idle") statusEl.title = "";
     }
-  };
-
-  const setStatus = (text, tone = "idle") => {
-    if (!statusEl) return;
-    statusEl.textContent = text;
-    statusEl.classList.toggle("is-busy", tone === "busy");
-    statusEl.classList.toggle("is-error", tone === "error");
   };
 
   const appearanceKey = "tex64.appearance.theme";
@@ -2345,6 +2358,22 @@ const initPdfViewer = () => {
       if (message.type === "source-state" && message.payload) {
         staticSourceStates.set(message.payload.path || null, message.payload.needsRebuild === true);
         if ((message.payload.path || null) === state.path && !reloadInFlight) refreshStaticStatus();
+      }
+      if (message.type === "build-state" && message.payload) {
+        const payload = message.payload;
+        buildPreviewState = payload.state === "building" || payload.state === "failed"
+          ? payload.state
+          : "idle";
+        if (statusEl) {
+          statusEl.title = buildPreviewState === "failed" && typeof payload.message === "string"
+            ? payload.message
+            : "";
+        }
+        if (buildPreviewState === "building") setStatusDirect(uiString("liveUpdating"), "busy");
+        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"), "error");
+        else if (isLive()) setStatus(uiString("live"));
+        else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
+        else refreshStaticStatus();
       }
       if (message.type === "sync" && message.payload) {
         if (!applyLiveSync(message.payload)) applySync(message.payload);

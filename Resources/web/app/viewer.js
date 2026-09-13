@@ -45,6 +45,7 @@ export const createViewer = (deps) => {
     let pdfWorkspaceRoot = null;
     let pendingPdfOpen = null;
     let pendingPdfSync = null;
+    let pdfBuildPreview = null;
     // Real-time preview: when set, the pdf viewer swaps its page canvas for the
     // live engine frame (same chrome). Re-sent on every viewer "ready" so it
     // survives the pdf iframe being torn down and recreated. `hold` keeps the
@@ -58,6 +59,19 @@ export const createViewer = (deps) => {
         livePdfPath(pdfViewerPath, livePreview.target.workspaceRoot) ===
             livePdfPath(livePreview.target.pdfPath, livePreview.target.workspaceRoot)
         ? livePreview : null;
+    const matchingBuildPreview = () => {
+        var _a;
+        if (!(pdfBuildPreview === null || pdfBuildPreview === void 0 ? void 0 : pdfBuildPreview.pdfPath) || !pdfViewerPath)
+            return null;
+        if (pdfBuildPreview.workspaceRoot &&
+            pdfWorkspaceRoot &&
+            livePdfPath(pdfBuildPreview.workspaceRoot, null) !== livePdfPath(pdfWorkspaceRoot, null))
+            return null;
+        const root = (_a = pdfBuildPreview.workspaceRoot) !== null && _a !== void 0 ? _a : pdfWorkspaceRoot;
+        return livePdfPath(pdfViewerPath, root) === livePdfPath(pdfBuildPreview.pdfPath, root)
+            ? pdfBuildPreview
+            : null;
+    };
     const needsPdfRebuild = () => {
         if (!pdfWorkspaceRoot || !pdfViewerPath)
             return false;
@@ -87,6 +101,20 @@ export const createViewer = (deps) => {
     pdfSourceListeners.add(() => {
         if (pdfViewerReady && pdfViewerPath)
             postPdfMessage({ type: "source-state", payload: { path: pdfViewerPath, needsRebuild: needsPdfRebuild() } });
+    });
+    window.addEventListener("tex64:build-state", (event) => {
+        const detail = event.detail;
+        if (!detail || typeof detail.state !== "string")
+            return;
+        const wasMatching = matchingBuildPreview();
+        pdfBuildPreview = detail;
+        if (pdfViewerReady) {
+            const buildPreview = matchingBuildPreview();
+            if (buildPreview)
+                postPdfMessage({ type: "build-state", payload: buildPreview });
+            else if (wasMatching)
+                postPdfMessage({ type: "build-state", payload: { state: "idle" } });
+        }
     });
     const ensurePdfFrame = () => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
@@ -121,6 +149,8 @@ export const createViewer = (deps) => {
                 pendingPdfOpen = null;
             }
             postPdfMessage({ type: "live", payload: matchingLivePreview() });
+            const buildPreview = matchingBuildPreview();
+            postPdfMessage({ type: "build-state", payload: buildPreview !== null && buildPreview !== void 0 ? buildPreview : { state: "idle" } });
             if (pendingPdfSync) {
                 postPdfMessage({ type: "sync", payload: pendingPdfSync });
                 pendingPdfSync = null;
@@ -351,6 +381,8 @@ export const createViewer = (deps) => {
                 // send direct edits through it, even before the next preview poll.
                 postPdfMessage({ type: "live", payload: matchingLivePreview() });
                 postPdfMessage({ type: "open", payload });
+                const buildPreview = matchingBuildPreview();
+                postPdfMessage({ type: "build-state", payload: buildPreview !== null && buildPreview !== void 0 ? buildPreview : { state: "idle" } });
                 if (!(pendingPdfSync === null || pendingPdfSync === void 0 ? void 0 : pendingPdfSync.pdfPath) || pendingPdfSync.pdfPath === path) {
                     if (pendingPdfSync) {
                         postPdfMessage({ type: "sync", payload: pendingPdfSync });

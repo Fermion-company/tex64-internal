@@ -1177,6 +1177,7 @@ export const initMain = () => {
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             build: {
+                handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
                 setBuildTarget: (path) => { lastBuildMainFile = path; },
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),
