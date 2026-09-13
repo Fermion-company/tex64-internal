@@ -1,8 +1,130 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { terminateWindowsProcessTree } = require("../process-tree.cjs");
 
+const { savePreviewCacheGeneration } = require("./preview-cache.cjs");
 const { isEnvMissingMessage } = require("./utils.cjs");
+
+const PREVIEW_CACHE_AUX_SUFFIXES = [
+  ".aux", ".toc", ".lof", ".lot", ".loa", ".lol", ".out", ".bbl", ".bcf",
+  ".run.xml", ".idx", ".ind", ".glo", ".gls", ".acn", ".acr", ".nav", ".snm",
+  ".vrb", ".thm",
+];
+const PREVIEW_CACHE_IGNORED_DIRECTORIES = new Set([
+  ".git", ".tex64", "node_modules", "DerivedData", "build",
+]);
+const MAX_PREVIEW_CACHE_AUX_FILES = 62;
+const MAX_PREVIEW_CACHE_DIRECTORIES = 10_000;
+
+const signatureFor = (value) =>
+  crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+const regularFile = (filePath) => {
+  try {
+    const stats = fs.lstatSync(filePath);
+    return stats.isFile() && !stats.isSymbolicLink() ? stats : null;
+  } catch {
+    return null;
+  }
+};
+
+const regularFileAsync = async (filePath) => {
+  try {
+    const stats = await fs.promises.lstat(filePath);
+    return stats.isFile() && !stats.isSymbolicLink() ? stats : null;
+  } catch {
+    return null;
+  }
+};
+
+const cacheableAuxiliaryName = (name) => {
+  const lower = name.toLowerCase();
+  return PREVIEW_CACHE_AUX_SUFFIXES.some(
+    (suffix) => lower.endsWith(suffix) && lower.length > suffix.length
+  );
+};
+
+const collectPreviewCacheAuxiliaries = async (directory, startedAt) => {
+  const root = path.resolve(directory);
+  const pending = [root];
+  const artifacts = [];
+  let visitedDirectories = 0;
+  while (pending.length > 0 && artifacts.length < MAX_PREVIEW_CACHE_AUX_FILES) {
+    const current = pending.pop();
+    visitedDirectories += 1;
+    if (visitedDirectories > MAX_PREVIEW_CACHE_DIRECTORIES) break;
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (artifacts.length >= MAX_PREVIEW_CACHE_AUX_FILES) break;
+      const absolutePath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (
+          !entry.isSymbolicLink() &&
+          !PREVIEW_CACHE_IGNORED_DIRECTORIES.has(entry.name) &&
+          !entry.name.startsWith(".tex64-build-")
+        ) {
+          pending.push(absolutePath);
+        }
+        continue;
+      }
+      if (!entry.isFile() || entry.isSymbolicLink() || !cacheableAuxiliaryName(entry.name)) {
+        continue;
+      }
+      const stats = await regularFileAsync(absolutePath);
+      if (!stats || stats.mtimeMs + 1000 < startedAt) continue;
+      const logicalName = path.relative(root, absolutePath).split(path.sep).join("/");
+      if (!logicalName || logicalName.startsWith("../")) continue;
+      artifacts.push({ path: absolutePath, logicalName });
+    }
+  }
+  return artifacts;
+};
+
+const captureStaticPreviewCandidate = async ({
+  rootPath,
+  mainFileName,
+  engine,
+  outDir,
+  extraArgs,
+  finalPdfPath,
+  auxiliaryDirectory,
+  startedAt,
+}) => {
+  const synctexPath = [".synctex.gz", ".synctex"]
+    .map((suffix) => finalPdfPath.replace(/\.pdf$/i, suffix))
+    .find((candidate) => {
+      const stats = regularFile(candidate);
+      return stats && stats.mtimeMs + 1000 >= startedAt;
+    });
+  return savePreviewCacheGeneration({
+    rootPath,
+    mainFileName,
+    descriptor: {
+      profileSignature: signatureFor({ version: 1, outDir: outDir ?? null, extraArgs }),
+      engineSignature: signatureFor({ version: 1, requestedCommand: engine }),
+      provenance: {
+        inputProof: "none",
+        snapshotId: null,
+        dynamicInputs: false,
+        unknownInputs: ["Build inputs were not captured from an immutable snapshot."],
+        engine: { requestedCommand: engine },
+      },
+      inputs: [],
+      artifacts: {
+        pdf: finalPdfPath,
+        ...(synctexPath ? { synctex: synctexPath } : {}),
+        aux: await collectPreviewCacheAuxiliaries(auxiliaryDirectory, startedAt),
+      },
+      metrics: null,
+    },
+  });
+};
 
 const timedOutBuildResult = (result) => {
   const message = "Build timed out before completion. No new PDF was published. See the build log.";
@@ -343,6 +465,33 @@ module.exports = (BuildService) => {
               issues: [{ severity: "error", message, line: null }],
               log: transcript,
             };
+          }
+          try {
+            const cached = await captureStaticPreviewCandidate({
+              rootPath,
+              mainFileName,
+              engine,
+              outDir,
+              extraArgs,
+              finalPdfPath,
+              auxiliaryDirectory:
+                pdfOutputTransaction?.stagingDir ?? path.dirname(resolvedPdfPath),
+              startedAt,
+            });
+            if (!cached.saved) {
+              console.warn(
+                "[build] Could not cache the last-good preview:",
+                cached.reason,
+                cached.detail ?? ""
+              );
+            }
+          } catch (error) {
+            // The PDF is already committed. Cache availability must not turn a
+            // successful document build into a failure.
+            console.warn(
+              "[build] Could not cache the last-good preview:",
+              error?.message ?? error
+            );
           }
           return {
             kind: "success",
