@@ -30,6 +30,9 @@ const DEFAULT_START_TIMEOUT_MS = 90_000;
 // Opening a real document includes its first canonical LuaLaTeX build. Large
 // projects legitimately take several minutes, independently of process boot.
 const DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_BUILD_LEASE_TTL_MS = 11 * 60 * 1000;
+const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 10 * 60 * 1000;
+const BUILD_LEASE_REQUEST_TIMEOUT_MS = 2_000;
 const ENGINE_NAME = "tdom-engine";
 const LEGACY_ENGINE_NAME = "tdom-core";
 const MARKER = "server.js";
@@ -73,6 +76,8 @@ const requestJson = (url, { method = "GET", body, timeoutMs = 5_000 } = {}) =>
         if ((res.statusCode || 500) >= 400) {
           const error = new Error(`tdom request failed (${res.statusCode}): ${text}`);
           error.code = "TDOM_HTTP_ERROR";
+          error.statusCode = res.statusCode || 500;
+          try { error.response = JSON.parse(text); } catch { error.response = null; }
           return reject(error);
         }
         try { resolve(JSON.parse(text)); } catch {
@@ -231,6 +236,7 @@ class TdomEngineService {
     this.lastRootMtimeMs = null;
     this.pushQueue = Promise.resolve();
     this.pendingOpenRequest = null;
+    this.activeBuildLease = null;
   }
 
   resolveDirectory() {
@@ -275,6 +281,195 @@ class TdomEngineService {
       error: this.lastError };
   }
 
+  async applyActiveBuildLease() {
+    const lease = this.activeBuildLease;
+    if (
+      !lease ||
+      lease.released ||
+      lease.token ||
+      !this.isRunning() ||
+      this.state !== "ready" ||
+      !this.url
+    ) {
+      return lease?.response ?? null;
+    }
+    if (lease.applyPromise) return lease.applyPromise;
+    const remainingMs = lease.expiresAt
+      ? Math.max(1_000, lease.expiresAt - Date.now())
+      : lease.ttlMs;
+    const pending = requestJson(`${this.url}/canonical/build-lease/acquire`, {
+      method: "POST",
+      body: {
+        requestId: lease.requestId,
+        projectRoot: lease.projectRoot,
+        mainFile: lease.mainFile,
+        ttlMs: Math.min(lease.ttlMs, remainingMs),
+      },
+      timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+    }).then((response) => {
+      // Keep a token even if release began while this request was in flight;
+      // releaseBuildLease awaits the same promise and must return that remote
+      // lease instead of leaving authority paused until its watchdog fires.
+      lease.response = response;
+      if (response?.ok === true && typeof response.token === "string" && response.token) {
+        lease.token = response.token;
+      }
+      return response;
+    }).catch((error) => {
+      const response = error?.response && typeof error.response === "object"
+        ? { ...error.response, statusCode: error.statusCode }
+        : {
+            ok: false,
+            statusCode: error?.statusCode ?? null,
+            transportCode: error?.code ?? "TDOM_REQUEST_FAILED",
+          };
+      lease.response = response;
+      return response;
+    }).finally(() => {
+      if (lease.applyPromise === pending) lease.applyPromise = null;
+    });
+    lease.applyPromise = pending;
+    return pending;
+  }
+
+  async runOutsideBuildLease(action) {
+    // Keep the final lease check and the request/start call in one JavaScript
+    // turn. A Build cannot slip between them and launch a cold canonical job.
+    while (this.activeBuildLease && !this.activeBuildLease.released) {
+      await this.activeBuildLease.releasePromise;
+    }
+    return action();
+  }
+
+  async acquireBuildLease(payload = {}) {
+    if (this.activeBuildLease && !this.activeBuildLease.released) {
+      const error = new Error("TDOM heavy work is already reserved by another Build.");
+      error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
+      throw error;
+    }
+    const ttlMs = DEFAULT_BUILD_LEASE_TTL_MS;
+    let resolveRelease;
+    const lease = {
+      requestId: crypto.randomUUID(),
+      projectRoot: typeof payload.projectRoot === "string" ? path.resolve(payload.projectRoot) : "",
+      mainFile: typeof payload.mainFile === "string" ? payload.mainFile : "",
+      ttlMs,
+      expiresAt: null,
+      token: null,
+      response: null,
+      applyPromise: null,
+      released: false,
+      releasePromise: new Promise((resolve) => { resolveRelease = resolve; }),
+      resolveRelease,
+      expiryTimer: null,
+    };
+    this.activeBuildLease = lease;
+
+    // Do not start TDOM just to reserve CPU. If it is already ready, pause its
+    // canonical authority now; otherwise push() inherits this local gate.
+    const acquireDeadline = Date.now() + BUILD_LEASE_ACQUIRE_TIMEOUT_MS;
+    while (!lease.released) {
+      if (payload.isCancelled?.()) {
+        await this.releaseBuildLease(lease);
+        break;
+      }
+      if (Date.now() >= acquireDeadline) {
+        await this.releaseBuildLease(lease);
+        const error = new Error("TDOM heavy TeX work did not become available.");
+        error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
+        throw error;
+      }
+      if (this.state === "starting") {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        continue;
+      }
+      const response = await this.applyActiveBuildLease();
+      if (lease.token || !this.isRunning() || this.state !== "ready") break;
+      // A current engine can report a bootstrap or another resource lease
+      // synchronously. Retry the same request id: its idempotency prevents an
+      // uncertain HTTP timeout from creating an orphan lease.
+      const reason = typeof response?.reason === "string" ? response.reason : "";
+      const retryable =
+        response?.retryable === true ||
+        response?.statusCode === 409 ||
+        response?.statusCode === 503 ||
+        (typeof response?.transportCode === "string" &&
+          response.transportCode !== "TDOM_HTTP_ERROR") ||
+        reason === "resident-bootstrap-active" ||
+        reason === "bootstrap-busy" ||
+        reason === "lease-busy";
+      if (!retryable) {
+        // A 404 is the expected compatibility path for an installed app that
+        // still has an older optional Live engine.
+        if (response?.statusCode === 404) {
+          console.warn("[tdom] Build lease is unsupported by this Live engine.");
+          break;
+        }
+        await this.releaseBuildLease(lease);
+        const error = new Error("TDOM could not reserve heavy TeX work.");
+        error.code = "TDOM_BUILD_LEASE_UNAVAILABLE";
+        throw error;
+      }
+      const retryAfterMs = Math.max(
+        50,
+        Math.min(1_000, Number(response?.retryAfterMs) || 250)
+      );
+      await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+    }
+    if (!lease.released) {
+      lease.expiresAt = Date.now() + ttlMs;
+      lease.expiryTimer = setTimeout(() => {
+        void this.releaseBuildLease(lease);
+      }, ttlMs);
+      lease.expiryTimer.unref?.();
+    }
+    let released = false;
+    return {
+      requestId: lease.requestId,
+      bound: lease.response?.bound === true,
+      release: async () => {
+        if (released) return;
+        released = true;
+        await this.releaseBuildLease(lease);
+      },
+    };
+  }
+
+  async releaseBuildLease(lease) {
+    if (!lease || lease.released) return;
+    lease.released = true;
+    clearTimeout(lease.expiryTimer);
+    if (lease.applyPromise) await lease.applyPromise;
+    if (lease.token && this.isRunning() && this.state === "ready" && this.url) {
+      const body = { requestId: lease.requestId, token: lease.token };
+      let releasedRemotely = false;
+      let lastError = null;
+      for (let attempt = 0; attempt < 2 && !releasedRemotely; attempt += 1) {
+        try {
+          const response = await requestJson(`${this.url}/canonical/build-lease/release`, {
+            method: "POST",
+            body,
+            timeoutMs: BUILD_LEASE_REQUEST_TIMEOUT_MS,
+          });
+          releasedRemotely = response?.ok === true;
+          if (!releasedRemotely) {
+            lastError = new Error(response?.reason || "TDOM rejected the Build lease release.");
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!releasedRemotely) {
+        console.warn(
+          "[tdom] Could not release Build lease:",
+          lastError?.code || "request rejected"
+        );
+      }
+    }
+    if (this.activeBuildLease === lease) this.activeBuildLease = null;
+    lease.resolveRelease();
+  }
+
   assertLifecycle(generation) {
     if (generation !== this.lifecycleGeneration) {
       throw Object.assign(new Error("Live preview startup was cancelled."), { code: "TDOM_CANCELLED" });
@@ -283,8 +478,15 @@ class TdomEngineService {
 
   async start() {
     if (this.isRunning() && this.state === "ready") return { ok: true, url: this.url };
+    if (this.activeBuildLease && !this.activeBuildLease.released) {
+      return this.runOutsideBuildLease(() => this.start());
+    }
     if (this.startPromise) return this.startPromise;
     const generation = this.lifecycleGeneration;
+    // Mark the whole permission/directory/process startup interval. A Build
+    // that begins during an await below must wait instead of assuming no
+    // engine process can still appear behind it.
+    this.state = "starting";
     const pending = (async () => {
       const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "tdom" });
       this.assertLifecycle(generation);
@@ -302,12 +504,18 @@ class TdomEngineService {
         this.lastError = error.message;
         throw error;
       }
-      this.state = "starting";
       this.lastError = null;
       return this.startProcess(generation);
     })();
     this.startPromise = pending;
     try { return await pending; }
+    catch (error) {
+      if (!this.isRunning() && this.state === "starting") {
+        this.state = "stopped";
+        this.lastError = error?.message || String(error);
+      }
+      throw error;
+    }
     finally { if (this.startPromise === pending) this.startPromise = null; }
   }
 
@@ -419,6 +627,9 @@ class TdomEngineService {
         this.lastSessionKey = null;
         this.lastOverlays.clear();
         this.lastRootMtimeMs = null;
+        // A Build may have begun while the child was starting. Apply its
+        // resource lease before start() lets any pending /open proceed.
+        await this.applyActiveBuildLease();
         return { ok: true, url: this.url };
       } catch (error) {
         this.assertLifecycle(generation);
@@ -539,7 +750,14 @@ class TdomEngineService {
 
   push(payload = {}) {
     const run = async () => {
-      await this.start();
+      // Cold start can create resident and canonical TeX work. Keep it behind
+      // Build, while an already-ready resident remains available for fast,
+      // same-document keystroke updates.
+      if (!this.isRunning() || this.state !== "ready") {
+        await this.runOutsideBuildLease(() => this.start());
+      } else {
+        await this.start();
+      }
       const snapshot = this.resolvePushSnapshot(payload);
       // Source revision the engine accepted for this snapshot; the renderer
       // keeps a Build-owned PDF until Live presents at least this revision.
@@ -555,7 +773,12 @@ class TdomEngineService {
         this.lastSource === null ||
         this.pendingOpenRequest !== null
       ) {
-        acceptedSrcRev = (await this.openDocument(snapshot))?.report?.srcRev;
+        // /open may bootstrap a full document. Incremental /edit below stays
+        // live during Build; the engine lease suppresses only its heavy
+        // canonical fallback work.
+        acceptedSrcRev = (await this.runOutsideBuildLease(
+          () => this.openDocument(snapshot)
+        ))?.report?.srcRev;
         this.lastSource = snapshot.source;
         this.lastPath = normalizedPath;
         this.lastProjectRoot = snapshot.projectRoot;
@@ -596,7 +819,9 @@ class TdomEngineService {
           // The edit outcome is not trusted, so this is a deliberate resync,
           // distinct from retrying any earlier timed-out open.
           this.pendingOpenRequest = null;
-          acceptedSrcRev = (await this.openDocument(snapshot))?.report?.srcRev;
+          acceptedSrcRev = (await this.runOutsideBuildLease(
+            () => this.openDocument(snapshot)
+          ))?.report?.srcRev;
           this.lastSource = snapshot.source;
           this.lastPath = normalizedPath;
           this.lastProjectRoot = snapshot.projectRoot;

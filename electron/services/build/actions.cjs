@@ -188,9 +188,49 @@ module.exports = (BuildService) => {
     }
     this.isBuilding = true;
     this.cancelRequested = false;
+    let heavyWorkLease = null;
+    let result = null;
     try {
-      return await this.runBuild(rootPath, mainFileName, engine, buildProfile);
+      if (this.acquireHeavyWorkLease) {
+        try {
+          heavyWorkLease = await this.acquireHeavyWorkLease({
+            projectRoot: rootPath,
+            mainFile: mainFileName,
+            isCancelled: () => this.cancelRequested,
+          });
+        } catch (error) {
+          if (error?.code === "TDOM_BUILD_LEASE_UNAVAILABLE") {
+            const message =
+              "Build could not reserve the TeX engine. No compiler was started; try again or restart Live preview.";
+            result = {
+              kind: "failure",
+              summary: message,
+              issues: [{ severity: "error", message, line: null }],
+              log: "",
+            };
+            return result;
+          }
+          // Live preview is optional. A missing or older engine must not turn
+          // an ordinary, otherwise valid Build into a failure.
+          console.warn(
+            "[build] Could not reserve TDOM heavy work:",
+            error?.message ?? error
+          );
+        }
+      }
+      result = await this.runBuild(rootPath, mainFileName, engine, buildProfile);
+      return result;
     } finally {
+      try {
+        await heavyWorkLease?.release?.({
+          outcome: result?.kind ?? (this.cancelRequested ? "cancelled" : "failure"),
+        });
+      } catch (error) {
+        console.warn(
+          "[build] Could not release TDOM heavy work:",
+          error?.message ?? error
+        );
+      }
       this.isBuilding = false;
       this.cancelRequested = false;
     }

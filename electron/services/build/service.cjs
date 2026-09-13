@@ -20,6 +20,10 @@ class BuildService {
       options.processKillEscalationMs > 0
         ? options.processKillEscalationMs
         : null;
+    this.acquireHeavyWorkLease =
+      typeof options.acquireHeavyWorkLease === "function"
+        ? options.acquireHeavyWorkLease
+        : null;
   }
 }
 

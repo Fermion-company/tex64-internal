@@ -266,7 +266,9 @@ const projectBoundary = (root) => {
 const { HistoryController } = require("./services/history-controller.cjs");
 const { WorkspaceOperationCoordinator } = require("./services/workspace-operation.cjs");
 const workspaceOperations = new WorkspaceOperationCoordinator();
-const buildService = new BuildService();
+const buildService = new BuildService({
+  acquireHeavyWorkLease: (payload) => getTdomEngineService().acquireBuildLease(payload),
+});
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
 const searchService = new SearchService();
