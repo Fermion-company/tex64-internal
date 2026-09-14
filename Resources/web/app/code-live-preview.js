@@ -48,6 +48,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let pendingPush = null;
     let pushing = false;
     let latestInputAtEpochMs = 0;
+    let nextExactInputId = 0;
+    const pendingExactInputs = new Map();
     // Session and edit version a completed Build typeset. Dirty-only buffers
     // cannot tell a saved edit from the Build's source, so edits are counted.
     let builtSnapshot = null;
@@ -109,8 +111,37 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 return false;
         return true;
     };
+    const captureExactInput = (path, editor, editedAtEpochMs) => {
+        if (!path || !PROJECT_SOURCE_RE.test(path) || !(editor === null || editor === void 0 ? void 0 : editor.getValue))
+            return;
+        const workspaceRoot = getWorkspaceRoot();
+        const configuredRoot = getRootFile();
+        const rootFile = configuredRoot || (path.toLowerCase().endsWith(".tex") ? path : null);
+        const sessionKey = workspaceRoot && rootFile
+            ? `${workspaceRoot}\0${rootFile}`
+            : path.toLowerCase().endsWith(".tex") ? `legacy\0${path}` : null;
+        if (!sessionKey)
+            return;
+        pendingExactInputs.set(path, {
+            id: ++nextExactInputId,
+            sessionKey,
+            path,
+            text: editor.getValue(),
+            editAtEpochMs: editedAtEpochMs,
+        });
+    };
+    const clearAcceptedExactInputs = (snapshot, allowEquivalentBytes = false) => {
+        for (const [path, exactInput] of pendingExactInputs) {
+            if (exactInput.sessionKey !== snapshot.sessionKey)
+                continue;
+            const sameCapture = snapshot.exactInputIds.get(path) === exactInput.id;
+            const sameAcceptedBytes = snapshot.buffers.get(path) === exactInput.text;
+            if (sameCapture || (allowEquivalentBytes && sameAcceptedBytes))
+                pendingExactInputs.delete(path);
+        }
+    };
     const currentSnapshot = () => {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         const current = currentProjectSource();
         const workspaceRoot = getWorkspaceRoot();
         const configuredRoot = getRootFile();
@@ -130,9 +161,16 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 buffers.set(current.path, (_c = (_b = (_a = current.editor).getValue) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : "");
             }
             const sessionKey = `${workspaceRoot}\0${rootFile}`;
+            const exactInputs = [...pendingExactInputs.values()].filter((input) => input.sessionKey === sessionKey);
+            // A save can make the active buffer clean before the 80ms task runs.
+            // Keep the exact bytes observed by the editor notification until the
+            // engine accepts them; a later clean snapshot removes the overlay.
+            for (const exactInput of exactInputs)
+                buffers.set(exactInput.path, exactInput.text);
             return {
                 sessionKey,
                 buffers,
+                exactInputIds: new Map(exactInputs.map((input) => [input.path, input.id])),
                 target: /\.tex$/i.test(rootFile)
                     ? { workspaceRoot, pdfPath: rootFile.replace(/\.tex$/i, ".pdf") } : null,
                 payload: {
@@ -140,26 +178,35 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                     rootFile,
                     buffers: [...buffers].map(([path, text]) => ({ path, text })),
                     fresh: sessionKey !== queuedSessionKey,
-                    clientEditAtEpochMs: latestInputAtEpochMs || undefined,
+                    clientEditAtEpochMs: exactInputs.length === 1
+                        ? exactInputs[0].editAtEpochMs : latestInputAtEpochMs || undefined,
                 },
             };
         }
         if (!current || !current.path.toLowerCase().endsWith(".tex"))
             return null;
         const source = (_f = (_e = (_d = current.editor).getValue) === null || _e === void 0 ? void 0 : _e.call(_d)) !== null && _f !== void 0 ? _f : "";
+        const sessionKey = `legacy\0${current.path}`;
+        const exactInput = ((_g = pendingExactInputs.get(current.path)) === null || _g === void 0 ? void 0 : _g.sessionKey) === sessionKey
+            ? pendingExactInputs.get(current.path) : null;
         return {
-            sessionKey: `legacy\0${current.path}`,
-            buffers: new Map([[current.path, source]]),
+            sessionKey,
+            buffers: new Map([[current.path, (_h = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _h !== void 0 ? _h : source]]),
+            exactInputIds: new Map(exactInput ? [[current.path, exactInput.id]] : []),
             target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
             payload: {
-                source,
+                source: (_j = exactInput === null || exactInput === void 0 ? void 0 : exactInput.text) !== null && _j !== void 0 ? _j : source,
                 path: current.path,
-                fresh: `legacy\0${current.path}` !== queuedSessionKey,
-                clientEditAtEpochMs: latestInputAtEpochMs || undefined,
+                fresh: sessionKey !== queuedSessionKey,
+                clientEditAtEpochMs: (_k = exactInput === null || exactInput === void 0 ? void 0 : exactInput.editAtEpochMs) !== null && _k !== void 0 ? _k : (latestInputAtEpochMs || undefined),
             },
         };
     };
     const retireObsoleteSession = (nextSessionKey) => {
+        for (const [path, exactInput] of pendingExactInputs) {
+            if (exactInput.sessionKey !== nextSessionKey)
+                pendingExactInputs.delete(path);
+        }
         const queuedSessionIsObsolete = queuedSessionKey !== null && queuedSessionKey !== nextSessionKey;
         const visibleSessionIsObsolete = liveSessionKey !== null && liveSessionKey !== nextSessionKey;
         if (!queuedSessionIsObsolete && !visibleSessionIsObsolete)
@@ -198,6 +245,9 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 const result = await bridge.push(snapshot.payload);
                 if (!(result === null || result === void 0 ? void 0 : result.ok))
                     throw new Error((result === null || result === void 0 ? void 0 : result.error) || "live preview push failed");
+                // Only the capture ids carried by this accepted request are retired.
+                // An older acknowledgement must never clear a newer edit of same bytes.
+                clearAcceptedExactInputs(snapshot);
                 const isCurrent = active &&
                     snapshot.lifecycleVersion === lifecycleVersion &&
                     snapshot.pushVersion === latestPushVersion;
@@ -273,8 +323,13 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
             return;
         }
         if (!sourceRefreshPending &&
-            snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers))
+            snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers)) {
+            // With no queued or in-flight request, queuedBuffers is the last source
+            // the bridge accepted. A new capture of those same bytes is already live.
+            if (!pushing && !pendingPush)
+                clearAcceptedExactInputs(snapshot, true);
             return;
+        }
         queuedSessionKey = snapshot.sessionKey;
         queuedBuffers = new Map(snapshot.buffers);
         sourceRefreshPending = false;
@@ -306,9 +361,13 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         boundEditor = nextEditor;
         boundPath = nextPath;
         if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeModelContent) {
-            disposable = boundEditor.onDidChangeModelContent(() => {
+            const eventEditor = boundEditor;
+            const eventPath = boundPath;
+            disposable = eventEditor.onDidChangeModelContent(() => {
                 sourceEditVersion += 1;
-                latestInputAtEpochMs = Date.now();
+                const editedAtEpochMs = Date.now();
+                latestInputAtEpochMs = editedAtEpochMs;
+                captureExactInput(eventPath, eventEditor, editedAtEpochMs);
                 debouncedPush();
             });
         }
@@ -358,6 +417,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         boundPath = null;
         queuedSessionKey = null;
         queuedBuffers.clear();
+        pendingExactInputs.clear();
         sourceRefreshPending = false;
         pendingPush = null;
         engineStarted = false;
