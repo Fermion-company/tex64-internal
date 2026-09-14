@@ -330,6 +330,18 @@ class TdomEngineService {
             statusCode: error?.statusCode ?? null,
             transportCode: error?.code ?? "TDOM_REQUEST_FAILED",
           };
+      if (
+        response.statusCode === 503 &&
+        response.reason === "preview-work-settling" &&
+        response.requestId === lease.requestId &&
+        typeof response.token === "string" &&
+        /^[0-9a-f-]{36}$/i.test(response.token)
+      ) {
+        // This token proves the remote gate is already active, but Build may
+        // start only after a later 200 response. Retain it solely so cancel
+        // can release a lease whose settling response arrived in flight.
+        lease.cleanupToken = response.token;
+      }
       lease.response = response;
       return response;
     }).finally(() => {
@@ -363,6 +375,7 @@ class TdomEngineService {
       ttlMs,
       expiresAt: null,
       token: null,
+      cleanupToken: null,
       response: null,
       applyPromise: null,
       released: false,
@@ -606,8 +619,9 @@ class TdomEngineService {
     lease.released = true;
     clearTimeout(lease.expiryTimer);
     if (lease.applyPromise) await lease.applyPromise;
-    if (lease.token && this.isRunning() && this.state === "ready" && this.url) {
-      const body = { requestId: lease.requestId, token: lease.token };
+    const releaseToken = lease.token || lease.cleanupToken;
+    if (releaseToken && this.isRunning() && this.state === "ready" && this.url) {
+      const body = { requestId: lease.requestId, token: releaseToken };
       let releasedRemotely = false;
       let lastError = null;
       for (let attempt = 0; attempt < 2 && !releasedRemotely; attempt += 1) {
