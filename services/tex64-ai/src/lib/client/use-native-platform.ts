@@ -14,6 +14,7 @@ type AuthSnapshot = {
 };
 
 type AccessSnapshot = {
+  runtime?: "agents-api";
   allowed: boolean;
   reason: string | null;
   plan: string | null;
@@ -199,6 +200,7 @@ export function useNativePlatform(): NativePlatformState {
         if (!value || typeof value !== "object") return;
         const snapshot = value as Record<string, unknown>;
         setAccess({
+          runtime: snapshot.runtime === "agents-api" ? "agents-api" : undefined,
           allowed: snapshot.allowed === true,
           reason: typeof snapshot.reason === "string" ? snapshot.reason : null,
           plan: typeof snapshot.plan === "string" ? snapshot.plan : null,
@@ -231,7 +233,7 @@ export function useNativePlatform(): NativePlatformState {
   }, [armModelTimer, clearModelTimer, refresh, scheduleModelTimeout]);
 
   const plan = access?.plan ?? auth.plan;
-  const isPro = typeof plan === "string" && plan.toLowerCase() === "pro";
+  const isPro = access?.runtime === "agents-api" || (typeof plan === "string" && plan.toLowerCase() === "pro");
   const canRun = canRunNativePlatform({
     model,
     modelReady,

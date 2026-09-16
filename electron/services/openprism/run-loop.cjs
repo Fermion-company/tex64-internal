@@ -18,14 +18,14 @@
 "use strict";
 
 const { buildTools, OPTIONAL_TOOL_GROUPS, WRITE_TOOL_NAMES } = require("./tools.cjs");
-const { AgentsApiTurn, resolveAgentsApiConfig, MAX_CHECKPOINTS, MAX_OBSERVED_TOKENS } = require("./agents-api.cjs");
+const { AgentsApiTurn, AgentsSessionStore, resolveAgentsApiConfig, MAX_CHECKPOINTS, MAX_OBSERVED_TOKENS } = require("./agents-api.cjs");
 const {
   computeSourceFingerprint,
   formatDocumentMapForPrompt,
   resolveMainTexFile,
   scanDocument,
 } = require("../agent-document-map.cjs");
-const { generateConversationTitle } = require("../agent-conversation-title.cjs");
+const { generateConversationTitle, setConversationTitle, cleanTitle } = require("../agent-conversation-title.cjs");
 const { buildUsageFromAccess } = require("../platform-usage-payload.cjs");
 const { resolveProposalPages } = require("../agent-proposal-scope.cjs");
 const {
@@ -600,12 +600,18 @@ const runAgentConversation = async (
 
     // ---- Resolve LLM config and platform identity ----
     llmConfig = resolveLLMConfig(settings);
-    const agentsConfig = resolveAgentsApiConfig();
+    const agentsConfig = resolveAgentsApiConfig(settings);
     if (agentsConfig) {
       llmConfig = { ...llmConfig, model: agentsConfig.model };
       // No platform credentials or quota accounting on the developer API path.
       apiUrl = "https://api.openai.com/v1/agents/sessions";
-      agentsApi = new AgentsApiTurn({ ...agentsConfig, signal: run.controller.signal });
+      await service.managedRecovery?.catch(() => {}); // Retry this conversation locally; another failed cleanup must not block it.
+      const store = service.managedSessionStore || new AgentsSessionStore(`${service.sessionsService?.dirPath || require("path").join(require("os").homedir(), ".tex64", "agent-sessions")}-managed`);
+      agentsApi = new AgentsApiTurn({
+        ...agentsConfig, signal: run.controller.signal, store,
+        key: store.key(rootPath, targetConversationId), conversationId: targetConversationId,
+        onLimit: () => service.abort(targetConversationId),
+      });
     } else {
       apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
       ({ accessToken, deviceId } = await resolveRequestIdentity(
@@ -660,6 +666,19 @@ const runAgentConversation = async (
     }));
     for (const tool of tools) {
       toolExecutors.set(tool.function.name, tool.execute);
+    }
+    if (agentsApi && isCodeSurface && turnOrigin !== "survey") {
+      toolDefinitions.push({ type: "function", function: {
+        name: "set_chat_title",
+        description: "On the first explicit user task, give this conversation a short title in the user's language. Call alongside other tools; do not change an existing title.",
+        parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"], additionalProperties: false },
+      } });
+      toolExecutors.set("set_chat_title", async ({ title }) => {
+        const cleaned = cleanTitle(title);
+        if (!cleaned) return { error: "A nonempty title is required." };
+        if (!service.sessionMetaByConversation.get(targetConversationId)?.title) setConversationTitle(service, targetConversationId, cleaned);
+        return { ok: true };
+      });
     }
     traceRunLoop({ conversationId: targetConversationId, askMode, planMode, stepStart, briefTurn, listedTools: listedTools.map((t) => t.function.name) });
     service.planByConversation?.delete(targetConversationId);
@@ -955,7 +974,7 @@ const runAgentConversation = async (
     // a few words about the request, in the user's language, in the background.
     const assistantRepliesBefore = conversation.filter((entry) => entry?.role === "assistant").length;
     const maybeTitleConversation = (replyText) => {
-      if (agentsApi) return;
+      if (agentsApi) return; // set_chat_title shares the managed turn; no separate paid title request.
       if (!isCodeSurface || turnOrigin === "survey") return;
       const meta = service.sessionMetaByConversation?.get(targetConversationId);
       if (meta?.title || assistantRepliesBefore > 0) return;
@@ -1120,7 +1139,7 @@ const runAgentConversation = async (
         normalizedTurnRemaining,
         platformBudget.remainingTokens ?? Number.POSITIVE_INFINITY,
       );
-      const requestMessages = compactRequestMessages(messages);
+      const requestMessages = agentsApi ? messages : compactRequestMessages(messages);
       const requestPlan = usageWasMeasurable
         ? planNextRequest({
             remainingTokens: effectiveRemaining,
@@ -1152,7 +1171,11 @@ const runAgentConversation = async (
       // ---- Call OpenAI-compatible API (streaming, with retry for transient errors) ----
       let response;
       if (agentsApi) {
-        response = await agentsApi.next({ messages, tools: toolDefinitions, onText: (text) => replyStream.push(text) });
+        response = await agentsApi.next({
+          messages, tools: toolDefinitions, onText: (text) => replyStream.push(text),
+          onProgress: (text) => { if (text) service.sendStatus("running", text, targetConversationId); },
+          estimatedTokens: requestPlan.inputTokenUpperBound + requestPlan.maxCompletionTokens,
+        });
       } else {
         // A failed paid POST can be ambiguous: retrying it may buy the same
         // completion twice. Only custom endpoints retain transient retries.
@@ -1365,8 +1388,8 @@ const runAgentConversation = async (
         quotaRemainingFromHeader = Math.max(0, quotaRemainingFromHeader - iterationBillable);
       }
       // Proxy calls require measured usage. Managed API usage can stay null
-      // throughout a turn; its developer trial instead has a small checkpoint
-      // cap and deadline. Never record that unknown usage as zero.
+      // throughout a turn. The managed adapter reserves unconfirmed usage and
+      // persists it separately; it must never be recorded as zero.
       usageWasMeasurable = iterationUsageSeen || Boolean(agentsApi);
 
       // ---- Assemble complete assistant message ----
@@ -1472,7 +1495,6 @@ const runAgentConversation = async (
         // The Code chat asks for next steps only after real work (tools ran);
         // a plain answer is not padded with an extra model call.
         const wantsNextSteps =
-          !agentsApi &&
           turnOrigin !== "survey" &&
           !planMode &&
           (isDocumentConversation || (isCodeSurface && iterations > 1));
@@ -1537,6 +1559,7 @@ const runAgentConversation = async (
         throwIfRunAborted();
         assertWorkspaceCurrent();
 
+        const replay = agentsApi ? await agentsApi.beforeTool(toolCall) : null;
         const fnName = toolCall.function?.name;
         const executor = toolExecutors.get(fnName);
         let toolResult;
@@ -1548,7 +1571,9 @@ const runAgentConversation = async (
           (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document");
         const refusedInAskMode =
           (readOnlyTurn || briefTurn) && (WRITE_TOOL_NAMES.has(fnName) || fnName === "compile_document");
-        if (refusedOnSurvey) {
+        if (replay?.cached) {
+          toolResult = replay.result;
+        } else if (refusedOnSurvey) {
           toolResult = JSON.stringify({
             error:
               "The opening read is read-only. Record this change as a proposal with propose_next_steps instead.",
@@ -1591,6 +1616,7 @@ const runAgentConversation = async (
 
         // Add tool result to messages
         let toolResultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
+        if (agentsApi && !replay?.cached) await agentsApi.afterTool(toolCall, toolResultStr);
         if (READ_TOOL_NAMES.has(fnName) && !toolResultStr.includes('"error"')) {
           const readKey = `${fnName}:${toolCall.function?.arguments || ""}`;
           const seen = readResultsThisRun.get(readKey);

@@ -205,8 +205,8 @@ Code内のAxiomチャットと課金導線も引き続き提供する。
 ## エージェントの働き方（Code / AI 共通の run-loop）
 
 開発時のAgents API接続は [agents-api-trial.md](agents-api-trial.md) を参照する。
-両UIで既存のツール実行・組版・undoを共有し、試用時は自動の初回通読・タイトル・追加提案の呼び出しを省く。
-以下は通常起動の仕様。
+両UIでモデル選択・初回通読・提案・ツール実行・組版・undoを保持する。
+開発接続の会話継続・停止・利用量の扱いは上記資料を参照する。
 
 - **文書マップ**。ターンの最初に主ファイルから `\input` / `\include` を辿って文書全体を決定的に
   走査し（`electron/services/agent-document-map.cjs`）、節と行範囲（id 付き）、float、ラベル、引用、

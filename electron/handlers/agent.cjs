@@ -1,3 +1,4 @@
+const { resolveAgentsApiConfig, getAgentsApiAccess } = require("../services/openprism/agents-api.cjs");
 const {
   DEFAULT_BASE_URL,
   isOfficialPlatformProxyUrl,
@@ -138,6 +139,10 @@ const createAgentHandlers = (deps) => {
       );
       const usesCodexBackend = (settings?.model || "") === "codex";
       if (!forcePlatform && usesCodexBackend) {
+        return true;
+      }
+      if (resolveAgentsApiConfig(settings)) {
+        sendToRenderer("platform:aiAccess", { source, access: getAgentsApiAccess() });
         return true;
       }
       const llmConfig = resolveLLMConfig(settings);
