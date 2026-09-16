@@ -18,6 +18,7 @@
 "use strict";
 
 const { buildTools, OPTIONAL_TOOL_GROUPS, WRITE_TOOL_NAMES } = require("./tools.cjs");
+const { AgentsApiTurn, resolveAgentsApiConfig, MAX_CHECKPOINTS, MAX_OBSERVED_TOKENS } = require("./agents-api.cjs");
 const {
   computeSourceFingerprint,
   formatDocumentMapForPrompt,
@@ -562,6 +563,7 @@ const runAgentConversation = async (
   let deviceId;
   let toolDefinitions;
   let messages;
+  let agentsApi = null;
   const toolExecutors = new Map();
 
   try {
@@ -598,13 +600,21 @@ const runAgentConversation = async (
 
     // ---- Resolve LLM config and platform identity ----
     llmConfig = resolveLLMConfig(settings);
-    apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
-    ({ accessToken, deviceId } = await resolveRequestIdentity(
-      service,
-      apiUrl,
-      settings,
-      run.controller.signal,
-    ));
+    const agentsConfig = resolveAgentsApiConfig();
+    if (agentsConfig) {
+      llmConfig = { ...llmConfig, model: agentsConfig.model };
+      // No platform credentials or quota accounting on the developer API path.
+      apiUrl = "https://api.openai.com/v1/agents/sessions";
+      agentsApi = new AgentsApiTurn({ ...agentsConfig, signal: run.controller.signal });
+    } else {
+      apiUrl = normalizeChatEndpoint(llmConfig.endpoint);
+      ({ accessToken, deviceId } = await resolveRequestIdentity(
+        service,
+        apiUrl,
+        settings,
+        run.controller.signal,
+      ));
+    }
     throwIfRunAborted();
     assertWorkspaceCurrent();
 
@@ -697,6 +707,7 @@ const runAgentConversation = async (
     ];
     service.sendStatus("running", "Thinking...", targetConversationId);
   } catch (error) {
+    await agentsApi?.close().catch(() => {});
     if (isCurrentRun()) {
       if (error?.name === "AbortError" || run.controller.signal.aborted) {
         service.sendStatus("idle", "Aborted.", targetConversationId);
@@ -864,11 +875,11 @@ const runAgentConversation = async (
     // Writing turns in both the AI mode and the Code chat rewrite whole
     // sections and read the paper back; both get the larger per-turn room.
     // The platform quota still bounds every turn.
-    const maxIterations = Math.max(
+    const maxIterations = agentsApi ? MAX_CHECKPOINTS : Math.max(
       resolveMaxAgentIterations(options.maxIterations),
       DOCUMENT_MAX_AGENT_ITERATIONS,
     );
-    const turnTokenBudget = Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
+    const turnTokenBudget = agentsApi ? MAX_OBSERVED_TOKENS : Math.max(DOCUMENT_TURN_TOKEN_BUDGET, MAX_AGENT_TOKENS_PER_RUN);
     let iterations = 0;
     let platformBudgetAtStart = null;
     let usageWasMeasurable = true;
@@ -944,6 +955,7 @@ const runAgentConversation = async (
     // a few words about the request, in the user's language, in the background.
     const assistantRepliesBefore = conversation.filter((entry) => entry?.role === "assistant").length;
     const maybeTitleConversation = (replyText) => {
+      if (agentsApi) return;
       if (!isCodeSurface || turnOrigin === "survey") return;
       const meta = service.sessionMetaByConversation?.get(targetConversationId);
       if (meta?.title || assistantRepliesBefore > 0) return;
@@ -1132,101 +1144,103 @@ const runAgentConversation = async (
 
       iterations += 1;
 
+      const replyStream = createReplyTagStream((text) => {
+        if (!text) return;
+        service.sendToRenderer("agent:messageDelta", { text, conversationId: targetConversationId });
+      });
+
       // ---- Call OpenAI-compatible API (streaming, with retry for transient errors) ----
       let response;
-      // A failed paid POST can be ambiguous: retrying it may buy the same
-      // completion twice. Only custom endpoints retain transient retries.
-      const maxRetries = isOfficialPlatformProxyUrl(apiUrl) ? 1 : 3;
-      const MAX_RETRY_AFTER_SEC = 60; // Give up if server asks to wait longer than this
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        if (!isCurrentRun()) return;
-        throwIfRunAborted();
-        assertWorkspaceCurrent();
-        response = await fetch(apiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
-            ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
-            ...(isOfficialPlatformProxyUrl(apiUrl)
-              ? {
-                  [TURN_REMAINING_TOKENS_HEADER]: String(
-                    Math.max(0, Math.floor(effectiveRemaining)),
-                  ),
-                }
-              : {}),
-          },
-          body: JSON.stringify(buildChatRequestBody({
-            model: llmConfig.model,
-            messages: requestMessages,
-            tools: toolDefinitions,
-            temperature: llmConfig.temperature,
-            maxCompletionTokens: requestPlan.maxCompletionTokens,
-          })),
-          signal: run.controller.signal,
-        });
+      if (agentsApi) {
+        response = await agentsApi.next({ messages, tools: toolDefinitions, onText: (text) => replyStream.push(text) });
+      } else {
+        // A failed paid POST can be ambiguous: retrying it may buy the same
+        // completion twice. Only custom endpoints retain transient retries.
+        const maxRetries = isOfficialPlatformProxyUrl(apiUrl) ? 1 : 3;
+        const MAX_RETRY_AFTER_SEC = 60; // Give up if server asks to wait longer than this
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          if (!isCurrentRun()) return;
+          throwIfRunAborted();
+          assertWorkspaceCurrent();
+          response = await fetch(apiUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
+              ...(deviceId ? { "X-Tex64-Device-Id": deviceId } : {}),
+              ...(isOfficialPlatformProxyUrl(apiUrl)
+                ? {
+                    [TURN_REMAINING_TOKENS_HEADER]: String(
+                      Math.max(0, Math.floor(effectiveRemaining)),
+                    ),
+                  }
+                : {}),
+            },
+            body: JSON.stringify(buildChatRequestBody({
+              model: llmConfig.model,
+              messages: requestMessages,
+              tools: toolDefinitions,
+              temperature: llmConfig.temperature,
+              maxCompletionTokens: requestPlan.maxCompletionTokens,
+            })),
+            signal: run.controller.signal,
+          });
 
-        if (response.ok) {
-          const headerRemaining = Number(response.headers.get(QUOTA_REMAINING_HEADER));
-          quotaRemainingFromHeader = Number.isFinite(headerRemaining) ? Math.max(0, headerRemaining) : null;
-          break;
-        }
-
-        const errorText = await response.text().catch(() => "");
-        const status = response.status;
-        console.error(`[run-loop] API error ${status} (attempt ${attempt}/${maxRetries}): ${errorText.slice(0, 500)}`);
-
-        // Parse server-provided Retry-After (header or JSON body's retryAfterSec)
-        let retryAfterSec = null;
-        const retryAfterHeader = response.headers.get("retry-after");
-        if (retryAfterHeader) {
-          const parsed = Number(retryAfterHeader);
-          if (Number.isFinite(parsed) && parsed >= 0) {
-            retryAfterSec = parsed;
+          if (response.ok) {
+            const headerRemaining = Number(response.headers.get(QUOTA_REMAINING_HEADER));
+            quotaRemainingFromHeader = Number.isFinite(headerRemaining) ? Math.max(0, headerRemaining) : null;
+            break;
           }
-        }
-        if (retryAfterSec === null && errorText) {
-          try {
-            const body = JSON.parse(errorText);
-            const bodyRetry = body?.error?.retryAfterSec ?? body?.retryAfterSec;
-            if (Number.isFinite(bodyRetry) && bodyRetry >= 0) {
-              retryAfterSec = bodyRetry;
+
+          const errorText = await response.text().catch(() => "");
+          const status = response.status;
+          console.error(`[run-loop] API error ${status} (attempt ${attempt}/${maxRetries}): ${errorText.slice(0, 500)}`);
+
+          // Parse server-provided Retry-After (header or JSON body's retryAfterSec)
+          let retryAfterSec = null;
+          const retryAfterHeader = response.headers.get("retry-after");
+          if (retryAfterHeader) {
+            const parsed = Number(retryAfterHeader);
+            if (Number.isFinite(parsed) && parsed >= 0) {
+              retryAfterSec = parsed;
             }
-          } catch { /* not JSON, ignore */ }
-        }
+          }
+          if (retryAfterSec === null && errorText) {
+            try {
+              const body = JSON.parse(errorText);
+              const bodyRetry = body?.error?.retryAfterSec ?? body?.retryAfterSec;
+              if (Number.isFinite(bodyRetry) && bodyRetry >= 0) {
+                retryAfterSec = bodyRetry;
+              }
+            } catch { /* not JSON, ignore */ }
+          }
 
-        // If server asks to wait too long (e.g. monthly quota reset), don't retry — surface clearly
-        if (status === 429 && retryAfterSec !== null && retryAfterSec > MAX_RETRY_AFTER_SEC) {
-          const hours = Math.ceil(retryAfterSec / 3600);
-          throw new Error(
-            `Rate limit / quota exhausted. Retry after ~${hours}h. ` +
-            `Server response: ${errorText.slice(0, 300)}`
-          );
-        }
+          // If server asks to wait too long (e.g. monthly quota reset), don't retry — surface clearly
+          if (status === 429 && retryAfterSec !== null && retryAfterSec > MAX_RETRY_AFTER_SEC) {
+            const hours = Math.ceil(retryAfterSec / 3600);
+            throw new Error(
+              `Rate limit / quota exhausted. Retry after ~${hours}h. ` +
+              `Server response: ${errorText.slice(0, 300)}`
+            );
+          }
 
-        // Retry on 429 (rate limit) or 5xx (server error), but not on 4xx client errors
-        if ((status === 429 || status >= 500) && attempt < maxRetries) {
-          // Prefer server-provided Retry-After, else fall back to linear backoff
-          const fallbackMs = status === 429 ? 5000 * attempt : 2000 * attempt;
-          const backoffMs =
-            retryAfterSec !== null ? Math.max(1000, retryAfterSec * 1000) : fallbackMs;
-          console.log(`[run-loop] Retrying in ${backoffMs}ms (Retry-After=${retryAfterSec ?? "none"})...`);
-          await abortableDelay(backoffMs, run.controller.signal);
-          continue;
-        }
+          // Retry on 429 (rate limit) or 5xx (server error), but not on 4xx client errors
+          if ((status === 429 || status >= 500) && attempt < maxRetries) {
+            // Prefer server-provided Retry-After, else fall back to linear backoff
+            const fallbackMs = status === 429 ? 5000 * attempt : 2000 * attempt;
+            const backoffMs =
+              retryAfterSec !== null ? Math.max(1000, retryAfterSec * 1000) : fallbackMs;
+            console.log(`[run-loop] Retrying in ${backoffMs}ms (Retry-After=${retryAfterSec ?? "none"})...`);
+            await abortableDelay(backoffMs, run.controller.signal);
+            continue;
+          }
 
-        throw new Error(`API error ${status}: ${errorText.slice(0, 500)}`);
+          throw new Error(`API error ${status}: ${errorText.slice(0, 500)}`);
+        }
       }
 
       // ---- Parse response (SSE stream or JSON fallback) ----
       let assistantContent = "";
-      const replyStream = createReplyTagStream((text) => {
-        if (!text) return;
-        service.sendToRenderer("agent:messageDelta", {
-          text,
-          conversationId: targetConversationId,
-        });
-      });
       const toolCallAccumulators = new Map();
       let iterationPromptTokens = 0;
       let iterationCompletionTokens = 0;
@@ -1326,7 +1340,7 @@ const runAgentConversation = async (
         const choice = data.choices?.[0];
         if (choice?.message) {
           assistantContent = choice.message.content || "";
-          if (assistantContent) replyStream.push(assistantContent);
+          if (assistantContent && !agentsApi) replyStream.push(assistantContent);
           if (choice.message.tool_calls) {
             for (let i = 0; i < choice.message.tool_calls.length; i++) {
               const tc = choice.message.tool_calls[i];
@@ -1350,9 +1364,10 @@ const runAgentConversation = async (
       if (quotaRemainingFromHeader !== null) {
         quotaRemainingFromHeader = Math.max(0, quotaRemainingFromHeader - iterationBillable);
       }
-      // Missing usage makes a second paid call unknowable. Complete any tools
-      // already returned, then stop before another model request.
-      usageWasMeasurable = iterationUsageSeen;
+      // Proxy calls require measured usage. Managed API usage can stay null
+      // throughout a turn; its developer trial instead has a small checkpoint
+      // cap and deadline. Never record that unknown usage as zero.
+      usageWasMeasurable = iterationUsageSeen || Boolean(agentsApi);
 
       // ---- Assemble complete assistant message ----
       assertWorkspaceCurrent();
@@ -1457,6 +1472,7 @@ const runAgentConversation = async (
         // The Code chat asks for next steps only after real work (tools ran);
         // a plain answer is not padded with an extra model call.
         const wantsNextSteps =
+          !agentsApi &&
           turnOrigin !== "survey" &&
           !planMode &&
           (isDocumentConversation || (isCodeSurface && iterations > 1));
@@ -1737,6 +1753,12 @@ const runAgentConversation = async (
     // compile them deterministically so the paper still reflects real state.
     await settleWithoutAnotherModelCall("iterations");
   } catch (error) {
+    // Stop hosted inference before spending time compiling any partial edit.
+    if (agentsApi) {
+      try { await agentsApi.close(); } catch (cleanupError) {
+        service.sendToRenderer("agent:error", { message: cleanupError.message, conversationId: targetConversationId });
+      }
+    }
     if (error?.name === "AbortError" || run.controller.signal.aborted) {
       if (isCurrentRun()) {
         // A stop can arrive after a write, during the next provider call, or
@@ -1766,6 +1788,11 @@ const runAgentConversation = async (
     });
     service.sendStatus("error", "An error has occurred", targetConversationId);
   } finally {
+    if (agentsApi) {
+      try { await agentsApi.close(); } catch (error) {
+        service.sendToRenderer("agent:error", { message: error.message, conversationId: targetConversationId });
+      }
+    }
     service.finishConversationRun(targetConversationId, run.token);
     service.markSessionDirty(targetConversationId);
 
