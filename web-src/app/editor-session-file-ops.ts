@@ -756,7 +756,10 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       ? groupKey
       : preferredGroupHasPath
       ? groupKey
-      : existingGroupKey ?? resolveAutoOpenGroupKey(groupKey);
+      : existingGroupKey ?? (isPdfFilePath(path) ? "secondary" : resolveAutoOpenGroupKey(groupKey));
+    if (resolvedGroupKey === "secondary") {
+      setSplitViewEnabled(true);
+    }
     const group = getEditorGroup(resolvedGroupKey);
     if (group.currentFilePath === path && group.viewer.getViewerMode() !== "unsupported") {
       return false;
