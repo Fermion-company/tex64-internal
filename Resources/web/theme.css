@@ -4113,15 +4113,16 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   background: rgba(92, 156, 255, 0.08);
 }
 
-/* A failed build does not colour the Issues tab; the panel itself reports. */
-.tab.is-alert,
-.tab.is-alert:hover {
-  color: inherit;
-  background: transparent;
-  box-shadow: none;
-}
 .tab.is-alert::after {
-  display: none;
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  pointer-events: none;
 }
 
 .tab:focus-visible {

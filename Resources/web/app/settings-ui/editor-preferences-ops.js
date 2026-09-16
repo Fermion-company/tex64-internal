@@ -99,7 +99,7 @@ export const createSettingsEditorPreferenceOps = (runtime) => {
             runtime.state.pdfViewerMode = stored;
         }
         else {
-            runtime.state.pdfViewerMode = "window";
+            runtime.state.pdfViewerMode = "tab";
         }
         updateEditorPdfViewerModeUI();
         (_b = (_a = runtime.deps).onPdfViewerModeChange) === null || _b === void 0 ? void 0 : _b.call(_a, runtime.state.pdfViewerMode);
