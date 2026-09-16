@@ -270,21 +270,18 @@ export const createMathWysiwygApplyOps = (
           ? cursorOffset - savedEditAnchor
           : Infinity;
       const deleteBackwardChars = (count: number) => {
-        if (!Number.isFinite(count) || count <= 0) {
-          return false;
-        }
-        const safeCount = Math.min(count, maxSafeDelete);
-        if (safeCount <= 0) {
-          return false;
-        }
-        for (let i = 0; i < safeCount; i += 1) {
-          try {
-            mathfieldApi.executeCommand("deleteBackward");
-          } catch {
-            return i > 0;
-          }
-        }
-        return true;
+        if (!Number.isFinite(count) || count <= 0) return false;
+        const before = readMathfieldLatex(mathfieldApi, 0, cursorOffset, "latex") ?? "";
+        const suffix = before.slice(-count);
+        // A LaTeX command or fraction is one structural atom, not one atom
+        // per source character. Never repeat deleteBackward by string length.
+        const start = indexToOffsetInRange(mathfieldApi, 0, cursorOffset, before.length - count, "ceil");
+        if (!Number.isFinite(start) || start >= cursorOffset ||
+            cursorOffset - start > maxSafeDelete ||
+            readMathfieldLatex(mathfieldApi, start, cursorOffset, "latex") !== suffix) return false;
+        setSelectionRange(mathfieldApi, start, cursorOffset);
+        try { mathfieldApi.executeCommand("deleteBackward"); return true; }
+        catch { return false; }
       };
       const tokenSuffixFromMatch = (match: TokenMatch | null) => {
         if (!match) {

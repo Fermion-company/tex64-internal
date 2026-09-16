@@ -3,6 +3,7 @@
  * label is the only thing the reader sees; tool names never surface.
  */
 export const TOOL_ACTIVITY_LABELS: Record<string, string> = {
+  undo_changes: "変更を戻しています",
   read_document: "文書を読んでいます",
   search_sources: "資料を探しています",
   resolve_source: "資料を確認しています",

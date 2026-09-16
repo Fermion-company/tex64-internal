@@ -1795,11 +1795,10 @@ textarea {
   max-width: min(720px, calc(100% - 36px));
 }
 
-.compile-banner span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.compile-banner { flex-wrap: wrap; width: 620px; }
+.compile-banner span { flex: 1 1 100%; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
+.compile-banner button { flex-shrink: 0; white-space: nowrap; }
+.compile-banner span + button { margin-left: auto; }
 
 .compile-banner button {
   padding: 5px 10px;
@@ -1970,7 +1969,7 @@ textarea {
 
 .paragraph-math-field:focus-within {
   border-color: color-mix(in srgb, var(--accent) 68%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: none;
 }
 
 .paragraph-editor-error {
@@ -2234,3 +2233,35 @@ textarea {
     animation: none;
   }
 }
+
+/* Paper editing uses the existing control boundary to indicate focus. */
+:focus-visible { outline: none; }
+button:focus-visible { background: var(--hover); color: var(--ink); }
+.paragraph-math-field:focus-within { box-shadow: none; outline: none; border-color: var(--accent); }
+.element-card-head .element-card-confirm { color: var(--accent-strong); background: var(--accent-soft); font-weight: 650; }
+.element-card-head .element-card-confirm:disabled { color: var(--ink-faint); background: transparent; }
+.element-card-head .element-card-close { color: var(--ink-soft); }
+.element-card-head .element-card-discard { color: var(--ink-soft); }
+.draft-status { color: var(--ink-soft); margin-left: 8px; font-size: 10px; font-weight: 400; }
+.element-card.is-display-math { min-width: 0; width: 100%; }
+.is-display-math .paragraph-edit-area { min-height: 0; padding: 8px; background: transparent; border: 0; overflow: visible; }
+.is-display-math .paragraph-math { display: flex; width: 100%; margin: 0; }
+.is-display-math .paragraph-math-field { width: 100%; min-height: 76px; font-size: 23px; padding: 16px; }
+.paragraph-math { position: relative; }
+.paragraph-table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+.paragraph-table td { border: 1px solid var(--line-strong); padding: 0; vertical-align: top; }
+.paragraph-table .paragraph-edit-area { border: 0; border-radius: 0; min-height: 40px; max-height: none; font-size: 12px; padding: 8px; overflow: visible; }
+.paragraph-table .paragraph-edit-area:focus { background: var(--accent-faint); }
+.element-card.is-table { min-width: 0; width: 100%; }
+.paragraph-editor-error button { color: var(--ink); padding: 5px 8px; margin: 4px; background: var(--hover); border-radius: 5px; }
+.math-wysiwyg-panel { position: fixed; z-index: 1000; display: flex; align-items: stretch; gap: 6px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-menu); overflow-x: auto; }
+.math-wysiwyg-panel[aria-hidden="true"] { display: none; }
+.math-wysiwyg-item { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 8px 10px; color: var(--ink); background: var(--panel-muted); border: 1px solid transparent; border-radius: 6px; white-space: nowrap; }
+.math-wysiwyg-item.is-active { background: var(--accent-faint); border-color: var(--accent); }
+.math-wysiwyg-symbol { display: inline-flex; font-size: 19px; }
+.math-wysiwyg-label { font-size: 11px; color: var(--ink-soft); }
+
+.conflict-source { max-height: 150px; overflow: auto; white-space: pre-wrap; color: var(--ink); font-size: 12px; }
+
+.paragraph-table .paragraph-edit-area { white-space: normal; line-height: 1.5; }
+.paragraph-table .paragraph-math-field { min-width: 36px; padding: 3px; }

@@ -497,7 +497,7 @@ function AssistantMessage({
                 type="button"
                 className={`proposal-row${latest && activeProposalId === proposal.id ? " is-active" : ""}`}
                 disabled={!proposalsEnabled}
-                title={proposal.asks ? `${proposal.asks.question}` : proposal.request}
+                title={proposal.asks?.question}
                 onClick={() => onProposal?.(proposal)}
                 onMouseEnter={() => onProposalHover?.(proposal.id)}
                 onMouseLeave={() => onProposalHover?.(null)}

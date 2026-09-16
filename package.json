@@ -71,6 +71,8 @@
       "Resources/web/mathlive/**",
       "Resources/web/math/**",
       "Resources/web/app/blocks/math-input-utils.js",
+      "Resources/web/app/blocks/input-ui-math-field.js",
+      "Resources/web/app/blocks/input-ui/mathfield-matrix-ops.js",
       "Resources/web/app/math-keyboard-data.js",
       "node_modules/dictionary-de/**",
       "node_modules/dictionary-en/**"

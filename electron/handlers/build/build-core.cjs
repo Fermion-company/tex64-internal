@@ -429,7 +429,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         const displayIssues = [...errorIssues, ...warningIssues].slice(0, 20);
         const count = Math.max(displayIssues.length, 1);
         const summaryText = displayIssues[0]?.message ?? result.summary;
-        sendBuildState("failed", result.summary, eventContext);
+        sendBuildState("failed", summaryText, { ...eventContext, issues: displayIssues });
         sendIssues(count, summaryText, "error", displayIssues);
       }
     } catch (error) {

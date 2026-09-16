@@ -567,6 +567,10 @@ export const initMain = () => {
     getActiveGroup: editorSession.getActiveGroup,
   });
   const aiModeApi = initAiModeUi({
+    openSource: (path, line) => {
+      appModeApi.setMode("code");
+      editorSession.jumpToFileLine(path, line, "primary", { force: true, focus: true });
+    },
     postToNative: (payload, silent) => {
       if (
         payload.type === "openWorkspace" ||
@@ -1274,8 +1278,15 @@ export const initMain = () => {
           requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
           return;
         }
-        if (command === "file:save") {
-          editorSession.saveCurrentFile();
+        if (command === "file:save" || command === "edit:find") {
+          if (appModeApi.getMode() === "ai") {
+            aiModeApi.deliver({ type: "paper:command", payload: { command: command === "file:save" ? "save" : "find" } });
+          } else if (command === "file:save") {
+            editorSession.saveCurrentFile();
+          } else {
+            const editor = editorSession.getActiveGroup()?.editor as { getAction?: (id: string) => { run: () => unknown } | null } | null;
+            editor?.getAction?.("actions.find")?.run();
+          }
           return;
         }
         if (command === "settings:open") {

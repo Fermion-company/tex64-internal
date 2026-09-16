@@ -24,6 +24,9 @@ module.exports = (BuildService) => {
           if (!stat.isFile()) {
             continue;
           }
+          if (Number.isFinite(options.startedAt) && stat.mtimeMs < options.startedAt - 1000) {
+            continue;
+          }
           const text = fs.readFileSync(candidate, "utf8");
           if (!text.trim()) {
             continue;

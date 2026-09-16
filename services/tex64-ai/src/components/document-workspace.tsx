@@ -75,9 +75,8 @@ import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 
 type NativeTurnOptions = {
-  /** "survey": the app opened the document and asks where to start; read-only.
-   *  "step": the user picked an offered step; the agent gathers the brief first. */
-  origin?: "survey" | "step";
+  /** A step explicitly picked by the user. */
+  origin?: "step";
   /** With "step": a writing step withholds the edit tools on its first turn. */
   stepKind?: "mechanical" | "writing";
   /** Attached files as message parts; the first text part is the prompt. */
@@ -97,18 +96,6 @@ type QueuedTurn = {
   parts?: MessagePart[];
   attachments?: ChatAttachment[];
 };
-
-/**
- * What the app asks when a document is opened with no conversation yet. It is
- * sent as the model's user turn but never shown; the reply and its recorded
- * next steps are what the user sees first.
- */
-const OPENING_SURVEY_PROMPT =
-  "この文書を開きました。まず通読して、次を propose_next_steps で提案してください。編集と組版はしないでください。\n" +
-  "・改修を始めるべき箇所（内容の飛び、不整合、弱い箇所）\n" +
-  "・追加すべき内容（欠けている節、定理、図表、例、演習など）\n" +
-  "提案は3〜5件。それぞれ、そのまま依頼として送れる具体的な文にし、対象の箇所を含めてください。\n" +
-  "返答は2〜3文で、この文書が何で、どこから始めるべきかを述べてください。文書がほぼ空なら、何を書くべきかを提案してください。";
 
 /** The next steps the agent last attached; an assistant reply without any ends the list. */
 function latestProposalsOf(messages: ChatMessage[]): AgentProposal[] {
@@ -950,10 +937,6 @@ export function DocumentWorkspace() {
       ) => Promise<void>)
     | null
   >(null);
-  /** Session keys whose opening read already started; a failed read is not retried. */
-  const surveyedSessionsRef = useRef<Set<string>>(new Set());
-  /** Session key whose restored, empty conversation asked for an opening read. */
-  const surveyRequestRef = useRef<string | null>(null);
   const nativeDocument = nativeWorkspace.current;
   const nativeConversationId = useMemo(
     () =>
@@ -1034,7 +1017,7 @@ export function DocumentWorkspace() {
       setTurnError(null);
       setMobileView("conversation");
       const shownAt = new Date().toISOString();
-      if (options?.origin !== "survey") {
+      {
         setNativeMessages((current) => [
           ...current,
           {
@@ -1137,49 +1120,6 @@ export function DocumentWorkspace() {
   useEffect(() => {
     runNativeDocTurnRef.current = runNativeDocTurn;
   }, [runNativeDocTurn]);
-
-  useEffect(() => {
-    const requested = surveyRequestRef.current;
-    if (!workspacePdf.native || !requested) return;
-    if (requested !== nativeThreadSession) {
-      surveyRequestRef.current = null;
-      return;
-    }
-    // Same readiness as a typed prompt; the history load that asked for the
-    // read finishes after asking, so this effect runs again once it has.
-    if (
-      agentWorking ||
-      nativeHistoryLoading ||
-      nativeTurnStopping ||
-      !nativePlatform.canRun ||
-      !nativeDocument ||
-      !nativeConversationId ||
-      !nativeWorkspaceIdentity.workspaceRoot
-    ) {
-      return;
-    }
-    surveyRequestRef.current = null;
-    // The user's own first message, or an earlier read, already started this
-    // conversation; the opening read only ever speaks first.
-    if (nativeMessages.length > 0 || surveyedSessionsRef.current.has(requested)) {
-      return;
-    }
-    surveyedSessionsRef.current.add(requested);
-    void runNativeDocTurnRef.current?.(OPENING_SURVEY_PROMPT, undefined, {
-      origin: "survey",
-    });
-  }, [
-    agentWorking,
-    nativeConversationId,
-    nativeDocument,
-    nativeHistoryLoading,
-    nativeMessages.length,
-    nativePlatform.canRun,
-    nativeThreadSession,
-    nativeTurnStopping,
-    nativeWorkspaceIdentity.workspaceRoot,
-    workspacePdf.native,
-  ]);
 
   useEffect(() => {
     const runQueuedTurn = runNativeDocTurnRef.current;
@@ -1463,12 +1403,6 @@ export function DocumentWorkspace() {
           return;
         }
         applyRestoredState(state);
-        if (restoreMode === "idle" && state.messages.length === 0) {
-          // A document with no conversation yet gets its opening read: the
-          // agent reads it and proposes where to start. The effect below
-          // starts it once the composer would accept a prompt.
-          surveyRequestRef.current = nativeThreadSession;
-        }
         if (restoreMode === "reattach") {
           waitingForTerminal = true;
           attachedNativeTurnRef.current = {
@@ -1557,6 +1491,7 @@ export function DocumentWorkspace() {
       conversationId: nativeConversationId,
       controller,
     };
+    setActivityTool("undo_changes");
     setTurnDocumentId(nativeConversationId);
     setNativeHistoryLoading(true);
     setTurnError(null);
@@ -1587,6 +1522,7 @@ export function DocumentWorkspace() {
         setTurnDocumentId((current) =>
           current === nativeConversationId ? null : current,
         );
+        setActivityTool(null);
         setNativeHistoryLoading(false);
       }
     }
@@ -2076,6 +2012,13 @@ export function DocumentWorkspace() {
             <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
+                  onExport={workspacePdf.native ? () => {
+                    const host = getNativeHost();
+                    if (!host || !workspacePdf.path) return;
+                    void requestFromHost(host, { type: "file:exportPdf", resultType: "file:exportPdfResult", timeoutMs: null,
+                      payload: { path: workspacePdf.path, documentMainFile: nativeMainFile, ...workspaceRequestFields(nativeWorkspaceIdentity) },
+                    }).then((result) => { if (!result.ok && !result.cancelled) setTurnError(String(result.error || "PDFを保存できませんでした。")); });
+                  } : undefined}
                   anchors={
                     workspacePdf.native &&
                     pageAnchors &&
@@ -2108,7 +2051,7 @@ export function DocumentWorkspace() {
                   onPointSelect={
                     workspacePdf.native
                       ? (point) => {
-                          // A new click is a new spot; drop any edit in progress.
+                          // Closing retains a range-specific draft before selecting another spot.
                           paragraphEditor.close();
                           sourceLocator.locate({
                             ...point,
@@ -2132,14 +2075,16 @@ export function DocumentWorkspace() {
                           ? "Codeでビルドするルート文書を設定してください。"
                           : workspacePdf.building
                             ? "紙面を組み立てています…"
-                            : (workspacePdf.failure ??
-                              "紙面を組み立てています…")
+                            : workspacePdf.failure
+                              ? ""
+                              : "紙面を組み立てています…"
                       : agentWorking
                         ? "紙面を準備しています…"
                         : documentHasContent
                           ? "紙面を組み立てています…"
                           : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
+                  buildFailed={workspacePdf.native && Boolean(workspacePdf.failure)}
                   toolbarAction={
                     !workspacePdf.native && activeDocument ? (
                       <button
@@ -2158,7 +2103,18 @@ export function DocumentWorkspace() {
                     workspacePdf.native ? (
                       paragraphEditor.paragraph ? (
                         <ParagraphEditCard
-                          segments={paragraphEditor.paragraph.segments}
+                          key={`${paragraphEditor.paragraph.path}:${paragraphEditor.paragraph.startLine}:${paragraphEditor.paragraph.endLine}`}
+                          originalText={paragraphEditor.paragraph.originalText}
+                          initialDraft={paragraphEditor.draftText}
+                          kind={paragraphEditor.paragraph.kind}
+                          currentText={paragraphEditor.currentText}
+                          onAcceptCurrent={paragraphEditor.acceptCurrent}
+                          onDraftChange={paragraphEditor.updateDraft}
+                          onDiscard={() => { paragraphEditor.discard(); sourceLocator.clear(); }}
+                          onReload={() => {
+                            const target = paragraphEditor.paragraph;
+                            if (target) paragraphEditor.open({ path: target.path, line: target.startLine });
+                          }}
                           saving={paragraphEditor.saving}
                           error={paragraphEditor.error}
                           onCancel={() => {
@@ -2166,7 +2122,7 @@ export function DocumentWorkspace() {
                             sourceLocator.clear();
                           }}
                           onSave={(replacementText) => {
-                            void paragraphEditor
+                            return paragraphEditor
                               .save(replacementText)
                               .then((saved) => {
                                 if (saved) sourceLocator.clear();
@@ -2232,14 +2188,14 @@ export function DocumentWorkspace() {
                     ) : null
                   }
                 />
+                {workspacePdf.native && !paragraphEditor.paragraph && (sourceLocator.error || paragraphEditor.error) ? <div className="compile-banner" role="alert">{sourceLocator.error || paragraphEditor.error}</div> : null}
                 {workspacePdf.native &&
                 workspacePdf.failure &&
-                nativeDocument &&
-                displayPdfUrl ? (
-                  // A quiet note over the previous page; the agent's next turn
-                  // brings the paper up to date, so there is nothing to press.
-                  <div className="compile-banner" role="status">
+                nativeDocument ? (
+                  <div className="compile-banner" role="alert">
                     <span>{workspacePdf.failure}</span>
+                    {workspacePdf.issue ? <button onClick={() => getNativeHost()?.send("source:reveal", { requestId: `ai-source-${Date.now()}`, ...workspaceRequestFields(nativeWorkspaceIdentity), documentMainFile: nativeMainFile, path: workspacePdf.issue!.file || nativeMainFile, line: workspacePdf.issue!.line || 1 })}>{workspacePdf.issue.line ? "原因の箇所を開く" : "ソースを開く"}</button> : null}
+                    <button disabled={workspacePdf.building} onClick={() => { if (nativeMainFile) requestWorkspaceBuild({ mainFile: nativeMainFile }, nativeWorkspaceIdentity); }}>再ビルド</button>
                   </div>
                 ) : compileFailed && activeDocument ? (
                   <div className="compile-banner" role="alert">

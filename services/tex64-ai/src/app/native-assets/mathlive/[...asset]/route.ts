@@ -13,7 +13,7 @@ const mathLiveDirectories = (): string[] => {
   const appResources = process.env.TEX64_APP_RESOURCES_DIR;
   return [
     ...(appResources
-      ? [path.join(appResources, "app.asar", "Resources", "web", "mathlive")]
+      ? [path.join(appResources, "app.asar.unpacked", "Resources", "web", "mathlive"), path.join(appResources, "app.asar", "Resources", "web", "mathlive")]
       : []),
     path.resolve(process.cwd(), "../../Resources/web/mathlive"),
     path.resolve(process.cwd(), "Resources/web/mathlive"),

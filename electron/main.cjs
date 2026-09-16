@@ -2172,6 +2172,14 @@ const handleRendererMessage = (event, message) => {
     });
     return;
   }
+  if (type === "file:exportPdf") {
+    void workspaceHandlers.handleExportPdf(message.requestId, message.path, {
+      workspaceGeneration: message.workspaceGeneration,
+      workspaceId: message.workspaceId,
+      documentMainFile: message.documentMainFile,
+    });
+    return;
+  }
   if (type === "file:bytes") {
     workspaceHandlers.handleFileBytes(message.requestId, message.path, {
       workspaceGeneration: message.workspaceGeneration,

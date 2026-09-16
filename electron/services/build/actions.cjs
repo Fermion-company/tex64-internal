@@ -289,11 +289,19 @@ module.exports = (BuildService) => {
         }
       }
 
-      const issues = this.parseIssues(output, rootPath);
+      let issues = this.parseIssues(output, rootPath);
       // The panel shows the compiler's own transcript; latexmk's console output is
       // only the fallback for when the .log could not be read.
       const transcript =
-        this.readBuildTranscript(rootPath, mainFileName, { outDir: runOutDir, jobName }) ?? output;
+        this.readBuildTranscript(rootPath, mainFileName, { outDir: runOutDir, jobName, startedAt }) ?? output;
+      // latexmk may summarize a failed run without repeating the TeX error.
+      // Recover its location from this run's transcript, never an old log.
+      if (status !== 0 && !issues.some((issue) => issue.severity === "error")) {
+        const transcriptErrors = this.parseIssues(transcript, rootPath).filter(
+          (issue) => issue.severity === "error",
+        );
+        issues = [...transcriptErrors, ...issues].slice(0, 20);
+      }
       const missingGlyphIssues = this.findMissingGlyphIssues(issues);
       if (missingGlyphIssues.length > 0) {
         const summary =

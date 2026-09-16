@@ -25,6 +25,7 @@ export type ParagraphEditorContext = {
 };
 
 export type EditableParagraph = {
+  kind: "text" | "math";
   path: string;
   startLine: number;
   endLine: number;
@@ -42,6 +43,11 @@ export type ParagraphEditor = {
   loading: boolean;
   saving: boolean;
   error: string | null;
+  draftText: string | null;
+  currentText: string | null;
+  acceptCurrent: () => void;
+  updateDraft: (text: string) => void;
+  discard: () => void;
   open: (location: { path: string; line: number; selectedText?: string }) => void;
   save: (replacementText: string) => Promise<boolean>;
   close: () => void;
@@ -53,6 +59,8 @@ type ParagraphEditorState = {
   loading: boolean;
   saving: boolean;
   error: string | null;
+  draftText: string | null;
+  currentTarget: EditableParagraph | null;
 };
 
 const emptyEditorState = (contextKey: string): ParagraphEditorState => ({
@@ -61,7 +69,12 @@ const emptyEditorState = (contextKey: string): ParagraphEditorState => ({
   loading: false,
   saving: false,
   error: null,
+  draftText: null,
+  currentTarget: null,
 });
+
+type ParagraphDraft = { target: EditableParagraph; text: string };
+const draftKey = (target: EditableParagraph) => `${target.path}:${target.startLine}:${target.endLine}`;
 
 /** Direct paragraph editing with whole-file CAS and workspace-generation guards. */
 export function useParagraphEditor(context: ParagraphEditorContext = {}): ParagraphEditor {
@@ -76,6 +89,29 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
   );
   const documentMainFile = normalizeWorkspaceMainFile(context.documentMainFile);
   const contextKey = `${expected.workspaceId}:${expected.workspaceGeneration}:${documentMainFile}`;
+  // Keep unsaved edits across selections, mode switches and renderer reloads.
+  // Workspace generations change on reopen; drafts belong to the stable document.
+  const storageKey = `tex64.paperDrafts.v1:${workspaceId}:${documentMainFile}`;
+  const draftsRef = useRef<{ key: string; entries: Record<string, ParagraphDraft> }>({ key: "", entries: {} });
+  const drafts = useCallback(() => {
+    if (draftsRef.current.key !== storageKey) {
+      let entries: Record<string, ParagraphDraft> = {};
+      try {
+        const saved: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "{}");
+        if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+          entries = Object.fromEntries(Object.entries(saved).filter(([, draft]) =>
+            draft && typeof draft.text === "string" && draft.target &&
+            typeof draft.target.path === "string" && typeof draft.target.originalText === "string" &&
+            Number.isInteger(draft.target.startLine) && Number.isInteger(draft.target.endLine)));
+        }
+      } catch { /* Empty on unavailable storage. */ }
+      draftsRef.current = { key: storageKey, entries };
+    }
+    return draftsRef.current.entries;
+  }, [storageKey]);
+  const persistDrafts = useCallback(() => {
+    try { sessionStorage.setItem(storageKey, JSON.stringify(drafts())); } catch { /* The in-memory draft remains available. */ }
+  }, [drafts, storageKey]);
   const [editorState, setEditorState] = useState<ParagraphEditorState>(() =>
     emptyEditorState(contextKey),
   );
@@ -90,6 +126,8 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
   const loading = stateIsCurrent ? editorState.loading : false;
   const saving = stateIsCurrent ? editorState.saving : false;
   const error = stateIsCurrent ? editorState.error : null;
+  const draftText = stateIsCurrent ? editorState.draftText : null;
+  const currentTarget = stateIsCurrent ? editorState.currentTarget : null;
 
   const updateCurrentState = useCallback(
     (update: Partial<Omit<ParagraphEditorState, "contextKey">>) => {
@@ -111,6 +149,8 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
         loading: true,
         saving: false,
         error: null,
+        draftText: null,
+        currentTarget: null,
       });
       void (async () => {
         try {
@@ -173,8 +213,8 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
             });
             return;
           }
-          updateCurrentState({
-            paragraph: {
+          const target: EditableParagraph = {
+              kind: range.kind,
               path: location.path,
               startLine: range.startLine,
               endLine: range.endLine,
@@ -187,7 +227,19 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
               workspaceId: expected.workspaceId,
               workspaceGeneration: expected.workspaceGeneration,
               segments,
-            },
+          };
+          const draft = drafts()[draftKey(target)];
+          updateCurrentState({
+            paragraph: draft
+              ? { ...draft.target, workspaceId: expected.workspaceId, workspaceGeneration: expected.workspaceGeneration,
+                  // Edits elsewhere in the file do not invalidate this draft.
+                  ...(draft.target.originalText === range.text ? { baseContentHash: target.baseContentHash } : {}) }
+              : target,
+            draftText: draft?.text ?? null,
+            currentTarget: draft && draft.target.originalText !== range.text ? target : null,
+            error: draft && draft.target.originalText !== range.text
+              ? "この箇所の本文が変更されています。下書きは保持しています。"
+              : null,
           });
         } catch {
           if (requestEpoch === requestEpochRef.current) {
@@ -200,7 +252,7 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
         }
       })();
     },
-    [contextKey, documentMainFile, expected, updateCurrentState],
+    [contextKey, documentMainFile, drafts, expected, updateCurrentState],
   );
 
   const save = useCallback(
@@ -215,6 +267,8 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
         return false;
       }
       if (replacementText === target.originalText) {
+        delete drafts()[draftKey(target)];
+        persistDrafts();
         updateCurrentState({ paragraph: null, error: null });
         return true;
       }
@@ -250,14 +304,16 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
         if (result.ok !== true) {
           updateCurrentState({
             error: result.stale === true
-              ? "本文が先に変わっていたため、上書きを避けました。もう一度選び直してください。"
+              ? "本文が変更されたため保存しませんでした。下書きは保持しています。"
               : typeof result.error === "string"
                 ? result.error
                 : "書き戻せませんでした。",
           });
           return false;
         }
-        updateCurrentState({ paragraph: null });
+        delete drafts()[draftKey(target)];
+        persistDrafts();
+        updateCurrentState({ paragraph: null, draftText: null });
         return true;
       } catch {
         if (requestEpoch === requestEpochRef.current) {
@@ -270,13 +326,36 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
         }
       }
     },
-    [documentMainFile, expected, paragraph, updateCurrentState],
+    [documentMainFile, drafts, expected, paragraph, persistDrafts, updateCurrentState],
   );
+
+  const updateDraft = useCallback((text: string) => {
+    if (!paragraph) return;
+    if (text === paragraph.originalText) delete drafts()[draftKey(paragraph)];
+    else drafts()[draftKey(paragraph)] = { target: paragraph, text };
+    persistDrafts();
+    updateCurrentState({ draftText: text });
+  }, [drafts, paragraph, persistDrafts, updateCurrentState]);
 
   const close = useCallback(() => {
     requestEpochRef.current += 1;
     setEditorState(emptyEditorState(contextKey));
   }, [contextKey]);
 
-  return { paragraph, loading, saving, error, open, save, close };
+  const discard = useCallback(() => {
+    if (paragraph) {
+      delete drafts()[draftKey(paragraph)];
+      persistDrafts();
+    }
+    close();
+  }, [close, drafts, paragraph, persistDrafts]);
+
+  const acceptCurrent = useCallback(() => {
+    if (!currentTarget || draftText === null) return;
+    drafts()[draftKey(currentTarget)] = { target: currentTarget, text: draftText };
+    persistDrafts();
+    updateCurrentState({ paragraph: currentTarget, currentTarget: null, error: null });
+  }, [currentTarget, draftText, drafts, persistDrafts, updateCurrentState]);
+
+  return { paragraph, loading, saving, error, draftText, currentText: currentTarget?.originalText ?? null, acceptCurrent, updateDraft, discard, open, save, close };
 }

@@ -380,3 +380,62 @@
   border-radius: 50%;
   background: var(--accent);
 }
+
+/* Text positioning follows PDF.js TextLayer's scale/font variables. */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :global(span), .textLayer :global(br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  user-select: text;
+}
+.textLayer > :global(span), .textLayer :global(.markedContent span) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer :global(.markedContent) { display: contents; }
+.textLayer ::selection { background: rgba(155, 47, 201, .28); }
+.editingText :global(span) { cursor: pointer; }
+.editingText :global(span:hover), .editingText :global(span:focus-visible) { background: rgba(155, 47, 201, .14); outline: none; }
+.textLayer .searchHit { background: rgba(255, 204, 0, .32); }
+.textLayer .activeSearchHit { background: rgba(255, 143, 0, .52); }
+.linkLayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.linkLayer a { position: absolute; display: block; pointer-events: auto; }
+.linkLayer a:hover, .linkLayer a:focus-visible { background: rgba(80, 135, 230, .18); outline: none; }
+.textError { position: absolute; bottom: 4px; left: 8px; color: #962c2c; font-size: 11px; }
+.toolbar { height: auto; min-height: 40px; flex-wrap: wrap; gap: 4px; padding-block: 5px; }
+.toolButton { width: 28px; height: 28px; }
+.fitButton { height: 28px; display: inline-flex; align-items: center; gap: 4px; }
+.zoomReadout { display: inline-flex; align-items: center; min-width: 0; }
+.zoomReadout input, .pageIndicator input { background: transparent; color: var(--ink); padding: 3px 2px; border-radius: 4px; font: inherit; text-align: right; width: 40px; appearance: textfield; }
+.zoomReadout input::-webkit-inner-spin-button, .pageIndicator input::-webkit-inner-spin-button { appearance: none; }
+.zoomReadout input:focus, .pageIndicator input:focus { background: var(--hover); }
+.pageIndicator { margin-left: 0; white-space: nowrap; color: var(--ink-soft); }
+.pageIndicator input { width: 32px; }
+.searchBar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; }
+.searchBar input { flex: 1; min-width: 60px; padding: 5px 8px; background: var(--panel-muted); border-radius: 5px; color: var(--ink); }
+.searchBar button { display: flex; padding: 4px; color: var(--ink-soft); }
+.searchBar span { white-space: nowrap; }
+.selectionCard { z-index: 6; }
+
+
+.selectionCard:has(:global(.is-display-math)), .selectionCard:has(:global(.is-table)) { width: min(650px, calc(100% - 24px)) !important; left: 50% !important; transform: translateX(-50%); }

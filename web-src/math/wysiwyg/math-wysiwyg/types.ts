@@ -22,6 +22,7 @@ export type MathWysiwygWordCandidate = {
 
 export type MathWysiwygDeps = {
   container: HTMLElement | null;
+  floating?: boolean;
   insertKey: (key: MathKey) => void;
   autoSuggest?: boolean;
   mruStorageKey?: string;
@@ -58,4 +59,3 @@ export type MruEntry = {
   hint?: string;
   displayLatex?: string;
 };
-

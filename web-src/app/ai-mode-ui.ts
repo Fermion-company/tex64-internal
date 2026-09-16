@@ -37,6 +37,8 @@ const GUEST_REQUESTS: ReadonlySet<string> = new Set([
   "createProject",
   "file:excerpt",
   "file:bytes",
+  "file:exportPdf",
+  "source:reveal",
   "file:importAttachment",
   "file:replaceLines",
   "build",
@@ -60,9 +62,11 @@ const GUEST_REQUESTS: ReadonlySet<string> = new Set([
 
 /** What the host relays back into the webview. */
 const GUEST_EVENTS: ReadonlySet<string> = new Set([
+  "paper:command",
   "updateWorkspace",
   "file:excerptResult",
   "file:bytesResult",
+  "file:exportPdfResult",
   "file:importAttachmentResult",
   "file:replaceLinesResult",
   "setBuildState",
@@ -89,6 +93,7 @@ const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
 const REQUEST_SCOPED_GUEST_EVENTS: ReadonlySet<string> = new Set([
   "file:excerptResult",
   "file:bytesResult",
+  "file:exportPdfResult",
   "file:importAttachmentResult",
   "file:replaceLinesResult",
   "synctex:reverseResult",
@@ -100,6 +105,7 @@ const REQUEST_SCOPED_GUEST_EVENTS: ReadonlySet<string> = new Set([
 const WORKSPACE_SCOPED_GUEST_EVENTS: ReadonlySet<string> = new Set([
   "file:excerptResult",
   "file:bytesResult",
+  "file:exportPdfResult",
   "file:importAttachmentResult",
   "file:replaceLinesResult",
   "synctex:reverseResult",
@@ -120,6 +126,7 @@ export type AiModeDeps = {
   postToNative: PostToNative;
   /** Opens the renderer-owned billing modal; billing IPC stays out of the guest. */
   openPlans: (plan?: "basic" | "pro") => void;
+  openSource: (path: string, line: number) => void;
 };
 
 const recordPayload = (value: unknown): Record<string, unknown> =>
@@ -155,6 +162,8 @@ type WorkspaceRequestScope = {
 const WORKSPACE_SCOPED_REQUESTS: ReadonlySet<string> = new Set([
   "file:excerpt",
   "file:bytes",
+  "file:exportPdf",
+  "source:reveal",
   "file:importAttachment",
   "file:replaceLines",
   "build",
@@ -167,6 +176,8 @@ const WORKSPACE_SCOPED_REQUESTS: ReadonlySet<string> = new Set([
 const DOCUMENT_SCOPED_REQUESTS: ReadonlySet<string> = new Set([
   "file:excerpt",
   "file:bytes",
+  "file:exportPdf",
+  "source:reveal",
   "file:importAttachment",
   "file:replaceLines",
   "build",
@@ -216,7 +227,10 @@ export const isAllowedAiGuestRequest = (
       return false;
     }
   }
-  if (type === "file:bytes") {
+  if (type === "source:reveal") {
+    return typeof body.path === "string" && !body.path.split(/[\\/]/).some((part) => part === "..") && !/^(?:[a-z]:|[/\\])/i.test(body.path) && Number.isSafeInteger(body.line) && Number(body.line) > 0;
+  }
+  if (type === "file:bytes" || type === "file:exportPdf") {
     return (
       typeof body.path === "string" &&
       body.path.toLowerCase().endsWith(".pdf")
@@ -429,6 +443,11 @@ export const initAiModeUi = (deps: AiModeDeps): AiModeApi => {
           // A request the AI mode makes but the host does not open is a wiring
           // mistake, and silence is the worst way to report one.
           console.warn("[ai-mode] blocked host request:", requestType);
+          return;
+        }
+        if (requestType === "source:reveal") {
+          const request = recordPayload(body);
+          deps.openSource(String(request.path), Number(request.line));
           return;
         }
         console.debug("[ai-mode] host request:", requestType);
