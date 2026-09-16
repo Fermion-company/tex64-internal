@@ -266,7 +266,15 @@ const projectBoundary = (root) => {
 const { HistoryController } = require("./services/history-controller.cjs");
 const { WorkspaceOperationCoordinator } = require("./services/workspace-operation.cjs");
 const workspaceOperations = new WorkspaceOperationCoordinator();
-const buildService = new BuildService();
+const buildService = new BuildService({
+  onPdfBuilt: () => {
+    if (!app.isPackaged || e2eHeadless) return;
+    return getPlatformAccessService().recordFirstPdf({
+      version: app.getVersion(), platform: process.platform, arch: process.arch,
+      distribution: distributionRuntime.windowsStore ? "microsoft-store" : "direct",
+    });
+  },
+});
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
 const searchService = new SearchService();

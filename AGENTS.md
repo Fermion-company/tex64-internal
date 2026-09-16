@@ -62,3 +62,5 @@ npm run texlab:fetch         # 配布用texlabを取得
 - texlabは別プロセスとして起動し、`web-src/app/lsp/` がMonacoへ接続する。バイナリは取得スクリプトで管理し、帰属は `NOTICE.md`。
 - 自作hoverとプロジェクト全体のindex / outlineはtexlabのper-file情報と役割が異なる。modelの `file://` URIはクロスファイル解決に使う。
 - 手動ビルドはビルドボタン。Cmd+Bは太字、Cmd+Iは斜体として使う。
+
+- 活動・初回PDF計測の定義は [docs/product-activity.md](docs/product-activity.md)。原稿の内容・パスは送らない。
