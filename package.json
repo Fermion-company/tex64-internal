@@ -8,6 +8,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.cjs",
+    "dev:agents": "node scripts/dev-agents.cjs",
     "electron:dev": "npm run -s web:build && electron .",
     "electron:dev:fast": "electron .",
     "dist:bootstrap": "node scripts/bootstrap-electron-assets.cjs",

@@ -1010,6 +1010,12 @@ class AgentService {
         return;
       }
 
+      // The managed API trial starts work only on an explicit user message.
+      if (process.env.TEX64_AGENT_RUNTIME === "agents-api" && payload?.context?.turnOrigin === "survey") {
+        this.sendStatus("idle", "Waiting", conversationId);
+        return;
+      }
+
       // model "codex" はユーザー自身の ChatGPT/Codex サブスクで動くバックエンド。
       // それ以外は従来どおり openprism (Axiom proxy) 経路。
       const settings = await awaitAbortable(
@@ -1021,7 +1027,7 @@ class AgentService {
         this.sendStatus("idle", "Aborted.", conversationId);
         return;
       }
-      if (payload?.forcePlatformAxiom !== true && (settings?.model || "") === "codex") {
+      if (process.env.TEX64_AGENT_RUNTIME !== "agents-api" && payload?.forcePlatformAxiom !== true && (settings?.model || "") === "codex") {
         return await runCodexConversation(this, payload, run);
       }
       return await runAgentConversation(this, payload, run);
