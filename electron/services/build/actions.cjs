@@ -341,6 +341,8 @@ module.exports = (BuildService) => {
               log: transcript,
             };
           }
+          // Report only a successfully promoted PDF; never paths, source or logs.
+          try { Promise.resolve(this.onPdfBuilt?.()).catch(() => {}); } catch {}
           return {
             kind: "success",
             summary: "Build succeeded",
