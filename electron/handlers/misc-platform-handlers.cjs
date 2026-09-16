@@ -1,3 +1,4 @@
+const { getAgentsApiAccess } = require("../services/openprism/agents-api.cjs");
 const {
   isTex64OAuthCallbackUrl,
   buildUsageFromAccess,
@@ -41,7 +42,7 @@ const createPlatformHandlers = ({
     if (!platformService) {
       return null;
     }
-    const access = await platformService.checkAiAccess({ force });
+    const access = getAgentsApiAccess() || await platformService.checkAiAccess({ force });
     sendToRenderer("platform:aiAccess", { source, access });
     const usage = buildUsageFromAccess(access);
     if (usage) {
@@ -54,7 +55,7 @@ const createPlatformHandlers = ({
     if (!platformService) {
       return null;
     }
-    const usage = await platformService.fetchAiUsage({ force });
+    const usage = getAgentsApiAccess() ? null : await platformService.fetchAiUsage({ force });
     sendToRenderer("platform:usage", { source, usage });
     return usage;
   };

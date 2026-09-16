@@ -49,7 +49,7 @@ npm run texlab:fetch         # 配布用texlabを取得
 ## Axiom
 
 - 実行ループとツールは `electron/services/openprism/`。Code / AIとも同じワークスペースを編集する。
-- Agents APIの開発試用は `npm run dev:agents`。接続・制限・確認結果は [docs/agents-api-trial.md](docs/agents-api-trial.md)。通常起動・配布版は従来の実行経路を使う。
+- Agents APIの開発接続は `npm run dev:agents`。接続・制限・確認結果は [docs/agents-api-trial.md](docs/agents-api-trial.md)。通常起動・配布版は従来の実行経路を使う。
 - 会話ごとにモデルが判断し、曖昧な点だけ質問する。固定の依頼分類・brief・plan・独立レビューのパイプラインは使わない。
 - 組版は `compile_document`。編集後に組版が残っている場合はElectronが追加のモデル呼出しなしで行う。
 - 現行モデル表示は `Axiom1.0` とPro限定 `Axiom1.0-pro`。上流モデル名・内部コストは公開しない。利用枠は `api/v2/_lib/runtime-config.js`、表示への換算は `subscription-domain.js` / `ai-request-budget.js` を確認する。
