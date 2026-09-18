@@ -54,6 +54,7 @@ npm run texlab:fetch         # 配布用texlabを取得
 - 組版は `compile_document`。編集後に組版が残っている場合はElectronが追加のモデル呼出しなしで行う。
 - 現行モデル表示は `Axiom1.0` とPro限定 `Axiom1.0-pro`。上流モデル名・内部コストは公開しない。利用枠は `api/v2/_lib/runtime-config.js`、表示への換算は `subscription-domain.js` / `ai-request-budget.js` を確認する。
 - LaTeX・数式・画像/PDFの扱いを重視する。ゴーストテキストやコンポーザの先回りチップは現在採用していない。文書を開くだけではAIを呼ばない。紙面操作と提案は [docs/app-modes.md](docs/app-modes.md) を参照する。
+- モデルは読んだ文書と会話から具体的な改善を自分から提案する。対象・根拠・変更内容・完了条件を持たせ、数式はプレビューする。固定の「続きを書く」「確認する」で候補欄を埋めない。提案を選ぶと編集・組版・確認まで進める。`update_task` / `read_conversation`で残件と確認結果を保存・取得し、`inspect_pdf`で組版後の紙面を確認する。AIモードの実行中の追加テキストは`agent:steer`で次の編集前に反映する。
 - ファイル編集の重複ガードは `agent-tools-file.cjs`。複数ファイルの差分は既存のMonaco差分エディタを使う。
 - Web単体のHTTP API・文書DBは [services/tex64-ai/README.md](services/tex64-ai/README.md) に分けて扱う。
 

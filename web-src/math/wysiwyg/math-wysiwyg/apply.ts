@@ -240,6 +240,24 @@ export const createMathWysiwygApplyOps = (
     const selection = getMathFieldSelectionRange(mathfieldApi);
     const cursorOffset = resolveCursorOffset(mathfieldApi, selection);
     const insertionAnchorStart = runtime.currentRange ? runtime.currentRange.start : cursorOffset;
+    // Deleting a trigger can leave its style-only wrapper empty. Capture the
+    // trigger atom's resolved style before deletion and use it for the
+    // replacement: `\\boldsymbol{mu}` -> candidate `\\mu` stays bold.
+    const candidateStyle = (() => {
+      if (typeof mathfieldApi.getElementInfo !== "function" || !runtime.currentRange) {
+        return undefined;
+      }
+      const { start, end } = runtime.currentRange;
+      for (const offset of [end, Math.max(start, end - 1), start]) {
+        try {
+          const style = mathfieldApi.getElementInfo(offset)?.style;
+          if (style && typeof style === "object") return { ...style };
+        } catch {
+          // A stale cursor can legitimately fail while the field updates.
+        }
+      }
+      return undefined;
+    })();
 
     const startMutation = () => {
       const sessionId = runtime.beginMutationSession();
@@ -295,6 +313,18 @@ export const createMathWysiwygApplyOps = (
         }
         return match.token;
       };
+      // A prefix serialized from the root includes closing braces when the
+      // caret is inside a fraction, radical or script. Its string suffix is
+      // therefore not the typed token. Verify the scoped atom range directly.
+      const expectedToken = tokenSuffixFromMatch(runtime.currentTokenMatch);
+      const triggerRange = runtime.currentRange;
+      if (triggerRange && expectedToken && triggerRange.end === cursorOffset &&
+          (savedEditAnchor === null || triggerRange.start >= savedEditAnchor) &&
+          readMathfieldLatex(mathfieldApi, triggerRange.start, triggerRange.end, "latex") === expectedToken) {
+        setSelectionRange(mathfieldApi, triggerRange.start, triggerRange.end);
+        mathfieldApi.executeCommand("deleteBackward");
+        return;
+      }
       const clearSuffixFromBuffer = (source: string, suffix: string) => {
         if (!source || !suffix || !source.endsWith(suffix)) {
           return false;
@@ -460,7 +490,7 @@ export const createMathWysiwygApplyOps = (
     }
 
     const insertionKey = toLiteralInsertKey(candidate.key);
-    runtime.deps.insertKey(insertionKey);
+    runtime.deps.insertKey(insertionKey, candidateStyle ? { style: candidateStyle } : undefined);
     const hasPlaceholderTemplate = typeof insertionKey.latex === "string" && insertionKey.latex.includes("#?");
     if (hasPlaceholderTemplate) {
       const inserted = normalizeLatexKey(insertionKey.latex);

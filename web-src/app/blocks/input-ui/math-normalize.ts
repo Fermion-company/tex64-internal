@@ -2,6 +2,7 @@ import {
   normalizeLegacyEnvMarkers,
   normalizeMatrixSyntax,
   shouldWrapAligned,
+  stripMathLivePlaceholders,
   unwrapAligned,
   wrapAligned,
 } from "../input-ui-latex-format.js";
@@ -15,7 +16,7 @@ export type MathValueOps = {
 export const createMathValueOps = (runtime: BlockInputRuntime): MathValueOps => {
   const normalizeMathValueForOutput = (value: string) => {
     const resolved = runtime.state.mathFieldWrapped ? unwrapAligned(value).value : value;
-    return normalizeMatrixSyntax(normalizeLegacyEnvMarkers(resolved));
+    return stripMathLivePlaceholders(normalizeMatrixSyntax(normalizeLegacyEnvMarkers(resolved)));
   };
 
   const prepareMathValueForField = (value: string) => {
@@ -30,4 +31,3 @@ export const createMathValueOps = (runtime: BlockInputRuntime): MathValueOps => 
 
   return { normalizeMathValueForOutput, prepareMathValueForField };
 };
-

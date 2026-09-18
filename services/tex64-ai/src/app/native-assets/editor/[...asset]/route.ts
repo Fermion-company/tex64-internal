@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 const helpers = new Set([
   "app/blocks/input-ui/mathfield-matrix-ops.js",
   "app/blocks/input-ui-math-field.js",
+  "app/blocks/input-ui-latex-format.js",
   "app/blocks/math-input-utils.js",
   "app/math-keyboard-data.js",
   "math/mathfield-private-adapter.js",

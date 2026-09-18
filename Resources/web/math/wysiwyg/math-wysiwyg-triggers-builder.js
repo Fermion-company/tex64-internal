@@ -76,6 +76,12 @@ export const buildTriggerMap = () => {
         entry.candidates.forEach((candidate, index) => {
             const key = getKeyByLatex(candidate.latex, candidate.label, candidate.displayLatex);
             addCandidate(entry.trigger, key, entry.priority - index * 2, candidate.label, candidate.displayLatex, entry.priority);
+            // Every offered standard command must also be reachable by its own
+            // name, including short forms such as \ne in the \neq family.
+            const command = extractCommand(candidate.latex);
+            if (command && command.toLowerCase() !== entry.trigger.toLowerCase()) {
+                addCandidate(command, key, entry.priority - index * 2, candidate.label, candidate.displayLatex, entry.priority);
+            }
         });
     });
     const variants = collectKeyVariants();

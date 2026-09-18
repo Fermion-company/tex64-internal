@@ -95,3 +95,11 @@ UTF-8/SSEの基本受信。前回は実APIを4セッション、入力POSTを7�
 [Events](https://developers.openai.com/api/docs/guides/agents-api/sessions/events)、
 [Update session](https://developers.openai.com/api/reference/resources/beta/subresources/agents/subresources/sessions/methods/update)、
 [Usage](https://developers.openai.com/api/docs/guides/agents-api/observability)。
+
+## 共通実行ループの変更（2026-09-18）
+
+通常接続とAgents API接続の両方で、提案選択時の一律の編集禁止を除いた。`update_task`、`read_conversation`、`inspect_pdf`を共通ツールとして提供する。AIモードの追加テキストは実行中の区切りで受け取り、次の編集前に反映する。提案不足だけを理由に追加推論しない。文書を開くだけの自動推論は行わない。
+
+モデルの選択と接続先は変更していない。配布版は引き続きプラットフォームのChat Completionsプロキシを使い、Agents APIの直接接続は開発専用。現行プロキシのGPT-5.6ツール互換処理は`reasoning_effort: none`を必要とするため、推論設定の変更は含めない。
+
+後続の提案・実行改修では、実Electronから同じモデルへ10回の実推論を行った。通常の質問からAI自身の具体的な提案が生まれ、クリック後に編集・実組版・PDF観察まで進んだ。検証用の上限で最終返答を止めたため、その後の結果復元は保存済みの実行記録で確認した。これはAgents APIの検証の再実行ではなく、通常ループの新しい動作の確認。状態別の結果と未確認項目は [提案と実行の確認](../output/agentic-20260918/proactive-verification.md) を参照する。

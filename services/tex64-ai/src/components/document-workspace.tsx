@@ -29,6 +29,7 @@ import {
 import { drainPendingSaves } from "@/lib/client/save-drain";
 import {
   conversationIdFor,
+  buildNativeAgentRunPayload,
   loadNativeConversation,
   nativeConversationRestoreMode,
   nativeTerminalFailed,
@@ -77,8 +78,9 @@ import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 type NativeTurnOptions = {
   /** A step explicitly picked by the user. */
   origin?: "step";
-  /** With "step": a writing step withholds the edit tools on its first turn. */
+  /** The selected operation has normal edit permissions. */
   stepKind?: "mechanical" | "writing";
+  displayText?: string;
   /** Attached files as message parts; the first text part is the prompt. */
   parts?: MessagePart[];
   /** The files as the chat shows them under the user's message. */
@@ -226,6 +228,7 @@ export function DocumentWorkspace() {
       path: location.path,
       line: location.line,
       selectedText: location.selectedText,
+      focusedText: location.focusedText,
     });
     clearSourceLocation();
   }, [
@@ -866,6 +869,9 @@ export function DocumentWorkspace() {
       let revisionChanged = false;
       const onFrame = (frame: TurnFrame) => {
           switch (frame.type) {
+          case "reset":
+            setStreamingText("");
+            break;
             case "text":
               setStreamingText((current) => current + frame.delta);
               setActivityTool(null);
@@ -1023,7 +1029,7 @@ export function DocumentWorkspace() {
           {
             id: `local:${shownAt}`,
             role: "user",
-            text: prompt,
+            text: options?.displayText ?? prompt,
             createdAt: shownAt,
             ...(options?.attachments && options.attachments.length > 0
               ? { attachments: options.attachments }
@@ -1034,6 +1040,9 @@ export function DocumentWorkspace() {
 
       const onFrame = (frame: TurnFrame) => {
         switch (frame.type) {
+          case "reset":
+            setStreamingText("");
+            break;
           case "text":
             setStreamingText((current) => current + frame.delta);
             setActivityTool(null);
@@ -1061,6 +1070,7 @@ export function DocumentWorkspace() {
         documentMainFile: document.mainFile,
         ...(options?.origin ? { origin: options.origin } : {}),
         ...(options?.stepKind ? { stepKind: options.stepKind } : {}),
+        ...(options?.displayText ? { displayText: options.displayText } : {}),
         ...(options?.parts && options.parts.length > 0 ? { parts: options.parts } : {}),
       }).catch(() => null);
 
@@ -1087,7 +1097,7 @@ export function DocumentWorkspace() {
         clearQueuedPrompts();
         return;
       }
-      if (result.finalText.trim()) {
+      if (result.finalText.trim() || result.proposals?.length || result.question) {
         const repliedAt = new Date().toISOString();
         setNativeMessages((current) => [
           ...current,
@@ -1331,6 +1341,10 @@ export function DocumentWorkspace() {
       ) {
         terminalObserved = body.state;
         finishAttachedTurn(body.state);
+        return;
+      }
+      if (message.type === "agent:messageReset" && body.conversationId === nativeConversationId && waitingForTerminal) {
+        setStreamingText("");
         return;
       }
       if (
@@ -1680,21 +1694,39 @@ export function DocumentWorkspace() {
   );
 
   const submitWritingRequest = useCallback(
-    (prompt: string, attachments?: PendingAttachment[], options?: { origin?: "step"; stepKind?: "mechanical" | "writing" }) => {
+    (prompt: string, attachments?: PendingAttachment[], options?: { origin?: "step"; stepKind?: "mechanical" | "writing"; displayText?: string }) => {
       if (workspacePdf.native) {
         if (!nativeDocument || nativeHistoryLoading || !nativePlatform.canRun) return;
         if (attachments && attachments.length > 0) {
           submitWithAttachments(prompt, attachments);
           return;
         }
-        // A message sent while the agent is working waits its turn instead of
-        // being refused; the composer never locks.
+        // Corrections enter the current run before its next model/tool step.
+        // If it already finished, the host rejects and we queue a new turn.
         if (agentWorking && nativeThreadWorking) {
-          enqueuePrompt({ id: `queued-${Date.now()}`, prompt });
+          const host = getNativeHost();
+          if (!host || !nativeConversationId || !nativeWorkspaceIdentity.workspaceRoot) return;
+          const sessionKey = nativeThreadSessionRef.current;
+          const steeringId = `steer-${crypto.randomUUID()}`;
+          const payload = { ...buildNativeAgentRunPayload({ prompt, conversationId: nativeConversationId,
+            ...nativeWorkspaceIdentity, workspaceRoot: nativeWorkspaceIdentity.workspaceRoot, documentMainFile: nativeDocument.mainFile,
+            signal: new AbortController().signal, onFrame: () => {},
+          }), steeringId };
+          const send = () => requestFromHost(host, { type: "agent:steer", resultType: "agent:steerResult", payload });
+          void send().catch(() => send()).then((reply) => {
+            if (nativeThreadSessionRef.current !== sessionKey) return;
+            if (reply.accepted === true) {
+              setNativeMessages((current) => [...current, { id: steeringId, role: "user", text: prompt, createdAt: new Date().toISOString() }]);
+            } else {
+              enqueuePrompt({ id: steeringId, prompt });
+            }
+          }).catch(() => {
+            if (nativeThreadSessionRef.current === sessionKey) setTurnError("追加の指示を受け付けたか確認できません。会話を開き直して送信履歴を確認してください。");
+          });
           return;
         }
         if (agentWorking) return;
-        void runNativeDocTurn(prompt, undefined, options?.origin === "step" ? { origin: "step", stepKind: options.stepKind } : undefined);
+        void runNativeDocTurn(prompt, undefined, options?.origin === "step" ? options : undefined);
         return;
       }
       if (!activeDocument) return;
@@ -1713,6 +1745,8 @@ export function DocumentWorkspace() {
       nativeDocument,
       nativeHistoryLoading,
       nativePlatform.canRun,
+      nativeConversationId,
+      nativeWorkspaceIdentity,
       nativeThreadWorking,
       runNativeDocTurn,
       runTurn,
@@ -2036,7 +2070,7 @@ export function DocumentWorkspace() {
                     if (proposal.asks) {
                       setChosenProposal((current) => ({ proposal, pick: (current?.pick ?? 0) + 1 }));
                     } else {
-                      submitWritingRequest(proposal.request);
+                      submitWritingRequest(proposal.request, undefined, { origin: "step", stepKind: proposal.kind, displayText: proposal.title });
                     }
                   }}
                   regions={workspacePdf.native ? null : pdfRegions}
@@ -2106,11 +2140,11 @@ export function DocumentWorkspace() {
                           key={`${paragraphEditor.paragraph.path}:${paragraphEditor.paragraph.startLine}:${paragraphEditor.paragraph.endLine}`}
                           originalText={paragraphEditor.paragraph.originalText}
                           initialDraft={paragraphEditor.draftText}
+                          focusText={paragraphEditor.paragraph.focusText}
                           kind={paragraphEditor.paragraph.kind}
                           currentText={paragraphEditor.currentText}
                           onAcceptCurrent={paragraphEditor.acceptCurrent}
                           onDraftChange={paragraphEditor.updateDraft}
-                          onDiscard={() => { paragraphEditor.discard(); sourceLocator.clear(); }}
                           onReload={() => {
                             const target = paragraphEditor.paragraph;
                             if (target) paragraphEditor.open({ path: target.path, line: target.startLine });
@@ -2118,7 +2152,7 @@ export function DocumentWorkspace() {
                           saving={paragraphEditor.saving}
                           error={paragraphEditor.error}
                           onCancel={() => {
-                            paragraphEditor.close();
+                            paragraphEditor.discard();
                             sourceLocator.clear();
                           }}
                           onSave={(replacementText) => {

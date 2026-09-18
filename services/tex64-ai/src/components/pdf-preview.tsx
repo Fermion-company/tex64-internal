@@ -56,6 +56,19 @@ function applyTransform(outer: number[], inner: number[]): number[] {
   ];
 }
 
+type VisualRect = { left: number; top: number; width: number; height: number };
+
+/** One selected source unit needs one readable visual boundary, even when its
+ * PDF representation is split into glyphs, rows, or several SyncTeX strips. */
+function enclosingRect(rects: readonly VisualRect[]): VisualRect | null {
+  if (rects.length === 0) return null;
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.left + rect.width));
+  const bottom = Math.max(...rects.map((rect) => rect.top + rect.height));
+  return { left, top, width: right - left, height: bottom - top };
+}
+
 export type { PdfElementRegion, PdfRegionRect } from "./pdf-preview-geometry";
 
 /** A proposed step pinned to the place on the page it applies to. */
@@ -97,6 +110,8 @@ export interface PdfPreviewProps {
     rects: TextRect[];
     /** Human-visible text used to resolve generated structures such as titles. */
     text: string;
+    /** The text item nearest the pointer, used to focus a table cell. */
+    focusedText: string;
   }) => void;
   /** False removes a native point highlight after it proved non-editable. */
   pointSelectionActive?: boolean;
@@ -407,8 +422,6 @@ export function PdfPreview({
     [pageHeightsPx],
   );
 
-  // Where a point-based selection landed, so its card has a page to sit under
-  // when there is no element map to anchor to.
   const [pointAt, setPointAt] = useState<{
     page: number;
     y: number;
@@ -848,8 +861,6 @@ export function PdfPreview({
                         : null
                     }
                     index={index}
-                    // A point selection has no region to sit under, so its card
-                    // sits where the reader clicked.
                     selectionCardTop={
                       !overlayActive && activePointAt?.page === index + 1
                         ? (activePointAt.rects.at(-1)
@@ -909,6 +920,7 @@ interface PdfPageViewProps {
     y: number;
     rects: TextRect[];
     text: string;
+    focusedText: string;
   }) => void;
   /** Outline drawn around what a point selection picked. */
   pointRects?: TextRect[] | null;
@@ -965,9 +977,8 @@ function PdfPageView({
   onRenderFailed,
 }: PdfPageViewProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  // The card scrolls itself into view once, when it appears. An inline ref
-  // callback runs again on every render, and re-scrolling each time pins the
-  // viewport to the card — the reader could not scroll away while it was open.
+  // An inline ref detaches (null) and reattaches on every render. The guard
+  // keeps an already-open card from continuously pulling the reader back.
   const scrolledCardRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1048,7 +1059,7 @@ function PdfPageView({
           {pointRects.map((rect, rectIndex) => (
             <div
               key={`${rect.top}-${rectIndex}`}
-              className={clsx(styles.region, styles.regionSelected)}
+              className={clsx(styles.regionHighlight, styles.regionSelected)}
               style={{
                 left: rect.left * scale,
                 top: rect.top * scale,
@@ -1073,10 +1084,6 @@ function PdfPageView({
       {!regionRects && selectionCard && selectionCardTop !== null ? (
         <div
           ref={(node) => {
-            // An inline ref detaches (null) and reattaches on EVERY render,
-            // so the null call must not clear the guard — resetting there
-            // re-scrolls each render and pins the viewport to the card. The
-            // stored node only differs when the card genuinely remounts.
             if (!node || scrolledCardRef.current === node) return;
             scrolledCardRef.current = node;
             node.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1100,39 +1107,58 @@ function PdfPageView({
             onSelect(null);
           }}
         >
-          {regionRects.map((entry) => {
-            const px = bpRectToPx(entry.rect, scale);
-            const isHovered = hoveredId === entry.regionId;
-            const isSelected = selectedId === entry.regionId;
-            return (
-              <button
-                key={entry.rectKey}
-                type="button"
-                className={clsx(
-                  styles.region,
-                  isHovered && styles.regionHovered,
-                  isSelected && styles.regionSelected,
-                )}
-                style={{ left: px.left, top: px.top, width: px.width, height: px.height }}
-                aria-label={entry.label}
-                aria-pressed={isSelected}
-                onMouseEnter={() => onHover(entry.regionId)}
-                onMouseLeave={() => onHover(null)}
-                onFocus={() => onHover(entry.regionId)}
-                onBlur={() => onHover(null)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSelect(entry.regionId);
-                }}
-              >
-                {entry.isPrimary ? (
-                  <span className={styles.regionLabel} aria-hidden="true">
-                    {entry.label}
-                  </span>
-                ) : null}
-              </button>
+          {(() => {
+            const grouped = Array.from(
+              regionRects.reduce((groups, entry) => {
+                const entries = groups.get(entry.regionId) ?? [];
+                entries.push(entry);
+                groups.set(entry.regionId, entries);
+                return groups;
+              }, new Map<string, PageRegionRect[]>()),
             );
-          })}
+            return <>
+              {grouped.map(([regionId, entries]) => {
+                const px = enclosingRect(entries.map((entry) => bpRectToPx(entry.rect, scale)));
+                if (!px) return null;
+                const label = entries[0]?.label ?? "編集";
+                const isHovered = hoveredId === regionId;
+                const isSelected = selectedId === regionId;
+                return <button
+                  key={regionId}
+                  type="button"
+                  className={styles.regionHitArea}
+                  style={{ left: px.left, top: px.top, width: px.width, height: px.height }}
+                  aria-label={label}
+                  aria-pressed={isSelected}
+                  onMouseEnter={() => onHover(regionId)}
+                  onMouseLeave={() => onHover(null)}
+                  onFocus={() => onHover(regionId)}
+                  onBlur={() => onHover(null)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelect(regionId);
+                  }}
+                />;
+              })}
+              {grouped.map(([regionId, entries]) => {
+                const isHovered = hoveredId === regionId;
+                const isSelected = selectedId === regionId;
+                if (!isHovered && !isSelected) return null;
+                const px = enclosingRect(entries.map((entry) => bpRectToPx(entry.rect, scale)));
+                if (!px) return null;
+                return <div
+                  key={`highlight-${regionId}`}
+                  aria-hidden="true"
+                  className={clsx(
+                    styles.regionHighlight,
+                    isHovered && styles.regionHovered,
+                    isSelected && styles.regionSelected,
+                  )}
+                  style={{ left: px.left, top: px.top, width: px.width, height: px.height }}
+                />;
+              })}
+            </>;
+          })()}
           {selectionCard
             ? (() => {
                 const selectedPx = regionRects

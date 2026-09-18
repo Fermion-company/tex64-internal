@@ -433,6 +433,7 @@ export const MANUAL_TRIGGERS_PART_2: WysiwygManualTrigger[] = [
     priority: 90,
     candidates: [
       { latex: "\\leq", label: "≤", displayLatex: "\\leq" },
+      { latex: "\\le", label: "≤", displayLatex: "\\le" },
       { latex: "\\leqq", label: "≦", displayLatex: "\\leqq" },
       { latex: "\\leqslant", label: "≤", displayLatex: "\\leqslant" },
     ],
@@ -442,6 +443,7 @@ export const MANUAL_TRIGGERS_PART_2: WysiwygManualTrigger[] = [
     priority: 90,
     candidates: [
       { latex: "\\geq", label: "≥", displayLatex: "\\geq" },
+      { latex: "\\ge", label: "≥", displayLatex: "\\ge" },
       { latex: "\\geqq", label: "≧", displayLatex: "\\geqq" },
       { latex: "\\geqslant", label: "≥", displayLatex: "\\geqslant" },
     ],

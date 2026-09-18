@@ -3,9 +3,13 @@
  *
  * The workspace's page has no element map — it is a PDF like any other — so
  * the shape of what the reader selected is recovered from the page's own text:
- * items are gathered into lines, and lines into the paragraph around the
- * click. Coordinates are PDF points from the page's top-left corner, the same
- * frame the overlay and SyncTeX use.
+ * items are gathered into lines. The clicked line is passed to source
+ * resolution rather than its visual neighbours: ordinary TeX paragraphs and
+ * tabular rows often sit at the same leading, but they must not be treated as
+ * one editable source range. The nearby visual block still determines where
+ * the editor card starts, so it does not cover a following table or paragraph.
+ * Coordinates are PDF points from the page's top-left corner, the same frame
+ * the overlay and SyncTeX use.
  */
 export type TextRect = {
   left: number;
@@ -30,26 +34,24 @@ type Line = {
   bottom: number;
   left: number;
   right: number;
-  pieces: Array<{ left: number; text: string }>;
+  pieces: Array<{ left: number; right: number; text: string }>;
 };
 
-export type TextBlock = { rects: TextRect[]; text: string };
+export type TextBlock = { rects: TextRect[]; text: string; focusedText: string };
 
 export const hasSelectableText = (block: TextBlock): boolean =>
   block.rects.length > 0 && block.text.trim().length > 0;
 
-/** A vertical gap this much larger than the line height starts a new block. */
-const BLOCK_GAP_RATIO = 0.6;
 /**
  * How much of the text size sits above the baseline. transform[5] is the
  * baseline, not the top: subtracting the full height hung every box a
  * descent too high, with its bottom edge cutting through the glyphs.
  */
 const ASCENT_RATIO = 0.78;
-/** A first line indented at least this far (points) starts a paragraph. */
-const INDENT_THRESHOLD = 4;
 /** Items whose baselines differ by less than this share a line. */
 const SAME_LINE_TOLERANCE = 2;
+/** A larger gap is a separate visual cell, not a word within the same value. */
+const FOCUS_GROUP_GAP = 10;
 
 function itemRect(item: TextItemLike): TextRect | null {
   // pdf.js mixes marked-content markers into the same list; they carry no
@@ -79,7 +81,7 @@ function toLines(items: readonly TextItemLike[]): Line[] {
       existing.bottom = Math.max(existing.bottom, rect.top + rect.height);
       existing.left = Math.min(existing.left, rect.left);
       existing.right = Math.max(existing.right, rect.left + rect.width);
-      existing.pieces.push({ left: rect.left, text: item.str ?? "" });
+      existing.pieces.push({ left: rect.left, right: rect.left + rect.width, text: item.str ?? "" });
       continue;
     }
     lines.push({
@@ -87,33 +89,10 @@ function toLines(items: readonly TextItemLike[]): Line[] {
       bottom: rect.top + rect.height,
       left: rect.left,
       right: rect.left + rect.width,
-      pieces: [{ left: rect.left, text: item.str ?? "" }],
+      pieces: [{ left: rect.left, right: rect.left + rect.width, text: item.str ?? "" }],
     });
   }
   return lines.sort((left, right) => left.top - right.top);
-}
-
-/**
- * The left edge most lines share within one block — its margin. Measured per
- * block, not per page: an abstract or a quotation is indented as a whole, and
- * against the page's margin every one of its lines would look like the start
- * of a new paragraph.
- */
-function marginLeft(lines: readonly Line[]): number {
-  const counts = new Map<number, number>();
-  for (const line of lines) {
-    const key = Math.round(line.left);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  let best = lines[0]?.left ?? 0;
-  let bestCount = 0;
-  for (const [left, count] of counts) {
-    if (count > bestCount || (count === bestCount && left < best)) {
-      best = left;
-      bestCount = count;
-    }
-  }
-  return best;
 }
 
 export function findTextBlock(
@@ -121,7 +100,7 @@ export function findTextBlock(
   point: { x: number; y: number },
 ): TextBlock {
   const lines = toLines(items);
-  if (lines.length === 0) return { rects: [], text: "" };
+  if (lines.length === 0) return { rects: [], text: "", focusedText: "" };
 
   const hitIndex = lines.findIndex(
     (line) =>
@@ -130,10 +109,9 @@ export function findTextBlock(
       point.x >= line.left - 8 &&
       point.x <= line.right + 8,
   );
-  if (hitIndex === -1) return { rects: [], text: "" };
+  if (hitIndex === -1) return { rects: [], text: "", focusedText: "" };
 
-  // The visual block first: everything the click's line runs together with,
-  // separated only by vertical space.
+  const selectedLine = lines[hitIndex]!;
   const touches = (above: Line, below: Line) => {
     const gap = below.top - above.bottom;
     const height = Math.max(above.bottom - above.top, below.bottom - below.top);
@@ -144,40 +122,37 @@ export function findTextBlock(
     blockFirst -= 1;
   }
   let blockLast = hitIndex;
-  while (
-    blockLast < lines.length - 1 &&
-    touches(lines[blockLast]!, lines[blockLast + 1]!)
-  ) {
+  while (blockLast < lines.length - 1 && touches(lines[blockLast]!, lines[blockLast + 1]!)) {
     blockLast += 1;
   }
-
-  // Then the paragraph inside it, by the indent its first line carries.
-  const margin = marginLeft(lines.slice(blockFirst, blockLast + 1));
-  const startsParagraph = (line: Line) => line.left > margin + INDENT_THRESHOLD;
-
-  let first = hitIndex;
-  while (first > blockFirst && !startsParagraph(lines[first]!)) first -= 1;
-  let last = hitIndex;
-  while (last < blockLast && !startsParagraph(lines[last + 1]!)) last += 1;
-
-  const selectedLines = lines.slice(first, last + 1);
+  const blockLines = lines.slice(blockFirst, blockLast + 1);
+  const orderedPieces = [...selectedLine.pieces].sort((left, right) => left.left - right.left);
+  const focusedIndex = orderedPieces
+    .map((piece, index) => ({
+      index,
+      distance: point.x < piece.left ? piece.left - point.x : point.x > piece.right ? point.x - piece.right : 0,
+    }))
+    .sort((left, right) => {
+      return left.distance - right.distance;
+    })[0]?.index;
+  let focusFirst = focusedIndex ?? 0;
+  let focusLast = focusedIndex ?? -1;
+  while (focusFirst > 0 && orderedPieces[focusFirst]!.left - orderedPieces[focusFirst - 1]!.right <= FOCUS_GROUP_GAP) focusFirst -= 1;
+  while (focusLast >= 0 && focusLast < orderedPieces.length - 1 && orderedPieces[focusLast + 1]!.left - orderedPieces[focusLast]!.right <= FOCUS_GROUP_GAP) focusLast += 1;
+  const focusedText = orderedPieces.slice(focusFirst, focusLast + 1).map((piece) => piece.text).join("").trim();
   return {
-    rects: selectedLines.map((line) => ({
+    rects: blockLines.map((line) => ({
       left: line.left,
       top: line.top,
       width: line.right - line.left,
       height: line.bottom - line.top,
     })),
-    text: selectedLines
-      .map((line) =>
-        line.pieces
-          .sort((left, right) => left.left - right.left)
-          .map((piece) => piece.text)
-          .join("")
-          .trim(),
-      )
-      .filter(Boolean)
-      .join(" "),
+    text: selectedLine.pieces
+      .sort((left, right) => left.left - right.left)
+      .map((piece) => piece.text)
+      .join("")
+      .trim(),
+    focusedText,
   };
 }
 
@@ -187,3 +162,5 @@ export function findTextBlockRects(
 ): TextRect[] {
   return findTextBlock(items, point).rects;
 }
+/** A vertical gap this much larger than the line height starts a new block. */
+const BLOCK_GAP_RATIO = 0.6;

@@ -698,6 +698,20 @@ const getUiState = async (service) => {
         ? conversationId.trim()
         : "default";
     const conversation = service.conversations.get(normalizedConversationId) ?? [];
+    // A process/network failure may happen after all tools succeeded, before
+    // the final prose arrives. Recover the saved receipt without paid work.
+    if (!service.runningControllers.has(normalizedConversationId) && conversation.at(-1)?.role === "user") {
+      const { readTask, completedEditReceipt } = require("./openprism/task-state.cjs");
+      const task = readTask(service, normalizedConversationId);
+      const receipt = task?.request === conversation.at(-1).content?.trim().slice(0, 4000)
+        ? completedEditReceipt(task, service.contextByConversation.get(normalizedConversationId)?.uiLocale)
+        : null;
+      if (receipt) {
+        conversation.push({ role: "assistant", content: receipt, ...(task.proposals?.length ? { proposals: task.proposals } : {}) });
+        service.lastStatusByConversation.set(normalizedConversationId, { state: "idle", message: "Waiting", ts: Date.now() });
+        service.markSessionDirty(normalizedConversationId);
+      }
+    }
     const messages = [];
 
     // Read OpenAI format: { role, content }
@@ -718,12 +732,13 @@ const getUiState = async (service) => {
           messages.push({
             role: "user",
             text: clipLongString(display, 20_000),
+            ...(typeof entry.displayText === "string" && entry.displayText.trim() ? { displayText: entry.displayText.slice(0, 1000) } : {}),
             // An app-started turn (the opening read) stays out of the transcript view.
             ...(entry.hidden === true ? { hidden: true } : {}),
           });
         }
       } else if (role === "assistant") {
-        if (content.trim()) {
+        if (content.trim() || entry.proposals?.length || entry.question) {
           messages.push({
             role: "assistant",
             text: clipLongString(content, 30_000),

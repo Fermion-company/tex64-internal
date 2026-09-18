@@ -2,6 +2,7 @@ import type { Selector } from '../public/commands';
 
 import { splitGraphemes } from '../core/grapheme-splitter';
 import { Atom } from '../core/atom';
+import { ArrayAtom } from '../atoms/array';
 
 import { keyboardEventToChar, keyboardEventToString } from '../editor/keyboard';
 import { getInlineShortcut } from '../editor/shortcuts';
@@ -29,6 +30,7 @@ import { LeftRightAtom } from 'atoms/leftright';
 import { RIGHT_DELIM, LEFT_DELIM } from 'core/delimiters';
 import { mightProducePrintableCharacter } from '../ui/events/utils';
 import { computeInsertStyle } from './styling';
+import { canInsertArrayRow } from './array-input';
 
 /**
  * Handler in response to a keystroke event (or to a virtual keyboard keycap
@@ -100,28 +102,10 @@ export function onKeystroke(
   // see 4.3)
   const buffer = mathfield.inlineShortcutBuffer;
 
-  let placeholderReplaced = false;
-
-  // If a placeholder is selected and we're about to type a printable character,
-  // delete the placeholder first, then process the keystroke normally
-  // (including any keybindings). This fixes issue #2572.
-  if (
-    mathfield.isSelectionEditable &&
-    model.selectionIsPlaceholder &&
-    mightProducePrintableCharacter(evt)
-  ) {
-    mathfield.flushInlineShortcutBuffer();
-    // Delete the selected placeholder
-    model.deleteAtoms(range(model.selection));
-    // Snapshot this as a placeholder replacement operation
-    mathfield.snapshot('delete');
-    placeholderReplaced = true;
-  }
-
   if (mathfield.isSelectionEditable) {
     if (
       model.mode === 'math' &&
-      (!model.selectionIsPlaceholder || placeholderReplaced)
+      !model.selectionIsPlaceholder
     ) {
       if (keystroke === '[Backspace]') {
         // If last operation was a shortcut conversion, "undo" the
@@ -223,6 +207,14 @@ export function onKeystroke(
   // Need to check this **after** checking for inline shortcuts because
   // Shift+Backquote is a keybinding that inserts "\~"", but "~~" is a
   // shortcut for "\approx" and needs to have priority over Shift+Backquote
+  // A translated printable key takes precedence over physical-key mappings.
+  // In particular a quote on a non-US layout must never become a fraction.
+  if (mathfield.isSelectionEditable && model.mode === 'math' &&
+      !evt.isComposing && !evt.metaKey && !evt.ctrlKey && !evt.altKey) {
+    if (evt.key === "'") selector = ['insert', "'"];
+    else if (evt.key === '\u3000') selector = 'moveAfterParent';
+  }
+
   if (!shortcut) {
     if (!selector) {
       selector = getCommandForKeybinding(
@@ -234,6 +226,12 @@ export function onKeystroke(
 
     // 5.4 Handle the return/enter key
     if (!selector && (keystroke === '[Enter]' || keystroke === '[Return]')) {
+      if (!canInsertArrayRow(model)) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        return false;
+      }
+
       let success = true;
       if (model.contentWillChange({ inputType: 'insertLineBreak' })) {
         // No matching keybinding: trigger a commit
@@ -248,9 +246,7 @@ export function onKeystroke(
           evt.preventDefault();
           evt.stopPropagation();
         } else {
-          // If we're in a multiline environment, insert a newline
-          if (model.parentEnvironment?.isMultiline)
-            mathfield.executeCommand('addRowAfter');
+          mathfield.executeCommand('addRowAfter');
 
           // Dispatch an 'input' event matching the behavior of `<textarea>`
           model.contentDidChange({ inputType: 'insertLineBreak' });
@@ -522,146 +518,6 @@ export function onKeystroke(
 }
 
 /**
- * Detect if the content before the cursor matches a scientific notation pattern.
- * Returns the match information if found, null otherwise.
- *
- * Pattern: digits + (e|E) + optional(+|-) + digits
- * Examples: 3.14e2, 5E-3, 1.23e+10
- */
-function detectScientificNotation(model: _Model): {
-  startOffset: number;
-  endOffset: number;
-  significand: string;
-  exponent: string;
-} | null {
-  const { position } = model;
-
-  // Get atoms at and to the left of the cursor
-  // We need to check from position (not position-1) because when a non-inserting
-  // character like space is pressed, the cursor doesn't advance
-  let offset = position;
-  const atoms: Atom[] = [];
-
-  // Collect atoms going backwards from cursor position
-  // Include digits, decimal points, 'e'/'E', and +/- signs
-  while (offset > 0) {
-    const atom = model.at(offset);
-    const value = atom.value;
-
-    // Only collect atoms that could be part of scientific notation
-    if (
-      atom.type === 'mord' ||
-      (atom.type === 'mbin' &&
-        (value === '+' || value === '-' || value === '\u2212'))
-    ) {
-      atoms.unshift(atom);
-      offset--;
-    } else break;
-  }
-
-  if (atoms.length === 0) return null;
-
-  // Build the string from atoms
-  const text = atoms.map((a) => a.value).join('');
-
-  // Match scientific notation pattern: significand e|E [+|-] exponent
-  // Respect the localized decimal separator
-  const separator = globalThis.MathfieldElement?.decimalSeparator ?? '.';
-  const separatorRegex = separator === '.' ? '\\.' : ',';
-  // Use non-capturing group (?:...) to avoid shifting match groups
-  const pattern = new RegExp(
-    `^(\\d+(?:${separatorRegex}\\d*)?)[eE]([+\\-\u2212]?)(\\d+)$`
-  );
-  const match = text.match(pattern);
-
-  if (!match) return null;
-
-  const significand = match[1];
-  const sign = match[2];
-  const exponentDigits = match[3];
-  const exponent = sign + exponentDigits;
-
-  return {
-    startOffset: offset,
-    endOffset: position,
-    significand,
-    exponent,
-  };
-}
-
-/**
- * Apply the scientific notation template to format the detected pattern.
- * Template uses #1 for significand and #2 for exponent.
- */
-function applyScientificNotationTemplate(
-  significand: string,
-  exponent: string
-): string | null {
-  const template = globalThis.MathfieldElement?.scientificNotationTemplate;
-
-  // Validate template
-  if (
-    !template ||
-    template === '' ||
-    !template.includes('#1') ||
-    !template.includes('#2')
-  )
-    return null;
-
-  // Replace placeholders
-  let result = template.replace('#1', significand);
-  result = result.replace('#2', exponent);
-
-  return result;
-}
-
-/**
- * Check if scientific notation should be formatted and apply the template if applicable.
- * This is called when a non-digit character is typed or after a timeout.
- */
-function formatScientificNotationIfApplicable(mathfield: _Mathfield): boolean {
-  const { model } = mathfield;
-
-  // Only format in math mode
-  if (model.mode !== 'math') return false;
-
-  // Detect scientific notation pattern
-  const match = detectScientificNotation(model);
-  if (!match) return false;
-
-  // Apply template
-  const formatted = applyScientificNotationTemplate(
-    match.significand,
-    match.exponent
-  );
-  if (!formatted) return false;
-
-  // Replace the matched range with the formatted template
-  model.deferNotifications(
-    { content: true, selection: true, type: 'insertText' },
-    () => {
-      // Select the scientific notation atoms
-      model.selection = {
-        ranges: [[match.startOffset, match.endOffset]],
-        direction: 'forward',
-      };
-
-      // Insert the formatted template
-      ModeEditor.insert(model, formatted, {
-        insertionMode: 'replaceSelection',
-        selectionMode: 'after',
-      });
-    }
-  );
-
-  mathfield.snapshot('format-scientific-notation');
-  mathfield.dirty = true;
-  mathfield.scrollIntoView();
-
-  return true;
-}
-
-/**
  * This handler is invoked when text has been input with an input method.
  * As a result, `text` can be a sequence of characters to be inserted.
  * @param {object} options
@@ -702,6 +558,10 @@ export function onInput(
     mathfield.switchMode(options.mode);
     mathfield.snapshot();
   }
+
+  // Normalize before IME keystroke simulation as well as character insertion.
+  // Text-mode input is handled separately and retains its original spacing.
+  if (model.mode === 'math') text = text.replace(/\u3000/g, ' ');
 
   //
   // 3/ Simulate keystroke, if requested
@@ -839,11 +699,6 @@ function getLeftSiblings(mf: _Mathfield): Atom[] {
 function insertMathModeChar(mathfield: _Mathfield, c: string): void {
   const model = mathfield.model;
 
-  // Check if we should format scientific notation before processing the character
-  // This needs to happen before special character handling (like space)
-  // After formatting, continue to insert the triggering character
-  if (!/\d/.test(c)) formatScientificNotationIfApplicable(mathfield);
-
   // Some characters are mapped to commands. Handle them here.
   // This is important to handle synthetic text input and
   // non-US keyboards, on which, for example, the '^' key is
@@ -867,6 +722,43 @@ function insertMathModeChar(mathfield: _Mathfield, c: string): void {
   if (selector) {
     mathfield.executeCommand(selector);
     return;
+  }
+
+  // In a matrix-like environment, an ampersand is a cell separator. Treating
+  // it as a literal `\\&` corrupts an existing row and leaves the following
+  // cells unreachable from ordinary typing. Move to the next cell, growing
+  // the matrix when the user types past its final column.
+  if (c === '&' && moveToNextArrayCell(model)) return;
+
+  // A completed script is a self-contained mathematical atom. Punctuation,
+  // delimiters and binary or relation operators that follow it belong to the
+  // surrounding expression, not to the exponent or index. Requiring a space
+  // or an arrow key before typing `x^2+1`, `a_i=b_i`, or `c^4,` makes normal
+  // formula entry unexpectedly capture the next token in the script.
+  //
+  // Keep the selected placeholder case intact: after `x^` a leading minus or
+  // operator is still part of the script (for example `x^{-2}`).
+  const currentAtom = model.at(model.position);
+  const scriptBranch =
+    currentAtom.parentBranch === 'superscript' ||
+    currentAtom.parentBranch === 'subscript'
+      ? currentAtom.parent?.branch(currentAtom.parentBranch)
+      : undefined;
+  const emptyScript =
+    scriptBranch !== undefined &&
+    scriptBranch.every(
+      (atom) => atom.type === 'first' || atom.type === 'placeholder'
+    );
+  if (
+    !model.selectionIsPlaceholder &&
+    !emptyScript &&
+    currentAtom.isLastSibling &&
+    (currentAtom.parentBranch === 'superscript' ||
+      currentAtom.parentBranch === 'subscript') &&
+    (/[+,;:.)\]}=<>\-]/.test(c) ||
+      (currentAtom.isDigit() && /^[A-Za-z\\]$/.test(c)))
+  ) {
+    moveAfterParent(model);
   }
 
   const style = { ...computeInsertStyle(mathfield) };
@@ -932,20 +824,41 @@ function insertMathModeChar(mathfield: _Mathfield, c: string): void {
 
   mathfield.snapshot(`insert-${model.at(model.position).type}`);
 
-  // If typing a digit, set up a timeout to format after user stops typing
-  if (/\d/.test(c)) {
-    // Use inlineShortcutTimeout if > 0, otherwise use a default of 1000ms
-    const timeoutValue =
-      mathfield.options.inlineShortcutTimeout > 0
-        ? mathfield.options.inlineShortcutTimeout
-        : 1000;
+}
 
-    // Clear any existing timeout first
-    clearTimeout(mathfield.scientificNotationTimer);
-    mathfield.scientificNotationTimer = setTimeout(() => {
-      formatScientificNotationIfApplicable(mathfield);
-    }, timeoutValue);
+function moveToNextArrayCell(model: _Model): boolean {
+  let atom: Atom | undefined = model.at(model.position);
+  while (
+    atom &&
+    !(atom.parent instanceof ArrayAtom && Array.isArray(atom.parentBranch))
+  ) {
+    atom = atom.parent;
   }
+  if (!(atom?.parent instanceof ArrayAtom) || !Array.isArray(atom.parentBranch)) {
+    return false;
+  }
+
+  const array = atom.parent;
+  const [row, column] = atom.parentBranch;
+  const nextColumn = column + 1;
+  if (nextColumn >= array.colCount) {
+    if (nextColumn >= array.maxColumns) {
+      model.announce('plonk');
+      return true;
+    }
+    array.addColumnAfter(column);
+  }
+  const cell = array.getCell(row, nextColumn);
+  if (!cell) return false;
+
+  const first = model.offsetOf(cell[0]);
+  const last = model.offsetOf(cell[cell.length - 1]);
+  if (cell.length === 2 && cell[1].type === 'placeholder') {
+    model.setSelection([first, last]);
+  } else {
+    model.setPositionHandlingPlaceholder(first);
+  }
+  return true;
 }
 
 export function getSelectionStyle(model: _Model): Readonly<Style> {

@@ -36,6 +36,7 @@ export type EditableParagraph = {
   workspaceId: string;
   workspaceGeneration: number;
   segments: ParagraphSegment[];
+  focusText: string;
 };
 
 export type ParagraphEditor = {
@@ -48,7 +49,7 @@ export type ParagraphEditor = {
   acceptCurrent: () => void;
   updateDraft: (text: string) => void;
   discard: () => void;
-  open: (location: { path: string; line: number; selectedText?: string }) => void;
+  open: (location: { path: string; line: number; selectedText?: string; focusedText?: string }) => void;
   save: (replacementText: string) => Promise<boolean>;
   close: () => void;
 };
@@ -139,7 +140,7 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
   );
 
   const open = useCallback(
-    (location: { path: string; line: number; selectedText?: string }) => {
+    (location: { path: string; line: number; selectedText?: string; focusedText?: string }) => {
       const host = getNativeHost();
       if (!host) return;
       const requestEpoch = ++requestEpochRef.current;
@@ -193,9 +194,9 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
             location.selectedText,
           );
           if (!range) {
-            updateCurrentState({
-              error: "この箇所には直接編集できる文章や数式がありません。",
-            });
+            // A paper click outside an editable source range is a normal
+            // outcome. Keep the page quiet instead of leaving an error banner
+            // over the document.
             return;
           }
           const segments: ParagraphSegment[] =
@@ -208,9 +209,6 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
               (segment.kind === "text" && segment.latex.trim().length > 0),
           );
           if (!hasEditableContent) {
-            updateCurrentState({
-              error: "この箇所には直接編集できる文章や数式がありません。",
-            });
             return;
           }
           const target: EditableParagraph = {
@@ -227,11 +225,12 @@ export function useParagraphEditor(context: ParagraphEditorContext = {}): Paragr
               workspaceId: expected.workspaceId,
               workspaceGeneration: expected.workspaceGeneration,
               segments,
+              focusText: location.focusedText?.trim() ?? "",
           };
           const draft = drafts()[draftKey(target)];
           updateCurrentState({
             paragraph: draft
-              ? { ...draft.target, workspaceId: expected.workspaceId, workspaceGeneration: expected.workspaceGeneration,
+              ? { ...draft.target, workspaceId: expected.workspaceId, workspaceGeneration: expected.workspaceGeneration, focusText: target.focusText,
                   // Edits elsewhere in the file do not invalidate this draft.
                   ...(draft.target.originalText === range.text ? { baseContentHash: target.baseContentHash } : {}) }
               : target,

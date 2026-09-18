@@ -1,4 +1,4 @@
-import type { Expression } from '@cortex-js/compute-engine/dist/types/math-json';
+import type { MathJsonExpression as Expression } from '@cortex-js/compute-engine/dist/types/math-json';
 
 import type { InsertOptions, Offset, OutputFormat } from '../public/core-types';
 
@@ -154,7 +154,15 @@ export class MathModeEditor extends ModeEditor {
       if (format === 'auto' && wasLatex) format = 'latex';
       mathfield.stopCoalescingUndo();
       mathfield.stopRecording();
-      if (this.insert(mathfield.model, text, { format })) {
+      const selectedRange = range(mathfield.model.selection);
+      const replacesWholeField =
+        !mathfield.model.selectionIsCollapsed &&
+        selectedRange[0] === 0 &&
+        selectedRange[1] === mathfield.model.lastOffset;
+      if (this.insert(mathfield.model, text, {
+        format,
+        insertionMode: replacesWholeField ? 'replaceAll' : 'replaceSelection',
+      })) {
         mathfield.startRecording();
         mathfield.snapshot('paste');
         requestUpdate(mathfield);

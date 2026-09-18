@@ -1,8 +1,8 @@
-import { normalizeLegacyEnvMarkers, normalizeMatrixSyntax, shouldWrapAligned, unwrapAligned, wrapAligned, } from "../input-ui-latex-format.js";
+import { normalizeLegacyEnvMarkers, normalizeMatrixSyntax, shouldWrapAligned, stripMathLivePlaceholders, unwrapAligned, wrapAligned, } from "../input-ui-latex-format.js";
 export const createMathValueOps = (runtime) => {
     const normalizeMathValueForOutput = (value) => {
         const resolved = runtime.state.mathFieldWrapped ? unwrapAligned(value).value : value;
-        return normalizeMatrixSyntax(normalizeLegacyEnvMarkers(resolved));
+        return stripMathLivePlaceholders(normalizeMatrixSyntax(normalizeLegacyEnvMarkers(resolved)));
     };
     const prepareMathValueForField = (value) => {
         if (!value) {

@@ -15,6 +15,10 @@ const LEGACY_AUX_COMMAND_MAP = {
 };
 const LEGACY_AUX_COMMAND_RE = /\\(txlbl|txtag|txtgs|txntg|txnnum|txeqr|txref|txpgrf|txatrf|txintr|txshintr)\b/g;
 const AUX_COMMAND_LBRACE_ARG_RE = /\\(label|tag\*?|eqref|ref|pageref|autoref|intertext|shortintertext)\{\s*\\lbrace([\s\S]*?)\\rbrace\s*\}/g;
+const MATHLIVE_PLACEHOLDER_RE = /\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\\.)*\}/g;
+/** MathLive placeholders are an editing affordance, not a TeX command.
+ * Leaving a new matrix cell empty must save as an ordinary empty cell. */
+export const stripMathLivePlaceholders = (value) => value.replace(MATHLIVE_PLACEHOLDER_RE, "");
 const isEscapedAt = (text, index) => {
     let count = 0;
     for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
@@ -96,7 +100,7 @@ const splitAlignedRows = (text) => {
     return rows;
 };
 const isEmptyAlignedRow = (row) => {
-    const cleaned = row.replace(/\\placeholder\{\}/g, "").replace(/\s+/g, "");
+    const cleaned = stripMathLivePlaceholders(row).replace(/\s+/g, "");
     return cleaned === "" || cleaned === "&";
 };
 export const stripEmptyAlignedRows = (text) => {
