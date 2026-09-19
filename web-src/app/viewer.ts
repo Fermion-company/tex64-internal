@@ -98,6 +98,55 @@ export type LivePreviewAnchorResult = Pick<
   baseValue?: string;
 };
 
+export const parseLiveSourceRequest = (value: unknown) => {
+  const payload = value as { file?: unknown; line?: unknown; column?: unknown } | null | undefined;
+  const file = typeof payload?.file === "string" ? payload.file : "";
+  const line = Number(payload?.line);
+  const column = Number(payload?.column);
+  if (!file || !Number.isFinite(line) || line < 1) return null;
+  return {
+    file,
+    line: Math.floor(line),
+    column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+  };
+};
+
+export const parseLiveAnchorRequest = (value: unknown): LivePreviewAnchorRequest | null => {
+  const payload = value as Partial<LivePreviewAnchorRequest> | null | undefined;
+  if (!payload || typeof payload.sessionId !== "string" || !payload.sessionId ||
+      typeof payload.requestId !== "string" || !payload.requestId ||
+      typeof payload.activationId !== "string" || !payload.activationId ||
+      !Number.isInteger(payload.documentEpoch) ||
+      typeof payload.file !== "string" || !payload.file ||
+      typeof payload.baseValue !== "string" || typeof payload.sourceText !== "string" ||
+      !Number.isInteger(payload.sourceRev) ||
+      ![payload.start?.line, payload.start?.column, payload.end?.line, payload.end?.column]
+        .every((item) => typeof item === "number" && Number.isInteger(item) && item >= 1)) return null;
+  return payload as LivePreviewAnchorRequest;
+};
+
+export const parseLiveEditRequest = (value: unknown): LivePreviewEditRequest | null => {
+  const payload = value as Partial<LivePreviewEditRequest> | null | undefined;
+  const startLine = Number(payload?.start?.line);
+  const startColumn = Number(payload?.start?.column);
+  const endLine = Number(payload?.end?.line);
+  const endColumn = Number(payload?.end?.column);
+  if (typeof payload?.sessionId !== "string" || !payload.sessionId ||
+      (payload.kind !== "text" && payload.kind !== "math") ||
+      typeof payload.file !== "string" || !payload.file ||
+      typeof payload.baseValue !== "string" || typeof payload.replacement !== "string" ||
+      !Number.isFinite(startLine) || startLine < 1 ||
+      !Number.isFinite(startColumn) || startColumn < 1 ||
+      !Number.isFinite(endLine) || endLine < 1 ||
+      !Number.isFinite(endColumn) || endColumn < 1) return null;
+  return {
+    ...payload,
+    sourceText: typeof payload.sourceText === "string" ? payload.sourceText : undefined,
+    start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
+    end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
+  } as LivePreviewEditRequest;
+};
+
 export type ViewerDeps = {
   editorViewer: HTMLElement | null;
   editorViewerImage: HTMLImageElement | null;
@@ -296,39 +345,15 @@ export const createViewer = (deps: ViewerDeps) => {
     }
     if (payload.type === "live-source") {
       if (!matchingLivePreview()) return;
-      const detail = (payload as { payload?: unknown }).payload as
-        | { file?: unknown; line?: unknown; column?: unknown }
-        | null
-        | undefined;
-      const file = typeof detail?.file === "string" ? detail.file : "";
-      const line = Number(detail?.line);
-      const column = Number(detail?.column);
-      if (file && Number.isFinite(line) && line >= 1) {
-        deps.onLiveSourceRequest?.({
-          file,
-          line: Math.floor(line),
-          column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
-        });
-      }
+      const request = parseLiveSourceRequest((payload as { payload?: unknown }).payload);
+      if (request) deps.onLiveSourceRequest?.(request);
       return;
     }
     if (payload.type === "live-edit-anchor") {
       const requestedPreview = matchingLivePreview();
       if (!requestedPreview) return;
-      const detail = (payload as { payload?: unknown }).payload as
-        | Partial<LivePreviewAnchorRequest>
-        | null
-        | undefined;
-      if (!detail || typeof detail.sessionId !== "string" || !detail.sessionId ||
-          typeof detail.requestId !== "string" || !detail.requestId ||
-          typeof detail.activationId !== "string" || !detail.activationId ||
-          !Number.isInteger(detail.documentEpoch) ||
-          typeof detail.file !== "string" || !detail.file ||
-          typeof detail.baseValue !== "string" || typeof detail.sourceText !== "string" ||
-          !Number.isInteger(detail.sourceRev) ||
-          ![detail.start?.line, detail.start?.column, detail.end?.line, detail.end?.column]
-            .every((value) => typeof value === "number" && Number.isInteger(value) && value >= 1)) return;
-      const request = detail as LivePreviewAnchorRequest;
+      const request = parseLiveAnchorRequest((payload as { payload?: unknown }).payload);
+      if (!request) return;
       const reply = (result: LivePreviewAnchorResult) => {
         if (matchingLivePreview() !== requestedPreview) return;
         postPdfMessage({ type: "live-edit-anchor-result", payload: result });
@@ -347,34 +372,8 @@ export const createViewer = (deps: ViewerDeps) => {
     }
     if (payload.type === "live-edit") {
       if (!matchingLivePreview()) return;
-      const detail = (payload as { payload?: unknown }).payload as
-        | Partial<LivePreviewEditRequest>
-        | null
-        | undefined;
-      const startLine = Number(detail?.start?.line);
-      const startColumn = Number(detail?.start?.column);
-      const endLine = Number(detail?.end?.line);
-      const endColumn = Number(detail?.end?.column);
-      if (
-        typeof detail?.sessionId === "string" &&
-        detail.sessionId.length > 0 &&
-        (detail.kind === "text" || detail.kind === "math") &&
-        typeof detail.file === "string" &&
-        detail.file.length > 0 &&
-        typeof detail.baseValue === "string" &&
-        typeof detail.replacement === "string" &&
-        Number.isFinite(startLine) && startLine >= 1 &&
-        Number.isFinite(startColumn) && startColumn >= 1 &&
-        Number.isFinite(endLine) && endLine >= 1 &&
-        Number.isFinite(endColumn) && endColumn >= 1
-      ) {
-        deps.onLiveEditRequest?.({
-          ...detail,
-          sourceText: typeof detail.sourceText === "string" ? detail.sourceText : undefined,
-          start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
-          end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
-        } as LivePreviewEditRequest);
-      }
+      const request = parseLiveEditRequest((payload as { payload?: unknown }).payload);
+      if (request) deps.onLiveEditRequest?.(request);
     }
   });
 

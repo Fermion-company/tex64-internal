@@ -1,8 +1,8 @@
 // Real-time preview for Code mode (beta, settings > Build > Preview).
 //
-// The preview replaces only the page canvas inside the ordinary in-tab PDF
-// viewer. The existing PDF toolbar and split-view path stay in place; no
-// separate window or second preview surface is created. While the
+// The preview replaces only the page canvas inside the ordinary PDF viewer,
+// whether it is an in-tab surface or the configured Build window. The existing
+// PDF toolbar stays in place; no live-only preview surface is created. While the
 // `preview.realtime` flag is on and the app is in Code mode, this module
 // starts the local TDOM engine, streams the active .tex buffer to it as the
 // user types, and flips those viewers into live mode; each viewer swaps only
@@ -62,6 +62,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // Revision accepted for the first change after a Build; the viewer keeps the
     // Build PDF until Live presents at least this revision.
     let liveExpectedSrcRev = null;
+    let lastWindowPreviewKey = null;
     const cursorOffset = (editor) => {
         var _a, _b, _c, _d, _e, _f;
         if (editor === void 0) { editor = (_b = (_a = currentProjectSource()) === null || _a === void 0 ? void 0 : _a.editor) !== null && _b !== void 0 ? _b : null; }
@@ -86,13 +87,33 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         void bridge.focus({ offset, filePath: source === null || source === void 0 ? void 0 : source.path }).catch(() => { });
     };
     const debouncedFocus = createDebouncedTask(focusCurrent, 160);
-    // Flip the existing in-tab PDF surfaces into or out of live mode. The PDF
+    // Flip the existing PDF surfaces into or out of live mode. The PDF
     // frame keeps its ordinary toolbar and swaps only the page canvas for the
     // embedded incremental renderer. While a completed Build owns the paper,
     // the same frame is kept below that PDF instead of being recreated.
     const distributeLive = (url, generation = liveGeneration) => {
+        const payload = url && (liveTarget === null || liveTarget === void 0 ? void 0 : liveTarget.workspaceRoot) ? {
+            url,
+            generation,
+            target: liveTarget,
+            hold: buildOwnsView,
+            expectedSrcRev: buildOwnsView ? null : liveExpectedSrcRev,
+        } : null;
         for (const group of getEditorGroups()) {
             group.viewer.setLivePreview(url, generation, liveTarget, buildOwnsView, buildOwnsView ? null : liveExpectedSrcRev);
+        }
+        if (bridge === null || bridge === void 0 ? void 0 : bridge.setWindowPreview) {
+            const key = JSON.stringify(payload);
+            if (key !== lastWindowPreviewKey) {
+                lastWindowPreviewKey = key;
+                void bridge.setWindowPreview(payload).then((result) => {
+                    if (!(result === null || result === void 0 ? void 0 : result.ok) && lastWindowPreviewKey === key)
+                        lastWindowPreviewKey = null;
+                }, () => {
+                    if (lastWindowPreviewKey === key)
+                        lastWindowPreviewKey = null;
+                });
+            }
         }
     };
     const showLiveError = (message) => console.warn("[live-preview]", message);

@@ -402,6 +402,14 @@ export type TdomBridge = {
     data?: string;
     error?: string | null;
   }>;
+  setWindowPreview?: (payload: {
+    url: string;
+    generation: number;
+    target: { workspaceRoot: string; pdfPath: string };
+    hold: boolean;
+    expectedSrcRev: number | null;
+  } | null) => Promise<{ ok: boolean; error?: string }>;
+  replyWindowAnchor?: (payload: { windowRequestId: string; result: unknown }) => Promise<{ ok: boolean; error?: string }>;
 };
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;

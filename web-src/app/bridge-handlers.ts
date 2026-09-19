@@ -30,6 +30,9 @@ import { uiText } from "./i18n.js";
 import type { FilePreviewResultPayload } from "./file-preview.js";
 import type { WorkspaceFileCacheScope } from "./file-preview.js";
 import type { FileExcerptResultPayload } from "./file-excerpt.js";
+import { parseLiveAnchorRequest, parseLiveEditRequest, parseLiveSourceRequest,
+  type LivePreviewAnchorRequest, type LivePreviewAnchorResult,
+  type LivePreviewEditRequest } from "./viewer.js";
 
 const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
 
@@ -97,6 +100,12 @@ type BridgeHandlersDeps = {
       plan?: string;
       outcome?: "success" | "cancel" | "closed" | "error";
     }) => void;
+  };
+  livePreview?: {
+    source: (payload: { file: string; line: number; column: number }) => void;
+    edit: (payload: LivePreviewEditRequest) => void;
+    anchor: (payload: LivePreviewAnchorRequest,
+      reply: (result: LivePreviewAnchorResult) => void) => void;
   };
   search: {
     handleSearchUpdate: (payload: {
@@ -588,6 +597,43 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           },
         );
         break;
+      case "pdf:liveSource":
+        {
+          const request = parseLiveSourceRequest(message.payload);
+          if (request) deps.livePreview?.source(request);
+        }
+        break;
+      case "pdf:liveEdit":
+        {
+          const request = parseLiveEditRequest(message.payload);
+          if (request) deps.livePreview?.edit(request);
+        }
+        break;
+      case "pdf:liveEditAnchor": {
+        const envelope = message.payload as {
+          windowRequestId?: string;
+          request?: unknown;
+        };
+        const request = parseLiveAnchorRequest(envelope?.request);
+        if (!envelope?.windowRequestId || !request) break;
+        const reply = (result: LivePreviewAnchorResult) => {
+          void bridgeWindow.tex64Tdom?.replyWindowAnchor?.({
+            windowRequestId: envelope.windowRequestId!,
+            result,
+          });
+        };
+        if (deps.livePreview) deps.livePreview.anchor(request, reply);
+        else reply({
+          sessionId: request.sessionId,
+          requestId: request.requestId,
+          activationId: request.activationId,
+          documentEpoch: request.documentEpoch,
+          file: request.file,
+          sourceRev: request.sourceRev,
+          ok: false,
+        });
+        break;
+      }
       case "renameResult":
         bridgeWindow.tex64RenameResult?.(message.payload as {
           oldPath: string;

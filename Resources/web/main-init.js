@@ -1172,6 +1172,11 @@ export const initMain = () => {
             billing: {
                 handleCheckoutClosed: (payload) => billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleCheckoutClosed(payload),
             },
+            livePreview: {
+                source: (payload) => requestLiveSource(payload),
+                edit: (payload) => requestLiveEdit(payload),
+                anchor: (payload, reply) => requestLiveAnchor(payload, reply),
+            },
             search: {
                 handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),

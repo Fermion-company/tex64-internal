@@ -3,7 +3,7 @@
 Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-engine**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、開発checkoutまたは同梱したコピーを別プロセスとして起動する。
 
 - 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
-- **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。既存の PDF タブを使い、別ウィンドウは起動しない。
+- **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。PDF の表示設定に従い、既存の PDF タブまたは通常 Build の別ウィンドウを同じ状態で切り替える。
 - プレビュー上の文字・数式は直接編集できる。編集は同じ Monaco モデルへ入り、未保存状態・自動保存・Undo を通常のソース編集と共有する。ソース位置が競合した場合は推測で別箇所を書き換えず、その編集を拒否する。
 
 ## 配線
@@ -13,7 +13,7 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 | main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy・`/canonical.pdf` snapshot |
 | main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,focus,snapshot}` |
 | preload | `electron/preload.cjs` | `window.tex64Tdom` |
-| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・既存 PDF ビューアへのライブ URL 配信 |
+| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・既存 PDF ビューアと通常の PDF 別ウィンドウへのライブ URL 配信 |
 | renderer | `Resources/web/pdf-viewer.js` | 通常 PDF の last-good を保持しつつページ面を TDOM iframe に切替、ツールバー操作と直接編集イベントを中継。エンジンの `action: 'place'`（選択または右クリックの場所・文・ソース行）を受けて「Axiom に聞く」を浮かせ、`ask-axiom`（`source` 付き）をホストへ送る |
 | renderer | `web-src/app/viewer.ts` | PDF iframe と Code 側のソース移動・直接編集を接続 |
 | renderer | `web-src/app/editor-session/init.ts`・`live-edit-history.ts` | 表示時の原文範囲を Monaco の実変更履歴で追従し、直接編集を単一 Undo セッションとして適用 |
