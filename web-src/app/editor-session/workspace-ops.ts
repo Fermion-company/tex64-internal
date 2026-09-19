@@ -3,6 +3,7 @@ import type { EditorSessionRuntime } from "./runtime.js";
 import type { EditorSessionCoreOps } from "./core-ops.js";
 import type { EditorSessionSplitViewOps } from "./split-view-ops.js";
 import type { EditorSessionBufferOps } from "./buffer-ops.js";
+import { rememberEditorModelPath } from "./model-path.js";
 
 export type EditorSessionWorkspaceOps = {
   handleRenameResult: (payload: { oldPath: string; newPath: string; isDirectory: boolean }) => void;
@@ -38,7 +39,9 @@ export const createEditorSessionWorkspaceOps = (
     if (runtime.monacoModels.size > 0) {
       const updatedModels = new Map<string, MonacoModelEntry>();
       runtime.monacoModels.forEach((entry, path) => {
-        updatedModels.set(remapPath(path), entry);
+        const nextPath = remapPath(path);
+        rememberEditorModelPath(entry.model, nextPath);
+        updatedModels.set(nextPath, entry);
       });
       runtime.monacoModels.clear();
       updatedModels.forEach((entry, path) => runtime.monacoModels.set(path, entry));

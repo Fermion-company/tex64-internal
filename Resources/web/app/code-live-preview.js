@@ -10,6 +10,7 @@
 // and chrome. Turning the flag off restores the static PDF everywhere and
 // stops the engine.
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { getEditorModelPath } from "./editor-session/model-path.js";
 const createDebouncedTask = (task, delayMs) => {
     let timer = null;
     const schedule = () => {
@@ -97,10 +98,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     const showLiveError = (message) => console.warn("[live-preview]", message);
     const editorModelPath = (editor) => {
         var _a, _b;
-        const uri = (_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) === null || _b === void 0 ? void 0 : _b.uri;
-        return (uri === null || uri === void 0 ? void 0 : uri.scheme) === "file" && typeof uri.fsPath === "string" && uri.fsPath
-            ? uri.fsPath
-            : null;
+        return getEditorModelPath((_b = (_a = editor === null || editor === void 0 ? void 0 : editor.getModel) === null || _a === void 0 ? void 0 : _a.call(editor)) !== null && _b !== void 0 ? _b : null);
     };
     const sameFilePath = (left, right) => {
         const comparable = (value) => {

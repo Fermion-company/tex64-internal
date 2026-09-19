@@ -2,6 +2,7 @@ import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isTextFilePath,
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
+import { rememberEditorModelPath } from "./editor-session/model-path.js";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
     const contentConflicts = new Map();
@@ -188,6 +189,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const entry = monacoModels.get(path);
         if (entry) {
+            rememberEditorModelPath(entry.model, path);
             trackLiveEditModel(entry.model);
             const isEntryDirty = dirtyFiles.has(path);
             if (!isEntryDirty && savedContent !== undefined && entry.savedContent !== savedContent) {
@@ -206,6 +208,7 @@ export const createEditorSessionFileOps = (ctx) => {
         const uri = ((_b = monacoApiAny.Uri) === null || _b === void 0 ? void 0 : _b.file) ? monacoApiAny.Uri.file(path) : undefined;
         const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
         const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri));
+        rememberEditorModelPath(model, path);
         trackLiveEditModel(model);
         const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content };
         monacoModels.set(path, nextEntry);

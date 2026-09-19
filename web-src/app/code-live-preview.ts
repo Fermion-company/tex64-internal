@@ -14,6 +14,7 @@ import type { EditorGroupState } from "./editor-session/types.js";
 import type { BridgeWindow } from "./types.js";
 import type { LivePreviewTarget } from "./viewer.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { getEditorModelPath } from "./editor-session/model-path.js";
 
 const createDebouncedTask = (task: () => void, delayMs: number) => {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -38,7 +39,6 @@ type LiveEditor = {
   getPosition?: () => { lineNumber: number; column: number } | null;
   getModel?: () => {
     getOffsetAt?: (position: { lineNumber: number; column: number }) => number;
-    uri?: { scheme?: string; fsPath?: string };
   } | null;
 };
 
@@ -140,10 +140,7 @@ export const initCodeLivePreview = ({
   const showLiveError = (message: string) => console.warn("[live-preview]", message);
 
   const editorModelPath = (editor: LiveEditor | null) => {
-    const uri = editor?.getModel?.()?.uri;
-    return uri?.scheme === "file" && typeof uri.fsPath === "string" && uri.fsPath
-      ? uri.fsPath
-      : null;
+    return getEditorModelPath(editor?.getModel?.() ?? null);
   };
 
   const sameFilePath = (left: string, right: string) => {
