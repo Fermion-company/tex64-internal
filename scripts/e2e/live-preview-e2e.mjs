@@ -35,6 +35,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const lualatexCount = () => {
   try { return Number(execSync("pgrep -x lualatex | wc -l").toString().trim()) || 0; } catch { return 0; }
 };
+// Leak guard: the limit is relative to whatever lualatex processes another
+// TeX64 (e.g. the user's own app with a live engine) already owns at launch.
+const lualatexBaseline = lualatexCount();
+const LUALATEX_LIMIT = lualatexBaseline + 30;
+const guardLualatex = () => {
+  if (lualatexCount() > LUALATEX_LIMIT) throw new Error(`lualatex process count exceeded ${LUALATEX_LIMIT} (baseline ${lualatexBaseline})`);
+};
 
 // ---- project copy
 if (!fs.existsSync(PROJECT)) {
@@ -42,7 +49,7 @@ if (!fs.existsSync(PROJECT)) {
 }
 const mainSha = sha(fs.readFileSync(`${PROJECT}/main.tex`, 'utf8'));
 const ch16Text = fs.readFileSync(`${PROJECT}/content/ch16.tex`, 'utf8');
-log('project', { PROJECT, mainOk: mainSha === MAIN_SHA, ch16Ok: sha(ch16Text) === CH16_SHA });
+log('project', { PROJECT, mainOk: mainSha === MAIN_SHA, ch16Ok: sha(ch16Text) === CH16_SHA, lualatexBaseline });
 if (mainSha !== MAIN_SHA || sha(ch16Text) !== CH16_SHA) throw new Error('project copy hash mismatch');
 
 const getJson = (url, timeoutMs = 4000) => new Promise((resolve, reject) => {
@@ -116,7 +123,7 @@ const waitCanonical = async (label, limitMs) => {
     const s = await engineStatus();
     const c = compact(s);
     if (JSON.stringify(c) !== JSON.stringify(last)) { log(`${label}:status`, { status: c, lualatex: lualatexCount() }); last = c; }
-    if (lualatexCount() > 30) throw new Error('lualatex process count exceeded 30');
+    guardLualatex();
     if (s && s.canonical && s.canonical.rev === s.srcRev && s.canonical.pageCount >= 300 && !s.busy &&
         !s.canonical.inFlight && s.canonical.runningRev == null) return s;
     await sleep(2000);
@@ -221,7 +228,7 @@ if (!SKIP_BUILD) {
   while (Date.now() < deadline) {
     const rows = fs.existsSync(`${RUN}/renderer-diag.jsonl`) ? fs.readFileSync(`${RUN}/renderer-diag.jsonl`, 'utf8') : '';
     if (rows.includes('"clp:build-success"') || mtime() > before) { built = true; break; }
-    if (lualatexCount() > 30) throw new Error('lualatex process count exceeded 30');
+    guardLualatex();
     await sleep(1000);
   }
   if (!built) throw new Error('build did not succeed in time');
@@ -295,7 +302,7 @@ if (process.env.SCENARIO === 'restart-held') {
       log('restart-recovered', { status: st, pdf: s });
       break;
     }
-    if (lualatexCount() > 30) throw new Error('lualatex process count exceeded 30');
+    guardLualatex();
     await sleep(2000);
   }
   if (!recovered) throw new Error('engine did not recover');
@@ -379,7 +386,7 @@ if (process.env.SCENARIO === 'stale-canonical') {
     while (Date.now() < deadline) {
       const s = await status();
       if (s && pred(s)) { log(label, { dt: Date.now() - inputAt, status: s }); return s; }
-      if (lualatexCount() > 30) throw new Error('lualatex process count exceeded 30');
+      guardLualatex();
       await sleep(1000);
     }
     throw new Error(`${label}: timeout`);
@@ -487,7 +494,7 @@ if (process.env.CROSS_FILE) {
     if (JSON.stringify(warmState) === staleWarm) { await sleep(500); continue; }
     if (warmState?.status === 'ready' && Number(warmState.sourceRev) === Number(warmSrcRev)) break;
     if (['proof-unavailable', 'error', 'rejected'].includes(warmState?.status)) break;
-    if (lualatexCount() > 30) throw new Error('lualatex process count exceeded 30');
+    guardLualatex();
     await sleep(500);
   }
   log('cross-warm', { waitedMs: Date.now() - warmStartedAt, offset: crossOffset, warm: warmState });
