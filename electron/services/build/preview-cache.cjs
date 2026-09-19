@@ -62,6 +62,7 @@
  *       artifacts: { pdf: "/staging/main.pdf",
  *                    synctex: "/staging/main.synctex.gz",
  *                    fls: "/staging/main.fls",
+ *                    fdb: "/staging/main.fdb_latexmk",
  *                    aux: [{ path: "/staging/main.aux", logicalName: "main.aux" }] },
  *       metrics: { pageCount, geometry, syncTexInputMap },
  *     },
@@ -115,6 +116,7 @@ const AUX_SUBDIR = "aux";
 const MAX_RETAINED_GENERATIONS = 2;
 const MAX_ARTIFACTS_PER_GENERATION = 64;
 const MAX_ARTIFACT_BYTES = 256 * 1024 * 1024;
+const MAX_LATEXMK_HISTORY_BYTES = 8 * 1024 * 1024;
 const MAX_GENERATION_BYTES = 320 * 1024 * 1024;
 const MAX_CACHE_BYTES = 640 * 1024 * 1024;
 const MAX_RECORDED_INPUTS = 8192;
@@ -132,7 +134,7 @@ const STALE_TEMPORARY_MS = 60 * 60 * 1000;
 const GENERATION_DIR_PATTERN = /^gen-[0-9a-f]{32}$/;
 const TEMPORARY_DIR_PATTERN = /^\.tmp-[0-9a-f]{32}$/;
 const POINTER_TEMPORARY_PATTERN = /^current\.json\.[0-9a-f]{16}\.tmp$/;
-const STORED_ARTIFACT_PATTERN = /^(?:pdf\.bin|synctex\.bin|fls\.bin|aux\/[0-9a-f]{32}\.bin)$/;
+const STORED_ARTIFACT_PATTERN = /^(?:pdf\.bin|synctex\.bin|fls\.bin|fdb\.bin|aux\/[0-9a-f]{32}\.bin)$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const INPUT_PROOFS = new Set(["immutable-snapshot", "atomic-inputs-contract", "build-fls", "none"]);
 
@@ -449,6 +451,9 @@ const normalizeArtifactRequest = (entry, kind) => {
   if (kind === "fls" && !matchesSuffix(baseName, [".fls"])) {
     return { ok: false, detail: "The recorder artifact must be a .fls file." };
   }
+  if (kind === "fdb" && !matchesSuffix(baseName, [".fdb_latexmk"])) {
+    return { ok: false, detail: "The latexmk history artifact must be a .fdb_latexmk file." };
+  }
   if (kind === "aux" && !matchesSuffix(baseName, AUX_ARTIFACT_SUFFIXES)) {
     return { ok: false, detail: `"${logicalName}" is not a cacheable auxiliary artifact.` };
   }
@@ -475,6 +480,11 @@ const normalizeArtifactRequests = (artifacts) => {
     const fls = normalizeArtifactRequest(artifacts.fls, "fls");
     if (!fls.ok) return fls;
     requests.push(fls.value);
+  }
+  if (artifacts.fdb !== undefined && artifacts.fdb !== null) {
+    const fdb = normalizeArtifactRequest(artifacts.fdb, "fdb");
+    if (!fdb.ok) return fdb;
+    requests.push(fdb.value);
   }
   const auxEntries = Array.isArray(artifacts.aux) ? artifacts.aux : [];
   const storedNames = new Set(requests.map((request) => request.storedName));
@@ -718,7 +728,7 @@ const verifyStoredArtifacts = async (generationDir, manifest) => {
   if (manifest.artifacts.length > MAX_ARTIFACTS_PER_GENERATION) {
     return { ok: false, reason: "manifest-invalid" };
   }
-  const verified = { pdf: null, synctex: null, fls: null, aux: [] };
+  const verified = { pdf: null, synctex: null, fls: null, fdb: null, aux: [] };
   for (const record of manifest.artifacts) {
     const storedName = typeof record?.storedName === "string" ? record.storedName : "";
     const logicalName = normalizeRelativePosixPath(record?.logicalName);
@@ -727,11 +737,16 @@ const verifyStoredArtifacts = async (generationDir, manifest) => {
     }
     if (!SHA256_PATTERN.test(record?.sha256 ?? "")) return { ok: false, reason: "manifest-invalid" };
     const filePath = path.join(generationDir, ...storedName.split("/"));
-    const read = await readRegularFile(filePath, MAX_ARTIFACT_BYTES);
+    const read = await readRegularFile(
+      filePath,
+      record.kind === "fdb" ? MAX_LATEXMK_HISTORY_BYTES : MAX_ARTIFACT_BYTES,
+    );
     if (!read.ok) {
+      if (record.kind === "fdb") continue;
       return { ok: false, reason: `artifact-${read.reason}`, detail: logicalName };
     }
     if (read.bytes !== record.bytes || read.sha256 !== record.sha256) {
+      if (record.kind === "fdb") continue;
       return { ok: false, reason: "artifact-hash-mismatch", detail: logicalName };
     }
     if (record.kind === "pdf" && !looksLikePdf(read.head, read.bytes)) {
@@ -744,6 +759,7 @@ const verifyStoredArtifacts = async (generationDir, manifest) => {
     if (record.kind === "pdf") verified.pdf = entry;
     else if (record.kind === "synctex") verified.synctex = entry;
     else if (record.kind === "fls") verified.fls = entry;
+    else if (record.kind === "fdb") verified.fdb = entry;
     else if (record.kind === "aux") verified.aux.push(entry);
     else return { ok: false, reason: "manifest-invalid" };
   }
@@ -877,7 +893,8 @@ const buildCandidate = ({ entry, manifest, generationDir, artifacts, inputCheck,
       // Every stored artifact was re-hashed, and the paper also had to look
       // like a PDF rather than merely match its recorded digest.
       artifactsVerified: true,
-      artifactCount: 1 + (artifacts.synctex ? 1 : 0) + (artifacts.fls ? 1 : 0) + artifacts.aux.length,
+      artifactCount: 1 + (artifacts.synctex ? 1 : 0) + (artifacts.fls ? 1 : 0)
+        + (artifacts.fdb ? 1 : 0) + artifacts.aux.length,
       synctexPresent: Boolean(artifacts.synctex),
       inputsRecorded: manifest.inputs.length,
       inputsChecked: inputCheck.checked,
@@ -945,7 +962,11 @@ const savePreviewCacheGeneration = async ({ rootPath, mainFileName, descriptor }
     let totalBytes = 0;
     for (const request of value.artifactRequests) {
       const destination = path.join(temporaryDir, ...request.storedName.split("/"));
-      const read = await readRegularFile(request.sourcePath, MAX_ARTIFACT_BYTES, destination);
+      const read = await readRegularFile(
+        request.sourcePath,
+        request.kind === "fdb" ? MAX_LATEXMK_HISTORY_BYTES : MAX_ARTIFACT_BYTES,
+        destination,
+      );
       if (!read.ok) {
         return { saved: false, reason: `artifact-${read.reason}`, detail: request.logicalName };
       }
@@ -1093,6 +1114,81 @@ const loadPreviewCacheCandidate = async ({ rootPath, mainFileName, expected } = 
 };
 
 /**
+ * Loads only latexmk's scheduling history. Unlike a preview candidate, this
+ * deliberately does not require unchanged document inputs: -g still forces a
+ * fresh primary run, and the history only supplies the previous dependency
+ * graph used to decide whether that run converged.
+ */
+const loadLatexmkHistoryCandidate = async ({ rootPath, mainFileName, expected } = {}) => {
+  const expectedProfile = normalizeSignature(expected?.profileSignature);
+  const expectedEngine = normalizeSignature(expected?.engineSignature);
+  if (!expectedProfile || !expectedEngine) return { hit: false, reason: "profile-unverified" };
+  const located = await resolvePreviewCacheDirectory(rootPath, mainFileName, false);
+  if (!located.ok) return { hit: false, reason: located.reason };
+  const { cacheRealPath, projectRealPath } = located;
+  const pointer = await readPointer(cacheRealPath);
+  if (!pointer.ok) return { hit: false, reason: pointer.reason };
+
+  for (const entry of pointer.entries) {
+    const read = await readGenerationManifest(cacheRealPath, entry);
+    if (!read.ok) continue;
+    const manifest = read.manifest;
+    if (
+      manifest.profileSignature !== expectedProfile
+      || manifest.engineSignature !== expectedEngine
+      || manifest.rootRealPath !== projectRealPath
+    ) {
+      continue;
+    }
+    const records = manifest.artifacts.filter((record) => record?.kind === "fdb");
+    if (records.length !== 1) continue;
+    const record = records[0];
+    const logicalName = normalizeRelativePosixPath(record.logicalName);
+    if (
+      record.storedName !== "fdb.bin"
+      || !logicalName
+      || !matchesSuffix(logicalName.split("/").pop(), [".fdb_latexmk"])
+      || !SHA256_PATTERN.test(record.sha256 ?? "")
+    ) {
+      continue;
+    }
+    const filePath = path.join(read.generationDir, "fdb.bin");
+    const artifact = await readRegularFile(filePath, MAX_LATEXMK_HISTORY_BYTES);
+    if (
+      !artifact.ok
+      || artifact.bytes !== record.bytes
+      || artifact.sha256 !== record.sha256
+    ) {
+      continue;
+    }
+    const history = manifest.metrics?.latexmkHistory;
+    if (
+      typeof history?.outDir !== "string"
+      || typeof history?.workingRoot !== "string"
+      || typeof history?.pathHash !== "string"
+    ) {
+      continue;
+    }
+    return {
+      hit: true,
+      generationId: entry.id,
+      artifact: {
+        logicalName,
+        filePath,
+        sha256: artifact.sha256,
+        bytes: artifact.bytes,
+      },
+      history: {
+        outDir: history.outDir,
+        workingRoot: history.workingRoot,
+        pathHash: history.pathHash,
+      },
+    };
+  }
+  return { hit: false, reason: "latexmk-history-missing" };
+};
+
+/**
  * Removes this document's cached generations. Only entries this module named
  * are touched; `.tex64` and its other tenants are left alone.
  *
@@ -1136,5 +1232,6 @@ module.exports = {
   PREVIEW_CACHE_RELATIVE_DIR,
   savePreviewCacheGeneration,
   loadPreviewCacheCandidate,
+  loadLatexmkHistoryCandidate,
   clearPreviewCache,
 };

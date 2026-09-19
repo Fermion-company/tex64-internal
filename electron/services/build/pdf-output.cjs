@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const { isPathWithinRoot, stripOutDirFromLatexmkArgs } = require("./utils.cjs");
 
@@ -13,6 +14,7 @@ const IGNORED_SOURCE_DIRECTORIES = new Set([
   "build",
 ]);
 const MAX_STAGED_SOURCE_DIRECTORIES = 10_000;
+const MAX_LATEXMK_HISTORY_BYTES = 8 * 1024 * 1024;
 const SYNC_OUTPUT_SUFFIXES = [".synctex.gz", ".synctex"];
 // TeX reads these back on the next run: the table of contents, labels,
 // bibliography and index state. A staged build starts from the last good
@@ -68,6 +70,118 @@ const carryBackStagedAuxiliaries = ({ outputDir, stagingDir, stem }) => {
     } catch {
       // The paper is already in place; stale auxiliaries are refreshed next time.
     }
+  }
+};
+
+const sha256Hex = (value) => crypto.createHash("sha256").update(value).digest("hex");
+
+const normalizedStagingOutDir = (value) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().split("\\").join("/");
+  const segments = normalized.split("/");
+  if (
+    !normalized
+    || path.posix.isAbsolute(normalized)
+    || /^[a-z]:\//i.test(normalized)
+    || segments.some((segment) => !segment || segment === "." || segment === "..")
+    || segments.length < 2
+    || !/^\.tex64-build-[a-z0-9_-]+$/i.test(segments.at(-2))
+    || segments.at(-1) !== "output"
+  ) {
+    return null;
+  }
+  return normalized;
+};
+
+const latexmkHistoryPathHash = ({ rootRealPath, outDir }) => sha256Hex(JSON.stringify({
+  version: 1,
+  rootPath: rootRealPath,
+  outDir,
+}));
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const replacePathPrefix = (contents, oldPrefix, newPrefix) => {
+  if (!oldPrefix || oldPrefix === newPrefix) return { contents, replacements: 0 };
+  const pattern = new RegExp(
+    `(^|[\\s"'=])${escapeRegExp(oldPrefix)}(?=$|[\\s/\\\\"'])`,
+    "gm",
+  );
+  let replacements = 0;
+  return {
+    contents: contents.replace(pattern, (_match, boundary) => {
+      replacements += 1;
+      return `${boundary}${newPrefix}`;
+    }),
+    replacements,
+  };
+};
+
+/**
+ * Reuse latexmk's dependency history without interpreting its private rule
+ * format. The current Build is still forced with -g; this only lets latexmk
+ * compare generated inputs such as .toc against their pre-run state.
+ */
+const seedLatexmkHistory = ({ rootPath, rootRealPath, stagingDir, stem, seed }) => {
+  try {
+    if (!seed || typeof seed.path !== "string" || !path.isAbsolute(seed.path)) return false;
+    if (!/^[0-9a-f]{64}$/.test(seed.sha256 ?? "")) return false;
+    const oldOutDir = normalizedStagingOutDir(seed.oldOutDir);
+    const newOutDir = normalizedStagingOutDir(path.relative(path.resolve(rootPath), stagingDir));
+    if (!oldOutDir || !newOutDir || oldOutDir === newOutDir) return false;
+    if (seed.pathHash !== latexmkHistoryPathHash({ rootRealPath, outDir: oldOutDir })) return false;
+    if (
+      typeof seed.oldWorkingRoot !== "string"
+      || !path.isAbsolute(seed.oldWorkingRoot)
+      || resolveRealPath(seed.oldWorkingRoot) !== rootRealPath
+    ) {
+      return false;
+    }
+
+    const stats = fs.lstatSync(seed.path);
+    if (!stats.isFile() || stats.isSymbolicLink() || stats.size > MAX_LATEXMK_HISTORY_BYTES) {
+      return false;
+    }
+    const bytes = fs.readFileSync(seed.path);
+    if (bytes.length !== stats.size || sha256Hex(bytes) !== seed.sha256) return false;
+    const contents = bytes.toString("utf8");
+    if (contents.includes("\0") || !Buffer.from(contents, "utf8").equals(bytes)) return false;
+    if (!/^# Fdb version 4\r?\n/.test(contents)) return false;
+
+    const oldAbsolute = path.resolve(seed.oldWorkingRoot, ...oldOutDir.split("/"));
+    const newAbsolute = path.resolve(rootPath, ...newOutDir.split("/"));
+    const oldRealAbsolute = path.resolve(rootRealPath, ...oldOutDir.split("/"));
+    const newRealAbsolute = path.resolve(rootRealPath, ...newOutDir.split("/"));
+    const forms = [
+      [oldAbsolute.split(path.sep).join("/"), newAbsolute.split(path.sep).join("/")],
+      [oldAbsolute, newAbsolute],
+      [oldRealAbsolute.split(path.sep).join("/"), newRealAbsolute.split(path.sep).join("/")],
+      [oldRealAbsolute, newRealAbsolute],
+      [oldOutDir, newOutDir],
+      [oldOutDir.split("/").join(path.sep), newOutDir.split("/").join(path.sep)],
+    ]
+      .filter(([oldPrefix], index, all) => all.findIndex(([candidate]) => candidate === oldPrefix) === index)
+      .sort(([left], [right]) => right.length - left.length);
+    let rebased = contents;
+    let replacements = 0;
+    for (const [oldPrefix, newPrefix] of forms) {
+      const result = replacePathPrefix(rebased, oldPrefix, newPrefix);
+      rebased = result.contents;
+      replacements += result.replacements;
+    }
+    if (replacements === 0 || forms.some(([oldPrefix]) => rebased.includes(oldPrefix))) return false;
+
+    const newToken = newOutDir.split("/").at(-2);
+    for (const match of rebased.matchAll(
+      /(?:^|[/\\\s"'=])(\.tex64-build-[a-z0-9_-]+)(?=[/\\])/gim,
+    )) {
+      if (match[1] !== newToken) return false;
+    }
+    const targetPath = path.join(stagingDir, `${stem}.fdb_latexmk`);
+    fs.writeFileSync(targetPath, rebased, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -306,7 +420,8 @@ module.exports = (BuildService) => {
     rootPath,
     expectedPdfPath,
     extraArgs = [],
-    mainFileName = "main.tex"
+    mainFileName = "main.tex",
+    options = {},
   ) {
     const rootRealPath = resolveRealPath(rootPath);
     const outputDir = path.dirname(expectedPdfPath);
@@ -385,6 +500,13 @@ module.exports = (BuildService) => {
         outputDir: outputDirRealPath,
         stagingDir,
         stem: path.basename(expectedPdfPath).replace(/\.pdf$/i, ""),
+      });
+      seedLatexmkHistory({
+        rootPath: path.resolve(rootPath),
+        rootRealPath,
+        stagingDir,
+        stem: path.basename(expectedPdfPath).replace(/\.pdf$/i, ""),
+        seed: options?.latexmkHistorySeed,
       });
     } catch (error) {
       removeDirectory(transactionDir);

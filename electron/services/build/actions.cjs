@@ -6,6 +6,7 @@ const { terminateWindowsProcessTree } = require("../process-tree.cjs");
 const {
   savePreviewCacheGeneration,
   loadPreviewCacheCandidate,
+  loadLatexmkHistoryCandidate,
 } = require("./preview-cache.cjs");
 const { isEnvMissingMessage } = require("./utils.cjs");
 
@@ -17,9 +18,10 @@ const PREVIEW_CACHE_AUX_SUFFIXES = [
 const PREVIEW_CACHE_IGNORED_DIRECTORIES = new Set([
   ".git", ".tex64", "node_modules", "DerivedData", "build",
 ]);
-const MAX_PREVIEW_CACHE_AUX_FILES = 61;
+const MAX_PREVIEW_CACHE_AUX_FILES = 60;
 const MAX_PREVIEW_CACHE_DIRECTORIES = 10_000;
 const MAX_BUILD_RECORDER_BYTES = 8 * 1024 * 1024;
+const MAX_LATEXMK_HISTORY_BYTES = 8 * 1024 * 1024;
 const MAX_BUILD_INPUT_BYTES = 256 * 1024 * 1024;
 const MAX_PREBUILD_SNAPSHOT_FILES = 8192;
 const MAX_PREBUILD_SNAPSHOT_DIRECTORIES = 2048;
@@ -30,6 +32,33 @@ const DEADLINE_EXCEEDED = Symbol("deadline-exceeded");
 
 const signatureFor = (value) =>
   crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+const previewCacheProfile = ({ mainFileName, requestedEngine, effectiveEngine, extraArgs }) => ({
+  runner: "latexmk",
+  requestedEngine,
+  effectiveEngine,
+  synctex: true,
+  interaction: "nonstopmode",
+  haltOnError: true,
+  fileLineError: true,
+  extraArgs: [...extraArgs],
+  mainFile: mainFileName.split(path.sep).join("/"),
+});
+
+const previewCacheSignatures = ({ profile, outDir }) => ({
+  profileSignature: signatureFor({ version: 2, profile, outDir: outDir ?? null }),
+  engineSignature: signatureFor({
+    version: 2,
+    requestedEngine: profile.requestedEngine,
+    effectiveEngine: profile.effectiveEngine,
+  }),
+});
+
+const latexmkHistoryPathHash = ({ rootPath, outDir }) => signatureFor({
+  version: 1,
+  rootPath: fs.realpathSync(rootPath),
+  outDir: outDir.split(path.sep).join("/"),
+});
 
 const regularFile = (filePath) => {
   try {
@@ -363,17 +392,12 @@ const captureStaticPreviewCandidate = async ({
       const stats = regularFile(candidate);
       return stats && stats.mtimeMs + 1000 >= startedAt;
     });
-  const profile = {
-    runner: "latexmk",
+  const profile = previewCacheProfile({
+    mainFileName,
     requestedEngine,
     effectiveEngine,
-    synctex: true,
-    interaction: "nonstopmode",
-    haltOnError: true,
-    fileLineError: true,
-    extraArgs: [...extraArgs],
-    mainFile: mainFileName.split(path.sep).join("/"),
-  };
+    extraArgs,
+  });
   const recorder = await parseBuildRecorderInputs({ rootPath, mainFileName, recorderPath });
   const inputObservation = comparePrebuildProjectInputs(
     prebuildProjectInputs,
@@ -389,35 +413,65 @@ const captureStaticPreviewCandidate = async ({
     ].filter(Boolean),
     systemInputsStable: true,
   };
-  const profileSignature = signatureFor({ version: 2, profile, outDir: outDir ?? null });
-  const engineSignature = signatureFor({
-    version: 2,
-    requestedEngine,
-    effectiveEngine,
-  });
+  const { profileSignature, engineSignature } = previewCacheSignatures({ profile, outDir });
   const auxiliaryArtifacts = await collectPreviewCacheAuxiliaries(auxiliaryDirectory, startedAt);
+  const latexmkHistoryPath = path.join(
+    auxiliaryDirectory,
+    path.basename(finalPdfPath).replace(/\.pdf$/i, ".fdb_latexmk"),
+  );
+  const latexmkHistoryStats = regularFile(latexmkHistoryPath);
+  const latexmkHistoryOutDir = path.relative(path.resolve(rootPath), path.resolve(auxiliaryDirectory));
+  const latexmkHistory = latexmkHistoryStats
+    && latexmkHistoryStats.size > 0
+    && latexmkHistoryStats.size <= MAX_LATEXMK_HISTORY_BYTES
+    && latexmkHistoryStats.mtimeMs + 1000 >= startedAt
+    && latexmkHistoryOutDir
+    && !path.isAbsolute(latexmkHistoryOutDir)
+    && latexmkHistoryOutDir !== ".."
+    && !latexmkHistoryOutDir.startsWith(`..${path.sep}`)
+      ? {
+          outDir: latexmkHistoryOutDir.split(path.sep).join("/"),
+          workingRoot: path.resolve(rootPath),
+          pathHash: latexmkHistoryPathHash({ rootPath, outDir: latexmkHistoryOutDir }),
+        }
+      : null;
   const boundedDurationMs = Math.max(1, Math.min(900_000, Math.round(durationMs)));
-  const saved = await savePreviewCacheGeneration({
+  const descriptor = {
+    profileSignature,
+    engineSignature,
+    provenance: {
+      ...provenance,
+      snapshotId: inputProofEstablished ? signatureFor(recorder.inputs) : null,
+      engine: { requestedEngine, effectiveEngine, profile },
+    },
+    inputs: recorder.inputs,
+    artifacts: {
+      pdf: finalPdfPath,
+      ...(synctexPath ? { synctex: synctexPath } : {}),
+      ...(regularFile(recorderPath) ? { fls: recorderPath } : {}),
+      ...(latexmkHistory ? { fdb: latexmkHistoryPath } : {}),
+      aux: auxiliaryArtifacts,
+    },
+    metrics: { durationMs: boundedDurationMs, profile, provenance, latexmkHistory },
+  };
+  let saved = await savePreviewCacheGeneration({
     rootPath,
     mainFileName,
-    descriptor: {
-      profileSignature,
-      engineSignature,
-      provenance: {
-        ...provenance,
-        snapshotId: inputProofEstablished ? signatureFor(recorder.inputs) : null,
-        engine: { requestedEngine, effectiveEngine, profile },
-      },
-      inputs: recorder.inputs,
-      artifacts: {
-        pdf: finalPdfPath,
-        ...(synctexPath ? { synctex: synctexPath } : {}),
-        ...(regularFile(recorderPath) ? { fls: recorderPath } : {}),
-        aux: auxiliaryArtifacts,
-      },
-      metrics: { durationMs: boundedDurationMs, profile, provenance },
-    },
+    descriptor,
   });
+  if (!saved.saved && latexmkHistory) {
+    const artifactsWithoutHistory = { ...descriptor.artifacts };
+    delete artifactsWithoutHistory.fdb;
+    saved = await savePreviewCacheGeneration({
+      rootPath,
+      mainFileName,
+      descriptor: {
+        ...descriptor,
+        artifacts: artifactsWithoutHistory,
+        metrics: { ...descriptor.metrics, latexmkHistory: null },
+      },
+    });
+  }
   if (!saved.saved || !recorder.ok || !inputObservation.ok ||
       !synctexPath?.toLowerCase().endsWith(".synctex.gz") ||
       requestedEngine !== "lualatex" || effectiveEngine !== "lualatex" || extraArgs.length !== 0) {
@@ -761,13 +815,38 @@ module.exports = (BuildService) => {
       };
       return { kind: "failure", summary: issue.message, issues: [issue] };
     }
+    let latexmkHistorySeed = null;
+    try {
+      const profile = previewCacheProfile({
+        mainFileName,
+        requestedEngine: engine,
+        effectiveEngine: engine,
+        extraArgs,
+      });
+      const expected = previewCacheSignatures({ profile, outDir });
+      const cached = await loadLatexmkHistoryCandidate({ rootPath, mainFileName, expected });
+      if (cached.hit) {
+        latexmkHistorySeed = {
+          path: cached.artifact.filePath,
+          sha256: cached.artifact.sha256,
+          oldOutDir: cached.history.outDir,
+          oldWorkingRoot: cached.history.workingRoot,
+          pathHash: cached.history.pathHash,
+        };
+      }
+    } catch (error) {
+      // History only saves a convergence pass. Any damaged or unavailable
+      // cache falls back to the ordinary aux-seeded Build.
+      console.warn("[build] Could not load latexmk history:", error?.message ?? error);
+    }
     let pdfOutputTransaction = null;
     try {
       pdfOutputTransaction = this.beginPdfOutputTransaction(
         rootPath,
         pdfPath,
         extraArgs,
-        mainFileName
+        mainFileName,
+        { latexmkHistorySeed },
       );
     } catch (error) {
       const message = error?.message ?? "Could not protect the existing PDF output.";
