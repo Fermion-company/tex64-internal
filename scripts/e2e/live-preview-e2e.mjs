@@ -350,7 +350,7 @@ const TYPE_TEXT = process.env.TYPE_TEXT || 'X';
 const TYPE_DELAY_MS = Number(process.env.TYPE_DELAY_MS || 0);
 const BACKSPACES = Number(process.env.BACKSPACES || 0);
 const BACKSPACE_AFTER_MS = Number(process.env.BACKSPACE_AFTER_MS || 4000);
-const inputAt = Date.now();
+let inputAt = Date.now();
 await page.keyboard.type(TYPE_TEXT, { delay: TYPE_DELAY_MS });
 log('input', { inputAt, text: TYPE_TEXT, typedMs: Date.now() - inputAt });
 if (BACKSPACES > 0) {
@@ -404,6 +404,105 @@ if (process.env.SCENARIO === 'stale-canonical') {
   await page.keyboard.type('Z');
   log('typed-z', { dt: Date.now() - inputAt, line: (await page.evaluate(() => window.__e2eEditor.getValue())).split(/\r?\n/)[32] });
   await burstShots('z', 8);
+}
+
+// ---- CROSS_FILE: after the first file's edit (and its backspaces), open a
+// second file, put the caret before the final 。 of CROSS_LINE, and type
+// CROSS_TEXT. Issue #52 D: the anchor for this edit must not wait for the
+// canonical of the first edit (the restored first file rebinds the last
+// generation to the current revision).
+if (process.env.CROSS_FILE) {
+  const CROSS_FILE = process.env.CROSS_FILE;
+  const CROSS_LINE = Number(process.env.CROSS_LINE || 171);
+  const CROSS_TEXT = process.env.CROSS_TEXT || 'Q';
+  const CROSS_PAGE = Number(process.env.CROSS_PAGE || 0);
+  const CROSS_SHA = process.env.CROSS_SHA || null;
+  if (BACKSPACES > 0) await sleep(BACKSPACE_AFTER_MS + 3000);
+  else await sleep(3000);
+  log('cross-before', { dt: Date.now() - inputAt, pdf: await pdfState(), status: compact(await engineStatus()),
+    line33: (await page.evaluate(() => window.__e2eEditor.getValue())).split(/\r?\n/)[32] });
+  await shot('cross-00-first-file-settled');
+  await page.evaluate(() => {
+    const tab = document.querySelector('.editor-group[data-editor-group="primary"] .editor-tab.is-active') ||
+      document.querySelector('.editor-group[data-editor-group="primary"] .editor-tab');
+    tab?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    tab?.click();
+  });
+  await sleep(500);
+  await page.evaluate((file) => document.querySelector(`button.file-item[data-path="${file}"]`)?.click(), CROSS_FILE);
+  await sleep(3000);
+  log('cross-layout', await groupsState());
+  if (CROSS_PAGE > 0) {
+    await pdfFrame()?.evaluate((n) => { if (window.__tex64PdfViewer?.pdfViewer) window.__tex64PdfViewer.pdfViewer.currentPageNumber = n; }, CROSS_PAGE).catch(() => {});
+    await pdfFrame()?.evaluate((n) => {
+      const input = document.getElementById('pdf-page-input');
+      if (!input) return;
+      input.value = String(n);
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, CROSS_PAGE).catch(() => {});
+    await sleep(2500);
+    log('cross-pdf-positioned', { page: CROSS_PAGE, pdf: await pdfState() });
+  }
+  const crossCaret = await page.evaluate(({ file, line }) => {
+    const editors = window.monaco?.editor?.getEditors?.() ?? [];
+    const ed = editors.find((e) => e.getModel()?.uri?.path?.endsWith('/' + file));
+    if (!ed) return { ok: false, reason: 'no editor', uris: editors.map((e) => e.getModel()?.uri?.path) };
+    const text = ed.getValue();
+    const lineText = text.split(/\r?\n/)[line - 1] ?? '';
+    const stop = lineText.lastIndexOf('。');
+    if (stop < 0) return { ok: false, reason: 'no 。 on line', lineText };
+    const column = stop + 1;
+    ed.setPosition({ lineNumber: line, column });
+    ed.setSelection({ startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column });
+    ed.revealLineInCenter(line);
+    ed.focus();
+    window.__e2eEditor = ed;
+    return { ok: true, text, column, lineText };
+  }, { file: CROSS_FILE, line: CROSS_LINE });
+  if (!crossCaret.ok) throw new Error(`cross caret: ${JSON.stringify(crossCaret)}`);
+  const crossShaOk = CROSS_SHA ? sha(crossCaret.text) === CROSS_SHA : null;
+  log('cross-caret', { ok: crossShaOk, column: crossCaret.column, line: crossCaret.lineText });
+  if (crossShaOk === false) throw new Error(`${CROSS_FILE} model differs from the original`);
+  // A far-away caret walks the resident chain from its nearest checkpoint
+  // (tens of seconds on 316 pages). Typing before that walk finishes pays
+  // the same walk inside the edit (a known cold-edit limit, not the anchor
+  // path): wait for the engine's warm state to report ready for this file.
+  const crossLines = crossCaret.text.split(/\r?\n/);
+  const crossOffset = crossLines.slice(0, CROSS_LINE - 1).reduce((n, l) => n + l.length + 1, 0) + crossCaret.column - 1;
+  const warmStartedAt = Date.now();
+  const warmBefore = await engineStatus();
+  const warmSrcRev = warmBefore?.srcRev;
+  const staleWarm = JSON.stringify(warmBefore?.warm ?? null);
+  await new Promise((resolve) => {
+    const body = JSON.stringify({ offset: crossOffset, filePath: `${PROJECT}/${CROSS_FILE}` });
+    const req = http.request(`${engineUrl}/warm`, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); res.on('end', resolve); });
+    req.on('error', (e) => { log('cross-warm-error', { error: String(e) }); resolve(); });
+    req.end(body);
+  });
+  const warmDeadline = Date.now() + Number(process.env.CROSS_WARM_MAX_MS || 180_000);
+  let warmState = null;
+  while (Date.now() < warmDeadline) {
+    const st = await engineStatus();
+    warmState = st?.warm ?? null;
+    if (JSON.stringify(warmState) === staleWarm) { await sleep(500); continue; }
+    if (warmState?.status === 'ready' && Number(warmState.sourceRev) === Number(warmSrcRev)) break;
+    if (['proof-unavailable', 'error', 'rejected'].includes(warmState?.status)) break;
+    if (lualatexCount() > 30) throw new Error('lualatex process count exceeded 30');
+    await sleep(500);
+  }
+  log('cross-warm', { waitedMs: Date.now() - warmStartedAt, offset: crossOffset, warm: warmState });
+  await sleep(Number(process.env.WARM_WAIT_MS || 6000));
+  log('cross-pre-input', { pdf: await pdfState(), status: compact(await engineStatus()) });
+  await shot('cross-01-before-input');
+  inputAt = Date.now();
+  await page.keyboard.type(CROSS_TEXT, { delay: TYPE_DELAY_MS });
+  log('cross-input', { inputAt, text: CROSS_TEXT, file: CROSS_FILE, line: CROSS_LINE,
+    lineAfter: (await page.evaluate(() => window.__e2eEditor.getValue())).split(/\r?\n/)[CROSS_LINE - 1] });
+  for (let i = 0; i < 24; i += 1) {
+    if (i % 2 === 0 || i < 4) await shot(`cross-${String(Date.now() - inputAt).padStart(6, '0')}`);
+    fs.appendFileSync(`${RUN}/samples.jsonl`, JSON.stringify({ dt: Date.now() - inputAt, tag: 'cross', pdf: await pdfState(), status: compact(await engineStatus()) }) + '\n');
+    await sleep(500);
+  }
 }
 
 // ---- observe
