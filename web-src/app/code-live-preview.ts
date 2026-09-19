@@ -38,6 +38,7 @@ type LiveEditor = {
   getPosition?: () => { lineNumber: number; column: number } | null;
   getModel?: () => {
     getOffsetAt?: (position: { lineNumber: number; column: number }) => number;
+    uri?: { scheme?: string; fsPath?: string };
   } | null;
 };
 
@@ -138,11 +139,40 @@ export const initCodeLivePreview = ({
 
   const showLiveError = (message: string) => console.warn("[live-preview]", message);
 
+  const editorModelPath = (editor: LiveEditor | null) => {
+    const uri = editor?.getModel?.()?.uri;
+    return uri?.scheme === "file" && typeof uri.fsPath === "string" && uri.fsPath
+      ? uri.fsPath
+      : null;
+  };
+
+  const sameFilePath = (left: string, right: string) => {
+    const comparable = (value: string) => {
+      const normalized = value.replace(/\\/g, "/");
+      return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+    };
+    return comparable(left) === comparable(right);
+  };
+
+  const activeEditorPathMismatch = () => {
+    const group = getActiveGroup();
+    const path = group.currentFilePath;
+    const editor = group.editor as LiveEditor | null;
+    if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return false;
+    const modelPath = editorModelPath(editor);
+    return Boolean(modelPath && !sameFilePath(modelPath, path));
+  };
+
   const currentProjectSource = () => {
     const group = getActiveGroup();
     const path = group.currentFilePath;
     const editor = group.editor as LiveEditor | null;
     if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return null;
+    const modelPath = editorModelPath(editor);
+    // One Monaco editor is reused while setModel switches files. During that
+    // handoff currentFilePath and the actual model can briefly name different
+    // files; never attach one model's bytes to the other's path.
+    if (modelPath && !sameFilePath(modelPath, path)) return null;
     return { group, path, editor };
   };
 
@@ -183,6 +213,10 @@ export const initCodeLivePreview = ({
   };
 
   const currentSnapshot = () => {
+    // Keep event-time captures queued until the editor group's path catches up
+    // with its newly installed model. The capture itself is already bound to
+    // the model URI, so no keystroke is lost while dispatch is held.
+    if (activeEditorPathMismatch()) return null;
     const current = currentProjectSource();
     const workspaceRoot = getWorkspaceRoot();
     const configuredRoot = getRootFile();
@@ -393,11 +427,19 @@ export const initCodeLivePreview = ({
     if (boundEditor?.onDidChangeModelContent) {
       const eventEditor = boundEditor;
       const eventPath = boundPath;
+      const eventModel = eventEditor.getModel?.() ?? null;
       disposable = eventEditor.onDidChangeModelContent(() => {
         sourceEditVersion += 1;
         const editedAtEpochMs = Date.now();
         latestInputAtEpochMs = editedAtEpochMs;
-        captureExactInput(eventPath, eventEditor, editedAtEpochMs);
+        const currentModel = eventEditor.getModel?.() ?? null;
+        const modelPath = editorModelPath(eventEditor);
+        // The listener belongs to the editor, not to the model. A tab/search
+        // navigation can replace its model before the 200ms binding poll.
+        // Prefer the model URI; only use the bound path when the original
+        // URI-less model is still installed.
+        const exactPath = modelPath ?? (currentModel === eventModel ? eventPath : null);
+        captureExactInput(exactPath, eventEditor, editedAtEpochMs);
         debouncedPush();
       });
     }
