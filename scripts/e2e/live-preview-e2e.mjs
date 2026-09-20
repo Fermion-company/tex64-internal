@@ -74,7 +74,9 @@ const app = await electron.launch({
     TEX64_ALLOW_MULTI_INSTANCE: '1',
     TEX64_AI_MODE_ENABLED: '0',
     TDOM_ENGINE_DIR: ENGINE,
-    TDOM_MAX_CHECKPOINTS: '8',
+    // The app sizes the checkpoint ceiling by installed memory; pass
+    // TDOM_MAX_CHECKPOINTS to pin it for a run.
+    ...(process.env.TDOM_MAX_CHECKPOINTS ? { TDOM_MAX_CHECKPOINTS: process.env.TDOM_MAX_CHECKPOINTS } : {}),
     TDOM_ANCHOR_DIAG: `${RUN}/engine-diag.jsonl`,
     TEX64_LIVEDIAG_FILE: `${RUN}/main-diag.jsonl`,
   },

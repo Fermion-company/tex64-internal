@@ -6,7 +6,7 @@
 
 - `/Applications/TeX64.app` と他のエンジンを止めておく（エンジンは同時に 1 つ。`pgrep -x lualatex | wc -l` が 0）。ドライバは lualatex が 30 を超えたら止まる。
 - sandbox（既定 `~/Desktop/tex64-pro-sandbox`）の `main.tex` と `content/ch16.tex` のハッシュは既定値と一致すること（`MAIN_SHA`・`CH16_SHA` で変更可）。原本は複製して使い、書き換えない。
-- `TDOM_MAX_CHECKPOINTS=8` はドライバが設定する。
+- checkpoint の上限はアプリが搭載メモリで決める（16 GB なら 12）。`TDOM_MAX_CHECKPOINTS` を渡すとその run だけ固定できる。
 
 ## 実行
 
