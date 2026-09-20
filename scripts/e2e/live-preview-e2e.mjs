@@ -480,7 +480,11 @@ if (process.env.CROSS_FILE) {
   const warmBefore = await engineStatus();
   const warmSrcRev = warmBefore?.srcRev;
   const staleWarm = JSON.stringify(warmBefore?.warm ?? null);
-  await new Promise((resolve) => {
+  // CROSS_NO_WARM=1: type right away, before any caret warm reached this
+  // block (the cold keystroke of tdom docs/10 §10.4a). The engine answers
+  // within its cold budget and publishes the typeset as a deferred update.
+  const noWarm = process.env.CROSS_NO_WARM === '1';
+  if (!noWarm) await new Promise((resolve) => {
     const body = JSON.stringify({ offset: crossOffset, filePath: `${PROJECT}/${CROSS_FILE}` });
     const req = http.request(`${engineUrl}/warm`, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, (res) => { res.resume(); res.on('end', resolve); });
     req.on('error', (e) => { log('cross-warm-error', { error: String(e) }); resolve(); });
@@ -488,7 +492,7 @@ if (process.env.CROSS_FILE) {
   });
   const warmDeadline = Date.now() + Number(process.env.CROSS_WARM_MAX_MS || 180_000);
   let warmState = null;
-  while (Date.now() < warmDeadline) {
+  while (!noWarm && Date.now() < warmDeadline) {
     const st = await engineStatus();
     warmState = st?.warm ?? null;
     if (JSON.stringify(warmState) === staleWarm) { await sleep(500); continue; }
@@ -497,15 +501,15 @@ if (process.env.CROSS_FILE) {
     guardLualatex();
     await sleep(500);
   }
-  log('cross-warm', { waitedMs: Date.now() - warmStartedAt, offset: crossOffset, warm: warmState });
-  await sleep(Number(process.env.WARM_WAIT_MS || 6000));
+  log('cross-warm', { waitedMs: Date.now() - warmStartedAt, offset: crossOffset, warm: warmState, skipped: noWarm });
+  await sleep(Number(process.env.WARM_WAIT_MS || (noWarm ? 0 : 6000)));
   log('cross-pre-input', { pdf: await pdfState(), status: compact(await engineStatus()) });
   await shot('cross-01-before-input');
   inputAt = Date.now();
   await page.keyboard.type(CROSS_TEXT, { delay: TYPE_DELAY_MS });
   log('cross-input', { inputAt, text: CROSS_TEXT, file: CROSS_FILE, line: CROSS_LINE,
     lineAfter: (await page.evaluate(() => window.__e2eEditor.getValue())).split(/\r?\n/)[CROSS_LINE - 1] });
-  for (let i = 0; i < 24; i += 1) {
+  for (let i = 0; i < Number(process.env.CROSS_SAMPLE_COUNT || 24); i += 1) {
     if (i % 2 === 0 || i < 4) await shot(`cross-${String(Date.now() - inputAt).padStart(6, '0')}`);
     fs.appendFileSync(`${RUN}/samples.jsonl`, JSON.stringify({ dt: Date.now() - inputAt, tag: 'cross', pdf: await pdfState(), status: compact(await engineStatus()) }) + '\n');
     await sleep(500);

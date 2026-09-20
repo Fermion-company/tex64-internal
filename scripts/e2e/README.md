@@ -28,6 +28,7 @@ RUN_DIR=/path/to/run ENGINE_DIR=$HOME/Desktop/tdom-engine node scripts/e2e/live-
 | `BACKSPACES` / `BACKSPACE_AFTER_MS` | 0 / 4000 | 入力後に消す文字数と時刻 |
 | `SCENARIO` | なし | `stale-canonical`（古い版の canonical が入力中に届く）、`restart-held`（Build の hold 中にエンジンを落とす） |
 | `CROSS_FILE` / `CROSS_LINE` / `CROSS_TEXT` / `CROSS_PAGE` / `CROSS_SHA` | なし | 最初の入力（と `BACKSPACES`）の後に別ファイルを開き、`CROSS_LINE` 行末の `。` の前に `CROSS_TEXT` を入力する（issue #52 D の章またぎ確認）。`CROSS_PAGE` があれば入力前に PDF をそのページへ動かす。`CROSS_SHA` は開いたモデルの原本一致確認 |
+| `CROSS_NO_WARM` / `CROSS_SAMPLE_COUNT` | なし / 24 | `CROSS_NO_WARM=1` で warm を待たずに即打鍵する（cold keystroke、tdom docs/10 §10.4a: 応答は予算内、組版結果は後から `update` で届く）。`CROSS_SAMPLE_COUNT` は打鍵後 500ms ごとの記録回数 |
 
 新しい profile では起動直後に Settings（runtime onboarding）と更新告知が開くので、ドライバが閉じる。新しい profile の初回 Build は PDF を開かない（Build 後に PDF を開くのは auto SyncTeX の結果で、キャレットが前文にあると同期先がない）。ドライバは renderer が要求していない `openFile` を送り、host が PDF を押し込むときと同じ経路で secondary group に出す。Build しない場合は Live の枠をツールバーのページ入力で目的ページへ動かす。
 
