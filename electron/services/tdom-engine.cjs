@@ -14,6 +14,16 @@
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const os = require("node:os");
+
+// Resident checkpoint ceiling by installed memory (see buildSpawnEnv).
+const defaultCheckpointCeiling = (totalMemoryBytes = os.totalmem()) => {
+  const gib = Number(totalMemoryBytes) / 2 ** 30;
+  if (!Number.isFinite(gib) || gib <= 0) return "8";
+  if (gib >= 48) return "48";
+  if (gib >= 24) return "24";
+  if (gib >= 12) return "12";
+  return "8";
+};
 const path = require("node:path");
 const http = require("node:http");
 const net = require("node:net");
@@ -739,9 +749,13 @@ class TdomEngineService {
       // Boot on the small demo sample (the same one the engine's own tests
       // boot); the real document arrives via POST /open right after.
       TDOM_SAMPLE: process.env.TDOM_SAMPLE || this.pickBootSample(),
-      // The engine keeps one forked lualatex per checkpoint (~100-300MB
-      // each); cap it well below the engine's own default of 64.
-      TDOM_MAX_CHECKPOINTS: process.env.TDOM_MAX_CHECKPOINTS || "8",
+      // The engine keeps min(ceiling, blocks + 1) resident checkpoints, so a
+      // short document keeps every boundary and a long one keeps as many as
+      // this ceiling allows. The ceiling follows installed memory: a dormant
+      // fork ends up holding the pages the active root dirtied since it was
+      // taken, 100–200 MB each on a 316-page book (32 of them pushed a 16 GB
+      // Mac 7 GB into swap), next to ~2 GB active roots.
+      TDOM_MAX_CHECKPOINTS: process.env.TDOM_MAX_CHECKPOINTS || defaultCheckpointCeiling(),
       // Real output-routine shipping is the fast exact-page successor to
       // glyph overlays. It runs off the keystroke path and fails closed to
       // the ordinary canonical compile for unsupported preambles.
