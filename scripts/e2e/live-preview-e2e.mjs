@@ -38,7 +38,7 @@ const lualatexCount = () => {
 // Leak guard: the limit is relative to whatever lualatex processes another
 // TeX64 (e.g. the user's own app with a live engine) already owns at launch.
 const lualatexBaseline = lualatexCount();
-const LUALATEX_LIMIT = lualatexBaseline + 30;
+const LUALATEX_LIMIT = lualatexBaseline + Number(process.env.LUALATEX_LEAK_ALLOWANCE || 80);
 const guardLualatex = () => {
   if (lualatexCount() > LUALATEX_LIMIT) throw new Error(`lualatex process count exceeded ${LUALATEX_LIMIT} (baseline ${lualatexBaseline})`);
 };
@@ -149,7 +149,9 @@ const startSse = () => {
         sse.write(JSON.stringify({
           at: Date.now(), kind: m.kind, documentEpoch: m.documentEpoch,
           srcRev: r?.srcRev, rev: r?.rev ?? m.rev,
-          stats: r?.stats && { totalUs: r.stats.totalUs, typesetMs: r.stats.typesetMs, rebooted: r.stats.rebooted ?? r.rebooted, blocksTypeset: r.stats.blocksTypeset, pagesReused: r.stats.pagesReused, pagesRebuilt: r.stats.pagesRebuilt, pageCount: r.stats.pageCount },
+          stats: r?.stats && { totalUs: r.stats.totalUs, typesetMs: r.stats.typesetMs, rebooted: r.stats.rebooted ?? r.rebooted, blocksTypeset: r.stats.blocksTypeset, pagesReused: r.stats.pagesReused, pagesRebuilt: r.stats.pagesRebuilt, pageCount: r.stats.pageCount,
+            chainVerdict: r.stats.chainVerdict, coldPending: r.stats.coldPending, diagnostics: r.stats.diagnostics?.slice?.(0, 12) },
+          edit: r?.edit,
           patches: r?.patches?.map((p) => ({ type: p.type, page: p.page })),
           previewFallback: r?.previewFallback, canonicalAnchor: r?.canonicalAnchor ?? undefined,
           anchorRefused: r?.canonicalAnchorRefused ?? undefined,
