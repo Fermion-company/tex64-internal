@@ -765,6 +765,12 @@ class TdomEngineService {
       // onto the last canonical PDF. Unsupported rules, graphics, callbacks
       // and ambiguous SyncTeX locations fail closed to ordinary shipping.
       TDOM_CANONICAL_ANCHOR: process.env.TDOM_CANONICAL_ANCHOR ?? "1",
+      // Real-output rescue root: splitting environments (multicols,
+      // longtable, mdframed, breakable tcolorbox) are rescued in a fork of
+      // a pre-dormant sibling of checkpoint 0 instead of a cold lualatex
+      // (5 s → ~1 s on the 316-page book; the root idles at ~10 MB). The
+      // engine keeps it opt-in; the app turns it on.
+      TDOM_ISO_REAL_FORK: process.env.TDOM_ISO_REAL_FORK ?? "1",
     };
     // Reuse TeX64's packaged pdf.js in the external TDOM process. The engine
     // is intentionally dependency-free when used standalone, so pass the
