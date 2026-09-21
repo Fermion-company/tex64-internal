@@ -93,9 +93,10 @@ export const initAiChatUi = (context, deps) => {
         renderEmptyState(true);
     };
     const isProPlan = () => {
-        var _a;
-        return typeof ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.plan) === "string" &&
-            platformState.platformAiAccess.plan.toLowerCase() === "pro";
+        var _a, _b;
+        return ((_a = platformState.platformAiAccess) === null || _a === void 0 ? void 0 : _a.runtime) === "agents-api" ||
+            (typeof ((_b = platformState.platformAiAccess) === null || _b === void 0 ? void 0 : _b.plan) === "string" &&
+                platformState.platformAiAccess.plan.toLowerCase() === "pro");
     };
     const hasResolvedPlan = () => {
         var _a;

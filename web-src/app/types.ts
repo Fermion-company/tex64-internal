@@ -152,6 +152,7 @@ export type PlatformAuthSnapshot = {
 };
 
 export type PlatformAiAccessSnapshot = {
+  runtime?: "agents-api";
   authenticated: boolean;
   allowed: boolean;
   reason?: string | null;

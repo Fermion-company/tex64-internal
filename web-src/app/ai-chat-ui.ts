@@ -224,8 +224,9 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     renderEmptyState(true);
   };
   const isProPlan = () =>
-    typeof platformState.platformAiAccess?.plan === "string" &&
-    platformState.platformAiAccess.plan.toLowerCase() === "pro";
+    platformState.platformAiAccess?.runtime === "agents-api" ||
+    (typeof platformState.platformAiAccess?.plan === "string" &&
+    platformState.platformAiAccess.plan.toLowerCase() === "pro");
   const hasResolvedPlan = () =>
     typeof platformState.platformAiAccess?.plan === "string" &&
     platformState.platformAiAccess.plan.trim().length > 0;

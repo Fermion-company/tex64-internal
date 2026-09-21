@@ -61,6 +61,29 @@ const featureMethods = {
     return this._activityRequest;
   },
 
+  async recordFirstPdf(options = {}) {
+    const state = await this.ensureLoadedState();
+    if (state.firstPdfRecordedAt) return { status: "already-recorded" };
+    if (this._firstPdfRequest) return this._firstPdfRequest;
+    const run = async () => {
+      const response = await this.requestJson(`${this.apiBaseUrl}/activity`, {
+        method: "POST",
+        headers: { "X-Tex64-Device-Id": await this.ensureDeviceId(), "X-Tex64-Client": "desktop" },
+        body: { milestone: "first_pdf", version: options.version, platform: options.platform,
+          arch: options.arch, distribution: options.distribution },
+      });
+      // An older server can accept activity without supporting milestones.
+      if (response?.milestone !== "first_pdf") return { status: "unsupported" };
+      const currentState = await this.ensureLoadedState();
+      currentState.firstPdfRecordedAt = new Date().toISOString();
+      this.state = currentState;
+      await this.save();
+      return { status: "accepted" };
+    };
+    this._firstPdfRequest = run().finally(() => { this._firstPdfRequest = null; });
+    return this._firstPdfRequest;
+  },
+
   async submitFeedback(payload, options = {}) {
     const body = payload && typeof payload === "object" ? { ...payload } : {};
     body.category =

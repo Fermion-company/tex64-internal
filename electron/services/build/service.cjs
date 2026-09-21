@@ -1,5 +1,6 @@
 class BuildService {
   constructor(options = {}) {
+    this.onPdfBuilt = typeof options.onPdfBuilt === "function" ? options.onPdfBuilt : null;
     this.isBuilding = false;
     this.activeProcess = null;
     this.cancelRequested = false;

@@ -1,3 +1,4 @@
+const { AgentsSessionStore, resolveAgentsApiConfig, maintainManagedSessions } = require("./openprism/agents-api.cjs");
 const crypto = require("crypto");
 const path = require("path");
 const {
@@ -139,6 +140,16 @@ class AgentService {
     this.activeAgentBuildConversationId = null;
     this.pendingSettingsRequests = new Map();
     this.applyUndoStack = [];
+    this.managedSessionStore = this.sessionsService?.dirPath
+      ? new AgentsSessionStore(`${this.sessionsService.dirPath}-managed`) : null;
+    this.managedRecovery = null;
+    if (this.managedSessionStore && process.env.TEX64_AGENT_RUNTIME === "agents-api") {
+      this.managedRecovery = Promise.resolve().then(() => {
+        const config = resolveAgentsApiConfig();
+        return maintainManagedSessions(this.managedSessionStore, config);
+      });
+      this.managedRecovery.catch((error) => this.sendToRenderer("agent:error", { message: error.message }));
+    }
   }
 
   getUndoAvailability(conversationId) {
@@ -378,6 +389,10 @@ class AgentService {
         ok: false,
         error: "Wait for the Axiom turn to finish before deleting this chat.",
       };
+    }
+    if (this.managedSessionStore && process.env.TEX64_AGENT_RUNTIME === "agents-api") {
+      void maintainManagedSessions(this.managedSessionStore, { ...resolveAgentsApiConfig(), conversationId: normalized })
+        .catch((error) => this.sendToRenderer("agent:error", { message: error.message, conversationId: normalized }));
     }
     this.deletedConversations.add(normalized);
     const pendingPersist = this.persistTimers.get(normalized);

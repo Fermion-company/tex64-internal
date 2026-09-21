@@ -56,7 +56,7 @@ export const createSettingsUiRuntime = (context: AppContext, deps: SettingsUiDep
     },
     autoSynctexOnBuildEnabled: false,
     reverseSynctexEnabled: true,
-    pdfViewerMode: "window",
+    pdfViewerMode: "tab",
     platformAuth: null,
     platformUpdate: null,
     platformUpdateStatus: null,
