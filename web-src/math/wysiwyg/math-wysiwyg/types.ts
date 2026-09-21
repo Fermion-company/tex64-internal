@@ -20,9 +20,15 @@ export type MathWysiwygWordCandidate = {
   displayLatex?: string;
 };
 
+/** Style captured from the text that a WYSIWYG candidate replaces. */
+export type MathWysiwygInsertOptions = {
+  style?: Record<string, unknown>;
+};
+
 export type MathWysiwygDeps = {
   container: HTMLElement | null;
-  insertKey: (key: MathKey) => void;
+  floating?: boolean;
+  insertKey: (key: MathKey, options?: MathWysiwygInsertOptions) => void;
   autoSuggest?: boolean;
   mruStorageKey?: string;
   getMruStorageKey?: () => string;
@@ -58,4 +64,3 @@ export type MruEntry = {
   hint?: string;
   displayLatex?: string;
 };
-

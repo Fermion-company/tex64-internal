@@ -12,7 +12,9 @@
     "esModuleInterop": true,
     "moduleResolution": "node",
     "resolveJsonModule": true,
+    "ignoreDeprecations": "6.0",
 
+    "strict": false,
     "strictNullChecks": true,
     "strictBindCallApply": true,
     "noImplicitAny": false,

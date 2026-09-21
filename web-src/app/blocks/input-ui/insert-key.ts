@@ -1,4 +1,5 @@
 import type { MathKey } from "../../types.js";
+import type { MathWysiwygInsertOptions } from "../../../math/wysiwyg/math-wysiwyg/types.js";
 import {
   PLACEHOLDER_LATEX,
   applyScriptToText,
@@ -11,7 +12,7 @@ import {
 import type { BlockInputRuntime } from "./runtime.js";
 
 export type BlockInsertKeyOps = {
-  insertMathKey: (key: MathKey) => void;
+  insertMathKey: (key: MathKey, options?: MathWysiwygInsertOptions) => void;
 };
 
 export const createBlockInsertKeyOps = (
@@ -30,7 +31,7 @@ export const createBlockInsertKeyOps = (
     return source.replace(/#\\?/g, placeholder);
   };
 
-  const insertMathKey = (key: MathKey) => {
+  const insertMathKey = (key: MathKey, options?: MathWysiwygInsertOptions) => {
     const mathInput = runtime.state.mathInput;
     if (!mathInput) {
       return;
@@ -173,6 +174,7 @@ export const createBlockInsertKeyOps = (
         focus: true,
         feedback: false,
         format: "latex" as const,
+        ...options,
       };
       let inserted = false;
       if (typeof mathField.executeCommand === "function") {
@@ -207,6 +209,7 @@ export const createBlockInsertKeyOps = (
       focus: true,
       feedback: false,
       format: "latex" as const,
+      ...options,
     };
 
     if (typeof mathField.executeCommand === "function") {
@@ -250,4 +253,3 @@ export const createBlockInsertKeyOps = (
 
   return { insertMathKey };
 };
-

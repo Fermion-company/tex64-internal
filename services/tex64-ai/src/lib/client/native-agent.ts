@@ -168,6 +168,11 @@ export function parseProposals(value: unknown): AgentProposal[] | null {
       id: typeof item.id === "string" && item.id ? item.id : `p${index + 1}`,
       title,
       request,
+      kind: item.kind === "mechanical" ? "mechanical" : "writing",
+      ...(typeof item.reason === "string" ? { reason: item.reason } : {}),
+      ...(typeof item.change === "string" ? { change: item.change } : {}),
+      ...(typeof item.verification === "string" ? { verification: item.verification } : {}),
+      ...(typeof item.previewLatex === "string" ? { previewLatex: item.previewLatex } : {}),
       ...(scope ? { scope } : {}),
       ...(asks ? { asks } : {}),
       ...(line ? { line } : {}),
@@ -192,10 +197,11 @@ export type NativeTurnInput = {
   signal: AbortSignal;
   conversationId: string;
   /** "survey": the app opened the document and asks where to start (read-only).
-   *  "step": the user picked an offered step; the agent gathers the brief before writing. */
+   *  "step": the user picked an offered step; the agent executes the selected request. */
   origin?: "survey" | "step";
-  /** With "step": a writing step withholds the edit tools on its first turn. */
+  /** With "step": classifies the selected request without changing edit permissions. */
   stepKind?: "mechanical" | "writing";
+  displayText?: string;
   /** Attached files as message parts: text extracts and inline images. */
   parts?: MessagePart[];
   activeFilePath?: string;
@@ -218,6 +224,7 @@ export function buildNativeAgentRunPayload(input: NativeTurnInput) {
       ...(input.activeFilePath ? { activeFilePath: input.activeFilePath } : {}),
       ...(input.origin ? { turnOrigin: input.origin } : {}),
       ...(input.origin === "step" && input.stepKind ? { stepKind: input.stepKind } : {}),
+      ...(input.origin === "step" && input.displayText ? { proposalDisplayText: input.displayText.slice(0, 1000) } : {}),
       workspaceRoot: input.workspaceRoot,
       workspaceId: input.workspaceId,
       workspaceGeneration: input.workspaceGeneration,
@@ -284,6 +291,7 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
       const body = hostMessageBody(raw) as AgentEventBody;
       if (
         raw.type !== "agent:messageDelta" &&
+        raw.type !== "agent:messageReset" &&
         raw.type !== "agent:message" &&
         raw.type !== "agent:tool" &&
         raw.type !== "agent:error" &&
@@ -297,6 +305,11 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
       if (body.conversationId !== conversationId) return;
       heard = true;
       switch (raw.type) {
+        case "agent:messageReset":
+          streamedText = "";
+          canonicalText = "";
+          input.onFrame({ type: "reset" });
+          break;
         case "agent:messageDelta":
           if (typeof body.text === "string" && body.text) {
             streamedText += body.text;
@@ -376,6 +389,7 @@ export function runNativeTurn(input: NativeTurnInput): Promise<NativeTurnResult>
 type PersistedAgentMessage = {
   role?: unknown;
   content?: unknown;
+  displayText?: unknown;
   text?: unknown;
   createdAt?: unknown;
   hidden?: unknown;
@@ -406,9 +420,9 @@ function parseMessages(value: unknown): ChatMessage[] {
         : typeof item.text === "string"
           ? item.text
           : "";
-    if (!text) return;
     const proposals = item.role === "assistant" ? parseProposals(item.proposals) : null;
     const question = item.role === "assistant" ? parseQuestion(item.question) : null;
+    if (!text && !proposals?.length && !question) return;
     // A user turn that carried files keeps their extracted contents for the
     // model; the chat shows the message and the file names, not the dump.
     const shown = item.role === "user" ? splitAttachmentBlock(text) : null;
@@ -422,7 +436,7 @@ function parseMessages(value: unknown): ChatMessage[] {
     messages.push({
       id: `native-${index}-${text.length}`,
       role: item.role,
-      text: shown && (shown.body || attachments) ? shown.body : text,
+      text: item.role === "user" && typeof item.displayText === "string" && item.displayText.trim() ? item.displayText : shown && (shown.body || attachments) ? shown.body : text,
       createdAt:
         typeof item.createdAt === "string"
           ? item.createdAt

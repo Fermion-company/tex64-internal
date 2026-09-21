@@ -152,6 +152,10 @@ export function complete(
   );
 
   const latex = body.map((x) => x.value).join('');
+  // A LaTeX command is temporarily held in a LatexGroupAtom. That group
+  // carries the effective style of a placeholder it replaced, including
+  // styles introduced by a parent such as \boldsymbol{...}.
+  const latexGroupStyle = { ...latexGroup.style };
 
   const newPos = latexGroup.leftSibling;
   latexGroup.parent!.removeChild(latexGroup);
@@ -160,9 +164,15 @@ export function complete(
 
   if (completion === 'reject') return true;
 
-  const style = { ...computeInsertStyle(mathfield) };
+  const style = { ...computeInsertStyle(mathfield), ...latexGroupStyle };
   // If we're inserting a non-alphanumeric character, reset the variant
-  if (!/^[a-zA-Z0-9]$/.test(latex) && mathfield.styleBias !== 'none') {
+  // for punctuation. A resolved LaTeX command (for example \mu) is a
+  // mathematical atom, not punctuation, and must retain its parent style.
+  if (
+    !/^[a-zA-Z0-9]$/.test(latex) &&
+    !latex.startsWith('\\') &&
+    mathfield.styleBias !== 'none'
+  ) {
     style.variant = 'normal';
     style.variantStyle = undefined;
   }

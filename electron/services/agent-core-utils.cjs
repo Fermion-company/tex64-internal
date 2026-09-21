@@ -163,7 +163,7 @@ const sanitizeConversationForPersistence = (conversation) => {
     const role =
       typeof message.role === "string" && message.role.trim() ? message.role.trim() : "user";
     const content = typeof message.content === "string" ? message.content : "";
-    if (!content.trim()) {
+    if (!content.trim() && !message.proposals?.length && !message.question) {
       return;
     }
     const proposals = Array.isArray(message.proposals)
@@ -179,7 +179,9 @@ const sanitizeConversationForPersistence = (conversation) => {
           .map((step, index) => ({
             id: typeof step.id === "string" && step.id ? step.id : `p${index + 1}`,
             title: clipText(step.title, 80),
-            request: clipText(step.request, 600),
+            kind: step.kind === "mechanical" ? "mechanical" : "writing",
+            request: clipText(step.request, 8000),
+            ...Object.fromEntries(["reason", "change", "verification", "previewLatex"].filter((key) => typeof step[key] === "string" && step[key].trim()).map((key) => [key, clipText(step[key], key === "change" ? 2400 : key === "previewLatex" ? 2000 : 400)])),
             ...(typeof step.scope === "string" && step.scope.trim()
               ? { scope: clipText(step.scope, 40) }
               : {}),
@@ -194,9 +196,11 @@ const sanitizeConversationForPersistence = (conversation) => {
     sanitized.push({
       role,
       content: clipLongString(content, PERSIST_MAX_TEXT_CHARS),
+      ...(role === "user" && typeof message.displayText === "string" && message.displayText.trim() ? { displayText: clipText(message.displayText, 1000) } : {}),
       // An app-started turn stays hidden after restart; recorded next steps
       // keep their rows.
       ...(role === "user" && message.hidden === true ? { hidden: true } : {}),
+      ...(role === "user" && typeof message.steeringId === "string" ? { steeringId: clipText(message.steeringId, 120) } : {}),
       ...(role === "assistant" && proposals.length > 0 ? { proposals } : {}),
       ...(role === "assistant" && (message.rating === "up" || message.rating === "down")
         ? { rating: message.rating }

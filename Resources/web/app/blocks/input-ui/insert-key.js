@@ -9,7 +9,7 @@ export const createBlockInsertKeyOps = (runtime) => {
         const placeholder = isTextArea ? "" : PLACEHOLDER_LATEX;
         return source.replace(/#\\?/g, placeholder);
     };
-    const insertMathKey = (key) => {
+    const insertMathKey = (key, options) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
         const mathInput = runtime.state.mathInput;
         if (!mathInput) {
@@ -136,6 +136,7 @@ export const createBlockInsertKeyOps = (runtime) => {
                 focus: true,
                 feedback: false,
                 format: "latex",
+                ...options,
             };
             let inserted = false;
             if (typeof mathField.executeCommand === "function") {
@@ -170,6 +171,7 @@ export const createBlockInsertKeyOps = (runtime) => {
             focus: true,
             feedback: false,
             format: "latex",
+            ...options,
         };
         if (typeof mathField.executeCommand === "function") {
             const beforeValue = typeof mathField.getValue === "function" ? readMathFieldValue(mathField) : null;

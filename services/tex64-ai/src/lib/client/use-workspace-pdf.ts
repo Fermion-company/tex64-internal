@@ -30,6 +30,7 @@ import {
 const LAST_PDF_KEY_PREFIX = "tex64.ai.lastBuiltPdf";
 
 export type WorkspacePdf = {
+  issue: { file: string; line: number | null } | null;
   url: string | null;
   path: string | null;
   building: boolean;
@@ -47,6 +48,7 @@ export type BuiltPage = {
   requestId: string | null;
 };
 export type TargetBuildState = {
+  issue?: { file: string; line: number | null } | null;
   building: boolean;
   failure: string | null;
   page: BuiltPage | null;
@@ -333,15 +335,14 @@ export function useWorkspacePdf(
         setLastBuilt(page);
         window.localStorage.setItem(rememberedPdfKey(expected, targetFile), pdfPath);
       } else if (state === "failed") {
-        // The compiler's own words (a raw "! Emergency stop." and the like)
-        // never reach the paper. The agent repairs builds on its next turn;
-        // the page only says that the paper is waiting.
+        const issues = Array.isArray(body.issues) ? body.issues : [];
+        const issue = issues.find((value) => value && typeof value === "object" && value.severity === "error") ?? issues[0];
+        const detail = typeof body.message === "string" ? body.message.trim() : "";
         nextTarget = {
           ...previous,
           building: false,
-          failure: previous.page
-            ? "紙面はまだ前の状態です。次の変更で更新されます。"
-            : "本文が整うと紙面ができます。",
+          failure: `組版に失敗しました。${previous.page ? "前のPDFを表示しています。" : ""}${detail ? ` ${detail}` : ""}`,
+          issue: { file: normalizeWorkspaceRelativePath(issue?.path) ?? targetFile, line: Number.isSafeInteger(issue?.line) && issue.line > 0 ? issue.line : null },
           requestId: requestId ?? previous.requestId,
         };
       } else if (state === "idle") {
@@ -506,6 +507,7 @@ export function useWorkspacePdf(
     loadKey && pdfLoadError?.key === loadKey ? pdfLoadError.message : null;
 
   return {
+    issue: currentBuild?.issue ?? null,
     url,
     path: shown?.path ?? null,
     building: currentBuild?.building ?? false,

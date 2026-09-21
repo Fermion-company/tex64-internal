@@ -74,8 +74,37 @@ export function ensureMathLive(): Promise<void> {
     });
     document.head.appendChild(script);
   }).catch((error) => {
+    document.querySelector('script[data-tex64-mathlive="true"]')?.remove();
     loading = null;
     throw error;
   });
   return loading;
+}
+
+type PaperMath = { attach: (field: HTMLElement, container: HTMLElement) => () => void };
+let paperMathLoading: Promise<PaperMath> | null = null;
+
+export async function ensurePaperMath(): Promise<PaperMath> {
+  await ensureMathLive();
+  if (paperMathLoading) return paperMathLoading;
+  paperMathLoading = new Promise<PaperMath>((resolve, reject) => {
+    if (!document.querySelector('link[data-paper-math]')) {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "/native-assets/mathlive/mathlive-static.css";
+      css.dataset.paperMath = "true";
+      document.head.appendChild(css);
+    }
+    const script = document.createElement("script");
+    script.type = "module";
+    script.src = "/native-assets/editor/math/wysiwyg/native-editor.js";
+    script.onload = () => {
+      const api = (window as Window & { tex64PaperMath?: PaperMath }).tex64PaperMath;
+      if (api) resolve(api);
+      else { script.remove(); reject(new Error("数式入力を読み込めませんでした。")); }
+    };
+    script.onerror = () => { script.remove(); reject(new Error("数式入力を読み込めませんでした。")); };
+    document.head.appendChild(script);
+  }).catch((error) => { paperMathLoading = null; throw error; });
+  return paperMathLoading;
 }

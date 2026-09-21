@@ -38,7 +38,7 @@ export const initBlockInputUi = (context: AppContext, deps: BlockInputDeps): Blo
 
   runtime.state.mathWysiwygApi = initMathWysiwyg({
     container: context.dom.blockMathInputContainer instanceof HTMLElement ? context.dom.blockMathInputContainer : null,
-    insertKey: (key) => insertKeyOps.insertMathKey(key),
+    insertKey: (key, options) => insertKeyOps.insertMathKey(key, options),
     autoSuggest: runtime.state.mathWysiwygSettings.autoSuggest,
     getMruStorageKey: () => {
       const rootKey = deps.getWorkspaceRootKey?.();
@@ -85,4 +85,3 @@ export const initBlockInputUi = (context: AppContext, deps: BlockInputDeps): Blo
     attachMathFieldEvents: mathfieldEventsOps.attachMathFieldEvents,
   };
 };
-

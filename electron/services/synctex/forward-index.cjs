@@ -262,25 +262,6 @@ const reverseOnIndex = (index, { page, x, y }) => {
     if (!authorTag.has(tag)) authorTag.set(tag, isAuthorInput(index, tag));
     return authorTag.get(tag);
   };
-  // A glyph's line is where TeX finished the paragraph, not always where the
-  // text was typed. The neighbouring lines whose ink on this page lies
-  // closest to the point say which one was really meant.
-  const refineLine = (tag, line) => {
-    const lines = index.byTag.get(tag);
-    if (!lines) return line;
-    let best = null;
-    for (let candidate = line - 6; candidate <= line + 6; candidate += 1) {
-      const entry = lines.get(candidate)?.get(page);
-      if (!entry || entry.vmin === null || entry.hmin === null) continue;
-      const dv = v < entry.vmin ? entry.vmin - v : v > entry.vmax ? v - entry.vmax : 0;
-      const dh = h < entry.hmin ? entry.hmin - h : h > entry.hmax ? h - entry.hmax : 0;
-      const distance = dv * 4 + dh;
-      if (!best || distance < best.distance || (distance === best.distance && candidate < best.line)) {
-        best = { line: candidate, distance };
-      }
-    }
-    return best ? best.line : line;
-  };
   let box = null;
   for (const candidate of records.boxes) {
     const left = candidate.h;
@@ -309,7 +290,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
       }
     }
     const hit = best ?? (preferAuthor(box.tag) ? { tag: box.tag, line: box.line, distance: 0 } : fallback ?? { tag: box.tag, line: box.line, distance: 0 });
-    return { tag: hit.tag, line: refineLine(hit.tag, hit.line), distance: scaleToPoints(hit.distance), exact: true };
+    return { tag: hit.tag, line: hit.line, distance: scaleToPoints(hit.distance), exact: true };
   }
   let nearest = null;
   let nearestAny = null;
@@ -326,7 +307,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
   }
   const chosen = nearest ?? nearestAny;
   if (!chosen) return null;
-  return { tag: chosen.tag, line: refineLine(chosen.tag, chosen.line), distance: scaleToPoints(chosen.distance), exact: false };
+  return { tag: chosen.tag, line: chosen.line, distance: scaleToPoints(chosen.distance), exact: false };
 };
 
 module.exports = (SynctexService) => {
@@ -352,7 +333,8 @@ module.exports = (SynctexService) => {
     // A blank or comment line under the point is where a paragraph ended:
     // the text it belongs to is above it, so look upward first.
     let line = hit.line;
-    if (typeof this.getReverseLinePenalty === "function" && this.getReverseLinePenalty({ sourcePath, line }) > 0) {
+    const sourceLine = this.getSourceLine?.(sourcePath, line);
+    if (typeof sourceLine === "string" && /^\s*(?:%.*)?$/.test(sourceLine)) {
       const order = [];
       for (let delta = 1; delta <= 3; delta += 1) order.push(line - delta);
       for (let delta = 1; delta <= 3; delta += 1) order.push(line + delta);

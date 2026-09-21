@@ -16,6 +16,7 @@ export type SourceLocation = {
   line: number;
   confident: boolean;
   selectedText: string;
+  focusedText: string;
 };
 
 export type SourceLocatorContext = {
@@ -35,6 +36,7 @@ export type SourceLocator = {
     y: number;
     pdfPath: string | null;
     text?: string;
+    focusedText?: string;
   }) => void;
   clear: () => void;
 };
@@ -96,6 +98,7 @@ export function useSourceLocator(context: SourceLocatorContext = {}): SourceLoca
       y: number;
       pdfPath: string | null;
       text?: string;
+      focusedText?: string;
     }) => {
       const host = getNativeHost();
       if (!host) return;
@@ -153,6 +156,7 @@ export function useSourceLocator(context: SourceLocatorContext = {}): SourceLoca
               line: found.line,
               confident: found.confidence === true,
               selectedText: point.text?.trim() ?? "",
+              focusedText: point.focusedText?.trim() ?? "",
             },
           });
         } catch {

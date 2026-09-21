@@ -8,6 +8,7 @@ const path = require("path");
 const createWorkspaceFileHandlers = (ctx) => {
   const {
     fs,
+    dialog,
     workspace,
     formatterService,
     sendToRenderer,
@@ -368,6 +369,32 @@ const createWorkspaceFileHandlers = (ctx) => {
     } catch (error) {
       fail(error?.message || "Could not save the file.");
     }
+  };
+
+  const handleExportPdf = async (requestId, relativePath, options = {}) => {
+    if (typeof requestId !== "string" || !requestId) return;
+    const identity = requestIdentity(options);
+    const reply = (payload) => sendToRenderer("file:exportPdfResult", {
+      requestId, ...identityPayload(identity), documentMainFile: options.documentMainFile, ...payload,
+    });
+    const root = ensureWorkspace();
+    try {
+      if (!root || !workspaceRequestIsCurrent(root, identity)) throw new Error("プロジェクトが変更されています。");
+      if (typeof relativePath !== "string" || !relativePath.toLowerCase().endsWith(".pdf")) throw new Error("PDFを選んでください。");
+      const rootReal = fs.realpathSync(root);
+      const source = fs.realpathSync(resolveWorkspacePath(relativePath));
+      const relative = path.relative(rootReal, source);
+      if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("プロジェクト外のPDFは保存できません。");
+      const bytes = await fs.promises.readFile(source);
+      if (!bytes.subarray(0, 1024).includes(Buffer.from("%PDF-"))) throw new Error("PDFを読み込めませんでした。");
+      const result = await dialog.showSaveDialog(state.mainWindow, {
+        title: "PDFを保存", defaultPath: path.basename(relativePath), filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (result.canceled || !result.filePath) { reply({ ok: false, cancelled: true }); return; }
+      if (!workspaceRequestIsCurrent(root, identity)) throw new Error("プロジェクトが変更されています。");
+      await fs.promises.writeFile(result.filePath, bytes);
+      reply({ ok: true });
+    } catch (error) { reply({ ok: false, error: error?.message || "PDFを保存できませんでした。" }); }
   };
 
   const handleFileBytes = async (requestId, relativePath, options = {}) => {
@@ -1136,6 +1163,7 @@ const createWorkspaceFileHandlers = (ctx) => {
     handleFilePreview,
     handleFileExcerpt,
     handleFileBytes,
+    handleExportPdf,
     handleImportAttachment,
     handleSaveFile,
     handleReplaceLines,

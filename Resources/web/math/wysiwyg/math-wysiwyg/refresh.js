@@ -1,6 +1,6 @@
 import { getMathFieldSelectionRange } from "../../../app/blocks/math-input-utils.js";
 import { getInternalSelectionRanges, indexToOffsetInRange, offsetToIndexInRange, } from "../math-wysiwyg-selection.js";
-import { getMathfieldModeAtOffset } from "../../mathfield-private-adapter.js";
+import { getMathfieldInternalModel, getMathfieldModeAtOffset } from "../../mathfield-private-adapter.js";
 import { findAutoReplaceCorrection, findOperatorToken, findSlashCommandToken, findWordToken, } from "../math-wysiwyg-token-matching.js";
 import { AUTO_COMMAND_MIN_LENGTH, AUTO_WORD_ALLOWLIST, AUTO_WORD_MIN_LENGTH, } from "./constants.js";
 import { clearEditAnchor, readMathfieldLatex, resolveAnalysisRange, resolveCursorOffset } from "./mathfield.js";
@@ -176,6 +176,28 @@ const findScopedSlashCommandMatch = (mathfieldApi, cursorOffset) => {
     }
     return { token, range: { start: startOffset, end: cursorOffset }, kind: "slash-command" };
 };
+const findTypedWordAtCursor = (mathfieldApi, cursorOffset, anchor) => {
+    var _a;
+    if (anchor === null)
+        return null;
+    const model = getMathfieldInternalModel(mathfieldApi);
+    if (!model || typeof model.at !== "function" || typeof model.offsetOf !== "function")
+        return null;
+    let atom = model.at(cursorOffset);
+    let token = "";
+    let start = cursorOffset;
+    // Read actual sibling atoms. Serialized prefixes include closing braces and
+    // array fences, so their string lengths cannot identify the current word.
+    while (atom && atom.mode === "math" && (atom.type === "mord" || atom.type === "textord") && /^[A-Za-z0-9]$/.test((_a = atom.value) !== null && _a !== void 0 ? _a : "")) {
+        const offset = model.offsetOf(atom);
+        if (offset <= anchor)
+            break;
+        token = atom.value + token;
+        start = offset - 1;
+        atom = atom.leftSibling;
+    }
+    return /[A-Za-z]/.test(token) ? { token, range: { start, end: cursorOffset }, kind: "word" } : null;
+};
 export const createMathWysiwygRefreshOps = (runtime, deps) => {
     const { candidateOps, panelOps, finalizeMutationSession } = deps;
     const refresh = (options = {}) => {
@@ -213,6 +235,11 @@ export const createMathWysiwygRefreshOps = (runtime, deps) => {
                 selectionRanges.some((range) => cursorOffset >= range.start && cursorOffset <= range.end);
             if (selection.start !== selection.end && !isPlaceholderSelection) {
                 candidateOps.updateCandidates(null, options);
+                return;
+            }
+            const typedWord = mode === "math" ? findTypedWordAtCursor(mathfieldApi, cursorOffset, runtime.editAnchorOffset) : null;
+            if (typedWord) {
+                candidateOps.updateCandidates(typedWord, options);
                 return;
             }
             const analysisRange = resolveAnalysisRange(runtime, mathfieldApi, cursorOffset);

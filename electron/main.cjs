@@ -2203,6 +2203,14 @@ const handleRendererMessage = (event, message) => {
     });
     return;
   }
+  if (type === "file:exportPdf") {
+    void workspaceHandlers.handleExportPdf(message.requestId, message.path, {
+      workspaceGeneration: message.workspaceGeneration,
+      workspaceId: message.workspaceId,
+      documentMainFile: message.documentMainFile,
+    });
+    return;
+  }
   if (type === "file:bytes") {
     workspaceHandlers.handleFileBytes(message.requestId, message.path, {
       workspaceGeneration: message.workspaceGeneration,
@@ -2443,6 +2451,12 @@ const handleRendererMessage = (event, message) => {
   }
   if (type === "agent:state:get") {
     agentHandlers.handleAgentStateGet(message.requestId, message.conversationId);
+    return;
+  }
+  if (type === "agent:steer") {
+    const turn = validateAiModeTurn(message);
+    const accepted = turn.ok && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
+    sendToRenderer("agent:steerResult", { requestId: message.requestId, conversationId: message.conversationId, accepted });
     return;
   }
   if (type === "agent:run") {
