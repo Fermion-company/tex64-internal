@@ -1,4 +1,27 @@
+const fs = require("fs");
 const path = require("path");
+
+const appendLatexmkTrace = ({ command, args, cwd, result }) => {
+  const tracePath = String(process.env.TEX64_LATEXMK_TRACE_FILE ?? "").trim();
+  if (!tracePath || !path.isAbsolute(tracePath)) return;
+  try {
+    const header = JSON.stringify({
+      at: new Date().toISOString(),
+      command,
+      args,
+      cwd,
+      status: result?.status ?? null,
+      cancelled: result?.cancelled === true,
+      timedOut: result?.timedOut === true,
+    });
+    fs.appendFileSync(tracePath, `${header}\n${result?.output ?? ""}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  } catch (error) {
+    console.warn("[build] Could not write latexmk trace:", error?.message ?? error);
+  }
+};
 
 const prependKpathseaSearchPath = (env, name, directories) => {
   const entries = directories
@@ -51,6 +74,7 @@ module.exports = (BuildService) => {
       prependKpathseaSearchPath(env, "BSTINPUTS", [sourceDir, rootPath]);
     }
     const result = await this.runProcess(latexmkPath, args, rootPath, env);
+    appendLatexmkTrace({ command: latexmkPath, args, cwd: rootPath, result });
     return result;
   };
 

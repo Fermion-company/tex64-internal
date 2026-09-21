@@ -34,6 +34,9 @@ type PdfLiveEngineStatus = {
     pumping?: number | boolean;
   } | null;
   shipping?: { done?: boolean; retry?: { state?: string } | null } | null;
+  // Blocks a budgeted keystroke left for the engine's background replay
+  // (tdom docs/10 §10.4a): their pages update when the resume publishes.
+  cold?: { pending?: unknown[] } | null;
 };
 
 /** Convert the engine snapshot into one unambiguous viewer state. */
@@ -46,7 +49,8 @@ export const resolvePdfLiveStatus = (
     return { key: "liveUnavailable", tone: "error", detail: "" };
   }
   if (status.busy || status.render?.queued?.length || status.render?.active?.length ||
-      status.render?.pumping || status.shipping?.retry?.state === "booting") {
+      status.render?.pumping || status.shipping?.retry?.state === "booting" ||
+      status.cold?.pending?.length) {
     return { key: "liveUpdating", tone: "busy", detail: "" };
   }
   // A future timer can coexist with a compile of an earlier revision.

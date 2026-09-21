@@ -3,6 +3,7 @@ const path = require("path");
 const {
   normalizeOutDir,
   pickAuxDirFromLatexmkArgs,
+  pickJobNameFromLatexmkArgs,
   pickOutDirFromLatexmkArgs,
   splitArgsString,
 } = require("./utils.cjs");
@@ -30,6 +31,24 @@ module.exports = (BuildService) => {
       hasExplicitOutDirArg: Boolean(outDirFromArgs),
       outDirRequested,
       invalidDirectoryArgument: auxDirValid ? null : "auxDir",
+    };
+  };
+
+  BuildService.prototype.resolveBuildOutputProfile = function (rootPath, mainFileName, buildProfile) {
+    const profile = this.resolveLatexmkProfile(rootPath, mainFileName, buildProfile);
+    const jobName =
+      pickJobNameFromLatexmkArgs(profile.extraArgs) ??
+      path.basename(mainFileName, path.extname(mainFileName));
+    const fallbackDir = path.dirname(mainFileName ?? "");
+    const pdfDir = profile.outDir
+      ? path.join(rootPath, profile.outDir)
+      : fallbackDir && fallbackDir !== "."
+        ? path.join(rootPath, fallbackDir)
+        : rootPath;
+    return {
+      ...profile,
+      jobName,
+      pdfPath: path.join(pdfDir, `${jobName}.pdf`),
     };
   };
 };

@@ -413,16 +413,16 @@ body.is-embedded .pdf-scroll {
    cross-origin iframe and expose its blank backing store for one frame when
    it becomes visible. The iframe paints continuously below an opaque static
    cover; activation only changes their stacking order. */
-body.is-live-pending .pdf-live-frame {
+body:is(.is-live-pending, .is-live-held) .pdf-live-frame {
   display: block;
   visibility: visible;
   pointer-events: none;
   z-index: 0;
 }
-body.is-live-pending .pdf-scroll {
+body:is(.is-live-pending, .is-live-held) .pdf-scroll {
   z-index: 2;
 }
-body.is-live-pending .pdf-sidebar {
+body:is(.is-live-pending, .is-live-held) .pdf-sidebar {
   position: relative;
   z-index: 2;
 }

@@ -46,6 +46,7 @@ const INCLUDE = [
   "LICENSE",
   "engine",
   "host",
+  "vendor",
   "templates",
   "samples",
   "web",

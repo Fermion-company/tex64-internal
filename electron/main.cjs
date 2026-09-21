@@ -274,6 +274,7 @@ const buildService = new BuildService({
       distribution: distributionRuntime.windowsStore ? "microsoft-store" : "direct",
     });
   },
+  acquireHeavyWorkLease: (payload) => getTdomEngineService().acquireBuildLease(payload),
 });
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
@@ -937,6 +938,7 @@ const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
   state.workspaceId = null;
   state.currentWorkspacePath = null;
   state.lastBuildPdfPath = null;
+  pdfWindowManager.setWorkspaceRoot(null);
   if (closePdfWindow && typeof pdfWindowManager.close === "function") {
     pdfWindowManager.close();
   }
@@ -1632,7 +1634,14 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
-registerTdomEngineHandlers({ ipcMain, getTdomEngineService, isBlocked: () => historyController?.blocked() });
+registerTdomEngineHandlers({
+  ipcMain,
+  getTdomEngineService,
+  getMainWindow: () => state.mainWindow,
+  getWorkspaceRoot: () => workspace.getRootPath(),
+  pdfWindowManager,
+  isBlocked: () => historyController?.blocked(),
+});
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 ipcMain.handle("tex64:files:read-text", async (_event, payload) => {
   try {
@@ -2550,7 +2559,10 @@ ipcMain.on("tex64", (event, message) => {
   handleRendererMessage(event, message);
 });
 
-ipcMain.on("tex64:pdf", (_event, message) => {
+ipcMain.on("tex64:pdf", (event, message) => {
+  if (!pdfWindowManager.ownsSender(event.sender) || event.senderFrame !== event.sender.mainFrame) {
+    return;
+  }
   if (!message || typeof message !== "object") {
     return;
   }
@@ -2586,6 +2598,19 @@ ipcMain.on("tex64:pdf", (_event, message) => {
       pdfPath: typeof payload.path === "string" ? payload.path : null,
       ...(source ? { source } : {}),
     });
+    return;
+  }
+  if (type === "live-source" && pdfWindowManager.acceptsLiveEvents()) {
+    sendToRenderer("pdf:liveSource", message.payload ?? {});
+    return;
+  }
+  if (type === "live-edit" && pdfWindowManager.acceptsLiveEvents()) {
+    sendToRenderer("pdf:liveEdit", message.payload ?? {});
+    return;
+  }
+  if (type === "live-edit-anchor") {
+    const request = pdfWindowManager.beginLiveAnchor(message.payload);
+    if (request) sendToRenderer("pdf:liveEditAnchor", request);
     return;
   }
 });

@@ -862,6 +862,7 @@ export const initMain = () => {
             getActiveGroup: editorSession.getActiveGroup,
             getActiveEditorGroupKey: () => editorSession.getActiveEditorGroupKey(),
             getActiveFilePath: () => editorSession.getActiveFilePath(),
+            getWorkspaceFiles,
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
             getWorkspaceRootKey,
@@ -881,6 +882,7 @@ export const initMain = () => {
             requestOpenFile: editorSession.requestOpenFile,
             getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
             setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
+            contextMenu,
             settings: {
                 getPdfViewerMode: settingsUi.getPdfViewerMode,
                 getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,
@@ -1170,11 +1172,17 @@ export const initMain = () => {
             billing: {
                 handleCheckoutClosed: (payload) => billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleCheckoutClosed(payload),
             },
+            livePreview: {
+                source: (payload) => requestLiveSource(payload),
+                edit: (payload) => requestLiveEdit(payload),
+                anchor: (payload, reply) => requestLiveAnchor(payload, reply),
+            },
             search: {
                 handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             build: {
+                handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
                 setBuildTarget: (path) => { lastBuildMainFile = path; },
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),

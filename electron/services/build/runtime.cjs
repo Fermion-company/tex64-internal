@@ -11,7 +11,8 @@ const {
 
 // A malformed document (for example an infinite macro expansion) must not
 // keep Stop, workspace switching, or application shutdown locked forever.
-const BUILD_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+// Large LuaLaTeX projects need several minutes for latexmk's multiple passes.
+const BUILD_PROCESS_TIMEOUT_MS = 10 * 60 * 1000;
 const BUILD_FORCE_COMPLETION_MS = 5000;
 
 module.exports = (BuildService) => {
