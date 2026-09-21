@@ -72,7 +72,7 @@ const guardLualatex = () => {
   if (lualatexCount() > LUALATEX_LIMIT) throw new Error(`lualatex process count exceeded ${LUALATEX_LIMIT} (baseline ${lualatexBaseline})`);
 };
 
-// ---- project copy (never touch SANDBOX or ~/Desktop/tex64-pro-sandbox) ----
+// ---- project copy (never touch SANDBOX or testing/sandbox-pro) ----
 if (!fs.existsSync(PROJECT) || !fs.existsSync(`${PROJECT}/main.tex`)) {
   execSync(`cp -R ${JSON.stringify(SANDBOX)}/. ${JSON.stringify(PROJECT)}`);
 }
@@ -758,7 +758,7 @@ RUN_DIR=${RUN} ENGINE_DIR=${ENGINE} SANDBOX=${SANDBOX} node scripts/e2e/author-s
 ## 既知の注意点
 
 - /Applications/TeX64.app とそのプロセス・lualatex には一切触れていない（このドライバは自分のElectronとその子だけを扱う）。
-- 原本 ~/Desktop/tex64-pro-sandbox と sandbox-copy は書き換えていない（実操作は RUN_DIR/project の複製に対してのみ）。
+- 原本 testing/sandbox-pro と sandbox-copy は書き換えていない（実操作は RUN_DIR/project の複製に対してのみ）。
 - エディタの選択・カット・コピー・ペーストは page.keyboard（Home/Shift+ArrowDown/Shift+ArrowRight/Meta+X/C/V/Z）で行った。Monaco API はキャレット位置の設定と行の特定にのみ使用し、内容の直接書き換えや非collapsedな selection の直接設定は行っていない。
 - PDF位置合わせは SyncTeX の #synctex-button（Jump）を優先し、動かない/大きくずれる場合は章番号×約10.5ページの概算、または ch16/ch29 の既知ページ（163/299）で直接ページ送りにフォールバックした。
 `;

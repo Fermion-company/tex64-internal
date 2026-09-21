@@ -15,7 +15,7 @@ const { _electron: electron } = require('playwright');
 const RUN = process.env.RUN_DIR;
 const APP = process.env.APP_DIR || new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 const ENGINE = process.env.ENGINE_DIR;
-const SANDBOX = process.env.SANDBOX || `${process.env.HOME}/Desktop/tex64-pro-sandbox`;
+const SANDBOX = process.env.SANDBOX || path.join(APP, "testing/sandbox-pro");
 // The fixture the measurements in README.md were taken on.
 const MAIN_SHA = process.env.MAIN_SHA || 'bd20ea0d36d84cd136f39498e79383a854c44163f34d308f342041e0ca12898e';
 const CH16_SHA = process.env.CH16_SHA || '6b188b8ee4b03eb0f5675269567263851cc4cc635d82baba8decbaa44247d341';

@@ -1,0 +1,42 @@
+\begin{thebibliography}{1}
+
+\bibitem{beltagy2020longformer}
+Iz~Beltagy, Matthew~E Peters, and Arman Cohan.
+\newblock Longformer: The long-document transformer.
+\newblock {\em arXiv preprint arXiv:2004.05150}, 2020.
+
+\bibitem{choromanski2021rethinking}
+Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song,
+  Andreea Gane, Tamas Sarlos, Peter Hawkins, Jared Davis, Afroz Mohiuddin,
+  Lukasz Kaiser, David Belanger, Lucy Colwell, and Adrian Weller.
+\newblock Rethinking attention with performers.
+\newblock In {\em International Conference on Learning Representations}, 2021.
+
+\bibitem{devlin2019bert}
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova.
+\newblock Bert: Pre-training of deep bidirectional transformers for language
+  understanding.
+\newblock In {\em Proceedings of the 2019 Conference of the North American
+  Chapter of the Association for Computational Linguistics: Human Language
+  Technologies}, 2019.
+
+\bibitem{dosovitskiy2021image}
+Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn,
+  Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg
+  Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby.
+\newblock An image is worth 16x16 words: Transformers for image recognition at
+  scale.
+\newblock In {\em International Conference on Learning Representations}, 2021.
+
+\bibitem{vaswani2017attention}
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+  Aidan~N Gomez, Lukasz Kaiser, and Illia Polosukhin.
+\newblock Attention is all you need.
+\newblock In {\em Advances in Neural Information Processing Systems}, 2017.
+
+\bibitem{wang2020linformer}
+Sinong Wang, Belinda~Z Li, Madian Khabsa, Han Fang, and Hao Ma.
+\newblock Linformer: Self-attention with linear complexity.
+\newblock In {\em International Conference on Learning Representations}, 2020.
+
+\end{thebibliography}

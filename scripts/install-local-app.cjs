@@ -38,6 +38,7 @@ const IRRELEVANT_PREFIXES = [
   "api/",
   "test-workspace/",
   "test-sample-hover/",
+  "testing/",
   ".github/",
 ];
 const IRRELEVANT_FILES = ["TODO.md", "CLAUDE.md", "AGENTS.md", "README.md", "LICENSE", "vercel.json"];
