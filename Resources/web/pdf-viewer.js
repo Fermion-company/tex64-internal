@@ -1755,7 +1755,11 @@ const initPdfViewer = () => {
     }, "*");
   };
   const renderLiveToolbar = () => {
-    if (pageCountEl) pageCountEl.textContent = `/ ${liveToolbar.pageCount}`;
+    if (pageCountEl) {
+      pageCountEl.textContent = liveToolbar.pageCountAuthoritative
+        ? `/ ${liveToolbar.pageCount}`
+        : "/ —";
+    }
     if (pageInputForLive) {
       pageInputForLive.max = String(liveToolbar.pageCount || 1);
       if (document.activeElement !== pageInputForLive) {
@@ -1949,7 +1953,7 @@ const initPdfViewer = () => {
   // while an unmoved frame is still at its first page.
   const LIVE_HANDOFF_PAGE_SLACK = 2;
   const livePaperHasAuthoritativePageCount = (data) => {
-    if (data?.presentationPending !== false) return false;
+    if (data?.presentationPending !== false || data?.pageCountAuthoritative === false) return false;
     const expected = liveActivation?.expectedSrcRev;
     return Number.isInteger(expected)
       ? Number(data.srcRev) >= expected
