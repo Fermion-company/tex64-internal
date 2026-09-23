@@ -3,15 +3,26 @@ import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
 import { rememberEditorModelPath } from "./editor-session/model-path.js";
+import { notifySaveStatusChange } from "./save-status.js";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
     const contentConflicts = new Map();
     let reopenNextContentConflict = () => { };
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
-    const reportSaveError = (message) => {
+    let lastSaveErrorPath = null;
+    let lastSavedAt = null;
+    const reportSaveError = (message, path = null) => {
         lastSaveErrorMessage = message;
+        lastSaveErrorPath = path;
         deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+        notifySaveStatusChange();
     };
+    // A save rejects with the host's message as a string.
+    const saveFailureMessage = (error) => typeof error === "string" && error
+        ? error
+        : error instanceof Error && error.message
+            ? error.message
+            : "Saving failed.";
     const clearOwnSaveError = () => {
         var _a;
         if (lastSaveErrorMessage === null)
@@ -24,6 +35,8 @@ export const createEditorSessionFileOps = (ctx) => {
         if (stillOurs)
             deps.updateIssues(0, "", "info", []);
         lastSaveErrorMessage = null;
+        lastSaveErrorPath = null;
+        notifySaveStatusChange();
     };
     const clearContentConflicts = () => {
         var _a;
@@ -49,11 +62,13 @@ export const createEditorSessionFileOps = (ctx) => {
                     return;
                 }
                 state.pendingSave = { path, content: value, resolve, reject };
+                notifySaveStatusChange();
                 const safetyTimer = window.setTimeout(() => {
                     if (state.pendingSave && state.pendingSave.path === path) {
                         console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
                         state.pendingSave.reject("Timed out waiting for a save response.");
                         state.pendingSave = null;
+                        notifySaveStatusChange();
                     }
                 }, 30000);
                 const origResolve = resolve;
@@ -77,6 +92,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 if (!ok) {
                     clearTimeout(safetyTimer);
                     state.pendingSave = null;
+                    notifySaveStatusChange();
                     reject("Native integration is not available.");
                 }
             };
@@ -607,7 +623,7 @@ export const createEditorSessionFileOps = (ctx) => {
         const editor = activeGroup.editor;
         const content = editor.getValue();
         if (contentConflicts.has(activePath)) {
-            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
+            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"), activePath);
             return Promise.resolve(false);
         }
         return savePathContent(activePath, content);
@@ -628,12 +644,10 @@ export const createEditorSessionFileOps = (ctx) => {
         if (dirtyPaths.length === 0) {
             return true;
         }
-        if (dirtyPaths.some((path) => contentConflicts.has(path))) {
-            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
-            return false;
-        }
+        // A file in an edit conflict waits for the user; the others still save.
+        const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
         const activePath = getActiveGroup().currentFilePath;
-        const ordered = dirtyPaths.slice().sort((a, b) => {
+        const ordered = dirtyPaths.filter((path) => !contentConflicts.has(path)).sort((a, b) => {
             if (a === activePath) {
                 return -1;
             }
@@ -670,19 +684,40 @@ export const createEditorSessionFileOps = (ctx) => {
             await waitForCompositionIfNeeded(path);
             const content = readBuffer(path);
             if (content === null) {
-                reportSaveError(`Unable to retrieve content to save: ${path}`);
+                reportSaveError(`Unable to retrieve content to save: ${path}`, path);
                 return false;
             }
             try {
                 await savePathContent(path, content);
             }
             catch (error) {
-                const message = error instanceof Error ? error.message : "Saving failed.";
-                reportSaveError(message);
+                reportSaveError(saveFailureMessage(error), path);
                 return false;
             }
         }
+        if (conflicted.length > 0) {
+            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"), conflicted[0]);
+            return false;
+        }
         return true;
+    };
+    const getSaveStatus = () => {
+        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+        if (lastSaveErrorMessage !== null && dirtyPaths.length > 0) {
+            return {
+                kind: "error",
+                message: lastSaveErrorMessage,
+                path: lastSaveErrorPath,
+                count: dirtyPaths.length,
+            };
+        }
+        if (state.pendingSave) {
+            return { kind: "saving", path: state.pendingSave.path };
+        }
+        if (dirtyPaths.length > 0) {
+            return { kind: "dirty", count: dirtyPaths.length };
+        }
+        return { kind: "saved", savedAt: lastSavedAt };
     };
     const clearAutoSaveTimer = () => {
         if (state.autoSaveTimer) {
@@ -825,6 +860,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     state.pendingSave.reject(saveErrorMessage);
                 }
                 state.pendingSave = null;
+                notifySaveStatusChange();
             }
             else {
                 // Path mismatch: the native side returned a result for a different path.
@@ -837,9 +873,11 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         if (!payload.ok) {
-            reportSaveError(saveErrorMessage);
+            reportSaveError(saveErrorMessage, payload.path);
             return;
         }
+        lastSavedAt = Date.now();
+        notifySaveStatusChange();
         if (lastSaveErrorMessage !== null) {
             const snapshot = (_b = deps.getRecentIssuesSnapshot) === null || _b === void 0 ? void 0 : _b.call(deps);
             const stillOurs = !snapshot ||
@@ -850,6 +888,7 @@ export const createEditorSessionFileOps = (ctx) => {
                 deps.updateIssues(0, "", "info", []);
             }
             lastSaveErrorMessage = null;
+            lastSaveErrorPath = null;
         }
         const entry = monacoModels.get(payload.path);
         let resolvedSavedContent = savedContent;
@@ -916,6 +955,7 @@ export const createEditorSessionFileOps = (ctx) => {
         saveCurrentFile,
         saveDirtyFiles,
         scheduleAutoSave,
+        getSaveStatus,
         handleOpenFileResult,
         handleSaveResult,
         clearContentConflicts,

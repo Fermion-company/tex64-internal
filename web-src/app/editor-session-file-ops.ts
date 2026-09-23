@@ -15,6 +15,7 @@ import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
 import { rememberEditorModelPath } from "./editor-session/model-path.js";
+import { notifySaveStatusChange, type SaveStatus } from "./save-status.js";
 
 type PendingSave = {
   path: string;
@@ -111,10 +112,21 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     getLanguageIdForPath,
   } = ctx;
 
-  const reportSaveError = (message: string) => {
+  let lastSaveErrorPath: string | null = null;
+  let lastSavedAt: number | null = null;
+  const reportSaveError = (message: string, path: string | null = null) => {
     lastSaveErrorMessage = message;
+    lastSaveErrorPath = path;
     deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    notifySaveStatusChange();
   };
+  // A save rejects with the host's message as a string.
+  const saveFailureMessage = (error: unknown) =>
+    typeof error === "string" && error
+      ? error
+      : error instanceof Error && error.message
+        ? error.message
+        : "Saving failed.";
 
   const clearOwnSaveError = () => {
     if (lastSaveErrorMessage === null) return;
@@ -126,6 +138,8 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         snapshot.issues[0].message === lastSaveErrorMessage);
     if (stillOurs) deps.updateIssues(0, "", "info", []);
     lastSaveErrorMessage = null;
+    lastSaveErrorPath = null;
+    notifySaveStatusChange();
   };
 
   const clearContentConflicts = () => {
@@ -153,11 +167,13 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           return;
         }
         state.pendingSave = { path, content: value, resolve, reject };
+        notifySaveStatusChange();
         const safetyTimer = window.setTimeout(() => {
           if (state.pendingSave && state.pendingSave.path === path) {
             console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
             state.pendingSave.reject("Timed out waiting for a save response.");
             state.pendingSave = null;
+            notifySaveStatusChange();
           }
         }, 30_000);
         const origResolve = resolve;
@@ -181,6 +197,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         if (!ok) {
           clearTimeout(safetyTimer);
           state.pendingSave = null;
+          notifySaveStatusChange();
           reject("Native integration is not available.");
         }
       };
@@ -820,6 +837,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           "Resolve the edit conflict before saving.",
           "保存する前に編集競合を解決してください。",
         ),
+        activePath,
       );
       return Promise.resolve(false);
     }
@@ -843,17 +861,10 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     if (dirtyPaths.length === 0) {
       return true;
     }
-    if (dirtyPaths.some((path) => contentConflicts.has(path))) {
-      reportSaveError(
-        uiText(
-          "Resolve the edit conflict before saving.",
-          "保存する前に編集競合を解決してください。",
-        ),
-      );
-      return false;
-    }
+    // A file in an edit conflict waits for the user; the others still save.
+    const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
     const activePath = getActiveGroup().currentFilePath;
-    const ordered = dirtyPaths.slice().sort((a, b) => {
+    const ordered = dirtyPaths.filter((path) => !contentConflicts.has(path)).sort((a, b) => {
       if (a === activePath) {
         return -1;
       }
@@ -890,19 +901,46 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       await waitForCompositionIfNeeded(path);
       const content = readBuffer(path);
       if (content === null) {
-        reportSaveError(`Unable to retrieve content to save: ${path}`);
+        reportSaveError(`Unable to retrieve content to save: ${path}`, path);
         return false;
       }
       try {
         await savePathContent(path, content);
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Saving failed.";
-        reportSaveError(message);
+        reportSaveError(saveFailureMessage(error), path);
         return false;
       }
     }
+    if (conflicted.length > 0) {
+      reportSaveError(
+        uiText(
+          "Resolve the edit conflict before saving.",
+          "保存する前に編集競合を解決してください。",
+        ),
+        conflicted[0],
+      );
+      return false;
+    }
     return true;
+  };
+
+  const getSaveStatus = (): SaveStatus => {
+    const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+    if (lastSaveErrorMessage !== null && dirtyPaths.length > 0) {
+      return {
+        kind: "error",
+        message: lastSaveErrorMessage,
+        path: lastSaveErrorPath,
+        count: dirtyPaths.length,
+      };
+    }
+    if (state.pendingSave) {
+      return { kind: "saving", path: state.pendingSave.path };
+    }
+    if (dirtyPaths.length > 0) {
+      return { kind: "dirty", count: dirtyPaths.length };
+    }
+    return { kind: "saved", savedAt: lastSavedAt };
   };
 
   const clearAutoSaveTimer = () => {
@@ -1070,6 +1108,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           state.pendingSave.reject(saveErrorMessage);
         }
         state.pendingSave = null;
+        notifySaveStatusChange();
       } else {
         // Path mismatch: the native side returned a result for a different path.
         // Log and leave pendingSave intact so the correct result can still arrive.
@@ -1083,9 +1122,11 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       return;
     }
     if (!payload.ok) {
-      reportSaveError(saveErrorMessage);
+      reportSaveError(saveErrorMessage, payload.path);
       return;
     }
+    lastSavedAt = Date.now();
+    notifySaveStatusChange();
     if (lastSaveErrorMessage !== null) {
       const snapshot = deps.getRecentIssuesSnapshot?.();
       const stillOurs =
@@ -1097,6 +1138,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         deps.updateIssues(0, "", "info", []);
       }
       lastSaveErrorMessage = null;
+      lastSaveErrorPath = null;
     }
     const entry = monacoModels.get(payload.path);
     let resolvedSavedContent = savedContent;
@@ -1163,6 +1205,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     saveCurrentFile,
     saveDirtyFiles,
     scheduleAutoSave,
+    getSaveStatus,
     handleOpenFileResult,
     handleSaveResult,
     clearContentConflicts,

@@ -4407,6 +4407,39 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   transform: translateY(1px);
 }
 
+/* Save state (save-status-ui.ts). The label keeps one width across
+   Save / Saving / Saved so the toolbar does not shift while typing. */
+#save-button > span {
+  display: inline-block;
+  min-width: 5.2em;
+  text-align: left;
+}
+
+#save-button[data-save-state="saved"] {
+  color: var(--text-soft);
+}
+
+#save-button[data-save-state="dirty"] > span::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+#save-button[data-save-state="saving"] {
+  color: var(--text-soft);
+}
+
+#save-button[data-save-state="error"] {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
 #save-button:focus-visible,
 #format-button:focus-visible,
 #synctex-button:focus-visible,

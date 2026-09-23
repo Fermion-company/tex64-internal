@@ -2064,6 +2064,14 @@ const handleRendererMessage = (event, message) => {
     acceptRendererQuitPreparation(event, message);
     return;
   }
+  if (type === "window:documentEdited") {
+    // macOS: the close button carries a dot while edits are not on disk.
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && !window.isDestroyed() && typeof window.setDocumentEdited === "function") {
+      window.setDocumentEdited(message.edited === true);
+    }
+    return;
+  }
   if (type === "ready") {
     const rootPath = workspace.getRootPath();
     if (!rootPath) {

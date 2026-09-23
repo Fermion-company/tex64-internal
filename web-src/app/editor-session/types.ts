@@ -1,4 +1,5 @@
 import type { createViewer } from "../viewer.js";
+import type { SaveStatus } from "../save-status.js";
 import type {
   FormatSettingsPayload,
   IndexEntry,
@@ -183,6 +184,7 @@ export type EditorSessionApi = {
   updateDirtyState: (path: string, content: string, savedContent?: string) => void;
   clearJumpHighlight: (group: EditorGroupState) => void;
   scheduleAutoSave: () => void;
+  getSaveStatus: () => SaveStatus;
   requestOpenFile: (path: string, groupKey: EditorGroupKey, force?: boolean) => boolean;
   jumpToFileLine: (
     path: string,
