@@ -13,6 +13,29 @@ import { SpellChecker } from "./spell/spell-check.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
 import { attachSelectionDragAutoScroll } from "./editor-selection-autoscroll.js";
+// texlab is a resident process (~40 MB) that serves nothing until a TeX
+// document is open, and its initialize handshake fixes the workspace root.
+// Start it with the first latex/bibtex file model instead of with the window:
+// by then a project is open, so the root is known too.
+const startLspOnFirstTexModel = (monaco, start) => {
+    var _a, _b, _c;
+    const isTexFile = (model) => { var _a, _b; return ((_a = model === null || model === void 0 ? void 0 : model.uri) === null || _a === void 0 ? void 0 : _a.scheme) === "file" && ["latex", "bibtex"].includes((_b = model.getLanguageId) === null || _b === void 0 ? void 0 : _b.call(model)); };
+    if (((_c = (_b = (_a = monaco.editor).getModels) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : []).some(isTexFile)) {
+        start();
+        return;
+    }
+    const subscriptions = [];
+    const maybeStart = (model) => {
+        if (!isTexFile(model) || !subscriptions.length)
+            return;
+        subscriptions.splice(0).forEach((subscription) => subscription.dispose());
+        start();
+    };
+    subscriptions.push(monaco.editor.onDidCreateModel(maybeStart));
+    if (monaco.editor.onDidChangeModelLanguage) {
+        subscriptions.push(monaco.editor.onDidChangeModelLanguage((event) => maybeStart(event.model)));
+    }
+};
 export const initMonacoSetup = (context, deps) => {
     const { editorHost, editorHostSecondary } = context.dom;
     const hoverState = { registered: false };
@@ -68,9 +91,9 @@ export const initMonacoSetup = (context, deps) => {
             requestFilePreview: deps.requestFilePreview,
             requestFileExcerpt: deps.requestFileExcerpt,
         }, hoverState);
-        void setupLsp(monacoWindow.monaco, {
+        startLspOnFirstTexModel(monacoWindow.monaco, () => void setupLsp(monacoWindow.monaco, {
             getWorkspaceRoot: deps.getWorkspaceRoot,
-        });
+        }));
         const spellBridge = window.tex64Spell;
         const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
         spellChecker === null || spellChecker === void 0 ? void 0 : spellChecker.start();
