@@ -1173,7 +1173,14 @@ export const initMain = () => {
                             editorSession.saveCurrentFile();
                         }
                         else {
-                            const editor = (_a = editorSession.getActiveGroup()) === null || _a === void 0 ? void 0 : _a.editor;
+                            // Find goes to the PDF when that is what has focus (or what the
+                            // active group shows); the menu shortcut would otherwise always
+                            // open the source editor's find widget.
+                            const activeGroup = editorSession.getActiveGroup();
+                            const pdfGroup = (_a = editorSession.getEditorGroups().find((group) => group.viewer.hasPdfFocus())) !== null && _a !== void 0 ? _a : ((activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.viewer.getViewerMode()) === "pdf" ? activeGroup : null);
+                            if (pdfGroup === null || pdfGroup === void 0 ? void 0 : pdfGroup.viewer.openPdfFind())
+                                return;
+                            const editor = activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.editor;
                             (_c = (_b = editor === null || editor === void 0 ? void 0 : editor.getAction) === null || _b === void 0 ? void 0 : _b.call(editor, "actions.find")) === null || _c === void 0 ? void 0 : _c.run();
                         }
                         return;

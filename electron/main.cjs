@@ -593,6 +593,12 @@ const installApplicationMenu = () => {
     appName: app.name || "TeX64",
     isMac: process.platform === "darwin",
     sendCommand: (command) => {
+      // Find in the separate PDF window searches that PDF instead of pulling
+      // focus back to the editor.
+      if (command === "edit:find" && pdfWindowManager.window?.isFocused?.()) {
+        pdfWindowManager.send("find-open");
+        return;
+      }
       focusMainWindow();
       sendToRenderer("app:command", { command });
     },

@@ -1286,7 +1286,15 @@ export const initMain = () => {
           } else if (command === "file:save") {
             editorSession.saveCurrentFile();
           } else {
-            const editor = editorSession.getActiveGroup()?.editor as { getAction?: (id: string) => { run: () => unknown } | null } | null;
+            // Find goes to the PDF when that is what has focus (or what the
+            // active group shows); the menu shortcut would otherwise always
+            // open the source editor's find widget.
+            const activeGroup = editorSession.getActiveGroup();
+            const pdfGroup =
+              editorSession.getEditorGroups().find((group) => group.viewer.hasPdfFocus()) ??
+              (activeGroup?.viewer.getViewerMode() === "pdf" ? activeGroup : null);
+            if (pdfGroup?.viewer.openPdfFind()) return;
+            const editor = activeGroup?.editor as { getAction?: (id: string) => { run: () => unknown } | null } | null;
             editor?.getAction?.("actions.find")?.run();
           }
           return;

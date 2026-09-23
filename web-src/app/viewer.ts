@@ -560,6 +560,12 @@ export const createViewer = (deps: ViewerDeps) => {
     setViewerMode,
     getViewerMode: () => viewerMode,
     getPdfPath: () => pdfViewerPath,
+    // True while keyboard focus is inside this group's PDF (or its Live frame).
+    hasPdfFocus: () =>
+      viewerMode === "pdf" &&
+      deps.editorViewerPdf instanceof HTMLIFrameElement &&
+      document.activeElement === deps.editorViewerPdf,
+    openPdfFind: () => viewerMode === "pdf" && pdfViewerReady && postPdfMessage({ type: "find-open" }),
     syncPdf,
     setLivePreview,
   };

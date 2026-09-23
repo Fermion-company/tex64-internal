@@ -108,6 +108,11 @@ const UI_STRINGS = {
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
   searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
   searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
+  findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
+  findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
+  findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
+  findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
+  findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
   print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
   reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
@@ -152,12 +157,20 @@ const localizeChrome = () => {
   setTitle("pdf-rotate-right", "rotateRight");
   setTitle("pdf-search-prev", "searchPrev");
   setTitle("pdf-search-next", "searchNext");
+  setTitle("pdf-findbar-prev", "findPrev");
+  setTitle("pdf-findbar-next", "findNext");
+  setTitle("pdf-findbar-close", "findClose");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
   const searchInput = document.getElementById("pdf-search-input");
   if (searchInput) searchInput.placeholder = uiString("search");
+  const findInput = document.getElementById("pdf-findbar-input");
+  if (findInput) {
+    findInput.placeholder = uiString("findInPdf");
+    findInput.setAttribute("aria-label", uiString("findInPdf"));
+  }
   const fitWidthSpan = document.querySelector("#pdf-fit-width span");
   if (fitWidthSpan) fitWidthSpan.textContent = uiString("widthWord");
   const fitPageSpan = document.querySelector("#pdf-fit-page span");
@@ -256,6 +269,12 @@ const initPdfViewer = () => {
   const searchInput = document.getElementById("pdf-search-input");
   const searchPrevBtn = document.getElementById("pdf-search-prev");
   const searchNextBtn = document.getElementById("pdf-search-next");
+  const findBar = document.getElementById("pdf-findbar");
+  const findInput = document.getElementById("pdf-findbar-input");
+  const findCount = document.getElementById("pdf-findbar-count");
+  const findPrevBtn = document.getElementById("pdf-findbar-prev");
+  const findNextBtn = document.getElementById("pdf-findbar-next");
+  const findCloseBtn = document.getElementById("pdf-findbar-close");
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
@@ -1697,6 +1716,121 @@ const initPdfViewer = () => {
     });
   }
 
+  // Find bar (Cmd/Ctrl+F). The toolbar search field is hidden when the
+  // viewer is embedded in an editor tab, so this bar is the way in there; it
+  // searches whichever paper is visible — pdf.js for the static PDF, the
+  // engine for the Live frame.
+  const FIND_STATE_NOT_FOUND = 1;
+  const FIND_STATE_PENDING = 3;
+  let findQuery = "";
+  let liveFindQuery = "";
+  let findTypingTimer = null;
+  const isFindOpen = () => Boolean(findBar && !findBar.hidden);
+  const renderFindCount = (current, total) => {
+    if (!findBar || !findCount) return;
+    const noMatch = Boolean(findQuery) && total === 0;
+    findBar.classList.toggle("is-no-match", noMatch);
+    findCount.textContent = !findQuery ? "" : noMatch ? uiString("findNoMatch") : `${current} / ${total}`;
+  };
+  const clearFindHighlights = () => {
+    if (liveFindQuery) {
+      liveFindQuery = "";
+      postLive("search", { query: "" });
+    }
+    if (state.doc) eventBus.dispatch("findbarclose", { source: findBar });
+  };
+  const runFind = (rawQuery, { again = false, findPrevious = false } = {}) => {
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = null;
+    const query = String(rawQuery ?? "").trim();
+    findQuery = query;
+    if (!query) {
+      renderFindCount(0, 0);
+      clearFindHighlights();
+      return;
+    }
+    if (isLive()) {
+      // The engine steps to the next hit when it sees the same query again,
+      // so a keystroke that leaves the query unchanged must not resend it.
+      if (!again && query === liveFindQuery) return;
+      liveFindQuery = query;
+      postLive("search", { query, findPrevious });
+      return;
+    }
+    if (!state.doc) return;
+    eventBus.dispatch("find", {
+      source: findBar,
+      type: again ? "again" : "",
+      query,
+      caseSensitive: false,
+      entireWord: false,
+      highlightAll: true,
+      findPrevious,
+      phraseSearch: true,
+      matchDiacritics: false,
+    });
+  };
+  const openFindBar = () => {
+    if (!findBar || !findInput) return;
+    const wasOpen = isFindOpen();
+    const selected = String(window.getSelection?.() ?? "").trim();
+    if (selected && !selected.includes("\n") && selected.length <= 200) {
+      findInput.value = selected;
+    }
+    findBar.hidden = false;
+    findInput.focus();
+    findInput.select();
+    if (!wasOpen || findInput.value.trim() !== findQuery) runFind(findInput.value);
+  };
+  const closeFindBar = () => {
+    if (!isFindOpen()) return;
+    findBar.hidden = true;
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = null;
+    findQuery = "";
+    renderFindCount(0, 0);
+    clearFindHighlights();
+    findInput?.blur();
+  };
+  eventBus.on("updatefindmatchescount", ({ matchesCount }) => {
+    if (!isFindOpen() || isLive()) return;
+    renderFindCount(matchesCount?.current ?? 0, matchesCount?.total ?? 0);
+  });
+  eventBus.on("updatefindcontrolstate", ({ state: findState, matchesCount }) => {
+    if (!isFindOpen() || isLive()) return;
+    const total = matchesCount?.total ?? 0;
+    if (findState === FIND_STATE_PENDING && total === 0) return;
+    if (findState === FIND_STATE_NOT_FOUND) renderFindCount(0, 0);
+    else renderFindCount(matchesCount?.current ?? 0, total);
+  });
+  findInput?.addEventListener("input", () => {
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = window.setTimeout(() => runFind(findInput.value), 150);
+  });
+  findInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      runFind(findInput.value, { again: true, findPrevious: event.shiftKey });
+    }
+  });
+  findPrevBtn?.addEventListener("click", () => runFind(findInput?.value, { again: true, findPrevious: true }));
+  findNextBtn?.addEventListener("click", () => runFind(findInput?.value, { again: true }));
+  findCloseBtn?.addEventListener("click", closeFindBar);
+  document.addEventListener("keydown", (event) => {
+    const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
+    const key = String(event.key || "").toLowerCase();
+    if (mod && !event.shiftKey && key === "f") {
+      event.preventDefault();
+      openFindBar();
+    } else if (mod && key === "g" && isFindOpen()) {
+      event.preventDefault();
+      runFind(findInput?.value, { again: true, findPrevious: event.shiftKey });
+    } else if (event.key === "Escape" && isFindOpen()) {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
+
   if (searchNextBtn) {
     searchNextBtn.addEventListener("click", () => {
       runSearch(false);
@@ -1789,6 +1923,9 @@ const initPdfViewer = () => {
   };
   const renderLiveStatus = (data) => {
     const search = data?.search;
+    if (isFindOpen() && findQuery && search?.query === findQuery) {
+      renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
+    }
     if (search?.query) {
       setStatus(`${Number(search.current) || 0} / ${Number(search.total) || 0}`);
       if (statusEl) statusEl.title = search.query;
@@ -1829,6 +1966,9 @@ const initPdfViewer = () => {
     }
     liveToolbar = normalizeLiveToolbarSnapshot();
     restoreStaticToolbar();
+    // The frame is gone and its search with it; search the static PDF.
+    liveFindQuery = "";
+    if (isFindOpen() && findQuery) runFind(findQuery);
     refreshStaticStatus();
     const deferredSync = pendingLiveSync;
     pendingLiveSync = null;
@@ -2073,6 +2213,9 @@ const initPdfViewer = () => {
         setStatus(uiString("live"));
         renderLiveStatus(latestData);
         if (pendingLiveSync) applyLiveSync(pendingLiveSync);
+        // A query typed while the static PDF was showing has not reached the
+        // engine yet; the engine keeps its own search across later updates.
+        if (isFindOpen() && findQuery && liveFindQuery !== findQuery) runFind(findQuery);
         bridge?.postMessage?.({
           type: "live-surface-ready",
           payload: {
@@ -2381,6 +2524,9 @@ const initPdfViewer = () => {
       }
       if (message.type === "sync" && message.payload) {
         if (!applyLiveSync(message.payload)) applySync(message.payload);
+      }
+      if (message.type === "find-open") {
+        openFindBar();
       }
       if (message.type === "live") {
         setLiveMode(message.payload || null);

@@ -408,6 +408,68 @@ body.is-embedded .pdf-scroll {
   background: var(--bg);
   z-index: 5;
 }
+
+/* Cmd/Ctrl+F: floats over the paper (static or Live), like a browser's find bar. */
+.pdf-findbar {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  padding: 4px 4px 4px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.pdf-findbar[hidden] {
+  display: none;
+}
+
+.pdf-findbar-input {
+  width: 200px;
+  min-width: 80px;
+  flex: 1 1 auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.pdf-findbar-input:focus {
+  border-color: var(--accent);
+}
+
+.pdf-findbar.is-no-match .pdf-findbar-input {
+  border-color: #e5484d;
+}
+
+.pdf-findbar-count {
+  min-width: 44px;
+  font-size: 11px;
+  color: var(--text-soft);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pdf-findbar.is-no-match .pdf-findbar-count {
+  color: #e5484d;
+}
+
+.pdf-findbar .pdf-btn {
+  min-width: 26px;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 1;
+}
 /* Keep pdf.js above the next live document while it stages. `visibility:
    hidden` is deliberately not used: Chromium may skip rasterizing a hidden
    cross-origin iframe and expose its blank backing store for one frame when

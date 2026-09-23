@@ -62,6 +62,13 @@
           <div class="pdf-pages pdfViewer" id="pdf-pages"></div>
         </div>
         <iframe class="pdf-live-frame" id="pdf-live-frame" title="Live preview" aria-hidden="true"></iframe>
+        <div class="pdf-findbar" id="pdf-findbar" role="search" hidden>
+          <input class="pdf-findbar-input" id="pdf-findbar-input" type="text" placeholder="Find in PDF" aria-label="Find in PDF" autocomplete="off" spellcheck="false">
+          <span class="pdf-findbar-count" id="pdf-findbar-count" aria-live="polite"></span>
+          <button class="pdf-btn ghost" id="pdf-findbar-prev" type="button" title="Previous match" aria-label="Previous match">↑</button>
+          <button class="pdf-btn ghost" id="pdf-findbar-next" type="button" title="Next match" aria-label="Next match">↓</button>
+          <button class="pdf-btn ghost" id="pdf-findbar-close" type="button" title="Close" aria-label="Close">×</button>
+        </div>
       </div>
     </div>
 
