@@ -2,17 +2,23 @@
 // click did, or why it could not. The Issues panel is often closed, so a
 // result reported only there reads as "nothing happened".
 let current = null;
-export const hideEditorNotice = () => {
+export const hideEditorNotice = (owner) => {
     if (!current)
+        return;
+    if (owner !== undefined && current.owner !== owner)
         return;
     if (current.timer !== null)
         window.clearTimeout(current.timer);
     current.element.remove();
     current = null;
 };
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !event.isComposing && current)
+        hideEditorNotice();
+}, true);
 // Returns a dismiss that only removes this notice, not a later one.
 export const showEditorNotice = (anchor, message, options = {}) => {
-    var _a, _b;
+    var _a, _b, _c;
     hideEditorNotice();
     const tone = (_a = options.tone) !== null && _a !== void 0 ? _a : "info";
     const element = document.createElement("div");
@@ -50,7 +56,7 @@ export const showEditorNotice = (anchor, message, options = {}) => {
         element.style.top = "52px";
     }
     const durationMs = (_b = options.durationMs) !== null && _b !== void 0 ? _b : (tone === "error" || options.action ? 7000 : 4000);
-    const entry = { element, timer: null };
+    const entry = { element, timer: null, owner: (_c = options.owner) !== null && _c !== void 0 ? _c : null };
     entry.timer = window.setTimeout(() => {
         if (current === entry)
             hideEditorNotice();

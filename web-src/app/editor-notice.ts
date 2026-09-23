@@ -6,18 +6,29 @@ export type EditorNoticeTone = "info" | "error";
 
 export type EditorNoticeOptions = {
   tone?: EditorNoticeTone;
+  // Who posted it: hideEditorNotice(owner) leaves other owners' notes alone.
+  owner?: string;
   action?: { label: string; run: () => void };
   durationMs?: number;
 };
 
-let current: { element: HTMLElement; timer: number | null } | null = null;
+let current: { element: HTMLElement; timer: number | null; owner: string | null } | null = null;
 
-export const hideEditorNotice = () => {
+export const hideEditorNotice = (owner?: string) => {
   if (!current) return;
+  if (owner !== undefined && current.owner !== owner) return;
   if (current.timer !== null) window.clearTimeout(current.timer);
   current.element.remove();
   current = null;
 };
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key === "Escape" && !event.isComposing && current) hideEditorNotice();
+  },
+  true,
+);
 
 // Returns a dismiss that only removes this notice, not a later one.
 export const showEditorNotice = (
@@ -61,7 +72,7 @@ export const showEditorNotice = (
     element.style.top = "52px";
   }
   const durationMs = options.durationMs ?? (tone === "error" || options.action ? 7000 : 4000);
-  const entry = { element, timer: null as number | null };
+  const entry = { element, timer: null as number | null, owner: options.owner ?? null };
   entry.timer = window.setTimeout(() => {
     if (current === entry) hideEditorNotice();
   }, durationMs);

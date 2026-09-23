@@ -47,7 +47,11 @@ module.exports = (SynctexService) => {
     // many pages returned 228 boxes, one reverse lookup each, several seconds.
     let candidateBlocks = blocks;
     if (Number.isFinite(preferPage)) {
-      const onPage = blocks.filter((block) => block.page === preferPage);
+      // Topmost first: `synctex view` does not list a paragraph's line boxes
+      // in reading order, and its first line is where the jump should land.
+      const onPage = blocks
+        .filter((block) => block.page === preferPage)
+        .sort((a, b) => a.y - b.y);
       if (onPage.length > 0) candidateBlocks = onPage;
     }
     if (Number.isFinite(maxVerifiedBlocks) && maxVerifiedBlocks > 0) {

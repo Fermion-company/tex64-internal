@@ -106,8 +106,6 @@ const UI_STRINGS = {
   rotateLeft: { en: "Rotate left", ja: "左に回転", zh: "向左旋转", ko: "왼쪽으로 회전", fr: "Pivoter à gauche", de: "Nach links drehen", es: "Girar a la izquierda" },
   rotateRight: { en: "Rotate right", ja: "右に回転", zh: "向右旋转", ko: "오른쪽으로 회전", fr: "Pivoter à droite", de: "Nach rechts drehen", es: "Girar a la derecha" },
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
-  searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
-  searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
   findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
   findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
   findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
@@ -155,8 +153,7 @@ const localizeChrome = () => {
   setTitle("pdf-fit-page", "fitPage");
   setTitle("pdf-rotate-left", "rotateLeft");
   setTitle("pdf-rotate-right", "rotateRight");
-  setTitle("pdf-search-prev", "searchPrev");
-  setTitle("pdf-search-next", "searchNext");
+  setTitle("pdf-search-open", "findInPdf");
   setTitle("pdf-findbar-prev", "findPrev");
   setTitle("pdf-findbar-next", "findNext");
   setTitle("pdf-findbar-close", "findClose");
@@ -164,8 +161,8 @@ const localizeChrome = () => {
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
-  const searchInput = document.getElementById("pdf-search-input");
-  if (searchInput) searchInput.placeholder = uiString("search");
+  const searchOpen = document.getElementById("pdf-search-open");
+  if (searchOpen) searchOpen.textContent = uiString("search");
   const findInput = document.getElementById("pdf-findbar-input");
   if (findInput) {
     findInput.placeholder = uiString("findInPdf");
@@ -266,9 +263,7 @@ const initPdfViewer = () => {
   const fitPageBtn = document.getElementById("pdf-fit-page");
   const rotateLeftBtn = document.getElementById("pdf-rotate-left");
   const rotateRightBtn = document.getElementById("pdf-rotate-right");
-  const searchInput = document.getElementById("pdf-search-input");
-  const searchPrevBtn = document.getElementById("pdf-search-prev");
-  const searchNextBtn = document.getElementById("pdf-search-next");
+  const searchOpenBtn = document.getElementById("pdf-search-open");
   const findBar = document.getElementById("pdf-findbar");
   const findInput = document.getElementById("pdf-findbar-input");
   const findCount = document.getElementById("pdf-findbar-count");
@@ -1385,26 +1380,6 @@ const initPdfViewer = () => {
     void loadDocument(url, path);
   };
 
-  const runSearch = (findPrevious = false) => {
-    if (!searchInput) return;
-    const query = searchInput.value.trim();
-    if (!query) return;
-    if (isLive()) {
-      postLive("search", { query, findPrevious });
-      return;
-    }
-    if (!state.doc) return;
-    eventBus.dispatch("find", {
-      query,
-      caseSensitive: false,
-      entireWord: false,
-      highlightAll: true,
-      findPrevious,
-      phraseSearch: true,
-      matchDiacritics: false,
-    });
-  };
-
   const downloadPdf = async () => {
     if (!state.doc) return;
     const data = await state.doc.getData();
@@ -1489,6 +1464,8 @@ const initPdfViewer = () => {
     // Live can start before the first static fallback finishes loading. Seed
     // its viewport handoff after pdf.js has real pages and a scroll position.
     scheduleHeldMirror();
+    // A rebuilt PDF has new text: search it again rather than keep the old count.
+    if (isFindOpen() && findQuery && !isLive()) runFind(findQuery);
   });
 
   eventBus.on("pagerendered", () => {
@@ -1702,30 +1679,15 @@ const initPdfViewer = () => {
     });
   }
 
-  if (searchInput) {
-    searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        runSearch(event.shiftKey);
-      }
-    });
-  }
-
-  if (searchPrevBtn) {
-    searchPrevBtn.addEventListener("click", () => {
-      runSearch(true);
-    });
-  }
-
-  // Find bar (Cmd/Ctrl+F). The toolbar search field is hidden when the
-  // viewer is embedded in an editor tab, so this bar is the way in there; it
+  // Find bar (Cmd/Ctrl+F, or Search in the standalone window's toolbar). It
   // searches whichever paper is visible — pdf.js for the static PDF, the
-  // engine for the Live frame.
+  // engine for the Live frame — and is the one search UI in both places.
   const FIND_STATE_NOT_FOUND = 1;
   const FIND_STATE_PENDING = 3;
   let findQuery = "";
   let liveFindQuery = "";
   let findTypingTimer = null;
+  let findReturnFocus = null;
   const isFindOpen = () => Boolean(findBar && !findBar.hidden);
   const renderFindCount = (current, total) => {
     if (!findBar || !findCount) return;
@@ -1774,6 +1736,10 @@ const initPdfViewer = () => {
   const openFindBar = () => {
     if (!findBar || !findInput) return;
     const wasOpen = isFindOpen();
+    if (!wasOpen) {
+      const active = document.activeElement;
+      findReturnFocus = active && active !== document.body && active !== findInput ? active : null;
+    }
     const selected = String(window.getSelection?.() ?? "").trim();
     if (selected && !selected.includes("\n") && selected.length <= 200) {
       findInput.value = selected;
@@ -1792,6 +1758,10 @@ const initPdfViewer = () => {
     renderFindCount(0, 0);
     clearFindHighlights();
     findInput?.blur();
+    // Back to what had the keyboard (the Live frame, a toolbar control).
+    const returnTo = findReturnFocus;
+    findReturnFocus = null;
+    if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus({ preventScroll: true });
   };
   eventBus.on("updatefindmatchescount", ({ matchesCount }) => {
     if (!isFindOpen() || isLive()) return;
@@ -1804,10 +1774,17 @@ const initPdfViewer = () => {
     if (findState === FIND_STATE_NOT_FOUND) renderFindCount(0, 0);
     else renderFindCount(matchesCount?.current ?? 0, total);
   });
-  findInput?.addEventListener("input", () => {
+  const scheduleTypedFind = () => {
     window.clearTimeout(findTypingTimer);
     findTypingTimer = window.setTimeout(() => runFind(findInput.value), 150);
+  };
+  // An IME composition is not a query yet; search when it is committed.
+  findInput?.addEventListener("input", (event) => {
+    if (event.isComposing) return;
+    scheduleTypedFind();
   });
+  findInput?.addEventListener("compositionend", scheduleTypedFind);
+  searchOpenBtn?.addEventListener("click", openFindBar);
   findInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.isComposing) {
       event.preventDefault();
@@ -1826,17 +1803,11 @@ const initPdfViewer = () => {
     } else if (mod && key === "g" && isFindOpen()) {
       event.preventDefault();
       runFind(findInput?.value, { again: true, findPrevious: event.shiftKey });
-    } else if (event.key === "Escape" && isFindOpen()) {
+    } else if (event.key === "Escape" && isFindOpen() && !event.isComposing) {
       event.preventDefault();
       closeFindBar();
     }
   });
-
-  if (searchNextBtn) {
-    searchNextBtn.addEventListener("click", () => {
-      runSearch(false);
-    });
-  }
 
   if (downloadBtn) {
     downloadBtn.addEventListener("click", () => {
@@ -2312,6 +2283,8 @@ const initPdfViewer = () => {
     });
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
+    // A new frame starts without a search; the reveal sends the open query.
+    liveFindQuery = "";
     liveFrame.src = `${url}/?${params.toString()}`;
     if (hold) {
       // A Build published before this frame existed: preload below its PDF.

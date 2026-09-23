@@ -1,7 +1,8 @@
-// The Save button shows whether edits are on disk: "Saved" with the time,
-// "Save" with a dot while autosave is pending, "Saving…", or "Not saved" in
-// red with the reason. A failed save also says so under the button, once,
-// with a retry, since the Issues panel that used to carry it is often closed.
+// The Save button shows whether edits are on disk: "Saved" (time in the
+// tooltip), "Save" with a dot while autosave is pending, "Saving…" when a save
+// takes long enough to see, or "Not saved" in red with the reason. A failure
+// also says so under the button, with Retry, since the Issues panel that used
+// to carry it is often closed.
 
 import { showEditorNotice } from "./editor-notice.js";
 import { getUiLocale, onUiLocaleChange, setLocalizedAttribute, uiText } from "./i18n.js";
@@ -16,6 +17,8 @@ type SaveStatusUiDeps = {
 };
 
 const fileName = (path: string | null) => (path ? path.split(/[\\/]/).pop() || path : null);
+
+const SAVE_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? "Cmd+S" : "Ctrl+S";
 
 export const describeSaveFailure = (message: string) => {
   if (/EACCES|EPERM|permission denied|read-only|operation not permitted/i.test(message)) {
@@ -33,10 +36,29 @@ export const describeSaveFailure = (message: string) => {
   if (/edit conflict/i.test(message)) {
     return uiText("Resolve the edit conflict first.", "先に編集の競合を解決してください。");
   }
+  if (/project operation is protecting|save has expired/i.test(message)) {
+    return uiText(
+      "A project operation is in progress. Saving will resume when it finishes.",
+      "プロジェクトの操作中です。終わると保存を再開します。",
+    );
+  }
   if (/timed out/i.test(message)) {
     return uiText("The save did not finish in time.", "保存が時間内に終わりませんでした。");
   }
   return message;
+};
+
+const labelFor = (kind: SaveStatus["kind"]) => {
+  switch (kind) {
+    case "saved":
+      return uiText("Saved", "保存済み");
+    case "dirty":
+      return uiText("Save", "保存");
+    case "saving":
+      return uiText("Saving…", "保存中…");
+    case "error":
+      return uiText("Not saved", "保存できません");
+  }
 };
 
 export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
@@ -47,8 +69,28 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
   label?.setAttribute("data-no-i18n", "");
   let lastKind: SaveStatus["kind"] | null = null;
   let lastStatus: SaveStatus | null = null;
-  let dismissFailureNotice: (() => void) | null = null;
   let lastEdited: boolean | null = null;
+  let dismissFailureNotice: (() => void) | null = null;
+
+  // One width for Saved / Save• / Saving… in the current language, so the
+  // toolbar does not shift while typing. ("Not saved" may be wider; it is
+  // rare and should stand out.)
+  const fitLabelWidth = () => {
+    if (!label) return;
+    const style = getComputedStyle(label);
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return;
+    context.font = style.font;
+    const spacing = Number.parseFloat(style.letterSpacing) || 0;
+    const width = (text: string) => context.measureText(text).width + spacing * text.length;
+    const dotWidth = 11; // the pending dot and its margin (theme.css)
+    const widest = Math.max(
+      width(labelFor("saved")),
+      width(labelFor("dirty")) + dotWidth,
+      width(labelFor("saving")),
+    );
+    label.style.minWidth = `${Math.ceil(widest)}px`;
+  };
 
   const formatTime = (ms: number) => {
     try {
@@ -58,8 +100,28 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
     }
   };
 
+  const showFailure = (status: SaveStatus) => {
+    if (status.kind !== "error") return;
+    const name = fileName(status.path);
+    dismissFailureNotice?.();
+    dismissFailureNotice = showEditorNotice(
+      button,
+      `${uiText("Could not save", "保存できませんでした")}${name ? `: ${name}` : ""} — ${describeSaveFailure(status.message)}`,
+      {
+        tone: "error",
+        owner: "save",
+        action: { label: uiText("Retry", "再試行"), run: retry },
+        durationMs: 10000,
+      },
+    );
+  };
+
   const retry = () => {
-    void deps.saveDirtyFiles();
+    void deps.saveDirtyFiles().then((ok) => {
+      // Say it again when the retry fails too; a silent retry reads as
+      // "nothing happened".
+      if (!ok) showFailure(deps.getStatus());
+    });
   };
 
   // A save usually finishes within a frame or two; "Saving…" only shows
@@ -80,9 +142,7 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
           }, SAVING_VISIBLE_AFTER_MS);
         }
         // Keep showing what was there (normally "Save" with its dot).
-        status = lastKind === "saved" || lastKind === null
-          ? { kind: "dirty", count: 1 }
-          : lastStatus ?? { kind: "dirty", count: 1 };
+        status = lastStatus && lastStatus.kind !== "saved" ? lastStatus : { kind: "dirty", count: 1 };
       }
     } else {
       savingSince = null;
@@ -93,55 +153,36 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
     }
     lastStatus = status;
     button.dataset.saveState = status.kind;
-    let text: string;
     let title: string;
     switch (status.kind) {
       case "saved":
-        text = uiText("Saved", "保存済み");
         title = status.savedAt
-          ? uiText(`All changes saved (${formatTime(status.savedAt)})`, `すべて保存済み（${formatTime(status.savedAt)}）`)
+          ? `${uiText("All changes saved", "すべて保存済み")} (${formatTime(status.savedAt)})`
           : uiText("No unsaved changes", "未保存の変更はありません");
         break;
       case "dirty":
-        text = uiText("Save", "保存");
-        title = uiText(
-          `${status.count} file(s) not saved yet. Saving automatically…`,
-          `未保存のファイルが ${status.count} 件あります。自動で保存します…`,
-        );
+        title = uiText("Unsaved changes. Saving automatically…", "未保存の変更があります。自動で保存します…");
+        if (status.count > 1) title += ` (${status.count})`;
         break;
       case "saving":
-        text = uiText("Saving…", "保存中…");
-        title = uiText(`Saving ${fileName(status.path)}…`, `${fileName(status.path)} を保存中…`);
+        title = `${uiText("Saving…", "保存中…")} ${fileName(status.path) ?? ""}`.trim();
         break;
       case "error": {
-        text = uiText("Not saved", "保存できません");
         const name = fileName(status.path);
         title = `${name ? `${name}: ` : ""}${describeSaveFailure(status.message)}`;
         break;
       }
     }
-    if (label) label.textContent = text;
-    // Already localized; recorded as the attribute's source so the page-wide
+    if (label) label.textContent = labelFor(status.kind);
+    // Already localized; recorded as the attributes' source so the page-wide
     // translator does not put back the static "Save (Cmd+S)".
-    setLocalizedAttribute(button, "title", `${title} (${uiText("Cmd+S to save", "Cmd+S で保存")})`);
-    setLocalizedAttribute(button, "aria-label", title);
-    if (status.kind !== "error" && dismissFailureNotice) {
+    setLocalizedAttribute(button, "title", `${title} (${SAVE_SHORTCUT})`);
+    setLocalizedAttribute(button, "aria-label", `${uiText("Save", "保存")}: ${title}`);
+    if (status.kind === "error" && lastKind !== "error") showFailure(status);
+    if (status.kind === "saved" && dismissFailureNotice) {
       // Saved after all: the failure note is out of date.
-      if (status.kind === "saved") {
-        dismissFailureNotice();
-        dismissFailureNotice = null;
-      }
-    }
-    if (status.kind === "error" && lastKind !== "error") {
-      const name = fileName(status.path);
-      dismissFailureNotice = showEditorNotice(
-        button,
-        uiText(
-          `Not saved${name ? `: ${name}` : ""}. ${describeSaveFailure(status.message)}`,
-          `${name ? `${name} を` : ""}保存できませんでした。${describeSaveFailure(status.message)}`,
-        ),
-        { tone: "error", action: { label: uiText("Retry", "再試行"), run: retry }, durationMs: 10000 },
-      );
+      dismissFailureNotice();
+      dismissFailureNotice = null;
     }
     lastKind = status.kind;
     const edited = status.kind !== "saved";
@@ -163,6 +204,10 @@ export const setupSaveStatusUi = (deps: SaveStatusUiDeps) => {
     true,
   );
   onSaveStatusChange(render);
-  onUiLocaleChange(() => render());
+  onUiLocaleChange(() => {
+    fitLabelWidth();
+    render();
+  });
+  fitLabelWidth();
   render();
 };

@@ -300,16 +300,6 @@ body.is-embedded .pdf-fit-control span {
   font-size: 11px;
 }
 
-.pdf-search-input {
-  width: 160px;
-  background: var(--panel-strong);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  color: var(--text);
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
 .pdf-page-count,
 .pdf-zoom-label {
   font-size: 11px;
@@ -319,7 +309,6 @@ body.is-embedded .pdf-fit-control span {
 .pdf-page-count,
 .pdf-page-input,
 .pdf-zoom-label,
-.pdf-search-input,
 .pdf-btn {
   font-size: 11px;
 }

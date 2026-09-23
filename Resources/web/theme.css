@@ -4357,7 +4357,8 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   padding: 8px 10px;
   border: 1px solid var(--panel-border-strong);
   border-radius: var(--radius-sm);
-  background: var(--panel-strong);
+  /* Opaque: the note sits over tabs and paper. */
+  background: linear-gradient(var(--panel-strong), var(--panel-strong)), var(--bg);
   box-shadow: var(--shadow);
   color: var(--text);
   font-size: 12px;
@@ -4368,7 +4369,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 
 .editor-notice.is-error {
   border-color: var(--danger-border);
-  background: color-mix(in srgb, var(--danger-soft) 60%, var(--panel-strong));
+  background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--bg);
   color: var(--danger-text);
 }
 
@@ -4411,7 +4412,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
    Save / Saving / Saved so the toolbar does not shift while typing. */
 #save-button > span {
   display: inline-block;
-  min-width: 5.2em;
   text-align: left;
 }
 

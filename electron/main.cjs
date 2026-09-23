@@ -2586,7 +2586,7 @@ ipcMain.on("tex64", (event, message) => {
     const lease = workspaceOperations.current;
     const token = lease.owner === "git" ? message?.gitToken : message?.historyToken;
     const allowedFlush = message?.type === "saveFile" && token === lease.operation.id && lease.operation.phase === "saving";
-    const safe = (message?.type === "openFile" && lease.operation.phase === "syncing") || ["ready", "prepareQuit:result", "uiLocale", "build:cancel", "agent:stop", "settings:response", "agent:contentConflict"].includes(message?.type);
+    const safe = (message?.type === "openFile" && lease.operation.phase === "syncing") || ["ready", "prepareQuit:result", "uiLocale", "build:cancel", "agent:stop", "settings:response", "agent:contentConflict", "window:documentEdited"].includes(message?.type);
     if (!allowedFlush && !safe) {
       if (message?.type === "saveFile") sendToRenderer("saveResult", { ok: false, path: message.path, error: "A project operation is protecting this workspace. Your edits remain open." });
       return;

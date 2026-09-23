@@ -112,11 +112,29 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     getLanguageIdForPath,
   } = ctx;
 
-  let lastSaveErrorPath: string | null = null;
+  // Why each file's last save failed. An entry lasts until that file saves
+  // or stops being dirty: another file saving says nothing about it.
+  const saveErrors = new Map<string, string>();
   let lastSavedAt: number | null = null;
+  // A failed file keeps trying on its own (2 s, 4 s, ... up to 30 s): the
+  // cause is often passing (a sync client or a project operation holding it).
+  let saveRetryTimer: number | null = null;
+  let saveRetryDelayMs = 0;
+  const hasFailedDirtyFile = () => Array.from(saveErrors.keys()).some((path) => dirtyFiles.has(path));
+  const scheduleSaveRetry = () => {
+    if (saveRetryTimer !== null) return;
+    saveRetryDelayMs = Math.min(30_000, saveRetryDelayMs > 0 ? saveRetryDelayMs * 2 : 2000);
+    saveRetryTimer = window.setTimeout(() => {
+      saveRetryTimer = null;
+      if (hasFailedDirtyFile()) void saveDirtyFiles().catch(() => {});
+    }, saveRetryDelayMs);
+  };
   const reportSaveError = (message: string, path: string | null = null) => {
     lastSaveErrorMessage = message;
-    lastSaveErrorPath = path;
+    if (path) {
+      saveErrors.set(path, message);
+      scheduleSaveRetry();
+    }
     deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
     notifySaveStatusChange();
   };
@@ -138,12 +156,12 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         snapshot.issues[0].message === lastSaveErrorMessage);
     if (stillOurs) deps.updateIssues(0, "", "info", []);
     lastSaveErrorMessage = null;
-    lastSaveErrorPath = null;
     notifySaveStatusChange();
   };
 
   const clearContentConflicts = () => {
     contentConflicts.clear();
+    notifySaveStatusChange();
     document.getElementById("ai-content-conflict-bar")?.remove();
     clearOwnSaveError();
   };
@@ -560,6 +578,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             .then((saved) => {
               if (!saved) throw new Error("Saving failed.");
               contentConflicts.delete(path);
+              notifySaveStatusChange();
               bar.remove();
               clearOwnSaveError();
               if (conflict.conversationId) {
@@ -589,6 +608,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           if (!conflict) return;
           if (conflict.diskContent === null) {
             contentConflicts.delete(path);
+            notifySaveStatusChange();
             dirtyFiles.delete(path);
             bar.remove();
             clearOwnSaveError();
@@ -609,6 +629,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
             .then((saved) => {
               if (!saved) throw new Error("Saving failed.");
               contentConflicts.delete(path);
+              notifySaveStatusChange();
               group.isApplyingFile = true;
               replaceContentViaEdits(
                 group.currentFilePath === path ? editor : null,
@@ -837,7 +858,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           "Resolve the edit conflict before saving.",
           "保存する前に編集競合を解決してください。",
         ),
-        activePath,
       );
       return Promise.resolve(false);
     }
@@ -917,7 +937,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           "Resolve the edit conflict before saving.",
           "保存する前に編集競合を解決してください。",
         ),
-        conflicted[0],
       );
       return false;
     }
@@ -925,13 +944,23 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
   };
 
   const getSaveStatus = (): SaveStatus => {
+    // A file that is clean again (undone, reverted) has nothing left to save.
+    for (const path of Array.from(saveErrors.keys())) {
+      if (!dirtyFiles.has(path)) saveErrors.delete(path);
+    }
     const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
-    if (lastSaveErrorMessage !== null && dirtyPaths.length > 0) {
+    const failed = Array.from(saveErrors.entries());
+    const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
+    if (failed.length > 0) {
+      const [path, message] = failed[0];
+      return { kind: "error", message, path, count: failed.length + conflicted.length };
+    }
+    if (conflicted.length > 0) {
       return {
         kind: "error",
-        message: lastSaveErrorMessage,
-        path: lastSaveErrorPath,
-        count: dirtyPaths.length,
+        message: "Resolve the edit conflict before saving.",
+        path: conflicted[0],
+        count: conflicted.length,
       };
     }
     if (state.pendingSave) {
@@ -1126,8 +1155,16 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
       return;
     }
     lastSavedAt = Date.now();
+    saveErrors.delete(payload.path);
+    if (!hasFailedDirtyFile()) {
+      saveRetryDelayMs = 0;
+      if (saveRetryTimer !== null) {
+        window.clearTimeout(saveRetryTimer);
+        saveRetryTimer = null;
+      }
+    }
     notifySaveStatusChange();
-    if (lastSaveErrorMessage !== null) {
+    if (lastSaveErrorMessage !== null && !hasFailedDirtyFile()) {
       const snapshot = deps.getRecentIssuesSnapshot?.();
       const stillOurs =
         !snapshot ||
@@ -1138,7 +1175,6 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
         deps.updateIssues(0, "", "info", []);
       }
       lastSaveErrorMessage = null;
-      lastSaveErrorPath = null;
     }
     const entry = monacoModels.get(payload.path);
     let resolvedSavedContent = savedContent;

@@ -241,11 +241,12 @@ export const initBuildOpsUi = (
     if (/only (supports|available for) .*TeX files|No TeX file selected/i.test(error)) {
       return { message: uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。") };
     }
-    return { message: uiText(`Could not jump: ${error}`, `ジャンプできませんでした：${error}`) };
+    return { message: `${uiText("Could not jump:", "ジャンプできませんでした：")} ${error}` };
   };
   const showSynctexNotice = (message: string, tone: "info" | "error", build = false) => {
     showEditorNotice(synctexButton instanceof HTMLElement ? synctexButton : null, message, {
       tone,
+      owner: "jump",
       ...(build ? { action: { label: uiText("Build", "ビルド"), run: () => void startBuild() } } : {}),
     });
   };
@@ -482,7 +483,7 @@ export const initBuildOpsUi = (
     if (source === "manual") {
       synctexManualPriorityUntil = Date.now() + 5000;
       // The last Jump's note is about another line.
-      hideEditorNotice();
+      hideEditorNotice("jump");
     }
     const requestKey = [
       targetPath,
@@ -494,6 +495,16 @@ export const initBuildOpsUi = (
       const inFlightAgeMs = Date.now() - synctexForwardInFlight.startedAt;
       if (inFlightAgeMs <= synctexForwardInFlightTimeoutMs) {
         if (synctexForwardInFlight.key === requestKey) {
+          // The same line is already resolving (after a build, say): make
+          // that request the click's, so its result is not dropped as an
+          // automatic one and the button shows it is working.
+          if (source === "manual" && synctexForwardInFlight.source !== "manual") {
+            const pending = synctexForwardInFlight;
+            pending.source = "manual";
+            const meta = synctexForwardOrderByRequestId.get(pending.requestId);
+            if (meta) meta.source = "manual";
+            setSynctexBusy(pending.requestId);
+          }
           return;
         }
         // A click from another line replaces the pending one outright (the

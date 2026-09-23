@@ -422,7 +422,13 @@ module.exports = (SynctexService) => {
    * (or of the nearest line that left ink), in PDF points from the page's
    * top-left corner — the same frame `synctex view` reports.
    */
-  SynctexService.prototype.forwardLinesQuick = function ({ sourcePath, pdfPath, lines, preferAbove = false }) {
+  SynctexService.prototype.forwardLinesQuick = function ({
+    sourcePath,
+    pdfPath,
+    lines,
+    preferAbove = false,
+    firstSubstantialPage = false,
+  }) {
     if (!fs.existsSync(pdfPath)) {
       return { ok: false, error: "PDF not found." };
     }
@@ -439,12 +445,29 @@ module.exports = (SynctexService) => {
       return { ok: false, error: "The file is not part of this PDF." };
     }
     const lookup = (line) => {
-      let chosen = null;
+      const entries = [];
       for (const tag of tags) {
         const pages = index.byTag.get(tag)?.get(line);
         if (!pages) continue;
         for (const entry of pages.values()) {
-          if (entry.best && isBetterPage(entry, chosen)) chosen = entry;
+          if (entry.best) entries.push(entry);
+        }
+      }
+      let chosen = null;
+      if (firstSubstantialPage && entries.length > 0) {
+        // Where the line's output begins (a jump to it): the first page that
+        // carries a real part of it. A paragraph running onto the next page
+        // starts on the earlier one; the few marks a page break stamps with
+        // the line (a footer, leftover math) are not a real part.
+        const most = Math.max(...entries.map((entry) => entry.glyphs));
+        const enough = Math.max(3, Math.min(20, most * 0.3));
+        for (const entry of entries) {
+          if (entry.glyphs >= enough && (!chosen || entry.page < chosen.page)) chosen = entry;
+        }
+      }
+      if (!chosen) {
+        for (const entry of entries) {
+          if (isBetterPage(entry, chosen)) chosen = entry;
         }
       }
       return chosen ? { page: chosen.page, h: chosen.best.h, v: chosen.best.v } : null;
@@ -484,6 +507,8 @@ module.exports = (SynctexService) => {
         y: index.toPoints(hit.v, index.yOffset),
       });
     }
-    return { ok: true, results, pageCount: index.pageCount };
+    // Input 1 is the file the engine was run on.
+    const rootTag = Math.min(...index.inputs.keys());
+    return { ok: true, results, pageCount: index.pageCount, isRootFile: tags.includes(rootTag) };
   };
 };

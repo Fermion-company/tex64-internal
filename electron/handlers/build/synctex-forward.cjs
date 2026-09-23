@@ -1,3 +1,5 @@
+const path = require("path");
+
 const createSynctexForwardHandler = (deps, resolvers) => {
   const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay } = deps;
   const { resolveWorkspacePathFromRoot, resolveWorkspaceRelativePath, isWorkspaceSynctexPathSame } =
@@ -40,8 +42,10 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
   };
 
-  // Lines above \begin{document} never reach a page themselves: what their
-  // macros typeset is filed under the line that uses them.
+  // Lines above \begin{document} of the file the engine ran on never reach a
+  // page themselves: what their macros typeset is filed under the line that
+  // uses them. (Only that file: a chapter may show \begin{document} in a
+  // verbatim example.)
   const isPreambleLine = (sourcePath, lineNumber) => {
     if (!Number.isFinite(lineNumber) || lineNumber < 1) return false;
     try {
@@ -51,6 +55,32 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     } catch {
       return false;
     }
+  };
+
+  // The file an \input / \include / \subfile line reads, if it exists. TeX
+  // resolves the name against the directory it runs in, the PDF's.
+  const includedFileOnLine = (sourcePath, lineNumber, pdfPath) => {
+    let text;
+    try {
+      text = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/)[lineNumber - 1];
+    } catch {
+      return null;
+    }
+    if (typeof text !== "string") return null;
+    const code = text.replace(/(^|[^\\])%.*$/, "$1");
+    const match = /\\(?:input|include|subfile)\s*\{([^}]+)\}/.exec(code);
+    if (!match) return null;
+    const name = match[1].trim();
+    const base = path.dirname(pdfPath);
+    for (const candidate of [name, `${name}.tex`]) {
+      const full = path.resolve(base, candidate);
+      try {
+        if (fs.statSync(full).isFile()) return full;
+      } catch {
+        // try the next spelling
+      }
+    }
+    return null;
   };
 
   const readMtimeMs = (targetPath) => {
@@ -351,11 +381,28 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       if (typeof synctexService.forwardLinesQuick !== "function") return null;
       let quick;
       try {
+        // An \input / \include line stands for the file it reads: go to
+        // where that file's output begins (the line itself only marks
+        // where TeX came back from it, often the last page).
+        const included = includedFileOnLine(sourcePath, targetLine, pdfPath);
+        if (included) {
+          const inner = synctexService.forwardLinesQuick({
+            sourcePath: included,
+            pdfPath,
+            lines: [1],
+            firstSubstantialPage: true,
+          });
+          const innerHit = inner?.ok ? inner.results?.[0] : null;
+          if (innerHit?.found) {
+            return { ok: true, page: innerHit.page, x: innerHit.x, y: innerHit.y, fallback: true };
+          }
+        }
         quick = synctexService.forwardLinesQuick({
           sourcePath,
           pdfPath,
           lines: [targetLine],
           preferAbove: preferBacktrack,
+          firstSubstantialPage: true,
         });
       } catch {
         return null;
@@ -367,7 +414,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }
       const hit = quick.results?.[0];
       if (!hit) return null;
-      const inPreamble = isPreambleLine(sourcePath, targetLine);
+      const inPreamble = quick.isRootFile === true && isPreambleLine(sourcePath, targetLine);
       if (!hit.found || (inPreamble && hit.matchedLine !== targetLine)) {
         // Nothing near this line reaches the page (the preamble, say).
         return allowFallback
@@ -376,9 +423,11 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }
       const line = hit.matchedLine;
       const fallback = line !== targetLine;
+      // The first box on the page the index picked is where that line's
+      // output begins there; checking more boxes costs one process each.
       const forward = await runForward(line, fallback ? 1 : column, {
         preferPage: hit.page,
-        maxVerifiedBlocks: 8,
+        maxVerifiedBlocks: 1,
       });
       if (forward.cancelled) return forward;
       if (forward.ok && !isLowQualityForwardResult(forward, line)) {
