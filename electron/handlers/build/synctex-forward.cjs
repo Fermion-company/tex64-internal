@@ -40,6 +40,19 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
   };
 
+  // Lines above \begin{document} never reach a page themselves: what their
+  // macros typeset is filed under the line that uses them.
+  const isPreambleLine = (sourcePath, lineNumber) => {
+    if (!Number.isFinite(lineNumber) || lineNumber < 1) return false;
+    try {
+      const lines = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/);
+      const begin = lines.findIndex((line) => /^[^%]*\\begin\s*\{document\}/.test(line));
+      return begin >= 0 && lineNumber - 1 < begin;
+    } catch {
+      return false;
+    }
+  };
+
   const readMtimeMs = (targetPath) => {
     if (!targetPath || typeof targetPath !== "string") {
       return 0;
@@ -280,7 +293,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       return false;
     };
 
-    const runForward = async (forwardLine, forwardColumn) => {
+    const runForward = async (forwardLine, forwardColumn, narrowing = {}) => {
       if (isStaleRequest()) {
         return { ok: false, cancelled: true, error: "stale" };
       }
@@ -292,6 +305,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         hintLine: targetLine,
         hintColumn: targetColumn,
         registerHint: false,
+        ...narrowing,
       });
       if (isStaleRequest()) {
         return { ok: false, cancelled: true, error: "stale" };
@@ -315,6 +329,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
           hintLine: targetLine,
           hintColumn: targetColumn,
           registerHint: false,
+          ...narrowing,
         });
         if (isStaleRequest()) {
           return { ok: false, cancelled: true, error: "stale" };
@@ -327,18 +342,66 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     };
 
     const preferBacktrack = isSkippableSynctexLine(sourcePath, targetLine);
-    let result = preferBacktrack
+    // Which nearby line left ink is a memory read from the SyncTeX index.
+    // Probing the neighbours one `synctex view` process at a time took
+    // 6–27 s from a preamble line and held up the next Jump meanwhile, so
+    // the CLI now runs once, on the line the index picked, for its block box.
+    // null: the index could not answer; the process probes below still can.
+    const resolveFromIndex = async () => {
+      if (typeof synctexService.forwardLinesQuick !== "function") return null;
+      let quick;
+      try {
+        quick = synctexService.forwardLinesQuick({
+          sourcePath,
+          pdfPath,
+          lines: [targetLine],
+          preferAbove: preferBacktrack,
+        });
+      } catch {
+        return null;
+      }
+      if (!quick?.ok) {
+        // The PDF's SyncTeX was read and this file is not in it: no other
+        // line of it can do better.
+        return quick?.error === "The file is not part of this PDF." ? { ok: false, error: quick.error } : null;
+      }
+      const hit = quick.results?.[0];
+      if (!hit) return null;
+      const inPreamble = isPreambleLine(sourcePath, targetLine);
+      if (!hit.found || (inPreamble && hit.matchedLine !== targetLine)) {
+        // Nothing near this line reaches the page (the preamble, say).
+        return allowFallback
+          ? { ok: true, page: 1, x: 0, y: 0, fallback: true, notTypeset: true }
+          : { ok: false, error: "This line does not appear in the PDF.", notTypeset: true };
+      }
+      const line = hit.matchedLine;
+      const fallback = line !== targetLine;
+      const forward = await runForward(line, fallback ? 1 : column, {
+        preferPage: hit.page,
+        maxVerifiedBlocks: 8,
+      });
+      if (forward.cancelled) return forward;
+      if (forward.ok && !isLowQualityForwardResult(forward, line)) {
+        return fallback ? { ...forward, fallback: true } : forward;
+      }
+      return { ok: true, page: hit.page, x: hit.x, y: hit.y, fallback };
+    };
+    const indexed = await resolveFromIndex();
+    if (isStaleRequest() || indexed?.cancelled === true) {
+      return;
+    }
+    let result = indexed ?? (preferBacktrack
       ? { ok: false, error: "skip" }
-      : await runForward(targetLine, column);
+      : await runForward(targetLine, column));
     let bestLowQualitySuccess =
-      result.ok && isLowQualityForwardResult(result, targetLine)
+      !indexed && result.ok && isLowQualityForwardResult(result, targetLine)
         ? {
             result,
             offset: 0,
             matchDiff: getForwardTargetDiff(result, targetLine),
           }
         : null;
-    if (preferBacktrack || (!result.ok && isRetryableSynctexError(result.error))) {
+    if (!indexed && (preferBacktrack || (!result.ok && isRetryableSynctexError(result.error)))) {
       const maxBacktrack = forwardSource === "manual" ? 60 : 80;
       for (let offset = 1; offset <= maxBacktrack; offset += 1) {
         if (isStaleRequest()) {
@@ -395,7 +458,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         }
       }
     }
-    if ((result.ok && isLowQualityForwardResult(result, targetLine)) || !result.ok) {
+    if (!indexed && ((result.ok && isLowQualityForwardResult(result, targetLine)) || !result.ok)) {
       const maxForwardScan = 12;
       for (let offset = 1; offset <= maxForwardScan; offset += 1) {
         if (isStaleRequest()) {
@@ -410,12 +473,13 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }
     }
     if (
+      !indexed &&
       ((result.ok && isLowQualityForwardResult(result, targetLine)) || !result.ok) &&
       bestLowQualitySuccess?.result?.ok
     ) {
       result = bestLowQualitySuccess.result;
     }
-    if (result.ok) {
+    if (!indexed && result.ok) {
       const exactDiff = getForwardTargetDiff(result, targetLine);
       if (Number.isFinite(exactDiff) && exactDiff > 0) {
         const maxExactScan = 12;
@@ -440,7 +504,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         }
       }
     }
-    if (!result.ok && allowFallback) {
+    if (!indexed && !result.ok && allowFallback) {
       const fallbackResult = await runForward(1, 1);
       if (fallbackResult.ok) {
         fallbackResult.fallback = true;
@@ -455,6 +519,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       return;
     }
     if (
+      result.notTypeset !== true &&
       Number.isFinite(result.page) &&
       Number.isFinite(result.x) &&
       Number.isFinite(result.y)
@@ -469,16 +534,19 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         column: targetColumn,
       });
     }
-    setCachedSynctexForwardResult({
-      sourcePath,
-      pdfPath,
-      line: targetLine,
-      column: targetColumn,
-      result,
-    });
+    if (result.notTypeset !== true) {
+      setCachedSynctexForwardResult({
+        sourcePath,
+        pdfPath,
+        line: targetLine,
+        column: targetColumn,
+        result,
+      });
+    }
     if (viewerMode === "window") {
       pdfWindowManager.show(pdfPath, { reload: false });
       const windowSyncPayload = { page: result.page, x: result.x, y: result.y };
+      if (result.notTypeset === true) windowSyncPayload.marker = false;
       if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) {
         windowSyncPayload.blockWidth = result.blockWidth;
       }
@@ -502,6 +570,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       fallback: result.fallback === true,
       pdfPath: relativePdfPath,
     };
+    if (result.notTypeset === true) forwardPayload.notTypeset = true;
     if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) {
       forwardPayload.blockWidth = result.blockWidth;
     }

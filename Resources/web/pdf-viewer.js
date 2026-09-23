@@ -1309,7 +1309,8 @@ const initPdfViewer = () => {
         scrollEl.clientHeight / 2,
       behavior: "auto",
     });
-    applySyncHighlight(pageView, payload, viewX, viewY);
+    // A line that is not typeset lands on the first page: nothing to mark.
+    if (payload.marker !== false) applySyncHighlight(pageView, payload, viewX, viewY);
   };
 
   const loadDocument = async (url, path) => {

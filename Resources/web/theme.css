@@ -4337,6 +4337,62 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   letter-spacing: 0.06em;
 }
 
+/* Jump is resolving: the pointer mark turns so the click visibly took. */
+#synctex-button.is-busy svg {
+  animation: synctex-busy-spin 0.9s linear infinite;
+}
+
+@keyframes synctex-busy-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Toolbar notice (editor-notice.ts) ─────────────────── */
+.editor-notice {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: default;
+  animation: editor-notice-in var(--duration-normal) ease;
+}
+
+.editor-notice.is-error {
+  border-color: var(--danger-border);
+  background: color-mix(in srgb, var(--danger-soft) 60%, var(--panel-strong));
+  color: var(--danger-text);
+}
+
+.editor-notice-action {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-notice-action:hover {
+  background: var(--control-bg);
+}
+
+@keyframes editor-notice-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 #save-button:hover,
 #format-button:hover,
 #synctex-button:hover {

@@ -10,6 +10,8 @@ module.exports = (SynctexService) => {
     hintLine = null,
     hintColumn = null,
     registerHint = true,
+    preferPage = null,
+    maxVerifiedBlocks = null,
   }) {
     const synctexPath = this.findSynctex();
     if (!synctexPath) {
@@ -40,8 +42,19 @@ module.exports = (SynctexService) => {
     }
     const targetLine = Number.isFinite(line) ? line : null;
     const targetColumn = Number.isFinite(column) ? column : null;
+    // When the caller already knows the page (from the SyncTeX index), only
+    // that page's first boxes need checking: a macro line that expands over
+    // many pages returned 228 boxes, one reverse lookup each, several seconds.
+    let candidateBlocks = blocks;
+    if (Number.isFinite(preferPage)) {
+      const onPage = blocks.filter((block) => block.page === preferPage);
+      if (onPage.length > 0) candidateBlocks = onPage;
+    }
+    if (Number.isFinite(maxVerifiedBlocks) && maxVerifiedBlocks > 0) {
+      candidateBlocks = candidateBlocks.slice(0, maxVerifiedBlocks);
+    }
     const selected = await this.selectForwardPoint({
-      blocks,
+      blocks: candidateBlocks,
       targetLine,
       targetColumn,
       sourcePath,

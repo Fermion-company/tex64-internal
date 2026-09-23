@@ -114,6 +114,21 @@ const parseForwardIndex = (text, baseDir) => {
     }
   };
 
+  // Files first read after a page has shipped (a chapter \input mid-document)
+  // are declared inside the content, not in the preamble.
+  const readInput = (record) => {
+    const separator = record.indexOf(":", 6);
+    if (separator <= 6) return;
+    const tag = Number.parseInt(record.slice(6, separator), 10);
+    const inputPath = record.slice(separator + 1).trim();
+    if (Number.isFinite(tag) && inputPath) {
+      inputs.set(
+        tag,
+        path.normalize(path.isAbsolute(inputPath) ? inputPath : path.resolve(baseDir, inputPath)),
+      );
+    }
+  };
+
   let start = 0;
   const length = text.length;
   while (start < length) {
@@ -125,17 +140,7 @@ const parseForwardIndex = (text, baseDir) => {
 
     if (!inContent) {
       if (record.startsWith("Input:")) {
-        const separator = record.indexOf(":", 6);
-        if (separator > 6) {
-          const tag = Number.parseInt(record.slice(6, separator), 10);
-          const inputPath = record.slice(separator + 1).trim();
-          if (Number.isFinite(tag) && inputPath) {
-            inputs.set(
-              tag,
-              path.normalize(path.isAbsolute(inputPath) ? inputPath : path.resolve(baseDir, inputPath)),
-            );
-          }
-        }
+        readInput(record);
       } else if (record.startsWith("Magnification:")) {
         const value = Number.parseFloat(record.slice(14));
         if (Number.isFinite(value) && value > 0) magnification = value;
@@ -155,6 +160,10 @@ const parseForwardIndex = (text, baseDir) => {
     }
 
     const first = record.charCodeAt(0);
+    if (first === 73 && record.startsWith("Input:")) {
+      readInput(record);
+      continue;
+    }
     if (first === 123) {
       // "{n" opens a page.
       const value = Number.parseInt(record.slice(1), 10);
@@ -413,7 +422,7 @@ module.exports = (SynctexService) => {
    * (or of the nearest line that left ink), in PDF points from the page's
    * top-left corner — the same frame `synctex view` reports.
    */
-  SynctexService.prototype.forwardLinesQuick = function ({ sourcePath, pdfPath, lines }) {
+  SynctexService.prototype.forwardLinesQuick = function ({ sourcePath, pdfPath, lines, preferAbove = false }) {
     if (!fs.existsSync(pdfPath)) {
       return { ok: false, error: "PDF not found." };
     }
@@ -446,12 +455,20 @@ module.exports = (SynctexService) => {
       let matchedLine = requested;
       for (let distance = 0; distance <= MAX_NEAREST_LINE_DISTANCE && !hit; distance += 1) {
         // Look below first: a step that names a heading line wants the text
-        // that follows it, not the paragraph that ended above.
-        hit = lookup(requested + distance);
-        matchedLine = requested + distance;
-        if (!hit && distance > 0 && requested - distance >= 1) {
-          hit = lookup(requested - distance);
-          matchedLine = requested - distance;
+        // that follows it, not the paragraph that ended above. A blank or
+        // closing line belongs to what precedes it, so callers can flip that.
+        const candidates = distance === 0
+          ? [requested]
+          : preferAbove
+            ? [requested - distance, requested + distance]
+            : [requested + distance, requested - distance];
+        for (const candidate of candidates) {
+          if (candidate < 1) continue;
+          hit = lookup(candidate);
+          if (hit) {
+            matchedLine = candidate;
+            break;
+          }
         }
       }
       if (!hit) {

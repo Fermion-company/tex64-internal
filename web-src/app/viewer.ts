@@ -57,6 +57,8 @@ export type PdfSyncPayload = {
   sourceFile?: string;
   sourceLine?: number;
   sourceColumn?: number;
+  // false: scroll there without the highlight (a stand-in position).
+  marker?: boolean;
 };
 
 export type LivePreviewEditRequest = {
