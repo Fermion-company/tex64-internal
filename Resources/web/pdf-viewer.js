@@ -1885,7 +1885,11 @@ const initPdfViewer = () => {
     // An explicit jump replaces any pending viewport handoff.
     liveViewportHandoff = null;
     if (!isLive()) {
+      // Live is still staging (a large document's first typeset can take
+      // minutes): the static PDF is the paper on screen, so move it now. The
+      // Live frame goes to the same place when it appears.
       pendingLiveSync = payload;
+      applySync(payload);
       return true;
     }
     pendingLiveSync = null;
