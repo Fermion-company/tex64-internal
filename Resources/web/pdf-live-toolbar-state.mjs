@@ -6,6 +6,9 @@ export const normalizeLiveToolbarSnapshot = (current = {}, update = {}) => {
     0,
     Math.floor(finiteNumber(update.pageCount, finiteNumber(current.pageCount, 0)))
   );
+  const pageCountAuthoritative = typeof update.pageCountAuthoritative === "boolean"
+    ? update.pageCountAuthoritative
+    : current.pageCountAuthoritative !== false;
   const requestedPage = Math.max(
     1,
     Math.floor(finiteNumber(update.page, finiteNumber(current.page, 1)))
@@ -16,6 +19,7 @@ export const normalizeLiveToolbarSnapshot = (current = {}, update = {}) => {
   );
   return {
     pageCount,
+    pageCountAuthoritative,
     page: Math.min(requestedPage, pageCount || 1),
     zoom,
   };
