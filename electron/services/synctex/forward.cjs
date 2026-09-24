@@ -52,13 +52,14 @@ module.exports = (SynctexService) => {
       // paragraph's line boxes in order, and its first line is where the
       // jump should land (its last line, when the jump is to where it
       // ends). Order is column, then top to bottom; two columns show as two
-      // clusters of left edges. A folio-sized box is not the text.
+      // clusters of left edges.
       const onPage = blocks.filter((block) => block.page === preferPage);
       if (onPage.length > 0) {
         const left = (block) => (Number.isFinite(block.h) ? block.h : block.x);
         const widest = Math.max(...onPage.map((block) => block.width || 0));
-        const narrowOut = onPage.filter((block) => (block.width || 0) >= widest * 0.2);
-        const text = narrowOut.length > 0 ? narrowOut : onPage;
+        // Zero-width records (origin markers, empty boxes) are not text.
+        const inked = onPage.filter((block) => (block.width || 0) > 0);
+        const text = inked.length > 0 ? inked : onPage;
         const lefts = text.map(left);
         const spread = Math.max(...lefts) - Math.min(...lefts);
         const split = spread > Math.max(60, widest * 0.4) ? Math.min(...lefts) + spread / 2 : Infinity;

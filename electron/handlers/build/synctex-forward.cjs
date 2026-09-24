@@ -88,11 +88,16 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     const own = text(lineNumber);
     const comment = own.startsWith("%");
     const reach = 80;
+    // A heading's text is filed under its own line or, as TeX reads ahead to
+    // finish it, under the next one; its own line may also carry the head
+    // and folio of the page \chapter's \clearpage ships.
+    if (heading(own)) return { line: lineNumber, toEnd: false, heading: lineNumber };
     if (!comment && (!own || closing(own))) {
       for (let n = lineNumber - 1; n >= 1 && n >= lineNumber - reach; n -= 1) {
         const t = text(n);
         if (quiet(t) || closing(t)) continue;
-        return heading(t) && !own ? { line: n, toEnd: false } : { line: n, toEnd: true };
+        if (heading(t) && !own && n === lineNumber - 1) return { line: n, toEnd: false, heading: n };
+        return { line: n, toEnd: !heading(t) };
       }
     } else if (comment || opening(own)) {
       for (let n = lineNumber + 1; n <= lines.length && n <= lineNumber + reach; n += 1) {
@@ -460,7 +465,34 @@ const createSynctexForwardHandler = (deps, resolvers) => {
             return { ok: true, page: innerHit.page, x: innerHit.x, y: innerHit.y, fallback: true };
           }
         }
-        quick = synctexService.forwardLinesQuick({
+        if (anchor.heading) {
+          // The heading is on the later of: the last page its own line
+          // reaches (after any page it shipped) and the first page of the
+          // next line's records, when that line has any.
+          const own = synctexService.forwardLinesQuick({
+            sourcePath,
+            pdfPath,
+            lines: [anchor.heading],
+            lastSubstantialPage: true,
+          });
+          const next = synctexService.forwardLinesQuick({
+            sourcePath,
+            pdfPath,
+            lines: [anchor.heading + 1],
+            firstSubstantialPage: true,
+          });
+          const ownHit = own?.ok ? own.results?.[0] : null;
+          const nextHit = next?.ok ? next.results?.[0] : null;
+          const candidates = [
+            ownHit?.found && ownHit.matchedLine === anchor.heading ? ownHit : null,
+            nextHit?.found && nextHit.matchedLine === anchor.heading + 1 ? nextHit : null,
+          ].filter(Boolean);
+          if (candidates.length > 0) {
+            const best = candidates.reduce((a, b) => (b.page > a.page ? b : a));
+            quick = { ...own, ok: true, isRootFile: own?.isRootFile, results: [best] };
+          }
+        }
+        quick ??= synctexService.forwardLinesQuick({
           sourcePath,
           pdfPath,
           lines: [anchor.line],
