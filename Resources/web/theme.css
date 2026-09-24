@@ -102,6 +102,11 @@
   --duration-normal: 0.18s;
   --duration-slow: 0.25s;
 
+  /* Marks on text: a horizontal line annotates it, wavy = error and dotted =
+     warning, the same in the build log and the editor. */
+  --mark-thickness: 1.5px;
+  --mark-offset: 0.22em;
+
   --sidebar-width: 52px;
   --sidebar-panel-width: calc((100vw - var(--sidebar-width) - 4px) * 0.25);
   --topbar-height: 44px;
@@ -4019,7 +4024,6 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   border-color: var(--accent-soft-strong);
   color: var(--accent-strong);
   font-weight: 500;
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .file-item.is-drop-target {
@@ -4109,7 +4113,7 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 }
 
 .tab.is-active {
-  color: var(--text);
+  color: var(--accent-strong);
   background: rgba(92, 156, 255, 0.08);
 }
 
@@ -4130,15 +4134,17 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   outline-offset: 2px;
 }
 
+/* A tab indicator sits under the icon, as on any tab strip. */
 .tab.is-active::before {
   content: "";
   position: absolute;
-  left: 2px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
+  left: 50%;
+  bottom: 3px;
+  width: 16px;
+  height: 2px;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: 1px;
+  transform: translateX(-50%);
 }
 
 .editor {
@@ -5624,34 +5630,53 @@ body.has-editor .editor-group:not(.is-empty) .editor-placeholder {
 }
 
 /* Marked lines inside the transcript: the few that matter among thousands of
-   package banners, so opening the log lands somewhere useful. */
+   package banners, so opening the log lands somewhere useful. The underline's
+   shape carries the severity (wavy = error, dotted = warning) so the two stay
+   apart without relying on hue; the faint wash is what the eye catches while
+   scrolling past thousands of lines. */
 .issues-log-content .build-log-line {
   display: inline-block;
-  width: 100%;
   box-sizing: border-box;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  width: calc(100% + 5px);
+  margin-left: -5px;
   padding: 1px 5px;
   border-radius: 4px;
-  border-left: 2px solid transparent;
   color: var(--text);
   background: transparent;
+  text-decoration-thickness: var(--mark-thickness);
+  text-underline-offset: var(--mark-offset);
+  text-decoration-skip-ink: none;
 }
 
 .issues-log-content .build-log-line.is-error {
-  border-left-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--danger);
 }
 
 .issues-log-content .build-log-line.is-warning {
-  border-left-color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--warning);
 }
 
+:root[data-theme="light"] .issues-log-content .build-log-line.is-error {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+:root[data-theme="light"] .issues-log-content .build-log-line.is-warning {
+  background: color-mix(in srgb, var(--warning) 13%, transparent);
+}
+
+/* The lines TeX prints under an error (l.25 …) belong to it but are not the
+   error: tinted text, no mark of their own. */
 .issues-log-content .build-log-line.is-context {
-  border-left-color: var(--danger-border);
-  background: color-mix(in srgb, var(--danger) 6%, transparent);
-  color: var(--text-soft);
+  background: color-mix(in srgb, var(--danger) 4%, transparent);
+  color: color-mix(in srgb, var(--danger-text) 70%, var(--text-soft));
 }
 
 .issues-log-content {
@@ -5840,14 +5865,36 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 
 .issue-log[hidden] { display: none; }
 
+/* Monaco draws every marker as a wave. Warnings take the dotted line the
+   build log uses, so the editor and the log speak one grammar: wavy = error,
+   dotted = warning. Spelling (info) keeps its wave. */
+.monaco-editor .squiggly-warning {
+  background: radial-gradient(circle, var(--warning) 0.9px, transparent 1.2px) left bottom / 4px 3px repeat-x !important;
+}
+
+/* Where a jump landed (an issue, a SyncTeX click). The line flashes, then
+   settles to a faint wash until the next edit clears it. The severity itself
+   is drawn by the Monaco marker squiggle on the text, so these carry no mark. */
+@keyframes jump-landing {
+  from { background-color: var(--landing-flash); }
+  to { background-color: var(--landing-rest); }
+}
+
+.monaco-editor .issue-line-highlight,
+.monaco-editor .issue-line-warning,
+.monaco-editor .synctex-reverse-highlight {
+  background-color: var(--landing-rest);
+  animation: jump-landing 0.9s ease-out;
+}
+
 .monaco-editor .issue-line-highlight {
-  background: rgba(248, 81, 73, 0.24);
-  box-shadow: inset 3px 0 0 rgba(248, 81, 73, 0.92);
+  --landing-flash: rgba(248, 81, 73, 0.34);
+  --landing-rest: rgba(248, 81, 73, 0.16);
 }
 
 .monaco-editor .issue-line-warning {
-  background: rgba(210, 153, 34, 0.2);
-  box-shadow: inset 3px 0 0 rgba(210, 153, 34, 0.9);
+  --landing-flash: rgba(210, 153, 34, 0.32);
+  --landing-rest: rgba(210, 153, 34, 0.15);
 }
 
 .monaco-editor .jump-line-highlight {
@@ -5855,8 +5902,24 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 
 .monaco-editor .synctex-reverse-highlight {
-  background: rgba(100, 180, 255, 0.18);
-  box-shadow: inset 3px 0 0 rgba(100, 180, 255, 0.7);
+  --landing-flash: rgba(100, 180, 255, 0.32);
+  --landing-rest: rgba(100, 180, 255, 0.15);
+}
+
+/* The landing line's number keeps the colour after the wash settles, so the
+   line stays findable once the cursor has moved on. */
+.monaco-editor .line-numbers.issue-line-highlight-number { color: var(--danger-text) !important; font-weight: 600; }
+.monaco-editor .line-numbers.issue-line-warning-number { color: var(--warning-text) !important; font-weight: 600; }
+.monaco-editor .line-numbers.synctex-reverse-highlight-number { color: #64b4ff !important; font-weight: 600; }
+:root[data-theme="light"] .monaco-editor .line-numbers.synctex-reverse-highlight-number { color: #1D4ED8 !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .monaco-editor .issue-line-highlight,
+  .monaco-editor .issue-line-warning,
+  .monaco-editor .synctex-reverse-highlight {
+    animation: none;
+    background-color: color-mix(in srgb, var(--landing-flash) 60%, var(--landing-rest));
+  }
 }
 
 .monaco-editor .detected-block-highlight {
