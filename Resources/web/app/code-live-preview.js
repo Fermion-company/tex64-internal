@@ -49,6 +49,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     let pendingPush = null;
     let pushing = false;
     let latestInputAtEpochMs = 0;
+    let lastContentChangeAtEpochMs = 0;
     let nextExactInputId = 0;
     const pendingExactInputs = new Map();
     // Session and edit version a completed Build typeset. Dirty-only buffers
@@ -398,6 +399,10 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
     // in 20-60ms, so the debounce dominates end-to-end latency — 300ms (the
     // Pro live preview's value) made a ~50ms pipeline feel like half a second.
     const debouncedPush = createDebouncedTask(pushCurrent, 80);
+    // The first keystroke after a pause (a jump to another place, say) goes
+    // out within a frame: 16ms still takes in the companion edit the editor
+    // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
+    const firstPush = createDebouncedTask(pushCurrent, 16);
     const bindActiveEditor = () => {
         var _a, _b, _c, _d;
         if (!active)
@@ -421,6 +426,8 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 var _a, _b;
                 sourceEditVersion += 1;
                 const editedAtEpochMs = Date.now();
+                const sincePreviousEdit = editedAtEpochMs - lastContentChangeAtEpochMs;
+                lastContentChangeAtEpochMs = editedAtEpochMs;
                 latestInputAtEpochMs = editedAtEpochMs;
                 const currentModel = (_b = (_a = eventEditor.getModel) === null || _a === void 0 ? void 0 : _a.call(eventEditor)) !== null && _b !== void 0 ? _b : null;
                 const modelPath = editorModelPath(eventEditor);
@@ -430,7 +437,11 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
                 // URI-less model is still installed.
                 const exactPath = modelPath !== null && modelPath !== void 0 ? modelPath : (currentModel === eventModel ? eventPath : null);
                 captureExactInput(exactPath, eventEditor, editedAtEpochMs);
-                debouncedPush();
+                // a burst is still coalesced by the 80ms debounce
+                if (sincePreviousEdit > 400 && !pushing && !pendingPush)
+                    firstPush();
+                else
+                    debouncedPush();
             });
         }
         if (boundEditor === null || boundEditor === void 0 ? void 0 : boundEditor.onDidChangeCursorPosition) {
@@ -470,6 +481,7 @@ export const initCodeLivePreview = ({ getActiveGroup, getEditorGroups, getAppMod
         lifecycleVersion += 1;
         latestPushVersion += 1;
         debouncedPush.cancel();
+        firstPush.cancel();
         debouncedFocus.cancel();
         disposable === null || disposable === void 0 ? void 0 : disposable.dispose();
         cursorDisposable === null || cursorDisposable === void 0 ? void 0 : cursorDisposable.dispose();
