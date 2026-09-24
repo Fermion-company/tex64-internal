@@ -82,7 +82,7 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
             }
         };
         issues.forEach((issue) => {
-            var _a;
+            var _a, _b, _c, _d;
             const detail = parseIssueDetail(issue);
             const targetPath = (_a = detail.path) !== null && _a !== void 0 ? _a : activePath;
             if (!targetPath) {
@@ -92,15 +92,28 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
             if (!line || line < 1) {
                 return;
             }
-            const column = Number.isFinite(detail.column) ? detail.column : 1;
+            const column = Number.isFinite(detail.column) ? detail.column : null;
             const severity = issue.severity === "error" ? 8 : 4;
+            // The squiggle is the error's mark in the editor, so it runs under the
+            // line's text (from the reported column, or the first non-blank) rather
+            // than under a single character nobody notices.
+            const model = (_b = runtime.monacoModels.get(targetPath)) === null || _b === void 0 ? void 0 : _b.model;
+            let startColumn = Math.max(1, column !== null && column !== void 0 ? column : 1);
+            let endColumn = startColumn + 1;
+            if ((model === null || model === void 0 ? void 0 : model.getLineCount) && model.getLineMaxColumn && line <= model.getLineCount()) {
+                if (column === null) {
+                    const firstText = (_d = (_c = model.getLineFirstNonWhitespaceColumn) === null || _c === void 0 ? void 0 : _c.call(model, line)) !== null && _d !== void 0 ? _d : 0;
+                    startColumn = firstText > 0 ? firstText : 1;
+                }
+                endColumn = Math.max(startColumn + 1, model.getLineMaxColumn(line));
+            }
             pushMarker(targetPath, {
                 severity,
                 message: detail.message || issue.message,
                 startLineNumber: line,
-                startColumn: Math.max(1, column),
+                startColumn,
                 endLineNumber: line,
-                endColumn: Math.max(1, column) + 1,
+                endColumn,
             });
         });
         runtime.monacoModels.forEach((entry, path) => {
@@ -142,6 +155,7 @@ export const createEditorSessionIssueOps = (runtime, coreOps) => {
                 options: {
                     isWholeLine: true,
                     className,
+                    lineNumberClassName: `${className}-number`,
                 },
             },
         ]);

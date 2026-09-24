@@ -150,15 +150,34 @@ export const createEditorSessionIssueOps = (
       if (!line || line < 1) {
         return;
       }
-      const column = Number.isFinite(detail.column) ? (detail.column as number) : 1;
+      const column = Number.isFinite(detail.column) ? (detail.column as number) : null;
       const severity = issue.severity === "error" ? 8 : 4;
+      // The squiggle is the error's mark in the editor, so it runs under the
+      // line's text (from the reported column, or the first non-blank) rather
+      // than under a single character nobody notices.
+      const model = runtime.monacoModels.get(targetPath)?.model as
+        | {
+            getLineCount?: () => number;
+            getLineMaxColumn?: (lineNumber: number) => number;
+            getLineFirstNonWhitespaceColumn?: (lineNumber: number) => number;
+          }
+        | undefined;
+      let startColumn = Math.max(1, column ?? 1);
+      let endColumn = startColumn + 1;
+      if (model?.getLineCount && model.getLineMaxColumn && line <= model.getLineCount()) {
+        if (column === null) {
+          const firstText = model.getLineFirstNonWhitespaceColumn?.(line) ?? 0;
+          startColumn = firstText > 0 ? firstText : 1;
+        }
+        endColumn = Math.max(startColumn + 1, model.getLineMaxColumn(line));
+      }
       pushMarker(targetPath, {
         severity,
         message: detail.message || issue.message,
         startLineNumber: line,
-        startColumn: Math.max(1, column),
+        startColumn,
         endLineNumber: line,
-        endColumn: Math.max(1, column) + 1,
+        endColumn,
       });
     });
 
@@ -216,6 +235,7 @@ export const createEditorSessionIssueOps = (
         options: {
           isWholeLine: true,
           className,
+          lineNumberClassName: `${className}-number`,
         },
       },
     ]);
