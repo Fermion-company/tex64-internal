@@ -593,6 +593,12 @@ const installApplicationMenu = () => {
     appName: app.name || "TeX64",
     isMac: process.platform === "darwin",
     sendCommand: (command) => {
+      // Find in the separate PDF window searches that PDF instead of pulling
+      // focus back to the editor.
+      if (command === "edit:find" && pdfWindowManager.window?.isFocused?.()) {
+        pdfWindowManager.send("find-open");
+        return;
+      }
       focusMainWindow();
       sendToRenderer("app:command", { command });
     },
@@ -2058,6 +2064,14 @@ const handleRendererMessage = (event, message) => {
     acceptRendererQuitPreparation(event, message);
     return;
   }
+  if (type === "window:documentEdited") {
+    // macOS: the close button carries a dot while edits are not on disk.
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && !window.isDestroyed() && typeof window.setDocumentEdited === "function") {
+      window.setDocumentEdited(message.edited === true);
+    }
+    return;
+  }
   if (type === "ready") {
     const rootPath = workspace.getRootPath();
     if (!rootPath) {
@@ -2572,7 +2586,7 @@ ipcMain.on("tex64", (event, message) => {
     const lease = workspaceOperations.current;
     const token = lease.owner === "git" ? message?.gitToken : message?.historyToken;
     const allowedFlush = message?.type === "saveFile" && token === lease.operation.id && lease.operation.phase === "saving";
-    const safe = (message?.type === "openFile" && lease.operation.phase === "syncing") || ["ready", "prepareQuit:result", "uiLocale", "build:cancel", "agent:stop", "settings:response", "agent:contentConflict"].includes(message?.type);
+    const safe = (message?.type === "openFile" && lease.operation.phase === "syncing") || ["ready", "prepareQuit:result", "uiLocale", "build:cancel", "agent:stop", "settings:response", "agent:contentConflict", "window:documentEdited"].includes(message?.type);
     if (!allowedFlush && !safe) {
       if (message?.type === "saveFile") sendToRenderer("saveResult", { ok: false, path: message.path, error: "A project operation is protecting this workspace. Your edits remain open." });
       return;

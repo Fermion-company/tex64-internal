@@ -10,6 +10,7 @@ import type {
 import type { EnvStatusSummary } from "./settings-env.js";
 import type { PdfSyncPayload } from "./viewer.js";
 import type { ContextMenuApi, ContextMenuItem } from "./context-menu.js";
+import { hideEditorNotice, showEditorNotice } from "./editor-notice.js";
 
 type EditorGroupKey = "primary" | "secondary";
 type SynctexForwardSource = "manual" | "auto-build" | "other";
@@ -151,6 +152,8 @@ export type BuildOpsApi = {
     pdfPath?: string | null;
     requestId?: string;
     cancelled?: boolean;
+    fallback?: boolean;
+    notTypeset?: boolean;
   }) => void;
   setupActionButtons: () => void;
 };
@@ -201,6 +204,52 @@ export const initBuildOpsUi = (
     let counter = 0;
     return () => `synctex-forward-${Date.now().toString(36)}-${counter++}`;
   })();
+  // The Jump button turns while its own request resolves, so a click that
+  // takes a moment does not read as a dead button.
+  let synctexBusyRequestId: string | null = null;
+  let synctexBusyTimer: number | null = null;
+  const setSynctexBusy = (requestId: string | null) => {
+    synctexBusyRequestId = requestId;
+    if (synctexBusyTimer !== null) window.clearTimeout(synctexBusyTimer);
+    synctexBusyTimer = requestId
+      ? window.setTimeout(() => setSynctexBusy(null), synctexForwardInFlightTimeoutMs)
+      : null;
+    if (synctexButton instanceof HTMLElement) {
+      synctexButton.classList.toggle("is-busy", Boolean(requestId));
+      synctexButton.setAttribute("aria-busy", requestId ? "true" : "false");
+    }
+  };
+  const synctexErrorNotice = (error: string): { message: string; build?: boolean } => {
+    if (/PDF not found|PDF has not been generated/i.test(error)) {
+      return {
+        message: uiText("There is no PDF yet. Build once, then Jump can find the cursor.", "PDF がまだありません。一度ビルドすると、カーソルの位置へジャンプできます。"),
+        build: true,
+      };
+    }
+    if (/SyncTeX data was not found/i.test(error)) {
+      return {
+        message: uiText("This PDF has no position data (SyncTeX). Build it again.", "この PDF には位置情報（SyncTeX）がありません。ビルドし直してください。"),
+        build: true,
+      };
+    }
+    if (/not part of this PDF/i.test(error)) {
+      return { message: uiText("This file is not part of the PDF.", "このファイルは PDF に含まれていません。") };
+    }
+    if (/does not appear in the PDF|position was not found/i.test(error)) {
+      return { message: uiText("This line does not appear in the PDF.", "この行は PDF に出力されていません。") };
+    }
+    if (/only (supports|available for) .*TeX files|No TeX file selected/i.test(error)) {
+      return { message: uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。") };
+    }
+    return { message: `${uiText("Could not jump:", "ジャンプできませんでした：")} ${error}` };
+  };
+  const showSynctexNotice = (message: string, tone: "info" | "error", build = false) => {
+    showEditorNotice(synctexButton instanceof HTMLElement ? synctexButton : null, message, {
+      tone,
+      owner: "jump",
+      ...(build ? { action: { label: uiText("Build", "ビルド"), run: () => void startBuild() } } : {}),
+    });
+  };
 
   const getBuildButtonIdleTitle = () => uiText("Build", "ビルド");
 
@@ -415,10 +464,9 @@ export const initBuildOpsUi = (
       rootPath
     );
     if (!targetPath) {
-      const message = uiText("SyncTeX is only available for .tex files.", "SyncTeX は .tex ファイルでのみ利用できます。");
-      deps.updateIssues(1, message, "info", [
-        { severity: "warning", message },
-      ]);
+      if ((options.source ?? "manual") === "manual") {
+        showSynctexNotice(uiText("Jump works from a .tex file.", "ジャンプは .tex ファイルから使えます。"), "info");
+      }
       return;
     }
     const sourceGroup = [activeGroup, ...deps.getEditorGroups()].find(
@@ -434,6 +482,8 @@ export const initBuildOpsUi = (
     const source = options.source ?? "manual";
     if (source === "manual") {
       synctexManualPriorityUntil = Date.now() + 5000;
+      // The last Jump's note is about another line.
+      hideEditorNotice("jump");
     }
     const requestKey = [
       targetPath,
@@ -444,19 +494,32 @@ export const initBuildOpsUi = (
     if (synctexForwardInFlight) {
       const inFlightAgeMs = Date.now() - synctexForwardInFlight.startedAt;
       if (inFlightAgeMs <= synctexForwardInFlightTimeoutMs) {
-        if (synctexForwardInFlight.key === requestKey) {
+        // The same line already resolving for a click: nothing to add. For
+        // the post-build jump it is the click's turn: a request of its own
+        // (the automatic one never falls back to the first page, and its
+        // result is dropped once a click has priority).
+        if (
+          synctexForwardInFlight.key === requestKey &&
+          !(source === "manual" && synctexForwardInFlight.source !== "manual")
+        ) {
           return;
         }
-        queuedSynctexForward = {
-          overridePath: targetPath,
-          options: {
-            fallbackToTop: options.fallbackToTop === true,
-            source,
-          },
-        };
-        return;
+        // A click from another line replaces the pending one outright (the
+        // main process drops the older request); waiting for it made the
+        // second click look ignored.
+        if (source !== "manual") {
+          queuedSynctexForward = {
+            overridePath: targetPath,
+            options: {
+              fallbackToTop: options.fallbackToTop === true,
+              source,
+            },
+          };
+          return;
+        }
       }
       synctexForwardInFlight = null;
+      queuedSynctexForward = null;
     }
     const requestId = buildSynctexForwardRequestId();
     const order = ++synctexForwardRequestOrder;
@@ -474,6 +537,7 @@ export const initBuildOpsUi = (
       source,
       startedAt: Date.now(),
     };
+    if (source === "manual") setSynctexBusy(requestId);
     while (synctexForwardOrderByRequestId.size > 256) {
       const oldestRequestId = synctexForwardOrderByRequestId.keys().next().value;
       if (!oldestRequestId) {
@@ -801,6 +865,8 @@ export const initBuildOpsUi = (
     pdfPath?: string | null;
     requestId?: string;
     cancelled?: boolean;
+    fallback?: boolean;
+    notTypeset?: boolean;
   }) => {
     if (!payload) {
       return;
@@ -809,6 +875,9 @@ export const initBuildOpsUi = (
       typeof payload.requestId === "string" && payload.requestId.trim()
         ? payload.requestId
         : null;
+    if (payloadRequestId && payloadRequestId === synctexBusyRequestId) {
+      setSynctexBusy(null);
+    }
     const matchedInFlight = Boolean(
       payloadRequestId &&
         synctexForwardInFlight &&
@@ -871,7 +940,10 @@ export const initBuildOpsUi = (
         if (pdfPath) {
           syncPayload.pdfPath = pdfPath;
         }
-        if (payloadMeta) {
+        if (payload.notTypeset === true) {
+          // The first page stands in for a line that is not typeset.
+          syncPayload.marker = false;
+        } else if (payloadMeta) {
           syncPayload.sourceFile = payloadMeta.path;
           syncPayload.sourceLine = payloadMeta.line;
           syncPayload.sourceColumn = payloadMeta.column;
@@ -890,6 +962,12 @@ export const initBuildOpsUi = (
         }
         openedGroup.viewer.syncPdf(syncPayload);
       }
+      if (payload.notTypeset === true && payloadMeta?.source !== "auto-build") {
+        showSynctexNotice(
+          uiText("This line does not appear in the PDF, so the first page is shown.", "この行は PDF に出力されないため、先頭ページを表示しました。"),
+          "info",
+        );
+      }
       if (matchedInFlight) {
         flushQueuedSynctexForward();
       }
@@ -907,11 +985,15 @@ export const initBuildOpsUi = (
       return;
     }
     const errorMessage = payload.error ?? uiText("SyncTeX failed.", "SyncTeX に失敗しました。");
-    const issue: IssueItem = { severity: "error", message: errorMessage };
     if (isEnvMissingMessage(errorMessage)) {
-      issue.action = "open-runtime";
+      // Missing TeX tools: the Issues entry carries the fix-it action.
+      const issue: IssueItem = { severity: "error", message: errorMessage, action: "open-runtime" };
+      deps.updateIssues(1, errorMessage, "error", [issue]);
     }
-    deps.updateIssues(1, errorMessage, "error", [issue]);
+    // Shown where the click happened: replacing the Issues list would also
+    // wipe the last build's warnings, and that panel is usually closed.
+    const notice = synctexErrorNotice(errorMessage);
+    showSynctexNotice(notice.message, "error", notice.build === true);
     if (matchedInFlight) {
       flushQueuedSynctexForward();
     }

@@ -4337,6 +4337,63 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
   letter-spacing: 0.06em;
 }
 
+/* Jump is resolving: the pointer mark turns so the click visibly took. */
+#synctex-button.is-busy svg {
+  animation: synctex-busy-spin 0.9s linear infinite;
+}
+
+@keyframes synctex-busy-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Toolbar notice (editor-notice.ts) ─────────────────── */
+.editor-notice {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-sm);
+  /* Opaque: the note sits over tabs and paper. */
+  background: linear-gradient(var(--panel-strong), var(--panel-strong)), var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: default;
+  animation: editor-notice-in var(--duration-normal) ease;
+}
+
+.editor-notice.is-error {
+  border-color: var(--danger-border);
+  background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--bg);
+  color: var(--danger-text);
+}
+
+.editor-notice-action {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-notice-action:hover {
+  background: var(--control-bg);
+}
+
+@keyframes editor-notice-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 #save-button:hover,
 #format-button:hover,
 #synctex-button:hover {
@@ -4349,6 +4406,38 @@ body[data-active-tab="settings"] .main.sidebar-collapsed .sidebar-panel {
 #format-button:active,
 #synctex-button:active {
   transform: translateY(1px);
+}
+
+/* Save state (save-status-ui.ts). The label keeps one width across
+   Save / Saving / Saved so the toolbar does not shift while typing. */
+#save-button > span {
+  display: inline-block;
+  text-align: left;
+}
+
+#save-button[data-save-state="saved"] {
+  color: var(--text-soft);
+}
+
+#save-button[data-save-state="dirty"] > span::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+#save-button[data-save-state="saving"] {
+  color: var(--text-soft);
+}
+
+#save-button[data-save-state="error"] {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger-text);
 }
 
 #save-button:focus-visible,

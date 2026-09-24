@@ -425,9 +425,9 @@ export const initMonacoSetup = (
             deps.editorSession.clearJumpHighlight(group);
             deps.editorSession.updateBreadcrumbs();
             deps.fileTree.render();
-            if (!e.isUndoing && !e.isRedoing) {
-              deps.editorSession.scheduleAutoSave();
-            }
+            // Undo and redo change the file too. Autosave never reformats,
+            // so saving them leaves the undo stack alone.
+            deps.editorSession.scheduleAutoSave();
           }
         });
         editor.onDidChangeCursorPosition?.(

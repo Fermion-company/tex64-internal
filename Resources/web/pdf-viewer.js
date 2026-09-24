@@ -106,8 +106,11 @@ const UI_STRINGS = {
   rotateLeft: { en: "Rotate left", ja: "左に回転", zh: "向左旋转", ko: "왼쪽으로 회전", fr: "Pivoter à gauche", de: "Nach links drehen", es: "Girar a la izquierda" },
   rotateRight: { en: "Rotate right", ja: "右に回転", zh: "向右旋转", ko: "오른쪽으로 회전", fr: "Pivoter à droite", de: "Nach rechts drehen", es: "Girar a la derecha" },
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
-  searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
-  searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
+  findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
+  findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
+  findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
+  findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
+  findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
   print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
   reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
@@ -150,14 +153,21 @@ const localizeChrome = () => {
   setTitle("pdf-fit-page", "fitPage");
   setTitle("pdf-rotate-left", "rotateLeft");
   setTitle("pdf-rotate-right", "rotateRight");
-  setTitle("pdf-search-prev", "searchPrev");
-  setTitle("pdf-search-next", "searchNext");
+  setTitle("pdf-search-open", "findInPdf");
+  setTitle("pdf-findbar-prev", "findPrev");
+  setTitle("pdf-findbar-next", "findNext");
+  setTitle("pdf-findbar-close", "findClose");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
-  const searchInput = document.getElementById("pdf-search-input");
-  if (searchInput) searchInput.placeholder = uiString("search");
+  const searchOpen = document.getElementById("pdf-search-open");
+  if (searchOpen) searchOpen.textContent = uiString("search");
+  const findInput = document.getElementById("pdf-findbar-input");
+  if (findInput) {
+    findInput.placeholder = uiString("findInPdf");
+    findInput.setAttribute("aria-label", uiString("findInPdf"));
+  }
   const fitWidthSpan = document.querySelector("#pdf-fit-width span");
   if (fitWidthSpan) fitWidthSpan.textContent = uiString("widthWord");
   const fitPageSpan = document.querySelector("#pdf-fit-page span");
@@ -253,9 +263,13 @@ const initPdfViewer = () => {
   const fitPageBtn = document.getElementById("pdf-fit-page");
   const rotateLeftBtn = document.getElementById("pdf-rotate-left");
   const rotateRightBtn = document.getElementById("pdf-rotate-right");
-  const searchInput = document.getElementById("pdf-search-input");
-  const searchPrevBtn = document.getElementById("pdf-search-prev");
-  const searchNextBtn = document.getElementById("pdf-search-next");
+  const searchOpenBtn = document.getElementById("pdf-search-open");
+  const findBar = document.getElementById("pdf-findbar");
+  const findInput = document.getElementById("pdf-findbar-input");
+  const findCount = document.getElementById("pdf-findbar-count");
+  const findPrevBtn = document.getElementById("pdf-findbar-prev");
+  const findNextBtn = document.getElementById("pdf-findbar-next");
+  const findCloseBtn = document.getElementById("pdf-findbar-close");
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
@@ -310,7 +324,32 @@ const initPdfViewer = () => {
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
-  const findController = new PDFFindController({ eventBus, linkService });
+  // A re-search after a reload or a paper switch only refreshes the count
+  // and highlights. pdf.js would otherwise scroll to the next hit (through
+  // the link service's page and scrollMatchIntoView) and undo where the
+  // reader, or a SyncTeX jump, had put the page.
+  let findScrollQuiet = false;
+  const findLinkService = new Proxy(linkService, {
+    get(target, prop) {
+      const value = target[prop];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set(target, prop, value) {
+      if (prop === "page" && findScrollQuiet) return true;
+      target[prop] = value;
+      return true;
+    },
+  });
+  const findController = new PDFFindController({ eventBus, linkService: findLinkService });
+  const scrollMatchIntoView = findController.scrollMatchIntoView.bind(findController);
+  findController.scrollMatchIntoView = (args) => {
+    if (findScrollQuiet) {
+      // Dropped for good, or a later text-layer render would still scroll.
+      findController._scrollMatches = false;
+      return;
+    }
+    scrollMatchIntoView(args);
+  };
   const pdfViewer = new PDFViewer({
     container: scrollEl,
     viewer: pagesEl,
@@ -1290,7 +1329,8 @@ const initPdfViewer = () => {
         scrollEl.clientHeight / 2,
       behavior: "auto",
     });
-    applySyncHighlight(pageView, payload, viewX, viewY);
+    // A line that is not typeset lands on the first page: nothing to mark.
+    if (payload.marker !== false) applySyncHighlight(pageView, payload, viewX, viewY);
   };
 
   const loadDocument = async (url, path) => {
@@ -1363,26 +1403,6 @@ const initPdfViewer = () => {
     }
     deferredStaticOpen = null;
     void loadDocument(url, path);
-  };
-
-  const runSearch = (findPrevious = false) => {
-    if (!searchInput) return;
-    const query = searchInput.value.trim();
-    if (!query) return;
-    if (isLive()) {
-      postLive("search", { query, findPrevious });
-      return;
-    }
-    if (!state.doc) return;
-    eventBus.dispatch("find", {
-      query,
-      caseSensitive: false,
-      entireWord: false,
-      highlightAll: true,
-      findPrevious,
-      phraseSearch: true,
-      matchDiacritics: false,
-    });
   };
 
   const downloadPdf = async () => {
@@ -1469,6 +1489,8 @@ const initPdfViewer = () => {
     // Live can start before the first static fallback finishes loading. Seed
     // its viewport handoff after pdf.js has real pages and a scroll position.
     scheduleHeldMirror();
+    // A rebuilt PDF has new text: count and mark it again, without moving.
+    if (isFindOpen() && findQuery && !isLive()) runFind(findQuery, { quiet: true });
   });
 
   eventBus.on("pagerendered", () => {
@@ -1682,26 +1704,136 @@ const initPdfViewer = () => {
     });
   }
 
-  if (searchInput) {
-    searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        runSearch(event.shiftKey);
-      }
+  // Find bar (Cmd/Ctrl+F, or Search in the standalone window's toolbar). It
+  // searches whichever paper is visible — pdf.js for the static PDF, the
+  // engine for the Live frame — and is the one search UI in both places.
+  const FIND_STATE_NOT_FOUND = 1;
+  const FIND_STATE_PENDING = 3;
+  let findQuery = "";
+  let liveFindQuery = "";
+  let findTypingTimer = null;
+  let findReturnFocus = null;
+  const isFindOpen = () => Boolean(findBar && !findBar.hidden);
+  const renderFindCount = (current, total) => {
+    if (!findBar || !findCount) return;
+    const noMatch = Boolean(findQuery) && total === 0;
+    findBar.classList.toggle("is-no-match", noMatch);
+    findCount.textContent = !findQuery ? "" : noMatch ? uiString("findNoMatch") : `${current} / ${total}`;
+  };
+  const clearFindHighlights = () => {
+    if (liveFindQuery) {
+      liveFindQuery = "";
+      postLive("search", { query: "" });
+    }
+    if (state.doc) eventBus.dispatch("findbarclose", { source: findBar });
+  };
+  const runFind = (rawQuery, { again = false, findPrevious = false, quiet = false } = {}) => {
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = null;
+    findScrollQuiet = quiet;
+    const query = String(rawQuery ?? "").trim();
+    findQuery = query;
+    if (!query) {
+      renderFindCount(0, 0);
+      clearFindHighlights();
+      return;
+    }
+    if (isLive()) {
+      // The engine steps to the next hit when it sees the same query again,
+      // so a keystroke that leaves the query unchanged must not resend it.
+      if (!again && query === liveFindQuery) return;
+      liveFindQuery = query;
+      postLive("search", { query, findPrevious });
+      return;
+    }
+    if (!state.doc) return;
+    eventBus.dispatch("find", {
+      source: findBar,
+      type: again ? "again" : "",
+      query,
+      caseSensitive: false,
+      entireWord: false,
+      highlightAll: true,
+      findPrevious,
+      phraseSearch: true,
+      matchDiacritics: false,
     });
-  }
-
-  if (searchPrevBtn) {
-    searchPrevBtn.addEventListener("click", () => {
-      runSearch(true);
-    });
-  }
-
-  if (searchNextBtn) {
-    searchNextBtn.addEventListener("click", () => {
-      runSearch(false);
-    });
-  }
+  };
+  const openFindBar = () => {
+    if (!findBar || !findInput) return;
+    const wasOpen = isFindOpen();
+    if (!wasOpen) {
+      const active = document.activeElement;
+      findReturnFocus = active && active !== document.body && active !== findInput ? active : null;
+    }
+    const selected = String(window.getSelection?.() ?? "").trim();
+    if (selected && !selected.includes("\n") && selected.length <= 200) {
+      findInput.value = selected;
+    }
+    findBar.hidden = false;
+    findInput.focus();
+    findInput.select();
+    if (!wasOpen || findInput.value.trim() !== findQuery) runFind(findInput.value);
+  };
+  const closeFindBar = () => {
+    if (!isFindOpen()) return;
+    findBar.hidden = true;
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = null;
+    findQuery = "";
+    renderFindCount(0, 0);
+    clearFindHighlights();
+    findInput?.blur();
+    // Back to what had the keyboard (the Live frame, a toolbar control).
+    const returnTo = findReturnFocus;
+    findReturnFocus = null;
+    if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus({ preventScroll: true });
+  };
+  eventBus.on("updatefindmatchescount", ({ matchesCount }) => {
+    if (!isFindOpen() || isLive()) return;
+    renderFindCount(matchesCount?.current ?? 0, matchesCount?.total ?? 0);
+  });
+  eventBus.on("updatefindcontrolstate", ({ state: findState, matchesCount }) => {
+    if (!isFindOpen() || isLive()) return;
+    const total = matchesCount?.total ?? 0;
+    if (findState === FIND_STATE_PENDING && total === 0) return;
+    if (findState === FIND_STATE_NOT_FOUND) renderFindCount(0, 0);
+    else renderFindCount(matchesCount?.current ?? 0, total);
+  });
+  const scheduleTypedFind = () => {
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = window.setTimeout(() => runFind(findInput.value), 150);
+  };
+  // An IME composition is not a query yet; search when it is committed.
+  findInput?.addEventListener("input", (event) => {
+    if (event.isComposing) return;
+    scheduleTypedFind();
+  });
+  findInput?.addEventListener("compositionend", scheduleTypedFind);
+  searchOpenBtn?.addEventListener("click", openFindBar);
+  findInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      runFind(findInput.value, { again: true, findPrevious: event.shiftKey });
+    }
+  });
+  findPrevBtn?.addEventListener("click", () => runFind(findInput?.value, { again: true, findPrevious: true }));
+  findNextBtn?.addEventListener("click", () => runFind(findInput?.value, { again: true }));
+  findCloseBtn?.addEventListener("click", closeFindBar);
+  document.addEventListener("keydown", (event) => {
+    const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
+    const key = String(event.key || "").toLowerCase();
+    if (mod && !event.shiftKey && key === "f") {
+      event.preventDefault();
+      openFindBar();
+    } else if (mod && key === "g" && isFindOpen()) {
+      event.preventDefault();
+      runFind(findInput?.value, { again: true, findPrevious: event.shiftKey });
+    } else if (event.key === "Escape" && isFindOpen() && !event.isComposing) {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
 
   if (downloadBtn) {
     downloadBtn.addEventListener("click", () => {
@@ -1779,7 +1911,12 @@ const initPdfViewer = () => {
     // An explicit jump replaces any pending viewport handoff.
     liveViewportHandoff = null;
     if (!isLive()) {
-      pendingLiveSync = payload;
+      // Live is still staging (a large document's first typeset can take
+      // minutes): the static PDF is the paper on screen, so move it now. Its
+      // scroll reaches the frame through the staging viewport mirror, as the
+      // reader's own scrolling does; nothing is replayed later over it.
+      pendingLiveSync = null;
+      applySync(payload);
       return true;
     }
     pendingLiveSync = null;
@@ -1789,6 +1926,9 @@ const initPdfViewer = () => {
   };
   const renderLiveStatus = (data) => {
     const search = data?.search;
+    if (isFindOpen() && findQuery && search?.query === findQuery) {
+      renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
+    }
     if (search?.query) {
       setStatus(`${Number(search.current) || 0} / ${Number(search.total) || 0}`);
       if (statusEl) statusEl.title = search.query;
@@ -1829,6 +1969,9 @@ const initPdfViewer = () => {
     }
     liveToolbar = normalizeLiveToolbarSnapshot();
     restoreStaticToolbar();
+    // The frame is gone and its search with it; search the static PDF.
+    liveFindQuery = "";
+    if (isFindOpen() && findQuery) runFind(findQuery, { quiet: true });
     refreshStaticStatus();
     const deferredSync = pendingLiveSync;
     pendingLiveSync = null;
@@ -2073,6 +2216,9 @@ const initPdfViewer = () => {
         setStatus(uiString("live"));
         renderLiveStatus(latestData);
         if (pendingLiveSync) applyLiveSync(pendingLiveSync);
+        // A query typed while the static PDF was showing has not reached the
+        // engine yet; the engine keeps its own search across later updates.
+        if (isFindOpen() && findQuery && liveFindQuery !== findQuery) runFind(findQuery);
         bridge?.postMessage?.({
           type: "live-surface-ready",
           payload: {
@@ -2168,6 +2314,8 @@ const initPdfViewer = () => {
     });
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
+    // A new frame starts without a search; the reveal sends the open query.
+    liveFindQuery = "";
     liveFrame.src = `${url}/?${params.toString()}`;
     if (hold) {
       // A Build published before this frame existed: preload below its PDF.
@@ -2381,6 +2529,9 @@ const initPdfViewer = () => {
       }
       if (message.type === "sync" && message.payload) {
         if (!applyLiveSync(message.payload)) applySync(message.payload);
+      }
+      if (message.type === "find-open") {
+        openFindBar();
       }
       if (message.type === "live") {
         setLiveMode(message.payload || null);
