@@ -29,14 +29,16 @@ export const createEditorSessionFileOps = (ctx) => {
         }, saveRetryDelayMs);
     };
     const reportSaveError = (message, path = null) => {
-        // Only a file's first failure goes to Issues: its retries would replace
-        // the build's warnings every few seconds (their messages differ only in
-        // the temporary file name).
-        const firstReport = path ? !saveErrors.has(path) : message !== lastSaveErrorMessage;
-        if (firstReport) {
+        // A retry failing the same way leaves Issues alone: it would replace the
+        // build's warnings every few seconds. (Retries differ only in the
+        // temporary file name.) `lastSaveErrorMessage` is what Issues shows, so
+        // a later success can take exactly that down.
+        const kind = (text) => text.replace(/\.[^\s'"/\\]+\.tmp-[\w.-]+/g, "");
+        const previous = path ? saveErrors.get(path) : lastSaveErrorMessage;
+        if (typeof previous !== "string" || kind(previous) !== kind(message)) {
             deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+            lastSaveErrorMessage = message;
         }
-        lastSaveErrorMessage = message;
         if (path) {
             saveErrors.set(path, message);
             scheduleSaveRetry();

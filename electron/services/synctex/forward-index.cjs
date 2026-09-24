@@ -456,27 +456,36 @@ module.exports = (SynctexService) => {
       }
       let chosen = null;
       if ((firstSubstantialPage || lastSubstantialPage) && entries.length > 0) {
-        // Where the line's output begins (a jump to it): the first page that
-        // carries a real part of it. A paragraph running onto the next page
-        // starts on the earlier one; the few marks a page break stamps with
-        // the line (a footer, leftover math) are not a real part.
-        // A paragraph's last line at the foot of a page has few glyphs but
-        // is one line spanning the text width. What a page break stamps with
-        // the line (head at the top, folio at the foot) spreads over the
-        // whole page height instead.
+        // What a page break stamps with the line being read (the running
+        // head at the top, the folio at the foot) is a few glyphs spread
+        // over the whole page height. A line with nothing else, like
+        // \chapter whose \clearpage ships the previous page, has no output
+        // of its own here: its heading is filed under the next line, so the
+        // search moves on to that.
         const most = Math.max(...entries.map((entry) => entry.glyphs));
         const enough = Math.max(3, Math.min(20, most * 0.3));
         const width = (entry) => (entry.hmin === null || entry.hmax === null ? 0 : entry.hmax - entry.hmin);
         const height = (entry) => (entry.vmin === null || entry.vmax === null ? 0 : entry.vmax - entry.vmin);
-        const widest = Math.max(...entries.map(width));
         const lowest = Math.max(...entries.map((entry) => entry.vmax ?? 0));
+        const stamp = (entry) => entry.glyphs < enough && height(entry) > lowest * 0.5;
+        const own = entries.filter((entry) => !stamp(entry));
+        if (own.length === 0) return null;
+        // A paragraph's first line at the foot of a page has few glyphs but
+        // spans the text width; its last line at the top of the next page
+        // may be short.
+        const widest = Math.max(...own.map(width));
         const lineLike = (entry) =>
-          entry.glyphs >= 5 && widest > 0 && width(entry) >= widest * 0.5 && height(entry) <= lowest * 0.5;
+          entry.glyphs >= 3 && (lastSubstantialPage || (widest > 0 && width(entry) >= widest * 0.5));
         const real = (entry) => entry.glyphs >= enough || lineLike(entry);
         // First page for where the output begins, last for where it ends.
-        for (const entry of entries) {
+        for (const entry of own) {
           if (!real(entry)) continue;
           if (!chosen || (lastSubstantialPage ? entry.page > chosen.page : entry.page < chosen.page)) chosen = entry;
+        }
+        if (!chosen) {
+          for (const entry of own) {
+            if (isBetterPage(entry, chosen)) chosen = entry;
+          }
         }
       }
       if (!chosen) {

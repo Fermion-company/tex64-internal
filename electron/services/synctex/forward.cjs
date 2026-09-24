@@ -48,13 +48,24 @@ module.exports = (SynctexService) => {
     // many pages returned 228 boxes, one reverse lookup each, several seconds.
     let candidateBlocks = blocks;
     if (Number.isFinite(preferPage)) {
-      // Topmost first: `synctex view` does not list a paragraph's line boxes
-      // in reading order, and its first line is where the jump should land
-      // (its last line, bottom first, when the jump is to where it ends).
-      const onPage = blocks
-        .filter((block) => block.page === preferPage)
-        .sort((a, b) => (preferBottom ? b.y - a.y : a.y - b.y));
-      if (onPage.length > 0) candidateBlocks = onPage;
+      // Reading order, first box first: `synctex view` does not list a
+      // paragraph's line boxes in order, and its first line is where the
+      // jump should land (its last line, when the jump is to where it
+      // ends). Order is column, then top to bottom; two columns show as two
+      // clusters of left edges. A folio-sized box is not the text.
+      const onPage = blocks.filter((block) => block.page === preferPage);
+      if (onPage.length > 0) {
+        const left = (block) => (Number.isFinite(block.h) ? block.h : block.x);
+        const widest = Math.max(...onPage.map((block) => block.width || 0));
+        const narrowOut = onPage.filter((block) => (block.width || 0) >= widest * 0.2);
+        const text = narrowOut.length > 0 ? narrowOut : onPage;
+        const lefts = text.map(left);
+        const spread = Math.max(...lefts) - Math.min(...lefts);
+        const split = spread > Math.max(60, widest * 0.4) ? Math.min(...lefts) + spread / 2 : Infinity;
+        const column = (block) => (left(block) >= split ? 1 : 0);
+        const before = (a, b) => column(a) - column(b) || a.y - b.y;
+        candidateBlocks = text.sort((a, b) => (preferBottom ? before(b, a) : before(a, b)));
+      }
     }
     if (Number.isFinite(maxVerifiedBlocks) && maxVerifiedBlocks > 0) {
       candidateBlocks = candidateBlocks.slice(0, maxVerifiedBlocks);

@@ -72,16 +72,27 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
     const text = (n) => (lines[n - 1] ?? "").trim();
     const quiet = (t) => !t || t.startsWith("%");
-    const closing = (t) => /^\\end\b/.test(t) || /(^|[^\\])&/.test(t);
+    // Table rows and captions are output of their own, not markers. A page
+    // break command ends what is before it; its own records are only the
+    // head and folio of the page it ships.
+    const closing = (t) =>
+      /^\\end\b/.test(t) ||
+      /^\\\\(\[[^\]]*\])?$/.test(t) ||
+      /^\\(?:clearpage|cleardoublepage|newpage|pagebreak)\b/.test(t);
     const opening = (t) =>
-      /^\\(?:begin|label|caption|centering|toprule|midrule|bottomrule|hline|cline)\b/.test(t);
+      /^\\(?:begin|label|centering|toprule|midrule|bottomrule|hline|cline)\b/.test(t);
+    // A heading's text is filed under the line after it (TeX reads ahead to
+    // finish the heading), so the blank line after one belongs to it.
+    const heading = (t) =>
+      /^\\(?:part|chapter|section|subsection|subsubsection|paragraph)\*?\s*[[{]/.test(t);
     const own = text(lineNumber);
     const comment = own.startsWith("%");
     const reach = 80;
     if (!comment && (!own || closing(own))) {
       for (let n = lineNumber - 1; n >= 1 && n >= lineNumber - reach; n -= 1) {
         const t = text(n);
-        if (!quiet(t) && !closing(t)) return { line: n, toEnd: true };
+        if (quiet(t) || closing(t)) continue;
+        return heading(t) && !own ? { line: n, toEnd: false } : { line: n, toEnd: true };
       }
     } else if (comment || opening(own)) {
       for (let n = lineNumber + 1; n <= lines.length && n <= lineNumber + reach; n += 1) {
