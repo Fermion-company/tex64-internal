@@ -768,8 +768,11 @@ class TdomEngineService {
       // Real-output rescue root: splitting environments (multicols,
       // longtable, mdframed, breakable tcolorbox) are rescued in a fork of
       // a pre-dormant sibling of checkpoint 0 instead of a cold lualatex
-      // (5 s → ~1 s on the 316-page book; the root idles at ~10 MB). The
-      // engine keeps it opt-in; the app turns it on.
+      // (5 s → ~1 s on the 316-page book; the root idles at ~10 MB). With
+      // it the boot walk also measures a document's first-ever rescues
+      // inline, so the resident pages match the canonical page count from
+      // the start instead of after ~4 minutes of placeholders (tex64-internal
+      // #61). The engine keeps it opt-in; the app turns it on.
       TDOM_ISO_REAL_FORK: process.env.TDOM_ISO_REAL_FORK ?? "1",
     };
     // Reuse TeX64's packaged pdf.js in the external TDOM process. The engine
