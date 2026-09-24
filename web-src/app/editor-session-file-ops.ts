@@ -130,12 +130,18 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     }, saveRetryDelayMs);
   };
   const reportSaveError = (message: string, path: string | null = null) => {
+    // Only a file's first failure goes to Issues: its retries would replace
+    // the build's warnings every few seconds (their messages differ only in
+    // the temporary file name).
+    const firstReport = path ? !saveErrors.has(path) : message !== lastSaveErrorMessage;
+    if (firstReport) {
+      deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    }
     lastSaveErrorMessage = message;
     if (path) {
       saveErrors.set(path, message);
       scheduleSaveRetry();
     }
-    deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
     notifySaveStatusChange();
   };
   // A save rejects with the host's message as a string.
@@ -166,11 +172,15 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     clearOwnSaveError();
   };
 
+  // `expectedContent` left out: what is on disk is whatever this editor last
+  // saved, read when the save leaves the queue. Reading it when the save was
+  // queued went stale once an earlier save of the same file landed, and the
+  // host then reported a change "by another app" that was only our own save.
   const savePathContent = (
     path: string,
     value: string,
     timeoutMs = 8000,
-    expectedContent: string | null | undefined = monacoModels.get(path)?.savedContent,
+    expectedContent?: string | null,
   ): Promise<boolean> =>
     new Promise<boolean>((resolve, reject) => {
       const identity = (window as any).tex64History?.getIdentity?.() || {};
@@ -184,6 +194,13 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           window.setTimeout(enqueue, 25);
           return;
         }
+        const lastSaved = monacoModels.get(path)?.savedContent;
+        if (expectedContent === undefined && typeof lastSaved === "string" && lastSaved === value) {
+          // An earlier queued save already wrote exactly this.
+          resolve(true);
+          return;
+        }
+        const expected = expectedContent === undefined ? lastSaved : expectedContent;
         state.pendingSave = { path, content: value, resolve, reject };
         notifySaveStatusChange();
         const safetyTimer = window.setTimeout(() => {
@@ -209,7 +226,7 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
           type: "saveFile",
           path,
           content: value,
-          ...(typeof expectedContent === "string" ? { expectedContent } : {}),
+          ...(typeof expected === "string" ? { expectedContent: expected } : {}),
           format: false,
         });
         if (!ok) {
@@ -876,7 +893,28 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     });
   };
 
-  const saveDirtyFiles = async () => {
+  // One pass at a time: autosave, the retry timer and Retry can all ask at
+  // once. A request during a pass gets one more pass after it, which sees
+  // what changed meanwhile.
+  let saveDirtyRun: Promise<boolean> | null = null;
+  let saveDirtyAgain: Promise<boolean> | null = null;
+  const saveDirtyFiles = (): Promise<boolean> => {
+    if (!saveDirtyRun) {
+      saveDirtyRun = saveDirtyFilesOnce().finally(() => {
+        saveDirtyRun = null;
+      });
+      return saveDirtyRun;
+    }
+    saveDirtyAgain ??= saveDirtyRun
+      .catch(() => false)
+      .then(() => {
+        saveDirtyAgain = null;
+        return saveDirtyFiles();
+      });
+    return saveDirtyAgain;
+  };
+
+  const saveDirtyFilesOnce = async () => {
     const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
     if (dirtyPaths.length === 0) {
       return true;
@@ -947,6 +985,11 @@ export const createEditorSessionFileOps = (ctx: FileOpsDeps) => {
     // A file that is clean again (undone, reverted) has nothing left to save.
     for (const path of Array.from(saveErrors.keys())) {
       if (!dirtyFiles.has(path)) saveErrors.delete(path);
+    }
+    if (saveErrors.size === 0 && saveRetryTimer !== null) {
+      window.clearTimeout(saveRetryTimer);
+      saveRetryTimer = null;
+      saveRetryDelayMs = 0;
     }
     const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
     const failed = Array.from(saveErrors.entries());

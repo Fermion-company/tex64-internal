@@ -324,7 +324,32 @@ const initPdfViewer = () => {
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
-  const findController = new PDFFindController({ eventBus, linkService });
+  // A re-search after a reload or a paper switch only refreshes the count
+  // and highlights. pdf.js would otherwise scroll to the next hit (through
+  // the link service's page and scrollMatchIntoView) and undo where the
+  // reader, or a SyncTeX jump, had put the page.
+  let findScrollQuiet = false;
+  const findLinkService = new Proxy(linkService, {
+    get(target, prop) {
+      const value = target[prop];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set(target, prop, value) {
+      if (prop === "page" && findScrollQuiet) return true;
+      target[prop] = value;
+      return true;
+    },
+  });
+  const findController = new PDFFindController({ eventBus, linkService: findLinkService });
+  const scrollMatchIntoView = findController.scrollMatchIntoView.bind(findController);
+  findController.scrollMatchIntoView = (args) => {
+    if (findScrollQuiet) {
+      // Dropped for good, or a later text-layer render would still scroll.
+      findController._scrollMatches = false;
+      return;
+    }
+    scrollMatchIntoView(args);
+  };
   const pdfViewer = new PDFViewer({
     container: scrollEl,
     viewer: pagesEl,
@@ -1464,8 +1489,8 @@ const initPdfViewer = () => {
     // Live can start before the first static fallback finishes loading. Seed
     // its viewport handoff after pdf.js has real pages and a scroll position.
     scheduleHeldMirror();
-    // A rebuilt PDF has new text: search it again rather than keep the old count.
-    if (isFindOpen() && findQuery && !isLive()) runFind(findQuery);
+    // A rebuilt PDF has new text: count and mark it again, without moving.
+    if (isFindOpen() && findQuery && !isLive()) runFind(findQuery, { quiet: true });
   });
 
   eventBus.on("pagerendered", () => {
@@ -1702,9 +1727,10 @@ const initPdfViewer = () => {
     }
     if (state.doc) eventBus.dispatch("findbarclose", { source: findBar });
   };
-  const runFind = (rawQuery, { again = false, findPrevious = false } = {}) => {
+  const runFind = (rawQuery, { again = false, findPrevious = false, quiet = false } = {}) => {
     window.clearTimeout(findTypingTimer);
     findTypingTimer = null;
+    findScrollQuiet = quiet;
     const query = String(rawQuery ?? "").trim();
     findQuery = query;
     if (!query) {
@@ -1886,9 +1912,10 @@ const initPdfViewer = () => {
     liveViewportHandoff = null;
     if (!isLive()) {
       // Live is still staging (a large document's first typeset can take
-      // minutes): the static PDF is the paper on screen, so move it now. The
-      // Live frame goes to the same place when it appears.
-      pendingLiveSync = payload;
+      // minutes): the static PDF is the paper on screen, so move it now. Its
+      // scroll reaches the frame through the staging viewport mirror, as the
+      // reader's own scrolling does; nothing is replayed later over it.
+      pendingLiveSync = null;
       applySync(payload);
       return true;
     }
@@ -1944,7 +1971,7 @@ const initPdfViewer = () => {
     restoreStaticToolbar();
     // The frame is gone and its search with it; search the static PDF.
     liveFindQuery = "";
-    if (isFindOpen() && findQuery) runFind(findQuery);
+    if (isFindOpen() && findQuery) runFind(findQuery, { quiet: true });
     refreshStaticStatus();
     const deferredSync = pendingLiveSync;
     pendingLiveSync = null;

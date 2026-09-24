@@ -12,7 +12,12 @@ export type EditorNoticeOptions = {
   durationMs?: number;
 };
 
-let current: { element: HTMLElement; timer: number | null; owner: string | null } | null = null;
+let current: {
+  element: HTMLElement;
+  timer: number | null;
+  owner: string | null;
+  tone: EditorNoticeTone;
+} | null = null;
 
 export const hideEditorNotice = (owner?: string) => {
   if (!current) return;
@@ -36,8 +41,13 @@ export const showEditorNotice = (
   message: string,
   options: EditorNoticeOptions = {},
 ): (() => void) => {
-  hideEditorNotice();
   const tone = options.tone ?? "info";
+  // One note at a time: a passing remark does not push aside another
+  // control's error (a failed save still waiting to be read).
+  if (current && tone === "info" && current.tone === "error" && current.owner !== (options.owner ?? null)) {
+    return () => {};
+  }
+  hideEditorNotice();
   const element = document.createElement("div");
   element.className = `editor-notice is-${tone}`;
   element.setAttribute("role", tone === "error" ? "alert" : "status");
@@ -72,7 +82,7 @@ export const showEditorNotice = (
     element.style.top = "52px";
   }
   const durationMs = options.durationMs ?? (tone === "error" || options.action ? 7000 : 4000);
-  const entry = { element, timer: null as number | null, owner: options.owner ?? null };
+  const entry = { element, timer: null as number | null, owner: options.owner ?? null, tone };
   entry.timer = window.setTimeout(() => {
     if (current === entry) hideEditorNotice();
   }, durationMs);

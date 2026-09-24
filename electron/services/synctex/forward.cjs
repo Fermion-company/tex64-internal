@@ -11,6 +11,7 @@ module.exports = (SynctexService) => {
     hintColumn = null,
     registerHint = true,
     preferPage = null,
+    preferBottom = false,
     maxVerifiedBlocks = null,
   }) {
     const synctexPath = this.findSynctex();
@@ -48,10 +49,11 @@ module.exports = (SynctexService) => {
     let candidateBlocks = blocks;
     if (Number.isFinite(preferPage)) {
       // Topmost first: `synctex view` does not list a paragraph's line boxes
-      // in reading order, and its first line is where the jump should land.
+      // in reading order, and its first line is where the jump should land
+      // (its last line, bottom first, when the jump is to where it ends).
       const onPage = blocks
         .filter((block) => block.page === preferPage)
-        .sort((a, b) => a.y - b.y);
+        .sort((a, b) => (preferBottom ? b.y - a.y : a.y - b.y));
       if (onPage.length > 0) candidateBlocks = onPage;
     }
     if (Number.isFinite(maxVerifiedBlocks) && maxVerifiedBlocks > 0) {

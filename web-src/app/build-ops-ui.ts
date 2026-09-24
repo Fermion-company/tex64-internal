@@ -494,17 +494,14 @@ export const initBuildOpsUi = (
     if (synctexForwardInFlight) {
       const inFlightAgeMs = Date.now() - synctexForwardInFlight.startedAt;
       if (inFlightAgeMs <= synctexForwardInFlightTimeoutMs) {
-        if (synctexForwardInFlight.key === requestKey) {
-          // The same line is already resolving (after a build, say): make
-          // that request the click's, so its result is not dropped as an
-          // automatic one and the button shows it is working.
-          if (source === "manual" && synctexForwardInFlight.source !== "manual") {
-            const pending = synctexForwardInFlight;
-            pending.source = "manual";
-            const meta = synctexForwardOrderByRequestId.get(pending.requestId);
-            if (meta) meta.source = "manual";
-            setSynctexBusy(pending.requestId);
-          }
+        // The same line already resolving for a click: nothing to add. For
+        // the post-build jump it is the click's turn: a request of its own
+        // (the automatic one never falls back to the first page, and its
+        // result is dropped once a click has priority).
+        if (
+          synctexForwardInFlight.key === requestKey &&
+          !(source === "manual" && synctexForwardInFlight.source !== "manual")
+        ) {
           return;
         }
         // A click from another line replaces the pending one outright (the

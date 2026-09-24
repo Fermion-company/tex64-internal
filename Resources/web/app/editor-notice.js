@@ -18,9 +18,14 @@ document.addEventListener("keydown", (event) => {
 }, true);
 // Returns a dismiss that only removes this notice, not a later one.
 export const showEditorNotice = (anchor, message, options = {}) => {
-    var _a, _b, _c;
-    hideEditorNotice();
+    var _a, _b, _c, _d;
     const tone = (_a = options.tone) !== null && _a !== void 0 ? _a : "info";
+    // One note at a time: a passing remark does not push aside another
+    // control's error (a failed save still waiting to be read).
+    if (current && tone === "info" && current.tone === "error" && current.owner !== ((_b = options.owner) !== null && _b !== void 0 ? _b : null)) {
+        return () => { };
+    }
+    hideEditorNotice();
     const element = document.createElement("div");
     element.className = `editor-notice is-${tone}`;
     element.setAttribute("role", tone === "error" ? "alert" : "status");
@@ -55,8 +60,8 @@ export const showEditorNotice = (anchor, message, options = {}) => {
         element.style.right = "16px";
         element.style.top = "52px";
     }
-    const durationMs = (_b = options.durationMs) !== null && _b !== void 0 ? _b : (tone === "error" || options.action ? 7000 : 4000);
-    const entry = { element, timer: null, owner: (_c = options.owner) !== null && _c !== void 0 ? _c : null };
+    const durationMs = (_c = options.durationMs) !== null && _c !== void 0 ? _c : (tone === "error" || options.action ? 7000 : 4000);
+    const entry = { element, timer: null, owner: (_d = options.owner) !== null && _d !== void 0 ? _d : null, tone };
     entry.timer = window.setTimeout(() => {
         if (current === entry)
             hideEditorNotice();

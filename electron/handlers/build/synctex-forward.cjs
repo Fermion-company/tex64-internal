@@ -57,9 +57,45 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     }
   };
 
+  // The line whose output a jump from `lineNumber` should show, and whether
+  // to show where that output ends (`toEnd`) rather than where it begins. A
+  // blank or closing line ends what precedes it; a comment or an opening
+  // line (\begin, \label, a rule) introduces what follows. Their own SyncTeX
+  // records are no guide: TeX breaks the page while reading the blank line
+  // after a paragraph, so that line carries the finished page's head and folio.
+  const jumpAnchorLine = (sourcePath, lineNumber) => {
+    let lines;
+    try {
+      lines = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/);
+    } catch {
+      return { line: lineNumber, toEnd: false };
+    }
+    const text = (n) => (lines[n - 1] ?? "").trim();
+    const quiet = (t) => !t || t.startsWith("%");
+    const closing = (t) => /^\\end\b/.test(t) || /(^|[^\\])&/.test(t);
+    const opening = (t) =>
+      /^\\(?:begin|label|caption|centering|toprule|midrule|bottomrule|hline|cline)\b/.test(t);
+    const own = text(lineNumber);
+    const comment = own.startsWith("%");
+    const reach = 80;
+    if (!comment && (!own || closing(own))) {
+      for (let n = lineNumber - 1; n >= 1 && n >= lineNumber - reach; n -= 1) {
+        const t = text(n);
+        if (!quiet(t) && !closing(t)) return { line: n, toEnd: true };
+      }
+    } else if (comment || opening(own)) {
+      for (let n = lineNumber + 1; n <= lines.length && n <= lineNumber + reach; n += 1) {
+        const t = text(n);
+        if (!quiet(t) && !opening(t)) return { line: n, toEnd: false };
+      }
+    }
+    return { line: lineNumber, toEnd: false };
+  };
+
   // The file an \input / \include / \subfile line reads, if it exists. TeX
-  // resolves the name against the directory it runs in, the PDF's.
-  const includedFileOnLine = (sourcePath, lineNumber, pdfPath) => {
+  // resolves the name against the directory it runs in: the project root,
+  // which is also the PDF's unless the build writes to an output directory.
+  const includedFileOnLine = (sourcePath, lineNumber, baseDirs) => {
     let text;
     try {
       text = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/)[lineNumber - 1];
@@ -71,13 +107,14 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     const match = /\\(?:input|include|subfile)\s*\{([^}]+)\}/.exec(code);
     if (!match) return null;
     const name = match[1].trim();
-    const base = path.dirname(pdfPath);
-    for (const candidate of [name, `${name}.tex`]) {
-      const full = path.resolve(base, candidate);
-      try {
-        if (fs.statSync(full).isFile()) return full;
-      } catch {
-        // try the next spelling
+    for (const base of baseDirs) {
+      for (const candidate of [name, `${name}.tex`]) {
+        const full = path.resolve(base, candidate);
+        try {
+          if (fs.statSync(full).isFile()) return full;
+        } catch {
+          // try the next spelling or directory
+        }
       }
     }
     return null;
@@ -380,17 +417,32 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     const resolveFromIndex = async () => {
       if (typeof synctexService.forwardLinesQuick !== "function") return null;
       let quick;
+      let anchor = { line: targetLine, toEnd: false };
       try {
+        anchor = jumpAnchorLine(sourcePath, targetLine);
         // An \input / \include line stands for the file it reads: go to
-        // where that file's output begins (the line itself only marks
-        // where TeX came back from it, often the last page).
-        const included = includedFileOnLine(sourcePath, targetLine, pdfPath);
+        // where that file's output begins (or ends, from the blank line
+        // after it). The line itself only marks where TeX came back from
+        // the file, often the last page.
+        const included = includedFileOnLine(sourcePath, anchor.line, [
+          rootPath,
+          path.dirname(pdfPath),
+          path.dirname(sourcePath),
+        ]);
         if (included) {
+          let lastLine = 1;
+          try {
+            lastLine = fs.readFileSync(included, "utf8").split(/\r?\n/).length;
+          } catch {
+            // start of the file then
+          }
           const inner = synctexService.forwardLinesQuick({
             sourcePath: included,
             pdfPath,
-            lines: [1],
-            firstSubstantialPage: true,
+            lines: [anchor.toEnd ? lastLine : 1],
+            preferAbove: anchor.toEnd,
+            firstSubstantialPage: !anchor.toEnd,
+            lastSubstantialPage: anchor.toEnd,
           });
           const innerHit = inner?.ok ? inner.results?.[0] : null;
           if (innerHit?.found) {
@@ -400,9 +452,10 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         quick = synctexService.forwardLinesQuick({
           sourcePath,
           pdfPath,
-          lines: [targetLine],
-          preferAbove: preferBacktrack,
-          firstSubstantialPage: true,
+          lines: [anchor.line],
+          preferAbove: anchor.toEnd,
+          firstSubstantialPage: !anchor.toEnd,
+          lastSubstantialPage: anchor.toEnd,
         });
       } catch {
         return null;
@@ -422,11 +475,12 @@ const createSynctexForwardHandler = (deps, resolvers) => {
           : { ok: false, error: "This line does not appear in the PDF.", notTypeset: true };
       }
       const line = hit.matchedLine;
-      const fallback = line !== targetLine;
+      const fallback = line !== targetLine || anchor.line !== targetLine;
       // The first box on the page the index picked is where that line's
       // output begins there; checking more boxes costs one process each.
       const forward = await runForward(line, fallback ? 1 : column, {
         preferPage: hit.page,
+        preferBottom: anchor.toEnd,
         maxVerifiedBlocks: 1,
       });
       if (forward.cancelled) return forward;
