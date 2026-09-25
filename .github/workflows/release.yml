@@ -60,7 +60,7 @@ jobs:
               exit 1
             }
           else
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "TeX64 $GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "TeX64 $GITHUB_REF_NAME" --notes "Preparing signed macOS packages and the Microsoft Store update."
           fi
 
   build:
@@ -817,7 +817,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          : > release-preface.md
+          version="${GITHUB_REF_NAME#v}"
+          cat > release-preface.md <<EOF
+          TeX64 v${version} updates the editor, math input, and PDF preview.
+
+          Windows updates are delivered through the existing Microsoft Store product.
+          EOF
 
       - name: Upload assets to downloads (S3/R2)
         if: startsWith(github.ref, 'refs/tags/v') && env.TEX64_DOWNLOADS_BUCKET != '' && env.TEX64_DOWNLOADS_ACCESS_KEY_ID != '' && env.TEX64_DOWNLOADS_SECRET_ACCESS_KEY != '' && env.TEX64_DOWNLOADS_PUBLIC_BASE_URL != ''
@@ -866,6 +871,6 @@ jobs:
         with:
           files: release/*
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          generate_release_notes: false
           body_path: release-preface.md
           draft: false
