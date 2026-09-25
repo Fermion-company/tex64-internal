@@ -18,6 +18,8 @@ const createBuildCoreHandlers = (deps, resolvers) => {
   } = deps;
 
   const { resolveWorkspaceRelativePath } = resolvers;
+  const rendererPath = (value) =>
+    typeof value === "string" ? value.split(path.sep).join("/") : value;
 
   const resolveWorkspaceBuildTarget = (rootPath, targetFile) => {
     if (typeof workspace?.resolvePath !== "function") {
@@ -235,6 +237,7 @@ const createBuildCoreHandlers = (deps, resolvers) => {
   ) => {
     const rootPath = ensureWorkspace();
     let eventContext = buildEventContext(options, mainFile);
+    let buildExpectedPdfPath = null;
     if (!rootPath) {
       sendBuildState("idle", "cancel", buildEventContext(options, mainFile));
       sendIssues(0, "Build cancelled.", "info", []);
@@ -294,7 +297,49 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       // existing ancestor's realpath so an in-workspace symlink cannot send
       // latexmk outside the workspace.
       targetFile = resolveWorkspaceBuildTarget(rootPath, targetFile);
-      eventContext = buildEventContext(options, targetFile);
+      eventContext = { ...buildEventContext(options, targetFile), workspaceRoot: rootPath };
+      const buildProfile = await resolveBuildProfile().catch(() => null);
+      if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
+      const outputProfile = buildService.resolveBuildOutputProfile(rootPath, targetFile, buildProfile);
+      const expectedPdfPath = outputProfile.invalidDirectoryArgument ||
+        (outputProfile.outDirRequested && !outputProfile.outDir)
+        ? null
+        : outputProfile.pdfPath;
+      const expectedPdfStats = expectedPdfPath
+        ? (() => {
+            try { return fs.lstatSync(expectedPdfPath); } catch { return null; }
+          })()
+        : null;
+      const previousPdfPath = expectedPdfStats?.isFile() && !expectedPdfStats.isSymbolicLink()
+        ? expectedPdfPath
+        : null;
+      buildExpectedPdfPath = expectedPdfPath;
+      const relativePreviousPdfPath = previousPdfPath
+        ? rendererPath(resolveWorkspaceRelativePath(rootPath, previousPdfPath))
+        : null;
+      const relativeExpectedPdfPath = expectedPdfPath
+        ? rendererPath(resolveWorkspaceRelativePath(rootPath, expectedPdfPath))
+        : null;
+      if (relativeExpectedPdfPath) {
+        eventContext = {
+          ...eventContext,
+          pdfPath: relativeExpectedPdfPath,
+          previousPdf: Boolean(relativePreviousPdfPath),
+        };
+      }
+      const buildMessage = "Building...";
+      sendBuildState("building", buildMessage, eventContext);
+      sendIssues(0, buildMessage, "info", []);
+      const viewerMode =
+        options.pdfViewerMode === "tab"
+          ? "tab"
+          : options.pdfViewerMode === "none"
+            ? "none"
+            : "window";
+      if (previousPdfPath && viewerMode === "window") {
+        pdfWindowManager.show(previousPdfPath, { reload: false });
+        pdfWindowManager.setBuildState?.("building", buildMessage, previousPdfPath);
+      }
       const blockedByRuntime = await ensureRuntimeReadyForBuild(
         options?.engine,
         eventContext,
@@ -304,14 +349,12 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         blockedByRuntime ||
         !buildRequestIsCurrent(rootPath, options, activityGeneration)
       ) {
+        if (blockedByRuntime && expectedPdfPath) {
+          pdfWindowManager.setBuildState?.("idle", "Build environment unavailable.", expectedPdfPath);
+        }
         return;
       }
-      const buildMessage = "Building...";
-      sendBuildState("building", buildMessage, eventContext);
-      sendIssues(0, buildMessage, "info", []);
       // Formatting removed from build — only runs via the Format button.
-      const buildProfile = await resolveBuildProfile().catch(() => null);
-      if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       let result = await buildService.build(rootPath, targetFile, options.engine, buildProfile);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       const installedPackages = new Set();
@@ -365,6 +408,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       if (result.kind === "cancelled") {
         sendBuildLog(result.log ?? null);
         sendBuildState("idle", result.summary ?? "Build cancelled.", eventContext);
+        if (expectedPdfPath) {
+          pdfWindowManager.setBuildState?.("idle", result.summary ?? "Build cancelled.", expectedPdfPath);
+        }
         sendIssues(0, result.summary ?? "Build cancelled.", "info", []);
         return;
       }
@@ -378,14 +424,8 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           pdfWindowManager.markBuilt?.(rootPath, result.pdfPath);
           // "none" leaves every viewer untouched: the AI mode shows the page
           // itself and must not have the Code-mode PDF window pop over it.
-          const viewerMode =
-            options.pdfViewerMode === "tab"
-              ? "tab"
-              : options.pdfViewerMode === "none"
-                ? "none"
-                : "window";
           if (viewerMode === "tab") {
-            const relativePdfPath = resolveWorkspaceRelativePath(rootPath, result.pdfPath);
+            const relativePdfPath = rendererPath(resolveWorkspaceRelativePath(rootPath, result.pdfPath));
             if (relativePdfPath) {
               await handleOpenFile(relativePdfPath);
             } else {
@@ -396,8 +436,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           }
           sendBuildState("success", result.summary, {
             ...eventContext,
-            pdfPath: resolveWorkspaceRelativePath(rootPath, result.pdfPath),
+            pdfPath: rendererPath(resolveWorkspaceRelativePath(rootPath, result.pdfPath)),
           });
+          pdfWindowManager.setBuildState?.("success", result.summary, result.pdfPath);
           // A build can succeed and still have plenty to say — undefined
           // references, missing images, overfull lines. Those used to be thrown
           // away along with the log, which left the panel empty on exactly the
@@ -414,6 +455,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
           return;
         }
         sendBuildState("failed", "PDF not found.", eventContext);
+        if (expectedPdfPath) {
+          pdfWindowManager.setBuildState?.("failed", "PDF not found.", expectedPdfPath);
+        }
         sendIssues(1, "PDF not found.", "error", [
           { severity: "error", message: "PDF not found.", line: null },
         ]);
@@ -430,6 +474,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
         const count = Math.max(displayIssues.length, 1);
         const summaryText = displayIssues[0]?.message ?? result.summary;
         sendBuildState("failed", summaryText, { ...eventContext, issues: displayIssues });
+        if (expectedPdfPath) {
+          pdfWindowManager.setBuildState?.("failed", summaryText, expectedPdfPath);
+        }
         sendIssues(count, summaryText, "error", displayIssues);
       }
     } catch (error) {
@@ -437,6 +484,9 @@ const createBuildCoreHandlers = (deps, resolvers) => {
       console.error("[build] handleBuild error:", errMsg);
       if (!buildRequestIsCurrent(rootPath, options, activityGeneration)) return;
       sendBuildState("failed", errMsg, eventContext);
+      if (buildExpectedPdfPath) {
+        pdfWindowManager.setBuildState?.("failed", errMsg, buildExpectedPdfPath);
+      }
       sendIssues(1, errMsg, "error", [
         { severity: "error", message: errMsg },
       ]);

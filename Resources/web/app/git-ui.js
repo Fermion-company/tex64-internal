@@ -591,13 +591,34 @@ export function initGitUi(editor, diff) {
             }).finally(() => { busy = false; render(); });
         }, 150);
     };
+    // A status read spawns about eleven git processes, and autosave lands here
+    // after every pause in typing. Read only while the Git panel is shown;
+    // a change behind a hidden panel marks it stale and the panel catches up
+    // when it opens.
+    const panel = host.closest(".panel");
+    const panelShown = () => !panel || panel.classList.contains("is-active");
+    let staleWhileHidden = false;
+    const requestRefresh = () => {
+        if (panelShown())
+            scheduleRefresh();
+        else
+            staleWhileHidden = true;
+    };
+    if (panel) {
+        new MutationObserver(() => {
+            if (!staleWhileHidden || !panelShown())
+                return;
+            staleWhileHidden = false;
+            scheduleRefresh();
+        }).observe(panel, { attributes: true, attributeFilter: ["class"] });
+    }
     bridge.onChange(value => {
         const payload = value.payload || {};
         const hadIdentity = renderedWorkspaceId !== null;
         if (["updateWorkspace", "git:state", "workspace:operation"].includes(value.type))
             acceptWorkspace(payload.workspaceId);
         if (!hadIdentity && renderedWorkspaceId !== null)
-            scheduleRefresh();
+            requestRefresh();
         const operation = value.type === "workspace:operation" ? payload : value.type === "updateWorkspace" ? payload.workspaceOperation : null;
         if (operation) {
             guard.setLocked("workspace-main", operation.phase !== "idle");
@@ -608,11 +629,14 @@ export function initGitUi(editor, diff) {
             render();
         }
         if (value.type === "updateWorkspace" || value.type === "file:externalChange" || value.type === "saveResult" && payload.ok)
-            scheduleRefresh();
+            requestRefresh();
     });
     const initialIdentity = bridge.getIdentity();
     if (initialIdentity.workspaceId && Number.isSafeInteger(initialIdentity.workspaceGeneration)) {
         acceptWorkspace(initialIdentity.workspaceId);
-        void run(refresh);
+        if (panelShown())
+            void run(refresh);
+        else
+            staleWhileHidden = true;
     }
 }

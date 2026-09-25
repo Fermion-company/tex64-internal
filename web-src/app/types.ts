@@ -388,8 +388,8 @@ export type TdomBridge = {
     rootFile?: string;
     buffers?: Array<{ path: string; text: string }>;
     clientEditAtEpochMs?: number;
-  }) => Promise<{ ok: boolean; url?: string; error?: string }>;
-  focus?: (payload: { offset: number }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
+  }) => Promise<{ ok: boolean; url?: string; srcRev?: number; error?: string }>;
+  focus?: (payload: { offset: number; filePath?: string }) => Promise<{ ok: boolean; scheduled?: boolean; error?: string }>;
   snapshot?: (payload: { afterDocumentEpoch?: number; afterGeneration?: number }) => Promise<{
     ok: boolean;
     unchanged?: boolean;
@@ -403,6 +403,14 @@ export type TdomBridge = {
     data?: string;
     error?: string | null;
   }>;
+  setWindowPreview?: (payload: {
+    url: string;
+    generation: number;
+    target: { workspaceRoot: string; pdfPath: string };
+    hold: boolean;
+    expectedSrcRev: number | null;
+  } | null) => Promise<{ ok: boolean; error?: string }>;
+  replyWindowAnchor?: (payload: { windowRequestId: string; result: unknown }) => Promise<{ ok: boolean; error?: string }>;
 };
 export type AiCompletionBridge = {
   complete?: (payload: { system: string; user: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
@@ -438,7 +446,7 @@ export type BridgeWindow = Window &
     __tex64TestCaptureApi?: CaptureBridge;
     __tex64TestMathOcr?: MathOcrBridge;
     __tex64TestRecognizeMath?: (imageDataUrl: string) => Promise<string>;
-    tex64SetBuildState?: (payload: { state: BuildState; message?: string; targetFile?: string; requestId?: string }) => void;
+    tex64SetBuildState?: (payload: { state: BuildState; message?: string; targetFile?: string; requestId?: string; pdfPath?: string; previousPdf?: boolean; workspaceRoot?: string; pdfSourceState?: { rootPath?: string } }) => void;
     tex64UpdateIssues?: (payload: {
       count: number;
       summary: string;

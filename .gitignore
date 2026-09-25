@@ -90,3 +90,10 @@ yarn-error.log*
 
 # Verified build-time Git / GCM runtime and corresponding source archives
 /Resources/git-runtime/
+
+# test folders (testing/README.md だけ追跡)
+/testing/*
+!/testing/README.md
+!/testing/test-workspace/
+!/testing/test-sample-hover/
+!/testing/evidence/

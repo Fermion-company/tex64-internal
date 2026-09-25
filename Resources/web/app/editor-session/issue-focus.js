@@ -36,6 +36,7 @@ export const createEditorSessionIssueFocusOps = (runtime, coreOps, issueOps, nav
                 options: {
                     isWholeLine: true,
                     className,
+                    lineNumberClassName: `${className}-number`,
                 },
             },
         ]);

@@ -1,3 +1,5 @@
+const path = require("path");
+
 const createSynctexForwardHandler = (deps, resolvers) => {
   const { fs, pdfWindowManager, synctexService, sendToRenderer, ensureWorkspace, state, delay } = deps;
   const { resolveWorkspacePathFromRoot, resolveWorkspaceRelativePath, isWorkspaceSynctexPathSame } =
@@ -38,6 +40,100 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     } catch {
       return false;
     }
+  };
+
+  // Lines above \begin{document} of the file the engine ran on never reach a
+  // page themselves: what their macros typeset is filed under the line that
+  // uses them. (Only that file: a chapter may show \begin{document} in a
+  // verbatim example.)
+  const isPreambleLine = (sourcePath, lineNumber) => {
+    if (!Number.isFinite(lineNumber) || lineNumber < 1) return false;
+    try {
+      const lines = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/);
+      const begin = lines.findIndex((line) => /^[^%]*\\begin\s*\{document\}/.test(line));
+      return begin >= 0 && lineNumber - 1 < begin;
+    } catch {
+      return false;
+    }
+  };
+
+  // The line whose output a jump from `lineNumber` should show, and whether
+  // to show where that output ends (`toEnd`) rather than where it begins. A
+  // blank or closing line ends what precedes it; a comment or an opening
+  // line (\begin, \label, a rule) introduces what follows. Their own SyncTeX
+  // records are no guide: TeX breaks the page while reading the blank line
+  // after a paragraph, so that line carries the finished page's head and folio.
+  const jumpAnchorLine = (sourcePath, lineNumber) => {
+    let lines;
+    try {
+      lines = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/);
+    } catch {
+      return { line: lineNumber, toEnd: false };
+    }
+    const text = (n) => (lines[n - 1] ?? "").trim();
+    const quiet = (t) => !t || t.startsWith("%");
+    // Table rows and captions are output of their own, not markers. A page
+    // break command ends what is before it; its own records are only the
+    // head and folio of the page it ships.
+    const closing = (t) =>
+      /^\\end\b/.test(t) ||
+      /^\\\\(\[[^\]]*\])?$/.test(t) ||
+      /^\\(?:clearpage|cleardoublepage|newpage|pagebreak)\b/.test(t);
+    const opening = (t) =>
+      /^\\(?:begin|label|centering|toprule|midrule|bottomrule|hline|cline)\b/.test(t);
+    // A heading's text is filed under the line after it (TeX reads ahead to
+    // finish the heading), so the blank line after one belongs to it.
+    const heading = (t) =>
+      /^\\(?:part|chapter|section|subsection|subsubsection|paragraph)\*?\s*[[{]/.test(t);
+    const own = text(lineNumber);
+    const comment = own.startsWith("%");
+    const reach = 80;
+    // A heading's text is filed under its own line or, as TeX reads ahead to
+    // finish it, under the next one; its own line may also carry the head
+    // and folio of the page \chapter's \clearpage ships.
+    if (heading(own)) return { line: lineNumber, toEnd: false, heading: lineNumber };
+    if (!comment && (!own || closing(own))) {
+      for (let n = lineNumber - 1; n >= 1 && n >= lineNumber - reach; n -= 1) {
+        const t = text(n);
+        if (quiet(t) || closing(t)) continue;
+        if (heading(t) && !own && n === lineNumber - 1) return { line: n, toEnd: false, heading: n };
+        return { line: n, toEnd: !heading(t) };
+      }
+    } else if (comment || opening(own)) {
+      for (let n = lineNumber + 1; n <= lines.length && n <= lineNumber + reach; n += 1) {
+        const t = text(n);
+        if (!quiet(t) && !opening(t)) return { line: n, toEnd: false };
+      }
+    }
+    return { line: lineNumber, toEnd: false };
+  };
+
+  // The file an \input / \include / \subfile line reads, if it exists. TeX
+  // resolves the name against the directory it runs in: the project root,
+  // which is also the PDF's unless the build writes to an output directory.
+  const includedFileOnLine = (sourcePath, lineNumber, baseDirs) => {
+    let text;
+    try {
+      text = fs.readFileSync(sourcePath, "utf8").split(/\r?\n/)[lineNumber - 1];
+    } catch {
+      return null;
+    }
+    if (typeof text !== "string") return null;
+    const code = text.replace(/(^|[^\\])%.*$/, "$1");
+    const match = /\\(?:input|include|subfile)\s*\{([^}]+)\}/.exec(code);
+    if (!match) return null;
+    const name = match[1].trim();
+    for (const base of baseDirs) {
+      for (const candidate of [name, `${name}.tex`]) {
+        const full = path.resolve(base, candidate);
+        try {
+          if (fs.statSync(full).isFile()) return full;
+        } catch {
+          // try the next spelling or directory
+        }
+      }
+    }
+    return null;
   };
 
   const readMtimeMs = (targetPath) => {
@@ -280,7 +376,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       return false;
     };
 
-    const runForward = async (forwardLine, forwardColumn) => {
+    const runForward = async (forwardLine, forwardColumn, narrowing = {}) => {
       if (isStaleRequest()) {
         return { ok: false, cancelled: true, error: "stale" };
       }
@@ -292,6 +388,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         hintLine: targetLine,
         hintColumn: targetColumn,
         registerHint: false,
+        ...narrowing,
       });
       if (isStaleRequest()) {
         return { ok: false, cancelled: true, error: "stale" };
@@ -315,6 +412,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
           hintLine: targetLine,
           hintColumn: targetColumn,
           registerHint: false,
+          ...narrowing,
         });
         if (isStaleRequest()) {
           return { ok: false, cancelled: true, error: "stale" };
@@ -327,18 +425,129 @@ const createSynctexForwardHandler = (deps, resolvers) => {
     };
 
     const preferBacktrack = isSkippableSynctexLine(sourcePath, targetLine);
-    let result = preferBacktrack
+    // Which nearby line left ink is a memory read from the SyncTeX index.
+    // Probing the neighbours one `synctex view` process at a time took
+    // 6–27 s from a preamble line and held up the next Jump meanwhile, so
+    // the CLI now runs once, on the line the index picked, for its block box.
+    // null: the index could not answer; the process probes below still can.
+    const resolveFromIndex = async () => {
+      if (typeof synctexService.forwardLinesQuick !== "function") return null;
+      let quick;
+      let anchor = { line: targetLine, toEnd: false };
+      try {
+        anchor = jumpAnchorLine(sourcePath, targetLine);
+        // An \input / \include line stands for the file it reads: go to
+        // where that file's output begins (or ends, from the blank line
+        // after it). The line itself only marks where TeX came back from
+        // the file, often the last page.
+        const included = includedFileOnLine(sourcePath, anchor.line, [
+          rootPath,
+          path.dirname(pdfPath),
+          path.dirname(sourcePath),
+        ]);
+        if (included) {
+          let lastLine = 1;
+          try {
+            lastLine = fs.readFileSync(included, "utf8").split(/\r?\n/).length;
+          } catch {
+            // start of the file then
+          }
+          const inner = synctexService.forwardLinesQuick({
+            sourcePath: included,
+            pdfPath,
+            lines: [anchor.toEnd ? lastLine : 1],
+            preferAbove: anchor.toEnd,
+            firstSubstantialPage: !anchor.toEnd,
+            lastSubstantialPage: anchor.toEnd,
+          });
+          const innerHit = inner?.ok ? inner.results?.[0] : null;
+          if (innerHit?.found) {
+            return { ok: true, page: innerHit.page, x: innerHit.x, y: innerHit.y, fallback: true };
+          }
+        }
+        if (anchor.heading) {
+          // The heading is on the later of: the last page its own line
+          // reaches (after any page it shipped) and the first page of the
+          // next line's records, when that line has any.
+          const own = synctexService.forwardLinesQuick({
+            sourcePath,
+            pdfPath,
+            lines: [anchor.heading],
+            lastSubstantialPage: true,
+          });
+          const next = synctexService.forwardLinesQuick({
+            sourcePath,
+            pdfPath,
+            lines: [anchor.heading + 1],
+            firstSubstantialPage: true,
+          });
+          const ownHit = own?.ok ? own.results?.[0] : null;
+          const nextHit = next?.ok ? next.results?.[0] : null;
+          const candidates = [
+            ownHit?.found && ownHit.matchedLine === anchor.heading ? ownHit : null,
+            nextHit?.found && nextHit.matchedLine === anchor.heading + 1 ? nextHit : null,
+          ].filter(Boolean);
+          if (candidates.length > 0) {
+            const best = candidates.reduce((a, b) => (b.page > a.page ? b : a));
+            quick = { ...own, ok: true, isRootFile: own?.isRootFile, results: [best] };
+          }
+        }
+        quick ??= synctexService.forwardLinesQuick({
+          sourcePath,
+          pdfPath,
+          lines: [anchor.line],
+          preferAbove: anchor.toEnd,
+          firstSubstantialPage: !anchor.toEnd,
+          lastSubstantialPage: anchor.toEnd,
+        });
+      } catch {
+        return null;
+      }
+      if (!quick?.ok) {
+        // The PDF's SyncTeX was read and this file is not in it: no other
+        // line of it can do better.
+        return quick?.error === "The file is not part of this PDF." ? { ok: false, error: quick.error } : null;
+      }
+      const hit = quick.results?.[0];
+      if (!hit) return null;
+      const inPreamble = quick.isRootFile === true && isPreambleLine(sourcePath, targetLine);
+      if (!hit.found || (inPreamble && hit.matchedLine !== targetLine)) {
+        // Nothing near this line reaches the page (the preamble, say).
+        return allowFallback
+          ? { ok: true, page: 1, x: 0, y: 0, fallback: true, notTypeset: true }
+          : { ok: false, error: "This line does not appear in the PDF.", notTypeset: true };
+      }
+      const line = hit.matchedLine;
+      const fallback = line !== targetLine || anchor.line !== targetLine;
+      // The first box on the page the index picked is where that line's
+      // output begins there; checking more boxes costs one process each.
+      const forward = await runForward(line, fallback ? 1 : column, {
+        preferPage: hit.page,
+        preferBottom: anchor.toEnd,
+        maxVerifiedBlocks: 1,
+      });
+      if (forward.cancelled) return forward;
+      if (forward.ok && !isLowQualityForwardResult(forward, line)) {
+        return fallback ? { ...forward, fallback: true } : forward;
+      }
+      return { ok: true, page: hit.page, x: hit.x, y: hit.y, fallback };
+    };
+    const indexed = await resolveFromIndex();
+    if (isStaleRequest() || indexed?.cancelled === true) {
+      return;
+    }
+    let result = indexed ?? (preferBacktrack
       ? { ok: false, error: "skip" }
-      : await runForward(targetLine, column);
+      : await runForward(targetLine, column));
     let bestLowQualitySuccess =
-      result.ok && isLowQualityForwardResult(result, targetLine)
+      !indexed && result.ok && isLowQualityForwardResult(result, targetLine)
         ? {
             result,
             offset: 0,
             matchDiff: getForwardTargetDiff(result, targetLine),
           }
         : null;
-    if (preferBacktrack || (!result.ok && isRetryableSynctexError(result.error))) {
+    if (!indexed && (preferBacktrack || (!result.ok && isRetryableSynctexError(result.error)))) {
       const maxBacktrack = forwardSource === "manual" ? 60 : 80;
       for (let offset = 1; offset <= maxBacktrack; offset += 1) {
         if (isStaleRequest()) {
@@ -395,7 +604,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         }
       }
     }
-    if ((result.ok && isLowQualityForwardResult(result, targetLine)) || !result.ok) {
+    if (!indexed && ((result.ok && isLowQualityForwardResult(result, targetLine)) || !result.ok)) {
       const maxForwardScan = 12;
       for (let offset = 1; offset <= maxForwardScan; offset += 1) {
         if (isStaleRequest()) {
@@ -410,12 +619,13 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       }
     }
     if (
+      !indexed &&
       ((result.ok && isLowQualityForwardResult(result, targetLine)) || !result.ok) &&
       bestLowQualitySuccess?.result?.ok
     ) {
       result = bestLowQualitySuccess.result;
     }
-    if (result.ok) {
+    if (!indexed && result.ok) {
       const exactDiff = getForwardTargetDiff(result, targetLine);
       if (Number.isFinite(exactDiff) && exactDiff > 0) {
         const maxExactScan = 12;
@@ -440,7 +650,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         }
       }
     }
-    if (!result.ok && allowFallback) {
+    if (!indexed && !result.ok && allowFallback) {
       const fallbackResult = await runForward(1, 1);
       if (fallbackResult.ok) {
         fallbackResult.fallback = true;
@@ -455,6 +665,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       return;
     }
     if (
+      result.notTypeset !== true &&
       Number.isFinite(result.page) &&
       Number.isFinite(result.x) &&
       Number.isFinite(result.y)
@@ -469,16 +680,19 @@ const createSynctexForwardHandler = (deps, resolvers) => {
         column: targetColumn,
       });
     }
-    setCachedSynctexForwardResult({
-      sourcePath,
-      pdfPath,
-      line: targetLine,
-      column: targetColumn,
-      result,
-    });
+    if (result.notTypeset !== true) {
+      setCachedSynctexForwardResult({
+        sourcePath,
+        pdfPath,
+        line: targetLine,
+        column: targetColumn,
+        result,
+      });
+    }
     if (viewerMode === "window") {
       pdfWindowManager.show(pdfPath, { reload: false });
       const windowSyncPayload = { page: result.page, x: result.x, y: result.y };
+      if (result.notTypeset === true) windowSyncPayload.marker = false;
       if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) {
         windowSyncPayload.blockWidth = result.blockWidth;
       }
@@ -502,6 +716,7 @@ const createSynctexForwardHandler = (deps, resolvers) => {
       fallback: result.fallback === true,
       pdfPath: relativePdfPath,
     };
+    if (result.notTypeset === true) forwardPayload.notTypeset = true;
     if (Number.isFinite(result.blockWidth) && result.blockWidth > 0) {
       forwardPayload.blockWidth = result.blockWidth;
     }

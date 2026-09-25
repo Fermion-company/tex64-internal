@@ -1,9 +1,11 @@
 class BuildService {
   constructor(options = {}) {
+    this.onPdfBuilt = typeof options.onPdfBuilt === "function" ? options.onPdfBuilt : null;
     this.isBuilding = false;
     this.activeProcess = null;
     this.cancelRequested = false;
     this.queuedBuildTail = Promise.resolve();
+    this.pendingBuildAdoption = null;
     // Instance overrides keep the production bounds fixed while allowing the
     // pipe-hold failure mode to be covered without a multi-minute test.
     this.processTimeoutMs =
@@ -19,6 +21,10 @@ class BuildService {
       Number.isFinite(options.processKillEscalationMs) &&
       options.processKillEscalationMs > 0
         ? options.processKillEscalationMs
+        : null;
+    this.acquireHeavyWorkLease =
+      typeof options.acquireHeavyWorkLease === "function"
+        ? options.acquireHeavyWorkLease
         : null;
   }
 }

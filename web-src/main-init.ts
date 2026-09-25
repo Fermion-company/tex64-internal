@@ -66,6 +66,7 @@ import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
 import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
 import { prepareRendererForQuit } from "./app/quit-preparation.js";
+import { setupSaveStatusUi } from "./app/save-status-ui.js";
 import type {
   BlockContext,
   DetectedBlockSnapshot,
@@ -979,6 +980,7 @@ export const initMain = () => {
     getActiveGroup: editorSession.getActiveGroup,
     getActiveEditorGroupKey: () => editorSession.getActiveEditorGroupKey(),
     getActiveFilePath: () => editorSession.getActiveFilePath(),
+    getWorkspaceFiles,
     getRootFilePath,
     getLastBuildMainFile: () => lastBuildMainFile,
     getWorkspaceRootKey,
@@ -998,6 +1000,7 @@ export const initMain = () => {
     requestOpenFile: editorSession.requestOpenFile,
     getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
     setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
+    contextMenu,
     settings: {
       getPdfViewerMode: settingsUi.getPdfViewerMode,
       getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,
@@ -1166,6 +1169,12 @@ export const initMain = () => {
     saveCurrentFile: () => editorSession.saveCurrentFile(),
   });
   uiEvents.setup();
+  setupSaveStatusUi({
+    button: appContext.dom.saveButton,
+    getStatus: () => editorSession.getSaveStatus(),
+    saveDirtyFiles: () => editorSession.saveDirtyFiles(),
+    setDocumentEdited: (edited) => postToNative({ type: "window:documentEdited", edited }, false),
+  });
 
   window.addEventListener("beforeunload", () => {
     // Native Quit uses the acknowledged prepareQuit batch above. Keep this as
@@ -1284,7 +1293,15 @@ export const initMain = () => {
           } else if (command === "file:save") {
             editorSession.saveCurrentFile();
           } else {
-            const editor = editorSession.getActiveGroup()?.editor as { getAction?: (id: string) => { run: () => unknown } | null } | null;
+            // Find goes to the PDF when that is what has focus (or what the
+            // active group shows); the menu shortcut would otherwise always
+            // open the source editor's find widget.
+            const activeGroup = editorSession.getActiveGroup();
+            const pdfGroup =
+              editorSession.getEditorGroups().find((group) => group.viewer.hasPdfFocus()) ??
+              (activeGroup?.viewer.getViewerMode() === "pdf" ? activeGroup : null);
+            if (pdfGroup?.viewer.openPdfFind()) return;
+            const editor = activeGroup?.editor as { getAction?: (id: string) => { run: () => unknown } | null } | null;
             editor?.getAction?.("actions.find")?.run();
           }
           return;
@@ -1297,11 +1314,17 @@ export const initMain = () => {
     billing: {
       handleCheckoutClosed: (payload) => billingUi?.handleCheckoutClosed(payload),
     },
+    livePreview: {
+      source: (payload) => requestLiveSource(payload),
+      edit: (payload) => requestLiveEdit(payload),
+      anchor: (payload, reply) => requestLiveAnchor(payload, reply),
+    },
     search: {
       handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
       handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
     },
     build: {
+      handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
       setBuildState: (state, message) => buildOps.setBuildState(state, message),
       setBuildTarget: (path) => { lastBuildMainFile = path; },
       handleFormatResult: (payload) => buildOps.handleFormatResult(payload),

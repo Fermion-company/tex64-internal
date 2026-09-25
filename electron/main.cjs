@@ -17,6 +17,11 @@ const {
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
+if (process.env.TEX64_EDITION === "education") {
+  app.setName("TeX64 Education");
+  app.setPath("userData", path.join(app.getPath("appData"), "TeX64 Education"));
+  app.setAppUserModelId("com.fermion.tex64.education");
+}
 const { spawn, spawnSync } = require("child_process");
 const { BuildService } = require("./services/build.cjs");
 const FormatterService = require("./services/formatter.cjs");
@@ -266,7 +271,16 @@ const projectBoundary = (root) => {
 const { HistoryController } = require("./services/history-controller.cjs");
 const { WorkspaceOperationCoordinator } = require("./services/workspace-operation.cjs");
 const workspaceOperations = new WorkspaceOperationCoordinator();
-const buildService = new BuildService();
+const buildService = new BuildService({
+  onPdfBuilt: () => {
+    if (!app.isPackaged || e2eHeadless) return;
+    return getPlatformAccessService().recordFirstPdf({
+      version: app.getVersion(), platform: process.platform, arch: process.arch,
+      distribution: distributionRuntime.windowsStore ? "microsoft-store" : "direct",
+    });
+  },
+  acquireHeavyWorkLease: (payload) => getTdomEngineService().acquireBuildLease(payload),
+});
 const formatterService = new FormatterService();
 const indexerService = new IndexerService();
 const searchService = new SearchService();
@@ -389,7 +403,7 @@ const createMainWindow = () => {
     minHeight: 600,
     show: !e2eHeadless,
     backgroundColor: "#1c2129",
-    title: "TeX64",
+    title: process.env.TEX64_EDITION === "education" ? "TeX64 Education" : "TeX64",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 12, y: 8 },
     webPreferences: {
@@ -407,6 +421,9 @@ const createMainWindow = () => {
   }
 
   state.mainWindow = new BrowserWindow(windowOptions);
+  if (process.env.TEX64_EDITION === "education") {
+    state.mainWindow.on("page-title-updated", (event) => event.preventDefault());
+  }
   terminalFocused = false;
   mainRendererReady = false;
   state.mainWindow.webContents.on("before-input-event", (_event, input) => {
@@ -567,11 +584,21 @@ const sendToRenderer = (type, payload) => {
   }
 };
 
+const educationService = process.env.TEX64_EDITION === "education"
+  ? require("./education/service.cjs").createEducationService({app, BrowserWindow, dialog,
+      getMainWindow:()=>state.mainWindow, getRoot:()=>workspace.getRootPath(),
+      openProject:(root)=>workspaceHandlers.handleOpenRecentProject(root)}) : null;
 const installApplicationMenu = () => {
   const template = createApplicationMenuTemplate({
     appName: app.name || "TeX64",
     isMac: process.platform === "darwin",
     sendCommand: (command) => {
+      // Find in the separate PDF window searches that PDF instead of pulling
+      // focus back to the editor.
+      if (command === "edit:find" && pdfWindowManager.window?.isFocused?.()) {
+        pdfWindowManager.send("find-open");
+        return;
+      }
       focusMainWindow();
       sendToRenderer("app:command", { command });
     },
@@ -584,6 +611,7 @@ const installApplicationMenu = () => {
       else target.webContents.send("tex64:terminal:command", command);
     },
   });
+  if (educationService) template.push(educationService.menu());
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 };
 
@@ -929,6 +957,7 @@ const clearWorkspaceSession = ({ closePdfWindow = false } = {}) => {
   state.workspaceId = null;
   state.currentWorkspacePath = null;
   state.lastBuildPdfPath = null;
+  pdfWindowManager.setWorkspaceRoot(null);
   if (closePdfWindow && typeof pdfWindowManager.close === "function") {
     pdfWindowManager.close();
   }
@@ -1249,7 +1278,8 @@ app.whenReady().then(() => {
   runStartupWebBuildIfNeeded();
   createMainWindow();
   installApplicationMenu();
-  if (distributionRuntime.registerCustomProtocol) {
+  if (educationService) educationService.startup();
+  if (distributionRuntime.registerCustomProtocol && !educationService) {
     registerProtocolClient();
   }
   while (pendingOAuthCallbackUrls.length > 0) {
@@ -1624,7 +1654,14 @@ ipcMain.handle("tex64:math-ocr:run", async (_event, payload) => {
 });
 
 registerTexizeHandlers({ ipcMain, getTexizeService, workspace });
-registerTdomEngineHandlers({ ipcMain, getTdomEngineService, isBlocked: () => historyController?.blocked() });
+registerTdomEngineHandlers({
+  ipcMain,
+  getTdomEngineService,
+  getMainWindow: () => state.mainWindow,
+  getWorkspaceRoot: () => workspace.getRootPath(),
+  pdfWindowManager,
+  isBlocked: () => historyController?.blocked(),
+});
 registerAiWebHandlers({ ipcMain, shell, getAiWebService });
 ipcMain.handle("tex64:files:read-text", async (_event, payload) => {
   try {
@@ -2025,6 +2062,14 @@ const handleRendererMessage = (event, message) => {
   }
   if (type === "prepareQuit:result") {
     acceptRendererQuitPreparation(event, message);
+    return;
+  }
+  if (type === "window:documentEdited") {
+    // macOS: the close button carries a dot while edits are not on disk.
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && !window.isDestroyed() && typeof window.setDocumentEdited === "function") {
+      window.setDocumentEdited(message.edited === true);
+    }
     return;
   }
   if (type === "ready") {
@@ -2541,7 +2586,7 @@ ipcMain.on("tex64", (event, message) => {
     const lease = workspaceOperations.current;
     const token = lease.owner === "git" ? message?.gitToken : message?.historyToken;
     const allowedFlush = message?.type === "saveFile" && token === lease.operation.id && lease.operation.phase === "saving";
-    const safe = (message?.type === "openFile" && lease.operation.phase === "syncing") || ["ready", "prepareQuit:result", "uiLocale", "build:cancel", "agent:stop", "settings:response", "agent:contentConflict"].includes(message?.type);
+    const safe = (message?.type === "openFile" && lease.operation.phase === "syncing") || ["ready", "prepareQuit:result", "uiLocale", "build:cancel", "agent:stop", "settings:response", "agent:contentConflict", "window:documentEdited"].includes(message?.type);
     if (!allowedFlush && !safe) {
       if (message?.type === "saveFile") sendToRenderer("saveResult", { ok: false, path: message.path, error: "A project operation is protecting this workspace. Your edits remain open." });
       return;
@@ -2556,7 +2601,10 @@ ipcMain.on("tex64", (event, message) => {
   handleRendererMessage(event, message);
 });
 
-ipcMain.on("tex64:pdf", (_event, message) => {
+ipcMain.on("tex64:pdf", (event, message) => {
+  if (!pdfWindowManager.ownsSender(event.sender) || event.senderFrame !== event.sender.mainFrame) {
+    return;
+  }
   if (!message || typeof message !== "object") {
     return;
   }
@@ -2592,6 +2640,19 @@ ipcMain.on("tex64:pdf", (_event, message) => {
       pdfPath: typeof payload.path === "string" ? payload.path : null,
       ...(source ? { source } : {}),
     });
+    return;
+  }
+  if (type === "live-source" && pdfWindowManager.acceptsLiveEvents()) {
+    sendToRenderer("pdf:liveSource", message.payload ?? {});
+    return;
+  }
+  if (type === "live-edit" && pdfWindowManager.acceptsLiveEvents()) {
+    sendToRenderer("pdf:liveEdit", message.payload ?? {});
+    return;
+  }
+  if (type === "live-edit-anchor") {
+    const request = pdfWindowManager.beginLiveAnchor(message.payload);
+    if (request) sendToRenderer("pdf:liveEditAnchor", request);
     return;
   }
 });
