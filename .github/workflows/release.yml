@@ -68,7 +68,7 @@ jobs:
     if: ${{ inputs.windows_only != true }}
     needs: prepare_release
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
