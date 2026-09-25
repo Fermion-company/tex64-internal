@@ -9,6 +9,14 @@ const {
   loadLatexmkHistoryCandidate,
 } = require("./preview-cache.cjs");
 const { isEnvMissingMessage } = require("./utils.cjs");
+const {
+  TOOLCHAIN_FINGERPRINT_VERSION,
+  signatureFor,
+  previewCacheProfile,
+  previewCacheSignatures,
+  toolchainFingerprint,
+  canonicalBuildFromCache,
+} = require("./canonical-build-candidate.cjs");
 
 const PREVIEW_CACHE_AUX_SUFFIXES = [
   ".aux", ".toc", ".lof", ".lot", ".loa", ".lol", ".out", ".bbl", ".bcf",
@@ -27,32 +35,7 @@ const MAX_PREBUILD_SNAPSHOT_FILES = 8192;
 const MAX_PREBUILD_SNAPSHOT_DIRECTORIES = 2048;
 const MAX_PREBUILD_SNAPSHOT_BYTES = 256 * 1024 * 1024;
 const PREBUILD_SNAPSHOT_DEADLINE_MS = 250;
-const CANONICAL_SEED_SUFFIXES = new Set([".aux", ".toc", ".lof", ".lot", ".out"]);
 const DEADLINE_EXCEEDED = Symbol("deadline-exceeded");
-
-const signatureFor = (value) =>
-  crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
-
-const previewCacheProfile = ({ mainFileName, requestedEngine, effectiveEngine, extraArgs }) => ({
-  runner: "latexmk",
-  requestedEngine,
-  effectiveEngine,
-  synctex: true,
-  interaction: "nonstopmode",
-  haltOnError: true,
-  fileLineError: true,
-  extraArgs: [...extraArgs],
-  mainFile: mainFileName.split(path.sep).join("/"),
-});
-
-const previewCacheSignatures = ({ profile, outDir }) => ({
-  profileSignature: signatureFor({ version: 2, profile, outDir: outDir ?? null }),
-  engineSignature: signatureFor({
-    version: 2,
-    requestedEngine: profile.requestedEngine,
-    effectiveEngine: profile.effectiveEngine,
-  }),
-});
 
 const latexmkHistoryPathHash = ({ rootPath, outDir }) => signatureFor({
   version: 1,
@@ -436,6 +419,12 @@ const captureStaticPreviewCandidate = async ({
         }
       : null;
   const boundedDurationMs = Math.max(1, Math.min(900_000, Math.round(durationMs)));
+  // A later app lifetime may take this Build as canonical only while the
+  // TeX-system inputs it read are unchanged (canonical-build-candidate.cjs).
+  const canonicalEligible = recorder.ok && inputObservation.ok &&
+    synctexPath?.toLowerCase().endsWith(".synctex.gz") &&
+    requestedEngine === "lualatex" && effectiveEngine === "lualatex" && extraArgs.length === 0;
+  const toolchain = canonicalEligible ? await toolchainFingerprint(recorderPath, rootPath) : null;
   const descriptor = {
     profileSignature,
     engineSignature,
@@ -452,7 +441,10 @@ const captureStaticPreviewCandidate = async ({
       ...(latexmkHistory ? { fdb: latexmkHistoryPath } : {}),
       aux: auxiliaryArtifacts,
     },
-    metrics: { durationMs: boundedDurationMs, profile, provenance, latexmkHistory },
+    metrics: {
+      durationMs: boundedDurationMs, profile, provenance, latexmkHistory,
+      toolchain: toolchain ? { version: TOOLCHAIN_FINGERPRINT_VERSION, signature: toolchain } : null,
+    },
   };
   let saved = await savePreviewCacheGeneration({
     rootPath,
@@ -472,9 +464,7 @@ const captureStaticPreviewCandidate = async ({
       },
     });
   }
-  if (!saved.saved || !recorder.ok || !inputObservation.ok ||
-      !synctexPath?.toLowerCase().endsWith(".synctex.gz") ||
-      requestedEngine !== "lualatex" || effectiveEngine !== "lualatex" || extraArgs.length !== 0) {
+  if (!saved.saved || !canonicalEligible) {
     return { ...saved, canonicalBuild: null, recorder, inputObservation };
   }
   const loaded = await loadPreviewCacheCandidate({
@@ -487,42 +477,13 @@ const captureStaticPreviewCandidate = async ({
     return { ...saved, canonicalBuild: null, recorder, inputObservation,
       loadReason: loaded.reason ?? loaded.blockers };
   }
-  const mainStem = path.basename(mainFileName).replace(/\.tex$/i, "");
-  const allowedAux = loaded.artifacts.aux.flatMap((artifact) => {
-    const lower = artifact.logicalName.toLowerCase();
-    const extension = [...CANONICAL_SEED_SUFFIXES].find((suffix) => lower.endsWith(suffix));
-    if (!extension || lower !== `${mainStem.toLowerCase()}${extension}`) return [];
-    return [{
-      ext: extension.slice(1),
-      logicalName: artifact.logicalName,
-      path: artifact.filePath,
-      sha256: artifact.sha256,
-    }];
-  });
   return {
     ...saved,
     recorder,
     inputObservation,
-    canonicalBuild: {
-      schemaVersion: 1,
-      profile,
-      provenance,
-      artifacts: {
-        pdf: { path: loaded.artifacts.pdf.filePath, sha256: loaded.artifacts.pdf.sha256 },
-        synctex: {
-          path: loaded.artifacts.synctex.filePath,
-          sha256: loaded.artifacts.synctex.sha256,
-          compression: "gzip",
-        },
-        fls: { path: loaded.artifacts.fls.filePath, sha256: loaded.artifacts.fls.sha256 },
-        aux: allowedAux,
-      },
-      inputs: loaded.inputs.map((record) => ({
-        path: path.resolve(rootPath, ...record.path.split("/")),
-        sha256: record.sha256,
-      })),
-      metrics: { durationMs: boundedDurationMs },
-    },
+    canonicalBuild: canonicalBuildFromCache(loaded, {
+      rootPath, mainFileName, profile, provenance, durationMs: boundedDurationMs,
+    }),
   };
 };
 
