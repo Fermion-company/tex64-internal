@@ -21,7 +21,20 @@ module.exports = (BuildService) => {
       parsed.push(issue);
     };
     for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index] ?? "";
+      let line = lines[index] ?? "";
+      // TeX wraps file:line diagnostics at max_print_line (normally 79),
+      // including in the middle of "Undefined control sequence".
+      if (this.extractIssueLocation(line, rootPath)) {
+        let physicalLine = line;
+        let offset = 1;
+        while (physicalLine.length >= 79 && offset <= 8) {
+          const continuation = lines[index + offset] ?? "";
+          if (!continuation || /^\s*l\.\d+\b/.test(continuation)) break;
+          line += continuation;
+          physicalLine = continuation;
+          offset += 1;
+        }
+      }
       // latexmk narrates its own run ("Summary of warnings from last run of
       // *latex:", "Errors, so I did not complete making targets"). Those lines
       // carry no location and no advice, and whatever they are summarising is
@@ -40,13 +53,13 @@ module.exports = (BuildService) => {
         }
         continue;
       }
-      const severity = this.extractIssueSeverity(line);
+      const location = this.extractIssueLocation(line, rootPath);
+      const severity = this.extractIssueSeverity(line) ?? (location ? "error" : null);
       if (!severity) {
         continue;
       }
       const wrappedLineNumber = this.extractWrappedLineNumber(lines, index, line);
       const message = this.composeIssueMessage(line, wrappedLineNumber);
-      const location = this.extractIssueLocation(line, rootPath);
       const shouldSearchNearby = severity === "error";
       const nearbyLocation = shouldSearchNearby ? this.extractNearbyIssueLocation(lines, index, rootPath) : null;
       const directLineNumber = this.extractLineNumber(line);

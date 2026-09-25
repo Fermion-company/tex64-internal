@@ -114,6 +114,21 @@ const parseForwardIndex = (text, baseDir) => {
     }
   };
 
+  // Files first read after a page has shipped (a chapter \input mid-document)
+  // are declared inside the content, not in the preamble.
+  const readInput = (record) => {
+    const separator = record.indexOf(":", 6);
+    if (separator <= 6) return;
+    const tag = Number.parseInt(record.slice(6, separator), 10);
+    const inputPath = record.slice(separator + 1).trim();
+    if (Number.isFinite(tag) && inputPath) {
+      inputs.set(
+        tag,
+        path.normalize(path.isAbsolute(inputPath) ? inputPath : path.resolve(baseDir, inputPath)),
+      );
+    }
+  };
+
   let start = 0;
   const length = text.length;
   while (start < length) {
@@ -125,17 +140,7 @@ const parseForwardIndex = (text, baseDir) => {
 
     if (!inContent) {
       if (record.startsWith("Input:")) {
-        const separator = record.indexOf(":", 6);
-        if (separator > 6) {
-          const tag = Number.parseInt(record.slice(6, separator), 10);
-          const inputPath = record.slice(separator + 1).trim();
-          if (Number.isFinite(tag) && inputPath) {
-            inputs.set(
-              tag,
-              path.normalize(path.isAbsolute(inputPath) ? inputPath : path.resolve(baseDir, inputPath)),
-            );
-          }
-        }
+        readInput(record);
       } else if (record.startsWith("Magnification:")) {
         const value = Number.parseFloat(record.slice(14));
         if (Number.isFinite(value) && value > 0) magnification = value;
@@ -155,6 +160,10 @@ const parseForwardIndex = (text, baseDir) => {
     }
 
     const first = record.charCodeAt(0);
+    if (first === 73 && record.startsWith("Input:")) {
+      readInput(record);
+      continue;
+    }
     if (first === 123) {
       // "{n" opens a page.
       const value = Number.parseInt(record.slice(1), 10);
@@ -262,25 +271,6 @@ const reverseOnIndex = (index, { page, x, y }) => {
     if (!authorTag.has(tag)) authorTag.set(tag, isAuthorInput(index, tag));
     return authorTag.get(tag);
   };
-  // A glyph's line is where TeX finished the paragraph, not always where the
-  // text was typed. The neighbouring lines whose ink on this page lies
-  // closest to the point say which one was really meant.
-  const refineLine = (tag, line) => {
-    const lines = index.byTag.get(tag);
-    if (!lines) return line;
-    let best = null;
-    for (let candidate = line - 6; candidate <= line + 6; candidate += 1) {
-      const entry = lines.get(candidate)?.get(page);
-      if (!entry || entry.vmin === null || entry.hmin === null) continue;
-      const dv = v < entry.vmin ? entry.vmin - v : v > entry.vmax ? v - entry.vmax : 0;
-      const dh = h < entry.hmin ? entry.hmin - h : h > entry.hmax ? h - entry.hmax : 0;
-      const distance = dv * 4 + dh;
-      if (!best || distance < best.distance || (distance === best.distance && candidate < best.line)) {
-        best = { line: candidate, distance };
-      }
-    }
-    return best ? best.line : line;
-  };
   let box = null;
   for (const candidate of records.boxes) {
     const left = candidate.h;
@@ -309,7 +299,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
       }
     }
     const hit = best ?? (preferAuthor(box.tag) ? { tag: box.tag, line: box.line, distance: 0 } : fallback ?? { tag: box.tag, line: box.line, distance: 0 });
-    return { tag: hit.tag, line: refineLine(hit.tag, hit.line), distance: scaleToPoints(hit.distance), exact: true };
+    return { tag: hit.tag, line: hit.line, distance: scaleToPoints(hit.distance), exact: true };
   }
   let nearest = null;
   let nearestAny = null;
@@ -326,7 +316,7 @@ const reverseOnIndex = (index, { page, x, y }) => {
   }
   const chosen = nearest ?? nearestAny;
   if (!chosen) return null;
-  return { tag: chosen.tag, line: refineLine(chosen.tag, chosen.line), distance: scaleToPoints(chosen.distance), exact: false };
+  return { tag: chosen.tag, line: chosen.line, distance: scaleToPoints(chosen.distance), exact: false };
 };
 
 module.exports = (SynctexService) => {
@@ -352,7 +342,8 @@ module.exports = (SynctexService) => {
     // A blank or comment line under the point is where a paragraph ended:
     // the text it belongs to is above it, so look upward first.
     let line = hit.line;
-    if (typeof this.getReverseLinePenalty === "function" && this.getReverseLinePenalty({ sourcePath, line }) > 0) {
+    const sourceLine = this.getSourceLine?.(sourcePath, line);
+    if (typeof sourceLine === "string" && /^\s*(?:%.*)?$/.test(sourceLine)) {
       const order = [];
       for (let delta = 1; delta <= 3; delta += 1) order.push(line - delta);
       for (let delta = 1; delta <= 3; delta += 1) order.push(line + delta);
@@ -431,7 +422,14 @@ module.exports = (SynctexService) => {
    * (or of the nearest line that left ink), in PDF points from the page's
    * top-left corner — the same frame `synctex view` reports.
    */
-  SynctexService.prototype.forwardLinesQuick = function ({ sourcePath, pdfPath, lines }) {
+  SynctexService.prototype.forwardLinesQuick = function ({
+    sourcePath,
+    pdfPath,
+    lines,
+    preferAbove = false,
+    firstSubstantialPage = false,
+    lastSubstantialPage = false,
+  }) {
     if (!fs.existsSync(pdfPath)) {
       return { ok: false, error: "PDF not found." };
     }
@@ -448,12 +446,51 @@ module.exports = (SynctexService) => {
       return { ok: false, error: "The file is not part of this PDF." };
     }
     const lookup = (line) => {
-      let chosen = null;
+      const entries = [];
       for (const tag of tags) {
         const pages = index.byTag.get(tag)?.get(line);
         if (!pages) continue;
         for (const entry of pages.values()) {
-          if (entry.best && isBetterPage(entry, chosen)) chosen = entry;
+          if (entry.best) entries.push(entry);
+        }
+      }
+      let chosen = null;
+      if ((firstSubstantialPage || lastSubstantialPage) && entries.length > 0) {
+        // What a page break stamps with the line being read (the running
+        // head at the top, the folio at the foot) is a few glyphs spread
+        // over the whole page height. A line with nothing else, like
+        // \chapter whose \clearpage ships the previous page, has no output
+        // of its own here: its heading is filed under the next line, so the
+        // search moves on to that.
+        const most = Math.max(...entries.map((entry) => entry.glyphs));
+        const enough = Math.max(3, Math.min(20, most * 0.3));
+        const width = (entry) => (entry.hmin === null || entry.hmax === null ? 0 : entry.hmax - entry.hmin);
+        const height = (entry) => (entry.vmin === null || entry.vmax === null ? 0 : entry.vmax - entry.vmin);
+        const lowest = Math.max(...entries.map((entry) => entry.vmax ?? 0));
+        const stamp = (entry) => entry.glyphs < enough && height(entry) > lowest * 0.5;
+        const own = entries.filter((entry) => !stamp(entry));
+        if (own.length === 0) return null;
+        // A paragraph's first line at the foot of a page has few glyphs but
+        // spans the text width; its last line at the top of the next page
+        // may be short.
+        const widest = Math.max(...own.map(width));
+        const lineLike = (entry) =>
+          entry.glyphs >= 3 && (lastSubstantialPage || (widest > 0 && width(entry) >= widest * 0.5));
+        const real = (entry) => entry.glyphs >= enough || lineLike(entry);
+        // First page for where the output begins, last for where it ends.
+        for (const entry of own) {
+          if (!real(entry)) continue;
+          if (!chosen || (lastSubstantialPage ? entry.page > chosen.page : entry.page < chosen.page)) chosen = entry;
+        }
+        if (!chosen) {
+          for (const entry of own) {
+            if (isBetterPage(entry, chosen)) chosen = entry;
+          }
+        }
+      }
+      if (!chosen) {
+        for (const entry of entries) {
+          if (isBetterPage(entry, chosen)) chosen = entry;
         }
       }
       return chosen ? { page: chosen.page, h: chosen.best.h, v: chosen.best.v } : null;
@@ -464,12 +501,20 @@ module.exports = (SynctexService) => {
       let matchedLine = requested;
       for (let distance = 0; distance <= MAX_NEAREST_LINE_DISTANCE && !hit; distance += 1) {
         // Look below first: a step that names a heading line wants the text
-        // that follows it, not the paragraph that ended above.
-        hit = lookup(requested + distance);
-        matchedLine = requested + distance;
-        if (!hit && distance > 0 && requested - distance >= 1) {
-          hit = lookup(requested - distance);
-          matchedLine = requested - distance;
+        // that follows it, not the paragraph that ended above. A blank or
+        // closing line belongs to what precedes it, so callers can flip that.
+        const candidates = distance === 0
+          ? [requested]
+          : preferAbove
+            ? [requested - distance, requested + distance]
+            : [requested + distance, requested - distance];
+        for (const candidate of candidates) {
+          if (candidate < 1) continue;
+          hit = lookup(candidate);
+          if (hit) {
+            matchedLine = candidate;
+            break;
+          }
         }
       }
       if (!hit) {
@@ -485,6 +530,8 @@ module.exports = (SynctexService) => {
         y: index.toPoints(hit.v, index.yOffset),
       });
     }
-    return { ok: true, results, pageCount: index.pageCount };
+    // Input 1 is the file the engine was run on.
+    const rootTag = Math.min(...index.inputs.keys());
+    return { ok: true, results, pageCount: index.pageCount, isRootFile: tags.includes(rootTag) };
   };
 };

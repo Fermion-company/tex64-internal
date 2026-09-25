@@ -263,6 +263,8 @@ export const createMathWysiwygEventsOps = (runtime, deps) => {
     };
     const detach = () => {
         var _a;
+        if (runtime.deps.floating)
+            runtime.panelState.panel.remove();
         (_a = runtime.eventController) === null || _a === void 0 ? void 0 : _a.abort();
         runtime.eventController = null;
         runtime.beginMutationSession();

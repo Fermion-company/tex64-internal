@@ -66,6 +66,8 @@ const DISPLAY_MATH_ENVIRONMENTS = new Set([
 const displayMathBoundary = (
   line: string,
 ): { edge: "begin" | "end"; environment: string } | null => {
+  if (/^\s*\\\[\s*(?:%.*)?$/.test(line)) return { edge: "begin", environment: "\\[" };
+  if (/^\s*\\\]\s*(?:%.*)?$/.test(line)) return { edge: "end", environment: "\\[" };
   const match = line.match(/^\s*\\(begin|end)\{([^}]+)\}/);
   if (!match || !DISPLAY_MATH_ENVIRONMENTS.has(match[2] ?? "")) return null;
   return {
@@ -189,6 +191,49 @@ const collectTextRanges = (
     index = end + 1;
   }
   return ranges;
+};
+
+const TABLE_ENVIRONMENT = /^\s*\\begin\{(tabular\*?|tabularx)\}/u;
+
+/** A tabular selection edits the table as a whole, including its delimiters. */
+const findTableByPaperText = (
+  lines: readonly string[],
+  firstLineNumber: number,
+  selectedText: string,
+): ParagraphRange | null => {
+  const paper = normalizedPaperText(selectedText);
+  if (paper.length < 3) return null;
+
+  let best: { range: ParagraphRange; score: number; contains: boolean } | null = null;
+  for (let start = 0; start < lines.length; start += 1) {
+    const begin = TABLE_ENVIRONMENT.exec(lines[start] ?? "");
+    if (!begin) continue;
+    const environment = begin[1]!;
+    let end = start + 1;
+    while (end < lines.length && !new RegExp(String.raw`^\s*\\end\{${environment}\}`).test(lines[end] ?? "")) end += 1;
+    if (end >= lines.length) continue;
+    const text = lines.slice(start, end + 1).join("\n");
+    const source = normalizedPaperText(sourcePaperText(text));
+    const contains = source.includes(paper) || paper.includes(source);
+    const score = bigramSimilarity(source, paper);
+    if (!contains && score < 0.58) {
+      start = end;
+      continue;
+    }
+    const candidate = {
+      range: {
+        startLine: firstLineNumber + start,
+        endLine: firstLineNumber + end,
+        text,
+        kind: "text" as const,
+      },
+      score,
+      contains,
+    };
+    if (!best || Number(candidate.contains) > Number(best.contains) || candidate.score > best.score) best = candidate;
+    start = end;
+  }
+  return best?.range ?? null;
 };
 
 const findTextByPaperText = (
@@ -357,6 +402,8 @@ export function findParagraphRange(
   if (displayMath) return displayMath;
   const matchedMath = findMathByPaperText(lines, firstLineNumber, selectedText);
   if (matchedMath) return matchedMath;
+  const matchedTable = findTableByPaperText(lines, firstLineNumber, selectedText);
+  if (matchedTable) return matchedTable;
   if (EDITABLE_TEXT_COMMAND_LINE.test(targetText)) {
     const commandText = normalizedPaperText(
       segmentParagraph(targetText)

@@ -1,9 +1,9 @@
 # リアルタイムプレビュー（ベータ）
 
-Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-core**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、開発checkoutまたは同梱したコピーを別プロセスとして起動する。
+Code の設定トグルで有効化する、書きながら組版されるプレビュー。エンジンは兄弟リポジトリ **tdom-engine**（常駐 LuaLaTeX のインクリメンタル組版ランタイム、TDOM Engine）で、開発checkoutまたは同梱したコピーを別プロセスとして起動する。
 
 - 設定: **設定 > Build > Preview > Real-time Preview (Beta)**（`preview.realtime`、default off、localStorage）
-- **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。既存の PDF タブを使い、別ウィンドウは起動しない。
+- **ライブ専用の表示面は作らない。** Code の通常の `pdf-viewer.html` とツールバーを維持し、ページキャンバスだけを TDOM の埋め込み表示へ切り替える。PDF の表示設定に従い、既存の PDF タブまたは通常 Build の別ウィンドウを同じ状態で切り替える。
 - プレビュー上の文字・数式は直接編集できる。編集は同じ Monaco モデルへ入り、未保存状態・自動保存・Undo を通常のソース編集と共有する。ソース位置が競合した場合は推測で別箇所を書き換えず、その編集を拒否する。
 
 ## 配線
@@ -13,12 +13,12 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 | main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy・`/canonical.pdf` snapshot |
 | main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,focus,snapshot}` |
 | preload | `electron/preload.cjs` | `window.tex64Tdom` |
-| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・既存 PDF ビューアへのライブ URL 配信 |
+| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce。400ms 以上止まった後の最初の打鍵は 16ms で送る。IME 中は送らない）・既存 PDF ビューアと通常の PDF 別ウィンドウへのライブ URL 配信 |
 | renderer | `Resources/web/pdf-viewer.js` | 通常 PDF の last-good を保持しつつページ面を TDOM iframe に切替、ツールバー操作と直接編集イベントを中継。エンジンの `action: 'place'`（選択または右クリックの場所・文・ソース行）を受けて「Axiom に聞く」を浮かせ、`ask-axiom`（`source` 付き）をホストへ送る |
 | renderer | `web-src/app/viewer.ts` | PDF iframe と Code 側のソース移動・直接編集を接続 |
 | renderer | `web-src/app/editor-session/init.ts`・`live-edit-history.ts` | 表示時の原文範囲を Monaco の実変更履歴で追従し、直接編集を単一 Undo セッションとして適用 |
 
-紙面の文字を選ぶか右クリックすると、エンジン（`web/app.js`、embedded のときだけ）が `srcOf` → `/dom` の `block.source`、無ければ `/synctex` でソース行を引き、`action: 'place'`（`kind: selection | point | clear`、`pageNumber`、`text`、`rect`、`file` / `line` / `column`）を親へ postMessage する。選択が消えるかスクロールすると `clear`。この変更は tdom-core 側（`web/app.js`）にあり、配布前に `npm run tdom:sync` で同梱コピーへ反映する。
+紙面の文字を選ぶか右クリックすると、エンジン（`web/app.js`、embedded のときだけ）が `srcOf` → `/dom` の `block.source`、無ければ `/synctex` でソース行を引き、`action: 'place'`（`kind: selection | point | clear`、`pageNumber`、`text`、`rect`、`file` / `line` / `column`）を親へ postMessage する。選択が消えるかスクロールすると `clear`。この変更は tdom-engine 側（`web/app.js`）にあり、配布前に `npm run tdom:sync` で同梱コピーへ反映する。
 
 エディタ全文を main に送り、main 側が前回ソースとの共通 prefix/suffix を削った**最小レンジ編集**にして `POST /edit` する。ファイル切替時は `POST /open` で開き直す。編集が食い違ったら `/open` で再同期。
 
@@ -60,21 +60,37 @@ canonical 更新で入力面の親ページが変わらなければDOMを挿し�
 
 編集中の入力面が別ページへ移った場合だけ、旧caretの画面内Yをできる限り保ってスクロールを追従する。新glyphのcaretで補正し、途中の手動スクロールや選択変更は優先する。同じページの更新ではスクロールを動かさない。本文のクリックとcanonical後の再配置は、forward SyncTeXと実際のword boxで絞った全出現と原文範囲の同じ対応を使う。逆位置は整合するときに更に限定し、段落後の空行を指してもforwardの証明を失わない。同じ行の複数出現は全数が一致するときだけソース列順とPDF順を対応させ、改ページ前の近い同値本文へ移さない。
 
+通常ビルドが成功し、ビルドが組版した入力がその時点でも最新なら、紙面の所有権をビルドへ移す。同じワークスペース・PDFのタブはビルドで更新されたPDFを表示し、ライブのiframe・activation・文書epochとエンジン入力・checkpointはその下に保持する。所有権（`hold`）はライブ状態の一部としてviewerへ配布し、ビルドが新しく開いたPDFタブではviewerのready後に適用する。ライブ表示中だった場合は、そのページでビルドのPDFを開く。保持中のiframeは静的PDFの表示位置を追う。遅れて届いたライブ応答も同じ所有権で再配布するため、旧紙面へ戻らない。
+
+通常BuildとTDOMの重い全体組版はBuild leaseで直列化する。Build開始前にローカルgateを取得するため、TDOMがまだ起動していない場合もBuild中にcold bootstrapを始めない。起動済みの同一文書へ送る軽いresident editは継続する。エンジン側leaseはcanonical・open・warmの重い処理を保留し、すでに走っているauthority childを停止してcheckpointと表示世代を保持する。Buildの成功・失敗・中止・timeoutとアプリ終了の全経路で同じtokenを解放し、watchdogも残す。
+
+LuaLaTeXの通常Buildが成功した場合は、staging中のPDF・SyncTeX・FLS・root auxと、FLSが記録したproject入力全件のhashをimmutable cache世代へ保存する。TeXを起動する前にもproject通常ファイルを時間・件数・総byte数で制限した範囲でhashし、FLSのproject入力全件がその事前観測に存在して同じhashである場合だけcanonical候補にする。未観測入力、Build中の保存、読取競合、観測上限の超過はcacheをstatic last-goodとして残し、canonical採用だけを行わない。同じアプリ実行中に取得した候補だけを、現在のdocument/source/input epoch、lease identity、LuaLaTeX profile、PDF producer、全入力hash、SyncTeX input mapが一致する場合にTDOM canonicalへ採用する。既存residentが同じidentityなら `/canonical/build-import`、cold openなら候補付き `/open` を使い、応答まではleaseを保持する。採用の拒否や通信失敗は通常Buildの成功を取り消さず、新PDFを表示してTDOM自身のcanonicalへ戻る。ディスクcacheをアプリ再起動後のauthorityとして採用する処理は、TeX toolchain/config fingerprintが未実装のため行わない。
+
+事前・事後hashは、Build開始前と終了後で同じbytesであったことを示す。途中で別bytesへ変わって元へ戻るABA変更や、project外のTeX system入力がBuild中に変わらないことまでは観測しない。これはFLS入力照合とは別のobservable-input制約であり、完全なhermetic Buildや永続authorityの証明として扱わない。
+
+canonical anchorが複数のソース行を照会するときは、同じ世代のSyncTeXをvendored MIT parserで一度だけ解析するbounded helperを使う。全行のJSON group、record数、有限座標、世代とlogical/recorded path対応が完全な場合だけ既存の座標変換へ渡す。compiler/zlibがない、process失敗、期限超過、JSON欠損、変換不能のいずれでも既存の`SyncTeX` CLIへ戻り、paint証明やpublish条件は変えない。
+
+ビルド後の最初のソース変更は `/edit` として送り、エンジンがそれを受理した時点で所有権をライブへ戻す。受理した source revision を期待値としてviewerへ配布する。静的PDFの表示中心の紙面位置を token 付きの `goto-sync` でiframeへ渡し、iframeがその token を返し（位置の確認）、期待値以上の revision を適用して完成した紙面（`ready`、または `presentationPending` が false）を持つまで静的PDFを上に残す。認証済みの局所描画は canonical の確認まで `presentationPending` のままなので、完成の判定にはどちらも使う。確認できない間は再送を続け、静的PDFを外さない。静的PDFをスクロールした場合は新しい位置を渡し直す。iframeを作り直さず、ほかの領域はcanonicalが追いつくまで直前の正しい紙面を使う。token を返さない旧エンジンでは報告された先頭ページで位置を判定する。新しいiframeを作る場合も静的PDFの表示位置から始める。ビルド中の編集を含め、その時点のエディタ本文は変更しない。通常ビルドのプロセス上限は10分で、時間切れは取消とは区別してエラー通知し、直前の正常なPDFを保持する。
+
+ビルド開始後にエディタ・外部同期によるソース変更があった場合や未保存ソースが残る場合は、保存済みPDFが旧版であることをProblemsへ通知し、追加の打鍵を待たずに最新ソースのライブ表示を再開する。成功通知より後着した旧編集応答は採用しない。
+
+TDOM の `closure-deferred` は resident の紙面を保持しつつ最新ソースの確定組版を予約する。`\loop\ifnum...\repeat` は閉じた構文として認識する。確定組版のエラーでは部分PDFを採用せず、修復後の編集から自動で再組版する。`/status` の canonical 情報に `runningRev`・`scheduledRev`・`fallbackReason` が入り、現在のソースに対する収束処理を確認できる。
+
 ## エンジンの解決順序（tdom-engine.cjs）
 
-1. `TEX64_TDOM_ENGINE_DIR`（env）
-2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-core` → `~/Developer/tdom-core` → `~/tdom-core` → `~/Desktop/tdom-core`
+1. `TDOM_ENGINE_DIR`（env。旧 `TEX64_TDOM_ENGINE_DIR` も互換対応）
+2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-engine` → `~/Developer/tdom-engine` → `~/tdom-engine` → `~/Desktop/tdom-engine`。旧 `tdom-core` checkout はその後の互換フォールバック
 3. vendored copy: パッケージ版の `resources/app.asar.unpacked/Resources/tdom-engine/`、開発配置の `Resources/tdom-engine/` の順（`server.js` の存在で判定）。
 
-**開発フロー**: checkout が vendored より優先されるので、`~/tdom-core` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
+**開発フロー**: checkout が vendored より優先されるので、`~/tdom-engine` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
 
-**配布**: `npm run tdom:sync` が checkout の最小構成（engine/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
+**配布**: `npm run tdom:sync` が checkout の実行用構成（engine/・host/・vendor/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。`vendor/` にはruntime helperが必要とする固定版ソースとライセンスを含む。`host/` は upstream の正式なホスト統合 API で、TeX64 の配布物にもエンジンと同じ版を保持する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
 
 ## 実行時の前提と保護
 
 - 必須バイナリ: `lualatex`（managed TeX / システム texbin を PATH に前置）、poppler の `pdftocairo` / `pdftotext` / `pdfinfo`、fork shim 初回ビルド用の `cc`（PATH に `/opt/homebrew/bin` `/usr/local/bin` を追加して spawn）。欠けるとエンジンが起動せず console にエラーが出る（ビューアは静的表示のまま）。従来ビルドには影響しない。
 - `TDOM_MAX_CHECKPOINTS=8`（checkpoint 1 個 ≒ 常駐 lualatex fork 1 個 ≒ 100–300MB。エンジン既定の 64 は踏まない）。
-- `TDOM_WORKDIR` は userData 配下の絶対パス（tdom-core 側に絶対パス対応を追加済み）。
+- `TDOM_WORKDIR` は userData 配下の絶対パス（tdom-engine 側に絶対パス対応済み）。
 - 数式の直接編集に使う MathLive / WYSIWYG 資産だけを `app.asar.unpacked` に展開し、`TDOM_HOST_WEB_ROOT` で外部 TDOM プロセスへ渡す。renderer 全体は公開しない。
 - boot サンプルは `samples/` の実在ファイルから選ぶ（`demo-lua.tex` 優先）。既定の stress-test-ja は起動に数分かかるため使わない。
 - トグル OFF・アプリ終了で SIGTERM → エンジン側の shutdown が常駐 lualatex ツリーを回収する。

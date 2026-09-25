@@ -192,6 +192,22 @@ export function defaultInsertStyleHook(
 
   if (model.mode === 'latex') return {};
 
+  // A template placeholder carries the user's chosen font. Replacing it
+  // must inherit that font even when surrounding atoms use another style.
+  // Some style commands (for example \boldsymbol) live on a parent atom, so
+  // the placeholder's own style alone is not enough.
+  if (model.selectionIsPlaceholder) {
+    const placeholder = model.at(Math.max(model.anchor, model.position));
+    const ancestors: Atom[] = [];
+    for (let atom: Atom | undefined = placeholder; atom; atom = atom.parent) {
+      ancestors.push(atom);
+    }
+    return ancestors.reverse().reduce(
+      (style, atom) => ({ ...style, ...atom.style }),
+      { ...mathfield.defaultStyle }
+    );
+  }
+
   const bias = mathfield.styleBias;
   if (bias === 'none') return mathfield.defaultStyle;
 

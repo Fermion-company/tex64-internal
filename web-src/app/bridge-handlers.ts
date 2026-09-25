@@ -30,6 +30,9 @@ import { uiText } from "./i18n.js";
 import type { FilePreviewResultPayload } from "./file-preview.js";
 import type { WorkspaceFileCacheScope } from "./file-preview.js";
 import type { FileExcerptResultPayload } from "./file-excerpt.js";
+import { parseLiveAnchorRequest, parseLiveEditRequest, parseLiveSourceRequest,
+  type LivePreviewAnchorRequest, type LivePreviewAnchorResult,
+  type LivePreviewEditRequest } from "./viewer.js";
 
 const AI_MODE_CONVERSATION_PREFIX = "tex64-ai-mode:";
 
@@ -98,6 +101,12 @@ type BridgeHandlersDeps = {
       outcome?: "success" | "cancel" | "closed" | "error";
     }) => void;
   };
+  livePreview?: {
+    source: (payload: { file: string; line: number; column: number }) => void;
+    edit: (payload: LivePreviewEditRequest) => void;
+    anchor: (payload: LivePreviewAnchorRequest,
+      reply: (result: LivePreviewAnchorResult) => void) => void;
+  };
   search: {
     handleSearchUpdate: (payload: {
       query: string;
@@ -117,6 +126,11 @@ type BridgeHandlersDeps = {
     }) => void;
   };
   build: {
+    handleBuildPreviewState?: (payload: {
+      state: BuildState;
+      pdfPath?: string;
+      previousPdf?: boolean;
+    }) => void;
     setBuildState: (state: BuildState, message?: string) => void;
     setBuildTarget?: (path: string) => void;
     handleFormatResult: (payload: {
@@ -340,19 +354,42 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
   const { bridgeWindow } = deps;
   let externalWorkspaceRoot: string | null = null;
   let externalWorkspaceGeneration: number | undefined;
+  let buildSourceWarning: string | null = null;
 
   bridgeWindow.tex64SetBuildState = (payload) => {
     updatePdfSourceState((payload as typeof payload & { pdfSourceState?: unknown }).pdfSourceState);
+    if (payload.state === "building") buildSourceWarning = null;
+    const detail = {
+      state: payload.state,
+      message: payload.message,
+      pdfPath: payload.pdfPath,
+      targetFile: payload.targetFile,
+      workspaceRoot: payload.workspaceRoot ?? payload.pdfSourceState?.rootPath,
+      previousPdf: payload.previousPdf === true,
+      sourceChanged: false,
+    };
+    deps.build.handleBuildPreviewState?.(detail);
+    window.dispatchEvent(new CustomEvent("tex64:build-state", { detail }));
+    if (detail.sourceChanged) buildSourceWarning =
+      "Sources changed during the build. The saved PDF is from an earlier version; build again to update it.";
     if (payload.targetFile && !payload.requestId) deps.build.setBuildTarget?.(payload.targetFile);
     deps.build.setBuildState(payload.state, payload.message);
   };
 
   bridgeWindow.tex64UpdateIssues = (payload) => {
     const status = payload.status ?? (payload.count > 0 ? "error" : "success");
+    if (buildSourceWarning && status !== "error") {
+      const issues = [...(payload.issues ?? []), { severity: "warning" as const, message: buildSourceWarning, line: null }];
+      deps.updateIssues(Math.max(payload.count, issues.length), buildSourceWarning, "info", issues);
+      return;
+    }
     deps.updateIssues(payload.count, payload.summary, status, payload.issues ?? []);
   };
 
   bridgeWindow.tex64UpdateWorkspace = (payload) => {
+    if (payload.rootPath !== externalWorkspaceRoot || payload.workspaceGeneration !== externalWorkspaceGeneration) {
+      buildSourceWarning = null;
+    }
     updatePdfSourceState((payload as typeof payload & { pdfSourceState?: unknown }).pdfSourceState, true);
     externalWorkspaceRoot = payload.rootPath;
     externalWorkspaceGeneration = payload.workspaceGeneration;
@@ -560,6 +597,43 @@ export const initBridgeHandlers = (deps: BridgeHandlersDeps) => {
           },
         );
         break;
+      case "pdf:liveSource":
+        {
+          const request = parseLiveSourceRequest(message.payload);
+          if (request) deps.livePreview?.source(request);
+        }
+        break;
+      case "pdf:liveEdit":
+        {
+          const request = parseLiveEditRequest(message.payload);
+          if (request) deps.livePreview?.edit(request);
+        }
+        break;
+      case "pdf:liveEditAnchor": {
+        const envelope = message.payload as {
+          windowRequestId?: string;
+          request?: unknown;
+        };
+        const request = parseLiveAnchorRequest(envelope?.request);
+        if (!envelope?.windowRequestId || !request) break;
+        const reply = (result: LivePreviewAnchorResult) => {
+          void bridgeWindow.tex64Tdom?.replyWindowAnchor?.({
+            windowRequestId: envelope.windowRequestId!,
+            result,
+          });
+        };
+        if (deps.livePreview) deps.livePreview.anchor(request, reply);
+        else reply({
+          sessionId: request.sessionId,
+          requestId: request.requestId,
+          activationId: request.activationId,
+          documentEpoch: request.documentEpoch,
+          file: request.file,
+          sourceRev: request.sourceRev,
+          ok: false,
+        });
+        break;
+      }
       case "renameResult":
         bridgeWindow.tex64RenameResult?.(message.payload as {
           oldPath: string;

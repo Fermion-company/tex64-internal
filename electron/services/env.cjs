@@ -449,6 +449,16 @@ class EnvService {
     this.onProgress = null;
     this.progressVariant = DEFAULT_INSTALL_VARIANT;
     this.detectCache = null;
+    this.detectInFlight = null;
+    this.detectEpoch = 0;
+  }
+
+  // An install or repair changes the answer: drop the cached report and stop
+  // sharing a probe that started before the change.
+  invalidateDetection() {
+    this.detectCache = null;
+    this.detectInFlight = null;
+    this.detectEpoch += 1;
   }
 
   // Map each install phase onto a single monotonic 0-100 bar so the renderer can
@@ -629,7 +639,7 @@ class EnvService {
     if (success) {
       this.writeInstallMarker(resolved);
     }
-    this.detectCache = null;
+    this.invalidateDetection();
     return {
       success,
       variant: resolved,
@@ -1006,7 +1016,7 @@ class EnvService {
       error.name = "AbortError";
       throw error;
     }
-    this.detectCache = null;
+    this.invalidateDetection();
     return {
       attempted: true,
       success: result.ok,
@@ -1035,13 +1045,26 @@ class EnvService {
   // itself whether to show an install choice at all.
   async detectEnvironment(options = {}) {
     const ttlMs = 10000;
-    if (
-      options.force !== true &&
-      this.detectCache &&
-      Date.now() - this.detectCache.at < ttlMs
-    ) {
-      return this.detectCache.value;
+    if (options.force !== true) {
+      if (this.detectCache && Date.now() - this.detectCache.at < ttlMs) {
+        return this.detectCache.value;
+      }
+      // Startup, the settings page and the first workspace update all ask at
+      // once. Each probe runs tlmgr --version and a kpsewhich sweep (~0.3 s)
+      // and the installation cannot change in between: share the one running.
+      if (this.detectInFlight) return this.detectInFlight;
     }
+    const run = this.probeEnvironment();
+    this.detectInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (this.detectInFlight === run) this.detectInFlight = null;
+    }
+  }
+
+  async probeEnvironment() {
+    const epoch = this.detectEpoch;
 
     const managedRoot = this.managedRoot();
     const engines = {};
@@ -1148,7 +1171,7 @@ class EnvService {
       recommendation,
       checkedAt: new Date().toISOString(),
     };
-    this.detectCache = { at: Date.now(), value: report };
+    if (epoch === this.detectEpoch) this.detectCache = { at: Date.now(), value: report };
     return report;
   }
 

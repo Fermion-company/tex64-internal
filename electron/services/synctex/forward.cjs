@@ -10,6 +10,9 @@ module.exports = (SynctexService) => {
     hintLine = null,
     hintColumn = null,
     registerHint = true,
+    preferPage = null,
+    preferBottom = false,
+    maxVerifiedBlocks = null,
   }) {
     const synctexPath = this.findSynctex();
     if (!synctexPath) {
@@ -40,8 +43,36 @@ module.exports = (SynctexService) => {
     }
     const targetLine = Number.isFinite(line) ? line : null;
     const targetColumn = Number.isFinite(column) ? column : null;
+    // When the caller already knows the page (from the SyncTeX index), only
+    // that page's first boxes need checking: a macro line that expands over
+    // many pages returned 228 boxes, one reverse lookup each, several seconds.
+    let candidateBlocks = blocks;
+    if (Number.isFinite(preferPage)) {
+      // Reading order, first box first: `synctex view` does not list a
+      // paragraph's line boxes in order, and its first line is where the
+      // jump should land (its last line, when the jump is to where it
+      // ends). Order is column, then top to bottom; two columns show as two
+      // clusters of left edges.
+      const onPage = blocks.filter((block) => block.page === preferPage);
+      if (onPage.length > 0) {
+        const left = (block) => (Number.isFinite(block.h) ? block.h : block.x);
+        const widest = Math.max(...onPage.map((block) => block.width || 0));
+        // Zero-width records (origin markers, empty boxes) are not text.
+        const inked = onPage.filter((block) => (block.width || 0) > 0);
+        const text = inked.length > 0 ? inked : onPage;
+        const lefts = text.map(left);
+        const spread = Math.max(...lefts) - Math.min(...lefts);
+        const split = spread > Math.max(60, widest * 0.4) ? Math.min(...lefts) + spread / 2 : Infinity;
+        const column = (block) => (left(block) >= split ? 1 : 0);
+        const before = (a, b) => column(a) - column(b) || a.y - b.y;
+        candidateBlocks = text.sort((a, b) => (preferBottom ? before(b, a) : before(a, b)));
+      }
+    }
+    if (Number.isFinite(maxVerifiedBlocks) && maxVerifiedBlocks > 0) {
+      candidateBlocks = candidateBlocks.slice(0, maxVerifiedBlocks);
+    }
     const selected = await this.selectForwardPoint({
-      blocks,
+      blocks: candidateBlocks,
       targetLine,
       targetColumn,
       sourcePath,

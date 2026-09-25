@@ -1,5 +1,5 @@
 import { getMathFieldSelectionRange } from "../../../app/blocks/math-input-utils.js";
-import { buildOperatorCandidates, buildRankedWordCandidates, buildWordCandidates, } from "../math-wysiwyg-candidates.js";
+import { buildOperatorCandidates, buildRankedWordCandidates, TIER_EXACT, buildWordCandidates, } from "../math-wysiwyg-candidates.js";
 import { getKeyByLatex } from "../math-wysiwyg-keymap.js";
 import { offsetToIndexInRange } from "../math-wysiwyg-selection.js";
 import { hasEnvironmentInContext, isCursorInsideEnvironmentBody, readNativeMathfieldEnvironmentContext, } from "../math-wysiwyg-environment-context.js";
@@ -193,7 +193,7 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
             });
             nextCandidates = scoredCandidates.map((entry) => entry.candidate);
         }
-        const allowSuffixRescue = explicit && tokenMatch.kind === "word" && tokenMatch.token.length >= EXPLICIT_SUFFIX_MIN_LENGTH;
+        const allowSuffixRescue = tokenMatch.kind === "word" && tokenMatch.token.length >= (explicit ? EXPLICIT_SUFFIX_MIN_LENGTH : 3);
         if (allowSuffixRescue && nextCandidates.length === 0) {
             const minSuffixLength = 2;
             for (let dropPrefix = 1; dropPrefix <= tokenMatch.token.length - minSuffixLength; dropPrefix += 1) {
@@ -201,7 +201,7 @@ export const createMathWysiwygCandidateOps = (runtime, deps) => {
                 const suffixScored = buildRankedWordCandidates(suffix, {
                     allowContainsMinLength: explicit ? 2 : AUTO_CONTAINS_MIN_LENGTH,
                     dedupeByLatex: !explicit,
-                });
+                }).filter((entry) => explicit || entry.tier <= TIER_EXACT);
                 if (suffixScored.length === 0) {
                     continue;
                 }

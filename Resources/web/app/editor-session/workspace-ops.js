@@ -1,3 +1,4 @@
+import { rememberEditorModelPath } from "./model-path.js";
 export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, bufferOps) => {
     const handleRenameResult = (payload) => {
         const { oldPath, newPath } = payload;
@@ -21,7 +22,9 @@ export const createEditorSessionWorkspaceOps = (runtime, coreOps, splitViewOps, 
         if (runtime.monacoModels.size > 0) {
             const updatedModels = new Map();
             runtime.monacoModels.forEach((entry, path) => {
-                updatedModels.set(remapPath(path), entry);
+                const nextPath = remapPath(path);
+                rememberEditorModelPath(entry.model, nextPath);
+                updatedModels.set(nextPath, entry);
             });
             runtime.monacoModels.clear();
             updatedModels.forEach((entry, path) => runtime.monacoModels.set(path, entry));

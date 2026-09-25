@@ -58,6 +58,29 @@ export type MonacoSetupApi = {
   setWordWrapEnabled: (enabled: boolean) => void;
 };
 
+// texlab is a resident process (~40 MB) that serves nothing until a TeX
+// document is open, and its initialize handshake fixes the workspace root.
+// Start it with the first latex/bibtex file model instead of with the window:
+// by then a project is open, so the root is known too.
+const startLspOnFirstTexModel = (monaco: any, start: () => void) => {
+  const isTexFile = (model: any) =>
+    model?.uri?.scheme === "file" && ["latex", "bibtex"].includes(model.getLanguageId?.());
+  if ((monaco.editor.getModels?.() ?? []).some(isTexFile)) {
+    start();
+    return;
+  }
+  const subscriptions: { dispose: () => void }[] = [];
+  const maybeStart = (model: any) => {
+    if (!isTexFile(model) || !subscriptions.length) return;
+    subscriptions.splice(0).forEach((subscription) => subscription.dispose());
+    start();
+  };
+  subscriptions.push(monaco.editor.onDidCreateModel(maybeStart));
+  if (monaco.editor.onDidChangeModelLanguage) {
+    subscriptions.push(monaco.editor.onDidChangeModelLanguage((event: any) => maybeStart(event.model)));
+  }
+};
+
 export const initMonacoSetup = (
   context: AppContext,
   deps: MonacoSetupDeps
@@ -173,9 +196,11 @@ export const initMonacoSetup = (
         },
         hoverState
       );
-      void setupLsp(monacoWindow.monaco, {
-        getWorkspaceRoot: deps.getWorkspaceRoot,
-      });
+      startLspOnFirstTexModel(monacoWindow.monaco, () =>
+        void setupLsp(monacoWindow.monaco, {
+          getWorkspaceRoot: deps.getWorkspaceRoot,
+        })
+      );
       const spellBridge = (window as unknown as { tex64Spell?: SpellBridge }).tex64Spell;
       const spellChecker = spellBridge ? new SpellChecker(monacoWindow.monaco, spellBridge) : null;
       spellChecker?.start();
@@ -400,9 +425,9 @@ export const initMonacoSetup = (
             deps.editorSession.clearJumpHighlight(group);
             deps.editorSession.updateBreadcrumbs();
             deps.fileTree.render();
-            if (!e.isUndoing && !e.isRedoing) {
-              deps.editorSession.scheduleAutoSave();
-            }
+            // Undo and redo change the file too. Autosave never reformats,
+            // so saving them leaves the undo stack alone.
+            deps.editorSession.scheduleAutoSave();
           }
         });
         editor.onDidChangeCursorPosition?.(

@@ -1,7 +1,9 @@
 # Git運用
 
-- `main` は開発の本流とリリース基準。
-- `dev` は共同開発の統合先。自動でmainには追従しない。
-- 作業ブランチからPRでmainへ取り込む。コミットは今回の作業範囲を対象にする。
+ブランチは `main` / `dev` / `exp/large-document` の 3 本だけ（tdom-engine も同じ構成）。
 
-比較には `git log main..origin/dev` と `git log origin/dev..main` を使う。
+- `main`: リリース基準。`dev` から PR で取り込む。
+- `dev`: 日常の統合先。作業はここに集約する。
+- `exp/large-document`: 大規模文書向けの実験（issue #52 の重い追加）。pin も deploy もしない。
+
+新しいブランチを作らない。消す前に `git merge-base --is-ancestor <branch> dev` で包含を確認し、origin の実態は `git ls-remote --heads origin` で見る。

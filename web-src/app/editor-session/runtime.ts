@@ -1,5 +1,6 @@
 import type { AppContext } from "../context.js";
 import type { FileOpsState } from "../editor-session-file-ops.js";
+import { TrackedPathSet } from "../save-status.js";
 import type {
   EditorGroupKey,
   EditorGroupState,
@@ -133,7 +134,7 @@ export const createEditorSessionRuntime = (context: AppContext, deps: EditorSess
     issueHighlightClassNames: new Set(["issue-line-warning", "issue-line-highlight"]),
     lastCursorPositions: new Map(),
     monacoModels: new Map(),
-    dirtyFiles: new Set(),
+    dirtyFiles: new TrackedPathSet(),
     emptyEditorModel: null,
   };
 };

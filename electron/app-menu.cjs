@@ -66,7 +66,8 @@ const createApplicationMenuTemplate = ({
     { role: "editMenu", submenu: [
       { role: "undo" }, { role: "redo" }, { type: "separator" },
       { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "pasteAndMatchStyle" }, { role: "delete" }, { role: "selectAll" },
-      { type: "separator" }, commandItem(locale === "ja" ? "スニペット…" : "Snippets…", "snippets:open"),
+      { type: "separator" }, commandItem(locale === "ja" ? "検索…" : "Find…", "edit:find", "CmdOrCtrl+F"),
+      commandItem(locale === "ja" ? "スニペット…" : "Snippets…", "snippets:open"),
     ] },
     { role: "viewMenu" },
     { label: locale === "ja" ? "ターミナル" : "Terminal", submenu: [

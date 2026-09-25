@@ -18,6 +18,7 @@ import { _MenuItemState } from 'ui/menu/menu-item';
 import { contrast } from 'ui/colors/contrast';
 import { asHexColor } from 'ui/colors/css';
 import { ArrayAtom } from 'atoms/array';
+import type { Expression } from '@cortex-js/compute-engine';
 
 // Return a string from the selection, if all the atoms are character boxes
 // (i.e. not fractions, square roots, etc...)
@@ -643,10 +644,16 @@ export function getDefaultMenuItems(mf: _Mathfield): MenuItem[] {
       onMenuSelect: () => {
         const expr = mf.expression!;
         const unknown = expr?.unknowns[0];
-        const results = expr
-          .solve(unknown)
-          ?.map((x) => x.simplify().latex ?? '');
-        if (!results) {
+        const solved = expr.solve(unknown);
+        const isRootList = (value: unknown): value is readonly (Expression | Record<string, Expression>)[] => Array.isArray(value);
+        const roots = isRootList(solved) ? solved : solved ? [solved] : [];
+        const results = roots.map((root) => {
+          const value = typeof (root as Expression).simplify === 'function'
+            ? root as Expression
+            : (root as Record<string, Expression>)[unknown];
+          return value?.simplify().latex;
+        });
+        if (results.length === 0 || results.some((value) => typeof value !== 'string')) {
           mf.model.announce('plonk');
           return;
         }

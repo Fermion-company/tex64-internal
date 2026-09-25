@@ -1,156 +1,259 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
+import { escapeParagraphText, segmentDisplayMath, segmentParagraph, type ParagraphSegment } from "@/domain/source/paragraph-editing";
+import { tableCells, replaceTableCells, type TableCell } from "@/domain/source/table-editing";
+import { getNativeHost } from "@/lib/client/native-host";
+import { ensurePaperMath } from "@/lib/client/mathlive-loader";
 
-import {
-  escapeParagraphText,
-  type ParagraphSegment,
-} from "@/domain/source/paragraph-editing";
-import { ensureMathLive } from "@/lib/client/mathlive-loader";
-
-type MathfieldElement = HTMLElement & {
-  value: string;
-  getValue?: (format?: string) => string;
-  menuItems?: unknown[];
-};
-
+type MathfieldElement = HTMLElement & { value: string; getValue?: (format?: string) => string };
 const ALIGNED_PREFIX = String.raw`\begin{aligned}`;
 const ALIGNED_SUFFIX = String.raw`\end{aligned}`;
+const MATHLIVE_PLACEHOLDER_RE = /\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\\.)*\}/g;
 
-const mathfieldValue = (latex: string): { value: string; aligned: boolean } => {
-  const aligned = /&|\\\\/u.test(latex);
-  return {
-    value: aligned ? `${ALIGNED_PREFIX}${latex}${ALIGNED_SUFFIX}` : latex,
-    aligned,
-  };
+/** `&` and `\\` only need an aligned adapter when they occur in the formula
+ * itself. Matrix, cases, and other nested environments own their separators. */
+const hasTopLevelAlignmentSeparator = (latex: string): boolean => {
+  let groupDepth = 0;
+  let environmentDepth = 0;
+  for (let index = 0; index < latex.length; index += 1) {
+    const character = latex[index];
+    if (character === "\\") {
+      const rest = latex.slice(index);
+      const environment = /^\\(begin|end)\s*\{[^}]*\}/u.exec(rest);
+      if (environment) {
+        environmentDepth += environment[1] === "begin" ? 1 : -1;
+        index += environment[0].length - 1;
+        continue;
+      }
+      if (latex[index + 1] === "\\") {
+        if (groupDepth === 0 && environmentDepth === 0) return true;
+        index += 1;
+        continue;
+      }
+      const command = /^\\[A-Za-z]+/u.exec(rest);
+      if (command) {
+        index += command[0].length - 1;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (character === "{") {
+      groupDepth += 1;
+      continue;
+    }
+    if (character === "}") {
+      groupDepth = Math.max(0, groupDepth - 1);
+      continue;
+    }
+    if (character === "&" && groupDepth === 0 && environmentDepth === 0) return true;
+  }
+  return false;
 };
 
+const mathfieldValue = (latex: string) => {
+  const aligned = hasTopLevelAlignmentSeparator(latex);
+  return { value: aligned ? `${ALIGNED_PREFIX}${latex}${ALIGNED_SUFFIX}` : latex, aligned };
+};
 const sourceMathValue = (value: string, aligned: boolean): string => {
-  if (!aligned) return value;
   const trimmed = value.trim();
-  return trimmed.startsWith(ALIGNED_PREFIX) && trimmed.endsWith(ALIGNED_SUFFIX)
-    ? trimmed.slice(ALIGNED_PREFIX.length, -ALIGNED_SUFFIX.length)
-    : value;
+  const source = aligned && trimmed.startsWith(ALIGNED_PREFIX) && trimmed.endsWith(ALIGNED_SUFFIX)
+    ? trimmed.slice(ALIGNED_PREFIX.length, -ALIGNED_SUFFIX.length) : value;
+  // A placeholder is only an unfinished MathLive cell. It is not valid TeX
+  // and must not leak into the workspace when a user saves a new empty cell.
+  return source.replace(MATHLIVE_PLACEHOLDER_RE, "");
 };
 
-/** Direct editing surface: only prose and rendered formulae are visible. */
-export function ParagraphEditCard({
-  segments,
-  saving,
-  error,
-  onSave,
-  onCancel,
-}: {
-  segments: ParagraphSegment[];
+/** Mounted once per source range. Drafts are owned by useParagraphEditor. */
+export function ParagraphEditCard({ originalText, initialDraft, focusText, kind, saving, error, currentText, onAcceptCurrent, onSave, onCancel, onDraftChange, onReload }: {
+  originalText: string;
+  initialDraft: string | null;
+  focusText: string;
+  kind: "text" | "math";
   saving: boolean;
   error: string | null;
-  onSave: (replacementText: string) => void;
+  currentText: string | null;
+  onAcceptCurrent: () => void;
+  onSave: (text: string) => Promise<unknown>;
   onCancel: () => void;
+  onDraftChange: (text: string) => void;
+  onReload: () => void;
 }) {
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const [mathLoadFailed, setMathLoadFailed] = useState(false);
-  const hasMath = segments.some((segment) => segment.kind === "math");
-  const hasText = segments.some(
-    (segment) => segment.kind === "text" && segment.latex.trim().length > 0,
-  );
-  const title = hasMath && hasText ? "文章と数式を編集" : hasMath ? "数式を編集" : "文章を編集";
-  const segmentKey = useMemo(
-    () =>
-      segments
-        .map((segment) =>
-          segment.kind === "math"
-            ? `m:${segment.prefix}:${segment.latex}:${segment.suffix}`
-            : `${segment.kind}:${segment.latex}`,
-        )
-        .join("\u0000"),
-    [segments],
-  );
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [initialSource] = useState(initialDraft ?? originalText);
+  const serializeRef = useRef<() => string>(() => initialSource);
+  const callbacks = useRef({ onDraftChange });
+  useEffect(() => { callbacks.current = { onDraftChange }; }, [onDraftChange]);
+  const [dirty, setDirty] = useState(initialSource !== originalText);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
+  const [retry, setRetry] = useState(0);
+  const [isTable] = useState(() => kind !== "math" && tableCells(initialSource) !== null);
+  const title = isTable ? "表を編集" : kind === "math" ? "数式を編集" : "文章を編集";
 
-  // Build once per selected source range. React must not reconcile the DOM
-  // while the reader is typing into it.
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
+    const host = editorRef.current;
+    if (!host) return;
     let cancelled = false;
-    setMathLoadFailed(false);
+    const cleanups: (() => void)[] = [];
+    const source = initialSource;
+    const rows = kind === "math" ? null : tableCells(source);
+    const segments = kind === "math" ? segmentDisplayMath(source) : segmentParagraph(source);
+    const allSegments = rows ? rows.flat().flatMap((cell) => segmentParagraph(source.slice(cell.start, cell.end))) : segments;
+    const needsMath = allSegments.some((segment) => segment.kind === "math");
     const build = async () => {
-      if (hasMath) {
-        try {
-          await ensureMathLive();
-        } catch {
-          if (!cancelled) setMathLoadFailed(true);
-          return;
-        }
-      }
-      if (cancelled) return;
-      editor.textContent = "";
-      for (const segment of segments) {
-        if (segment.kind === "text") {
-          editor.appendChild(document.createTextNode(segment.latex));
-          continue;
-        }
-        if (segment.kind === "syntax") {
-          const syntax = document.createElement("span");
-          syntax.className = "paragraph-syntax";
-          syntax.contentEditable = "false";
-          syntax.dataset.latex = segment.latex;
-          editor.appendChild(syntax);
-          continue;
-        }
-        const wrapper = document.createElement("span");
-        wrapper.className = "paragraph-math";
-        wrapper.contentEditable = "false";
-        wrapper.dataset.mathPrefix = segment.prefix;
-        wrapper.dataset.mathSuffix = segment.suffix;
-        wrapper.dataset.mathOriginal = segment.latex;
-        wrapper.dataset.mathDirty = "false";
-        const prepared = mathfieldValue(segment.latex);
-        wrapper.dataset.mathAligned = prepared.aligned ? "true" : "false";
-        const field = document.createElement("math-field") as MathfieldElement;
-        field.className = "paragraph-math-field";
-        field.setAttribute("math-virtual-keyboard-policy", "manual");
-        field.setAttribute("aria-label", "数式");
-        wrapper.appendChild(field);
-        editor.appendChild(wrapper);
-        // MathLive creates its private mathfield only after connection.
-        try {
-          field.menuItems = [];
-        } catch {
-          // The visible menu toggles are hidden by the field styling below.
-        }
-        field.value = prepared.value;
-        field.addEventListener("input", () => {
-          wrapper.dataset.mathDirty = "true";
-        });
-        const stabilizeShadow = () => {
-          const shadow = field.shadowRoot;
-          if (!shadow || shadow.querySelector("style[data-tex64-paper-editor]")) return;
-          const style = document.createElement("style");
-          style.dataset.tex64PaperEditor = "true";
-          style.textContent =
-            ".ML__content{overflow:visible!important}.ML__virtual-keyboard-toggle,button[part=virtual-keyboard-toggle],.ML__menu-toggle,button[part=menu-toggle]{display:none!important}";
-          shadow.appendChild(style);
+      try {
+        const math = needsMath ? await ensurePaperMath() : null;
+        if (cancelled) return;
+        host.replaceChildren();
+        const initializeFields: (() => void)[] = [];
+        const tableEditors: { cell: TableCell; editor: HTMLElement; original: string; touched: boolean }[] = [];
+        const makeEditor = (parts: ParagraphSegment[], label: string) => {
+          const editor = document.createElement("div");
+          editor.className = "paragraph-edit-area";
+          editor.contentEditable = kind === "math" ? "false" : "true";
+          if (kind !== "math") { editor.setAttribute("role", "textbox"); editor.setAttribute("aria-multiline", "true"); }
+          editor.setAttribute("aria-label", label);
+          editor.spellcheck = false;
+          for (const segment of parts) {
+            if (segment.kind === "text") { editor.append(document.createTextNode(segment.latex)); continue; }
+            if (segment.kind === "syntax") {
+              const syntax = document.createElement("span");
+              syntax.className = "paragraph-syntax";
+              syntax.contentEditable = "false";
+              syntax.dataset.latex = segment.latex;
+              editor.append(syntax);
+              continue;
+            }
+            const wrapper = document.createElement("span");
+            wrapper.className = "paragraph-math";
+            wrapper.contentEditable = "false";
+            wrapper.dataset.mathPrefix = segment.prefix;
+            wrapper.dataset.mathSuffix = segment.suffix;
+            wrapper.dataset.mathOriginal = segment.latex;
+            wrapper.dataset.mathDirty = "false";
+            const prepared = mathfieldValue(segment.latex);
+            wrapper.dataset.mathAligned = String(prepared.aligned);
+            const field = document.createElement("math-field") as MathfieldElement;
+            field.className = "paragraph-math-field";
+            field.setAttribute("aria-label", kind === "math" ? "数式を編集" : `${label}の数式`);
+            field.setAttribute("math-virtual-keyboard-policy", "manual");
+            wrapper.append(field);
+            editor.append(wrapper);
+            // Initialize after the whole table/card is connected. Moving an
+            // initialized MathLive element would reset its input options.
+            initializeFields.push(() => {
+              field.value = prepared.value;
+              field.addEventListener("input", () => { wrapper.dataset.mathDirty = "true"; });
+              if (math) cleanups.push(math.attach(field, wrapper));
+              const stabilize = () => {
+                if (!field.shadowRoot || field.shadowRoot.querySelector("style[data-paper-editor]")) return;
+                const style = document.createElement("style");
+                style.dataset.paperEditor = "true";
+                style.textContent = ".ML__content{overflow:visible!important}.ML__virtual-keyboard-toggle,.ML__menu-toggle,[part=virtual-keyboard-toggle],[part=menu-toggle]{display:none!important}:host(:focus),:host(:focus-within),.ML__focused{outline:none!important;box-shadow:none!important}";
+                field.shadowRoot.append(style);
+              };
+              stabilize();
+              requestAnimationFrame(stabilize);
+            });
+          }
+          return editor;
         };
-        stabilizeShadow();
-        requestAnimationFrame(stabilizeShadow);
-      }
-      const firstMath = editor.querySelector<HTMLElement>("math-field");
-      if (hasText) editor.focus();
-      else firstMath?.focus();
-      requestAnimationFrame(() => {
-        editor
-          .closest<HTMLElement>("[data-pdf-selection-card]")
-          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      });
+        if (rows) {
+          const table = document.createElement("table");
+          table.className = "paragraph-table";
+          table.setAttribute("aria-label", "表を編集");
+          const body = document.createElement("tbody");
+          rows.forEach((row, rowIndex) => {
+            const tr = document.createElement("tr");
+            row.forEach((cell, columnIndex) => {
+              const td = document.createElement("td");
+              const original = source.slice(cell.start, cell.end);
+              const editor = makeEditor(segmentParagraph(original), `${rowIndex + 1}行 ${columnIndex + 1}列`);
+              const entry = { cell, editor, original, touched: false };
+              editor.addEventListener("input", () => { entry.touched = true; });
+              tableEditors.push(entry);
+              td.append(editor); tr.append(td);
+            });
+            body.append(tr);
+          });
+          table.append(body); host.append(table);
+          serializeRef.current = () => replaceTableCells(source, tableEditors.map(({ cell, editor, original, touched }) => ({ cell, text: touched ? serializeEditor(editor) : original })));
+        } else {
+          const editor = makeEditor(segments, kind === "math" ? "数式を編集" : "文章を編集");
+          host.append(editor);
+          serializeRef.current = () => serializeEditor(editor);
+        }
+        initializeFields.forEach((initialize) => initialize());
+        setLoadState("ready");
+        requestAnimationFrame(() => {
+          if (cancelled) return;
+          if (!rows) {
+            host.querySelector<HTMLElement>(kind === "math" ? "math-field" : '[contenteditable="true"]')?.focus();
+            return;
+          }
+          const normalizedFocus = focusText.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+          if (normalizedFocus.length < 3) return;
+          const target = tableEditors.find(({ original }) => {
+            const normalizedCell = original
+              .normalize("NFKC")
+              .toLowerCase()
+              .replace(/\\(?:operatorname|mathrm|mathbf|mathit|mathsf|mathtt|text)\s*\{([^{}]*)\}/gu, "$1")
+              .replace(/\\[A-Za-z]+\b/gu, "")
+              .replace(/[^\p{L}\p{N}]+/gu, "");
+            return normalizedCell.includes(normalizedFocus) || normalizedFocus.includes(normalizedCell);
+          });
+          target?.editor.querySelector<HTMLElement>("math-field, [contenteditable=\"true\"]")?.focus();
+        });
+      } catch { if (!cancelled) setLoadState("failed"); }
     };
     void build();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasMath, hasText, segmentKey, segments]);
+    return () => { cancelled = true; cleanups.forEach((cleanup) => cleanup()); };
+  }, [focusText, initialSource, kind, retry]);
 
-  const serialize = (): string => {
-    const editor = editorRef.current;
+  useEffect(() => getNativeHost()?.onMessage((message) => {
+    if (message.type === "paper:command" && message.payload?.command === "save" && !saving && dirty && loadState === "ready") {
+      void onSave(serializeRef.current());
+    }
+  }), [saving, dirty, loadState, onSave]);
+
+  const recordDraft = () => {
+    const text = serializeRef.current();
+    setDirty(text !== originalText);
+    callbacks.current.onDraftChange(text);
+  };
+  const save = () => { if (!saving && loadState === "ready") void onSave(serializeRef.current()); };
+  return (
+    <div className={`element-card${kind === "math" ? " is-display-math" : ""}${isTable ? " is-table" : ""}`} aria-label={title}
+      onKeyDown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault(); event.stopPropagation(); save();
+        } else if (event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault(); event.stopPropagation(); onCancel();
+        }
+      }}>
+      <div className="element-card-head">
+        <button type="button" className="element-card-close element-card-close-icon" aria-label="閉じる" onClick={onCancel}>
+          <X aria-hidden="true" size={15} strokeWidth={1.8} />
+        </button>
+        <strong>{title}{dirty ? <span className="draft-status">下書き</span> : null}</strong>
+        <div className="element-card-head-actions">
+          <button type="button" className="element-card-confirm" disabled={saving || loadState !== "ready" || !dirty} onClick={save}>{saving ? "保存中…" : "保存"}</button>
+        </div>
+      </div>
+      <div className="element-card-editor" onInput={recordDraft}>
+        <div ref={editorRef} />
+        {loadState === "loading" ? <span role="status">数式入力を準備中…</span> : null}
+        {loadState === "failed" ? <div role="alert">数式入力を読み込めませんでした。<button onClick={() => { setLoadState("loading"); setRetry((value) => value + 1); }}>再試行</button></div> : null}
+        {error ? <div className="paragraph-editor-error" role="alert"><p>{error}</p>
+          {currentText !== null ? <><strong>現在の本文</strong><pre className="conflict-source">{currentText}</pre><button onClick={onAcceptCurrent}>確認して下書きを使う</button></> : <button onClick={onReload}>最新の本文を確認</button>}
+          <button onClick={() => void navigator.clipboard.writeText(serializeRef.current())}>下書きをコピー</button></div> : null}
+      </div>
+    </div>
+  );
+}
+function serializeEditor(editor: HTMLElement | null): string {
     if (!editor) return "";
     const walk = (node: Node, atLineStart: boolean): { text: string; atLineStart: boolean } => {
       let out = "";
@@ -210,47 +313,4 @@ export function ParagraphEditCard({
       return { text: out, atLineStart: lineStart };
     };
     return walk(editor, true).text.replace(/\n+$/u, "");
-  };
-
-  return (
-    <div className="element-card" aria-label={title}>
-      <div className="element-card-head">
-        <button type="button" className="element-card-close" onClick={onCancel}>
-          やめる
-        </button>
-        <strong>{title}</strong>
-        <div className="element-card-head-actions">
-          <button
-            type="button"
-            className="element-card-confirm"
-            disabled={saving || mathLoadFailed}
-            onClick={() => onSave(serialize())}
-          >
-            {saving ? "保存中…" : "保存"}
-          </button>
-        </div>
-      </div>
-      <div className="element-card-editor">
-        <div
-          ref={editorRef}
-          className="paragraph-edit-area"
-          contentEditable={!mathLoadFailed}
-          suppressContentEditableWarning
-          role="textbox"
-          aria-multiline="true"
-          aria-label={title}
-          spellCheck={false}
-        />
-        {mathLoadFailed ? (
-          <p className="paragraph-editor-error" role="alert">
-            数式入力を読み込めませんでした。
-          </p>
-        ) : error ? (
-          <p className="paragraph-editor-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
 }

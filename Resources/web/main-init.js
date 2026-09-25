@@ -56,6 +56,7 @@ import { initProCanvasUi } from "./app/pro-canvas/canvas-ui.js";
 import { initCodeLivePreview } from "./app/code-live-preview.js";
 import { resolveLivePreviewWorkspacePath } from "./app/live-preview-path.js";
 import { prepareRendererForQuit } from "./app/quit-preparation.js";
+import { setupSaveStatusUi } from "./app/save-status-ui.js";
 export const initMain = () => {
     window.addEventListener("DOMContentLoaded", () => {
         var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -494,6 +495,10 @@ export const initMain = () => {
             getActiveGroup: editorSession.getActiveGroup,
         });
         const aiModeApi = initAiModeUi({
+            openSource: (path, line) => {
+                appModeApi.setMode("code");
+                editorSession.jumpToFileLine(path, line, "primary", { force: true, focus: true });
+            },
             postToNative: (payload, silent) => {
                 if (payload.type === "openWorkspace" ||
                     payload.type === "openRecentProject" ||
@@ -862,6 +867,7 @@ export const initMain = () => {
             getActiveGroup: editorSession.getActiveGroup,
             getActiveEditorGroupKey: () => editorSession.getActiveEditorGroupKey(),
             getActiveFilePath: () => editorSession.getActiveFilePath(),
+            getWorkspaceFiles,
             getRootFilePath,
             getLastBuildMainFile: () => lastBuildMainFile,
             getWorkspaceRootKey,
@@ -881,6 +887,7 @@ export const initMain = () => {
             requestOpenFile: editorSession.requestOpenFile,
             getSplitViewEnabled: () => editorSession.getSplitViewEnabled(),
             setSplitViewEnabled: (enabled) => editorSession.setSplitViewEnabled(enabled),
+            contextMenu,
             settings: {
                 getPdfViewerMode: settingsUi.getPdfViewerMode,
                 getAutoSynctexOnBuildEnabled: settingsUi.getAutoSynctexOnBuildEnabled,
@@ -1051,6 +1058,12 @@ export const initMain = () => {
             saveCurrentFile: () => editorSession.saveCurrentFile(),
         });
         uiEvents.setup();
+        setupSaveStatusUi({
+            button: appContext.dom.saveButton,
+            getStatus: () => editorSession.getSaveStatus(),
+            saveDirtyFiles: () => editorSession.saveDirtyFiles(),
+            setDocumentEdited: (edited) => postToNative({ type: "window:documentEdited", edited }, false),
+        });
         window.addEventListener("beforeunload", () => {
             // Native Quit uses the acknowledged prepareQuit batch above. Keep this as
             // a best-effort fallback for an isolated renderer reload/window close.
@@ -1141,6 +1154,7 @@ export const initMain = () => {
             handleRecentProjects: (projects) => launcherUi.updateRecentProjects(projects),
             app: {
                 handleCommand: (command) => {
+                    var _a, _b, _c;
                     if (command === "snippets:open") {
                         openSnippets();
                         return;
@@ -1158,8 +1172,24 @@ export const initMain = () => {
                         requestWorkspaceChange({ type: "openWorkspace", locale: getUiLocale() });
                         return;
                     }
-                    if (command === "file:save") {
-                        editorSession.saveCurrentFile();
+                    if (command === "file:save" || command === "edit:find") {
+                        if (appModeApi.getMode() === "ai") {
+                            aiModeApi.deliver({ type: "paper:command", payload: { command: command === "file:save" ? "save" : "find" } });
+                        }
+                        else if (command === "file:save") {
+                            editorSession.saveCurrentFile();
+                        }
+                        else {
+                            // Find goes to the PDF when that is what has focus (or what the
+                            // active group shows); the menu shortcut would otherwise always
+                            // open the source editor's find widget.
+                            const activeGroup = editorSession.getActiveGroup();
+                            const pdfGroup = (_a = editorSession.getEditorGroups().find((group) => group.viewer.hasPdfFocus())) !== null && _a !== void 0 ? _a : ((activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.viewer.getViewerMode()) === "pdf" ? activeGroup : null);
+                            if (pdfGroup === null || pdfGroup === void 0 ? void 0 : pdfGroup.viewer.openPdfFind())
+                                return;
+                            const editor = activeGroup === null || activeGroup === void 0 ? void 0 : activeGroup.editor;
+                            (_c = (_b = editor === null || editor === void 0 ? void 0 : editor.getAction) === null || _b === void 0 ? void 0 : _b.call(editor, "actions.find")) === null || _c === void 0 ? void 0 : _c.run();
+                        }
                         return;
                     }
                     if (command === "settings:open") {
@@ -1170,11 +1200,17 @@ export const initMain = () => {
             billing: {
                 handleCheckoutClosed: (payload) => billingUi === null || billingUi === void 0 ? void 0 : billingUi.handleCheckoutClosed(payload),
             },
+            livePreview: {
+                source: (payload) => requestLiveSource(payload),
+                edit: (payload) => requestLiveEdit(payload),
+                anchor: (payload, reply) => requestLiveAnchor(payload, reply),
+            },
             search: {
                 handleSearchUpdate: (payload) => searchUi.handleSearchUpdate(payload),
                 handleRenameResult: (payload) => searchUi.handleRenameResult(payload),
             },
             build: {
+                handleBuildPreviewState: (payload) => buildOps.handleBuildPreviewState(payload),
                 setBuildState: (state, message) => buildOps.setBuildState(state, message),
                 setBuildTarget: (path) => { lastBuildMainFile = path; },
                 handleFormatResult: (payload) => buildOps.handleFormatResult(payload),

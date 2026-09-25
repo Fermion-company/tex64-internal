@@ -141,6 +141,10 @@ const compactRequestMessages = (messages) => {
 
   return source.map((message, index) => {
     if (!message || typeof message !== "object") return message;
+    if (message.role === "user" && index < latestToolCallIndex && Array.isArray(message.content) &&
+        message.content.some((part) => part.type === "text" && part.text?.startsWith("Rendered "))) {
+      return { ...message, content: message.content.filter((part) => part.type === "text") };
+    }
     if (message.role === "tool" && index < latestToolCallIndex) {
       const content = typeof message.content === "string" ? message.content : "";
       if (content.length <= MAX_STALE_TOOL_RESULT_CHARS) return message;
@@ -191,22 +195,29 @@ const sanitizeForTokenEstimate = (value, state) => {
   return result;
 };
 
-/**
- * A tokenizer-independent upper bound: a text token cannot represent fewer
- * than one UTF-8 byte. The fixed reserve covers provider chat/tool framing;
- * image payload bytes are replaced by a conservative vision-token reserve.
- */
-const estimateRequestInputTokenUpperBound = (messages, tools) => {
+let openAiEncoding;
+/** Known OpenAI families use their tokenizer plus a framing reserve. Unknown
+ * providers retain the UTF-8 byte bound. Never count base64 as text tokens. */
+const estimateRequestInputTokenUpperBound = (messages, tools, model = "") => {
   const state = { images: 0 };
   const sanitized = sanitizeForTokenEstimate({ messages, tools }, state);
+  const text = JSON.stringify(sanitized);
+  let textTokens = Buffer.byteLength(text, "utf8");
+  // Mapping maintained by OpenAI: https://github.com/openai/tiktoken/blob/main/tiktoken/model.py
+  if (/^(?:Axiom1\.0(?:$|-)|gpt-5|gpt-4o|gpt-4\.1|o[134](?:$|-))/i.test(model)) {
+    try {
+      openAiEncoding ??= require("js-tiktoken").getEncoding("o200k_base");
+      textTokens = Math.ceil(openAiEncoding.encode(text, [], []).length * 1.1);
+    } catch { /* Retain the byte bound if the bundled tokenizer is unavailable. */ }
+  }
   return (
-    Buffer.byteLength(JSON.stringify(sanitized), "utf8") +
+    textTokens +
     REQUEST_TOKEN_OVERHEAD +
     state.images * IMAGE_TOKEN_RESERVE
   );
 };
 
-const planNextRequest = ({ remainingTokens, messages, tools }) => {
+const planNextRequest = ({ remainingTokens, messages, tools, model }) => {
   const remaining = asFiniteNonNegativeInteger(remainingTokens);
   if (remaining === null || remaining < 1) {
     return {
@@ -216,7 +227,7 @@ const planNextRequest = ({ remainingTokens, messages, tools }) => {
       reason: "quota_exhausted",
     };
   }
-  const inputTokenUpperBound = estimateRequestInputTokenUpperBound(messages, tools);
+  const inputTokenUpperBound = estimateRequestInputTokenUpperBound(messages, tools, model);
   const availableForCompletion = remaining - inputTokenUpperBound;
   if (availableForCompletion < MIN_COMPLETION_TOKENS_PER_CALL) {
     return {

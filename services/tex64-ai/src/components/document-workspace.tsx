@@ -29,6 +29,7 @@ import {
 import { drainPendingSaves } from "@/lib/client/save-drain";
 import {
   conversationIdFor,
+  buildNativeAgentRunPayload,
   loadNativeConversation,
   nativeConversationRestoreMode,
   nativeTerminalFailed,
@@ -75,11 +76,11 @@ import { useDebouncedCallback } from "@/lib/client/use-debounced-callback";
 
 
 type NativeTurnOptions = {
-  /** "survey": the app opened the document and asks where to start; read-only.
-   *  "step": the user picked an offered step; the agent gathers the brief first. */
-  origin?: "survey" | "step";
-  /** With "step": a writing step withholds the edit tools on its first turn. */
+  /** A step explicitly picked by the user. */
+  origin?: "step";
+  /** The selected operation has normal edit permissions. */
   stepKind?: "mechanical" | "writing";
+  displayText?: string;
   /** Attached files as message parts; the first text part is the prompt. */
   parts?: MessagePart[];
   /** The files as the chat shows them under the user's message. */
@@ -97,18 +98,6 @@ type QueuedTurn = {
   parts?: MessagePart[];
   attachments?: ChatAttachment[];
 };
-
-/**
- * What the app asks when a document is opened with no conversation yet. It is
- * sent as the model's user turn but never shown; the reply and its recorded
- * next steps are what the user sees first.
- */
-const OPENING_SURVEY_PROMPT =
-  "この文書を開きました。まず通読して、次を propose_next_steps で提案してください。編集と組版はしないでください。\n" +
-  "・改修を始めるべき箇所（内容の飛び、不整合、弱い箇所）\n" +
-  "・追加すべき内容（欠けている節、定理、図表、例、演習など）\n" +
-  "提案は3〜5件。それぞれ、そのまま依頼として送れる具体的な文にし、対象の箇所を含めてください。\n" +
-  "返答は2〜3文で、この文書が何で、どこから始めるべきかを述べてください。文書がほぼ空なら、何を書くべきかを提案してください。";
 
 /** The next steps the agent last attached; an assistant reply without any ends the list. */
 function latestProposalsOf(messages: ChatMessage[]): AgentProposal[] {
@@ -239,6 +228,7 @@ export function DocumentWorkspace() {
       path: location.path,
       line: location.line,
       selectedText: location.selectedText,
+      focusedText: location.focusedText,
     });
     clearSourceLocation();
   }, [
@@ -879,6 +869,9 @@ export function DocumentWorkspace() {
       let revisionChanged = false;
       const onFrame = (frame: TurnFrame) => {
           switch (frame.type) {
+          case "reset":
+            setStreamingText("");
+            break;
             case "text":
               setStreamingText((current) => current + frame.delta);
               setActivityTool(null);
@@ -950,10 +943,6 @@ export function DocumentWorkspace() {
       ) => Promise<void>)
     | null
   >(null);
-  /** Session keys whose opening read already started; a failed read is not retried. */
-  const surveyedSessionsRef = useRef<Set<string>>(new Set());
-  /** Session key whose restored, empty conversation asked for an opening read. */
-  const surveyRequestRef = useRef<string | null>(null);
   const nativeDocument = nativeWorkspace.current;
   const nativeConversationId = useMemo(
     () =>
@@ -1034,13 +1023,13 @@ export function DocumentWorkspace() {
       setTurnError(null);
       setMobileView("conversation");
       const shownAt = new Date().toISOString();
-      if (options?.origin !== "survey") {
+      {
         setNativeMessages((current) => [
           ...current,
           {
             id: `local:${shownAt}`,
             role: "user",
-            text: prompt,
+            text: options?.displayText ?? prompt,
             createdAt: shownAt,
             ...(options?.attachments && options.attachments.length > 0
               ? { attachments: options.attachments }
@@ -1051,6 +1040,9 @@ export function DocumentWorkspace() {
 
       const onFrame = (frame: TurnFrame) => {
         switch (frame.type) {
+          case "reset":
+            setStreamingText("");
+            break;
           case "text":
             setStreamingText((current) => current + frame.delta);
             setActivityTool(null);
@@ -1078,6 +1070,7 @@ export function DocumentWorkspace() {
         documentMainFile: document.mainFile,
         ...(options?.origin ? { origin: options.origin } : {}),
         ...(options?.stepKind ? { stepKind: options.stepKind } : {}),
+        ...(options?.displayText ? { displayText: options.displayText } : {}),
         ...(options?.parts && options.parts.length > 0 ? { parts: options.parts } : {}),
       }).catch(() => null);
 
@@ -1104,7 +1097,7 @@ export function DocumentWorkspace() {
         clearQueuedPrompts();
         return;
       }
-      if (result.finalText.trim()) {
+      if (result.finalText.trim() || result.proposals?.length || result.question) {
         const repliedAt = new Date().toISOString();
         setNativeMessages((current) => [
           ...current,
@@ -1137,49 +1130,6 @@ export function DocumentWorkspace() {
   useEffect(() => {
     runNativeDocTurnRef.current = runNativeDocTurn;
   }, [runNativeDocTurn]);
-
-  useEffect(() => {
-    const requested = surveyRequestRef.current;
-    if (!workspacePdf.native || !requested) return;
-    if (requested !== nativeThreadSession) {
-      surveyRequestRef.current = null;
-      return;
-    }
-    // Same readiness as a typed prompt; the history load that asked for the
-    // read finishes after asking, so this effect runs again once it has.
-    if (
-      agentWorking ||
-      nativeHistoryLoading ||
-      nativeTurnStopping ||
-      !nativePlatform.canRun ||
-      !nativeDocument ||
-      !nativeConversationId ||
-      !nativeWorkspaceIdentity.workspaceRoot
-    ) {
-      return;
-    }
-    surveyRequestRef.current = null;
-    // The user's own first message, or an earlier read, already started this
-    // conversation; the opening read only ever speaks first.
-    if (nativeMessages.length > 0 || surveyedSessionsRef.current.has(requested)) {
-      return;
-    }
-    surveyedSessionsRef.current.add(requested);
-    void runNativeDocTurnRef.current?.(OPENING_SURVEY_PROMPT, undefined, {
-      origin: "survey",
-    });
-  }, [
-    agentWorking,
-    nativeConversationId,
-    nativeDocument,
-    nativeHistoryLoading,
-    nativeMessages.length,
-    nativePlatform.canRun,
-    nativeThreadSession,
-    nativeTurnStopping,
-    nativeWorkspaceIdentity.workspaceRoot,
-    workspacePdf.native,
-  ]);
 
   useEffect(() => {
     const runQueuedTurn = runNativeDocTurnRef.current;
@@ -1393,6 +1343,10 @@ export function DocumentWorkspace() {
         finishAttachedTurn(body.state);
         return;
       }
+      if (message.type === "agent:messageReset" && body.conversationId === nativeConversationId && waitingForTerminal) {
+        setStreamingText("");
+        return;
+      }
       if (
         waitingForTerminal &&
         message.type === "agent:messageDelta" &&
@@ -1463,12 +1417,6 @@ export function DocumentWorkspace() {
           return;
         }
         applyRestoredState(state);
-        if (restoreMode === "idle" && state.messages.length === 0) {
-          // A document with no conversation yet gets its opening read: the
-          // agent reads it and proposes where to start. The effect below
-          // starts it once the composer would accept a prompt.
-          surveyRequestRef.current = nativeThreadSession;
-        }
         if (restoreMode === "reattach") {
           waitingForTerminal = true;
           attachedNativeTurnRef.current = {
@@ -1557,6 +1505,7 @@ export function DocumentWorkspace() {
       conversationId: nativeConversationId,
       controller,
     };
+    setActivityTool("undo_changes");
     setTurnDocumentId(nativeConversationId);
     setNativeHistoryLoading(true);
     setTurnError(null);
@@ -1587,6 +1536,7 @@ export function DocumentWorkspace() {
         setTurnDocumentId((current) =>
           current === nativeConversationId ? null : current,
         );
+        setActivityTool(null);
         setNativeHistoryLoading(false);
       }
     }
@@ -1744,21 +1694,39 @@ export function DocumentWorkspace() {
   );
 
   const submitWritingRequest = useCallback(
-    (prompt: string, attachments?: PendingAttachment[], options?: { origin?: "step"; stepKind?: "mechanical" | "writing" }) => {
+    (prompt: string, attachments?: PendingAttachment[], options?: { origin?: "step"; stepKind?: "mechanical" | "writing"; displayText?: string }) => {
       if (workspacePdf.native) {
         if (!nativeDocument || nativeHistoryLoading || !nativePlatform.canRun) return;
         if (attachments && attachments.length > 0) {
           submitWithAttachments(prompt, attachments);
           return;
         }
-        // A message sent while the agent is working waits its turn instead of
-        // being refused; the composer never locks.
+        // Corrections enter the current run before its next model/tool step.
+        // If it already finished, the host rejects and we queue a new turn.
         if (agentWorking && nativeThreadWorking) {
-          enqueuePrompt({ id: `queued-${Date.now()}`, prompt });
+          const host = getNativeHost();
+          if (!host || !nativeConversationId || !nativeWorkspaceIdentity.workspaceRoot) return;
+          const sessionKey = nativeThreadSessionRef.current;
+          const steeringId = `steer-${crypto.randomUUID()}`;
+          const payload = { ...buildNativeAgentRunPayload({ prompt, conversationId: nativeConversationId,
+            ...nativeWorkspaceIdentity, workspaceRoot: nativeWorkspaceIdentity.workspaceRoot, documentMainFile: nativeDocument.mainFile,
+            signal: new AbortController().signal, onFrame: () => {},
+          }), steeringId };
+          const send = () => requestFromHost(host, { type: "agent:steer", resultType: "agent:steerResult", payload });
+          void send().catch(() => send()).then((reply) => {
+            if (nativeThreadSessionRef.current !== sessionKey) return;
+            if (reply.accepted === true) {
+              setNativeMessages((current) => [...current, { id: steeringId, role: "user", text: prompt, createdAt: new Date().toISOString() }]);
+            } else {
+              enqueuePrompt({ id: steeringId, prompt });
+            }
+          }).catch(() => {
+            if (nativeThreadSessionRef.current === sessionKey) setTurnError("追加の指示を受け付けたか確認できません。会話を開き直して送信履歴を確認してください。");
+          });
           return;
         }
         if (agentWorking) return;
-        void runNativeDocTurn(prompt, undefined, options?.origin === "step" ? { origin: "step", stepKind: options.stepKind } : undefined);
+        void runNativeDocTurn(prompt, undefined, options?.origin === "step" ? options : undefined);
         return;
       }
       if (!activeDocument) return;
@@ -1777,6 +1745,8 @@ export function DocumentWorkspace() {
       nativeDocument,
       nativeHistoryLoading,
       nativePlatform.canRun,
+      nativeConversationId,
+      nativeWorkspaceIdentity,
       nativeThreadWorking,
       runNativeDocTurn,
       runTurn,
@@ -2076,6 +2046,13 @@ export function DocumentWorkspace() {
             <section className="paper-surface" aria-label="紙面">
                 <PdfPreview
                   pdfUrl={displayPdfUrl}
+                  onExport={workspacePdf.native ? () => {
+                    const host = getNativeHost();
+                    if (!host || !workspacePdf.path) return;
+                    void requestFromHost(host, { type: "file:exportPdf", resultType: "file:exportPdfResult", timeoutMs: null,
+                      payload: { path: workspacePdf.path, documentMainFile: nativeMainFile, ...workspaceRequestFields(nativeWorkspaceIdentity) },
+                    }).then((result) => { if (!result.ok && !result.cancelled) setTurnError(String(result.error || "PDFを保存できませんでした。")); });
+                  } : undefined}
                   anchors={
                     workspacePdf.native &&
                     pageAnchors &&
@@ -2093,7 +2070,7 @@ export function DocumentWorkspace() {
                     if (proposal.asks) {
                       setChosenProposal((current) => ({ proposal, pick: (current?.pick ?? 0) + 1 }));
                     } else {
-                      submitWritingRequest(proposal.request);
+                      submitWritingRequest(proposal.request, undefined, { origin: "step", stepKind: proposal.kind, displayText: proposal.title });
                     }
                   }}
                   regions={workspacePdf.native ? null : pdfRegions}
@@ -2108,7 +2085,7 @@ export function DocumentWorkspace() {
                   onPointSelect={
                     workspacePdf.native
                       ? (point) => {
-                          // A new click is a new spot; drop any edit in progress.
+                          // Closing retains a range-specific draft before selecting another spot.
                           paragraphEditor.close();
                           sourceLocator.locate({
                             ...point,
@@ -2132,14 +2109,16 @@ export function DocumentWorkspace() {
                           ? "Codeでビルドするルート文書を設定してください。"
                           : workspacePdf.building
                             ? "紙面を組み立てています…"
-                            : (workspacePdf.failure ??
-                              "紙面を組み立てています…")
+                            : workspacePdf.failure
+                              ? ""
+                              : "紙面を組み立てています…"
                       : agentWorking
                         ? "紙面を準備しています…"
                         : documentHasContent
                           ? "紙面を組み立てています…"
                           : "まだ紙面がありません。左の欄から執筆を依頼してください。"
                   }
+                  buildFailed={workspacePdf.native && Boolean(workspacePdf.failure)}
                   toolbarAction={
                     !workspacePdf.native && activeDocument ? (
                       <button
@@ -2158,15 +2137,26 @@ export function DocumentWorkspace() {
                     workspacePdf.native ? (
                       paragraphEditor.paragraph ? (
                         <ParagraphEditCard
-                          segments={paragraphEditor.paragraph.segments}
+                          key={`${paragraphEditor.paragraph.path}:${paragraphEditor.paragraph.startLine}:${paragraphEditor.paragraph.endLine}`}
+                          originalText={paragraphEditor.paragraph.originalText}
+                          initialDraft={paragraphEditor.draftText}
+                          focusText={paragraphEditor.paragraph.focusText}
+                          kind={paragraphEditor.paragraph.kind}
+                          currentText={paragraphEditor.currentText}
+                          onAcceptCurrent={paragraphEditor.acceptCurrent}
+                          onDraftChange={paragraphEditor.updateDraft}
+                          onReload={() => {
+                            const target = paragraphEditor.paragraph;
+                            if (target) paragraphEditor.open({ path: target.path, line: target.startLine });
+                          }}
                           saving={paragraphEditor.saving}
                           error={paragraphEditor.error}
                           onCancel={() => {
-                            paragraphEditor.close();
+                            paragraphEditor.discard();
                             sourceLocator.clear();
                           }}
                           onSave={(replacementText) => {
-                            void paragraphEditor
+                            return paragraphEditor
                               .save(replacementText)
                               .then((saved) => {
                                 if (saved) sourceLocator.clear();
@@ -2232,14 +2222,14 @@ export function DocumentWorkspace() {
                     ) : null
                   }
                 />
+                {workspacePdf.native && !paragraphEditor.paragraph && (sourceLocator.error || paragraphEditor.error) ? <div className="compile-banner" role="alert">{sourceLocator.error || paragraphEditor.error}</div> : null}
                 {workspacePdf.native &&
                 workspacePdf.failure &&
-                nativeDocument &&
-                displayPdfUrl ? (
-                  // A quiet note over the previous page; the agent's next turn
-                  // brings the paper up to date, so there is nothing to press.
-                  <div className="compile-banner" role="status">
+                nativeDocument ? (
+                  <div className="compile-banner" role="alert">
                     <span>{workspacePdf.failure}</span>
+                    {workspacePdf.issue ? <button onClick={() => getNativeHost()?.send("source:reveal", { requestId: `ai-source-${Date.now()}`, ...workspaceRequestFields(nativeWorkspaceIdentity), documentMainFile: nativeMainFile, path: workspacePdf.issue!.file || nativeMainFile, line: workspacePdf.issue!.line || 1 })}>{workspacePdf.issue.line ? "原因の箇所を開く" : "ソースを開く"}</button> : null}
+                    <button disabled={workspacePdf.building} onClick={() => { if (nativeMainFile) requestWorkspaceBuild({ mainFile: nativeMainFile }, nativeWorkspaceIdentity); }}>再ビルド</button>
                   </div>
                 ) : compileFailed && activeDocument ? (
                   <div className="compile-banner" role="alert">

@@ -197,8 +197,6 @@ export class _Mathfield implements Mathfield, KeyboardDelegateInterface {
     leftSiblings: Atom[];
   }[];
   inlineShortcutBufferFlushTimer: ReturnType<typeof setTimeout>;
-  scientificNotationTimer: ReturnType<typeof setTimeout>;
-
   private blurred: boolean;
 
   private _menu: Menu;
@@ -276,10 +274,6 @@ export class _Mathfield implements Mathfield, KeyboardDelegateInterface {
     this.inlineShortcutBufferFlushTimer = 0 as unknown as ReturnType<
       typeof setTimeout
     >;
-    this.scientificNotationTimer = 0 as unknown as ReturnType<
-      typeof setTimeout
-    >;
-
     // Default style (color, weight, italic, etc...):
     // reflects the style to be applied on next insertion
     // if styleBias is "none".
@@ -1298,8 +1292,14 @@ If you are using Vue, this may be because you are using the runtime-only build o
     else {
       if (this.model.selectionIsCollapsed) {
         const style = { ...computeInsertStyle(this) };
-        // If we're inserting a non-alphanumeric character, reset the variant
-        if (!/^[a-zA-Z0-9]$/.test(s) && this.styleBias !== 'none') {
+        // If we're inserting punctuation, reset the variant. A resolved LaTeX
+        // command such as `\\mu` is a mathematical atom, so it must retain
+        // the surrounding style (for example a `\\boldsymbol` placeholder).
+        if (
+          !/^[a-zA-Z0-9]$/.test(s) &&
+          !s.startsWith('\\') &&
+          this.styleBias !== 'none'
+        ) {
           style.variant = 'normal';
           style.variantStyle = undefined;
         }
@@ -1394,9 +1394,15 @@ If you are using Vue, this may be because you are using the runtime-only build o
 
         const insertLatexGroup = (
           latex: string,
-          options: { select: boolean }
+          options: { select: boolean },
+          style?: Style
         ) => {
           const atom = new LatexGroupAtom(latex);
+          // LaTeX-command entry replaces a selected placeholder with this
+          // transient group before the command is resolved. Keep the
+          // placeholder's effective style on the group so completion can
+          // apply it to the resolved command atom.
+          if (style) atom.applyStyle(style, { unstyledOnly: true });
           cursor.parent!.addChildAfter(atom, cursor);
           if (options.select) {
             model.setSelection(
@@ -1406,6 +1412,8 @@ If you are using Vue, this may be because you are using the runtime-only build o
           } else model.position = model.offsetOf(atom.lastChild);
           contentChanged = true;
         };
+
+        let latexGroupStyle: Style | undefined;
 
         const getContent = () => {
           const format =
@@ -1422,8 +1430,10 @@ If you are using Vue, this may be because you are using the runtime-only build o
 
           // If we just had a placeholder selected, pretend we had an empty
           // selection
-          if (atoms.length === 1 && atoms[0].type === 'placeholder')
+          if (atoms.length === 1 && atoms[0].type === 'placeholder') {
             content = suffix;
+            latexGroupStyle = { ...computeInsertStyle(this) };
+          }
 
           cursor = model.at(selRange[0]);
 
@@ -1453,7 +1463,8 @@ If you are using Vue, this may be because you are using the runtime-only build o
           //
           const content = getContent();
           model.mode = mode;
-          if (mode === 'latex') insertLatexGroup(content, { select: true });
+          if (mode === 'latex')
+            insertLatexGroup(content, { select: true }, latexGroupStyle);
           else insertString(content, { select: true });
         }
 

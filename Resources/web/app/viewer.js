@@ -37,6 +37,57 @@ const livePdfPath = (path, workspaceRoot) => {
     }
     return parts.join("/");
 };
+export const parseLiveSourceRequest = (value) => {
+    const payload = value;
+    const file = typeof (payload === null || payload === void 0 ? void 0 : payload.file) === "string" ? payload.file : "";
+    const line = Number(payload === null || payload === void 0 ? void 0 : payload.line);
+    const column = Number(payload === null || payload === void 0 ? void 0 : payload.column);
+    if (!file || !Number.isFinite(line) || line < 1)
+        return null;
+    return {
+        file,
+        line: Math.floor(line),
+        column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
+    };
+};
+export const parseLiveAnchorRequest = (value) => {
+    var _a, _b, _c, _d;
+    const payload = value;
+    if (!payload || typeof payload.sessionId !== "string" || !payload.sessionId ||
+        typeof payload.requestId !== "string" || !payload.requestId ||
+        typeof payload.activationId !== "string" || !payload.activationId ||
+        !Number.isInteger(payload.documentEpoch) ||
+        typeof payload.file !== "string" || !payload.file ||
+        typeof payload.baseValue !== "string" || typeof payload.sourceText !== "string" ||
+        !Number.isInteger(payload.sourceRev) ||
+        ![(_a = payload.start) === null || _a === void 0 ? void 0 : _a.line, (_b = payload.start) === null || _b === void 0 ? void 0 : _b.column, (_c = payload.end) === null || _c === void 0 ? void 0 : _c.line, (_d = payload.end) === null || _d === void 0 ? void 0 : _d.column]
+            .every((item) => typeof item === "number" && Number.isInteger(item) && item >= 1))
+        return null;
+    return payload;
+};
+export const parseLiveEditRequest = (value) => {
+    var _a, _b, _c, _d;
+    const payload = value;
+    const startLine = Number((_a = payload === null || payload === void 0 ? void 0 : payload.start) === null || _a === void 0 ? void 0 : _a.line);
+    const startColumn = Number((_b = payload === null || payload === void 0 ? void 0 : payload.start) === null || _b === void 0 ? void 0 : _b.column);
+    const endLine = Number((_c = payload === null || payload === void 0 ? void 0 : payload.end) === null || _c === void 0 ? void 0 : _c.line);
+    const endColumn = Number((_d = payload === null || payload === void 0 ? void 0 : payload.end) === null || _d === void 0 ? void 0 : _d.column);
+    if (typeof (payload === null || payload === void 0 ? void 0 : payload.sessionId) !== "string" || !payload.sessionId ||
+        (payload.kind !== "text" && payload.kind !== "math") ||
+        typeof payload.file !== "string" || !payload.file ||
+        typeof payload.baseValue !== "string" || typeof payload.replacement !== "string" ||
+        !Number.isFinite(startLine) || startLine < 1 ||
+        !Number.isFinite(startColumn) || startColumn < 1 ||
+        !Number.isFinite(endLine) || endLine < 1 ||
+        !Number.isFinite(endColumn) || endColumn < 1)
+        return null;
+    return {
+        ...payload,
+        sourceText: typeof payload.sourceText === "string" ? payload.sourceText : undefined,
+        start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
+        end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
+    };
+};
 export const createViewer = (deps) => {
     let viewerBlobUrl = null;
     let viewerMode = "hidden";
@@ -45,15 +96,33 @@ export const createViewer = (deps) => {
     let pdfWorkspaceRoot = null;
     let pendingPdfOpen = null;
     let pendingPdfSync = null;
+    let pdfBuildPreview = null;
     // Real-time preview: when set, the pdf viewer swaps its page canvas for the
     // live engine frame (same chrome). Re-sent on every viewer "ready" so it
-    // survives the pdf iframe being torn down and recreated.
+    // survives the pdf iframe being torn down and recreated. `hold` keeps the
+    // same engine frame alive below a Build-owned static PDF; it is part of
+    // this state rather than a one-shot message so a viewer that becomes ready
+    // later still receives it. `expectedSrcRev` is the revision the engine
+    // accepted for the first change after that Build.
     let livePreview = null;
     const pdfViewerUrl = new URL("pdf-viewer.html", window.location.href).toString();
     const matchingLivePreview = () => livePreview && pdfViewerPath &&
         livePdfPath(pdfViewerPath, livePreview.target.workspaceRoot) ===
             livePdfPath(livePreview.target.pdfPath, livePreview.target.workspaceRoot)
         ? livePreview : null;
+    const matchingBuildPreview = () => {
+        var _a;
+        if (!(pdfBuildPreview === null || pdfBuildPreview === void 0 ? void 0 : pdfBuildPreview.pdfPath) || !pdfViewerPath)
+            return null;
+        if (pdfBuildPreview.workspaceRoot &&
+            pdfWorkspaceRoot &&
+            livePdfPath(pdfBuildPreview.workspaceRoot, null) !== livePdfPath(pdfWorkspaceRoot, null))
+            return null;
+        const root = (_a = pdfBuildPreview.workspaceRoot) !== null && _a !== void 0 ? _a : pdfWorkspaceRoot;
+        return livePdfPath(pdfViewerPath, root) === livePdfPath(pdfBuildPreview.pdfPath, root)
+            ? pdfBuildPreview
+            : null;
+    };
     const needsPdfRebuild = () => {
         if (!pdfWorkspaceRoot || !pdfViewerPath)
             return false;
@@ -84,6 +153,20 @@ export const createViewer = (deps) => {
         if (pdfViewerReady && pdfViewerPath)
             postPdfMessage({ type: "source-state", payload: { path: pdfViewerPath, needsRebuild: needsPdfRebuild() } });
     });
+    window.addEventListener("tex64:build-state", (event) => {
+        const detail = event.detail;
+        if (!detail || typeof detail.state !== "string")
+            return;
+        const wasMatching = matchingBuildPreview();
+        pdfBuildPreview = detail;
+        if (pdfViewerReady) {
+            const buildPreview = matchingBuildPreview();
+            if (buildPreview)
+                postPdfMessage({ type: "build-state", payload: buildPreview });
+            else if (wasMatching)
+                postPdfMessage({ type: "build-state", payload: { state: "idle" } });
+        }
+    });
     const ensurePdfFrame = () => {
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
@@ -95,7 +178,7 @@ export const createViewer = (deps) => {
         }
     };
     window.addEventListener("message", (event) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        var _a, _b, _c, _d;
         if (!(deps.editorViewerPdf instanceof HTMLIFrameElement)) {
             return;
         }
@@ -117,6 +200,8 @@ export const createViewer = (deps) => {
                 pendingPdfOpen = null;
             }
             postPdfMessage({ type: "live", payload: matchingLivePreview() });
+            const buildPreview = matchingBuildPreview();
+            postPdfMessage({ type: "build-state", payload: buildPreview !== null && buildPreview !== void 0 ? buildPreview : { state: "idle" } });
             if (pendingPdfSync) {
                 postPdfMessage({ type: "sync", payload: pendingPdfSync });
                 pendingPdfSync = null;
@@ -159,35 +244,18 @@ export const createViewer = (deps) => {
         if (payload.type === "live-source") {
             if (!matchingLivePreview())
                 return;
-            const detail = payload.payload;
-            const file = typeof (detail === null || detail === void 0 ? void 0 : detail.file) === "string" ? detail.file : "";
-            const line = Number(detail === null || detail === void 0 ? void 0 : detail.line);
-            const column = Number(detail === null || detail === void 0 ? void 0 : detail.column);
-            if (file && Number.isFinite(line) && line >= 1) {
-                (_c = deps.onLiveSourceRequest) === null || _c === void 0 ? void 0 : _c.call(deps, {
-                    file,
-                    line: Math.floor(line),
-                    column: Number.isFinite(column) && column >= 1 ? Math.floor(column) : 1,
-                });
-            }
+            const request = parseLiveSourceRequest(payload.payload);
+            if (request)
+                (_c = deps.onLiveSourceRequest) === null || _c === void 0 ? void 0 : _c.call(deps, request);
             return;
         }
         if (payload.type === "live-edit-anchor") {
             const requestedPreview = matchingLivePreview();
             if (!requestedPreview)
                 return;
-            const detail = payload.payload;
-            if (!detail || typeof detail.sessionId !== "string" || !detail.sessionId ||
-                typeof detail.requestId !== "string" || !detail.requestId ||
-                typeof detail.activationId !== "string" || !detail.activationId ||
-                !Number.isInteger(detail.documentEpoch) ||
-                typeof detail.file !== "string" || !detail.file ||
-                typeof detail.baseValue !== "string" || typeof detail.sourceText !== "string" ||
-                !Number.isInteger(detail.sourceRev) ||
-                ![(_d = detail.start) === null || _d === void 0 ? void 0 : _d.line, (_e = detail.start) === null || _e === void 0 ? void 0 : _e.column, (_f = detail.end) === null || _f === void 0 ? void 0 : _f.line, (_g = detail.end) === null || _g === void 0 ? void 0 : _g.column]
-                    .every((value) => typeof value === "number" && Number.isInteger(value) && value >= 1))
+            const request = parseLiveAnchorRequest(payload.payload);
+            if (!request)
                 return;
-            const request = detail;
             const reply = (result) => {
                 if (matchingLivePreview() !== requestedPreview)
                     return;
@@ -210,29 +278,9 @@ export const createViewer = (deps) => {
         if (payload.type === "live-edit") {
             if (!matchingLivePreview())
                 return;
-            const detail = payload.payload;
-            const startLine = Number((_h = detail === null || detail === void 0 ? void 0 : detail.start) === null || _h === void 0 ? void 0 : _h.line);
-            const startColumn = Number((_j = detail === null || detail === void 0 ? void 0 : detail.start) === null || _j === void 0 ? void 0 : _j.column);
-            const endLine = Number((_k = detail === null || detail === void 0 ? void 0 : detail.end) === null || _k === void 0 ? void 0 : _k.line);
-            const endColumn = Number((_l = detail === null || detail === void 0 ? void 0 : detail.end) === null || _l === void 0 ? void 0 : _l.column);
-            if (typeof (detail === null || detail === void 0 ? void 0 : detail.sessionId) === "string" &&
-                detail.sessionId.length > 0 &&
-                (detail.kind === "text" || detail.kind === "math") &&
-                typeof detail.file === "string" &&
-                detail.file.length > 0 &&
-                typeof detail.baseValue === "string" &&
-                typeof detail.replacement === "string" &&
-                Number.isFinite(startLine) && startLine >= 1 &&
-                Number.isFinite(startColumn) && startColumn >= 1 &&
-                Number.isFinite(endLine) && endLine >= 1 &&
-                Number.isFinite(endColumn) && endColumn >= 1) {
-                (_m = deps.onLiveEditRequest) === null || _m === void 0 ? void 0 : _m.call(deps, {
-                    ...detail,
-                    sourceText: typeof detail.sourceText === "string" ? detail.sourceText : undefined,
-                    start: { line: Math.floor(startLine), column: Math.floor(startColumn) },
-                    end: { line: Math.floor(endLine), column: Math.floor(endColumn) },
-                });
-            }
+            const request = parseLiveEditRequest(payload.payload);
+            if (request)
+                (_d = deps.onLiveEditRequest) === null || _d === void 0 ? void 0 : _d.call(deps, request);
         }
     });
     const clearViewerUrl = () => {
@@ -347,6 +395,8 @@ export const createViewer = (deps) => {
                 // send direct edits through it, even before the next preview poll.
                 postPdfMessage({ type: "live", payload: matchingLivePreview() });
                 postPdfMessage({ type: "open", payload });
+                const buildPreview = matchingBuildPreview();
+                postPdfMessage({ type: "build-state", payload: buildPreview !== null && buildPreview !== void 0 ? buildPreview : { state: "idle" } });
                 if (!(pendingPdfSync === null || pendingPdfSync === void 0 ? void 0 : pendingPdfSync.pdfPath) || pendingPdfSync.pdfPath === path) {
                     if (pendingPdfSync) {
                         postPdfMessage({ type: "sync", payload: pendingPdfSync });
@@ -383,9 +433,10 @@ export const createViewer = (deps) => {
         }
         postPdfMessage({ type: "sync", payload });
     };
-    const setLivePreview = (url, generation = 0, target = null) => {
-        const next = url && target ? { url, generation, target } : null;
+    const setLivePreview = (url, generation = 0, target = null, hold = false, expectedSrcRev = null) => {
+        const next = url && target ? { url, generation, target, hold, expectedSrcRev } : null;
         if ((livePreview === null || livePreview === void 0 ? void 0 : livePreview.url) === (next === null || next === void 0 ? void 0 : next.url) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.generation) === (next === null || next === void 0 ? void 0 : next.generation) &&
+            (livePreview === null || livePreview === void 0 ? void 0 : livePreview.hold) === (next === null || next === void 0 ? void 0 : next.hold) && (livePreview === null || livePreview === void 0 ? void 0 : livePreview.expectedSrcRev) === (next === null || next === void 0 ? void 0 : next.expectedSrcRev) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.workspaceRoot) === (next === null || next === void 0 ? void 0 : next.target.workspaceRoot) &&
             (livePreview === null || livePreview === void 0 ? void 0 : livePreview.target.pdfPath) === (next === null || next === void 0 ? void 0 : next.target.pdfPath))
             return;
@@ -402,6 +453,11 @@ export const createViewer = (deps) => {
         setViewerMode,
         getViewerMode: () => viewerMode,
         getPdfPath: () => pdfViewerPath,
+        // True while keyboard focus is inside this group's PDF (or its Live frame).
+        hasPdfFocus: () => viewerMode === "pdf" &&
+            deps.editorViewerPdf instanceof HTMLIFrameElement &&
+            document.activeElement === deps.editorViewerPdf,
+        openPdfFind: () => viewerMode === "pdf" && pdfViewerReady && postPdfMessage({ type: "find-open" }),
         syncPdf,
         setLivePreview,
     };

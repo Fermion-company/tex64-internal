@@ -78,6 +78,7 @@ const UI_STRINGS = {
   rebuildNeeded: { en: "Rebuild needed", ja: "再ビルドが必要", zh: "需要重新编译", ko: "다시 빌드 필요", fr: "Recompilation nécessaire", de: "Neu kompilieren", es: "Es necesario recompilar" },
   live: { en: "Live", ja: "ライブ", zh: "实时", ko: "라이브", fr: "Direct", de: "Live", es: "En vivo" },
   liveUpdating: { en: "Updating…", ja: "更新中...", zh: "正在更新…", ko: "업데이트 중…", fr: "Mise à jour…", de: "Aktualisierung…", es: "Actualizando…" },
+  buildFailedLastGood: { en: "Build failed · previous PDF retained", ja: "ビルド失敗・前のPDFを保持", zh: "编译失败 · 已保留先前的 PDF", ko: "빌드 실패 · 이전 PDF 유지", fr: "Échec de la compilation · PDF précédent conservé", de: "Build fehlgeschlagen · vorherige PDF bleibt", es: "Error de compilación · se conserva el PDF anterior" },
   liveExactRendering: { en: "Rendering exact changes…", ja: "差分を描画中…", zh: "正在精确渲染差异…", ko: "변경 사항을 정밀 렌더링 중…", fr: "Rendu exact des modifications…", de: "Exakte Änderungen werden gerendert…", es: "Renderizando cambios exactos…" },
   liveCompiling: { en: "Compiling…", ja: "組版中…", zh: "正在编译…", ko: "컴파일 중…", fr: "Compilation…", de: "Satz läuft…", es: "Compilando…" },
   liveFullCompile: { en: "Live · full compile", ja: "ライブ・全体組版", zh: "实时 · 完整编译", ko: "라이브 · 전체 컴파일", fr: "Direct · compilation complète", de: "Live · vollständiger Satz", es: "En vivo · compilación completa" },
@@ -105,8 +106,11 @@ const UI_STRINGS = {
   rotateLeft: { en: "Rotate left", ja: "左に回転", zh: "向左旋转", ko: "왼쪽으로 회전", fr: "Pivoter à gauche", de: "Nach links drehen", es: "Girar a la izquierda" },
   rotateRight: { en: "Rotate right", ja: "右に回転", zh: "向右旋转", ko: "오른쪽으로 회전", fr: "Pivoter à droite", de: "Nach rechts drehen", es: "Girar a la derecha" },
   search: { en: "Search", ja: "検索", zh: "搜索", ko: "검색", fr: "Rechercher", de: "Suchen", es: "Buscar" },
-  searchPrev: { en: "Search previous", ja: "前を検索", zh: "上一个结果", ko: "이전 검색", fr: "Résultat précédent", de: "Vorheriger Treffer", es: "Resultado anterior" },
-  searchNext: { en: "Search next", ja: "次を検索", zh: "下一个结果", ko: "다음 검색", fr: "Résultat suivant", de: "Nächster Treffer", es: "Resultado siguiente" },
+  findInPdf: { en: "Find in PDF", ja: "PDF 内を検索", zh: "在 PDF 中查找", ko: "PDF에서 찾기", fr: "Rechercher dans le PDF", de: "Im PDF suchen", es: "Buscar en el PDF" },
+  findPrev: { en: "Previous match (Shift+Enter)", ja: "前の一致 (Shift+Enter)", zh: "上一个匹配 (Shift+Enter)", ko: "이전 결과 (Shift+Enter)", fr: "Résultat précédent (Maj+Entrée)", de: "Vorheriger Treffer (Umschalt+Eingabe)", es: "Resultado anterior (Mayús+Intro)" },
+  findNext: { en: "Next match (Enter)", ja: "次の一致 (Enter)", zh: "下一个匹配 (Enter)", ko: "다음 결과 (Enter)", fr: "Résultat suivant (Entrée)", de: "Nächster Treffer (Eingabe)", es: "Resultado siguiente (Intro)" },
+  findClose: { en: "Close (Esc)", ja: "閉じる (Esc)", zh: "关闭 (Esc)", ko: "닫기 (Esc)", fr: "Fermer (Échap)", de: "Schließen (Esc)", es: "Cerrar (Esc)" },
+  findNoMatch: { en: "No results", ja: "見つかりません", zh: "无结果", ko: "결과 없음", fr: "Aucun résultat", de: "Keine Treffer", es: "Sin resultados" },
   download: { en: "Download", ja: "ダウンロード", zh: "下载", ko: "다운로드", fr: "Télécharger", de: "Herunterladen", es: "Descargar" },
   print: { en: "Print", ja: "印刷", zh: "打印", ko: "인쇄", fr: "Imprimer", de: "Drucken", es: "Imprimir" },
   reload: { en: "Reload", ja: "再読み込み", zh: "重新加载", ko: "다시 로드", fr: "Recharger", de: "Neu laden", es: "Recargar" },
@@ -149,14 +153,21 @@ const localizeChrome = () => {
   setTitle("pdf-fit-page", "fitPage");
   setTitle("pdf-rotate-left", "rotateLeft");
   setTitle("pdf-rotate-right", "rotateRight");
-  setTitle("pdf-search-prev", "searchPrev");
-  setTitle("pdf-search-next", "searchNext");
+  setTitle("pdf-search-open", "findInPdf");
+  setTitle("pdf-findbar-prev", "findPrev");
+  setTitle("pdf-findbar-next", "findNext");
+  setTitle("pdf-findbar-close", "findClose");
   setTitle("pdf-download", "download");
   setTitle("pdf-print", "print");
   setTitle("pdf-reload", "reload");
   document.getElementById("pdf-page-input")?.setAttribute("aria-label", uiString("pageWord"));
-  const searchInput = document.getElementById("pdf-search-input");
-  if (searchInput) searchInput.placeholder = uiString("search");
+  const searchOpen = document.getElementById("pdf-search-open");
+  if (searchOpen) searchOpen.textContent = uiString("search");
+  const findInput = document.getElementById("pdf-findbar-input");
+  if (findInput) {
+    findInput.placeholder = uiString("findInPdf");
+    findInput.setAttribute("aria-label", uiString("findInPdf"));
+  }
   const fitWidthSpan = document.querySelector("#pdf-fit-width span");
   if (fitWidthSpan) fitWidthSpan.textContent = uiString("widthWord");
   const fitPageSpan = document.querySelector("#pdf-fit-page span");
@@ -252,9 +263,13 @@ const initPdfViewer = () => {
   const fitPageBtn = document.getElementById("pdf-fit-page");
   const rotateLeftBtn = document.getElementById("pdf-rotate-left");
   const rotateRightBtn = document.getElementById("pdf-rotate-right");
-  const searchInput = document.getElementById("pdf-search-input");
-  const searchPrevBtn = document.getElementById("pdf-search-prev");
-  const searchNextBtn = document.getElementById("pdf-search-next");
+  const searchOpenBtn = document.getElementById("pdf-search-open");
+  const findBar = document.getElementById("pdf-findbar");
+  const findInput = document.getElementById("pdf-findbar-input");
+  const findCount = document.getElementById("pdf-findbar-count");
+  const findPrevBtn = document.getElementById("pdf-findbar-prev");
+  const findNextBtn = document.getElementById("pdf-findbar-next");
+  const findCloseBtn = document.getElementById("pdf-findbar-close");
   const downloadBtn = document.getElementById("pdf-download");
   const printBtn = document.getElementById("pdf-print");
   const reloadBtn = document.getElementById("pdf-reload");
@@ -301,6 +316,7 @@ const initPdfViewer = () => {
   // document — setDocument would then reset us to the top and lose the jump.
   // Defer it instead and let pagesinit apply it to the freshly loaded pages.
   let reloadInFlight = false;
+  let buildPreviewState = "idle";
   let liveSurfaceOwned = false;
   let deferredStaticOpen = null;
   let deferredStaticFlushToken = 0;
@@ -308,7 +324,32 @@ const initPdfViewer = () => {
 
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
-  const findController = new PDFFindController({ eventBus, linkService });
+  // A re-search after a reload or a paper switch only refreshes the count
+  // and highlights. pdf.js would otherwise scroll to the next hit (through
+  // the link service's page and scrollMatchIntoView) and undo where the
+  // reader, or a SyncTeX jump, had put the page.
+  let findScrollQuiet = false;
+  const findLinkService = new Proxy(linkService, {
+    get(target, prop) {
+      const value = target[prop];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+    set(target, prop, value) {
+      if (prop === "page" && findScrollQuiet) return true;
+      target[prop] = value;
+      return true;
+    },
+  });
+  const findController = new PDFFindController({ eventBus, linkService: findLinkService });
+  const scrollMatchIntoView = findController.scrollMatchIntoView.bind(findController);
+  findController.scrollMatchIntoView = (args) => {
+    if (findScrollQuiet) {
+      // Dropped for good, or a later text-layer render would still scroll.
+      findController._scrollMatches = false;
+      return;
+    }
+    scrollMatchIntoView(args);
+  };
   const pdfViewer = new PDFViewer({
     container: scrollEl,
     viewer: pagesEl,
@@ -325,6 +366,24 @@ const initPdfViewer = () => {
     state,
   };
 
+  const setStatusDirect = (text, tone = "idle") => {
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    statusEl.classList.toggle("is-busy", tone === "busy");
+    statusEl.classList.toggle("is-error", tone === "error");
+  };
+  const setStatus = (text, tone = "idle") => {
+    if (buildPreviewState === "building") {
+      setStatusDirect(uiString("liveUpdating"), "busy");
+      return;
+    }
+    if (buildPreviewState === "failed") {
+      setStatusDirect(uiString("buildFailedLastGood"), "error");
+      return;
+    }
+    setStatusDirect(text, tone);
+  };
+
   const staticSourceStates = new Map();
   const staticNeedsRebuild = () => staticSourceStates.get(state.path) === true;
   const refreshStaticStatus = () => {
@@ -332,15 +391,8 @@ const initPdfViewer = () => {
     document.body.classList.toggle("pdf-needs-rebuild", stale);
     if (!isLive() && !isLivePending()) {
       setStatus(uiString(!state.doc ? "waiting" : stale ? "rebuildNeeded" : "ready"));
-      if (statusEl) statusEl.title = "";
+      if (statusEl && buildPreviewState === "idle") statusEl.title = "";
     }
-  };
-
-  const setStatus = (text, tone = "idle") => {
-    if (!statusEl) return;
-    statusEl.textContent = text;
-    statusEl.classList.toggle("is-busy", tone === "busy");
-    statusEl.classList.toggle("is-error", tone === "error");
   };
 
   const appearanceKey = "tex64.appearance.theme";
@@ -1277,7 +1329,8 @@ const initPdfViewer = () => {
         scrollEl.clientHeight / 2,
       behavior: "auto",
     });
-    applySyncHighlight(pageView, payload, viewX, viewY);
+    // A line that is not typeset lands on the first page: nothing to mark.
+    if (payload.marker !== false) applySyncHighlight(pageView, payload, viewX, viewY);
   };
 
   const loadDocument = async (url, path) => {
@@ -1302,11 +1355,11 @@ const initPdfViewer = () => {
     try {
       const task = pdfjs.getDocument(createPdfDocumentOptions(url));
       const nextDocument = await task.promise;
-      // Live may have taken ownership while this fetch was in flight. Never
-      // let a late pdf.js setDocument erase the stable fallback underneath
-      // the iframe; retain only the newest request for after Live is off.
-      if (loadSequence !== staticLoadSequence || liveSurfaceOwned) {
-        if (loadSequence === staticLoadSequence && liveSurfaceOwned) {
+      // Retain an existing fallback while Live owns the surface. The first
+      // static PDF must still load: activation can precede its fetch, and
+      // deferring it would leave the viewer empty until canonical arrives.
+      if (loadSequence !== staticLoadSequence || (liveSurfaceOwned && state.doc)) {
+        if (loadSequence === staticLoadSequence && liveSurfaceOwned && state.doc) {
           deferredStaticOpen = { url, path };
           reloadInFlight = false;
         }
@@ -1315,7 +1368,7 @@ const initPdfViewer = () => {
       }
       state.doc = nextDocument;
       state.pageCount = state.doc.numPages;
-      updatePageCount();
+      if (!isLive()) updatePageCount();
       if (titleEl) {
         titleEl.textContent = path ? path.split(/[\\/]/).slice(-1)[0] : "PDF";
       }
@@ -1344,32 +1397,12 @@ const initPdfViewer = () => {
     // A newer PDF open also supersedes a deferred post-Live fallback. Its
     // blob may already have been revoked when the viewer changed tabs.
     deferredStaticFlushToken += 1;
-    if (liveSurfaceOwned) {
+    if (liveSurfaceOwned && state.doc) {
       deferredStaticOpen = { url, path };
       return;
     }
     deferredStaticOpen = null;
     void loadDocument(url, path);
-  };
-
-  const runSearch = (findPrevious = false) => {
-    if (!searchInput) return;
-    const query = searchInput.value.trim();
-    if (!query) return;
-    if (isLive()) {
-      postLive("search", { query, findPrevious });
-      return;
-    }
-    if (!state.doc) return;
-    eventBus.dispatch("find", {
-      query,
-      caseSensitive: false,
-      entireWord: false,
-      highlightAll: true,
-      findPrevious,
-      phraseSearch: true,
-      matchDiacritics: false,
-    });
   };
 
   const downloadPdf = async () => {
@@ -1437,16 +1470,27 @@ const initPdfViewer = () => {
     applyScaleMode(state.scaleMode);
     updateZoomLabel();
     updatePageCount();
+    const pendingPage = state.pendingPage;
+    state.pendingPage = null;
     if (state.pendingSync) {
       const payload = state.pendingSync;
       state.pendingSync = null;
       state.pendingRestore = null;
       applySync(payload);
+    } else if (pendingPage && state.doc) {
+      state.pendingRestore = null;
+      pdfViewer.currentPageNumber = Math.max(1, Math.min(state.doc.numPages, pendingPage));
+      if (scrollEl) restoreScrollPosition({ scrollTop: scrollEl.scrollTop, scrollLeft: scrollEl.scrollLeft });
     } else if (state.pendingRestore) {
       const target = state.pendingRestore;
       state.pendingRestore = null;
       restoreScrollPosition(target);
     }
+    // Live can start before the first static fallback finishes loading. Seed
+    // its viewport handoff after pdf.js has real pages and a scroll position.
+    scheduleHeldMirror();
+    // A rebuilt PDF has new text: count and mark it again, without moving.
+    if (isFindOpen() && findQuery && !isLive()) runFind(findQuery, { quiet: true });
   });
 
   eventBus.on("pagerendered", () => {
@@ -1660,26 +1704,136 @@ const initPdfViewer = () => {
     });
   }
 
-  if (searchInput) {
-    searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        runSearch(event.shiftKey);
-      }
+  // Find bar (Cmd/Ctrl+F, or Search in the standalone window's toolbar). It
+  // searches whichever paper is visible — pdf.js for the static PDF, the
+  // engine for the Live frame — and is the one search UI in both places.
+  const FIND_STATE_NOT_FOUND = 1;
+  const FIND_STATE_PENDING = 3;
+  let findQuery = "";
+  let liveFindQuery = "";
+  let findTypingTimer = null;
+  let findReturnFocus = null;
+  const isFindOpen = () => Boolean(findBar && !findBar.hidden);
+  const renderFindCount = (current, total) => {
+    if (!findBar || !findCount) return;
+    const noMatch = Boolean(findQuery) && total === 0;
+    findBar.classList.toggle("is-no-match", noMatch);
+    findCount.textContent = !findQuery ? "" : noMatch ? uiString("findNoMatch") : `${current} / ${total}`;
+  };
+  const clearFindHighlights = () => {
+    if (liveFindQuery) {
+      liveFindQuery = "";
+      postLive("search", { query: "" });
+    }
+    if (state.doc) eventBus.dispatch("findbarclose", { source: findBar });
+  };
+  const runFind = (rawQuery, { again = false, findPrevious = false, quiet = false } = {}) => {
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = null;
+    findScrollQuiet = quiet;
+    const query = String(rawQuery ?? "").trim();
+    findQuery = query;
+    if (!query) {
+      renderFindCount(0, 0);
+      clearFindHighlights();
+      return;
+    }
+    if (isLive()) {
+      // The engine steps to the next hit when it sees the same query again,
+      // so a keystroke that leaves the query unchanged must not resend it.
+      if (!again && query === liveFindQuery) return;
+      liveFindQuery = query;
+      postLive("search", { query, findPrevious });
+      return;
+    }
+    if (!state.doc) return;
+    eventBus.dispatch("find", {
+      source: findBar,
+      type: again ? "again" : "",
+      query,
+      caseSensitive: false,
+      entireWord: false,
+      highlightAll: true,
+      findPrevious,
+      phraseSearch: true,
+      matchDiacritics: false,
     });
-  }
-
-  if (searchPrevBtn) {
-    searchPrevBtn.addEventListener("click", () => {
-      runSearch(true);
-    });
-  }
-
-  if (searchNextBtn) {
-    searchNextBtn.addEventListener("click", () => {
-      runSearch(false);
-    });
-  }
+  };
+  const openFindBar = () => {
+    if (!findBar || !findInput) return;
+    const wasOpen = isFindOpen();
+    if (!wasOpen) {
+      const active = document.activeElement;
+      findReturnFocus = active && active !== document.body && active !== findInput ? active : null;
+    }
+    const selected = String(window.getSelection?.() ?? "").trim();
+    if (selected && !selected.includes("\n") && selected.length <= 200) {
+      findInput.value = selected;
+    }
+    findBar.hidden = false;
+    findInput.focus();
+    findInput.select();
+    if (!wasOpen || findInput.value.trim() !== findQuery) runFind(findInput.value);
+  };
+  const closeFindBar = () => {
+    if (!isFindOpen()) return;
+    findBar.hidden = true;
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = null;
+    findQuery = "";
+    renderFindCount(0, 0);
+    clearFindHighlights();
+    findInput?.blur();
+    // Back to what had the keyboard (the Live frame, a toolbar control).
+    const returnTo = findReturnFocus;
+    findReturnFocus = null;
+    if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus({ preventScroll: true });
+  };
+  eventBus.on("updatefindmatchescount", ({ matchesCount }) => {
+    if (!isFindOpen() || isLive()) return;
+    renderFindCount(matchesCount?.current ?? 0, matchesCount?.total ?? 0);
+  });
+  eventBus.on("updatefindcontrolstate", ({ state: findState, matchesCount }) => {
+    if (!isFindOpen() || isLive()) return;
+    const total = matchesCount?.total ?? 0;
+    if (findState === FIND_STATE_PENDING && total === 0) return;
+    if (findState === FIND_STATE_NOT_FOUND) renderFindCount(0, 0);
+    else renderFindCount(matchesCount?.current ?? 0, total);
+  });
+  const scheduleTypedFind = () => {
+    window.clearTimeout(findTypingTimer);
+    findTypingTimer = window.setTimeout(() => runFind(findInput.value), 150);
+  };
+  // An IME composition is not a query yet; search when it is committed.
+  findInput?.addEventListener("input", (event) => {
+    if (event.isComposing) return;
+    scheduleTypedFind();
+  });
+  findInput?.addEventListener("compositionend", scheduleTypedFind);
+  searchOpenBtn?.addEventListener("click", openFindBar);
+  findInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      runFind(findInput.value, { again: true, findPrevious: event.shiftKey });
+    }
+  });
+  findPrevBtn?.addEventListener("click", () => runFind(findInput?.value, { again: true, findPrevious: true }));
+  findNextBtn?.addEventListener("click", () => runFind(findInput?.value, { again: true }));
+  findCloseBtn?.addEventListener("click", closeFindBar);
+  document.addEventListener("keydown", (event) => {
+    const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
+    const key = String(event.key || "").toLowerCase();
+    if (mod && !event.shiftKey && key === "f") {
+      event.preventDefault();
+      openFindBar();
+    } else if (mod && key === "g" && isFindOpen()) {
+      event.preventDefault();
+      runFind(findInput?.value, { again: true, findPrevious: event.shiftKey });
+    } else if (event.key === "Escape" && isFindOpen() && !event.isComposing) {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
 
   if (downloadBtn) {
     downloadBtn.addEventListener("click", () => {
@@ -1712,10 +1866,17 @@ const initPdfViewer = () => {
   let liveErrorSurfaceSequence = 0;
   let pendingLiveErrorSurface = null;
   let pendingLiveSync = null;
+  // Paper point the live frame must show before it may replace the static
+  // PDF. A new frame starts at its first page, and a Build-held frame may
+  // have fallen behind the static viewport.
+  let liveViewportHandoff = null;
+  let liveViewportTokenSequence = 0;
+  let heldMirrorTimer = null;
   let liveActivation = null;
   const isLive = () => document.body.classList.contains("is-live");
   const isLivePending = () => document.body.classList.contains("is-live-pending");
-  const hasLiveSession = () => isLive() || isLivePending();
+  const isLiveHeld = () => document.body.classList.contains("is-live-held");
+  const hasLiveSession = () => isLive() || isLivePending() || isLiveHeld();
   const postLive = (action, extra) => {
     const target = liveFrame && liveFrame.contentWindow;
     if (target) target.postMessage({
@@ -1726,7 +1887,11 @@ const initPdfViewer = () => {
     }, "*");
   };
   const renderLiveToolbar = () => {
-    if (pageCountEl) pageCountEl.textContent = `/ ${liveToolbar.pageCount}`;
+    if (pageCountEl) {
+      pageCountEl.textContent = liveToolbar.pageCountAuthoritative
+        ? `/ ${liveToolbar.pageCount}`
+        : "/ —";
+    }
     if (pageInputForLive) {
       pageInputForLive.max = String(liveToolbar.pageCount || 1);
       if (document.activeElement !== pageInputForLive) {
@@ -1737,11 +1902,21 @@ const initPdfViewer = () => {
   };
   const applyLiveSync = (payload) => {
     if (!payload || !hasLiveSession()) return false;
+    // While Build owns the paper, SyncTeX moves the visible static PDF and
+    // the held frame follows that viewport.
+    if (isLiveHeld()) return false;
     liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, {
       page: Number(payload.page),
     });
+    // An explicit jump replaces any pending viewport handoff.
+    liveViewportHandoff = null;
     if (!isLive()) {
-      pendingLiveSync = payload;
+      // Live is still staging (a large document's first typeset can take
+      // minutes): the static PDF is the paper on screen, so move it now. Its
+      // scroll reaches the frame through the staging viewport mirror, as the
+      // reader's own scrolling does; nothing is replayed later over it.
+      pendingLiveSync = null;
+      applySync(payload);
       return true;
     }
     pendingLiveSync = null;
@@ -1751,6 +1926,9 @@ const initPdfViewer = () => {
   };
   const renderLiveStatus = (data) => {
     const search = data?.search;
+    if (isFindOpen() && findQuery && search?.query === findQuery) {
+      renderFindCount(Number(search.current) || 0, Number(search.total) || 0);
+    }
     if (search?.query) {
       setStatus(`${Number(search.current) || 0} / ${Number(search.total) || 0}`);
       if (statusEl) statusEl.title = search.query;
@@ -1782,7 +1960,7 @@ const initPdfViewer = () => {
     cancelLiveReveal();
     liveActivation = null;
     liveSurfaceOwned = false;
-    document.body.classList.remove("is-live", "is-live-pending");
+    document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
     hideContextMenu();
     if (liveFrame) {
       liveFrame.setAttribute("aria-hidden", "true");
@@ -1791,9 +1969,14 @@ const initPdfViewer = () => {
     }
     liveToolbar = normalizeLiveToolbarSnapshot();
     restoreStaticToolbar();
+    // The frame is gone and its search with it; search the static PDF.
+    liveFindQuery = "";
+    if (isFindOpen() && findQuery) runFind(findQuery, { quiet: true });
     refreshStaticStatus();
     const deferredSync = pendingLiveSync;
     pendingLiveSync = null;
+    liveViewportHandoff = null;
+    clearTimeout(heldMirrorTimer);
     if (deferredSync) requestAnimationFrame(() => applySync(deferredSync));
     const pendingStatic = deferredStaticOpen;
     if (pendingStatic) {
@@ -1811,9 +1994,172 @@ const initPdfViewer = () => {
       });
     }
   };
+  // Paper point at the centre of the static viewport, in the goto-sync form
+  // the live frame centres (top-origin y in PDF units).
+  const captureStaticViewportSync = () => {
+    if (!state.doc || !scrollEl) return null;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const centerY = scrollRect.top + scrollEl.clientHeight / 2;
+    const current = Math.max(1, Number(pdfViewer.currentPageNumber) || 1);
+    let page = current;
+    for (let n = Math.max(1, current - 2); n <= Math.min(state.doc.numPages, current + 2); n += 1) {
+      const rect = pdfViewer.getPageView(n - 1)?.div?.getBoundingClientRect?.();
+      if (rect && rect.top <= centerY && rect.bottom >= centerY) {
+        page = n;
+        break;
+      }
+    }
+    const pageView = pdfViewer.getPageView(page - 1);
+    if (!(pageView?.div instanceof HTMLElement) || !pageView.viewport) return { page, x: 0, y: 0 };
+    const pageRect = pageView.div.getBoundingClientRect();
+    const contentOffset = resolvePageContentOffset(pageView.div);
+    const viewportScale = resolveViewportScale(pageView);
+    const renderedHeight = Math.max(1, Number(pageView.viewport.height) * viewportScale.y);
+    const within = Math.max(0, Math.min(renderedHeight,
+      scrollRect.top + scrollEl.clientHeight / 2 - pageRect.top - contentOffset.top));
+    const paperHeight = Math.max(1, Number(resolvePagePdfHeight(pageView)) || renderedHeight);
+    const paperY = within / renderedHeight * paperHeight;
+    return { page, x: 0, y: paperY, blockY: paperY, blockHeight: 0 };
+  };
+  // A goto-sync the frame echoes back once it has scrolled to that paper point.
+  const viewportHandoff = (sync) => ({
+    sync: { ...sync, viewportToken: `${liveActivation?.id ?? "live"}:${++liveViewportTokenSequence}` },
+  });
+  const followsStaticViewport = () => isLiveHeld() || isLivePending();
+  const mirrorStaticViewportToHeldLive = () => {
+    clearTimeout(heldMirrorTimer);
+    heldMirrorTimer = null;
+    if (!liveActivation || !followsStaticViewport()) return;
+    const sync = captureStaticViewportSync();
+    if (!sync) return;
+    // The static PDF stays scrollable until Live replaces it; the frame
+    // must reach the paper the reader has moved to, not the resume point.
+    if (isLivePending()) {
+      liveViewportHandoff = viewportHandoff(sync);
+      postLive("goto-sync", liveViewportHandoff.sync);
+      return;
+    }
+    postLive("goto-sync", sync);
+  };
+  const scheduleHeldMirror = () => {
+    if (!followsStaticViewport()) return;
+    clearTimeout(heldMirrorTimer);
+    heldMirrorTimer = setTimeout(mirrorStaticViewportToHeldLive, 120);
+  };
+  // Build owns the paper: show its static PDF while the same engine frame,
+  // its document epoch and warm state stay alive underneath.
+  const enterLiveHeld = () => {
+    if (!liveFrame || !liveActivation) return;
+    const livePage = isLive() ? liveToolbar.page : null;
+    cancelLiveReveal();
+    liveViewportHandoff = null;
+    liveActivation.expectedSrcRev = null;
+    liveSurfaceOwned = false;
+    document.body.classList.remove("is-live", "is-live-pending");
+    document.body.classList.add("is-live-held");
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.dataset.livePhase = "build-held";
+    hideContextMenu();
+    hideAskButton();
+    restoreStaticToolbar();
+    refreshStaticStatus();
+    const pendingStatic = deferredStaticOpen;
+    deferredStaticOpen = null;
+    if (pendingStatic) {
+      // The Build PDF replaces the static fallback that was hidden under
+      // Live; open it where the reader was looking, not at its stale scroll.
+      if (livePage) state.pendingPage = livePage;
+      requestStaticDocument(pendingStatic.url, pendingStatic.path);
+    } else if (livePage && state.doc) {
+      pdfViewer.currentPageNumber = Math.max(1, Math.min(state.doc.numPages, livePage));
+    }
+    scheduleHeldMirror();
+  };
+  // The first real edit after a Build returns the paper to Live. The static
+  // PDF stays on top until the frame shows a complete paper at its viewport.
+  const resumeLiveFromHold = (expectedSrcRev) => {
+    if (!liveFrame || !liveActivation) return;
+    clearTimeout(heldMirrorTimer);
+    liveActivation.expectedSrcRev = expectedSrcRev;
+    const sync = captureStaticViewportSync();
+    liveViewportHandoff = sync ? viewportHandoff(sync) : null;
+    liveSurfaceOwned = true;
+    document.body.classList.remove("is-live-held");
+    document.body.classList.add("is-live-pending");
+    liveFrame.setAttribute("aria-hidden", "true");
+    liveFrame.dataset.livePhase = "activation-pending";
+    setStatus(uiString("liveUpdating"), "busy");
+    if (liveViewportHandoff) postLive("goto-sync", liveViewportHandoff.sync);
+  };
+  // Frames without the viewport token only report their top page; a centred
+  // paper point on page N leaves N or a page or two above it at the top,
+  // while an unmoved frame is still at its first page.
+  const LIVE_HANDOFF_PAGE_SLACK = 2;
+  const livePaperHasAuthoritativePageCount = (data) => {
+    if (data?.presentationPending !== false || data?.pageCountAuthoritative === false) return false;
+    const expected = liveActivation?.expectedSrcRev;
+    return Number.isInteger(expected)
+      ? Number(data.srcRev) >= expected
+      : data?.ready === true;
+  };
+  const resolveLiveViewportTarget = (sync, data) => {
+    const desired = Math.max(1, Number(sync?.page) || 1);
+    const pageCount = Math.max(0, Number(data?.pageCount) || 0);
+    if (pageCount >= desired) return desired;
+    // A cold or rebuilding frame can temporarily expose only its first few
+    // pages. Keep the static viewport request intact until those pages exist.
+    // Only a complete paper may establish that the requested page was really
+    // removed and should therefore resolve to its new final page.
+    if (pageCount > 0 && livePaperHasAuthoritativePageCount(data)) return pageCount;
+    return null;
+  };
+  const liveViewportPositioned = (data) => {
+    const handoff = liveViewportHandoff;
+    if (!handoff) return true;
+    const target = resolveLiveViewportTarget(handoff.sync, data);
+    if (!target) return false;
+    const page = Number(data.page);
+    const pageConfirmed = page <= target && page >= target - LIVE_HANDOFF_PAGE_SLACK;
+    const tokenConfirmed = "viewportToken" in data
+      ? data.viewportToken === handoff.sync.viewportToken
+      : true;
+    const confirmed = livePaperPresentable(data) && tokenConfirmed && pageConfirmed;
+    if (confirmed) {
+      liveViewportHandoff = null;
+      return true;
+    }
+    // Once the target exists, retry on snapshots until both its location and
+    // token are confirmed. An unavailable target is left quiet above.
+    postLive("goto-sync", { ...handoff.sync, page: target });
+    return false;
+  };
+  // After a Build the frame may only replace its PDF once it has applied the
+  // revision the engine accepted for the first change and holds complete
+  // paper. A certified local edit stays presentationPending until canonical
+  // confirms it (and pages beyond a shorter resident pagination stay pending
+  // until then), so either completeness signal is accepted here. Other
+  // activations wait for an exact paint.
+  const livePaperPresentable = (data) => {
+    const expected = liveActivation?.expectedSrcRev;
+    if (!Number.isInteger(expected)) return data?.ready === true;
+    const applied = !("srcRev" in data) || Number(data.srcRev) >= expected;
+    return applied && (data.ready === true || data.presentationPending === false);
+  };
+  // A held frame keeps following the static viewport so the first edit can
+  // replace the paper without a positioning round trip.
+  const alignHeldFrame = (data) => {
+    if (heldMirrorTimer) return;
+    const sync = captureStaticViewportSync();
+    if (!sync) return;
+    const target = resolveLiveViewportTarget(sync, data);
+    if (!target) return;
+    const page = Number(data.page);
+    if (page <= target && page >= target - LIVE_HANDOFF_PAGE_SLACK) return;
+    postLive("goto-sync", { ...sync, page: target });
+  };
   const activateLive = (data) => {
-    if (!liveFrame || !liveActivation || !isLivePending()) return false;
-    if (data?.ready !== true || data.activationId !== liveActivation.id) {
+    if (!liveFrame || !liveActivation || !isLivePending() || data?.action) return false;
+    if (data?.activationId !== liveActivation.id) {
       if (liveActivation.reveal) cancelLiveReveal();
       return false;
     }
@@ -1823,6 +2169,13 @@ const initPdfViewer = () => {
         documentEpoch !== liveActivation.pendingDocumentEpoch) return false;
     if (Number.isInteger(liveActivation.documentEpoch) &&
         documentEpoch < liveActivation.documentEpoch) return false;
+    // Move the still-covered frame before judging its paper: the pages it
+    // must present are the ones at the handed-off viewport.
+    if (!liveViewportPositioned(data)) return true;
+    if (!livePaperPresentable(data)) {
+      if (liveActivation.reveal) cancelLiveReveal();
+      return false;
+    }
     if (liveActivation.reveal?.documentEpoch === documentEpoch) {
       // The child sends periodic snapshots. Keep the newest toolbar/status
       // payload without postponing an already scheduled paint barrier.
@@ -1847,7 +2200,8 @@ const initPdfViewer = () => {
         if (Number.isInteger(activation.pendingDocumentEpoch) &&
             documentEpoch !== activation.pendingDocumentEpoch) return;
         const latestData = reveal.data;
-        if (latestData?.ready !== true || Number(latestData.documentEpoch) !== documentEpoch) return;
+        if (!latestData || !livePaperPresentable(latestData)) return;
+        if (Number(latestData.documentEpoch) !== documentEpoch) return;
 
         activation.reveal = null;
         activation.documentEpoch = documentEpoch;
@@ -1862,6 +2216,9 @@ const initPdfViewer = () => {
         setStatus(uiString("live"));
         renderLiveStatus(latestData);
         if (pendingLiveSync) applyLiveSync(pendingLiveSync);
+        // A query typed while the static PDF was showing has not reached the
+        // engine yet; the engine keeps its own search across later updates.
+        if (isFindOpen() && findQuery && liveFindQuery !== findQuery) runFind(findQuery);
         bridge?.postMessage?.({
           type: "live-surface-ready",
           payload: {
@@ -1913,9 +2270,17 @@ const initPdfViewer = () => {
 
     const url = rawUrl.replace(/\/+$/, "");
     const generation = Number(payload?.generation) || 0;
-    if (liveActivation?.url === url && liveActivation?.generation === generation && hasLiveSession()) return;
+    const hold = payload?.hold === true;
+    const expectedSrcRev = Number.isInteger(payload?.expectedSrcRev) ? payload.expectedSrcRev : null;
+    if (liveActivation?.url === url && liveActivation?.generation === generation && hasLiveSession()) {
+      // Same engine session and document generation: Build ownership only
+      // moves the paper between the static PDF and this frame.
+      if (hold && !isLiveHeld()) enterLiveHeld();
+      else if (!hold && isLiveHeld()) resumeLiveFromHold(expectedSrcRev);
+      return;
+    }
 
-    liveSurfaceOwned = true;
+    liveSurfaceOwned = !hold;
     deferredStaticFlushToken += 1;
     const id = `${Date.now().toString(36)}-${(++liveActivationSequence).toString(36)}`;
     cancelLiveReveal();
@@ -1925,16 +2290,22 @@ const initPdfViewer = () => {
       generation,
       documentEpoch: null,
       pendingDocumentEpoch: null,
+      expectedSrcRev: hold ? null : expectedSrcRev,
       reveal: null,
     };
     liveToolbar = normalizeLiveToolbarSnapshot();
-    document.body.classList.remove("is-live");
-    document.body.classList.add("is-live-pending");
+    // A new frame opens at its first page. Carry the static viewport so it
+    // replaces the paper where the reader is, not at the document start.
+    const sync = !hold && state.doc ? captureStaticViewportSync() : null;
+    liveViewportHandoff = sync && !pendingLiveSync ? viewportHandoff(sync) : null;
+    document.body.classList.remove("is-live", "is-live-pending", "is-live-held");
+    document.body.classList.add(hold ? "is-live-held" : "is-live-pending");
     liveFrame.setAttribute("aria-hidden", "true");
-    liveFrame.dataset.livePhase = "activation-pending";
+    liveFrame.dataset.livePhase = hold ? "build-held" : "activation-pending";
     hideContextMenu();
     restoreStaticToolbar();
-    setStatus(uiString("liveUpdating"), "busy");
+    if (hold) refreshStaticStatus();
+    else setStatus(uiString("liveUpdating"), "busy");
 
     const params = new URLSearchParams({
       embed: "1",
@@ -1943,7 +2314,15 @@ const initPdfViewer = () => {
     });
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     if (/^#[0-9a-fA-F]{3,8}$/.test(bg)) params.set("bg", bg);
+    // A new frame starts without a search; the reveal sends the open query.
+    liveFindQuery = "";
     liveFrame.src = `${url}/?${params.toString()}`;
+    if (hold) {
+      // A Build published before this frame existed: preload below its PDF.
+      const pendingStatic = deferredStaticOpen;
+      deferredStaticOpen = null;
+      if (pendingStatic) requestStaticDocument(pendingStatic.url, pendingStatic.path);
+    }
   };
   const setLiveError = (payload) => {
     cancelLiveErrorSurface();
@@ -1983,6 +2362,7 @@ const initPdfViewer = () => {
       });
     });
   };
+  scrollEl?.addEventListener("scroll", scheduleHeldMirror, { passive: true });
   const pageInputForLive = document.getElementById("pdf-page-input");
   window.addEventListener("message", (event) => {
     if (!liveFrame || event.source !== liveFrame.contentWindow) return;
@@ -1990,9 +2370,18 @@ const initPdfViewer = () => {
     if (!data || data.source !== "tdom-embed" || !hasLiveSession()) return;
     if (!liveActivation || data.activationId !== liveActivation.id) return;
     if (data.action === "reset-pending") {
+      if (isLiveHeld()) {
+        const documentEpoch = Number(data.documentEpoch);
+        if (Number.isInteger(documentEpoch)) {
+          liveActivation.pendingDocumentEpoch = documentEpoch;
+          postLive("reset-ack", { documentEpoch });
+        }
+        return;
+      }
       holdStaticForDocumentReset(data);
       return;
     }
+    if (isLiveHeld() && data.action === "place") return;
     if (data.action === "place") {
       if (data.kind === "clear") hideAskButton();
       else showAskButtonForLivePlace(data);
@@ -2003,6 +2392,12 @@ const initPdfViewer = () => {
     // offscreen until the same activation explicitly declares its first
     // exact paint ready.
     liveToolbar = normalizeLiveToolbarSnapshot(liveToolbar, data);
+    // The retained frame may keep rendering under a Build-owned static PDF,
+    // but hidden clicks/selections from its old activation cannot edit Code.
+    if (isLiveHeld()) {
+      if (!data.action) alignHeldFrame(data);
+      return;
+    }
     if (isLivePending()) {
       activateLive(data);
       return;
@@ -2116,8 +2511,27 @@ const initPdfViewer = () => {
         staticSourceStates.set(message.payload.path || null, message.payload.needsRebuild === true);
         if ((message.payload.path || null) === state.path && !reloadInFlight) refreshStaticStatus();
       }
+      if (message.type === "build-state" && message.payload) {
+        const payload = message.payload;
+        buildPreviewState = payload.state === "building" || payload.state === "failed"
+          ? payload.state
+          : "idle";
+        if (statusEl) {
+          statusEl.title = buildPreviewState === "failed" && typeof payload.message === "string"
+            ? payload.message
+            : "";
+        }
+        if (buildPreviewState === "building") setStatusDirect(uiString("liveUpdating"), "busy");
+        else if (buildPreviewState === "failed") setStatusDirect(uiString("buildFailedLastGood"), "error");
+        else if (isLive()) setStatus(uiString("live"));
+        else if (isLivePending()) setStatus(uiString("liveUpdating"), "busy");
+        else refreshStaticStatus();
+      }
       if (message.type === "sync" && message.payload) {
         if (!applyLiveSync(message.payload)) applySync(message.payload);
+      }
+      if (message.type === "find-open") {
+        openFindBar();
       }
       if (message.type === "live") {
         setLiveMode(message.payload || null);

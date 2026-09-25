@@ -2,15 +2,55 @@ import { isEditableTextFilePath, isImageFilePath, isPdfFilePath, isTextFilePath,
 import { buildLineDiff } from "./diff.js";
 import { getUiLocale, uiText } from "./i18n.js";
 import { trackLiveEditModel } from "./editor-session/live-edit-history.js";
+import { rememberEditorModelPath } from "./editor-session/model-path.js";
+import { notifySaveStatusChange } from "./save-status.js";
 export const createEditorSessionFileOps = (ctx) => {
     let lastSaveErrorMessage = null;
     const contentConflicts = new Map();
     let reopenNextContentConflict = () => { };
     const { deps, editorGroups, monacoModels, dirtyFiles, state, getActiveEditorGroupKey, getActiveGroup, getEditorGroup, isActiveGroup, resolveAutoOpenGroupKey, findGroupKeyByPath, setSplitViewEnabled, cacheCurrentBuffer, clearJumpHighlight, clearTemporaryTabs, addOpenTab, updateDirtyState, restoreViewState, setEditorLanguage, updateBreadcrumbs, updateMiniOutline, revealLine, forEachEditorGroup, scheduleAfterComposition, getLanguageIdForPath, } = ctx;
-    const reportSaveError = (message) => {
-        lastSaveErrorMessage = message;
-        deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+    // Why each file's last save failed. An entry lasts until that file saves
+    // or stops being dirty: another file saving says nothing about it.
+    const saveErrors = new Map();
+    let lastSavedAt = null;
+    // A failed file keeps trying on its own (2 s, 4 s, ... up to 30 s): the
+    // cause is often passing (a sync client or a project operation holding it).
+    let saveRetryTimer = null;
+    let saveRetryDelayMs = 0;
+    const hasFailedDirtyFile = () => Array.from(saveErrors.keys()).some((path) => dirtyFiles.has(path));
+    const scheduleSaveRetry = () => {
+        if (saveRetryTimer !== null)
+            return;
+        saveRetryDelayMs = Math.min(30000, saveRetryDelayMs > 0 ? saveRetryDelayMs * 2 : 2000);
+        saveRetryTimer = window.setTimeout(() => {
+            saveRetryTimer = null;
+            if (hasFailedDirtyFile())
+                void saveDirtyFiles().catch(() => { });
+        }, saveRetryDelayMs);
     };
+    const reportSaveError = (message, path = null) => {
+        // A retry failing the same way leaves Issues alone: it would replace the
+        // build's warnings every few seconds. (Retries differ only in the
+        // temporary file name.) `lastSaveErrorMessage` is what Issues shows, so
+        // a later success can take exactly that down.
+        const kind = (text) => text.replace(/\.[^\s'"/\\]+\.tmp-[\w.-]+/g, "");
+        const previous = path ? saveErrors.get(path) : lastSaveErrorMessage;
+        if (typeof previous !== "string" || kind(previous) !== kind(message)) {
+            deps.updateIssues(1, message, "error", [{ severity: "error", message }]);
+            lastSaveErrorMessage = message;
+        }
+        if (path) {
+            saveErrors.set(path, message);
+            scheduleSaveRetry();
+        }
+        notifySaveStatusChange();
+    };
+    // A save rejects with the host's message as a string.
+    const saveFailureMessage = (error) => typeof error === "string" && error
+        ? error
+        : error instanceof Error && error.message
+            ? error.message
+            : "Saving failed.";
     const clearOwnSaveError = () => {
         var _a;
         if (lastSaveErrorMessage === null)
@@ -23,65 +63,77 @@ export const createEditorSessionFileOps = (ctx) => {
         if (stillOurs)
             deps.updateIssues(0, "", "info", []);
         lastSaveErrorMessage = null;
+        notifySaveStatusChange();
     };
     const clearContentConflicts = () => {
         var _a;
         contentConflicts.clear();
+        notifySaveStatusChange();
         (_a = document.getElementById("ai-content-conflict-bar")) === null || _a === void 0 ? void 0 : _a.remove();
         clearOwnSaveError();
     };
-    const savePathContent = (path, value, timeoutMs, expectedContent) => {
-        var _a;
-        if (timeoutMs === void 0) { timeoutMs = 8000; }
-        if (expectedContent === void 0) { expectedContent = (_a = monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.savedContent; }
-        return new Promise((resolve, reject) => {
-            var _a, _b;
-            const identity = ((_b = (_a = window.tex64History) === null || _a === void 0 ? void 0 : _a.getIdentity) === null || _b === void 0 ? void 0 : _b.call(_a)) || {};
-            const startedAt = Date.now();
-            const enqueue = () => {
-                if (state.pendingSave) {
-                    if (Date.now() - startedAt >= timeoutMs) {
-                        reject("Waiting for save timed out.");
-                        return;
-                    }
-                    window.setTimeout(enqueue, 25);
+    // `expectedContent` left out: what is on disk is whatever this editor last
+    // saved, read when the save leaves the queue. Reading it when the save was
+    // queued went stale once an earlier save of the same file landed, and the
+    // host then reported a change "by another app" that was only our own save.
+    const savePathContent = (path, value, timeoutMs = 8000, expectedContent) => new Promise((resolve, reject) => {
+        var _a, _b;
+        const identity = ((_b = (_a = window.tex64History) === null || _a === void 0 ? void 0 : _a.getIdentity) === null || _b === void 0 ? void 0 : _b.call(_a)) || {};
+        const startedAt = Date.now();
+        const enqueue = () => {
+            var _a;
+            if (state.pendingSave) {
+                if (Date.now() - startedAt >= timeoutMs) {
+                    reject("Waiting for save timed out.");
                     return;
                 }
-                state.pendingSave = { path, content: value, resolve, reject };
-                const safetyTimer = window.setTimeout(() => {
-                    if (state.pendingSave && state.pendingSave.path === path) {
-                        console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
-                        state.pendingSave.reject("Timed out waiting for a save response.");
-                        state.pendingSave = null;
-                    }
-                }, 30000);
-                const origResolve = resolve;
-                const origReject = reject;
-                state.pendingSave.resolve = (result) => {
-                    clearTimeout(safetyTimer);
-                    origResolve(result);
-                };
-                state.pendingSave.reject = (error) => {
-                    clearTimeout(safetyTimer);
-                    origReject(error);
-                };
-                const ok = deps.postToNative({
-                    ...identity,
-                    type: "saveFile",
-                    path,
-                    content: value,
-                    ...(typeof expectedContent === "string" ? { expectedContent } : {}),
-                    format: false,
-                });
-                if (!ok) {
-                    clearTimeout(safetyTimer);
+                window.setTimeout(enqueue, 25);
+                return;
+            }
+            const lastSaved = (_a = monacoModels.get(path)) === null || _a === void 0 ? void 0 : _a.savedContent;
+            if (expectedContent === undefined && typeof lastSaved === "string" && lastSaved === value) {
+                // An earlier queued save already wrote exactly this.
+                resolve(true);
+                return;
+            }
+            const expected = expectedContent === undefined ? lastSaved : expectedContent;
+            state.pendingSave = { path, content: value, resolve, reject };
+            notifySaveStatusChange();
+            const safetyTimer = window.setTimeout(() => {
+                if (state.pendingSave && state.pendingSave.path === path) {
+                    console.warn(`[file-ops] pendingSave safety timeout for "${path}"`);
+                    state.pendingSave.reject("Timed out waiting for a save response.");
                     state.pendingSave = null;
-                    reject("Native integration is not available.");
+                    notifySaveStatusChange();
                 }
+            }, 30000);
+            const origResolve = resolve;
+            const origReject = reject;
+            state.pendingSave.resolve = (result) => {
+                clearTimeout(safetyTimer);
+                origResolve(result);
             };
-            enqueue();
-        });
-    };
+            state.pendingSave.reject = (error) => {
+                clearTimeout(safetyTimer);
+                origReject(error);
+            };
+            const ok = deps.postToNative({
+                ...identity,
+                type: "saveFile",
+                path,
+                content: value,
+                ...(typeof expected === "string" ? { expectedContent: expected } : {}),
+                format: false,
+            });
+            if (!ok) {
+                clearTimeout(safetyTimer);
+                state.pendingSave = null;
+                notifySaveStatusChange();
+                reject("Native integration is not available.");
+            }
+        };
+        enqueue();
+    });
     /**
      * Replace model content via executeEdits (preserves undo stack) when available,
      * falling back to setValue (clears undo stack) otherwise.
@@ -188,6 +240,7 @@ export const createEditorSessionFileOps = (ctx) => {
         }
         const entry = monacoModels.get(path);
         if (entry) {
+            rememberEditorModelPath(entry.model, path);
             trackLiveEditModel(entry.model);
             const isEntryDirty = dirtyFiles.has(path);
             if (!isEntryDirty && savedContent !== undefined && entry.savedContent !== savedContent) {
@@ -206,6 +259,7 @@ export const createEditorSessionFileOps = (ctx) => {
         const uri = ((_b = monacoApiAny.Uri) === null || _b === void 0 ? void 0 : _b.file) ? monacoApiAny.Uri.file(path) : undefined;
         const existing = uri && monacoApiAny.editor.getModel ? monacoApiAny.editor.getModel(uri) : null;
         const model = (existing !== null && existing !== void 0 ? existing : monacoApiAny.editor.createModel(content, getLanguageIdForPath(path), uri));
+        rememberEditorModelPath(model, path);
         trackLiveEditModel(model);
         const nextEntry = { model, savedContent: savedContent !== null && savedContent !== void 0 ? savedContent : content };
         monacoModels.set(path, nextEntry);
@@ -358,6 +412,7 @@ export const createEditorSessionFileOps = (ctx) => {
                         if (!saved)
                             throw new Error("Saving failed.");
                         contentConflicts.delete(path);
+                        notifySaveStatusChange();
                         bar.remove();
                         clearOwnSaveError();
                         if (conflict.conversationId) {
@@ -387,6 +442,7 @@ export const createEditorSessionFileOps = (ctx) => {
                         return;
                     if (conflict.diskContent === null) {
                         contentConflicts.delete(path);
+                        notifySaveStatusChange();
                         dirtyFiles.delete(path);
                         bar.remove();
                         clearOwnSaveError();
@@ -409,6 +465,7 @@ export const createEditorSessionFileOps = (ctx) => {
                         if (!saved)
                             throw new Error("Saving failed.");
                         contentConflicts.delete(path);
+                        notifySaveStatusChange();
                         group.isApplyingFile = true;
                         replaceContentViaEdits(group.currentFilePath === path ? editor : null, (_a = entry === null || entry === void 0 ? void 0 : entry.model) !== null && _a !== void 0 ? _a : null, conflict.diskContent, "ai-conflict");
                         group.isApplyingFile = false;
@@ -620,17 +677,35 @@ export const createEditorSessionFileOps = (ctx) => {
             });
         });
     };
-    const saveDirtyFiles = async () => {
+    // One pass at a time: autosave, the retry timer and Retry can all ask at
+    // once. A request during a pass gets one more pass after it, which sees
+    // what changed meanwhile.
+    let saveDirtyRun = null;
+    let saveDirtyAgain = null;
+    const saveDirtyFiles = () => {
+        if (!saveDirtyRun) {
+            saveDirtyRun = saveDirtyFilesOnce().finally(() => {
+                saveDirtyRun = null;
+            });
+            return saveDirtyRun;
+        }
+        saveDirtyAgain !== null && saveDirtyAgain !== void 0 ? saveDirtyAgain : (saveDirtyAgain = saveDirtyRun
+            .catch(() => false)
+            .then(() => {
+            saveDirtyAgain = null;
+            return saveDirtyFiles();
+        }));
+        return saveDirtyAgain;
+    };
+    const saveDirtyFilesOnce = async () => {
         const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
         if (dirtyPaths.length === 0) {
             return true;
         }
-        if (dirtyPaths.some((path) => contentConflicts.has(path))) {
-            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
-            return false;
-        }
+        // A file in an edit conflict waits for the user; the others still save.
+        const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
         const activePath = getActiveGroup().currentFilePath;
-        const ordered = dirtyPaths.slice().sort((a, b) => {
+        const ordered = dirtyPaths.filter((path) => !contentConflicts.has(path)).sort((a, b) => {
             if (a === activePath) {
                 return -1;
             }
@@ -667,19 +742,56 @@ export const createEditorSessionFileOps = (ctx) => {
             await waitForCompositionIfNeeded(path);
             const content = readBuffer(path);
             if (content === null) {
-                reportSaveError(`Unable to retrieve content to save: ${path}`);
+                reportSaveError(`Unable to retrieve content to save: ${path}`, path);
                 return false;
             }
             try {
                 await savePathContent(path, content);
             }
             catch (error) {
-                const message = error instanceof Error ? error.message : "Saving failed.";
-                reportSaveError(message);
+                reportSaveError(saveFailureMessage(error), path);
                 return false;
             }
         }
+        if (conflicted.length > 0) {
+            reportSaveError(uiText("Resolve the edit conflict before saving.", "保存する前に編集競合を解決してください。"));
+            return false;
+        }
         return true;
+    };
+    const getSaveStatus = () => {
+        // A file that is clean again (undone, reverted) has nothing left to save.
+        for (const path of Array.from(saveErrors.keys())) {
+            if (!dirtyFiles.has(path))
+                saveErrors.delete(path);
+        }
+        if (saveErrors.size === 0 && saveRetryTimer !== null) {
+            window.clearTimeout(saveRetryTimer);
+            saveRetryTimer = null;
+            saveRetryDelayMs = 0;
+        }
+        const dirtyPaths = Array.from(dirtyFiles).filter((path) => isEditableTextFilePath(path));
+        const failed = Array.from(saveErrors.entries());
+        const conflicted = dirtyPaths.filter((path) => contentConflicts.has(path));
+        if (failed.length > 0) {
+            const [path, message] = failed[0];
+            return { kind: "error", message, path, count: failed.length + conflicted.length };
+        }
+        if (conflicted.length > 0) {
+            return {
+                kind: "error",
+                message: "Resolve the edit conflict before saving.",
+                path: conflicted[0],
+                count: conflicted.length,
+            };
+        }
+        if (state.pendingSave) {
+            return { kind: "saving", path: state.pendingSave.path };
+        }
+        if (dirtyPaths.length > 0) {
+            return { kind: "dirty", count: dirtyPaths.length };
+        }
+        return { kind: "saved", savedAt: lastSavedAt };
     };
     const clearAutoSaveTimer = () => {
         if (state.autoSaveTimer) {
@@ -822,6 +934,7 @@ export const createEditorSessionFileOps = (ctx) => {
                     state.pendingSave.reject(saveErrorMessage);
                 }
                 state.pendingSave = null;
+                notifySaveStatusChange();
             }
             else {
                 // Path mismatch: the native side returned a result for a different path.
@@ -834,10 +947,20 @@ export const createEditorSessionFileOps = (ctx) => {
             return;
         }
         if (!payload.ok) {
-            reportSaveError(saveErrorMessage);
+            reportSaveError(saveErrorMessage, payload.path);
             return;
         }
-        if (lastSaveErrorMessage !== null) {
+        lastSavedAt = Date.now();
+        saveErrors.delete(payload.path);
+        if (!hasFailedDirtyFile()) {
+            saveRetryDelayMs = 0;
+            if (saveRetryTimer !== null) {
+                window.clearTimeout(saveRetryTimer);
+                saveRetryTimer = null;
+            }
+        }
+        notifySaveStatusChange();
+        if (lastSaveErrorMessage !== null && !hasFailedDirtyFile()) {
             const snapshot = (_b = deps.getRecentIssuesSnapshot) === null || _b === void 0 ? void 0 : _b.call(deps);
             const stillOurs = !snapshot ||
                 (snapshot.status === "error" &&
@@ -913,6 +1036,7 @@ export const createEditorSessionFileOps = (ctx) => {
         saveCurrentFile,
         saveDirtyFiles,
         scheduleAutoSave,
+        getSaveStatus,
         handleOpenFileResult,
         handleSaveResult,
         clearContentConflicts,

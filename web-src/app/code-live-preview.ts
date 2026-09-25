@@ -1,8 +1,8 @@
 // Real-time preview for Code mode (beta, settings > Build > Preview).
 //
-// The preview replaces only the page canvas inside the ordinary in-tab PDF
-// viewer. The existing PDF toolbar and split-view path stay in place; no
-// separate window or second preview surface is created. While the
+// The preview replaces only the page canvas inside the ordinary PDF viewer,
+// whether it is an in-tab surface or the configured Build window. The existing
+// PDF toolbar stays in place; no live-only preview surface is created. While the
 // `preview.realtime` flag is on and the app is in Code mode, this module
 // starts the local TDOM engine, streams the active .tex buffer to it as the
 // user types, and flips those viewers into live mode; each viewer swaps only
@@ -14,6 +14,7 @@ import type { EditorGroupState } from "./editor-session/types.js";
 import type { BridgeWindow } from "./types.js";
 import type { LivePreviewTarget } from "./viewer.js";
 import { editorSettings } from "./editor-settings/editor-settings-store.js";
+import { getEditorModelPath } from "./editor-session/model-path.js";
 
 const createDebouncedTask = (task: () => void, delayMs: number) => {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -78,9 +79,33 @@ export const initCodeLivePreview = ({
   let pendingPush: (NonNullable<ReturnType<typeof currentSnapshot>> & {
     pushVersion: number;
     lifecycleVersion: number;
+    // Build whose paper this push may return to Live once the engine accepts it.
+    releaseBuildView: number | null;
   }) | null = null;
   let pushing = false;
   let latestInputAtEpochMs = 0;
+  let lastContentChangeAtEpochMs = 0;
+  let nextExactInputId = 0;
+  type ExactInput = {
+    id: number;
+    sessionKey: string;
+    path: string;
+    text: string;
+    editAtEpochMs: number;
+  };
+  const pendingExactInputs = new Map<string, ExactInput>();
+  // Session and edit version a completed Build typeset. Dirty-only buffers
+  // cannot tell a saved edit from the Build's source, so edits are counted.
+  let builtSnapshot: { sessionKey: string; editVersion: number } | null = null;
+  let sourceEditVersion = 0;
+  let buildStartEditVersion: number | null = null;
+  let sourceRefreshPending = false;
+  let buildOwnsView = false;
+  let buildViewVersion = 0;
+  // Revision accepted for the first change after a Build; the viewer keeps the
+  // Build PDF until Live presents at least this revision.
+  let liveExpectedSrcRev: number | null = null;
+  let lastWindowPreviewKey: string | null = null;
 
   const cursorOffset = (editor: LiveEditor | null = currentProjectSource()?.editor ?? null) => {
     const position = editor?.getPosition?.();
@@ -97,28 +122,74 @@ export const initCodeLivePreview = ({
       debouncedFocus();
       return;
     }
-    const offset = cursorOffset();
+    const source = currentProjectSource();
+    const offset = cursorOffset(source?.editor);
     if (offset == null) return;
-    void bridge.focus({ offset }).catch(() => {});
+    void bridge.focus({ offset, filePath: source?.path }).catch(() => {});
   };
   const debouncedFocus = createDebouncedTask(focusCurrent, 160);
 
-  // Flip the existing in-tab PDF surfaces into or out of live mode. The PDF
+  // Flip the existing PDF surfaces into or out of live mode. The PDF
   // frame keeps its ordinary toolbar and swaps only the page canvas for the
-  // embedded incremental renderer.
+  // embedded incremental renderer. While a completed Build owns the paper,
+  // the same frame is kept below that PDF instead of being recreated.
   const distributeLive = (url: string | null, generation = liveGeneration) => {
+    const payload = url && liveTarget?.workspaceRoot ? {
+      url,
+      generation,
+      target: liveTarget,
+      hold: buildOwnsView,
+      expectedSrcRev: buildOwnsView ? null : liveExpectedSrcRev,
+    } : null;
     for (const group of getEditorGroups()) {
-      group.viewer.setLivePreview(url, generation, liveTarget);
+      group.viewer.setLivePreview(url, generation, liveTarget, buildOwnsView, buildOwnsView ? null : liveExpectedSrcRev);
+    }
+    if (bridge?.setWindowPreview) {
+      const key = JSON.stringify(payload);
+      if (key !== lastWindowPreviewKey) {
+        lastWindowPreviewKey = key;
+        void bridge.setWindowPreview(payload).then((result) => {
+          if (!result?.ok && lastWindowPreviewKey === key) lastWindowPreviewKey = null;
+        }, () => {
+          if (lastWindowPreviewKey === key) lastWindowPreviewKey = null;
+        });
+      }
     }
   };
 
   const showLiveError = (message: string) => console.warn("[live-preview]", message);
+
+  const editorModelPath = (editor: LiveEditor | null) => {
+    return getEditorModelPath(editor?.getModel?.() ?? null);
+  };
+
+  const sameFilePath = (left: string, right: string) => {
+    const comparable = (value: string) => {
+      const normalized = value.replace(/\\/g, "/");
+      return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+    };
+    return comparable(left) === comparable(right);
+  };
+
+  const activeEditorPathMismatch = () => {
+    const group = getActiveGroup();
+    const path = group.currentFilePath;
+    const editor = group.editor as LiveEditor | null;
+    if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return false;
+    const modelPath = editorModelPath(editor);
+    return Boolean(modelPath && !sameFilePath(modelPath, path));
+  };
 
   const currentProjectSource = () => {
     const group = getActiveGroup();
     const path = group.currentFilePath;
     const editor = group.editor as LiveEditor | null;
     if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return null;
+    const modelPath = editorModelPath(editor);
+    // One Monaco editor is reused while setModel switches files. During that
+    // handoff currentFilePath and the actual model can briefly name different
+    // files; never attach one model's bytes to the other's path.
+    if (modelPath && !sameFilePath(modelPath, path)) return null;
     return { group, path, editor };
   };
 
@@ -128,7 +199,41 @@ export const initCodeLivePreview = ({
     return true;
   };
 
+  const captureExactInput = (path: string | null, editor: LiveEditor | null, editedAtEpochMs: number) => {
+    if (!path || !PROJECT_SOURCE_RE.test(path) || !editor?.getValue) return;
+    const workspaceRoot = getWorkspaceRoot();
+    const configuredRoot = getRootFile();
+    const rootFile = configuredRoot || (path.toLowerCase().endsWith(".tex") ? path : null);
+    const sessionKey = workspaceRoot && rootFile
+      ? `${workspaceRoot}\0${rootFile}`
+      : path.toLowerCase().endsWith(".tex") ? `legacy\0${path}` : null;
+    if (!sessionKey) return;
+    pendingExactInputs.set(path, {
+      id: ++nextExactInputId,
+      sessionKey,
+      path,
+      text: editor.getValue(),
+      editAtEpochMs: editedAtEpochMs,
+    });
+  };
+
+  const clearAcceptedExactInputs = (
+    snapshot: NonNullable<ReturnType<typeof currentSnapshot>>,
+    allowEquivalentBytes = false
+  ) => {
+    for (const [path, exactInput] of pendingExactInputs) {
+      if (exactInput.sessionKey !== snapshot.sessionKey) continue;
+      const sameCapture = snapshot.exactInputIds.get(path) === exactInput.id;
+      const sameAcceptedBytes = snapshot.buffers.get(path) === exactInput.text;
+      if (sameCapture || (allowEquivalentBytes && sameAcceptedBytes)) pendingExactInputs.delete(path);
+    }
+  };
+
   const currentSnapshot = () => {
+    // Keep event-time captures queued until the editor group's path catches up
+    // with its newly installed model. The capture itself is already bound to
+    // the model URI, so no keystroke is lost while dispatch is held.
+    if (activeEditorPathMismatch()) return null;
     const current = currentProjectSource();
     const workspaceRoot = getWorkspaceRoot();
     const configuredRoot = getRootFile();
@@ -140,25 +245,23 @@ export const initCodeLivePreview = ({
           buffers.set(snapshot.path, snapshot.content);
         }
       }
-      const workspaceNormalized = workspaceRoot.replace(/\\/g, "/").replace(/\/$/, "");
-      const projectRelative = (value?: string) => {
-        const normalized = value?.replace(/\\/g, "/").replace(/^\.\//, "");
-        return normalized?.startsWith(`${workspaceNormalized}/`)
-          ? normalized.slice(workspaceNormalized.length + 1)
-          : normalized;
-      };
-      const rootInsideWorkspace = projectRelative(rootFile);
-      const currentRelative = projectRelative(current?.path);
-      // Keep the configured root exact even while it is clean. This also
-      // notices an external reload of main.tex; all non-root files remain
-      // dirty-only overlays and are never serialized just for a tab switch.
-      if (current && (current.group.isDirty || currentRelative === rootInsideWorkspace)) {
+      // Clean files come from the project snapshot on disk. Serializing the
+      // clean root only while its tab is active would turn a root/child tab
+      // switch into a source edit. External reloads explicitly call
+      // refreshSource below, which forces a same-session disk refresh.
+      if (current?.group.isDirty) {
         buffers.set(current.path, current.editor.getValue?.() ?? "");
       }
       const sessionKey = `${workspaceRoot}\0${rootFile}`;
+      const exactInputs = [...pendingExactInputs.values()].filter((input) => input.sessionKey === sessionKey);
+      // A save can make the active buffer clean before the 80ms task runs.
+      // Keep the exact bytes observed by the editor notification until the
+      // engine accepts them; a later clean snapshot removes the overlay.
+      for (const exactInput of exactInputs) buffers.set(exactInput.path, exactInput.text);
       return {
         sessionKey,
         buffers,
+        exactInputIds: new Map(exactInputs.map((input) => [input.path, input.id])),
         target: /\.tex$/i.test(rootFile)
           ? { workspaceRoot, pdfPath: rootFile.replace(/\.tex$/i, ".pdf") } : null,
         payload: {
@@ -166,26 +269,34 @@ export const initCodeLivePreview = ({
           rootFile,
           buffers: [...buffers].map(([path, text]) => ({ path, text })),
           fresh: sessionKey !== queuedSessionKey,
-          clientEditAtEpochMs: latestInputAtEpochMs || undefined,
+          clientEditAtEpochMs: exactInputs.length === 1
+            ? exactInputs[0].editAtEpochMs : latestInputAtEpochMs || undefined,
         },
       };
     }
     if (!current || !current.path.toLowerCase().endsWith(".tex")) return null;
     const source = current.editor.getValue?.() ?? "";
+    const sessionKey = `legacy\0${current.path}`;
+    const exactInput = pendingExactInputs.get(current.path)?.sessionKey === sessionKey
+      ? pendingExactInputs.get(current.path)! : null;
     return {
-      sessionKey: `legacy\0${current.path}`,
-      buffers: new Map([[current.path, source]]),
+      sessionKey,
+      buffers: new Map([[current.path, exactInput?.text ?? source]]),
+      exactInputIds: new Map(exactInput ? [[current.path, exactInput.id]] : []),
       target: { workspaceRoot: null, pdfPath: current.path.replace(/\.tex$/i, ".pdf") },
       payload: {
-        source,
+        source: exactInput?.text ?? source,
         path: current.path,
-        fresh: `legacy\0${current.path}` !== queuedSessionKey,
-        clientEditAtEpochMs: latestInputAtEpochMs || undefined,
+        fresh: sessionKey !== queuedSessionKey,
+        clientEditAtEpochMs: exactInput?.editAtEpochMs ?? (latestInputAtEpochMs || undefined),
       },
     };
   };
 
   const retireObsoleteSession = (nextSessionKey: string) => {
+    for (const [path, exactInput] of pendingExactInputs) {
+      if (exactInput.sessionKey !== nextSessionKey) pendingExactInputs.delete(path);
+    }
     const queuedSessionIsObsolete = queuedSessionKey !== null && queuedSessionKey !== nextSessionKey;
     const visibleSessionIsObsolete = liveSessionKey !== null && liveSessionKey !== nextSessionKey;
     if (!queuedSessionIsObsolete && !visibleSessionIsObsolete) return;
@@ -197,6 +308,9 @@ export const initCodeLivePreview = ({
     pendingPush = null;
     queuedSessionKey = null;
     queuedBuffers.clear();
+    builtSnapshot = null;
+    buildOwnsView = false;
+    liveExpectedSrcRev = null;
     if (engineUrl || visibleSessionIsObsolete) {
       engineUrl = null;
       liveSessionKey = null;
@@ -220,15 +334,30 @@ export const initCodeLivePreview = ({
         attemptedSnapshot = snapshot;
         const result = await bridge.push(snapshot.payload);
         if (!result?.ok) throw new Error(result?.error || "live preview push failed");
+        // Only the capture ids carried by this accepted request are retired.
+        // An older acknowledgement must never clear a newer edit of same bytes.
+        clearAcceptedExactInputs(snapshot);
         const isCurrent =
           active &&
           snapshot.lifecycleVersion === lifecycleVersion &&
           snapshot.pushVersion === latestPushVersion;
+        // The engine accepted a source that differs from the Build's. A newer
+        // queued push (such as the overlay removal after autosave) only moves
+        // it further, so an accepted release need not be the latest push.
+        const releasesBuild = active && snapshot.lifecycleVersion === lifecycleVersion &&
+          buildOwnsView && snapshot.releaseBuildView === buildViewVersion;
+        if (releasesBuild) {
+          builtSnapshot = null;
+          buildOwnsView = false;
+          liveExpectedSrcRev = Number.isInteger(result.srcRev) ? Number(result.srcRev) : null;
+        }
         if (result.url && isCurrent) {
           if (snapshot.payload.fresh || engineUrl !== result.url || !engineUrl) liveGeneration += 1;
           engineUrl = result.url;
           liveSessionKey = snapshot.sessionKey;
           liveTarget = snapshot.target;
+          distributeLive(engineUrl, liveGeneration);
+        } else if (releasesBuild && engineUrl) {
           distributeLive(engineUrl, liveGeneration);
         }
         if (snapshot.payload.clientEditAtEpochMs === latestInputAtEpochMs) latestInputAtEpochMs = 0;
@@ -266,6 +395,10 @@ export const initCodeLivePreview = ({
     const current = currentProjectSource();
     const snapshot = currentSnapshot();
     if (!snapshot) return;
+    // A Build keeps the paper until the engine accepts a source that differs
+    // from the one it typeset; that push carries the release.
+    const changedSinceBuild = Boolean(builtSnapshot) && (sourceRefreshPending ||
+      snapshot.sessionKey !== builtSnapshot?.sessionKey || sourceEditVersion !== builtSnapshot?.editVersion);
     retireObsoleteSession(snapshot.sessionKey);
     // Never push mid-IME-composition: the buffer is transient and a typeset
     // per composition keystroke is wasted work. Try again after the debounce.
@@ -273,13 +406,21 @@ export const initCodeLivePreview = ({
       debouncedPush();
       return;
     }
-    if (snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers)) return;
+    if (!sourceRefreshPending &&
+        snapshot.sessionKey === queuedSessionKey && sameBuffers(snapshot.buffers, queuedBuffers)) {
+      // With no queued or in-flight request, queuedBuffers is the last source
+      // the bridge accepted. A new capture of those same bytes is already live.
+      if (!pushing && !pendingPush) clearAcceptedExactInputs(snapshot, true);
+      return;
+    }
     queuedSessionKey = snapshot.sessionKey;
     queuedBuffers = new Map(snapshot.buffers);
+    sourceRefreshPending = false;
     pendingPush = {
       ...snapshot,
       pushVersion: ++latestPushVersion,
       lifecycleVersion,
+      releaseBuildView: changedSinceBuild ? buildViewVersion : null,
     };
     void drainPushes();
   };
@@ -287,6 +428,10 @@ export const initCodeLivePreview = ({
   // in 20-60ms, so the debounce dominates end-to-end latency — 300ms (the
   // Pro live preview's value) made a ~50ms pipeline feel like half a second.
   const debouncedPush = createDebouncedTask(pushCurrent, 80);
+  // The first keystroke after a pause (a jump to another place, say) goes
+  // out within a frame: 16ms still takes in the companion edit the editor
+  // makes in the same task (the \end{…} after a \begin{…}, a closing \]).
+  const firstPush = createDebouncedTask(pushCurrent, 16);
 
   const bindActiveEditor = () => {
     if (!active) return;
@@ -301,9 +446,26 @@ export const initCodeLivePreview = ({
     boundEditor = nextEditor;
     boundPath = nextPath;
     if (boundEditor?.onDidChangeModelContent) {
-      disposable = boundEditor.onDidChangeModelContent(() => {
-        latestInputAtEpochMs = Date.now();
-        debouncedPush();
+      const eventEditor = boundEditor;
+      const eventPath = boundPath;
+      const eventModel = eventEditor.getModel?.() ?? null;
+      disposable = eventEditor.onDidChangeModelContent(() => {
+        sourceEditVersion += 1;
+        const editedAtEpochMs = Date.now();
+        const sincePreviousEdit = editedAtEpochMs - lastContentChangeAtEpochMs;
+        lastContentChangeAtEpochMs = editedAtEpochMs;
+        latestInputAtEpochMs = editedAtEpochMs;
+        const currentModel = eventEditor.getModel?.() ?? null;
+        const modelPath = editorModelPath(eventEditor);
+        // The listener belongs to the editor, not to the model. A tab/search
+        // navigation can replace its model before the 200ms binding poll.
+        // Prefer the model URI; only use the bound path when the original
+        // URI-less model is still installed.
+        const exactPath = modelPath ?? (currentModel === eventModel ? eventPath : null);
+        captureExactInput(exactPath, eventEditor, editedAtEpochMs);
+        // a burst is still coalesced by the 80ms debounce
+        if (sincePreviousEdit > 400 && !pushing && !pendingPush) firstPush();
+        else debouncedPush();
       });
     }
     if (boundEditor?.onDidChangeCursorPosition) {
@@ -337,9 +499,12 @@ export const initCodeLivePreview = ({
   };
 
   const suspend = () => {
+    builtSnapshot = null;
+    buildStartEditVersion = null;
     lifecycleVersion += 1;
     latestPushVersion += 1;
     debouncedPush.cancel();
+    firstPush.cancel();
     debouncedFocus.cancel();
     disposable?.dispose();
     cursorDisposable?.dispose();
@@ -349,10 +514,14 @@ export const initCodeLivePreview = ({
     boundPath = null;
     queuedSessionKey = null;
     queuedBuffers.clear();
+    pendingExactInputs.clear();
+    sourceRefreshPending = false;
     pendingPush = null;
     engineStarted = false;
     engineUrl = null;
     liveSessionKey = null;
+    buildOwnsView = false;
+    liveExpectedSrcRev = null;
     liveGeneration += 1;
     distributeLive(null);
   };
@@ -381,13 +550,15 @@ export const initCodeLivePreview = ({
       // match the last successful enqueue.
       const snapshot = currentSnapshot();
       if (snapshot) retireObsoleteSession(snapshot.sessionKey);
-      if (snapshot && (snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers))) debouncedPush();
+      if (snapshot && (sourceRefreshPending || snapshot.sessionKey !== queuedSessionKey || !sameBuffers(snapshot.buffers, queuedBuffers))) debouncedPush();
       if (engineUrl) distributeLive(engineUrl);
     } else distributeLive(null);
   };
 
   const refreshSource = () => {
     if (!active) return;
+    sourceEditVersion += 1;
+    sourceRefreshPending = true;
     latestInputAtEpochMs = Date.now();
     debouncedPush();
   };
@@ -395,6 +566,60 @@ export const initCodeLivePreview = ({
   editorSettings.subscribe((change) => {
     if (change.kind !== "flag" || change.id !== "preview.realtime") return;
     refresh();
+  });
+
+  window.addEventListener("tex64:build-state", (event) => {
+    if (!active || !liveTarget) return;
+    const detail = (event as CustomEvent<{
+      state: string; pdfPath?: string; targetFile?: string; workspaceRoot?: string;
+      previousPdf?: boolean; sourceChanged?: boolean;
+    }>).detail;
+    const normalize = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+    const root = liveTarget.workspaceRoot;
+    if (detail.workspaceRoot && normalize(detail.workspaceRoot) !== normalize(root ?? "")) return;
+    const absolute = (value: string) => /^(?:\/|[A-Za-z]:\/)/.test(value)
+      ? normalize(value) : `${normalize(root ?? "")}/${normalize(value)}`;
+    const pdfPath = detail.pdfPath ?? detail.targetFile?.replace(/\.tex$/i, ".pdf");
+    if (!pdfPath || absolute(pdfPath) !== absolute(liveTarget.pdfPath)) return;
+    if (detail.state === "building") {
+      buildStartEditVersion ??= sourceEditVersion;
+      const targetPdf = absolute(pdfPath);
+      const targetIsVisible = getEditorGroups().some((group) =>
+        group.viewer.getViewerMode() === "pdf" &&
+        typeof group.currentFilePath === "string" &&
+        absolute(group.currentFilePath) === targetPdf
+      );
+      if (detail.previousPdf === true && !targetIsVisible && !buildOwnsView) {
+        const snapshot = currentSnapshot();
+        builtSnapshot = snapshot
+          ? { sessionKey: snapshot.sessionKey, editVersion: sourceEditVersion }
+          : null;
+        buildOwnsView = Boolean(builtSnapshot);
+        if (buildOwnsView) {
+          buildViewVersion += 1;
+          liveExpectedSrcRev = null;
+          if (engineUrl) distributeLive(engineUrl);
+        }
+      }
+      return;
+    }
+    const sourceChanged = buildStartEditVersion !== null && buildStartEditVersion !== sourceEditVersion ||
+      getDirtyFileSnapshots().some((snapshot) => snapshot.isDirty && PROJECT_SOURCE_RE.test(snapshot.path));
+    buildStartEditVersion = null;
+    if (detail.state !== "success") return;
+    detail.sourceChanged = sourceChanged;
+    // A completed Build owns the paper only while this exact source remains
+    // current. The engine keeps its accepted source, document generation and
+    // warm checkpoints, so the next edit stays on /edit. Ownership travels
+    // with the Live state: a PDF tab this Build has just opened applies it
+    // once its viewer is ready, and late responses redistribute it unchanged.
+    const built = sourceChanged ? null : currentSnapshot();
+    builtSnapshot = built ? { sessionKey: built.sessionKey, editVersion: sourceEditVersion } : null;
+    buildOwnsView = Boolean(builtSnapshot);
+    if (buildOwnsView) buildViewVersion += 1;
+    liveExpectedSrcRev = null;
+    if (engineUrl) distributeLive(engineUrl);
+    if (!buildOwnsView) debouncedPush();
   });
 
   // History owns the writer barrier and main-process shutdown. Retire the
@@ -427,6 +652,10 @@ export const initCodeLivePreview = ({
         engineStarted = false;
         engineUrl = null;
         liveSessionKey = null;
+        // A restart is not a source change: a Build that still matches the
+        // source keeps the paper, and the recovered frame arrives held. An
+        // edit made meanwhile releases it through the accepted push as usual.
+        liveExpectedSrcRev = null;
         // Force the recovered URL through even when the OS gives the new
         // process the same port as the dead one.
         liveGeneration += 1;

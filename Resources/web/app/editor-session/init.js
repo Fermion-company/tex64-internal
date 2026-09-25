@@ -20,7 +20,7 @@ export const initEditorSession = (context, deps) => {
     const issueOps = createEditorSessionIssueOps(runtime, coreOps);
     const bufferOps = createEditorSessionBufferOps(runtime, coreOps);
     const tabStateOps = createEditorSessionTabStateOps(runtime);
-    const { applyFormattedContent, requestOpenFile, requestOpenFileInBackground, saveCurrentFile, saveDirtyFiles, scheduleAutoSave, handleOpenFileResult, handleSaveResult, clearContentConflicts, } = createEditorSessionFileOps({
+    const { applyFormattedContent, requestOpenFile, requestOpenFileInBackground, saveCurrentFile, saveDirtyFiles, scheduleAutoSave, getSaveStatus, handleOpenFileResult, handleSaveResult, clearContentConflicts, } = createEditorSessionFileOps({
         deps: runtime.deps,
         editorGroups: runtime.editorGroups,
         monacoModels: runtime.monacoModels,
@@ -443,6 +443,7 @@ export const initEditorSession = (context, deps) => {
         updateDirtyState: bufferOps.updateDirtyState,
         clearJumpHighlight: issueOps.clearJumpHighlight,
         scheduleAutoSave,
+        getSaveStatus,
         requestOpenFile,
         jumpToFileLine: navigationOps.jumpToFileLine,
         jumpToLocation: navigationOps.jumpToLocation,

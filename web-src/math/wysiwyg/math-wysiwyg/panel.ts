@@ -26,6 +26,7 @@ export const createMathWysiwygPanelOps = (state: MathWysiwygPanelState): MathWys
   let applyCandidate: (index: number) => void = () => {};
 
   const resolvePanelHost = () => {
+    if (state.deps.floating) return document.body;
     if (state.panelHost && state.panelHost.isConnected) {
       return state.panelHost;
     }
@@ -50,6 +51,17 @@ export const createMathWysiwygPanelOps = (state: MathWysiwygPanelState): MathWys
     }
     const hostRect = host.getBoundingClientRect();
     const containerRect = state.deps.container.getBoundingClientRect();
+    if (state.deps.floating) {
+      state.panel.style.position = "fixed";
+      state.panel.style.right = "auto";
+      state.panel.style.bottom = "auto";
+      state.panel.style.maxWidth = `${Math.min(620, window.innerWidth - 24)}px`;
+      state.panel.style.left = `${Math.max(12, Math.min(containerRect.left, window.innerWidth - state.panel.offsetWidth - 12))}px`;
+      const height = state.panel.offsetHeight;
+      state.panel.style.top = `${containerRect.bottom + height + 12 < window.innerHeight
+        ? containerRect.bottom + 8 : Math.max(12, containerRect.top - height - 8)}px`;
+      return;
+    }
     const margin = 8;
     const offset = 20;
     const maxWidth = Math.max(160, hostRect.width - margin * 2);
@@ -197,4 +209,3 @@ export const createMathWysiwygPanelOps = (state: MathWysiwygPanelState): MathWys
     setApplyCandidateHandler,
   };
 };
-

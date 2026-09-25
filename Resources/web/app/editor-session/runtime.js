@@ -1,3 +1,4 @@
+import { TrackedPathSet } from "../save-status.js";
 export const createEditorSessionRuntime = (context, deps) => {
     var _a, _b;
     const { editorGroups: editorGroupsRoot, editorTabs, editorTabsList, editorTabsSecondary, editorTabsListSecondary, editorHost, editorHostSecondary, editorSplitter, } = context.dom;
@@ -81,7 +82,7 @@ export const createEditorSessionRuntime = (context, deps) => {
         issueHighlightClassNames: new Set(["issue-line-warning", "issue-line-highlight"]),
         lastCursorPositions: new Map(),
         monacoModels: new Map(),
-        dirtyFiles: new Set(),
+        dirtyFiles: new TrackedPathSet(),
         emptyEditorModel: null,
     };
 };

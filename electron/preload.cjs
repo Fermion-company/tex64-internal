@@ -118,6 +118,8 @@ const tdomApi = {
   push: async (payload) => ipcRenderer.invoke("tex64:tdom:push", payload),
   focus: async (payload) => ipcRenderer.invoke("tex64:tdom:focus", payload),
   snapshot: async (payload) => ipcRenderer.invoke("tex64:tdom:snapshot", payload),
+  setWindowPreview: async (payload) => ipcRenderer.invoke("tex64:tdom:set-window-preview", payload),
+  replyWindowAnchor: async (payload) => ipcRenderer.invoke("tex64:tdom:reply-window-anchor", payload),
 };
 const aiApi = {
   complete: async (payload) => ipcRenderer.invoke("tex64:ai:complete", payload),

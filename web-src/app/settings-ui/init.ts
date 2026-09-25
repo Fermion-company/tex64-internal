@@ -48,21 +48,31 @@ export const initSettingsUi = (context: AppContext, deps: SettingsUiDeps): Setti
     maybeRequestPlatformUpdateCheck: platformUpdateOps.maybeRequestPlatformUpdateCheck,
   });
 
-  const loadStartupSettings = () => {
+  const loadStoredPreferences = () => {
     appearanceOps.loadAppearanceThemeState();
     editorPrefOps.loadEditorWordWrapState();
     editorPrefOps.loadEditorAutoSynctexBuildState();
     editorPrefOps.loadEditorReverseSynctexState();
     editorPrefOps.loadEditorPdfViewerModeState();
     feedbackOps.loadStartupFeedbackState();
+  };
+
+  const loadStartupSettings = () => {
+    loadStoredPreferences();
     envOps.checkEnvironmentStatus();
     deps.postToNative({ type: "platform:state:get" }, true);
     platformUpdateOps.maybeRequestPlatformUpdateCheck(false);
     envOps.updateRuntimeOnboardingUi();
   };
 
+  // Every workspace update (opening a project, a Build writing its outputs,
+  // creating or renaming a file) lands here. The TeX installation does not
+  // change with the workspace, so it is detected once at startup and again
+  // only from the settings page or after an install - not on each update.
   const loadWorkspaceSettings = () => {
-    loadStartupSettings();
+    loadStoredPreferences();
+    deps.postToNative({ type: "platform:state:get" }, true);
+    platformUpdateOps.maybeRequestPlatformUpdateCheck(false);
     editorPrefOps.loadEditorAlignEnvState();
     formatOps.loadEditorFormatSettings();
     buildProfilesUi.render();
