@@ -30,6 +30,7 @@ const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { NO_FILE_ACCESS } = require("./engine-dir.cjs");
 const { getPreferredTexliveBinDirs } = require("./texlive-paths.cjs");
+const { loadPersistedCanonicalBuild } = require("./build/canonical-build-candidate.cjs");
 
 // Off the tdom dev default (4633) so a manually run `npm start` in the
 // checkout and the embedded engine don't race for the same port.
@@ -484,10 +485,30 @@ class TdomEngineService {
   loadRememberedCanonicalBuild(projectRoot, mainFile) {
     const key = this.canonicalBuildKey(projectRoot, mainFile);
     if (!key) return null;
-    // The engine's system-input stability assumption is scoped to one app /
-    // engine lifetime. Disk generations remain static last-good across a
-    // restart until an engine/toolchain fingerprint is part of the contract.
     return this.pendingCanonicalBuilds.get(key) ?? null;
+  }
+
+  // A Build from an earlier app lifetime, from the project's preview cache.
+  // The engine assumes TeX-system inputs stable only within one lifetime, so
+  // the cache carries a toolchain fingerprint and a changed one keeps the
+  // paper last-good (canonical-build-candidate.cjs). Without it the first
+  // open of a large document waits for a full canonical compile
+  // (tex64-internal #83: 3 passes, about 4 minutes on 316 pages).
+  async loadPersistedCanonicalBuild(projectRoot, mainFile) {
+    if (!this.canonicalBuildKey(projectRoot, mainFile)) return null;
+    try {
+      const { candidate, reason } = await loadPersistedCanonicalBuild({
+        rootPath: projectRoot,
+        mainFileName: mainFile,
+      });
+      if (!candidate && reason && reason !== "cache-missing" && reason !== "cache-empty") {
+        console.info("[tdom] Cached Build not used as canonical:", reason);
+      }
+      return candidate?.schemaVersion === 1 ? candidate : null;
+    } catch (error) {
+      console.warn("[tdom] Cached Build could not be read:", error?.message ?? error);
+      return null;
+    }
   }
 
   async renewCanonicalBuildLease(lease) {
@@ -768,8 +789,11 @@ class TdomEngineService {
       // Real-output rescue root: splitting environments (multicols,
       // longtable, mdframed, breakable tcolorbox) are rescued in a fork of
       // a pre-dormant sibling of checkpoint 0 instead of a cold lualatex
-      // (5 s → ~1 s on the 316-page book; the root idles at ~10 MB). The
-      // engine keeps it opt-in; the app turns it on.
+      // (5 s → ~1 s on the 316-page book; the root idles at ~10 MB). With
+      // it the boot walk also measures a document's first-ever rescues
+      // inline, so the resident pages match the canonical page count from
+      // the start instead of after ~4 minutes of placeholders (tex64-internal
+      // #61). The engine keeps it opt-in; the app turns it on.
       TDOM_ISO_REAL_FORK: process.env.TDOM_ISO_REAL_FORK ?? "1",
     };
     // Reuse TeX64's packaged pdf.js in the external TDOM process. The engine
@@ -984,7 +1008,8 @@ class TdomEngineService {
       // persisted-in-process candidate. Rejection still performs a normal
       // open and never claims the cached paper current.
       const remembered = requiresOpenNow && candidateKey
-        ? this.loadRememberedCanonicalBuild(snapshot.projectRoot, mainFile)
+        ? this.loadRememberedCanonicalBuild(snapshot.projectRoot, mainFile) ??
+          await this.loadPersistedCanonicalBuild(snapshot.projectRoot, mainFile)
         : null;
       if (remembered && (!this.activeBuildLease || this.activeBuildLease.released)) {
         let importLease = null;
@@ -994,6 +1019,9 @@ class TdomEngineService {
             mainFile,
           });
           const imported = await importLease.adopt(remembered, snapshot);
+          if (imported?.adopted !== true) {
+            console.info("[tdom] Build import not adopted:", imported?.reason ?? "unknown");
+          }
           if (imported?.opened) {
             return { ok: true, url: this.url,
               ...(Number.isInteger(imported?.srcRev) ? { srcRev: imported.srcRev } : {}) };

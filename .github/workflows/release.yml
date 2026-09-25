@@ -41,7 +41,7 @@ concurrency:
 
 env:
   TDOM_ENGINE_REPOSITORY: https://github.com/Fermion-company/tdom-engine.git
-  TDOM_ENGINE_COMMIT: 69b30de6951a36bdd138213095367c8be2550088
+  TDOM_ENGINE_COMMIT: d8dc060d120241323ffeb1e563edccb72c7b54cc
 
 jobs:
   build:

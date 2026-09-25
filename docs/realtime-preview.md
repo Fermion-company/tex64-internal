@@ -13,7 +13,7 @@ Code の設定トグルで有効化する、書きながら組版されるプレ
 | main | `electron/services/tdom-engine.cjs` | エンジン解決・spawn（`ELECTRON_RUN_AS_NODE` で `server.js`）・`/open`・`/edit` proxy・`/canonical.pdf` snapshot |
 | main | `electron/handlers/tdom-engine.cjs` | IPC `tex64:tdom:{start,status,stop,push,focus,snapshot}` |
 | preload | `electron/preload.cjs` | `window.tex64Tdom` |
-| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce・IME 中は送らない）・既存 PDF ビューアと通常の PDF 別ウィンドウへのライブ URL 配信 |
+| renderer | `web-src/app/code-live-preview.ts` | 設定購読・エディタ束縛（80ms debounce。400ms 以上止まった後の最初の打鍵は 16ms で送る。IME 中は送らない）・既存 PDF ビューアと通常の PDF 別ウィンドウへのライブ URL 配信 |
 | renderer | `Resources/web/pdf-viewer.js` | 通常 PDF の last-good を保持しつつページ面を TDOM iframe に切替、ツールバー操作と直接編集イベントを中継。エンジンの `action: 'place'`（選択または右クリックの場所・文・ソース行）を受けて「Axiom に聞く」を浮かせ、`ask-axiom`（`source` 付き）をホストへ送る |
 | renderer | `web-src/app/viewer.ts` | PDF iframe と Code 側のソース移動・直接編集を接続 |
 | renderer | `web-src/app/editor-session/init.ts`・`live-edit-history.ts` | 表示時の原文範囲を Monaco の実変更履歴で追従し、直接編集を単一 Undo セッションとして適用 |
