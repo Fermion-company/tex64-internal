@@ -437,6 +437,7 @@ function parseMessages(value: unknown): ChatMessage[] {
       id: `native-${index}-${text.length}`,
       role: item.role,
       text: item.role === "user" && typeof item.displayText === "string" && item.displayText.trim() ? item.displayText : shown && (shown.body || attachments) ? shown.body : text,
+      ...(item.role === "user" ? { requestText: text } : {}),
       createdAt:
         typeof item.createdAt === "string"
           ? item.createdAt

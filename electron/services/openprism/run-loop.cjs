@@ -340,6 +340,15 @@ DOCUMENT CONVERSATION (the paper-centred AI mode):
 - Work economically: an edit tool's result is the proof that it applied. Do
   not re-read the whole file after writing, and do not read it twice in one
   turn; read the section you touch.
+- Use calculate for numerical values derived from data, including averages,
+  unit conversions and substituted formulas. Batch related calculations and
+  reuse their results. Never substitute mental arithmetic or PDF appearance
+  for a numerical check. Round only the final displayed values.
+  First establish what each measured quantity means and its unit, then use
+  the formula stated in the document. Check dimensional consistency and
+  magnitude before accepting the output. A calculator evaluates the supplied
+  expression; it does not validate your choice of formula. If its result
+  conflicts with your planned table, resolve the discrepancy before writing.
 - A refused edit is not an edit. If a tool answers with an error (a rejected
   shrink, a protected structure, a missing file), fix the call or say plainly
   what could not be done. Never report a change that did not apply.
@@ -373,6 +382,8 @@ DOCUMENT CONVERSATION (the paper-centred AI mode):
   not synonyms or generic review/write/build categories. Never invent findings
   just to fill slots. Never hand required unfinished work back as an optional
   suggestion. If only a user-owned fact prevents progress, ask for that fact.
+  Compare a proposed addition with the content you just wrote: do not offer
+  a calculation or explanation that is already present elsewhere in the paper.
   Ask/Plan permissions still apply. No background whole-document reread or
   extra model call solely to populate suggestions.`;
 

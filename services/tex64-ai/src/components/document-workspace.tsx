@@ -1030,6 +1030,7 @@ export function DocumentWorkspace() {
             id: `local:${shownAt}`,
             role: "user",
             text: options?.displayText ?? prompt,
+            requestText: prompt,
             createdAt: shownAt,
             ...(options?.attachments && options.attachments.length > 0
               ? { attachments: options.attachments }
@@ -1515,6 +1516,15 @@ export function DocumentWorkspace() {
         controller.signal,
       );
       if (nativeConversationIdRef.current !== nativeConversationId) return;
+      try {
+        const restored = await loadNativeConversation(nativeConversationId);
+        if (nativeThreadSessionRef.current !== sessionKey) return;
+        setNativeMessages(restored.messages);
+        setNativeUndoCount(restored.undoCount);
+      } catch {
+        if (nativeThreadSessionRef.current !== sessionKey) return;
+        setTurnError("会話履歴を読み込めませんでした。");
+      }
       if (!result.ok) {
         if (!result.aborted || result.error) {
           setTurnError(result.error ?? "変更を戻せませんでした。");

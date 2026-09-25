@@ -198,7 +198,10 @@ const findNode = (structure, query) => {
   if (!query || typeof query !== "object") return null;
   if (Number.isFinite(query.sectionId)) {
     const id = Math.round(query.sectionId);
-    return structure.nodes.find((n) => n.id === id) || null;
+    const node = structure.nodes.find((n) => n.id === id);
+    if (!node || (query.title && normalizeTitleKey(query.title) !== normalizeTitleKey(node.title)) ||
+        (query.type && String(query.type).toLowerCase() !== node.type)) return null;
+    return node;
   }
   const desiredType = typeof query.type === "string" ? query.type.toLowerCase() : null;
   const desiredTitleKey = normalizeTitleKey(query.title || "");
@@ -293,6 +296,15 @@ const handleReplaceSection = async (service, args, policy, conversationId) => {
   }
   const includeHeader = args?.includeHeader === true;
   const replacementText = typeof args?.content === "string" ? args.content : "";
+  if (!includeHeader && HEADING_COMMANDS.some((heading) => heading.name === node.type)) {
+    const peerHeader = replacementText.split(/\r?\n/).some((line) => {
+      const match = line.match(HEADING_PATTERN);
+      return match && HEADING_COMMANDS.find((heading) => heading.name === match[1]).level <= node.level;
+    });
+    if (peerHeader) return {
+      error: `replace_section preserves the ${node.type} header. Supply only its body; the replacement contains an equal or higher-level heading. Use includeHeader=true only when intentionally replacing the header too.`,
+    };
+  }
   const startLine = includeHeader ? node.headerLine : node.startLine;
   const endLine = node.endLine;
   if (startLine > endLine && !includeHeader) {

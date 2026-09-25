@@ -3,6 +3,7 @@
  * label is the only thing the reader sees; tool names never surface.
  */
 export const TOOL_ACTIVITY_LABELS: Record<string, string> = {
+  calculate: "数値を計算しています",
   undo_changes: "変更を戻しています",
   read_document: "文書を読んでいます",
   search_sources: "資料を探しています",
@@ -147,6 +148,8 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** Original user request retained when the transcript shows a short title. */
+  requestText?: string;
   createdAt: string;
   /** Files sent with this message. */
   attachments?: ChatAttachment[];

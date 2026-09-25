@@ -31,6 +31,7 @@ const {
 const { executeToolCall } = require("./agent-tool-executor.cjs");
 const { runAgentConversation, completeSingleChat } = require("./openprism/run-loop.cjs");
 const { runCodexConversation } = require("./codex/axiom-adapter.cjs");
+const { recordUndo } = require("./openprism/task-state.cjs");
 
 const abortError = () => {
   const error = new Error("Axiom request aborted.");
@@ -737,6 +738,15 @@ class AgentService {
     }
     try {
       const result = await operation(normalizedConversationId);
+      if (result?.ok === true || result?.requiresBuild === true) {
+        recordUndo(this, normalizedConversationId, result);
+        const english = this.contextByConversation.get(normalizedConversationId)?.uiLocale === "en";
+        const content = result.ok === true
+          ? english ? "The last changes were undone." : "直前の変更を戻しました。"
+          : english ? "Undo stopped before all changes could be restored." : "変更の取り消しが途中で止まりました。";
+        this.buildConversation(normalizedConversationId).push({ role: "assistant", content });
+        this.markSessionDirty(normalizedConversationId);
+      }
       const settled = await this.buildAfterUndo(result, normalizedConversationId);
       if (
         run &&
