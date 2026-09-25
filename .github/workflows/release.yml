@@ -344,8 +344,16 @@ jobs:
             --clientId $env:PARTNER_CENTER_CLIENT_ID `
             --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
           if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store CLI authentication failed' }
-          msstore apps get $env:TEX64_WINDOWS_STORE_ID
+          $appJson = msstore apps get $env:TEX64_WINDOWS_STORE_ID | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'The existing TeX64 Store product is not accessible' }
+          $app = $appJson | ConvertFrom-Json
+          if ($app.Id -ne $env:TEX64_WINDOWS_STORE_ID -or -not $app.LastPublishedApplicationSubmission) {
+            throw 'The Store product does not match the published TeX64 app'
+          }
+          if ($app.PendingApplicationSubmission) {
+            throw 'The Store product has an existing draft; review it before the automated release'
+          }
+          Write-Output "Existing published Store product verified: $($app.Id)"
 
       - name: Install dependencies
         run: npm ci
