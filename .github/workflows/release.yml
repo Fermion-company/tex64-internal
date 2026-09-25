@@ -26,6 +26,11 @@ on:
         required: false
         default: false
         type: boolean
+      verify_store_credentials:
+        description: Check the existing Store product with unattended credentials before creating a release tag
+        required: false
+        default: false
+        type: boolean
       publish_unsigned_windows_preview:
         description: Publicly publish the unsigned Windows preview (SmartScreen may warn or block; verify checksums)
         required: false
@@ -225,6 +230,7 @@ jobs:
           rm -f "${RUNNER_TEMP}/tex64-macos-signing.p12" || true
 
       - name: Upload artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: tex64-macos-${{ matrix.arch }}-${{ github.run_id }}
@@ -313,6 +319,33 @@ jobs:
           if ($checkedOut -ne $env:GITHUB_SHA) {
             throw "Checked out $checkedOut instead of $env:GITHUB_SHA"
           }
+
+      - name: Set up Microsoft Store CLI
+        if: inputs.verify_store_credentials == true || startsWith(github.ref, 'refs/tags/v')
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+
+      - name: Verify unattended Microsoft Store access
+        if: inputs.verify_store_credentials == true || startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          foreach ($name in @('PARTNER_CENTER_TENANT_ID', 'PARTNER_CENTER_SELLER_ID', 'PARTNER_CENTER_CLIENT_ID', 'PARTNER_CENTER_CLIENT_SECRET')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing GitHub Actions secret: $name"
+            }
+          }
+          msstore reconfigure `
+            --tenantId $env:PARTNER_CENTER_TENANT_ID `
+            --sellerId $env:PARTNER_CENTER_SELLER_ID `
+            --clientId $env:PARTNER_CENTER_CLIENT_ID `
+            --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store CLI authentication failed' }
+          msstore apps get $env:TEX64_WINDOWS_STORE_ID
+          if ($LASTEXITCODE -ne 0) { throw 'The existing TeX64 Store product is not accessible' }
 
       - name: Install dependencies
         run: npm ci
@@ -419,6 +452,7 @@ jobs:
             --require-platform win32
 
       - name: Upload Microsoft Store screenshots without marketplace downloads
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: ./.github/actions/upload-actions-artifact
         with:
           name: tex64-windows-store-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
@@ -653,6 +687,7 @@ jobs:
           "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       - name: Upload Microsoft Store package without marketplace downloads
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: ./.github/actions/upload-actions-artifact
         with:
           name: tex64-windows-store-x64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -661,6 +696,7 @@ jobs:
           compression-level: 0
 
       - name: Upload unsigned Windows preview without marketplace downloads
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.publish_unsigned_windows_preview == true
         uses: ./.github/actions/upload-actions-artifact
         with:
           name: tex64-windows-unsigned-preview-x64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -668,9 +704,25 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: Submit the validated AppX to the existing Microsoft Store product
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem dist -Filter 'TeX64-*-win-x64.appx' -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one validated Store AppX, found $($packages.Count)"
+          }
+          $submissionDirectory = Join-Path $env:RUNNER_TEMP 'tex64-store-submission'
+          New-Item -ItemType Directory -Path $submissionDirectory -Force | Out-Null
+          Copy-Item -LiteralPath $packages[0].FullName -Destination $submissionDirectory
+          msstore publish . --inputDirectory $submissionDirectory --appId $env:TEX64_WINDOWS_STORE_ID
+          if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store submission failed' }
+          msstore submission status $env:TEX64_WINDOWS_STORE_ID
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read Microsoft Store submission status' }
+
   publish:
     name: Publish Release
-    if: ${{ inputs.windows_only != true }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && inputs.windows_only != true }}
     runs-on: ubuntu-latest
     needs:
       - build
