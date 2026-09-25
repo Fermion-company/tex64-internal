@@ -38,6 +38,7 @@ const GUEST_REQUESTS = new Set([
     "agent:model:set",
     "agent:state:get",
     "agent:run",
+    "agent:steer",
     "agent:abort",
     "agent:undoLastRunApply",
     "agent:clear",
@@ -65,6 +66,8 @@ const GUEST_EVENTS = new Set([
     "agent:status",
     "agent:message",
     "agent:messageDelta",
+    "agent:messageReset",
+    "agent:steerResult",
     "agent:tool",
     "agent:thought",
     "agent:error",
@@ -87,6 +90,7 @@ const REQUEST_SCOPED_GUEST_EVENTS = new Set([
     "synctex:forwardBatchResult",
     "agent:state",
     "agent:undoResult",
+    "agent:steerResult",
 ]);
 const WORKSPACE_SCOPED_GUEST_EVENTS = new Set([
     "file:excerptResult",
@@ -150,6 +154,7 @@ const hasCurrentWorkspaceScope = (body, expected) => {
 };
 const isScopedAgentRequest = (type) => type === "agent:state:get" ||
     type === "agent:run" ||
+    type === "agent:steer" ||
     type === "agent:abort" ||
     type === "agent:undoLastRunApply" ||
     type === "agent:clear";
@@ -179,7 +184,7 @@ export const isAllowedAiGuestRequest = (type, payload, expectedWorkspace) => {
         return true;
     if (!isAiModeConversation(body.conversationId, expectedWorkspace))
         return false;
-    if (type !== "agent:run")
+    if (type !== "agent:run" && type !== "agent:steer")
         return true;
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
     const documentMainFile = typeof body.documentMainFile === "string"

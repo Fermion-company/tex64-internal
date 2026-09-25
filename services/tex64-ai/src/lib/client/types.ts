@@ -3,6 +3,7 @@
  * label is the only thing the reader sees; tool names never surface.
  */
 export const TOOL_ACTIVITY_LABELS: Record<string, string> = {
+  calculate: "数値を計算しています",
   undo_changes: "変更を戻しています",
   read_document: "文書を読んでいます",
   search_sources: "資料を探しています",
@@ -11,6 +12,9 @@ export const TOOL_ACTIVITY_LABELS: Record<string, string> = {
   format_document: "体裁を整えています",
   check_document: "文書を確認しています",
   compile_document: "紙面を組み立てています",
+  inspect_pdf: "紙面を確認しています",
+  update_task: "作業の進み具合を記録しています",
+  read_conversation: "これまでの依頼を確認しています",
   // The desktop agent reports its tools by name; the words are ours.
   read_file: "文書を読んでいます",
   list_files: "構成を確かめています",
@@ -110,10 +114,15 @@ export interface AgentProposal {
   id: string;
   title: string;
   request: string;
+  /** Observed opportunity and the concrete work offered before the click. */
+  reason?: string;
+  change?: string;
+  verification?: string;
+  previewLatex?: string;
   scope?: string;
   /** What the user must answer before this step can be written. */
   asks?: AgentQuestion;
-  /** "writing" starts with the brief when taken; "mechanical" is done at once. */
+  /** Both kinds execute once the user selects them; ask only for missing facts. */
   kind?: "mechanical" | "writing";
   /** 1-based line in the main file where the step applies; marks the page. */
   line?: number;
@@ -139,6 +148,8 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** Original user request retained when the transcript shows a short title. */
+  requestText?: string;
   createdAt: string;
   /** Files sent with this message. */
   attachments?: ChatAttachment[];
@@ -156,6 +167,7 @@ export interface ChatMessage {
  * tell the client the document and its page moved.
  */
 export type TurnFrame =
+  | { type: "reset" }
   | { type: "text"; delta: string }
   | { type: "tool"; name: string; state: "start" | "ok" | "error" }
   | { type: "revision"; revision: number }

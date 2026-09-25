@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { escapeParagraphText, segmentDisplayMath, segmentParagraph, type ParagraphSegment } from "@/domain/source/paragraph-editing";
 import { tableCells, replaceTableCells, type TableCell } from "@/domain/source/table-editing";
 import { getNativeHost } from "@/lib/client/native-host";
@@ -9,21 +10,67 @@ import { ensurePaperMath } from "@/lib/client/mathlive-loader";
 type MathfieldElement = HTMLElement & { value: string; getValue?: (format?: string) => string };
 const ALIGNED_PREFIX = String.raw`\begin{aligned}`;
 const ALIGNED_SUFFIX = String.raw`\end{aligned}`;
+const MATHLIVE_PLACEHOLDER_RE = /\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\\.)*\}/g;
+
+/** `&` and `\\` only need an aligned adapter when they occur in the formula
+ * itself. Matrix, cases, and other nested environments own their separators. */
+const hasTopLevelAlignmentSeparator = (latex: string): boolean => {
+  let groupDepth = 0;
+  let environmentDepth = 0;
+  for (let index = 0; index < latex.length; index += 1) {
+    const character = latex[index];
+    if (character === "\\") {
+      const rest = latex.slice(index);
+      const environment = /^\\(begin|end)\s*\{[^}]*\}/u.exec(rest);
+      if (environment) {
+        environmentDepth += environment[1] === "begin" ? 1 : -1;
+        index += environment[0].length - 1;
+        continue;
+      }
+      if (latex[index + 1] === "\\") {
+        if (groupDepth === 0 && environmentDepth === 0) return true;
+        index += 1;
+        continue;
+      }
+      const command = /^\\[A-Za-z]+/u.exec(rest);
+      if (command) {
+        index += command[0].length - 1;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+    if (character === "{") {
+      groupDepth += 1;
+      continue;
+    }
+    if (character === "}") {
+      groupDepth = Math.max(0, groupDepth - 1);
+      continue;
+    }
+    if (character === "&" && groupDepth === 0 && environmentDepth === 0) return true;
+  }
+  return false;
+};
+
 const mathfieldValue = (latex: string) => {
-  // Do not wrap an existing matrix/aligned environment a second time.
-  const aligned = /&|\\\\/u.test(latex) && !/^\s*\\begin\{/u.test(latex);
+  const aligned = hasTopLevelAlignmentSeparator(latex);
   return { value: aligned ? `${ALIGNED_PREFIX}${latex}${ALIGNED_SUFFIX}` : latex, aligned };
 };
 const sourceMathValue = (value: string, aligned: boolean): string => {
   const trimmed = value.trim();
-  return aligned && trimmed.startsWith(ALIGNED_PREFIX) && trimmed.endsWith(ALIGNED_SUFFIX)
+  const source = aligned && trimmed.startsWith(ALIGNED_PREFIX) && trimmed.endsWith(ALIGNED_SUFFIX)
     ? trimmed.slice(ALIGNED_PREFIX.length, -ALIGNED_SUFFIX.length) : value;
+  // A placeholder is only an unfinished MathLive cell. It is not valid TeX
+  // and must not leak into the workspace when a user saves a new empty cell.
+  return source.replace(MATHLIVE_PLACEHOLDER_RE, "");
 };
 
 /** Mounted once per source range. Drafts are owned by useParagraphEditor. */
-export function ParagraphEditCard({ originalText, initialDraft, kind, saving, error, currentText, onAcceptCurrent, onSave, onCancel, onDraftChange, onDiscard, onReload }: {
+export function ParagraphEditCard({ originalText, initialDraft, focusText, kind, saving, error, currentText, onAcceptCurrent, onSave, onCancel, onDraftChange, onReload }: {
   originalText: string;
   initialDraft: string | null;
+  focusText: string;
   kind: "text" | "math";
   saving: boolean;
   error: string | null;
@@ -32,7 +79,6 @@ export function ParagraphEditCard({ originalText, initialDraft, kind, saving, er
   onSave: (text: string) => Promise<unknown>;
   onCancel: () => void;
   onDraftChange: (text: string) => void;
-  onDiscard: () => void;
   onReload: () => void;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -62,6 +108,7 @@ export function ParagraphEditCard({ originalText, initialDraft, kind, saving, er
         if (cancelled) return;
         host.replaceChildren();
         const initializeFields: (() => void)[] = [];
+        const tableEditors: { cell: TableCell; editor: HTMLElement; original: string; touched: boolean }[] = [];
         const makeEditor = (parts: ParagraphSegment[], label: string) => {
           const editor = document.createElement("div");
           editor.className = "paragraph-edit-area";
@@ -118,7 +165,6 @@ export function ParagraphEditCard({ originalText, initialDraft, kind, saving, er
           table.className = "paragraph-table";
           table.setAttribute("aria-label", "表を編集");
           const body = document.createElement("tbody");
-          const editors: { cell: TableCell; editor: HTMLElement; original: string; touched: boolean }[] = [];
           rows.forEach((row, rowIndex) => {
             const tr = document.createElement("tr");
             row.forEach((cell, columnIndex) => {
@@ -127,13 +173,13 @@ export function ParagraphEditCard({ originalText, initialDraft, kind, saving, er
               const editor = makeEditor(segmentParagraph(original), `${rowIndex + 1}行 ${columnIndex + 1}列`);
               const entry = { cell, editor, original, touched: false };
               editor.addEventListener("input", () => { entry.touched = true; });
-              editors.push(entry);
+              tableEditors.push(entry);
               td.append(editor); tr.append(td);
             });
             body.append(tr);
           });
           table.append(body); host.append(table);
-          serializeRef.current = () => replaceTableCells(source, editors.map(({ cell, editor, original, touched }) => ({ cell, text: touched ? serializeEditor(editor) : original })));
+          serializeRef.current = () => replaceTableCells(source, tableEditors.map(({ cell, editor, original, touched }) => ({ cell, text: touched ? serializeEditor(editor) : original })));
         } else {
           const editor = makeEditor(segments, kind === "math" ? "数式を編集" : "文章を編集");
           host.append(editor);
@@ -143,13 +189,28 @@ export function ParagraphEditCard({ originalText, initialDraft, kind, saving, er
         setLoadState("ready");
         requestAnimationFrame(() => {
           if (cancelled) return;
-          host.querySelector<HTMLElement>(kind === "math" ? "math-field" : '[contenteditable="true"]')?.focus();
+          if (!rows) {
+            host.querySelector<HTMLElement>(kind === "math" ? "math-field" : '[contenteditable="true"]')?.focus();
+            return;
+          }
+          const normalizedFocus = focusText.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+          if (normalizedFocus.length < 3) return;
+          const target = tableEditors.find(({ original }) => {
+            const normalizedCell = original
+              .normalize("NFKC")
+              .toLowerCase()
+              .replace(/\\(?:operatorname|mathrm|mathbf|mathit|mathsf|mathtt|text)\s*\{([^{}]*)\}/gu, "$1")
+              .replace(/\\[A-Za-z]+\b/gu, "")
+              .replace(/[^\p{L}\p{N}]+/gu, "");
+            return normalizedCell.includes(normalizedFocus) || normalizedFocus.includes(normalizedCell);
+          });
+          target?.editor.querySelector<HTMLElement>("math-field, [contenteditable=\"true\"]")?.focus();
         });
       } catch { if (!cancelled) setLoadState("failed"); }
     };
     void build();
     return () => { cancelled = true; cleanups.forEach((cleanup) => cleanup()); };
-  }, [initialSource, kind, retry]);
+  }, [focusText, initialSource, kind, retry]);
 
   useEffect(() => getNativeHost()?.onMessage((message) => {
     if (message.type === "paper:command" && message.payload?.command === "save" && !saving && dirty && loadState === "ready") {
@@ -173,10 +234,11 @@ export function ParagraphEditCard({ originalText, initialDraft, kind, saving, er
         }
       }}>
       <div className="element-card-head">
-        <button type="button" className="element-card-close" onClick={onCancel}>閉じる</button>
+        <button type="button" className="element-card-close element-card-close-icon" aria-label="閉じる" onClick={onCancel}>
+          <X aria-hidden="true" size={15} strokeWidth={1.8} />
+        </button>
         <strong>{title}{dirty ? <span className="draft-status">下書き</span> : null}</strong>
         <div className="element-card-head-actions">
-          {dirty ? <button type="button" className="element-card-discard" disabled={saving} onClick={onDiscard}>破棄</button> : null}
           <button type="button" className="element-card-confirm" disabled={saving || loadState !== "ready" || !dirty} onClick={save}>{saving ? "保存中…" : "保存"}</button>
         </div>
       </div>

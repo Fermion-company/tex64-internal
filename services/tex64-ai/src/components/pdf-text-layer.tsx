@@ -69,9 +69,14 @@ export function PdfTextLayer({ page, scale, editing, hits, activeHit, onEdit, on
 
   useEffect(() => {
     layerRef.current?.textDivs.forEach((span) => {
-      span.tabIndex = editing && Boolean(span.textContent?.trim()) ? 0 : -1;
-      if (editing && span.textContent?.trim()) { span.setAttribute("role", "button"); span.setAttribute("aria-label", `${span.textContent}を編集`); }
-      else { span.removeAttribute("role"); span.removeAttribute("aria-label"); }
+      // A PDF text item can be a single glyph. Turning every item into a
+      // button made one equation appear as dozens of unrelated controls and
+      // made keyboard navigation unusable. The text layer remains the pointer
+      // target; selection is resolved into one source-owned block by the
+      // parent preview.
+      span.removeAttribute("tabindex");
+      span.removeAttribute("role");
+      span.removeAttribute("aria-label");
       const start = Number(span.dataset.textStart);
       const end = Number(span.dataset.textEnd);
       const matches = hits.filter((hit) => hit.end > start && hit.start < end);

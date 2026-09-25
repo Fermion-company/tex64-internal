@@ -27,7 +27,7 @@ export const initBlockInputUi = (context, deps) => {
     const settingsModalOps = createBlockSettingsModalOps(runtime);
     runtime.state.mathWysiwygApi = initMathWysiwyg({
         container: context.dom.blockMathInputContainer instanceof HTMLElement ? context.dom.blockMathInputContainer : null,
-        insertKey: (key) => insertKeyOps.insertMathKey(key),
+        insertKey: (key, options) => insertKeyOps.insertMathKey(key, options),
         autoSuggest: runtime.state.mathWysiwygSettings.autoSuggest,
         getMruStorageKey: () => {
             var _a;

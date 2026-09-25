@@ -49,7 +49,8 @@ export async function GET(
       const contents = await readFile(path.join(directory, relative));
       return new NextResponse(contents, {
         headers: {
-          "Cache-Control": "public, max-age=31536000, immutable",
+          // The bundled fork changes at this same URL on an app update.
+          "Cache-Control": "no-cache",
           "Content-Type": CONTENT_TYPES[path.extname(relative)] ?? "application/octet-stream",
         },
       });

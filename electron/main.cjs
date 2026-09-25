@@ -2422,6 +2422,12 @@ const handleRendererMessage = (event, message) => {
     agentHandlers.handleAgentStateGet(message.requestId, message.conversationId);
     return;
   }
+  if (type === "agent:steer") {
+    const turn = validateAiModeTurn(message);
+    const accepted = turn.ok && require("./services/openprism/steering.cjs").acceptSteering(agentService, message.conversationId, message);
+    sendToRenderer("agent:steerResult", { requestId: message.requestId, conversationId: message.conversationId, accepted });
+    return;
+  }
   if (type === "agent:run") {
     const turn = validateAiModeTurn(message);
     if (!turn.ok) {

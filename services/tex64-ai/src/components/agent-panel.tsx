@@ -1,8 +1,9 @@
 "use client";
 
 import { ArrowUp, File as FileIcon, FileSpreadsheet, FileText, Paperclip, Square, X } from "lucide-react";
+import katex from "katex";
 import type { ClipboardEvent, DragEvent, RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createPendingAttachment,
   formatAttachmentSize,
@@ -19,6 +20,32 @@ import {
   type DocumentDetail,
   type DocumentElement,
 } from "@/lib/client/types";
+
+import { agentErrorMessage, defaultNextSteps } from "@/lib/client/agent-next-steps";
+
+function useTextareaHeight(ref: RefObject<HTMLTextAreaElement | null>, value: string) {
+  useLayoutEffect(() => {
+    const input = ref.current;
+    if (!input) return;
+    if (CSS.supports("field-sizing", "content")) {
+      input.style.height = "auto";
+      return;
+    }
+    const resize = () => {
+      input.style.height = "0px";
+      input.style.height = `${input.scrollHeight + 2}px`;
+    };
+    resize();
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (input.clientWidth === width) return;
+      width = input.clientWidth;
+      resize();
+    });
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [ref, value]);
+}
 
 interface AgentPanelProps {
   document: DocumentDetail | null;
@@ -38,7 +65,7 @@ interface AgentPanelProps {
   onSubmit: (
     prompt: string,
     attachments?: PendingAttachment[],
-    options?: { origin?: "step"; stepKind?: "mechanical" | "writing" },
+    options?: { origin?: "step"; stepKind?: "mechanical" | "writing"; displayText?: string },
   ) => void;
   onStop: () => void;
   onClearSelection: () => void;
@@ -84,6 +111,7 @@ export function AgentPanel({
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const canSubmit = ready ?? document !== null;
+  useTextareaHeight(composerRef, prompt);
 
   const addFiles = (files: Iterable<File>) => {
     setAttachments((current) => {
@@ -157,11 +185,8 @@ export function AgentPanel({
       return;
     }
     if (!canSubmit) return;
-    // A chosen step starts with the brief: the agent asks before it writes.
-    onSubmit(proposal.request, undefined, { origin: "step", stepKind: proposal.kind === "mechanical" ? "mechanical" : "writing" });
-    setPrompt("");
-    setAttachments([]);
-    setAttachmentNotice(null);
+    // The same request has the same capabilities whether clicked or typed.
+    onSubmit(proposal.request, undefined, { origin: "step", stepKind: proposal.kind === "mechanical" ? "mechanical" : "writing", displayText: proposal.title });
   };
 
   // The next steps the agent last offered are what Enter and Tab act on.
@@ -176,6 +201,18 @@ export function AgentPanel({
     }
     break;
   }
+  const showingLocalSteps = latestProposals.length === 0 || Boolean(error);
+  if (showingLocalSteps) {
+    const failedRequest = [...messages].reverse().find((message) => message.role === "user");
+    latestProposals = defaultNextSteps(Boolean(error), failedRequest?.requestText ?? failedRequest?.text, failedRequest?.text);
+    latestProposalMessageId = null;
+  }
+  useEffect(() => {
+    // A question opened from an earlier proposal must not survive Undo or a
+    // newer response, otherwise its answer can restart a cancelled edit.
+    setAskingProposal(null);
+    setFocusedStep(null);
+  }, [latestProposalMessageId]);
   const stepIndexOf = (id: string | null) =>
     id === null ? -1 : latestProposals.findIndex((proposal) => proposal.id === id);
   const focusStep = (index: number | null) => {
@@ -219,10 +256,10 @@ export function AgentPanel({
 
   const answerQuestion = (answer: string) => {
     const trimmed = answer.trim();
-    if (!canSubmit || !trimmed) return;
+    if (!canSubmit || isWorking || !trimmed) return;
     if (activeQuestion?.proposal) {
       const chosen = activeQuestion.proposal;
-      onSubmit(`${trimmed}\n\n（「${chosen.title}」への答え。依頼: ${chosen.request}）`);
+      onSubmit(`${trimmed}\n\n（「${chosen.title}」への答え。依頼: ${chosen.request}）`, undefined, { origin: "step", stepKind: chosen.kind, displayText: `${chosen.title}\n${trimmed}` });
       setAskingProposal(null);
     } else {
       if (agentQuestion) setDismissedQuestionId(agentQuestion.id);
@@ -238,7 +275,7 @@ export function AgentPanel({
     <aside className="agent-panel" aria-label="執筆">
       <div className="agent-panel-scroll" ref={scrollRef}>
         {messages.map((message) =>
-          message.hidden ? null : message.role === "user" ? (
+          message.hidden || (activeQuestion && agentQuestion?.id === message.id) ? null : message.role === "user" ? (
             <div className="agent-user-message" key={message.id}>
               {message.text}
               {message.attachments && message.attachments.length > 0 ? (
@@ -256,7 +293,7 @@ export function AgentPanel({
             <AssistantMessage
               key={message.id}
               proposals={message.proposals}
-              proposalsEnabled={canSubmit && !isWorking}
+              proposalsEnabled={canSubmit && !isWorking && !activeQuestion && message.id === latestProposalMessageId}
               onProposal={chooseProposal}
               latest={message.id === latestProposalMessageId}
               activeProposalId={
@@ -285,6 +322,17 @@ export function AgentPanel({
           />
         ) : null}
 
+        {!activeQuestion && !isWorking && showingLocalSteps ? (
+          <ProposalList
+            proposals={latestProposals}
+            proposalsEnabled={canSubmit}
+            onProposal={chooseProposal}
+            latest
+            activeProposalId={focusedStep !== null ? latestProposals[focusedStep]?.id : activeProposalId}
+            onProposalHover={onActiveProposalChange}
+          />
+        ) : null}
+
         {streamingText ? (
           <AssistantMessage streaming>{streamingText}</AssistantMessage>
         ) : null}
@@ -307,7 +355,7 @@ export function AgentPanel({
           </div>
         ))}
 
-        {error ? <AssistantMessage error>{error}</AssistantMessage> : null}
+        {error ? <AssistantMessage error>{agentErrorMessage(error)}</AssistantMessage> : null}
       </div>
 
       <div
@@ -377,6 +425,7 @@ export function AgentPanel({
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
+              if (event.key === "Enter" && event.repeat) { event.preventDefault(); return; }
               // The next steps answer to the keyboard like the math suggestions:
               // Tab moves between them, Enter takes the highlighted one, Esc lets go.
               if (event.key === "Tab" && latestProposals.length > 0 && !prompt.trim()) {
@@ -391,8 +440,8 @@ export function AgentPanel({
               }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                if (!prompt.trim() && attachments.length === 0 && latestProposals.length > 0 && !isWorking) {
-                  const step = latestProposals[focusedStep ?? Math.max(0, stepIndexOf(activeProposalId))];
+                if (!prompt.trim() && attachments.length === 0 && latestProposals.length > 0 && !isWorking && !activeQuestion) {
+                  const step = latestProposals[focusedStep ?? stepIndexOf(activeProposalId)];
                   if (step) chooseProposal(step);
                   return;
                 }
@@ -488,8 +537,22 @@ function AssistantMessage({
       <div className="assistant-name">
         <strong>TeX64</strong>
       </div>
-      <p>{children}</p>
-      {proposals && proposals.length > 0 ? (
+      <p><MathText text={children} /></p>
+      <ProposalList {...{ proposals, proposalsEnabled, onProposal, latest, activeProposalId, onProposalHover }} />
+    </div>
+  );
+}
+
+function ProposalList({ proposals = [], proposalsEnabled = false, onProposal, latest = false, activeProposalId, onProposalHover }: {
+  proposals?: AgentProposal[];
+  proposalsEnabled?: boolean;
+  onProposal?: (proposal: AgentProposal) => void;
+  latest?: boolean;
+  activeProposalId?: string | null;
+  onProposalHover?: (id: string | null) => void;
+}) {
+  if (!proposals.length) return null;
+  return (
         <ol className={`proposal-list${latest ? " is-latest" : ""}`} aria-label="次の一手">
           {proposals.map((proposal, index) => (
             <li key={proposal.id}>
@@ -499,11 +562,17 @@ function AssistantMessage({
                 disabled={!proposalsEnabled}
                 title={proposal.asks?.question}
                 onClick={() => onProposal?.(proposal)}
+                onKeyDown={(event) => { if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault(); }}
                 onMouseEnter={() => onProposalHover?.(proposal.id)}
                 onMouseLeave={() => onProposalHover?.(null)}
               >
                 <span className="proposal-index">{index + 1}</span>
-                <span className="proposal-title">{proposal.title}</span>
+                <span className="proposal-content">
+                  <span className="proposal-title">{proposal.title}</span>
+                  {proposal.reason ? <span className="proposal-reason"><MathText text={proposal.reason} /></span> : null}
+                  {proposal.previewLatex ? <ProposalMath latex={proposal.previewLatex} /> : null}
+                  {proposal.change ? <span className="proposal-change"><MathText text={proposal.change} /></span> : null}
+                </span>
                 <span className="proposal-meta">
                   {proposal.asks ? (
                     <span className="proposal-asks" aria-label="答えを聞いてから進みます">?</span>
@@ -514,9 +583,26 @@ function AssistantMessage({
             </li>
           ))}
         </ol>
-      ) : null}
-    </div>
   );
+}
+
+function MathText({ text }: { text: string }) {
+  // Only explicit math delimiters are interpreted. Other content stays escaped
+  // React text, including incomplete delimiters during streaming.
+  return text.split(/(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|(?<!\\)\$[^$\n]+(?<!\\)\$)/g).map((part, index) => {
+    const display = part.startsWith("\\[") || part.startsWith("$$");
+    const math = index % 2 === 1;
+    return math ? <ProposalMath key={index} latex={part.slice(display || part.startsWith("\\(") ? 2 : 1, display || part.startsWith("\\(") ? -2 : -1)} display={display} /> : part;
+  });
+}
+
+function ProposalMath({ latex, display = true }: { latex: string; display?: boolean }) {
+  const html = useMemo(() => {
+    try {
+      return katex.renderToString(latex, { displayMode: display, throwOnError: false, trust: false, strict: "ignore", maxExpand: 200, maxSize: 20 });
+    } catch { return null; }
+  }, [latex, display]);
+  return html ? <span className={display ? "proposal-math" : "chat-inline-math"} dangerouslySetInnerHTML={{ __html: html }} /> : <span>{latex}</span>;
 }
 
 /**
@@ -538,6 +624,8 @@ function QuestionCard({
   const [values, setValues] = useState<Record<string, string>>({});
   const [free, setFree] = useState("");
   const firstInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const freeInputRef = useRef<HTMLTextAreaElement | null>(null);
+  useTextareaHeight(freeInputRef, free);
 
   useEffect(() => {
     firstInputRef.current?.focus();
@@ -562,11 +650,13 @@ function QuestionCard({
     if (event.nativeEvent.isComposing) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       onDismiss();
       return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (event.repeat) return;
       if (isLast) {
         send();
         return;
@@ -579,9 +669,12 @@ function QuestionCard({
   };
 
   return (
-    <div className="question-card" role="group" aria-label="質問">
-      <div className="assistant-name">
+    <div className="question-card" role="group" aria-label="質問" onKeyDown={(event) => {
+      if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.preventDefault(); onDismiss(); }
+    }}>
+      <div className="assistant-name question-heading">
         <strong>TeX64</strong>
+        <button type="button" className="question-close" aria-label="質問を閉じる" onClick={onDismiss}><X size={14} aria-hidden="true" /></button>
       </div>
       <p className="question-text">
         {lead ? `${lead} ` : ""}
@@ -621,7 +714,7 @@ function QuestionCard({
         </div>
       ) : (
         <textarea
-          ref={(node) => { if (fields.length === 0) firstInputRef.current = node; }}
+          ref={(node) => { freeInputRef.current = node; if (fields.length === 0) firstInputRef.current = node; }}
           className="question-free"
           rows={2}
           value={free}

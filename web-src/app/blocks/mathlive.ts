@@ -149,7 +149,8 @@ export const initMathLive = (context: AppContext, deps: MathLiveDeps): MathLiveA
       fallbackInput.placeholder = "Enter LaTeX";
       fallbackInput.style.width = "100%";
       fallbackInput.style.minHeight = "96px";
-      fallbackInput.style.resize = "vertical";
+      fallbackInput.style.resize = "none";
+      fallbackInput.style.setProperty("field-sizing", "content");
       if (preserveValue) {
         fallbackInput.value = preserveValue;
       }

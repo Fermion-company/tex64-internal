@@ -60,7 +60,14 @@ const rememberProposalForPages = (service, proposal) => {
     list = [];
     service.proposalScopesByConversation.set(conversationId, list);
   }
-  list.push({ proposalId: proposal.id, path: proposal.path, line: proposal.scope.line });
+  const before = String(proposal.originalContent || "").split(/\r?\n/);
+  const after = String(proposal.content || "").split(/\r?\n/);
+  let tail = 0;
+  while (tail < Math.min(before.length, after.length) - proposal.scope.line + 1 &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1;
+  list.push({ proposalId: proposal.id, path: proposal.path, line: proposal.scope.line,
+    endLine: Math.max(proposal.scope.line, after.length - tail),
+    previousEndLine: before.length - tail, lineDelta: after.length - before.length });
   if (list.length > 40) list.splice(0, list.length - 40);
 };
 

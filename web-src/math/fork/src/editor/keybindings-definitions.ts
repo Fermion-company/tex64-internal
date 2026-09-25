@@ -186,10 +186,10 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { key: 'ctrl+[Digit5]', ifMode: 'math', command: 'moveToOpposite' },
   { key: 'ctrl+[Digit6]', ifMode: 'math', command: 'moveToSuperscript' },
 
-  { key: 'ctrl+[Return]', ifMode: 'math', command: 'addRowAfter' },
-  { key: 'ctrl+[Enter]', ifMode: 'math', command: 'addRowAfter' },
-  { key: 'cmd+[Return]', ifMode: 'math', command: 'addRowAfter' },
-  { key: 'cmd+[Enter]', ifMode: 'math', command: 'addRowAfter' },
+  { key: 'ctrl+[Return]', ifMode: 'math', command: 'addColumnAfterFromReturn' },
+  { key: 'ctrl+[Enter]', ifMode: 'math', command: 'addColumnAfterFromReturn' },
+  { key: 'cmd+[Return]', ifMode: 'math', command: 'addRowAfterFromReturn' },
+  { key: 'cmd+[Enter]', ifMode: 'math', command: 'addRowAfterFromReturn' },
 
   // Excel keybindings:
   // shift+space: select entire row, ctrl+space: select an entire column

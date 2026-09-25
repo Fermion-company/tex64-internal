@@ -5,6 +5,7 @@ import { toggleKeystrokeCaption } from './keystroke-caption';
 import { requestUpdate } from './render';
 import { ParseMode } from '../public/core-types';
 import { updateAutocomplete } from './autocomplete';
+import { canInsertArrayColumn, canInsertArrayRow } from './array-input';
 
 // Commands that don't change content
 registerCommand({
@@ -89,17 +90,24 @@ registerCommand(
     // e.g. when using a virtual keyboard
     commit: (mathfield: _Mathfield) => {
       const model = mathfield.model;
+      if (!canInsertArrayRow(model)) return true;
       if (model.contentWillChange({ inputType: 'insertLineBreak' })) {
         mathfield.host?.dispatchEvent(
           new Event('change', { bubbles: true, composed: true })
         );
-        // If we're in a multiline environment, insert a newline
-        if (model.parentEnvironment?.isMultiline)
-          mathfield.executeCommand('addRowAfter');
+        mathfield.executeCommand('addRowAfter');
 
         model.contentDidChange({ inputType: 'insertLineBreak' });
       }
       return true;
+    },
+    addRowAfterFromReturn: (mathfield: _Mathfield) => {
+      if (!canInsertArrayRow(mathfield.model)) return false;
+      return mathfield.executeCommand('addRowAfter');
+    },
+    addColumnAfterFromReturn: (mathfield: _Mathfield) => {
+      if (!canInsertArrayColumn(mathfield.model)) return false;
+      return mathfield.executeCommand('addColumnAfter');
     },
     insertPrompt: (mathfield: _Mathfield, id?: string, options?): boolean => {
       const promptIds = mathfield.getPrompts();

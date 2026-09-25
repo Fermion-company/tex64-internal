@@ -160,54 +160,36 @@
   inset: 0;
 }
 
-.region {
+.regionHitArea {
   position: absolute;
   margin: 0;
   padding: 0;
   border: none;
-  border-radius: 3px;
   background: transparent;
   cursor: pointer;
   outline: none;
 }
 
-.regionHovered {
-  background: var(--accent-faint);
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+.regionHitArea:focus-visible {
+  outline: none;
 }
 
-.regionSelected,
-.regionSelected.regionHovered {
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.region:focus-visible {
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.regionLabel {
+.regionHighlight {
   position: absolute;
-  left: 0;
-  bottom: 100%;
-  margin-bottom: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #ffffff;
-  font-family: var(--font-ui);
-  font-size: 10px;
-  line-height: 1.4;
-  white-space: nowrap;
   pointer-events: none;
-  opacity: 0;
-  transform: translateY(2px);
-  transition: opacity 100ms ease, transform 100ms ease;
+  border: 1px solid transparent;
+  border-radius: 4px;
 }
 
-.regionHovered .regionLabel {
-  opacity: 1;
-  transform: none;
+.regionHighlight.regionHovered {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+
+.regionHighlight.regionSelected,
+.regionHighlight.regionSelected.regionHovered {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 /* --- refresh pill / error banner ---------------------------------------- */
@@ -415,7 +397,6 @@
 .textLayer :global(.markedContent) { display: contents; }
 .textLayer ::selection { background: rgba(155, 47, 201, .28); }
 .editingText :global(span) { cursor: pointer; }
-.editingText :global(span:hover), .editingText :global(span:focus-visible) { background: rgba(155, 47, 201, .14); outline: none; }
 .textLayer .searchHit { background: rgba(255, 204, 0, .32); }
 .textLayer .activeSearchHit { background: rgba(255, 143, 0, .52); }
 .linkLayer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
