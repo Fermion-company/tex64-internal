@@ -360,7 +360,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store CLI authentication failed' }
           $appJson = msstore apps get $env:TEX64_WINDOWS_STORE_ID | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'The existing TeX64 Store product is not accessible' }
-          $app = $appJson | ConvertFrom-Json
+          $jsonStart = $appJson.IndexOf('{')
+          if ($jsonStart -lt 0) { throw 'Microsoft Store CLI returned no application JSON' }
+          $app = $appJson.Substring($jsonStart) | ConvertFrom-Json
           if ($app.Id -ne $env:TEX64_WINDOWS_STORE_ID -or -not $app.LastPublishedApplicationSubmission) {
             throw 'The Store product does not match the published TeX64 app'
           }
