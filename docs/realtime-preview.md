@@ -78,11 +78,10 @@ TDOM の `closure-deferred` は resident の紙面を保持しつつ最新ソー
 
 ## エンジンの解決順序（tdom-engine.cjs）
 
-1. `TDOM_ENGINE_DIR`（env。旧 `TEX64_TDOM_ENGINE_DIR` も互換対応）
-2. 開発 checkout: `~/Library/Application Support/TeX64/engines/tdom-engine` → `~/Developer/tdom-engine` → `~/tdom-engine` → `~/Desktop/tdom-engine`。旧 `tdom-core` checkout はその後の互換フォールバック
-3. vendored copy: パッケージ版の `resources/app.asar.unpacked/Resources/tdom-engine/`、開発配置の `Resources/tdom-engine/` の順（`server.js` の存在で判定）。
+1. `TDOM_ENGINE_DIR`（明示指定時のみ。旧 `TEX64_TDOM_ENGINE_DIR` も互換対応）
+2. アプリに同梱したエンジン: パッケージ版の `resources/app.asar.unpacked/Resources/tdom-engine/`、開発配置の `Resources/tdom-engine/`。古いローカル checkout は自動選択しない。
 
-**開発フロー**: checkout が vendored より優先されるので、`~/tdom-engine` を変更したらプレビューを OFF→ON（またはアプリ再起動）するだけで新しいエンジンが動く。同期作業は不要。
+**開発フロー**: engine を変更したら `npm run tdom:sync` で同梱コピーを更新し、プレビューを OFF→ON（またはアプリ再起動）する。同期前に試す場合だけ `TDOM_ENGINE_DIR` で checkout を明示する。
 
 **配布**: `npm run tdom:sync` が checkout の実行用構成（engine/・host/・vendor/・server.js・web/（pdfjs 除く）・templates/・samples/）を `Resources/tdom-engine/` に複製し、`VENDOR.json` にソースコミットを記録する。`vendor/` にはruntime helperが必要とする固定版ソースとライセンスを含む。`host/` は upstream の正式なホスト統合 API で、TeX64 の配布物にもエンジンと同じ版を保持する。gitignore 済み。パッケージ前に実行する。`asarUnpack` により実ファイルは `resources/app.asar.unpacked/Resources/tdom-engine/` へ配置され、外部 Node プロセスはこの実ディレクトリから起動する。リリースCIは `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT` を同梱するため、エンジンの確定コミットと合わせる。
 

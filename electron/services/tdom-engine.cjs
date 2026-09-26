@@ -6,10 +6,9 @@
 // owns compilation only; TeX64 reads canonical PDF bytes back into its normal
 // PDF viewers instead of embedding the engine's preview UI.
 //
-// Engine directory resolution mirrors fermion-engine.cjs: a developer
-// checkout wins (so editing ~/tdom-engine is picked up on the next preview
-// start), with a vendored copy (Resources/tdom-engine, `npm run tdom:sync`)
-// as the packaged-app fallback.
+// Use the engine bundled with this app when available. Development can
+// explicitly select a live checkout with TDOM_ENGINE_DIR; an unrelated old
+// checkout in the user's home must not replace the bundled engine.
 
 const fs = require("node:fs");
 const crypto = require("node:crypto");
@@ -45,8 +44,6 @@ const DEFAULT_BUILD_LEASE_TTL_MS = 11 * 60 * 1000;
 const CANONICAL_BUILD_ADOPTION_TTL_MS = 15 * 60 * 1000;
 const BUILD_LEASE_ACQUIRE_TIMEOUT_MS = 10 * 60 * 1000;
 const BUILD_LEASE_REQUEST_TIMEOUT_MS = 2_000;
-const ENGINE_NAME = "tdom-engine";
-const LEGACY_ENGINE_NAME = "tdom-core";
 const MARKER = "server.js";
 
 const isPortAvailable = (port) => new Promise((resolve) => {
@@ -223,7 +220,6 @@ class TdomEngineService {
         : directHostWebRoot);
     this.workDir = options.workDir
       || (options.userDataPath ? path.join(options.userDataPath, "tdom-work") : null);
-    this.homeDir = options.homeDir || os.homedir();
     this.preferredPort = options.port ?? DEFAULT_PORT;
     this.startTimeoutMs = options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
     this.documentOpenTimeoutMs = options.documentOpenTimeoutMs ?? DEFAULT_DOCUMENT_OPEN_TIMEOUT_MS;
@@ -260,23 +256,7 @@ class TdomEngineService {
   resolveDirectory() {
     const selected = this.envEngineDir || this.explicitEngineDir;
     if (selected) return { dir: selected, needsAccess: null };
-    const candidates = [ENGINE_NAME, LEGACY_ENGINE_NAME].flatMap((name) => [
-      path.join(this.homeDir, "Library", "Application Support", "TeX64", "engines", name),
-      path.join(this.homeDir, "Developer", name),
-      path.join(this.homeDir, name),
-      path.join(this.homeDir, "Desktop", name),
-    ]);
-    let needsAccess = null;
-    for (const candidate of candidates) {
-      const result = this.fileAccess.probeIfAllowed(candidate,
-        () => this.existsSync(path.join(candidate, MARKER)));
-      if (result === true) return { dir: candidate, needsAccess: null };
-      if (result === null) needsAccess ||= this.fileAccess.classify(candidate)?.key || null;
-    }
-    if (this.vendoredDir && this.existsSync(path.join(this.vendoredDir, MARKER))) {
-      return { dir: this.vendoredDir, needsAccess: null };
-    }
-    return { dir: candidates.at(2), needsAccess };
+    return { dir: this.vendoredDir, needsAccess: null };
   }
 
   refreshDirectory() {
@@ -286,6 +266,7 @@ class TdomEngineService {
   }
 
   isAvailable() {
+    if (!this.engineDir) return false;
     return this.fileAccess.probeIfAllowed(this.engineDir,
       () => this.existsSync(path.join(this.engineDir, MARKER))) === true;
   }
@@ -700,6 +681,12 @@ class TdomEngineService {
     // engine process can still appear behind it.
     this.state = "starting";
     const pending = (async () => {
+      if (!this.engineDir) {
+        const error = new Error("The live preview engine was not bundled. Run npm run tdom:sync or set TDOM_ENGINE_DIR for local development.");
+        this.state = "unavailable";
+        this.lastError = error.message;
+        throw error;
+      }
       const allowed = await this.fileAccess.ensureAccess(this.engineDir, { reason: "tdom" });
       this.assertLifecycle(generation);
       if (!allowed) {
@@ -711,7 +698,7 @@ class TdomEngineService {
       }
       this.refreshDirectory();
       if (!this.isAvailable()) {
-        const error = new Error(`tdom-engine was not found at ${this.engineDir}. Set TDOM_ENGINE_DIR to its checkout or run npm run tdom:sync.`);
+        const error = new Error(`The live preview engine was not found at ${this.engineDir}. Run npm run tdom:sync or set TDOM_ENGINE_DIR for local development.`);
         this.state = "unavailable";
         this.lastError = error.message;
         throw error;

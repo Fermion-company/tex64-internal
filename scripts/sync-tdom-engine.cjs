@@ -2,10 +2,9 @@
 
 // Vendors the TDOM real-time preview engine (sibling repo, default
 // ~/tdom-engine) into Resources/tdom-engine so packaged builds are
-// self-contained. Development never needs this: tdom-engine.cjs resolves a
-// live checkout first, so engine changes are picked up simply by restarting
-// the preview. Run `npm run tdom:sync` before packaging a build that should
-// ship the engine, or after engine changes you want in the next .dmg.
+// self-contained. The app uses the synced copy by default in development and
+// packaged builds. Run `npm run tdom:sync` after engine changes, or explicitly
+// set TDOM_ENGINE_DIR to use a live checkout during development.
 //
 // Source dir override: TDOM_ENGINE_DIR. TEX64_TDOM_ENGINE_DIR remains a
 // compatibility alias for older development environments.
