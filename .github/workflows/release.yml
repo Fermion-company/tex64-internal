@@ -26,17 +26,21 @@ on:
         required: false
         default: false
         type: boolean
-      publish_unsigned_windows_preview:
-        description: Publicly publish the unsigned Windows preview (SmartScreen may warn or block; verify checksums)
+      mac_only:
+        description: Publish signed macOS updates without building or submitting a Windows package
         required: false
         default: false
         type: boolean
-
+      verify_store_credentials:
+        description: Check the existing Store product with unattended credentials before creating a release tag
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}-${{ inputs.windows_only && 'windows-only' || 'full' }}
+  group: release-${{ github.ref }}-${{ inputs.windows_only && 'windows-only' || inputs.mac_only && 'mac-only' || 'full' }}
   cancel-in-progress: true
 
 env:
@@ -44,11 +48,32 @@ env:
   TDOM_ENGINE_COMMIT: bef693daf0456efc22a92de30080474d5f34b5a3
 
 jobs:
+  prepare_release:
+    name: Prepare private release staging
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create a draft release for the tagged build
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft >/tmp/tex64-release-draft 2>/dev/null; then
+            test "$(cat /tmp/tex64-release-draft)" = true || {
+              echo 'The release tag already has a public GitHub release' >&2
+              exit 1
+            }
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "TeX64 $GITHUB_REF_NAME" --notes "Preparing signed macOS packages."
+          fi
+
   build:
     name: Build (macOS ${{ matrix.arch }})
     if: ${{ inputs.windows_only != true }}
+    needs: prepare_release
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -65,7 +90,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22.12.0"
+          node-version-file: .node-version
           cache: npm
 
       - name: Setup Python
@@ -224,19 +249,20 @@ jobs:
         run: |
           rm -f "${RUNNER_TEMP}/tex64-macos-signing.p12" || true
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: tex64-macos-${{ matrix.arch }}-${{ github.run_id }}
-          path: |
-            dist/TeX64-*-mac-${{ matrix.arch }}.dmg
-            dist/TeX64-*-mac-${{ matrix.arch }}.zip
-            !dist/*-notary.zip
-          if-no-files-found: error
-          retention-days: 7
+      - name: Stage signed macOS packages in the draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files=(dist/TeX64-*-mac-${{ matrix.arch }}.dmg dist/TeX64-*-mac-${{ matrix.arch }}.zip)
+          for file in "${files[@]}"; do test -s "$file"; done
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
   windows:
     name: Build (Windows x64 / Store + unsigned preview)
+    if: ${{ inputs.mac_only != true }}
     runs-on: windows-2025
     timeout-minutes: 50
     permissions:
@@ -313,6 +339,43 @@ jobs:
           if ($checkedOut -ne $env:GITHUB_SHA) {
             throw "Checked out $checkedOut instead of $env:GITHUB_SHA"
           }
+
+      - name: Set up Microsoft Store CLI
+        if: inputs.verify_store_credentials == true || startsWith(github.ref, 'refs/tags/v')
+        uses: microsoft/microsoft-store-apppublisher@v1.4
+
+      - name: Verify unattended Microsoft Store access
+        if: inputs.verify_store_credentials == true || startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          foreach ($name in @('PARTNER_CENTER_TENANT_ID', 'PARTNER_CENTER_SELLER_ID', 'PARTNER_CENTER_CLIENT_ID', 'PARTNER_CENTER_CLIENT_SECRET')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing GitHub Actions secret: $name"
+            }
+          }
+          msstore reconfigure `
+            --tenantId $env:PARTNER_CENTER_TENANT_ID `
+            --sellerId $env:PARTNER_CENTER_SELLER_ID `
+            --clientId $env:PARTNER_CENTER_CLIENT_ID `
+            --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store CLI authentication failed' }
+          $appJson = msstore apps get $env:TEX64_WINDOWS_STORE_ID | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'The existing TeX64 Store product is not accessible' }
+          $jsonStart = $appJson.IndexOf('{')
+          if ($jsonStart -lt 0) { throw 'Microsoft Store CLI returned no application JSON' }
+          $app = $appJson.Substring($jsonStart) | ConvertFrom-Json
+          if ($app.Id -ne $env:TEX64_WINDOWS_STORE_ID -or -not $app.LastPublishedApplicationSubmission) {
+            throw 'The Store product does not match the published TeX64 app'
+          }
+          if ($app.PendingApplicationSubmission) {
+            throw 'The Store product has an existing draft; review it before the automated release'
+          }
+          Write-Output "Existing published Store product verified: $($app.Id)"
 
       - name: Install dependencies
         run: npm ci
@@ -417,14 +480,6 @@ jobs:
             --locales 'ja,en' `
             --require-packaged `
             --require-platform win32
-
-      - name: Upload Microsoft Store screenshots without marketplace downloads
-        uses: ./.github/actions/upload-actions-artifact
-        with:
-          name: tex64-windows-store-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/store-screenshots/**/*
-          retention-days: 30
-          compression-level: 0
 
       - name: Validate AppX package and manifest
         shell: pwsh
@@ -644,7 +699,7 @@ jobs:
           @"
           ## Windows artifacts
 
-          - **Microsoft Store:** submit the `.appx` artifact to Partner Center. Store ingestion signs it and Store clients receive efficient managed updates.
+          - **Microsoft Store:** this workflow submits the validated `.appx` to the existing Partner Center product. Store ingestion signs it and Store clients receive managed updates after certification.
           - **Reserved product:** Store ID `$env:TEX64_WINDOWS_STORE_ID`; package family `$env:TEX64_WINDOWS_STORE_PFN`.
           - **License:** the Store package excludes the repository's proprietary root `LICENSE` and relies on Microsoft Store Standard Application License Terms; third-party notices remain packaged.
           - **Direct download (preview):** the unsigned `.exe` remains private unless the release operator explicitly enables public preview publication.
@@ -652,25 +707,28 @@ jobs:
           - Store metadata overrides: `TEX64_WINDOWS_STORE_IDENTITY_NAME`, `TEX64_WINDOWS_STORE_APPLICATION_ID`, `TEX64_WINDOWS_STORE_PUBLISHER`, and `TEX64_WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`.
           "@ | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
-      - name: Upload Microsoft Store package without marketplace downloads
-        uses: ./.github/actions/upload-actions-artifact
-        with:
-          name: tex64-windows-store-x64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/TeX64-*-win-x64.appx
-          retention-days: 30
-          compression-level: 0
-
-      - name: Upload unsigned Windows preview without marketplace downloads
-        uses: ./.github/actions/upload-actions-artifact
-        with:
-          name: tex64-windows-unsigned-preview-x64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/TeX64-*-unsigned-preview-win-x64.exe
-          retention-days: 14
-          compression-level: 0
+      - name: Submit the validated AppX to the existing Microsoft Store product
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem dist -Filter 'TeX64-*-win-x64.appx' -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one validated Store AppX, found $($packages.Count)"
+          }
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $packages[0].FullName).Hash.ToLowerInvariant()
+          Write-Output "WINDOWS_APPX_SHA256=$sha256"
+          "- Microsoft Store AppX SHA-256: ``$sha256``" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          $submissionDirectory = Join-Path $env:RUNNER_TEMP 'tex64-store-submission'
+          New-Item -ItemType Directory -Path $submissionDirectory -Force | Out-Null
+          Copy-Item -LiteralPath $packages[0].FullName -Destination $submissionDirectory
+          msstore publish . --inputDirectory $submissionDirectory --appId $env:TEX64_WINDOWS_STORE_ID
+          if ($LASTEXITCODE -ne 0) { throw 'Microsoft Store submission failed' }
+          msstore submission status $env:TEX64_WINDOWS_STORE_ID
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read Microsoft Store submission status' }
 
   publish:
     name: Publish Release
-    if: ${{ inputs.windows_only != true }}
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && inputs.windows_only != true && needs.build.result == 'success' && ((inputs.mac_only == true && needs.windows.result == 'skipped') || (inputs.mac_only != true && needs.windows.result == 'success')) }}
     runs-on: ubuntu-latest
     needs:
       - build
@@ -691,8 +749,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22.12.0"
-
+          node-version-file: .node-version
       - name: Require downloads secrets for tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -715,35 +772,17 @@ jobs:
             exit 1
           fi
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
       - name: Collect release assets
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           rm -rf release
           mkdir -p release
-          find artifacts -type f \( \
-            -name '*.dmg' -o -name '*.zip' \
-          \) -print0 | while IFS= read -r -d '' file; do
-            base="$(basename "$file")"
-            cp "$file" "release/$base"
-          done
-          if [ "${{ inputs.publish_unsigned_windows_preview }}" = "true" ]; then
-            find artifacts -type f \
-              -name '*-unsigned-preview-win-*.exe' \
-              -print0 | while IFS= read -r -d '' file; do
-                base="$(basename "$file")"
-                cp "$file" "release/$base"
-              done
-            if ! compgen -G 'release/*-unsigned-preview-win-*.exe' > /dev/null; then
-              echo "::error::Unsigned Windows preview publication was requested, but the installer is missing"
-              exit 1
-            fi
-          fi
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.dmg' --pattern '*.zip' --dir release
+          test "$(find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) | wc -l | tr -d ' ')" = 4
           ls -la release
 
       - name: Generate checksums
@@ -761,9 +800,6 @@ jobs:
             echo "- Set \`TEX64_UPDATE_SOURCE_PRIORITY=remote-first\`."
             echo "- Set \`TEX64_UPDATE_REMOTE_BASE_URL\` (example: \`https://downloads.tex64.com/tex64/updates\`)."
             echo "- (Optional) Set \`TEX64_GITHUB_RELEASE_REPO=${GITHUB_REPOSITORY}\` to allow GitHub fallback."
-            if [ "${{ inputs.publish_unsigned_windows_preview }}" = "true" ]; then
-              echo "- Windows direct download is an unsigned preview. SmartScreen may warn or block it; keep the checksum warning in release notes."
-            fi
             echo "- Import checksum file into tex64.com:"
             echo "  \`npm run -s release:import-checksums -- --version ${version} --file /path/to/checksums-sha256.txt\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -775,6 +811,9 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           publicBaseUrl="${TEX64_DOWNLOADS_PUBLIC_BASE_URL}"
           notesUrl="https://tex64.com/releases/${version}"
+          if [ "${{ inputs.mac_only }}" = "true" ]; then
+            notesUrl="https://tex64.com/download"
+          fi
           mkdir -p update
           node scripts/release-update-feed.cjs \
             --dir release \
@@ -789,12 +828,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          : > release-preface.md
-          if [ "${{ inputs.publish_unsigned_windows_preview }}" = "true" ]; then
-            cat >> release-preface.md <<'EOF'
-          > [!WARNING]
-          > **Windows is an unsigned preview.** The `*-unsigned-preview-win-x64.exe` installer is not code-signed, so Microsoft Defender SmartScreen may warn or block it. Verify its SHA-256 against `checksums-sha256.txt` before running it.
+          version="${GITHUB_REF_NAME#v}"
+          cat > release-preface.md <<EOF
+          TeX64 v${version} updates the editor, math input, and PDF preview.
           EOF
+          if [ "${{ inputs.mac_only }}" != "true" ]; then
+            echo "Windows updates are delivered through the existing Microsoft Store product." >> release-preface.md
           fi
 
       - name: Upload assets to downloads (S3/R2)
@@ -840,9 +879,13 @@ jobs:
 
       - name: Publish release assets
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
-        with:
-          files: release/*
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          body_path: release-preface.md
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" release/checksums-sha256.txt \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --notes-file release-preface.md --draft=false --latest
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false

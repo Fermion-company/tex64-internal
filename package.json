@@ -289,5 +289,6 @@
     "@langchain/langgraph-checkpoint": {
       "uuid": "11.1.1"
     }
-  }
+  },
+  "packageManager": "npm@11.19.0"
 }

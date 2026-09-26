@@ -203,9 +203,16 @@ export function AgentPanel({
   }
   const showingLocalSteps = latestProposals.length === 0 || Boolean(error);
   if (showingLocalSteps) {
-    latestProposals = defaultNextSteps(Boolean(error), [...messages].reverse().find((message) => message.role === "user")?.text);
+    const failedRequest = [...messages].reverse().find((message) => message.role === "user");
+    latestProposals = defaultNextSteps(Boolean(error), failedRequest?.requestText ?? failedRequest?.text, failedRequest?.text);
     latestProposalMessageId = null;
   }
+  useEffect(() => {
+    // A question opened from an earlier proposal must not survive Undo or a
+    // newer response, otherwise its answer can restart a cancelled edit.
+    setAskingProposal(null);
+    setFocusedStep(null);
+  }, [latestProposalMessageId]);
   const stepIndexOf = (id: string | null) =>
     id === null ? -1 : latestProposals.findIndex((proposal) => proposal.id === id);
   const focusStep = (index: number | null) => {

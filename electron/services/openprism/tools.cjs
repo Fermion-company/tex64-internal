@@ -37,6 +37,7 @@ const nodePath = require("path");
 const { execFile } = require("child_process");
 const { readTask, updateTask, recordReceipt } = require("./task-state.cjs");
 const { renderPdfPages } = require("../agent-pdf-review.cjs");
+const { calculateBatch } = require("./calculate.cjs");
 const { extractArxivId, fetchArxivEntry, buildArxivBibtex } = require("./arxiv-service.cjs");
 const {
   checkBibliography,
@@ -1244,7 +1245,18 @@ const buildTools = (service, conversationId, policy, runContext = {}) => {
     },
   );
 
+  const calculateTool = make(
+    "calculate",
+    "Calculate numerical values from the user's data before writing them into a document. Batch related expressions in one call. " +
+      "Supports numbers, pi, e, + - * / % ^ **, parentheses, sqrt, abs, exp, log, log10, sin, cos, tan, asin, acos, atan, pow, min, max, sum, mean. " +
+      "Use explicit multiplication. Angles are radians. Results use double precision; keep full precision until final rounding. " +
+      "This checks arithmetic, not physical assumptions or symbolic proofs. Input example: {expressions:[\"mean(9.0,8.9,9.1)/10\",\"4*pi^2*0.2/0.9^2\"]}.",
+    { type: "object", properties: { expressions: { type: "array", minItems: 1, maxItems: 50, items: { type: "string", maxLength: 2000 } } }, required: ["expressions"] },
+    async (args) => calculateBatch(args),
+  );
+
   return [
+    calculateTool,
     readFileTool,
     listFilesTool,
     listSectionsTool,

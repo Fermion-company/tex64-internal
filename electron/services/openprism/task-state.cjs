@@ -14,12 +14,23 @@ const saveTask = (service, id, task) => {
 };
 const beginTaskTurn = (service, id, request, steering = false) => {
   const previous = readTask(service, id);
+  const finished = previous?.status === "complete" || previous?.status === "cancelled";
   return saveTask(service, id, {
-    version: 1, goal: (previous?.status !== "complete" && previous?.goal) || clip(request, 4000),
+    version: 1, goal: (!finished && previous?.goal) || clip(request, 4000),
     turn: steering ? previous?.turn || 1 : (previous?.turn || 0) + 1,
-    request: clip(request, 4000), artifact: previous?.status === "complete" && !steering ? null : previous?.artifact || null, constraints: previous?.constraints || [],
-    steps: previous?.status === "complete" && !steering ? [] : previous?.steps || [], receipts: previous?.receipts || [],
+    request: clip(request, 4000), artifact: finished && !steering ? null : previous?.artifact || null, constraints: previous?.constraints || [],
+    steps: finished && !steering ? [] : previous?.steps || [], receipts: previous?.receipts || [],
     status: "working", updatedAt: Date.now(),
+  });
+};
+const recordUndo = (service, id, result) => {
+  const task = readTask(service, id);
+  if (!task) return;
+  // Undo changes the source outside the model loop. Its previous PDF proof and
+  // suggested follow-ups must not describe the restored document as completed.
+  saveTask(service, id, { ...task, status: "cancelled", artifact: null, steps: [], proposals: [],
+    receipts: [...(task.receipts || []), { tool: "undo", turn: task.turn, ok: result.ok === true,
+      runId: result.runId || null, paths: result.paths || [result.path].filter(Boolean), at: Date.now() }].slice(-30), updatedAt: Date.now(),
   });
 };
 const updateTask = (service, id, args = {}) => {
@@ -111,4 +122,4 @@ const completedEditReceipt = (task, locale) => {
     : "変更の保存・組版・PDF確認まで完了しました。最後の返答を受信できませんでしたが、作業結果は保存されています。";
   return `${lead}\n\n${task.steps.map((step) => `${step.title}: ${step.evidence}`).join("\n")}`;
 };
-module.exports = { mergePdfObservation, completedEditReceipt, markPdfObserved, readTask, saveTask, beginTaskTurn, updateTask, recordReceipt, verificationGaps };
+module.exports = { recordUndo, mergePdfObservation, completedEditReceipt, markPdfObserved, readTask, saveTask, beginTaskTurn, updateTask, recordReceipt, verificationGaps };
