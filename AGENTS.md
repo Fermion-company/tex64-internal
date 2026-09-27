@@ -8,7 +8,7 @@ macOS / Windows 向け LaTeX エディタ。法人共通事項は [../AGENTS.md]
 - Code UI は `web-src/` の TypeScript を `tsc` で `Resources/web/` へ出力。生成 JS は編集しない。`index.html` / `theme.css` は直接編集。
 - Monaco は AMD グローバル。言語機能は provider API へ登録。
 - AI UI は `services/tex64-ai/`（Next.js standalone）。本番 API は別リポジトリ `../tex64.com`。
-- ライブプレビューは tdom-engine（`electron/services/tdom-engine.cjs`）。`~/Desktop/tdom-engine` があれば同梱版より優先して起動する。pin は `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT`。pin を変えたら `~/Desktop/tdom-engine` も同じ commit にする。
+- ライブプレビューは tdom-engine（`electron/services/tdom-engine.cjs`）。同梱版（`Resources/tdom-engine`）を起動し、`TDOM_ENGINE_DIR` を指定したときだけその checkout を使う。pin は `.github/workflows/release.yml` の `TDOM_ENGINE_COMMIT`。pin を変えたら `~/Desktop/tdom-engine` を同じ commit にして `npm run tdom:sync` する。
 
 ## 開発
 
