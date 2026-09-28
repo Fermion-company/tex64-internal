@@ -22,6 +22,7 @@
 
 | フォルダ | 内容 |
 | --- | --- |
+| `demo-videos-20260927/` | 大・小・装飾の 3 文書の打鍵デモ動画と、プレビュー反映の計測（tex64-internal #102〜#104）。アプリ実機ドライバ `record.mjs`（動画は `VIDEO=1` のときだけ）、集計 `analyze.py` |
 | `large-typing-20260924/` | 大規模文書の打鍵反映（tex64-internal #61・#81〜#97）。API ドライバ `large-typing.mjs`、アプリ実機ドライバ `app-*.mjs` |
 | `kk-packages-20260925/` | lua-ul・KKluaverb・KKsymbols の確認（#97） |
 | `pdf-jump-find-save-20260924/` | ジャンプ・PDF 内検索・保存状態（#78〜#80） |
