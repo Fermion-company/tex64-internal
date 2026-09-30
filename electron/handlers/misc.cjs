@@ -74,7 +74,10 @@ const createMiscHandlers = (deps) => {
   // between "you are already set" and which install to offer.
   const handleEnvDetect = async (options = {}) => {
     try {
-      const report = await envService.detectEnvironment({ force: options?.force === true });
+      const report = await envService.detectEnvironment({
+        force: options?.force === true,
+        remote: options?.remote === true,
+      });
       sendToRenderer("env:detectResult", { report });
     } catch (error) {
       sendToRenderer("env:detectResult", {
@@ -84,14 +87,14 @@ const createMiscHandlers = (deps) => {
     }
   };
 
-  const handleEnvInstall = async (target, variant) => {
-    sendToRenderer("env:installStart", { target, variant });
+  const handleEnvInstall = async (target, variant, renew = false) => {
+    sendToRenderer("env:installStart", { target, variant, renew });
     const result = await envService.installEnvironment(
       target,
       (progress) => {
         sendToRenderer("env:installProgress", { target, ...progress });
       },
-      { variant }
+      { variant, renew }
     );
     sendToRenderer("env:installResult", { target, ...result });
     const commands =

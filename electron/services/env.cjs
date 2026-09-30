@@ -16,6 +16,11 @@ const {
   findManagedTexCommand,
   getManagedTexliveRoot,
   getManagedTexliveYear,
+  getManagedInstallRoot,
+  getInstallingFlagPath,
+  getRootYear,
+  readReleaseYear,
+  listManagedTexliveRoots,
   getTinytexRoot,
 } = require("./texlive-paths.cjs");
 
@@ -101,6 +106,20 @@ const normalizeInstallVariant = (value) => {
 
 // Written into the managed tree so later sessions can identify TeX64's profile.
 const INSTALL_MARKER_FILE = "tex64-install.json";
+
+// TeX Live's package repository, asked which TeX Live year it serves: the first
+// 4 KB of its package list carries "depend release/2027". A new year appears every
+// spring, and a managed tree of the year before can no longer add packages.
+const RELEASE_REPOSITORIES = [
+  "https://mirror.ctan.org/systems/texlive/tlnet",
+  "https://tlnet.yihui.org",
+];
+const CROSS_RELEASE = /older than remote repository|cross release updates|is newer than local/i;
+
+const parseReleaseYear = (text) => {
+  const match = String(text || "").match(/^depend release\/(\d{4})\s*$/m);
+  return match ? match[1] : "";
+};
 
 // Historical target names stay accepted so an old renderer can still ask a new
 // main process to create a usable managed environment.
@@ -565,7 +584,9 @@ class EnvService {
       const variant = normalizeInstallVariant(options.variant || target);
       this.progressVariant = variant;
       if (TEXLIVE_INSTALL_TARGETS.has(String(target || "").trim().toLowerCase())) {
-        return await this.installManagedTexlive(variant);
+        return options.renew === true
+          ? await this.renewManagedTexlive()
+          : await this.installManagedTexlive(variant);
       }
       if (target === "latexmk" || target === "latexindent") {
         return await this.installManagedTexPackage(target, target);
@@ -649,6 +670,88 @@ class EnvService {
     };
   }
 
+  // A new TeX Live year is out: install the same kind of tree (light or full) for
+  // it, then remove the managed trees of earlier years. Scoring64 does the same
+  // from its own TeX dialog, on the same shared folder.
+  async renewManagedTexlive() {
+    const current = this.managedRoot();
+    const older = getRootYear(current, this.platform);
+    if (!this.findManagedCommand("tlmgr") || !older) {
+      return { success: false, message: "There is no TeX64-managed TeX Live to renew." };
+    }
+    const variant = this.readInstallMarker().variant ?? DEFAULT_INSTALL_VARIANT;
+    this.progressVariant = variant;
+    // no download when the repository is still on this year
+    const latest = await this.checkRemoteYear({ force: true });
+    if (latest && Number(latest) <= Number(older)) {
+      return { success: false, variant, message: `No newer TeX Live than ${older} is out yet.` };
+    }
+    try {
+      await this.ensureManagedTexliveInstalled(variant, { older });
+    } catch (error) {
+      if (error?.code === "NO_NEWER_RELEASE") {
+        return { success: false, variant, message: error.message };
+      }
+      throw error;
+    }
+    if (variant === "light" && !this.findManagedCommand("synctex")) {
+      this.emitProgress("packages");
+      await this.runTlmgr(["install", "synctex"], { allowFailure: false, timeoutMs: this.installTimeoutMs() });
+    }
+    this.emitProgress("finalize");
+    const renewed = this.managedRoot();
+    const ready = Boolean(this.findManagedCommand("lualatex") && this.findManagedCommand("latexmk"));
+    if (!ready || renewed === current) {
+      this.invalidateDetection();
+      return { success: false, variant, message: "The new TeX Live was installed, but required commands were not detected." };
+    }
+    this.writeInstallMarker(variant);
+    await this.removeOlderManagedTrees(renewed);
+    this.remoteBlocked = "";
+    this.invalidateDetection();
+    return {
+      success: true,
+      variant,
+      message: `TeX64 managed TeX Live ${getRootYear(renewed, this.platform)} is ready.`,
+    };
+  }
+
+  // Only managed trees (a marker or TinyTeX's token): never a system TeX.
+  async removeOlderManagedTrees(root) {
+    const year = Number(getRootYear(root, this.platform));
+    for (const old of listManagedTexliveRoots(this.platform)) {
+      const oldYear = Number(getRootYear(old, this.platform));
+      const managed = fs.existsSync(path.join(old, INSTALL_MARKER_FILE)) || fs.existsSync(path.join(old, ".tinytex"));
+      if (old !== root && managed && oldYear && year && oldYear < year) {
+        await fsp.rm(old, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+  }
+
+  // The TeX Live year the repository serves, at most every 12 hours; "" offline.
+  async checkRemoteYear(options = {}) {
+    const cache = this.remoteYearCache;
+    if (options.force !== true && cache && Date.now() - cache.at < 12 * 60 * 60 * 1000) {
+      return cache.year;
+    }
+    for (const repository of RELEASE_REPOSITORIES) {
+      try {
+        const response = await fetch(`${repository}/tlpkg/texlive.tlpdb`, {
+          headers: { Range: "bytes=0-4095" },
+          signal: AbortSignal.timeout(15000),
+        });
+        const year = parseReleaseYear((await response.text()).slice(0, 8192));
+        if (year) {
+          this.remoteYearCache = { at: Date.now(), year };
+          return year;
+        }
+      } catch {
+        // try the next repository
+      }
+    }
+    return cache?.year || "";
+  }
+
   installMarkerPath() {
     const root = this.managedRoot();
     return root ? path.join(root, INSTALL_MARKER_FILE) : "";
@@ -689,7 +792,7 @@ class EnvService {
         `${JSON.stringify(
           {
             variant: normalizeInstallVariant(variant),
-            year: getManagedTexliveYear(),
+            year: getRootYear(this.managedRoot()) || getManagedTexliveYear(),
             installedAt: new Date().toISOString(),
           },
           null,
@@ -702,22 +805,24 @@ class EnvService {
     }
   }
 
-  async ensureManagedTexliveInstalled(variant = DEFAULT_INSTALL_VARIANT) {
-    const root = this.managedRoot();
-    if (!root) {
+  // A fresh managed tree in <base>/<its TeX Live year>. `older` (a renewal) is the
+  // year of the tree being replaced; the new one must be of a later year.
+  async ensureManagedTexliveInstalled(variant = DEFAULT_INSTALL_VARIANT, options = {}) {
+    const older = options.older || "";
+    if (!getManagedInstallRoot(null, this.platform)) {
       throw new Error("Managed TeX Live is not supported on this platform.");
     }
     const existingTlmgr = this.findManagedCommand("tlmgr");
-    if (existingTlmgr) {
+    if (existingTlmgr && !older) {
       return existingTlmgr;
     }
 
-    await fsp.mkdir(path.dirname(root), { recursive: true });
     const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), "tex64-texlive-"));
+    let root = "";
     try {
       const resolved = normalizeInstallVariant(variant);
       if (resolved === "light") {
-        await this.installLightweightBundle(root, workDir);
+        root = await this.installLightweightBundle(workDir, older);
         const installedTlmgr = this.findManagedCommand("tlmgr");
         if (!installedTlmgr) {
           throw new Error("TinyTeX installation finished, but tlmgr was not found.");
@@ -737,10 +842,29 @@ class EnvService {
       this.emitProgress("extract");
       await this.extractInstallerArchive(archivePath, workDir);
       const installer = await this.resolveInstallerExecutable(workDir);
+      root = this.newTreeRoot(readReleaseYear(path.dirname(installer)), older);
+      // install-tl fills the folder in place: mark it as being installed, so
+      // neither app uses a half-made tree and the next install replaces it.
+      const flag = getInstallingFlagPath(root, this.platform);
+      if (fs.existsSync(root) && fs.readdirSync(root).length > 0) {
+        if (!fs.existsSync(flag)) {
+          throw new Error(`The TeX Live folder ${root} already holds other files.`);
+        }
+        await fsp.rm(root, { recursive: true, force: true });
+      }
+      await fsp.mkdir(path.dirname(root), { recursive: true });
+      await fsp.writeFile(flag, "", "utf8");
       const profilePath = path.join(workDir, "tex64-texlive.profile");
       await fsp.writeFile(profilePath, this.buildInstallProfile(root, variant), "utf8");
       this.emitProgress("texlive");
       await this.runInstaller(installer, profilePath);
+      await fsp.rm(flag, { force: true });
+    } catch (error) {
+      if (root && fs.existsSync(getInstallingFlagPath(root, this.platform))) {
+        await fsp.rm(root, { recursive: true, force: true }).catch(() => {});
+        await fsp.rm(getInstallingFlagPath(root, this.platform), { force: true }).catch(() => {});
+      }
+      throw error;
     } finally {
       await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -752,7 +876,18 @@ class EnvService {
     return installedTlmgr;
   }
 
-  async installLightweightBundle(root, workDir) {
+  // <base>/<year> for a tree just unpacked. A renewal needs a later year than the
+  // tree it replaces; the repository may not have moved on yet.
+  newTreeRoot(year, older = "") {
+    if (older && (!year || Number(year) <= Number(older))) {
+      const error = new Error(`No newer TeX Live than ${older} is out yet.`);
+      error.code = "NO_NEWER_RELEASE";
+      throw error;
+    }
+    return getManagedInstallRoot(year || null, this.platform);
+  }
+
+  async installLightweightBundle(workDir, older = "") {
     const bundleUrl = LIGHTWEIGHT_BUNDLE_URLS[this.platform];
     if (!bundleUrl) {
       throw new Error("No lightweight TeX bundle is configured for this platform.");
@@ -786,6 +921,13 @@ class EnvService {
       throw new Error("The TinyTeX bundle did not contain tlmgr.");
     }
     const extractedRoot = path.resolve(path.dirname(extractedTlmgr), "..", "..");
+    const root = this.newTreeRoot(readReleaseYear(extractedRoot), older);
+    const flag = getInstallingFlagPath(root, this.platform);
+    if (fs.existsSync(flag)) {
+      // a full install that was stopped part-way
+      await fsp.rm(root, { recursive: true, force: true });
+      await fsp.rm(flag, { force: true });
+    }
     await fsp.mkdir(root, { recursive: true });
     await fsp.cp(extractedRoot, root, {
       recursive: true,
@@ -794,6 +936,7 @@ class EnvService {
     });
     await rewriteRelocatedSymlinks(root, extractedRoot);
     this.emitProgress("texlive");
+    return root;
   }
 
   async extractInstallerArchive(archivePath, workDir) {
@@ -1017,6 +1160,11 @@ class EnvService {
       throw error;
     }
     this.invalidateDetection();
+    if (!result.ok && CROSS_RELEASE.test(result.output || "")) {
+      // a new TeX Live year is out: the settings screen now offers to renew
+      this.remoteBlocked = getRootYear(this.managedRoot(), this.platform);
+      await this.checkRemoteYear({ force: true });
+    }
     return {
       attempted: true,
       success: result.ok,
@@ -1024,6 +1172,8 @@ class EnvService {
       packages,
       message: result.ok
         ? `Installed ${packages.join(", ")}.`
+        : this.remoteBlocked
+        ? `TeX Live ${this.remoteBlocked} can no longer add packages. Renew it in Settings > Environment.`
         : "The missing TeX packages could not be installed.",
     };
   }
@@ -1044,6 +1194,15 @@ class EnvService {
   // it, and is its package set wide enough" — so the setup screen can decide by
   // itself whether to show an install choice at all.
   async detectEnvironment(options = {}) {
+    if (options.remote === true && this.findManagedCommand("tlmgr")) {
+      // The settings screen asks whether a newer TeX Live year is out (a 4 KB
+      // read, at most twice a day); the report below then carries `renew`.
+      const before = this.remoteYearCache?.year || "";
+      const year = await this.checkRemoteYear();
+      if (year !== before) {
+        this.invalidateDetection();
+      }
+    }
     const ttlMs = 10000;
     if (options.force !== true) {
       if (this.detectCache && Date.now() - this.detectCache.at < ttlMs) {
@@ -1165,6 +1324,15 @@ class EnvService {
         isTinytex,
       },
       managedVariant: marker && marker.known ? marker.variant : null,
+      // The managed tree's TeX Live year, and a newer year to renew to once the
+      // repository has moved on (a light tree can no longer add packages then).
+      managedYear: source === "managed" ? getRootYear(managedRoot, this.platform) : "",
+      renew:
+        source === "managed" &&
+        Number(this.remoteYearCache?.year || 0) > Number(getRootYear(managedRoot, this.platform) || 0) &&
+        getRootYear(managedRoot, this.platform)
+          ? { from: getRootYear(managedRoot, this.platform), to: this.remoteYearCache.year }
+          : null,
       engines,
       tools,
       coverage,

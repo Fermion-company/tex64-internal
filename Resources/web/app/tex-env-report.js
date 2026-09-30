@@ -53,7 +53,8 @@ export const INSTALL_VARIANT_LABELS = {
             badge: "",
             title: uiText("Install TeX Live", "TeX Live を導入"),
             detail: uiText("Every CTAN package, managed privately by TeX64.", "CTAN の全パッケージを TeX64 専用の場所に導入します。"),
-            size: uiText("about 5 GB · 30–60 min", "約 5 GB・30〜60 分"),
+            // measured 2026-09-30: install-tl, scheme-full, 72 min at about 40 Mbps
+            size: uiText("about 5 GB · 30 min–2 h", "約 5 GB・30 分〜2 時間"),
         };
     },
 };

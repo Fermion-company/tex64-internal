@@ -84,7 +84,7 @@ const EN_TO_JA: Record<string, string> = {
   "TeX64 installs a lightweight TeX environment privately, without admin rights, and adds packages automatically when needed.": "TeX64 専用の場所に軽量な TeX 環境を管理者権限なしで導入し、必要なパッケージを自動で追加します。",
   "Installing missing TeX packages…": "不足している TeX パッケージをインストールしています…",
   "Install the full package set": "フルパッケージを追加導入",
-  "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.": "フル版の TeX Live（数GB）をダウンロード・インストールしています。通常 30〜60 分ほどかかります。その間も作業を続けられます。",
+  "Downloading and installing the full TeX Live (several GB). This usually takes 30 minutes to 2 hours — you can keep working in the meantime.": "フル版の TeX Live（数GB）をダウンロード・インストールしています。通常 30 分〜2 時間ほどかかります。その間も作業を続けられます。",
   "Setting up…": "セットアップ中…",
   "TeX environment installed successfully.": "TeX 環境のインストールが完了しました。",
   "Setup did not finish. Please try again, or open the guide.": "セットアップが完了しませんでした。もう一度お試しいただくか、ガイドをご覧ください。",

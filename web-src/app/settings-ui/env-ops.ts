@@ -223,8 +223,8 @@ export const createSettingsEnvOps = (
       "Setting up your TeX environment…",
       variant === "full"
         ? uiText(
-            "Downloading and installing the full TeX Live (several GB). This usually takes 30–60 minutes — you can keep working in the meantime.",
-            "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30〜60 分かかります。その間も作業を続けられます。"
+            "Downloading and installing the full TeX Live (several GB). This usually takes 30 minutes to 2 hours — you can keep working in the meantime.",
+            "フルセットの TeX Live をダウンロード・導入中（数 GB）。通常 30 分〜2 時間かかります。その間も作業を続けられます。"
           )
         : uiText(
             "Downloading a lightweight TeX environment. This usually takes 1–3 minutes.",
@@ -284,6 +284,29 @@ export const createSettingsEnvOps = (
       setSetupButton({ visible: false });
       setInstallNote("");
       setChoiceVisible(false);
+      // A newer TeX Live year is out. A light tree can no longer add packages, so
+      // renewing is urged; a full one keeps working and is only offered it.
+      const renew = detection?.source === "managed" ? detection.renew : null;
+      if (renew && setupBtn instanceof HTMLButtonElement) {
+        setHeroText(
+          "Your TeX environment is ready.",
+          detection?.managedVariant === "light"
+            ? uiText(
+                `TeX Live ${renew.to} is out. The ${renew.from} tree can no longer add packages; renew it to ${renew.to} (the ${renew.from} tree is removed afterwards).`,
+                `TeX Live ${renew.to} が出ました。${renew.from}年版には、もうパッケージを追加できません。${renew.to}年版に入れ直してください（入れ直したあと ${renew.from}年版は消します）。`
+              )
+            : uiText(
+                `TeX Live ${renew.to} is out. The ${renew.from} tree still builds; renewing moves it to ${renew.to}.`,
+                `TeX Live ${renew.to} が出ました。${renew.from}年版のままでもビルドできます。入れ直すと ${renew.to}年版になります。`
+              )
+        );
+        setSetupButton({
+          visible: true,
+          disabled: false,
+          label: uiText(`Renew to TeX Live ${renew.to}`, `TeX Live ${renew.to} に入れ直す`),
+        });
+        return;
+      }
       // The lightweight profile remains usable indefinitely; users who prefer
       // an offline-complete tree can expand it in place.
       if (
@@ -360,7 +383,8 @@ export const createSettingsEnvOps = (
   // "with whose TeX, and how complete is it". Both are refreshed together.
   const checkEnvironmentStatus = () => {
     envManager.checkEnvironmentStatus();
-    runtime.deps.postToNative({ type: "env:detect" }, true);
+    // `remote`: also ask whether a newer TeX Live year is out (cached for 12 hours)
+    runtime.deps.postToNative({ type: "env:detect", remote: true }, true);
   };
 
   const handleEnvDetectResult = (payload: {
@@ -372,9 +396,9 @@ export const createSettingsEnvOps = (
     runtime.deps.onRuntimeDetection?.(detection, runtime.state.runtimeStatusSummary);
   };
 
-  const startInstall = (variant: TexInstallVariant) => {
+  const startInstall = (variant: TexInstallVariant, renew = false) => {
     showInstalling(variant);
-    runtime.deps.postToNative({ type: "env:install", target: "basictex", variant });
+    runtime.deps.postToNative({ type: "env:install", target: "basictex", variant, renew });
   };
 
   // The gate needs the variant on every packet (the estimate depends on it) but
@@ -448,6 +472,10 @@ export const createSettingsEnvOps = (
   if (setupBtn instanceof HTMLButtonElement) {
     setupBtn.addEventListener("click", () => {
       if (setupBtn.disabled) {
+        return;
+      }
+      if (detection?.source === "managed" && detection.renew) {
+        startInstall(detection.managedVariant === "full" ? "full" : "light", true);
         return;
       }
       startInstall(

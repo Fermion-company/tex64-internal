@@ -2571,11 +2571,11 @@ const handleRendererMessage = (event, message) => {
     return;
   }
   if (type === "env:detect") {
-    miscHandlers.handleEnvDetect({ force: message.force === true });
+    miscHandlers.handleEnvDetect({ force: message.force === true, remote: message.remote === true });
     return;
   }
   if (type === "env:install") {
-    miscHandlers.handleEnvInstall(message.target, message.variant);
+    miscHandlers.handleEnvInstall(message.target, message.variant, message.renew === true);
     return;
   }
 
