@@ -1,0 +1,43 @@
+既存の原稿をAxiomで直し、差分とPDFを確認する
+
+このサンプルは独自の架空原稿です。学生の答案や顧客原稿を使いません。
+original-project.zipを展開し、TeX64のOpen Folderでprojectフォルダを開きます。
+main.texとsections/stencil.texが同じフォルダ構成にあることを確かめます。
+Buildで変更前PDFを表示します。
+
+Axiomへaxiom-prompt.txtを入力します。修正対象はsections/stencil.texです。
+中心差分の誤差項のhをh^2へ直し、Taylor展開と多項式の検算を追加します。
+修正後にDiffを開き、変更した式と追加した説明を確認します。
+PDFにTaylor展開と、D_(1/2)u(1)-u''(1)=1/2が表示されることを確認します。
+Axiomが処理上限で止まったら、保存済み原稿を確認して「Continue from where it stopped」を使います。
+最初に古いPDFが残ることがあったため、表示された式がh^2になっているかを見ます。
+この実演では、修正ソース・差分・組版PDFは取得済みです。途中停止の表示は隠していません。
+
+見るところ
+- eq:stencilとeq:errorのラベル、main.texのタイトル・packageが保持されている。
+- leading errorの係数がh^2/12になっている。
+- u(x)=x^4、x=1、h=1/2なら中心差分25/2、二階微分12、誤差1/2。
+- ファイルが変わったことと、PDFが新しく表示されたことを分けて見る。
+
+Overleafから移るとき
+1. OverleafのFile → Download → Download as source (.zip)でソースを保存します。
+2. 変更前の組版PDFも別に保存します。ソースZIPには組版PDFが入りません。
+3. ZIPを展開し、.tex・.bib・画像の相対配置を保ったままフォルダを開きます。
+4. 元と同じmain文書・compilerで、変更しない状態の原稿を最初にBuildします。
+5. 既存のTeXを使うか、アプリのQuick Setupを使います。初回ダウンロードはネット接続が必要です。
+6. まず1か所をAxiomで直し、DiffとPDFで結果を見ます。未導入のフォントやpackageは元環境との違いとして確認します。
+
+公式Overleaf手順
+https://docs.overleaf.com/managing-projects-and-files/downloading-a-project
+TeX64
+https://tex64.com/ja/download
+
+料金と通信
+エディタは無料。Axiomは月間無料枠、月12米ドルのBasic、月25米ドルのPro。
+MacとWindowsに対応します。今回の実演はMac 0.1.26で行い、Windows実演は行っていません。
+Axiomは通信して原稿の必要な情報をサービスへ送ります。全機能オフラインとは説明しません。
+
+初回成功の計測
+最新mainでは、新しいPDFが正常に確定した後のfirst_pdfイベントを初回だけ記録します。
+開発起動では送らず、原稿・パス・ログは送信しない実装です。
+コード実装は確認済み。本タスクで本番到着件数や利用者数は取得していません。

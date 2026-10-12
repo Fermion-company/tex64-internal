@@ -1,0 +1,30 @@
+\section{The centered difference}
+Let $u$ have six continuous derivatives near $x$ and let $h>0$.
+We define the centered second difference by
+\begin{equation}\label{eq:stencil}
+ D_h u(x)=\frac{u(x+h)-2u(x)+u(x-h)}{h^2}.
+\end{equation}
+Taylor expansion at $x$ gives
+\begin{align*}
+ u(x\mathbin{\pm}h)
+ &=u(x)\mathbin{\pm}hu'(x)+\frac{h^2}{2}u''(x)
+   \mathbin{\pm}\frac{h^3}{6}u^{(3)}(x)
+   +\frac{h^4}{24}u^{(4)}(x)
+   \mathbin{\pm}\frac{h^5}{120}u^{(5)}(x)+O(h^6).
+\end{align*}
+Adding the two expansions and subtracting $2u(x)$ cancels the odd
+powers. Dividing by $h^2$ yields
+\begin{equation}\label{eq:error}
+ D_h u(x)=u''(x)+\frac{h^2}{12}u^{(4)}(x)+O(h^4).
+\end{equation}
+The leading error is second order in $h$.
+
+\section{A polynomial check}
+For $u(x)=x^4$ at $x=1$ with $h=1/2$, direct substitution gives
+\begin{align*}
+ D_hu(1)&=\frac{(3/2)^4-2+(1/2)^4}{(1/2)^2}=\frac{25}{2},\\
+ u''(1)&=12,\qquad
+ \frac{h^2}{12}u^{(4)}(1)=\frac{(1/2)^2}{12}\,24=\frac{1}{2}.
+\end{align*}
+Thus $D_hu(1)-u''(1)=1/2$, exactly the leading error term.
+The remainder vanishes here because $u$ is a quartic polynomial.

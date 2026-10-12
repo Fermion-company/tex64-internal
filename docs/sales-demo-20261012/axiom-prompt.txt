@@ -1,0 +1,1 @@
+In sections/stencil.tex, derive equation (2) from Taylor expansions and correct the power of h in its leading error term. Verify the polynomial check at x=1 and h=1/2 and show the exact error. Keep the existing labels and project structure. Build main.tex and inspect the resulting PDF. Summarize the specific equations you changed. Do not add packages or change the title.
