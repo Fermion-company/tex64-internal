@@ -1,0 +1,33 @@
+\section{The centered difference}
+Let $u$ have six continuous derivatives near $x$ and let $h>0$.
+We define the centered second difference by
+\begin{equation}\label{eq:stencil}
+ D_h u(x)=\frac{u(x+h)-2u(x)+u(x-h)}{h^2}.
+\end{equation}
+The Taylor expansions about $x$ are
+\begin{align*}
+ u(x+h)&=u(x)+h u'(x)+\frac{h^2}{2}u''(x)+\frac{h^3}{6}u^{(3)}(x)
+ +\frac{h^4}{24}u^{(4)}(x)+\frac{h^5}{120}u^{(5)}(x)+O(h^6),\\
+ u(x-h)&=u(x)-h u'(x)+\frac{h^2}{2}u''(x)-\frac{h^3}{6}u^{(3)}(x)
+ +\frac{h^4}{24}u^{(4)}(x)-\frac{h^5}{120}u^{(5)}(x)+O(h^6).
+\end{align*}
+Adding these expansions and subtracting $2u(x)$ cancels the odd powers of $h$. Dividing by $h^2$ gives
+\begin{equation}\label{eq:error}
+ D_h u(x)=u''(x)+\frac{h^2}{12}u^{(4)}(x)+O(h^4).
+\end{equation}
+Thus the leading error is second order in $h$.
+\section{A polynomial check}
+For $u(x)=x^4$ at $x=1$ with $h=1/2$, direct substitution into
+\eqref{eq:stencil} gives
+\begin{align*}
+ D_{1/2}u(1)
+ &=\frac{(1+1/2)^4-2(1)^4+(1-1/2)^4}{(1/2)^2}\\
+ &=\frac{(3/2)^4-2+(1/2)^4}{1/4}
+ =\frac{25}{2}.
+\end{align*}
+The exact second derivative is $u''(1)=12$, so the exact error is
+\[
+ D_{1/2}u(1)-u''(1)=\frac{25}{2}-12=\frac{1}{2}.
+\]
+This agrees with the leading error term in \eqref{eq:error}, since
+$\frac{h^2}{12}u^{(4)}(1)=\frac{(1/2)^2}{12}\cdot 24=\frac{1}{2}$ and the remainder vanishes for this quartic polynomial.

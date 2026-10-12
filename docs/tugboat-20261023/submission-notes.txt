@@ -1,0 +1,15 @@
+TUGboat vol.47 no.3 / 締切2026-10-23
+公式投稿形式: https://tug.org/tugboat/location.html
+公式テンプレートは2026-10-02版を参照、本文は2026-10-12取得。
+技術稿はltugboatクラス、英語、単一本文ソース、abstract、白黒verbatim。
+実例は原著の架空数値解析原稿。速度・効果の比較値は記載していない。
+Axiomの処理上限・旧PDF表示も記載。最終表示で修正済みPDF確認まで記録。
+
+送信前に親が決める項目
+著者名・所属・連絡先（現在はFermion development teamの草稿表記）、著者本人の内容確認、物理冊子の希望。
+採用・査読・掲載は未確認。編集部へ未送信。本文と添付は送信担当が確認する。
+
+実行した文書組版
+/Library/TeX/texbin/pdflatex -interaction=nonstopmode -halt-on-error reviewable-edits.tex
+参照解決のため同コマンドを再実行。TeX Live 2024のltugboat使用。
+技術稿PDFは3ページ。原稿・元サンプル・実際のAxiom差分を同封。
