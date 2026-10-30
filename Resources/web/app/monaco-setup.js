@@ -151,7 +151,7 @@ export const initMonacoSetup = (context, deps) => {
             selectionHighlight: false,
         };
         const createEditorForGroup = (group, host) => {
-            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
             const editor = (_b = (_a = monacoWindow.monaco) === null || _a === void 0 ? void 0 : _a.editor) === null || _b === void 0 ? void 0 : _b.create(host, editorOptions);
             const editorAny = editor;
             group.editor = editor;
@@ -355,7 +355,13 @@ export const initMonacoSetup = (context, deps) => {
                 (_r = editor.onDidChangeModelContent) === null || _r === void 0 ? void 0 : _r.call(editor, () => hideAsk());
                 (_t = (_s = editor).onDidChangeModel) === null || _t === void 0 ? void 0 : _t.call(_s, () => hideAsk());
             }
-            (_v = (_u = editor).addAction) === null || _v === void 0 ? void 0 : _v.call(_u, {
+            // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
+            // selection as context.
+            (_u = deps.voiceEdit) === null || _u === void 0 ? void 0 : _u.attachEditor(monacoWindow.monaco, editor, {
+                getFilePath: () => group.currentFilePath,
+                isDirty: () => Boolean(group.isDirty),
+            });
+            (_w = (_v = editor).addAction) === null || _w === void 0 ? void 0 : _w.call(_v, {
                 id: "tex64.pro-canvas-edit",
                 label: uiText("Edit figure in canvas", "図をキャンバスで編集"),
                 contextMenuGroupId: "9_ai",
@@ -382,7 +388,7 @@ export const initMonacoSetup = (context, deps) => {
             // / command palette). Done as an editor action because this Monaco build
             // has no editor.registerCommand for code-action commands.
             if (spellChecker) {
-                (_x = (_w = editor).addAction) === null || _x === void 0 ? void 0 : _x.call(_w, {
+                (_y = (_x = editor).addAction) === null || _y === void 0 ? void 0 : _y.call(_x, {
                     id: "tex64.spell.addWordToDictionary",
                     label: uiText("Add word to dictionary", "単語を辞書に追加"),
                     contextMenuGroupId: "9_spell",

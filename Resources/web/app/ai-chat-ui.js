@@ -492,7 +492,13 @@ export const initAiChatUi = (context, deps) => {
             aiUndo.disabled = !canUndo;
         }
     };
-    const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+    // While a spoken instruction goes out, its selection stands in for the
+    // editor's (the editor may have none: the paragraph around the cursor).
+    let selectionOverride = null;
+    const _rawBuildContextPayload = createContextPayloadBuilder({
+        ...deps,
+        getActiveSelectionSnapshot: () => { var _a, _b; return (_b = selectionOverride !== null && selectionOverride !== void 0 ? selectionOverride : (_a = deps.getActiveSelectionSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null; },
+    });
     const buildContextPayload = (extras = {}) => {
         var _a;
         const refs = mentionController ? mentionController.getExplicitRefs() : [];
@@ -1328,6 +1334,18 @@ export const initAiChatUi = (context, deps) => {
         askFromPdf,
         handlePdfReverseResult,
         handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+        sendVoiceInstruction: (text, selection) => {
+            const trimmed = typeof text === "string" ? text.trim() : "";
+            if (!trimmed || !eventApi)
+                return;
+            selectionOverride = selection !== null && selection !== void 0 ? selection : null;
+            try {
+                eventApi.submitMessage(trimmed, { clearInput: false });
+            }
+            finally {
+                selectionOverride = null;
+            }
+        },
         handleDocumentMap,
         handleWorkspaceChanged,
         refreshContextBar: updateContextBar,

@@ -10401,6 +10401,60 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: var(--accent-soft);
 }
 
+/* Voice edit: the recording pill at the end of the selection (same look as
+   the Ask button above): a dot, the elapsed time, and a stop control. */
+.ai-voice-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px 6px;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.3;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+.ai-voice-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger, #ef4444);
+}
+.ai-voice-pill.is-recording .ai-voice-pill-dot {
+  animation: ai-mic-pulse 1.2s ease-in-out infinite;
+}
+.ai-voice-pill.is-transcribing .ai-voice-pill-dot {
+  background: var(--text-soft);
+}
+.ai-voice-pill-time {
+  font-variant-numeric: tabular-nums;
+}
+.ai-voice-pill-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.ai-voice-pill-stop:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ai-voice-pill-stop[hidden] {
+  display: none;
+}
+
 /* Settings › Account › Axiom: plan, this month's use, reset date. */
 .settings-usage {
   display: flex;

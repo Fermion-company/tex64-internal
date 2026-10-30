@@ -26,6 +26,7 @@ import { createFileExcerptBroker } from "./app/file-excerpt.js";
 import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
+import { createVoiceEditController } from "./app/voice-edit.js";
 import { createAppState } from "./app/state.js";
 import { createViewer, type LivePreviewEditRequest, type LivePreviewAnchorRequest,
   type LivePreviewAnchorResult } from "./app/viewer.js";
@@ -1376,7 +1377,12 @@ export const initMain = () => {
       handleFeedbackResult: (payload) => aiChatUi?.handleFeedbackResult(payload),
       handleBranchResult: (payload) => aiChatUi?.handleBranchResult(payload),
       handleProposalScope: (payload) => aiChatUi?.handleProposalScope(payload),
-      handleTranscribeResult: (payload) => aiChatUi?.handleTranscribeResult(payload),
+      handleTranscribeResult: (payload) => {
+        // The editor's voice edit and the composer microphone share the
+        // host's transcription; the request id says whose clip it was.
+        if (voiceEdit.ownsRequest(payload?.requestId)) voiceEdit.handleTranscribeResult(payload);
+        else aiChatUi?.handleTranscribeResult(payload);
+      },
       handleDocumentMap: (payload) => aiChatUi?.handleDocumentMap(payload),
       handleMessageDelta: (text, conversationId) =>
         aiChatUi?.handleMessageDelta(text, conversationId),
@@ -1440,6 +1446,14 @@ export const initMain = () => {
   postToNative({ type: "agent:state:get" }, true);
   postToNative({ type: "announcements:check" }, true);
 
+  const voiceEdit = createVoiceEditController({
+    postToNative: (payload, silent) => postToNative(payload, silent),
+    sendInstruction: (text, selection) => {
+      setActiveTab("ai");
+      aiChatUi?.sendVoiceInstruction(text, selection);
+    },
+  });
+
   const monacoSetup = initMonacoSetup(appContext, {
     editorSession,
     editorTabs: {
@@ -1457,6 +1471,7 @@ export const initMain = () => {
     getWorkspaceRoot: getWorkspaceRootKey,
     onCursorPositionChange: handleCursorPositionChange,
     onCursorSelectionChange: handleCursorPositionChange,
+    voiceEdit,
     openAiWithSelection: () => {
       setActiveTab("ai");
       // The selection chip in the composer reflects what was selected.

@@ -67,6 +67,16 @@ type AiChatDeps = {
   /** Opens the settings overlay on a page (the usage line points at Account). */
 };
 
+export type VoiceInstructionSelection = {
+  path: string;
+  text: string;
+  isDirty: boolean;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+};
+
 export type AiChatApi = {
   handleSettings: (settings: AgentSettings) => void;
   handleState: (state: AgentUiState) => void;
@@ -110,6 +120,12 @@ export type AiChatApi = {
   handleBranchResult: (payload: { ok?: boolean; conversationId?: string; error?: string }) => void;
   handleProposalScope: (payload: { conversationId?: string; proposalId?: string; page?: number }) => void;
   handleTranscribeResult: (payload: { requestId?: string; ok?: boolean; text?: string; error?: string; code?: string }) => void;
+  /**
+   * A spoken edit instruction from the editor: sent as it is, with the
+   * given selection (the paragraph around the cursor when nothing was
+   * selected) as the request's context. The composer draft is kept.
+   */
+  sendVoiceInstruction: (text: string, selection?: VoiceInstructionSelection | null) => void;
   handleDocumentMap: (payload: {
     requestId?: string;
     mainFile?: string | null;
@@ -637,7 +653,13 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     }
   };
 
-  const _rawBuildContextPayload = createContextPayloadBuilder(deps);
+  // While a spoken instruction goes out, its selection stands in for the
+  // editor's (the editor may have none: the paragraph around the cursor).
+  let selectionOverride: VoiceInstructionSelection | null = null;
+  const _rawBuildContextPayload = createContextPayloadBuilder({
+    ...deps,
+    getActiveSelectionSnapshot: () => selectionOverride ?? deps.getActiveSelectionSnapshot?.() ?? null,
+  });
   const buildContextPayload = (extras: ContextExtras = {}) => {
     const refs = mentionController ? mentionController.getExplicitRefs() : [];
     const placeRefs = pdfPlace
@@ -1496,6 +1518,16 @@ export const initAiChatUi = (context: AppContext, deps: AiChatDeps): AiChatApi =
     askFromPdf,
     handlePdfReverseResult,
     handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
+    sendVoiceInstruction: (text, selection) => {
+      const trimmed = typeof text === "string" ? text.trim() : "";
+      if (!trimmed || !eventApi) return;
+      selectionOverride = selection ?? null;
+      try {
+        eventApi.submitMessage(trimmed, { clearInput: false });
+      } finally {
+        selectionOverride = null;
+      }
+    },
     handleDocumentMap,
     handleWorkspaceChanged,
     refreshContextBar: updateContextBar,

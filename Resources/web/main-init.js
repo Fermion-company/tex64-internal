@@ -24,6 +24,7 @@ import { createFileExcerptBroker } from "./app/file-excerpt.js";
 import { recognizeMath } from "./app/math-ocr.js";
 import { createMathCaptureHandler } from "./main-math-capture.js";
 import { initAiChatUi } from "./app/ai-chat-ui.js";
+import { createVoiceEditController } from "./app/voice-edit.js";
 import { createAppState } from "./app/state.js";
 import { createViewer } from "./app/viewer.js";
 import { initBlockAutoDetection } from "./app/blocks/auto-detect.js";
@@ -1261,7 +1262,14 @@ export const initMain = () => {
                 handleFeedbackResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleFeedbackResult(payload),
                 handleBranchResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleBranchResult(payload),
                 handleProposalScope: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleProposalScope(payload),
-                handleTranscribeResult: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTranscribeResult(payload),
+                handleTranscribeResult: (payload) => {
+                    // The editor's voice edit and the composer microphone share the
+                    // host's transcription; the request id says whose clip it was.
+                    if (voiceEdit.ownsRequest(payload === null || payload === void 0 ? void 0 : payload.requestId))
+                        voiceEdit.handleTranscribeResult(payload);
+                    else
+                        aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTranscribeResult(payload);
+                },
                 handleDocumentMap: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleDocumentMap(payload),
                 handleMessageDelta: (text, conversationId) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleMessageDelta(text, conversationId),
                 handleTool: (payload) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.handleTool(payload),
@@ -1319,6 +1327,13 @@ export const initMain = () => {
         postToNative({ type: "agent:settings:get" }, true);
         postToNative({ type: "agent:state:get" }, true);
         postToNative({ type: "announcements:check" }, true);
+        const voiceEdit = createVoiceEditController({
+            postToNative: (payload, silent) => postToNative(payload, silent),
+            sendInstruction: (text, selection) => {
+                setActiveTab("ai");
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.sendVoiceInstruction(text, selection);
+            },
+        });
         const monacoSetup = initMonacoSetup(appContext, {
             editorSession,
             editorTabs: {
@@ -1336,6 +1351,7 @@ export const initMain = () => {
             getWorkspaceRoot: getWorkspaceRootKey,
             onCursorPositionChange: handleCursorPositionChange,
             onCursorSelectionChange: handleCursorPositionChange,
+            voiceEdit,
             openAiWithSelection: () => {
                 setActiveTab("ai");
                 // The selection chip in the composer reflects what was selected.

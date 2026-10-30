@@ -20,6 +20,7 @@ import type { SpellBridge } from "./types.js";
 import { decodeFigureBlockAt } from "./pro-canvas/figure-codec.js";
 import { installFigureMetaChips } from "./pro-canvas/figure-meta-chip.js";
 import { attachSelectionDragAutoScroll } from "./editor-selection-autoscroll.js";
+import type { VoiceEditController } from "./voice-edit.js";
 
 type FileExcerptResult =
   | { ok: true; path: string; startLine: number; lines: string[]; truncated?: boolean }
@@ -51,6 +52,8 @@ type MonacoSetupDeps = {
   onCursorPositionChange: (position: { lineNumber: number; column: number }) => void;
   onCursorSelectionChange?: (position: { lineNumber: number; column: number }) => void;
   openAiWithSelection?: () => void;
+  /** Voice edit: the editor command that records an instruction for Axiom. */
+  voiceEdit?: VoiceEditController;
   getEditorWordWrapEnabled: () => boolean;
 };
 
@@ -532,6 +535,13 @@ export const initMonacoSetup = (
           editor.onDidChangeModelContent?.(() => hideAsk());
           (editor as any).onDidChangeModel?.(() => hideAsk());
         }
+
+        // Voice edit (⌥⌘V): speak the instruction; it goes to Axiom with the
+        // selection as context.
+        deps.voiceEdit?.attachEditor(monacoWindow.monaco, editor, {
+          getFilePath: () => group.currentFilePath,
+          isDirty: () => Boolean(group.isDirty),
+        });
 
         (editor as any).addAction?.({
           id: "tex64.pro-canvas-edit",
