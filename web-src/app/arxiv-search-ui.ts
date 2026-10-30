@@ -181,9 +181,12 @@ export const openArxivSearch = (editor: any, group: EditorGroupState) => {
     const seq = ++searchSeq;
     setStatus(uiText("Searching…", "検索中…"));
     try {
-      const result = await call<{ papers: Paper[]; superseded?: boolean }>("search", { query: trimmed, max: RESULT_COUNT });
+      const result = await call<{ papers: Paper[]; query?: string; superseded?: boolean }>("search", { query: trimmed, max: RESULT_COUNT });
       if (seq === searchSeq && !result.superseded) {
         papers = result.papers || [];
+        // The main process may have dropped trailing words to get a hit; the
+        // field shows the query that produced the list.
+        if (result.query && result.query !== trimmed && query.value.trim() === trimmed) query.value = result.query;
         render();
         setStatus(papers.length ? "" : uiText("No papers found.", "該当する論文はありません。"));
       }

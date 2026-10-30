@@ -52,7 +52,7 @@ const englishTerms = (text) => {
  * arXiv indexes English, so only Latin-script words are kept; Japanese prose
  * contributes the English words and identifiers it contains.
  */
-export const extractTerms = (text, limit = 8) => {
+export const extractTerms = (text, limit = 5) => {
     const plain = stripLatex(text);
     const counts = new Map();
     const all = englishTerms(plain);
@@ -102,10 +102,10 @@ const headingWords = (heading) => {
     const plain = stripLatex(heading);
     for (let match = pattern.exec(plain); match; match = pattern.exec(plain))
         words.push(match[0].toLowerCase());
-    return words.slice(0, 8);
+    return words.slice(0, 5);
 };
 /**
- * The query the dialog starts with: at most 8 content terms, space separated.
+ * The query the dialog starts with: at most 5 content terms, space separated.
  * Selection, else the paragraph with its heading; when those yield no English
  * word (a \ref-only paragraph) the heading's own words; else "" — the dialog
  * then asks for English words.

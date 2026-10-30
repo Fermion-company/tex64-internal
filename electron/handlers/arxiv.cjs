@@ -30,7 +30,8 @@ const classify = (error) => {
 const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
   let inflight = null;
 
-  // Words are ANDed. An empty result drops the last word once, no further.
+  // Words are ANDed. An empty result drops the last word, up to twice
+  // (three requests at most); `query` in the answer is what was searched.
   const search = async (payload) => {
     const query = typeof payload?.query === "string" ? payload.query.trim() : "";
     if (!query) return { papers: [] };
@@ -40,14 +41,13 @@ const registerArxivHandlers = ({ ipcMain, workspace, isOwner }) => {
     const controller = new AbortController();
     inflight = controller;
     try {
-      const terms = query.split(/\s+/).filter(Boolean);
+      let terms = query.split(/\s+/).filter(Boolean);
       let papers = await searchArxiv(query, { max, terms, signal: controller.signal });
-      let relaxed = false;
-      if (papers.length === 0 && terms.length > 1) {
-        papers = await searchArxiv(query, { max, terms: terms.slice(0, -1), signal: controller.signal });
-        relaxed = true;
+      for (let relax = 0; relax < 2 && papers.length === 0 && terms.length > 1; relax += 1) {
+        terms = terms.slice(0, -1);
+        papers = await searchArxiv(query, { max, terms, signal: controller.signal });
       }
-      return { papers, relaxed };
+      return { papers, query: terms.join(" ") };
     } catch (error) {
       if (controller.signal.aborted && inflight !== controller) return { papers: [], superseded: true };
       throw classify(error);
