@@ -10684,6 +10684,22 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .snippets-dialog button[hidden] { display: none; }
 .snippets-actions { flex-wrap: wrap; }
 
+/* arXiv search: the snippets dialog's frame with a result list. */
+.arxiv-dialog { width: min(720px, calc(100vw - 48px)); display: flex; flex-direction: column; }
+.arxiv-status { margin: 8px 0 0; font-size: 13px; color: var(--text-soft); }
+.arxiv-status:empty { display: none; }
+.arxiv-results { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 60vh; overflow: auto; }
+.arxiv-row { border: 1px solid #8885; border-radius: 6px; padding: 8px 10px; }
+.arxiv-row-head { display: flex; align-items: flex-start; gap: 12px; }
+.arxiv-row-text { flex: 1; min-width: 0; }
+.arxiv-row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; max-width: 40%; }
+.arxiv-dialog button.arxiv-row-title { border: none; padding: 0; text-align: left; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.arxiv-dialog button.arxiv-row-title:hover { background: transparent; text-decoration: underline; }
+.arxiv-row-meta { margin: 2px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-soft); }
+.arxiv-row-side .arxiv-row-meta { text-align: right; }
+.arxiv-abstract { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-soft); }
+.arxiv-cited { font-family: monospace; font-size: 12px; }
+
 /* Git follows the history panel's compact type and control scale. */
 #git-panel { display: flex; flex-direction: column; gap: 12px; padding: 14px; font-size: 13px; }
 #git-panel .history-heading { gap: 8px; }
