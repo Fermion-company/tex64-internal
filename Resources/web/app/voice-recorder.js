@@ -42,6 +42,7 @@ export const createVoiceRecorder = (handlers) => {
     let chunks = [];
     let startedAt = 0;
     let clock = null;
+    let discard = false;
     const releaseStream = () => {
         stream === null || stream === void 0 ? void 0 : stream.getTracks().forEach((track) => track.stop());
         stream = null;
@@ -60,6 +61,10 @@ export const createVoiceRecorder = (handlers) => {
         releaseStream();
         const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
         chunks = [];
+        if (discard) {
+            discard = false;
+            return;
+        }
         if (durationMs < MIN_CLIP_MS || blob.size < 200) {
             handlers.onError("short");
             return;
@@ -101,6 +106,7 @@ export const createVoiceRecorder = (handlers) => {
         stream = media;
         recorder = created;
         chunks = [];
+        discard = false;
         startedAt = Date.now();
         created.ondataavailable = (event) => {
             if (event.data && event.data.size > 0)
@@ -129,12 +135,22 @@ export const createVoiceRecorder = (handlers) => {
             chunks = [];
             stopClock();
             releaseStream();
-            handlers.onError("short");
+            if (discard)
+                discard = false;
+            else
+                handlers.onError("short");
         }
+    };
+    const cancel = () => {
+        if (!recorder)
+            return;
+        discard = true;
+        stop();
     };
     return {
         start,
         stop,
+        cancel,
         isRecording: () => recorder !== null,
     };
 };

@@ -1,21 +1,25 @@
 /**
- * Voice edit: speak a short instruction in the editor and it goes to Axiom
- * at once, with the selection (or the paragraph around the cursor) as its
- * context. Axiom's edit then takes the usual diff / apply path.
+ * Ask Axiom by voice: speak a short instruction in the editor and it goes
+ * to Axiom at once, with the selection (or the paragraph around the cursor)
+ * as its context. Axiom's edit then takes the usual diff / apply path.
  *
  * The command toggles recording. While it runs, a small pill floats at the
- * end of the selection with the elapsed time and a stop control; the
- * command again, the stop control or Esc ends it. The clip is transcribed
- * by the host (`agent:transcribe`, like the composer microphone) and the
- * words are sent as they are. Nothing is sent when nothing was heard.
+ * end of the selection with the elapsed time and a stop control, and the
+ * range that will be sent is held: the composer chip shows it, and a
+ * later change of selection does not move it. The command again or the
+ * stop control sends; Esc discards. The clip is transcribed by the host
+ * (`agent:transcribe`, like the composer microphone) and the words are
+ * sent as they are. When nothing was heard the pill says so for a moment
+ * and nothing is sent.
  */
 import { aiText } from "./ai-i18n.js";
 import { getUiLocale, uiText } from "./i18n.js";
-import { showEditorNotice } from "./editor-notice.js";
 import { createVoiceRecorder, formatVoiceClock, isVoiceRecordingSupported } from "./voice-recorder.js";
 const REQUEST_PREFIX = "voice-edit-";
 const CONTEXT_KEY = "tex64VoiceRecording";
-const NOTICE_OWNER = "voice-edit";
+// Esc discards the recording only when no overlay is waiting for it.
+const ESCAPE_WHEN = `${CONTEXT_KEY} && !suggestWidgetVisible && !findWidgetVisible && !parameterHintsVisible && !renameInputVisible && !inSnippetMode`;
+const FAILURE_MS = 3000;
 const isTexPath = (path) => typeof path === "string" && path.endsWith(".tex");
 /** The blank-line delimited paragraph around a line; null on a blank line. */
 const paragraphAround = (model, lineNumber) => {
@@ -39,18 +43,46 @@ const paragraphAround = (model, lineNumber) => {
 export const createVoiceEditController = (deps) => {
     let session = null;
     let pendingRequestId = null;
-    const notice = (message) => {
-        showEditorNotice(null, message, { tone: "error", owner: NOTICE_OWNER });
-    };
-    const removePill = () => {
-        var _a, _b, _c;
+    let failureTimer = null;
+    const removePill = (state) => {
+        var _a, _b, _c, _d;
         if (!session)
             return;
         const ended = session;
         session = null;
-        (_b = (_a = ended.editor).removeContentWidget) === null || _b === void 0 ? void 0 : _b.call(_a, ended.widget);
+        if (failureTimer !== null) {
+            window.clearTimeout(failureTimer);
+            failureTimer = null;
+        }
+        (_a = ended.decorations) === null || _a === void 0 ? void 0 : _a.clear();
+        if (ended.shown)
+            (_c = (_b = ended.editor).removeContentWidget) === null || _c === void 0 ? void 0 : _c.call(_b, ended.widget);
         ended.setRecordingKey(false);
-        (_c = ended.onPillChange) === null || _c === void 0 ? void 0 : _c.call(ended, false);
+        ended.node.classList.remove("is-recording", "is-transcribing", "is-failed");
+        (_d = ended.onPillChange) === null || _d === void 0 ? void 0 : _d.call(ended, state);
+    };
+    // The pill stays a moment with the reason, then goes; nothing is sent.
+    const failInPill = (message) => {
+        var _a, _b, _c, _d, _e;
+        deps.holdSelection(null);
+        if (!session)
+            return;
+        session.node.classList.remove("is-recording", "is-transcribing");
+        session.node.classList.add("is-failed");
+        session.timeEl.textContent = message;
+        session.stopEl.hidden = true;
+        session.setRecordingKey(false);
+        if (session.shown)
+            (_b = (_a = session.editor).layoutContentWidget) === null || _b === void 0 ? void 0 : _b.call(_a, session.widget);
+        else {
+            session.shown = true;
+            (_c = session.onPillChange) === null || _c === void 0 ? void 0 : _c.call(session, "shown");
+            (_e = (_d = session.editor).addContentWidget) === null || _e === void 0 ? void 0 : _e.call(_d, session.widget);
+        }
+        failureTimer = window.setTimeout(() => {
+            failureTimer = null;
+            removePill("hidden");
+        }, FAILURE_MS);
     };
     const recorder = createVoiceRecorder({
         onStart: () => {
@@ -59,8 +91,9 @@ export const createVoiceEditController = (deps) => {
                 return;
             session.node.classList.add("is-recording");
             session.timeEl.textContent = "0:00";
-            (_a = session.onPillChange) === null || _a === void 0 ? void 0 : _a.call(session, true);
+            (_a = session.onPillChange) === null || _a === void 0 ? void 0 : _a.call(session, "shown");
             (_c = (_b = session.editor).addContentWidget) === null || _c === void 0 ? void 0 : _c.call(_b, session.widget);
+            session.shown = true;
             session.setRecordingKey(true);
         },
         onTick: (elapsed) => {
@@ -89,34 +122,24 @@ export const createVoiceEditController = (deps) => {
             }, true);
             if (!posted) {
                 pendingRequestId = null;
-                removePill();
-                notice(aiText("mic_failed"));
+                failInPill(aiText("mic_failed"));
             }
         },
         onError: (code) => {
-            removePill();
-            if (code === "short")
-                notice(aiText("mic_empty"));
-            else
-                notice(aiText(code === "denied" ? "mic_denied" : "mic_failed"));
+            failInPill(aiText(code === "denied" ? "mic_denied" : code === "short" ? "mic_empty" : "mic_failed"));
         },
     });
     const handleTranscribeResult = (payload) => {
-        var _a;
         if (!pendingRequestId || (payload === null || payload === void 0 ? void 0 : payload.requestId) !== pendingRequestId)
             return;
         pendingRequestId = null;
-        const selection = (_a = session === null || session === void 0 ? void 0 : session.selection) !== null && _a !== void 0 ? _a : null;
-        removePill();
         if (payload.ok && typeof payload.text === "string" && payload.text.trim()) {
-            deps.sendInstruction(payload.text.trim(), selection);
+            removePill("sent");
+            deps.sendInstruction(payload.text.trim());
             return;
         }
-        notice(payload.code === "empty"
-            ? aiText("mic_empty")
-            : typeof payload.error === "string" && payload.error.trim()
-                ? payload.error.trim()
-                : aiText("mic_failed"));
+        // The host's reasons are English; the reader gets the one-line forms.
+        failInPill(aiText(payload.code === "empty" ? "mic_empty" : "mic_failed"));
     };
     const attachEditor = (monaco, editor, file) => {
         var _a, _b, _c, _d;
@@ -127,9 +150,12 @@ export const createVoiceEditController = (deps) => {
             return;
         const recordingKey = (_b = editor.createContextKey) === null || _b === void 0 ? void 0 : _b.call(editor, CONTEXT_KEY, false);
         const setRecordingKey = (value) => { var _a; return (_a = recordingKey === null || recordingKey === void 0 ? void 0 : recordingKey.set) === null || _a === void 0 ? void 0 : _a.call(recordingKey, value); };
-        // The pill: a dot, the elapsed time, and a stop control.
+        // The pill: a dot, the elapsed time, and a stop control. Monaco sets
+        // display:block on the widget node, so the row is laid out one level in.
         const node = document.createElement("div");
         node.className = "ai-voice-pill";
+        const row = document.createElement("span");
+        row.className = "ai-voice-pill-row";
         const dot = document.createElement("span");
         dot.className = "ai-voice-pill-dot";
         dot.setAttribute("aria-hidden", "true");
@@ -140,10 +166,11 @@ export const createVoiceEditController = (deps) => {
         stopEl.className = "ai-voice-pill-stop";
         stopEl.title = uiText("Stop", "止める");
         stopEl.setAttribute("aria-label", stopEl.title);
-        stopEl.innerHTML = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor"/></svg>';
-        node.append(dot, timeEl, stopEl);
+        stopEl.innerHTML = '<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="currentColor"/></svg>';
+        row.append(dot, timeEl, stopEl);
+        node.appendChild(row);
         node.addEventListener("mousedown", (event) => {
-            // Keep the editor selection: it is what Axiom receives.
+            // Keep the editor selection and focus.
             event.preventDefault();
             event.stopPropagation();
         });
@@ -173,7 +200,7 @@ export const createVoiceEditController = (deps) => {
                 ? { lineNumber: current.endLineNumber, column: current.endColumn }
                 : { lineNumber: cursor.lineNumber, column: cursor.column };
             if (!range)
-                return { selection: null, anchor };
+                return { selection: null, range: null, anchor };
             return {
                 selection: {
                     path,
@@ -184,23 +211,29 @@ export const createVoiceEditController = (deps) => {
                     endLine: range.endLineNumber,
                     endColumn: range.endColumn,
                 },
+                range,
                 anchor,
             };
         };
         const start = () => {
             if (!isTexPath(file.getFilePath()))
                 return;
-            if (!isVoiceRecordingSupported()) {
-                notice(aiText("mic_failed"));
+            if (!isVoiceRecordingSupported())
                 return;
-            }
             const snapshot = snapshotSelection();
             if (!snapshot)
                 return;
-            node.classList.remove("is-recording", "is-transcribing");
+            node.classList.remove("is-recording", "is-transcribing", "is-failed");
             stopEl.hidden = false;
             position = snapshot.anchor;
-            session = { editor, widget, selection: snapshot.selection, setRecordingKey, onPillChange: file.onPillChange, timeEl, stopEl, node };
+            // The held range stays visible while it is spoken about.
+            const decorations = snapshot.range && typeof editor.createDecorationsCollection === "function"
+                ? editor.createDecorationsCollection([
+                    { range: snapshot.range, options: { className: "ai-voice-range", isWholeLine: false } },
+                ])
+                : null;
+            session = { editor, widget, setRecordingKey, onPillChange: file.onPillChange, node, timeEl, stopEl, decorations, shown: false };
+            deps.holdSelection(snapshot.selection);
             void recorder.start();
         };
         const toggle = () => {
@@ -212,9 +245,16 @@ export const createVoiceEditController = (deps) => {
                 return;
             start();
         };
+        const discard = () => {
+            if (!recorder.isRecording())
+                return;
+            recorder.cancel();
+            deps.holdSelection(null);
+            removePill("hidden");
+        };
         editor.addAction({
             id: "tex64.voice-edit",
-            label: uiText("Voice edit", "音声で編集を指示"),
+            label: uiText("Ask Axiom by voice", "Axiom に声で聞く"),
             keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyV],
             contextMenuGroupId: "9_ai",
             contextMenuOrder: 1.5,
@@ -223,10 +263,10 @@ export const createVoiceEditController = (deps) => {
                 toggle();
             },
         });
-        (_c = editor.addCommand) === null || _c === void 0 ? void 0 : _c.call(editor, KeyCode.Escape, () => recorder.stop(), CONTEXT_KEY);
+        (_c = editor.addCommand) === null || _c === void 0 ? void 0 : _c.call(editor, KeyCode.Escape, discard, ESCAPE_WHEN);
         (_d = editor.onDidChangeModel) === null || _d === void 0 ? void 0 : _d.call(editor, () => {
             if ((session === null || session === void 0 ? void 0 : session.editor) === editor && recorder.isRecording())
-                recorder.stop();
+                discard();
         });
     };
     return {

@@ -10401,14 +10401,13 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   background: var(--accent-soft);
 }
 
-/* Voice edit: the recording pill at the end of the selection (same look as
-   the Ask button above): a dot, the elapsed time, and a stop control. */
+/* Ask Axiom by voice: the recording pill at the end of the selection (same
+   look as the Ask button above): a dot, the elapsed time, a stop control.
+   Monaco sets display:block on the widget node itself, so the row inside
+   does the flex layout. */
 .ai-voice-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 4px 6px;
-  padding: 3px 5px 3px 9px;
+  margin: 4px 0 0 6px;
+  padding: 2px 2px 2px 9px;
   border: 1px solid var(--panel-border-strong);
   border-radius: 6px;
   background: var(--panel-strong);
@@ -10419,7 +10418,15 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   white-space: nowrap;
 }
+.ai-voice-pill-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
 .ai-voice-pill-dot {
+  display: inline-block;
+  flex: 0 0 auto;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -10431,6 +10438,12 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 .ai-voice-pill.is-transcribing .ai-voice-pill-dot {
   background: var(--text-soft);
 }
+.ai-voice-pill.is-failed .ai-voice-pill-dot {
+  display: none;
+}
+.ai-voice-pill.is-failed {
+  padding-right: 9px;
+}
 .ai-voice-pill-time {
   font-variant-numeric: tabular-nums;
 }
@@ -10438,11 +10451,11 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -10453,6 +10466,10 @@ button.issue-main:hover .issue-summary { color: var(--accent-strong); }
 }
 .ai-voice-pill-stop[hidden] {
   display: none;
+}
+/* The range the recording is about, held until it is sent. */
+.ai-voice-range {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 /* Settings › Account › Axiom: plan, this month's use, reset date. */

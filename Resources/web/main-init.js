@@ -1329,9 +1329,10 @@ export const initMain = () => {
         postToNative({ type: "announcements:check" }, true);
         const voiceEdit = createVoiceEditController({
             postToNative: (payload, silent) => postToNative(payload, silent),
-            sendInstruction: (text, selection) => {
+            holdSelection: (selection) => aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.holdVoiceSelection(selection),
+            sendInstruction: (text) => {
                 setActiveTab("ai");
-                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.sendVoiceInstruction(text, selection);
+                aiChatUi === null || aiChatUi === void 0 ? void 0 : aiChatUi.sendVoiceInstruction(text);
             },
         });
         const monacoSetup = initMonacoSetup(appContext, {

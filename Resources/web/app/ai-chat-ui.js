@@ -350,10 +350,15 @@ export const initAiChatUi = (context, deps) => {
     // first referenced item and clears once sent.
     let pdfPlace = null;
     let pendingPdfAsk = null;
+    // The range a spoken instruction is about, fixed when recording starts:
+    // the chip and the request read it in place of the editor's selection
+    // (which may have moved, or be empty: the paragraph around the cursor).
+    let voiceSelection = null;
+    const getSelectionForContext = () => { var _a, _b; return (_b = voiceSelection !== null && voiceSelection !== void 0 ? voiceSelection : (_a = deps.getActiveSelectionSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null; };
     const updateContextBar = createContextBarUpdater({
         aiContextBar,
         getActiveFilePath: deps.getActiveFilePath,
-        getActiveSelectionSnapshot: deps.getActiveSelectionSnapshot,
+        getActiveSelectionSnapshot: getSelectionForContext,
         getActiveCursorPosition: deps.getActiveCursorPosition,
         getPdfPlace: () => pdfPlace,
         onClearPdfPlace: () => {
@@ -492,12 +497,9 @@ export const initAiChatUi = (context, deps) => {
             aiUndo.disabled = !canUndo;
         }
     };
-    // While a spoken instruction goes out, its selection stands in for the
-    // editor's (the editor may have none: the paragraph around the cursor).
-    let selectionOverride = null;
     const _rawBuildContextPayload = createContextPayloadBuilder({
         ...deps,
-        getActiveSelectionSnapshot: () => { var _a, _b; return (_b = selectionOverride !== null && selectionOverride !== void 0 ? selectionOverride : (_a = deps.getActiveSelectionSnapshot) === null || _a === void 0 ? void 0 : _a.call(deps)) !== null && _b !== void 0 ? _b : null; },
+        getActiveSelectionSnapshot: getSelectionForContext,
     });
     const buildContextPayload = (extras = {}) => {
         var _a;
@@ -1334,16 +1336,23 @@ export const initAiChatUi = (context, deps) => {
         askFromPdf,
         handlePdfReverseResult,
         handleTranscribeResult: (payload) => voice.handleTranscribeResult(payload),
-        sendVoiceInstruction: (text, selection) => {
+        holdVoiceSelection: (selection) => {
+            voiceSelection = selection !== null && selection !== void 0 ? selection : null;
+            updateContextBar();
+        },
+        sendVoiceInstruction: (text) => {
             const trimmed = typeof text === "string" ? text.trim() : "";
-            if (!trimmed || !eventApi)
+            if (!trimmed || !eventApi) {
+                voiceSelection = null;
+                updateContextBar();
                 return;
-            selectionOverride = selection !== null && selection !== void 0 ? selection : null;
+            }
             try {
                 eventApi.submitMessage(trimmed, { clearInput: false });
             }
             finally {
-                selectionOverride = null;
+                voiceSelection = null;
+                updateContextBar();
             }
         },
         handleDocumentMap,

@@ -27,7 +27,10 @@ export type VoiceRecorderHandlers = {
 
 export type VoiceRecorder = {
   start: () => Promise<void>;
+  /** Ends the recording; the clip arrives through onClip. */
   stop: () => void;
+  /** Ends the recording and drops the clip: no onClip, no onError. */
+  cancel: () => void;
   isRecording: () => boolean;
 };
 
@@ -75,6 +78,7 @@ export const createVoiceRecorder = (handlers: VoiceRecorderHandlers): VoiceRecor
   let chunks: Blob[] = [];
   let startedAt = 0;
   let clock: number | null = null;
+  let discard = false;
 
   const releaseStream = () => {
     stream?.getTracks().forEach((track) => track.stop());
@@ -96,6 +100,10 @@ export const createVoiceRecorder = (handlers: VoiceRecorderHandlers): VoiceRecor
     releaseStream();
     const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
     chunks = [];
+    if (discard) {
+      discard = false;
+      return;
+    }
     if (durationMs < MIN_CLIP_MS || blob.size < 200) {
       handlers.onError("short");
       return;
@@ -134,6 +142,7 @@ export const createVoiceRecorder = (handlers: VoiceRecorderHandlers): VoiceRecor
     stream = media;
     recorder = created;
     chunks = [];
+    discard = false;
     startedAt = Date.now();
     created.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) chunks.push(event.data);
@@ -159,13 +168,21 @@ export const createVoiceRecorder = (handlers: VoiceRecorderHandlers): VoiceRecor
       chunks = [];
       stopClock();
       releaseStream();
-      handlers.onError("short");
+      if (discard) discard = false;
+      else handlers.onError("short");
     }
+  };
+
+  const cancel = () => {
+    if (!recorder) return;
+    discard = true;
+    stop();
   };
 
   return {
     start,
     stop,
+    cancel,
     isRecording: () => recorder !== null,
   };
 };

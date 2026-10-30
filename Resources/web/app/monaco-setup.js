@@ -363,11 +363,13 @@ export const initMonacoSetup = (context, deps) => {
             (_u = deps.voiceEdit) === null || _u === void 0 ? void 0 : _u.attachEditor(monacoWindow.monaco, editor, {
                 getFilePath: () => group.currentFilePath,
                 isDirty: () => Boolean(group.isDirty),
-                onPillChange: (shown) => {
-                    voicePillShown = shown;
-                    if (shown)
+                onPillChange: (state) => {
+                    voicePillShown = state === "shown";
+                    // After a send the button stays away until the selection changes:
+                    // the request is already out, and Axiom may be moving these lines.
+                    if (state === "shown")
                         askButton === null || askButton === void 0 ? void 0 : askButton.hide();
-                    else
+                    else if (state === "hidden")
                         askButton === null || askButton === void 0 ? void 0 : askButton.sync();
                 },
             });

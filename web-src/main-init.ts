@@ -1448,9 +1448,10 @@ export const initMain = () => {
 
   const voiceEdit = createVoiceEditController({
     postToNative: (payload, silent) => postToNative(payload, silent),
-    sendInstruction: (text, selection) => {
+    holdSelection: (selection) => aiChatUi?.holdVoiceSelection(selection),
+    sendInstruction: (text) => {
       setActiveTab("ai");
-      aiChatUi?.sendVoiceInstruction(text, selection);
+      aiChatUi?.sendVoiceInstruction(text);
     },
   });
 
